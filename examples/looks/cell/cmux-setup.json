@@ -1,0 +1,67 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/cell-look",
+  "name": "Cell",
+  "tagline": "One monospace font, in your terminal's colors.",
+  "description": "The whole app in one monospace font at one size, colored by your terminal theme. Light and dark. Remove it and everything you had comes back.",
+  "version": "0.2.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/cell",
+  "screenshots": ["screenshots/cell-dark.png", "screenshots/cell-light.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    // Cell (dark) by default; Cell Light is "cell-light". Corners, lines, bar heights and no glass
+    // live in the theme files.
+    "appearance.themeFile": "cell",
+    "layout.paneBorder": "subtle",
+
+    // Focus is a one-cell-edge ring, not a glow.
+    "focusRing.enabled": true,
+    "focusRing.style": "ring",
+    "focusRing.contrast": "standard",
+    "focusRing.width": 1,
+
+    // Mono prose is this preset's choice, not a proposed default: set
+    // "agentPane.display.font.preset" to "system" to keep everything else and read replies in sans.
+    // The chat on the cell: the terminal's monospace face for replies, labels and code, all at
+    // 13 px on a 20 px line (13 x 1.54). Code is not scaled down: one size everywhere. The column
+    // is 96 cells (96 x 7.83 px at 13 px SF Mono).
+    "agentPane.display.font.preset": "mono",
+    "agentPane.display.font.uiFamily": "ui-monospace, SF Mono, Menlo, monospace",
+    "agentPane.display.font.size": 13,
+    "agentPane.display.font.lineHeight": 1.54,
+    "agentPane.display.code.scale": 1,
+    "agentPane.display.width": 752,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact",
+    // Tool rows already draw at the chat's size. Card headers and captions (a diff's file name, a
+    // permission card's note) draw at the app's 12 and 11 px label steps whatever the chat's size
+    // is; Cell wants them at 13 px too, and no setting reaches them (cmux#46778 was the attempt).
+    // Pending cmux#46738: the composer has no paint tokens; Cell wants a 4 px corner, a one-pixel
+    // edge and no rim or drop shadow.
+
+    // The Markdown viewer on the same cell.
+    "markdown.font.preset": "mono",
+    "markdown.font.size": 13,
+    "markdown.font.lineHeight": 1.54,
+    "markdown.code.scale": 1,
+
+    // Diffs and sidebar group colors in the terminal's own palette.
+    "diff.colors": "theme",
+    "sidebar.groupPalette": "theme",
+
+    // The sidebar: 28 px rows (the design system's row seed, set in the theme files), plain section
+    // headings (a workspace is a heading, a chat is a row under it), a dot for status, the age of
+    // each chat at the right.
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": true,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showTimestamps": true,
+    "workspaceColors.indicatorStyle": "dot",
+
+    // The address field: a 2 px corner, flat.
+    "browser.omnibar.cornerRadius": 2,
+    "browser.omnibar.shadow": false
+  }
+}

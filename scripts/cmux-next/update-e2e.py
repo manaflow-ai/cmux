@@ -32,23 +32,28 @@ state dirs) is removed at the end; anything that existed before is kept.
   scripts/cmux-next/update-e2e.py [--feed URL] [--from BUILD] [--to BUILD] [--click] [--idle] [--keep]
 """
 import argparse, json, os, plistlib, re, shutil, socket, subprocess, sys, tempfile, time, urllib.request
+from collections import deque
 
-# nightly-next ships as cmux NEXT (cx-x7hwx): a tagged nightly id with its
-# own socket, daemon session (cmux-app-cmux-next) and acpmux home.
-BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
-APP_NAME = "cmux NEXT.app"
-SOCKET = "/tmp/cmux-nightly-cmux-next.sock"
+# nightly-next ships as cmux NIGHTLY (.github/workflows/nightly.yml, track nightly-next: bundleId
+# com.cmuxterm.app.nightly, appName cmux NIGHTLY). Its control socket keeps the channel's /tmp name
+# (ControlSocketPath: /tmp/cmux-nightly.sock, a link to the state folder's socket) and its acpmux home is
+# ~/.acpmux (BuildIdentity.acpmuxHome: NIGHTLY keeps the shared roots). The installed bundle is checked
+# against these (check_identity), so the next identity change fails here by name instead of as a socket wait.
+BUNDLE_ID = "com.cmuxterm.app.nightly"
+APP_NAME = "cmux NIGHTLY.app"
+SOCKET = "/tmp/cmux-nightly.sock"
 HOME = os.path.expanduser("~")
-# cmux NEXT's acpmux (its build's home, BuildIdentity): its home, socket and config.
-ACPMUX_HOME = os.path.join(HOME, ".acpmux", "builds", BUNDLE_ID)
+# NIGHTLY's acpmux: its home, socket and config.
+ACPMUX_HOME = os.path.join(HOME, ".acpmux")
 ACPMUX_CONFIG = os.path.join(ACPMUX_HOME, "config.json")
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cmux-tui/crates/acpmux/tests/fake_agent.py")
 FAKE_HARNESS = "update-e2e-agent"
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
-parser.add_argument("--from", dest="from_build", help="installed build (default: the feed's second item)")
-parser.add_argument("--to", dest="to_build", help="expected build after the update (default: the feed's newest)")
+# The one Nightly feed (#36287), the one nightly-next-launch-smoke.yml reads; the /next/ appcast froze on 2026-11-05.
+parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+parser.add_argument("--from", dest="from_build", help="installed build (default: the second newest build Nightly apps are offered)")
+parser.add_argument("--to", dest="to_build", help="expected build after the update (default: the newest build Nightly apps are offered)")
 parser.add_argument("--click", action="store_true", help="also prove the one-click install with an older build")
 parser.add_argument("--idle", action="store_true", help="also prove automatic install after a quiet idle window")
 parser.add_argument("--keep", action="store_true", help="keep the scratch folder (debugging)")
@@ -164,10 +169,19 @@ def fetch(url, timeout=600):
     return urllib.request.urlopen(urllib.request.Request(url, headers=USER_AGENT), timeout=timeout)
 
 
+# The channels a Nightly app accepts (scripts/ci/nightly_next_launch_smoke.py NIGHTLY_CHANNELS): no channel,
+# cmux-next-stable or cmux-next. A Dev-ring (cmux-next-dev) or Canary-only item is never offered to a Nightly app,
+# so it is never the build an update is expected to reach, nor the one installed before it.
+NIGHTLY_CHANNELS = (None, "cmux-next-stable", "cmux-next")
+
+
 def feed_items():
     xml = fetch(opts.feed, timeout=30).read().decode()
     items = []
     for item in re.findall(r"<item>.*?</item>", xml, re.S):
+        channel = re.search(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>", item)
+        if (channel.group(1) if channel else None) not in NIGHTLY_CHANNELS:
+            continue
         build = re.search(r"<sparkle:version>(.*?)<", item)
         build = build.group(1) if build else re.search(r'sparkle:version="([^"]+)"', item).group(1)
         url = re.search(r'<enclosure[^>]*url="([^"]+\.dmg)"', item).group(1)
@@ -197,6 +211,19 @@ def install(item, folder):
         run("hdiutil", "detach", mount, timeout=120)
     os.unlink(dmg)
     return app
+
+
+def check_identity(app):
+    """The installed bundle is the identity this script drives; exits with the difference when it is not."""
+    with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
+        bundle_id = plistlib.load(f).get("CFBundleIdentifier")
+    name = os.path.basename(app)
+    ok = bundle_id == BUNDLE_ID and name == APP_NAME
+    record("feed build is the identity this script drives", ok,
+           f"{name} {bundle_id}; expected {APP_NAME} {BUNDLE_ID} (update BUNDLE_ID, APP_NAME, SOCKET and ACPMUX_HOME)")
+    if not ok:
+        print(json.dumps({"results": results, "ok": False}, indent=1))
+        sys.exit(1)
 
 
 def bundle_build(app):
@@ -428,36 +455,57 @@ def release_gate(fifo):
     return wait(write, 20)
 
 
-def staged(app):
-    s = app.status()
-    return s if s.get("phase") == "installing" else None
-
-
 def stage_update(app, label, expected_build=None):
-    app.rpc("action.run", {"id": "palette.checkForUpdates"})
+    # Keep distinct recent responses, including RPC errors and lost sockets. The
+    # last read alone can be empty after a failure or an automatic relaunch.
+    states = deque(maxlen=12)
+    def observe():
+        state = app.status()
+        if not states or state != states[-1]:
+            states.append(state)
+        return state
+
+    observe()
+    check_result = app.rpc("action.run", {"id": "palette.checkForUpdates"})
     def ready():
-        state = staged(app)
-        if state:
+        state = observe()
+        if state.get("phase") == "installing":
             return state
         if expected_build and bundle_build(app.path) == expected_build:
             return {"phase": "replaced", "build": expected_build}
         return None
     s = wait(ready, 900, 2)
-    log = "\n".join(app.status().get("log", []))
+    log = "\n".join(observe().get("log", []))
+    print("[DIAGNOSTIC] " + json.dumps({"label": label, "check_result": check_result,
+                                      "states": list(states)}), flush=True)
     record(f"{label}: update downloaded, verified and staged", bool(s), f"detected {s.get('detected_version') if s else None}")
-    # A staged update is the footer pill ("badge" = its label), never a card
-    # (Lawrence 2026-10-05, "more minimal").
+    # `badge` describes staged availability. `card` is the separate notice
+    # card, not the staged update card; this does not prove rendered placement.
     if label == "idle path" and s is not None and s.get("phase") == "replaced":
         record(f"{label}: update installed before a staged card was observed", True,
                f"bundle build {s.get('build')}")
     elif s is not None and "badge" in s:
         ok = bool(s.get("badge")) and s.get("card") is None
-        record(f"{label}: the footer pill shows the staged update, no card", ok,
+        record(f"{label}: status reports a staged badge and no notice card", ok,
                json.dumps({"badge": s.get("badge"), "card": s.get("card")}))
     elif s is not None:
-        record(f"{label}: the footer pill shows the staged update, no card", "PENDING", "this build predates the pill")
+        record(f"{label}: status reports a staged badge and no notice card", "PENDING", "this build predates the pill")
     return s, log
 
+
+
+def print_install_logs(since, app_log):
+    """A failed install on quit names its cause: the app's last updater lines, then the
+    updater's and Sparkle's unified log from the quit on (c-3683c5e238)."""
+    print("=== app updater log before the quit (updates.status)")
+    print(app_log or "(empty)")
+    for title, predicate in (
+        ("updater", 'subsystem == "com.cmuxterm.app.next" AND category == "updater"'),
+        ("sparkle", 'subsystem BEGINSWITH "org.sparkle-project" OR process CONTAINS "Autoupdate" OR process CONTAINS "Updater"'),
+    ):
+        out = run("log", "show", "--start", since, "--style", "compact", "--info", "--debug", "--predicate", predicate).stdout
+        print(f"=== {title} unified log since {since} ({len(out.splitlines())} lines, last 150)")
+        print("\n".join(out.splitlines()[-150:]))
 
 DRAFT = "DRAFT survives update"
 
@@ -505,11 +553,16 @@ def main():
         items = feed_items()
         by_build = {i["build"]: i for i in items}
         to_item = by_build[opts.to_build] if opts.to_build else items[0]
-        from_item = by_build[opts.from_build] if opts.from_build else items[1]
+        from_item = by_build.get(opts.from_build) if opts.from_build else items[1]
+        if from_item is None:
+            # A build that fell off the feed: its DMG stays next to the feed (a regression can live in its updater).
+            base = items[0]["url"].rsplit("-", 1)[0]
+            from_item = {"build": opts.from_build, "url": f"{base}-{opts.from_build}.dmg", "deltas": {}}
         print(f"feed {opts.feed}: {len(items)} items; {from_item['build']} -> {to_item['build']}")
         apps = os.path.join(work, "apps")
         os.makedirs(apps)
         path = install(from_item, apps)
+        check_identity(path)
         record("installed the older build", bundle_build(path) == from_item["build"], bundle_build(path))
 
         app = App(path, config)
@@ -557,9 +610,16 @@ def main():
             record("idle install relaunched", bool(wait(lambda: app.status().get("build") == to_item["build"], 90)),
                    app.status().get("build"))
         else:
+            quit_started = time.strftime("%Y-%m-%d %H:%M:%S")
+            still = app.pids()
+            pre_quit_log = "\n".join(app.status().get("log", [])) or sparkle_log
             app.quit()
-            record("install on quit replaced the bundle", bool(wait(lambda: bundle_build(path) == to_item["build"], 300, 2)),
-                   f"bundle build {bundle_build(path)}")
+            left = [p for p in still if run("kill", "-0", str(p)).returncode == 0]
+            print(f"quit: pids before {still}, still running after the quit wait {left}")
+            installed = bool(wait(lambda: bundle_build(path) == to_item["build"], 300, 2))
+            record("install on quit replaced the bundle", installed, f"bundle build {bundle_build(path)}")
+            if not installed:
+                print_install_logs(quit_started, pre_quit_log)
             record("relaunched", bool(app.launch(log)))
         record("running the newest build", app.status().get("build") == to_item["build"], app.status().get("build"))
         record("terminal output kept across the update", bool(wait(lambda: token in screen(), 20)))
@@ -610,7 +670,10 @@ def main():
         try:
             with open(config, "w") as f:
                 json.dump({"app": {"quitBehavior": "end-everything"}}, f)
-            time.sleep(1)  # the app reloads cmux.json from its file watcher
+            # The app reloads cmux.json from its file watcher: wait until it reports the new quit behavior.
+            # Best effort (the quit below asks for End Everything outright too).
+            if not wait(lambda: (app.rpc("settings.get", {"path": "app.quitBehavior"}) or {}).get("value") not in (None, "keep"), 10, 0.1):
+                print("final quit: the app never reported the new app.quitBehavior in 10 s; quitting anyway")
             app.quit(end_everything=True)
         except Exception as error:  # noqa: BLE001 - cleanup continues
             print(f"final quit: {error}")

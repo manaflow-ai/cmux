@@ -1,0 +1,82 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/tandem-look",
+  "name": "Tandem",
+  "tagline": "Chats and tabs together in one sidebar.",
+  "description": "Your chats and tabs share one sidebar, with your work on a gray card and an orange accent. Light and dark. Remove it and everything you had comes back.",
+  "version": "1.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-tandem-look",
+  "screenshots": ["screenshots/tandem-light.png", "screenshots/tandem-dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "tandem",
+
+    // The rest of cmux in the same hand. The Markdown viewer: the system face, 15 px at the chat's
+    // 1.5 line height and code scale, in a column as wide as the chat's (800 px is about 104
+    // characters).
+    "markdown.font.preset": "system",
+    "markdown.font.size": 15,
+    "markdown.font.lineHeight": 1.5,
+    "markdown.code.scale": 0.9,
+    "markdown.layout.width": 104,
+    // Diffs in the theme's own red and green, with a bar at each changed line.
+    "diff.colors": "theme",
+    "diff.diffIndicators": "bars",
+    // Sidebar group colors from the theme's own palette (the theme files' terminal colors).
+    "sidebar.groupPalette": "theme",
+
+    // The chat: a neutral grotesk at 14 px with a 1.5 line height, code at 0.9, a column as wide as
+    // the workspace composer (about 800 pt), and the compact tick minimap at the transcript's edge,
+    // so a long run of tool calls can be scanned and jumped.
+    "agentPane.display.font.ui": "inter",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.5,
+    "agentPane.display.code.scale": 0.9,
+    "agentPane.display.width": 800,
+    "agentPane.display.minimap": "compact",
+    "agentPane.display.harnessPlacement": "compact",
+    // The ring at the end of the composer shows your plan's usage: these apps put the subscription
+    // beside the input.
+    "agentPane.composerRing": "planUsage",
+    // Pending cmux#46738: no agent-workspace composer look exists (auto, codex, claude); a white
+    // capsule with a + at the left and the mic or Send at the right, and the location, policy,
+    // model and effort as quiet chips under it (the policy in orange), is the gap.
+    // "agentPane.composerLook": "auto",
+
+    // The sidebar: every chat and tab as one line with its icon and its age at the right, newest
+    // first under quiet section headings, rich status marks, the pull request when there is one, a
+    // bell that lists the chats waiting on you first, and the profile and search buttons at the
+    // foot, as both apps keep them.
+    // Pending cmux#46805: no agent-workspace sidebar look exists (cmux, claude, codex, studio).
+    // "sidebar.look": "cmux",
+    "sidebar.density": "comfortable",
+    "sidebar.workspacesAsTabs": true,
+    "sidebar.groupBy": "recents",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.chromeGroups": false,
+    "sidebar.detailedStatusIcons": true,
+    "sidebar.showTimestamps": true,
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.priorityView.enabled": true,
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.agentStatus": false,
+    "sidebar.workspaceRow.pullRequest": true,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.workspaceRow.progress": true,
+    "sidebar.workspaceRow.notification": true,
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.hoverCards.layout": "timeline",
+
+    // The address field: a rounded rectangle that opens into an elevated suggestion sheet.
+    "browser.omnibar.cornerRadius": 10,
+    "browser.omnibar.shadow": true
+  }
+}

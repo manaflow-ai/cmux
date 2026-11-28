@@ -24,7 +24,8 @@ use serde_json::{Value, json};
 use crate::protocol::{AppInfo, FatalReason, FromHost};
 
 /// The engine-neutral runtime, built from `js/src` by `js/build.ts`.
-pub const RUNTIME_JS: &str = include_str!("../js/dist/cmux-app-runtime.js");
+pub static RUNTIME_JS: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../js/dist/cmux-app-runtime.js"));
 
 /// Longest log message kept; longer ones are cut.
 const MAX_LOG_CHARS: usize = 4096;
@@ -40,6 +41,10 @@ const MAX_SUBSCRIPTIONS: usize = 256;
 /// One-shot timers fire no sooner than this, so a self-rearming timer cannot
 /// spin the host.
 const MIN_TIMER: Duration = Duration::from_millis(50);
+/// Repeating timers, and a one-shot armed while a timer fires (a chain of one-shots, the
+/// `after` loop), fire no sooner than this: no timer path runs faster than once a second
+/// (extensions DESIGN.md section 5, "Timers").
+const SLOW_TIMER: Duration = Duration::from_secs(1);
 
 /// Per-VM limits (plans/cmux-next/app-platform.md section 13.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,11 +135,15 @@ struct Shared {
     next_sub: u64,
     next_timer: u64,
     timers: BTreeMap<u64, Timer>,
+    /// A timer entry is running: a one-shot armed now is a chained one and gets [`SLOW_TIMER`].
+    in_timer: bool,
     pending_calls: BTreeSet<u64>,
     /// Calls refused by the pending-call cap; answered after the entry.
     overflow: Vec<u64>,
     max_pending_calls: usize,
     subscriptions: BTreeSet<u64>,
+    /// Live watches of the daemon's signals cache (`watch`), under the same cap.
+    watches: BTreeSet<u64>,
     outbox_bytes: usize,
     /// The VM produced more messages, timers or subscriptions than allowed.
     flooded: bool,
@@ -421,23 +430,42 @@ impl AppVm {
         let (shared, gate) = (vm.shared.clone(), vm.gate.clone());
         vm.enter("runtime", move |ctx| {
             install_native(ctx, &shared, &gate)?;
-            ctx.eval::<(), _>(RUNTIME_JS)
+            ctx.eval::<(), _>(RUNTIME_JS.get())
         })
         .map_err(|e| format!("{e:?}"))?
         .map_err(|e| format!("runtime: {e}"))?;
         Ok(vm)
     }
 
-    /// Evaluates the app's main script and calls `__cmuxAppInit`.
+    /// Calls `__cmuxAppInit`, then evaluates the app's main script: the app's
+    /// identity, settings (the manifest defaults under the person's values), the ops
+    /// it may call, locale and strings are set before its first line runs, so a
+    /// top-level `cmux.app.settings()` reads them, as a render does.
     pub fn init(&mut self, params: InitParams) -> Result<(), VmError> {
+        self.init_with_state(params, None)
+    }
+
+    /// [`Self::init`] with the values a previous host kept (`cmux.state`):
+    /// `init.state` seeds them. A value over the caps
+    /// ([`crate::protocol::kept_state_refusal`]) is dropped with a log line.
+    pub fn init_with_state(
+        &mut self,
+        params: InitParams,
+        state: Option<Value>,
+    ) -> Result<(), VmError> {
+        let state = state.filter(|values| {
+            let bytes = values.to_string().len();
+            match crate::protocol::kept_state_refusal(values, bytes) {
+                Some(why) => {
+                    self.shared.borrow_mut().log("warn", &why);
+                    false
+                }
+                None => true,
+            }
+        });
         let main = params.main;
         let mut options = rquickjs::context::EvalOptions::default();
         options.filename = params.main_name;
-        if let Err(error) =
-            self.enter("main", move |ctx| ctx.eval_with_options::<(), _>(main, options))?
-        {
-            return Err(VmError::Init(format!("main: {error}")));
-        }
         let init = json!({
             "app": params.app,
             "settings": params.settings,
@@ -446,15 +474,22 @@ impl AppVm {
             "knownOps": params.known_ops,
             "locale": params.locale.unwrap_or_else(|| "en".to_string()),
             "strings": if params.strings.is_object() { params.strings } else { json!({}) },
+            "state": state.unwrap_or_else(|| json!({})),
         })
         .to_string();
         match self
             .enter("init", move |ctx| call_global::<_, String>(ctx, "__cmuxAppInit", (init,)))?
         {
-            Ok(result) if result.is_empty() => Ok(()),
-            Ok(result) => Err(VmError::Init(result)),
-            Err(error) => Err(VmError::Init(error)),
+            Ok(result) if result.is_empty() => {}
+            Ok(result) => return Err(VmError::Init(result)),
+            Err(error) => return Err(VmError::Init(error)),
         }
+        if let Err(error) =
+            self.enter("main", move |ctx| ctx.eval_with_options::<(), _>(main, options))?
+        {
+            return Err(VmError::Init(format!("main: {error}")));
+        }
+        Ok(())
     }
 
     /// Mounts an export; `Ok(None)` when it rendered, `Ok(Some(message))` when the app refused.
@@ -490,6 +525,12 @@ impl AppVm {
         self.entry_unit("dispatch", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppDispatch", args))
     }
 
+    /// A widget mount's host-owned tick: sets its `now()` clock to `now_ms`.
+    pub fn tick(&mut self, mount: &str, now_ms: u64) -> Result<(), VmError> {
+        let args = (mount.to_string(), now_ms as f64);
+        self.entry_unit("tick", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppTick", args))
+    }
+
     /// Answers one `call`. Unknown callback ids are ignored.
     pub fn resolve(&mut self, cb: u64, ok: bool, body: &Value) -> Result<(), VmError> {
         if !self.shared.borrow_mut().pending_calls.remove(&cb) {
@@ -502,6 +543,15 @@ impl AppVm {
     pub fn event(&mut self, sub: u64, body: &Value) -> Result<(), VmError> {
         let args = (sub as f64, body.to_string());
         self.entry_unit("event", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppEvent", args))
+    }
+
+    /// A daemon signals cache state for watch `watch` (`__cmuxAppWatch`).
+    pub fn watch_state(&mut self, watch: u64, state: &Value) -> Result<(), VmError> {
+        if !self.shared.borrow().watches.contains(&watch) {
+            return Ok(());
+        }
+        let args = (watch as f64, state.to_string());
+        self.entry_unit("watch", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppWatch", args))
     }
 
     pub fn set_settings(&mut self, values: &Value) -> Result<(), VmError> {
@@ -551,9 +601,12 @@ impl AppVm {
             ids
         };
         for id in due {
-            self.entry_unit("timer", move |ctx| {
+            self.shared.borrow_mut().in_timer = true;
+            let fired = self.entry_unit("timer", move |ctx| {
                 call_global::<_, ()>(ctx, "__cmuxAppTimer", (id as f64,))
-            })?;
+            });
+            self.shared.borrow_mut().in_timer = false;
+            fired?;
         }
         Ok(())
     }
@@ -838,6 +891,59 @@ fn install_native<'js>(
     )?;
     let (s, g) = (shared.clone(), gate.clone());
     native.set(
+        "watch",
+        Function::new(
+            ctx.clone(),
+            move |name: V<'js>,
+                  params: V<'js>,
+                  mount: V<'js>,
+                  every: f64|
+                  -> rquickjs::Result<f64> {
+                if g.stopped() {
+                    return Ok(0.0);
+                }
+                let (name, params, mount) = (text(&name)?, text(&params)?, text(&mount)?);
+                let mut shared = s.borrow_mut();
+                let watch = shared.next_sub;
+                shared.next_sub += 1;
+                if shared.subscriptions.len() + shared.watches.len() >= MAX_SUBSCRIPTIONS {
+                    shared.flood();
+                    return Ok(watch as f64);
+                }
+                shared.watches.insert(watch);
+                let bytes = name.len() + params.len() + mount.len();
+                let message = FromHost::Watch {
+                    watch,
+                    name,
+                    params: parse(&params),
+                    mount: (!mount.is_empty()).then_some(mount),
+                    every_seconds: (every.is_finite() && every > 0.0).then_some(every),
+                };
+                shared.push(message, bytes);
+                Ok(watch as f64)
+            },
+        )?,
+    )?;
+    let (s, g) = (shared.clone(), gate.clone());
+    native.set(
+        "unwatch",
+        Function::new(ctx.clone(), move |watch: f64, refresh: bool| {
+            if g.stopped() {
+                return;
+            }
+            let mut shared = s.borrow_mut();
+            let watch = watch as u64;
+            if !shared.watches.contains(&watch) {
+                return;
+            }
+            if !refresh {
+                shared.watches.remove(&watch);
+            }
+            shared.push(FromHost::Unwatch { watch, refresh }, 16);
+        })?,
+    )?;
+    let (s, g) = (shared.clone(), gate.clone());
+    native.set(
         "scene",
         Function::new(ctx.clone(), move |mount: V<'js>, ops: V<'js>| -> rquickjs::Result<()> {
             if g.stopped() {
@@ -845,7 +951,17 @@ fn install_native<'js>(
             }
             let (mount, ops) = (text(&mount)?, text(&ops)?);
             let bytes = mount.len() + ops.len();
-            s.borrow_mut().push(FromHost::Scene { mount, ops: parse(&ops) }, bytes);
+            let mut ops = parse(&ops);
+            // `Particles {choreography}` (particles.rs): a refused document goes out as null,
+            // with a log line naming the first bad path.
+            let mut refused = crate::particles::sanitize_scene_ops(&mut ops);
+            // Motion props (motion.rs, `cmux.motion/1`): canonical values, an invalid one as null.
+            refused.extend(crate::motion::sanitize_scene_ops(&mut ops));
+            let mut shared = s.borrow_mut();
+            for message in refused {
+                shared.log("warn", &message);
+            }
+            shared.push(FromHost::Scene { mount, ops }, bytes);
             Ok(())
         })?,
     )?;
@@ -865,8 +981,8 @@ fn install_native<'js>(
             }
             let every =
                 Duration::from_millis(if ms.is_finite() && ms > 0.0 { ms as u64 } else { 0 });
-            let every =
-                if repeat { every.max(Duration::from_millis(1000)) } else { every.max(MIN_TIMER) };
+            let floor = if repeat || shared.in_timer { SLOW_TIMER } else { MIN_TIMER };
+            let every = every.max(floor);
             shared
                 .timers
                 .insert(id, Timer { due: Instant::now() + every, repeat: repeat.then_some(every) });
@@ -898,6 +1014,25 @@ fn install_native<'js>(
                 Ok(())
             },
         )?,
+    )?;
+    let (s, g) = (shared.clone(), gate.clone());
+    native.set(
+        "keepState",
+        Function::new(ctx.clone(), move |json: V<'js>| -> rquickjs::Result<()> {
+            if g.stopped() {
+                return Ok(());
+            }
+            let json = text(&json)?;
+            let bytes = json.len();
+            let values = parse(&json);
+            let mut shared = s.borrow_mut();
+            // Over a cap: a log line, and the supervisor keeps the last state it got.
+            match crate::protocol::kept_state_refusal(&values, bytes) {
+                Some(why) => shared.log("warn", &why),
+                None => shared.push(FromHost::State { values }, bytes),
+            }
+            Ok(())
+        })?,
     )?;
     let (s, g) = (shared.clone(), gate.clone());
     native.set(

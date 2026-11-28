@@ -35,16 +35,26 @@ test("the native menu radius is the popup radius, and the native default outer r
 test("the native menu row is the row control", () => {
   expect(swift).toContain("public static let rowHeight: CGFloat = DesignTokens.controlRow");
   const tokens = repo("Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignTokens.swift");
-  expect(tokens).toContain(`static let controlRow: CGFloat = ${control("row").px}`);
+  // DesignTokens forwards to the build-generated DesignScale (gen-design-scale-swift.py), which reads
+  // the JSON's controls, so the native row is the JSON's row with no copy to drift.
+  expect(tokens).toContain("static let controlRow: CGFloat = DesignScale.controlRow");
+  const generator = repo("scripts/cmux-next/gen-design-scale-swift.py");
+  expect(generator).toContain('ident("control", item["name"])');
+  expect(control("row").px).toBe(28);
 });
 
 test("the native menu is the menu glass level", () => {
   expect(swift).toContain("static let level: GlassLevel = .menu");
 });
 
-test("the page lays the same veil on the App's glass", () => {
+// The App's host surface carries the menu veil (Glass.makeHostSurface: the native menu panel), so the page
+// lays none on it and a web menu is the native one to the pixel (Liquid Glass Parity, 2026-11-18).
+test("the App's menu panel carries the veil; the page lays none on the App's glass", () => {
   const glass = repo("webviews/src/ui/glass/glass.css");
-  expect(glass).toContain("calc(var(--ds-transient-host-veil) * 100%)");
+  expect(glass).toContain("--host-glass-fill: transparent;");
+  expect(repo("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/HostGlassSurface.swift")).toContain(
+    "return makeMenuPanel(interactive: false)",
+  );
   expect(repo("webviews/src/pages/shared/desktop.css")).toContain(
     `--ds-transient-host-veil: ${designScale.transientMaterial.hostVeil};`,
   );

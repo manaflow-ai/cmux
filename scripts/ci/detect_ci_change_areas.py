@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -201,9 +202,11 @@ _NON_RUNNING_FILES = frozenset({
     ".github/actionlint.yaml",
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
+    ".github/cloud-harness-matrix/request",
     ".github/cloud-machine-count-probe/request",
+    ".github/cloud-staging-test-sweep/request",
+    ".github/cloud-surge-proof/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-    ".github/defaults-call-owners.json",
     ".github/design-surfaces.json",
     ".github/gateway-e2e/request",
     ".github/github-token-budget.json",
@@ -212,6 +215,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/language-boundaries.toml",
     ".github/nightly-known-bad.json",
     ".github/nightly-step-coverage.json",
+    ".github/post-merge-batch.json",
     ".github/post-merge-checks.json",
     ".github/release-thanks.json",
     ".github/review-fabric-policy.json",
@@ -220,6 +224,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/single-host-fallbacks.json",
     ".github/swift-warning-budget.tsv",
     ".github/warm-sources.json",
+    ".github/workflow-job-bounds.json",
 })
 
 
@@ -247,12 +252,42 @@ def routed_workflows(root: Path) -> Optional[frozenset[str]]:
     return frozenset(seen)
 
 
+LEAN_CHECKOUT_TABLE = ".github/checkout-lean.json"
+
+
+@lru_cache(maxsize=None)
+def _tree_is_complete(root: str) -> bool:
+    """True when the tree at `root` holds every file the helper walk searches.
+
+    ci.yml's `changes` job checks out a narrower sparse set than the table's `sparse_checkout`
+    (.github/checkout-lean.json), which saves the blobs of the paths routing never opens
+    (78-80 s of a cold workspace, 2026-11-23). The helper walk's `git grep` sees only checked-out
+    files, so before its first search it widens the checkout to the table's patterns: the tree
+    the job had before it was narrowed, and the same answer. A checkout that is not sparse is
+    complete already. False when the table or the widening fails, which the walk reads as
+    "could not search" and answers every area.
+    """
+    def git(*args: str, **options) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, **options)
+
+    try:
+        if git("config", "--bool", "core.sparseCheckout").stdout.strip() != "true":
+            return True
+        patterns = json.loads((Path(root) / LEAN_CHECKOUT_TABLE).read_text(encoding="utf-8"))["sparse_checkout"]
+        widened = git("sparse-checkout", "set", "--no-cone", "--stdin", input="\n".join(patterns) + "\n", timeout=240)
+        return widened.returncode == 0
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        return False
+
+
 def _files_naming(root: Path, token: str) -> Optional[list[str]]:
     """Tracked files that name `token` as a whole name, not inside a longer one.
 
     `tests/test_foo.py` names the test, not `foo`; the test is its own
     referrer and is judged by its own rule.
     """
+    if not _tree_is_complete(str(root)):
+        return None
     result = subprocess.run(
         # -I: a binary file (an image, an archive) names no helper.
         ["git", "-C", str(root), "grep", "-I", "-l", "-F", "-e", token],
@@ -275,6 +310,8 @@ def _files_naming(root: Path, token: str) -> Optional[list[str]]:
 def searchable_files(root: Path, pathspec: str) -> Optional[frozenset[str]]:
     """The tracked files under `pathspec` that _files_naming() can return: the
     non-empty text files. None when git cannot search the tree."""
+    if not _tree_is_complete(str(root)):
+        return None
     result = subprocess.run(
         ["git", "-C", str(root), "grep", "-I", "-l", "-e", "", "--", pathspec],
         capture_output=True, text=True,
@@ -347,28 +384,13 @@ _CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guar
 _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
-# ci-guards.yml's guard tests take a free mini from portable placement
-# (scripts/ci/portable_job_placement.py) only when cmux-next-guards.yml passes
-# one. That job runs the same Linux guard tests, not the app's macOS lanes, so
-# the term does not make the tests it names macOS-relevant.
-_PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
-# The credentialed `changes` router accepts only the current attempt's
-# validated Linux placement. Its test-path references still run on Linux;
-# an unknown needs expression must continue to fail open below.
-_PORTABLE_ROUTER_LINUX_TERM = (
-    "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
-    "contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && "
-    "needs.portable-placement.outputs.linux_runner ||"
-)
-
-
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "").replace(_PORTABLE_ROUTER_LINUX_TERM, "")
+    value = runs_on.strip()
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
-    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
+    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu|'cmux-linux'", value))
 
 
 _JOB_SPLIT_RE = re.compile(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)")
@@ -1097,6 +1119,12 @@ SHARED_WEB_WORKFLOW_EXACT = frozenset({
     "scripts/run-diff-sidecar-cargo.sh",
 })
 
+RELAY_PARAMS_RULE = frozenset({
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+})
+
 SHARED_WEB_WORKFLOW_PREFIXES = (
     "Native/DiffSidecar/",
     # The diff sidecar links this crate by path.
@@ -1265,6 +1293,11 @@ def is_web_change(path: str) -> bool:
     # these (web_subareas.UNIT_TESTS_EXACT); #38631 changed the catalog alone,
     # skipped Web tests and turned them red on base.
     if path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        return True
+    # webviews/test/agent-pane-relay-params-contract.test.ts checks every key the page sends
+    # against the relay's params rule and its Rust mirror (web_subareas.REACT_EXACT): a PR that
+    # changes only the rule runs it too (cmux#46563 refused every handshake).
+    if path in RELAY_PARAMS_RULE:
         return True
     if is_web_bundle_input(path):
         return True
@@ -1659,7 +1692,7 @@ def is_macos_neutral(
     if re.match(r"Packages/iOS/[^/]+/Tests/", path):
         return True
     # Agent instructions at any depth, and skill documentation. The app bundles
-    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
+    # skills/cmux-computer-use as a folder resource, and skill scripts and manifests are
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
@@ -1711,7 +1744,7 @@ def is_macos_neutral(
         return True
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return True
-    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
+    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/")
 
 
 def is_macos_change(
@@ -1815,7 +1848,12 @@ def test_registry_linux_only(base_path: Optional[Path]) -> bool:
 def classify_files(paths: Iterable[str], *,
                    ci_workflow_areas: Optional[ChangeAreas] = None,
                    macos_workflow_areas: Optional[ChangeAreas] = None,
-                   test_registry_linux_only: bool = False) -> ChangeAreas:
+                   test_registry_linux_only: bool = False,
+                   fallbacks: Optional[list[tuple[str, str]]] = None) -> ChangeAreas:
+    """`fallbacks`, when given, collects (rule, path) for every path a
+    fail-open rule broadened because the planner could not narrow it."""
+    if fallbacks is None:
+        fallbacks = []
     macos = False
     web = False
     agent_session_web = False
@@ -1838,6 +1876,7 @@ def classify_files(paths: Iterable[str], *,
             # Python lanes consume it indirectly through their lane runner.
             # A Linux reference alone cannot prove native execution unchanged.
             if not test_registry_linux_only:
+                fallbacks.append(("test_registry_not_linux_only", path))
                 macos = True
                 release_build = True
             continue
@@ -1867,6 +1906,7 @@ def classify_files(paths: Iterable[str], *,
                 release_build = release_build or helper_areas.release_build
                 continue
         if forces_all_areas(path):
+            fallbacks.append(("ci_yml_jobs_unreadable" if path == CI_WORKFLOW_PATH else "unowned_ci_helper", path))
             macos = True
             web = True
             agent_session_web = True
@@ -1890,6 +1930,8 @@ def classify_files(paths: Iterable[str], *,
             # only when a Release job or a job feeding it changed; without
             # the comparison, every job body including the Release check.
             macos = True
+            if macos_workflow_areas is None:
+                fallbacks.append(("ci_macos_yml_jobs_unreadable", path))
             if macos_workflow_areas is None or macos_workflow_areas.release_build:
                 release_build = True
             continue
@@ -1922,6 +1964,8 @@ def classify_files(paths: Iterable[str], *,
                 agent_session_web = agent_session_web or script_areas.agent_session_web
                 release_build = release_build or script_areas.release_build
                 continue
+            if is_walkable_script(path):
+                fallbacks.append(("unplaced_script", path))
             macos = True
             if not is_release_build_neutral(path):
                 release_build = True
@@ -1963,6 +2007,36 @@ def load_macos_workflow_areas(base_path: Optional[Path]) -> Optional[ChangeAreas
     release = "unknown" if selected is None else bool_output(selected.release_build)
     print(f"ci-macos.yml changed; a Release job or its input differs: {release}")
     return selected
+
+
+def plan_line(reason: str, fallbacks: list[tuple[str, str]]) -> str:
+    """One line naming the plan this run took, for a weekly roll-up of how
+    often PR CI falls back to a broad plan and which rule forced it
+    (docs/reading/2026-11-26-cloudflare-dns-targeted-zone-builds.md in
+    cmuxterm-hq). `full` is the post-merge run, broad by design; `fail_open`
+    is a PR run a fail-open rule broadened; `targeted` is a PR run the
+    planner placed path by path."""
+    if reason == "post_merge_event":
+        plan = "full"
+    elif reason or fallbacks:
+        plan = "fail_open"
+    else:
+        plan = "targeted"
+    rules: dict[str, int] = {}
+    for rule, _ in fallbacks:
+        rules[rule] = rules.get(rule, 0) + 1
+    if not reason:
+        reason = ",".join(f"{rule}:{count}" for rule, count in sorted(rules.items())) or "none"
+    first = f" first={fallbacks[0][1]}" if fallbacks else ""
+    return f"ci-plan v1 class={plan} fallback={reason}{first}"
+
+
+def emit_plan(line: str) -> None:
+    print(line)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        # An annotation, so the roll-up reads it from the check run
+        # without downloading the job log.
+        print(f"::notice title=ci-plan::{line}")
 
 
 def run_git(args: list[str]) -> str:
@@ -2025,9 +2099,12 @@ def main(argv: list[str]) -> int:
         print(f"Non-PR event '{args.event_name or 'unknown'}'; running all CI areas.")
         write_outputs(areas, args.github_output)
         print("Resolved areas: " + " ".join(areas.as_output_lines()))
+        emit_plan(plan_line("post_merge_event", []))
         return 0
 
     files: list[str] = []
+    fallbacks: list[tuple[str, str]] = []
+    reason = ""
     try:
         if args.files_from:
             files = args.files_from.read_text(encoding="utf-8").splitlines()
@@ -2041,12 +2118,15 @@ def main(argv: list[str]) -> int:
                 ci_workflow_areas=load_ci_workflow_areas(args.ci_workflow_base),
                 macos_workflow_areas=load_macos_workflow_areas(args.macos_workflow_base),
                 test_registry_linux_only=test_registry_linux_only(args.test_registry_base),
+                fallbacks=fallbacks,
             )
         else:
             areas = ChangeAreas.all()
+            reason = "empty_diff"
             print("PR diff is empty; running all CI areas.")
     except Exception as error:
         areas = ChangeAreas.all()
+        reason = "classify_error"
         print(f"Could not classify diff, running all CI areas: {error}", file=sys.stderr)
 
     if files:
@@ -2058,6 +2138,7 @@ def main(argv: list[str]) -> int:
 
     write_outputs(areas, args.github_output)
     print("Resolved areas: " + " ".join(areas.as_output_lines()))
+    emit_plan(plan_line(reason, fallbacks))
     return 0
 
 

@@ -4,12 +4,13 @@
 // owner is unreachable, and shows refusals as the one toast stack's toast (FeedView).
 import { useSyncExternalStore } from "react";
 import { NoticeStack } from "../../ui/NoticeStack";
-import { useLasting } from "../../ui/lasting";
+import { useConnectionQuiet } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import type { FeedReject, FeedStore } from "./store";
 import { closedStatus } from "./model";
 import { InboxView } from "./InboxView";
 import { ListView } from "./ListView";
+import type { HubApprovals } from "./hubApprovals";
 import { NeedsYouView } from "./NeedsYouView";
 import { Banner } from "./parts";
 
@@ -19,6 +20,7 @@ export function rejectText(reject: FeedReject, strings: Pick<Strings, "t" | "for
     case "closed":
       return (reject.item && closedStatus(reject.item, strings)) ?? strings.t("owner.refused");
     case "moving":
+      // retry-prompt-ok: the refused action was the person's; doing it again once the move ends is theirs.
       return strings.t("owner.moving");
     case "disconnected":
       return strings.t("owner.disconnected");
@@ -27,14 +29,15 @@ export function rejectText(reject: FeedReject, strings: Pick<Strings, "t" | "for
   }
 }
 
-export function FeedPage({ store, strings }: { store: FeedStore; strings: Strings }) {
+/** `hub`: the integrations hub's approvals, drawn in Needs you (only Chief routes them). */
+export function FeedPage({ store, strings, hub }: { store: FeedStore; strings: Strings; hub?: HubApprovals }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
-  // A lost page link says so only once it lasts (a launch, a daemon restart re-read on their own);
+  // A lost page link says so only once it lasts (the shared 10 s bound), as a corner mark that takes no room (a launch, a daemon restart re-read on their own);
   // so does the owner's own disconnected state, in its words (its link drops on the same restarts).
-  const linkDown = useLasting(snap.link === "disconnected");
+  const linkDown = useConnectionQuiet(snap.link === "disconnected");
   const owner = snap.view?.connection;
-  const ownerDown = useLasting(owner?.state === "disconnected");
+  const ownerDown = useConnectionQuiet(owner?.state === "disconnected");
   const banner = linkDown ? t("owner.disconnected") : ownerDown ? owner?.reason || t("owner.disconnected") : undefined;
   const props = { store, snap, strings };
   const view = snap.route.view;
@@ -46,7 +49,7 @@ export function FeedPage({ store, strings }: { store: FeedStore; strings: String
       ) : view === "list" ? (
         <ListView {...props} />
       ) : (
-        <NeedsYouView {...props} />
+        <NeedsYouView {...props} hub={hub} />
       )}
       <NoticeStack queue={store.notices} dismissLabel={t("toast.dismiss")} label={t("toast.region")} />
     </div>

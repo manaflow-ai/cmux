@@ -25,6 +25,11 @@
 // their line, gap tokens, menu label columns, row heights and widths. A violation the row does not
 // list fails, when every run shows it; a state with no row only warns.
 //
+// And each state must make no layout move the layout-motion contract does not declare
+// (schemas/layout-motion/contract.json, undeclared-baseline.ts): a box that drew in one place and then
+// moved or resized on no event its surface allows. A state over its row in undeclared-baseline.json fails,
+// a state with no row on its first undeclared move, when every run shows it.
+//
 // The first render runs --concurrency cases at once (default: one per CPU), each worker with its
 // own browser: rendered one at a time, a shard's ~1,400 cases took ~23 minutes. Budgets are CPU
 // time, so a busy runner does not stretch them. The renders again (the retries) run one at a time,
@@ -41,6 +46,7 @@ import { type Timing, BUDGETS_PATH, fastest, lowerable, overBudget, readBudgets,
 import { type Engine, type MatrixCase, parseManifest, runLocal, shardCases } from "./runner";
 import { INVARIANT_BASELINE_PATH, type InvariantResult, everyRun, invariantSummary, invariantsOf, judgeInvariants, readInvariantBaseline } from "./invariant-baseline";
 import { SHIFT_BASELINE_PATH, type ShiftResult, judgeShift, least, limit as shiftLimit, readShiftBaseline, shiftScores, shiftSummary } from "./shift-baseline";
+import { UNDECLARED_BASELINE_PATH, type UndeclaredResult, judgeUndeclared, leastCount, readUndeclaredBaseline, undeclaredCounts, undeclaredSummary } from "./undeclared-baseline";
 
 export type HealthResult = {
   id: string;
@@ -81,6 +87,28 @@ export function brokenReason(result: HealthResult): string | null {
 /** The allowlist's key: a state, whatever theme, width or engine showed it. */
 export const stateKey = (result: { params?: Record<string, unknown> }): string =>
   `${String(result.params?.entry ?? "")}#${String(result.params?.variant ?? "")}`;
+
+/**
+ * The shard's cases, split by state: every case of a state lands in the shard its state's FNV-1a hash
+ * names, whatever cases come before it. The split by position (shardCases, `--shard-by index`) moved
+ * every state to another shard whenever one case was added or removed ahead of it, so `health (8)` was a
+ * different set of states at each commit: a post-merge bisect probe judged leg 8 at its commit by states
+ * that were never red at the batch (the red one was in another leg there), and a standing red hopped legs
+ * from batch to batch and was a "new" red again each time (batch run 46040477174: legs 6, 8, 14 and 15 red,
+ * each on a state the base replay did not share). Keyed by state, a leg holds the same states at any commit
+ * with the same shard count, and a state's themes and widths render (and retry) in one shard.
+ */
+export function shardStates<T extends { params?: Record<string, unknown> }>(cases: T[], shardCount: number, shardIndex: number): T[] {
+  if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error("shardCount must be a positive integer");
+  if (!Number.isInteger(shardIndex) || shardIndex < 0 || shardIndex >= shardCount) throw new Error("shardIndex must be within shardCount");
+  return cases.filter((item) => stateShard(stateKey(item), shardCount) === shardIndex);
+}
+
+export function stateShard(state: string, shardCount: number): number {
+  let hash = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(state)) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+  return hash % shardCount;
+}
 
 export type Verdict = {
   /** Broken states the allowlist does not name: the check fails on these. */
@@ -147,11 +175,14 @@ async function main(): Promise<void> {
       allowlist: { type: "string", default: join(import.meta.dir, "broken-allowlist.json") },
       budgets: { type: "string", default: BUDGETS_PATH },
       "shift-baseline": { type: "string", default: SHIFT_BASELINE_PATH },
+      "undeclared-baseline": { type: "string", default: UNDECLARED_BASELINE_PATH },
       "invariant-baseline": { type: "string", default: INVARIANT_BASELINE_PATH },
       engines: { type: "string", default: "chromium" },
       retries: { type: "string", default: "2" },
       "shard-count": { type: "string", default: "1" },
       "shard-index": { type: "string", default: "0" },
+      // state (shardStates: a leg is the same states at every commit) or index (shardCases, by position).
+      "shard-by": { type: "string", default: "state" },
       concurrency: { type: "string", default: String(availableParallelism()) },
     },
   });
@@ -162,9 +193,11 @@ async function main(): Promise<void> {
   const allowlist = JSON.parse(await readFile(values.allowlist, "utf8")) as Record<string, string>;
   const budgets = readBudgets(values.budgets);
   const shiftBaseline = readShiftBaseline(values["shift-baseline"]);
+  const undeclaredBaseline = readUndeclaredBaseline(values["undeclared-baseline"]);
   const invariantBaseline = readInvariantBaseline(values["invariant-baseline"]);
   const all = parseManifest(JSON.parse(await readFile(values.manifest, "utf8")));
-  const cases = shardCases(all, Number(values["shard-count"]), Number(values["shard-index"]));
+  if (values["shard-by"] !== "state" && values["shard-by"] !== "index") throw new Error("--shard-by is state or index");
+  const cases = (values["shard-by"] === "index" ? shardCases : shardStates)(all, Number(values["shard-count"]), Number(values["shard-index"]));
   const outputDir = resolve(values["output-dir"]);
   await mkdir(outputDir, { recursive: true });
   const concurrency = Number(values.concurrency);
@@ -195,18 +228,21 @@ async function main(): Promise<void> {
         .map(([state]) => state),
     );
   let shifting = shiftingStates();
+  const undeclaredRuns = [undeclaredCounts(results as UndeclaredResult[])];
+  const movingStates = () => new Set(judgeUndeclared(leastCount(undeclaredRuns), undeclaredBaseline).moved.map(({ state }) => state));
+  let moving = movingStates();
   const invariantRuns = [invariantsOf(results)];
   const breakingStates = () =>
     new Set(judgeInvariants(everyRun(invariantRuns), invariantBaseline).broke.map(({ state }) => state));
   let breaking = breakingStates();
   for (
     let attempt = 1;
-    attempt <= Number(values.retries) && (broken.size || slow.size || shifting.size || breaking.size);
+    attempt <= Number(values.retries) && (broken.size || slow.size || shifting.size || breaking.size || moving.size);
     attempt++
   ) {
     // Render again only the cases of states still broken, slow or shifting; a state stays broken
     // only if it breaks again, slow only if it is slow again, and shifting only if it shifts again.
-    const retried = new Set([...broken.keys(), ...slow, ...shifting, ...breaking]);
+    const retried = new Set([...broken.keys(), ...slow, ...shifting, ...breaking, ...moving]);
     const again: MatrixCase[] = cases.filter((item) => retried.has(stateKey(item)));
     const manifest = join(outputDir, `retry-${attempt}.json`);
     await writeFile(manifest, JSON.stringify(again));
@@ -217,6 +253,8 @@ async function main(): Promise<void> {
     slow = slowStates();
     shiftRuns.push(shiftScores(results));
     shifting = shiftingStates();
+    undeclaredRuns.push(undeclaredCounts(results as UndeclaredResult[]));
+    moving = movingStates();
     invariantRuns.push(invariantsOf(results));
     breaking = breakingStates();
   }
@@ -229,20 +267,21 @@ async function main(): Promise<void> {
   const lower = lowerable(best, budgets);
   // A broken state answers to the allowlist, not to its shift baseline.
   const shift = judgeShift(new Map([...least(shiftRuns)].filter(([state]) => !broken.has(state))), shiftBaseline);
+  const undeclared = judgeUndeclared(new Map([...leastCount(undeclaredRuns)].filter(([state]) => !broken.has(state))), undeclaredBaseline);
   const geometry = judgeInvariants(
     new Map([...everyRun(invariantRuns)].filter(([state]) => !broken.has(state))),
     invariantBaseline,
   );
-  const text = [summary(verdict, cases.length), budgetSummary(over, lower), shiftSummary(shift), invariantSummary(geometry)]
+  const text = [summary(verdict, cases.length), budgetSummary(over, lower), shiftSummary(shift), undeclaredSummary(undeclared), invariantSummary(geometry)]
     .filter(Boolean)
     .join("\n");
   await writeFile(
     join(outputDir, "health.json"),
-    `${JSON.stringify({ ...verdict, slow: over, lower, shifted: shift.shifted, unbaselined: shift.unbaselined, shiftLower: shift.lower, geometry: geometry.broke, geometryUnlisted: geometry.unlisted, geometryMended: geometry.mended }, null, 2)}\n`,
+    `${JSON.stringify({ ...verdict, slow: over, lower, shifted: shift.shifted, unbaselined: shift.unbaselined, shiftLower: shift.lower, undeclared: undeclared.moved, undeclaredLower: undeclared.lower, geometry: geometry.broke, geometryUnlisted: geometry.unlisted, geometryMended: geometry.mended }, null, 2)}\n`,
   );
   console.log(text);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${text}\n`);
-  if (verdict.fresh.length || over.length || shift.shifted.length || geometry.broke.length) process.exitCode = 1;
+  if (verdict.fresh.length || over.length || shift.shifted.length || undeclared.moved.length || geometry.broke.length) process.exitCode = 1;
 }
 
 if (import.meta.main) await main();

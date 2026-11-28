@@ -12,6 +12,8 @@ import Foundation
 // the next safe point; the rolled-back update is not taken again. `updates.web.apply`: swaps a
 // ready update in now and reloads the pages, past the safe point's checks (WebSwapGate): an
 // explicit ask, for tests and support; a draft being typed is not saved first.
+// `updates.web.pieces.check`: reads the channel's switch file of web pieces now and answers with
+// the status.
 extension WebUpdates {
     /// The `updates.web.*` methods, for the App's control router.
     public var controlMethods: [ControlMethod] {
@@ -48,6 +50,10 @@ extension WebUpdates {
                     return await MainActor.run { Self.json(web) }
                 }
             }.withDeadline(.fixed(.seconds(60))),
+            .mainActor("updates.web.pieces.check") { call in
+                let drill = call.params["drill"]?.boolValue
+                return .followUp { await web.piecesChecked(drill: drill) }
+            }.withDeadline(.fixed(.seconds(30))),
             .mainActor("updates.web.apply") { _ in
                 let reloaded = web.applyPending()
                 guard case .object(var fields) = Self.json(web) else { return .value(.null) }
@@ -64,6 +70,7 @@ extension WebUpdates {
         case .some(nil): .string("bundled")
         case .some(.some(let tree)): .string(tree.lastPathComponent)
         }
+        let pieces: JSONValue = web.pieces?.json ?? .null
         return .object([
             "available": .bool(true),
             "channel": .string(updater.channel.rawValue),
@@ -76,11 +83,32 @@ extension WebUpdates {
             // a sheet, or a page's own reason (`composer.sending`, `selection`, `page.no-answer`).
             "waiting_for": web.pending == nil ? .null : web.heldBy.map { .string($0) } ?? .null,
             // Open pages that still read an older update than `pending` (each reloads at its own safe point).
-            "pages_behind": JSONValue(web.pending.map { WebBundleServedViews.shared.behind($0).count } ?? 0),
+            "pages_behind": JSONValue(web.pending.map { WebBundleServedViews.shared.behind(web.target($0)).count } ?? 0),
+            // What the channel's signed switch file switched out of the active update (each piece:
+            // `bundled` or `last-good`, and why), its serial, and why the newest file was refused.
+            "pieces": pieces,
+            "pieces_drill": .bool(web.piecesDrill),
             "app_abi": JSONValue(updater.app.abi),
             "app_web_built_at": JSONValue(updater.app.webBuiltAt),
             "last_check": updater.lastCheck.map { .string(ISO8601DateFormatter().string(from: $0)) } ?? .null,
             "last_refusal": updater.lastRefusal.map { .string(String(describing: $0)) } ?? .null,
+            // How the last update's tree came (RFD 0166): `cas` with what it read, or `archive`
+            // with why cas missed (nil: `updates.webCas` off or the pointer named no cas).
+            "last_fetch": updater.lastFetch.map(json) ?? .null,
+        ])
+    }
+
+    private static func json(_ fetch: WebUpdater.FetchOutcome) -> JSONValue {
+        let cas: JSONValue = fetch.cas.map { report in
+            .object([
+                "tree_bytes": JSONValue(report.treeBytes), "chunks": JSONValue(report.chunks),
+                "reused": JSONValue(report.reused), "ranges": JSONValue(report.ranges),
+                "range_bytes": JSONValue(report.rangeBytes), "meta_bytes": JSONValue(report.metaBytes),
+            ])
+        } ?? .null
+        return .object([
+            "key": .string(fetch.key), "by": .string(fetch.by.rawValue), "cas": cas,
+            "cas_miss": fetch.casMiss.map { .string($0) } ?? .null, "archive_bytes": JSONValue(fetch.archiveBytes),
         ])
     }
 

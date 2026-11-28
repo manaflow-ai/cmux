@@ -14,9 +14,11 @@ extension SidebarViewComponents {
 
     func buildBands() {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
+            // Only the items the band shows get views, as a list block's (a long Pinned band, the remote machines' chats).
+            region.realizesItems(in: scroll)
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
-            SystemScrollers.followThin(scroll)
+            SystemScrollers.followThin(scroll, scrollOnly: true)
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
@@ -53,6 +55,8 @@ extension SidebarViewComponents {
             region.contextMenuProvider = { [weak self] target in self?.list.contextMenuProvider?(target) }
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
+        // The launch stops waiting for the document (it came, or never will): the bands lay out again.
+        model.onAwaitsDocumentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
         SidebarPinDrops.install(self)
         // A Shift range runs from the tiles pinned above the list into its rows (#27701).
         list.leadingSelectionOrder = { [weak self] in self?.aboveRegion.content?.workspaceOrder ?? [] }
@@ -73,6 +77,8 @@ extension SidebarViewComponents {
     /// A region's item activation and section folding (the bands and the list's blocks).
     private func wireItems(_ region: SidebarRegionView) {
         region.liftHost = self
+        region.workspacePin = { [weak self] in self?.model.workspacePin }
+        region.onCloseWorkspace = { [weak self] id in self?.model.send(.close([id])) }
         region.sectionDropTarget = { [weak self] id, point in
             self.flatMap { SidebarAppSectionDrops.target($0, section: id, at: point) }
         }
@@ -97,6 +103,7 @@ extension SidebarViewComponents {
     /// `reloadsList` false: the caller reloads the list right after (one reload for the rows and the blocks).
     func updateBands(reloadsList: Bool = true) {
         let width = bounds.width
+        bandsFollowHeight = false // `appHeights` sets it for an app section sized from the sidebar's height
         var hidden = SidebarItemInfo.hiddenItems(in: model.layout.sections, infos: model.resolvedItemInfo)
         // `sidebar.showProfileControl` off (cx-wab7m): the profile button draws in no band.
         if !design.sidebarSections.showProfileControl {
@@ -145,7 +152,8 @@ extension SidebarViewComponents {
                 return section
             }
             aboveRegion.update(content(loose.filter { !$0.items.isEmpty }), width: width)
-            if list.blocks != blocks {
+            // Only the items' looks changed (a pinned workspace's status or progress, a badge): drawn in place.
+            if list.blocks != blocks, !(reloadsList && list.patchBlocks(blocks)) {
                 list.blocks = blocks
                 // The document changed under the list (an item added, a section an agent filled): calm, not under the pointer.
                 if reloadsList { list.showModelChange(animates: true) }
@@ -160,9 +168,11 @@ extension SidebarViewComponents {
         // The bottom slot is reserved for app views. Ordinary item sections
         // remain stored but undrawn, as cx-n0i9 decided.
         let bottomApps = model.layout.appSections(in: .bottom, room: model.activeProfileID?.rawValue)
-            .presenting(hidingItems: hidden, apps: apps)
+            .presenting(hidingItems: hidden, apps: apps) + (appSections?.providedSections ?? [])
         // Without the document the list draws no blocks: the apps after it take the band below it.
-        let bandApps = (model.docDrag == nil ? appsAfterList : []) + bottomApps
+        // A launch whose saved sidebar drew the document waits for its blocks (`awaitsDocument`): the apps after the
+        // list draw once, in the list, rather than in the band and then in the list.
+        let bandApps = (model.docDrag == nil && !model.awaitsDocument ? appsAfterList : []) + bottomApps
         belowRegion.update(content(bandApps), width: width)
         let footer = shownBelow.filter(isFooter)
         // The footer line ends on the bottom margin, not on the section's padding over it.
@@ -234,6 +244,7 @@ extension SidebarViewComponents {
         var heights: [LayoutSectionID: CGFloat] = [:]
         for section in sections where section.content == .app {
             guard let contribution = section.contribution, provider.makeView(for: contribution) != nil else { continue }
+            bandsFollowHeight = true
             heights[section.id] = SidebarAppHeights.height(provider, contribution, width: width, sidebarHeight: bounds.height)
         }
         return heights
@@ -246,6 +257,7 @@ extension SidebarViewComponents {
         guard region.frame.size != NSSize(width: width, height: height) else { return }
         let grew = region.frame.height != height
         region.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        defer { region.realizeItems() } // the items the band's new size shows
         if grew {
             scroll.contentView.scroll(to: .zero)
             scroll.reflectScrolledClipView(scroll.contentView)

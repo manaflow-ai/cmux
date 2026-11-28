@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.queueing.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عند التشغيل، يضع زر الإرسال و⌘Return الطلب المُرسل أثناء الدور في قائمة الانتظار، ويوجّهه Return إلى الدور الجاري. عند الإيقاف، يوجّه كل إرسال، فلا ينتظر شيء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uključeno: Pošalji i ⌘Return stavljaju u red upit poslan tokom poteza, a Return ga usmjerava u potez. Isključeno: svako slanje usmjerava, pa ništa ne čeka."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Til: Send og ⌘Return sætter en prompt sendt under en tur i kø, og Return styrer den ind i turen. Fra: hver afsendelse styrer, så intet venter."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein: Senden und ⌘Return reihen einen Prompt, der während eines Durchgangs gesendet wird, ein, und Return lenkt ihn in den Durchgang. Aus: Jedes Senden lenkt, nichts wartet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activado: Enviar y ⌘Return ponen en cola una instrucción enviada durante un turno, y Return la dirige al turno. Desactivado: cada envío la dirige, así que nada espera."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activé : Envoyer et ⌘Retour mettent en file une invite envoyée pendant un tour, et Retour l'oriente dans le tour. Désactivé : chaque envoi oriente, rien n'attend."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attivo: Invia e ⌘Return mettono in coda un prompt inviato durante un turno, e Return lo indirizza nel turno. Disattivo: ogni invio lo indirizza, così niente resta in attesa."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オンにすると、ターン中に送ったプロンプトは送信と ⌘Return でキューに入り、Return でそのターンに割り込ませます。オフにすると、どの送信も割り込むので待つものはありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បើក៖ ផ្ញើ និង ⌘Return ដាក់ប្រអប់បញ្ចូលដែលបានផ្ញើក្នុងវេនក្នុងជួររង់ចាំ ហើយ Return បញ្ជូនវាចូលវេន។ បិទ៖ ការផ្ញើនីមួយៗបញ្ជូនចូល ដូច្នេះគ្មានអ្វីរង់ចាំទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "켜면 턴 중에 보낸 프롬프트를 보내기와 ⌘Return이 대기열에 넣고, Return은 진행 중인 턴에 끼워 넣습니다. 끄면 모든 전송이 끼워 넣어지므로 기다리는 것이 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "På: Send og ⌘Return setter en ledetekst sendt under en tur i kø, og Return styrer den inn i turen. Av: hver sending styrer, så ingenting venter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Włączone: Wyślij i ⌘Return kolejkują polecenie wysłane w trakcie tury, a Return kieruje je do tury. Wyłączone: każde wysłanie kieruje, więc nic nie czeka."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ativado: Enviar e ⌘Return enfileiram um prompt enviado durante um turno, e Return o direciona para o turno. Desativado: cada envio direciona, então nada espera."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включено: «Отправить» и ⌘Return ставят запрос, отправленный во время хода, в очередь, а Return направляет его в текущий ход. Выключено: каждая отправка направляет, ничего не ждёт."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เปิด: ส่งและ ⌘Return จะจัดคิวพรอมต์ที่ส่งระหว่างรอบ และ Return จะนำเข้าสู่รอบนั้น ปิด: ทุกการส่งจะนำเข้าทันที จึงไม่มีอะไรรอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Açık: Gönder ve ⌘Return, tur sırasında gönderilen istemi sıraya alır; Return onu tura yönlendirir. Kapalı: her gönderim yönlendirir, hiçbir şey beklemez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Увімкнено: «Надіслати» і ⌘Return ставлять у чергу запит, надісланий під час ходу, а Return спрямовує його в хід. Вимкнено: кожне надсилання спрямовує, тож ніщо не чекає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bật: Gửi và ⌘Return xếp hàng lời nhắc gửi trong một lượt, còn Return lái nó vào lượt đó. Tắt: mỗi lần gửi đều lái vào, nên không có gì phải chờ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开时，回合进行中发送的提示会通过“发送”和 ⌘Return 加入队列，Return 则将其插入当前回合。关闭时，每次发送都会插入，不会有任何等待。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟時，回合進行中傳送的提示會透過「傳送」和 ⌘Return 加入佇列，Return 則將其插入目前回合。關閉時，每次傳送都會插入，不會有任何等待。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

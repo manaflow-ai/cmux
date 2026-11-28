@@ -1,0 +1,81 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/folio-look",
+  "name": "Folio",
+  "tagline": "Your workspace laid out like pages in a document.",
+  "description": "Lays cmux out like a document: a warm off-white page, with your chats as a quiet tree of pages in the sidebar. Light and dark. Remove it and everything you had comes back.",
+  "version": "1.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-folio-look",
+  "screenshots": ["screenshots/folio-light.png", "screenshots/folio-dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "folio",
+
+    // The rest of cmux in the same hand. The Markdown viewer: the system face, 16 px at the chat's
+    // 1.5 line height and code scale, in a column as wide as the chat's (760 px is about 86
+    // characters).
+    "markdown.font.preset": "system",
+    "markdown.font.size": 16,
+    "markdown.font.lineHeight": 1.5,
+    "markdown.code.scale": 0.85,
+    "markdown.layout.width": 86,
+    // Diffs in muted red and green, so a diff never shouts, with a bar at each changed line.
+    "diff.colors": "muted",
+    "diff.diffIndicators": "bars",
+    // Sidebar group colors from the theme's own palette (the theme files' terminal colors).
+    "sidebar.groupPalette": "theme",
+
+    // The chat as a page: the system sans at the document's 16 px with a 1.5 line height (the
+    // reading type of a docs editor's default style), inline code at 85% of the text, a column
+    // about a page wide (708 px of text plus the gutter), no minimap: a page is read top to bottom.
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 16,
+    "agentPane.display.font.lineHeight": 1.5,
+    "agentPane.display.code.scale": 0.85,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact",
+    "agentPane.display.unreadBanner": "collapsed",
+    // The ring at the end of the composer shows how much of the context the page has used.
+    "agentPane.composerRing": "context",
+    // Pending cmux#46738: no document composer look exists (auto, codex, claude); a floating card
+    // with a context chip row above the field and an attach, mode and sources row under it is the gap.
+    // "agentPane.composerLook": "auto",
+
+    // The sidebar as a tree of pages: one-line rows, each with its icon, under quiet section
+    // headings, the workspaces an agent started nested under the one that started them (a page's
+    // sub-pages), row buttons that appear only on hover (a page row's ··· and +), no timestamps,
+    // no counts, no branch or directory lines: the title is the row.
+    // Pending cmux#46805: no document sidebar look exists (cmux, claude, codex, studio).
+    // "sidebar.look": "cmux",
+    "sidebar.density": "compact",
+    "sidebar.groupBy": "folder",
+    "sidebar.sessionTree": true,
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.chromeGroups": false,
+    "sidebar.controlsOnHover": true,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.process": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.agentStatus": false,
+    "sidebar.workspaceRow.pullRequest": false,
+    "sidebar.workspaceRow.ports": false,
+    "sidebar.workspaceRow.tabCount": false,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.workspaceRow.progress": false,
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.hoverCards.layout": "compact",
+
+    // The address field: a small rounded rectangle, no shadow, as a docs editor's search field.
+    "browser.omnibar.cornerRadius": 6,
+    "browser.omnibar.shadow": false
+  }
+}

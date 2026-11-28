@@ -8,6 +8,7 @@ import copy
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -277,11 +278,19 @@ class FramesAdmissionTests(unittest.TestCase):
         self.assertIn("not measured", out)
 
     def test_short_queue_submits_with_the_queue_wait(self):
-        step_exit, submitted, _, _ = self.run_frames(self.hosts(queued=1, running=2))
+        step_exit, submitted, _, tmp = self.run_frames(self.hosts(queued=1, running=2))
         self.assertEqual(step_exit, "75")
         self.assertEqual(len(submitted), 1)
-        self.assertIn("--background", submitted[0])
+        # The client refuses --background with --measurement (run 45563103560 failed on it), so the step is idle
+        # priority, and the job cancels it when it stops waiting (exit 75) so it gives its queue place back.
+        self.assertNotIn("--background", submitted[0])
+        self.assertIn("--measurement", submitted[0])
+        self.assertIn("--priority idle", submitted[0])
         self.assertIn("--queue-timeout 1200", submitted[0])
+        with open(os.path.join(tmp, "calls")) as handle:
+            cancels = [line for line in handle.read().splitlines() if line.startswith("cancel ")]
+        self.assertEqual(len(cancels), 1)
+        self.assertTrue(cancels[0].startswith("cancel 0123456789abcdef01234567 "), cancels)
 
     def test_empty_queue_submits_with_nothing_running(self):
         _, submitted, _, _ = self.run_frames(self.hosts(queued=0, running=0))
@@ -296,6 +305,122 @@ class FramesAdmissionTests(unittest.TestCase):
             with self.subTest(status=status):
                 _, submitted, _, _ = self.run_frames(status)
                 self.assertEqual(len(submitted), 1)
+
+
+def verdict_script():
+    """The verdict job's Judge step script, as the runner gets it, with the expressions it holds filled in."""
+    with open(WORKFLOW) as handle:
+        lines = handle.read().splitlines()
+    start = lines.index("      - name: Judge the budgets")
+    run = next(i for i in range(start, len(lines)) if lines[i] == "        run: |")
+    body = []
+    for line in lines[run + 1:]:
+        if line.strip() and not line.startswith(" " * 10):
+            break
+        body.append(line[10:])
+    return re.sub(r"\$\{\{[^}]*\}\}", "1", "\n".join(body)) + "\n"
+
+
+REPO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+
+
+class VerdictTests(unittest.TestCase):
+    """The verdict fails only for the change it judges: a budget miss or a failed frames job (enforce), or the scope
+    job's gate tests failing. A run with nothing measured (the scope job cancelled by a newer push, the report
+    artifact missing, the display queue busy, the harness unable to measure) reads "not measured" and stays green in
+    either mode (2026-11-19: 22% of verdicts were red, from a cancelled scope or "Artifact not found:
+    tab-switch-45078-1", with GATE_MODE report)."""
+
+    def run_verdict(self, gate_mode="report", scope="success", in_scope="true", frames="success", step_exit=None,
+                    report=None, draft="false"):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        folder = os.path.join(tmp, "tab-switch")
+        os.makedirs(folder)
+        if step_exit is not None:
+            with open(os.path.join(folder, "step-exit"), "w") as handle:
+                handle.write(step_exit + "\n")
+        if report is not None:
+            with open(os.path.join(tmp, "report.json"), "w") as handle:
+                json.dump(report, handle)
+            with tarfile.open(os.path.join(folder, "report.tgz"), "w:gz") as tar:
+                tar.add(os.path.join(tmp, "report.json"), arcname="report.json")
+        summary = os.path.join(tmp, "summary.md")
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "RUNNER_TEMP": tmp, "GITHUB_STEP_SUMMARY": summary,
+               "GATE_MODE": gate_mode, "LOADS": "idle,cpu,agents", "REPORT_PATH": ".build/tab-switch/report.tgz",
+               "CANNOT_MEASURE_EXIT": "3", "SCOPE_RESULT": scope, "IN_SCOPE": in_scope, "FRAMES_RESULT": frames,
+               "DRAFT": draft, "PR": "1", "GITHUB_RUN_ATTEMPT": "1", "ARTIFACTS_URL": "https://example.invalid/a"}
+        proc = subprocess.run(["bash", "-e", "-c", verdict_script()], env=env, cwd=REPO, capture_output=True,
+                              text=True, timeout=60)
+        text = ""
+        if os.path.exists(summary):
+            with open(summary) as handle:
+                text = handle.read()
+        return proc.returncode, text, proc.stdout + proc.stderr
+
+    def assert_not_measured(self, **kwargs):
+        for mode in ("report", "enforce"):
+            with self.subTest(mode=mode, **kwargs):
+                code, text, out = self.run_verdict(gate_mode=mode, **kwargs)
+                self.assertEqual(code, 0, out + text)
+                self.assertIn("not measured", text)
+                self.assertNotIn("::error", out)
+
+    def test_cancelled_scope_is_not_measured(self):
+        # A newer push cancels the run (concurrency cancel-in-progress); the verdict still runs (if: always()).
+        self.assert_not_measured(scope="cancelled", in_scope="", frames="skipped")
+
+    def test_skipped_scope_is_not_measured(self):
+        self.assert_not_measured(scope="skipped", in_scope="", frames="skipped")
+
+    def test_missing_report_artifact_is_not_measured(self):
+        # frames succeeded but uploaded nothing: "Artifact not found: tab-switch-45078-1".
+        self.assert_not_measured(frames="success")
+
+    def test_step_that_returned_no_report_is_not_measured(self):
+        self.assert_not_measured(frames="success", step_exit="75")
+
+    def test_cancelled_or_skipped_frames_is_not_measured(self):
+        self.assert_not_measured(frames="cancelled")
+        self.assert_not_measured(frames="skipped")
+
+    def test_busy_display_queue_is_not_measured(self):
+        self.assert_not_measured(frames="success", step_exit="skipped")
+
+    def test_harness_unable_to_measure_is_not_measured(self):
+        self.assert_not_measured(frames="success", step_exit="3", report=with_switch(blank_frames=1))
+
+    def test_out_of_scope_and_draft_stay_green(self):
+        self.assertEqual(self.run_verdict(gate_mode="enforce", in_scope="false", frames="skipped")[0], 0)
+        self.assertEqual(self.run_verdict(gate_mode="enforce", draft="true", frames="skipped")[0], 0)
+
+    def test_failed_scope_job_fails_in_either_mode(self):
+        # Its gate tests failed or the diff could not be read: that judges this change.
+        for mode in ("report", "enforce"):
+            with self.subTest(mode=mode):
+                code, _, out = self.run_verdict(gate_mode=mode, scope="failure", in_scope="", frames="skipped")
+                self.assertEqual(code, 1, out)
+
+    def test_failed_frames_job_fails_when_enforced_and_warns_in_report(self):
+        code, _, out = self.run_verdict(gate_mode="enforce", frames="failure")
+        self.assertEqual(code, 1, out)
+        code, _, out = self.run_verdict(gate_mode="report", frames="failure")
+        self.assertEqual(code, 0, out)
+        self.assertIn("::warning", out)
+
+    def test_budget_miss_fails_when_enforced_and_warns_in_report(self):
+        miss = with_switch(blank_frames=1)
+        code, text, out = self.run_verdict(gate_mode="enforce", step_exit="1", report=miss)
+        self.assertEqual(code, 1, out)
+        self.assertIn(": fail", text)
+        code, _, out = self.run_verdict(gate_mode="report", step_exit="1", report=miss)
+        self.assertEqual(code, 0, out)
+        self.assertIn("::warning", out)
+
+    def test_clean_report_passes(self):
+        code, text, out = self.run_verdict(gate_mode="enforce", step_exit="0", report=clean_report())
+        self.assertEqual(code, 0, out)
+        self.assertIn(": pass", text)
 
 
 if __name__ == "__main__":

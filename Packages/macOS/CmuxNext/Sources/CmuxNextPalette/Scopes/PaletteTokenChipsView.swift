@@ -14,7 +14,12 @@ final class PaletteTokenChipsView: NSView {
     nonisolated override var isFlipped: Bool { true }
 
     func update(tokens: [PaletteToken]) {
-        let titles = tokens.map(\.title)
+        update(chips: tokens.map { (title: $0.title, symbol: $0.symbol) })
+    }
+
+    /// The chips' titles and symbols: a page's chosen values, then the v2 scope bar's typed tokens.
+    func update(chips tokens: [(title: String, symbol: String)]) {
+        let titles = tokens.map { $0.title }
         guard titles != self.titles else { return }
         self.titles = titles
         chipViews.forEach { $0.removeFromSuperview() }
@@ -24,7 +29,6 @@ final class PaletteTokenChipsView: NSView {
             let view = PaletteScopeChipView(chip: chip, style: .token, isTop: true)
             view.onClick = { [weak self] in self?.onRemove?(index) }
             view.setAccessibilityLabel(PaletteStrings.removeToken(token.title))
-            view.themedToolTip = PaletteStrings.removeToken(token.title)
             view.setAccessibilityIdentifier("palette.token.\(index)")
             addSubview(view)
             return view

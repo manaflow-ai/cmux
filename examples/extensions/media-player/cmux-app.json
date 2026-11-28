@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/media-player",
+  "name": {"en": "Media player", "de": "Mediaplayer", "fr": "Lecteur multimédia", "ar": "مشغّل الوسائط", "es": "Reproductor multimedia", "zh-Hant": "媒體播放器", "zh-Hans": "媒体播放器", "ko": "미디어 플레이어", "ja": "メディアプレーヤー"},
+  "version": "1.0.0",
+  "description": { "en": "Control the current track from a compact sidebar player, an album card or a dedicated listening pane." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "music.note" },
+  "categories": ["samples", "sidebar"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": {"en": "Media player", "de": "Mediaplayer", "fr": "Lecteur multimédia", "ar": "مشغّل الوسائط", "es": "Reproductor multimedia", "zh-Hant": "媒體播放器", "zh-Hans": "媒体播放器", "ko": "미디어 플레이어", "ja": "メディアプレーヤー"},
+      "symbol": "music.note",
+      "options": { "defaultRegion": "bottom", "maxRows": 12 }
+    },
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": {"en": "Media player", "de": "Mediaplayer", "fr": "Lecteur multimédia", "ar": "مشغّل الوسائط", "es": "Reproductor multimedia", "zh-Hant": "媒體播放器", "zh-Hans": "媒体播放器", "ko": "미디어 플레이어", "ja": "メディアプレーヤー"},
+      "symbol": "music.note"
+    }
+  },
+  "scopes": {
+    "media:read": "Show the current track, artwork and playback position.",
+    "media:control": "Play, pause, change tracks or seek when you press a control."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "layout": { "type": "string", "title": "Sidebar layout", "enum": ["compact", "card"], "default": "compact" }
+    }
+  },
+  "activation": ["onInterface:cmux.section/1", "onInterface:cmux.pane/1"],
+  "strings": "strings",
+  "files": ["dist/", "strings/"]
+}

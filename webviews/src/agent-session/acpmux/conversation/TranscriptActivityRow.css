@@ -58,11 +58,6 @@ div.cv-agent-activity__control:has(> .cv-agent-activity__sentence > .cv-agent-ta
   flex: none;
   cursor: default;
 }
-.cv-agent-activity-row > .cv-subagent-retry,
-.cv-agent-activity-row > .cv-subagent-done__actions {
-  order: 2;
-  flex: none;
-}
 
 /* A disclosure line (DisclosureRow: subagent, inbox and subsession lines) keeps its words at one
    tone too; only its chevron lifts. A received message's line keeps even that steady

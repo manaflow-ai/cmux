@@ -46,10 +46,15 @@ GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)(?:-.*)?")
 # What scripts/ci/cloud_overflow_switch.py points LINUX_RUNNER at while Blacksmith is down (HOSTED_LINUX).
 OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 
-# The GCP fleet's Linux label. tree-preflight's linux-placement step (scripts/ci/portable_job_placement.py
-# with REQUIRE_LIVE_CAPACITY) emits it only when the runner census shows an idle Linux member, else ''.
 GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
-FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
+GCP_LANE_BUILD_LINUX = "cmux-gcp-lane-build-x64"
+GCP_NIGHTLY_LINUX = "cmux-gcp-nightly-x64"
+# The Freestyle Linux rung's label (main's pr_runner_pool.OWNED_FREESTYLE_LINUX): an 8 vCPU Freestyle VM per queued
+# same-repository job. The linux, linux_2 and linux_8 pools list it after the GCP lead, so a full GCP pool overflows
+# to it before Blacksmith (Leo, 2026-11-19: "stop ... relying on [Blacksmith]. [...] We could use Freestyle").
+FREESTYLE_LINUX = "cmux-freestyle-linux-x64"
+# The persistent Linux pool's label: same-repository jobs name it past their fork branch.
+PERSISTENT_LINUX = "cmux-linux"
 
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])|(?P<prop>\.[A-Za-z_][A-Za-z0-9_]*)"
@@ -289,8 +294,6 @@ class _Evaluator:
         if kind == "prop":
             target = node[1]
             if target[:2] == ("call", "fromjson") and target[2] == [("ctx", "vars.RUNNER_POOLS")]:
-                if node[2] in RUNNER_POOLS_FLAGS:
-                    return set(RUNNER_POOLS_FLAGS[node[2]])
                 return set(pool_members(node[2]))
             return {EMPTY, NULL, False, 0.0, Unknown(f"{target[1]}(...).{node[2]}")}
         raise ValueError(f"unknown node {node!r}")
@@ -366,12 +369,6 @@ def holds_signing_material(job) -> bool:
     return workflow_jobs.ALL_SECRETS in names or any(name.startswith(SIGNING_SECRET_PREFIXES) for name in names)
 
 
-# RUNNER_POOLS keys that are marks, not pools: what each can hold. `hosted_saturated` is the hosted-first valve's
-# since-time (scripts/ci/linux_pool_spill.py valve_choice()), absent (null) unless GitHub-hosted is saturated. It is
-# only ever a condition (`... && fromJSON(vars.RUNNER_POOLS).linux_2`), never a label.
-RUNNER_POOLS_FLAGS = {"hosted_saturated": (NULL, "2026-11-18T02:00:00Z")}
-
-
 def declared_pools(root: Path = ROOT) -> dict[str, list[str]]:
     """pool -> its members, from .github/runners.json `pools` (main's copy is the one runner_pools.py reads)."""
     runners = json.loads((root / ".github/runners.json").read_text(encoding="utf-8"))
@@ -410,19 +407,30 @@ def personal_machine_names() -> tuple[str, ...]:
     return tuple(word.lower() for word in CANDIDATE_WORDS_ANY_CASE)
 
 
+# The one label every own-branch Linux x64 job takes (scripts/ci/one_linux_label.py): the owned pool, sized by load.
+ONE_LINUX_LABEL = "cmux-linux"
+# The one Linux label's fork pull request branch (scripts/ci/one_linux_label.py): a fork's pull_request run takes
+# GitHub-hosted ubuntu-24.04, never an owned host. tests/test_ci_fork_runner_routing.py
+# checks that branch; what an own-branch run can take is the rest of the expression.
+ONE_LABEL_FORK_BRANCH = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+                         "github.repository && 'ubuntu-24.04' || ")
+
+
+def without_fork_branch(runs_on):
+    """`runs_on` with the one-label fork pull request branch taken out: what every own-branch run can take."""
+    return runs_on.replace(ONE_LABEL_FORK_BRANCH, "") if isinstance(runs_on, str) else runs_on
+
+
 def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = None,
                       root: Path = ROOT) -> dict[str, str]:
     """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux.
 
-    A FLEET_LINUX_OUTPUTS step output reads as the GCP fleet Linux label it can only hold.
-
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX}
+    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX,
+                                                     ONE_LINUX_LABEL, FREESTYLE_LINUX}
     personal = personal_machine_names()
-    if isinstance(runs_on, str):
-        for output in FLEET_LINUX_OUTPUTS:
-            runs_on = runs_on.replace(output, f"'{GCP_FLEET_LINUX}'")
+    runs_on = without_fork_branch(runs_on)
     labels = resolve_labels(runs_on, variables=variables)
     if not labels:
         return {"[]": "no label at all: an empty runs-on never schedules"}

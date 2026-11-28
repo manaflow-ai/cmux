@@ -10,6 +10,7 @@ use crate::clock::now_ns;
 use crate::fdwait::wait_readable;
 use crate::wire::Control;
 use crate::Res;
+use cmux_encode::color::Yuv;
 use cmux_encode::openh264::OpenH264Decoder;
 use cmux_encode::{VideoDecoder, I420};
 use cmux_rd_core::input::InputSender;
@@ -28,9 +29,9 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-/// The cap that asks a host for H.264 Constrained Baseline (cmux#44497), the profile OpenH264
-/// decodes. A host that does not know it ignores it.
-const H264_BASELINE: &str = "h264.baseline";
+// The cap that asks a host for H.264 Constrained Baseline (cmux#44497), the profile OpenH264
+// decodes. A host that does not know it ignores it; one that does encodes that profile.
+use cmux_rd_core::service::caps::H264_BASELINE;
 /// The reassembler's wait for a missing shard (the bench's default).
 const DEADLINE_US: u64 = 200_000;
 /// Input not yet acknowledged repeats this often.
@@ -46,6 +47,7 @@ pub struct Config {
     pub control: bool,
     pub viewer_id: String,
     pub stats_file: Option<PathBuf>,
+    pub hub_approval: Option<String>,
 }
 
 pub struct Ended {
@@ -157,9 +159,11 @@ impl Waker {
     }
 }
 
-/// One decoded picture (I420, BT.601 video range) and when it was complete and decoded.
+/// One decoded picture, the conversion its stream's SPS asks for, and when it was complete
+/// and decoded.
 pub struct Picture {
     pub image: I420,
+    pub color: Yuv,
     /// When the frame's last shard arrived (this machine's monotonic clock, ns).
     pub complete_ns: u64,
     pub decoded_ns: u64,
@@ -201,7 +205,9 @@ struct Stats {
     bytes: u64,
     decode_ms: Vec<f64>,
     started_ns: u64,
-    /// When the first and the newest frame decoded: the time to a picture, and the decode rate.
+    first_frame_ms: Option<f64>,
+    luma_variance: Option<f64>,
+    /// When the first and the newest frame decoded: the decode rate.
     first_decoded_ns: Option<u64>,
     last_decoded_ns: u64,
 }
@@ -243,6 +249,8 @@ pub fn run(
     };
 
     let mut reassembler = Reassembler::new(DEADLINE_US);
+    // A gap's reorder grace counts from when the gap is first seen.
+    reassembler.set_gap_grace(true);
     // Every frame decodes into this; the newest of a batch is swapped into the mailbox.
     let mut current = I420::new(2, 2);
     let mut sender = InputSender::new();
@@ -254,6 +262,8 @@ pub fn run(
         bytes: 0,
         decode_ms: Vec::new(),
         started_ns: now_ns(),
+        first_frame_ms: None,
+        luma_variance: None,
         first_decoded_ns: None,
         last_decoded_ns: 0,
     };
@@ -297,6 +307,10 @@ pub fn run(
                 NetEvent::Endpoint(EndpointEvent::PathChanged {
                     kind: Some(k), rtt_us, ..
                 }) => {
+                    // A current path again: the host learns it is back from the first
+                    // feedback after the silence (D12), so that goes now, not at the
+                    // next keepalive.
+                    last_feedback_ns = 0;
                     let name = k.wire_name().to_owned();
                     let relayed = cmux_hub_host::rd_doc::is_relayed(&name);
                     let _ = to_hub.send(ToHub::Path(if relayed { "relay" } else { "direct" }));
@@ -307,6 +321,7 @@ pub fn run(
                             us as f64 / 1000.0
                         ))
                     );
+                    reassembler.set_path_rtt_us(rtt_us);
                     path_kind = Some(name);
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
@@ -419,8 +434,10 @@ pub fn run(
             "decode_errors": stats.decode_errors,
             "mbit_per_s": stats.bytes as f64 * 8.0 / secs.max(1e-3) / 1e6,
             "decode_ms": pct(&mut stats.decode_ms),
-            "first_decoded_ms": stats.first_decoded_ns.map(|t| (t - stats.started_ns) as f64 / 1e6),
+            "first_frame_ms": stats.first_frame_ms,
             "decoded_fps": stats.decoded_fps(),
+            "luma_variance": stats.luma_variance,
+            "hub_approval": config.hub_approval,
             "presented": window_report.presented,
             "replaced_before_present": replaced,
             "present_ms": pct(&mut window_report.present_ms.clone()),
@@ -435,6 +452,22 @@ pub fn run(
         std::fs::write(path, format!("{report}\n"))?;
     }
     Ok(Ended { reason: ended, connected })
+}
+
+fn luma_variance(y: &[u8]) -> f64 {
+    if y.is_empty() {
+        return 0.0;
+    }
+    let count = y.len() as f64;
+    let sum: f64 = y.iter().map(|&sample| f64::from(sample)).sum();
+    let sum_squared: f64 = y
+        .iter()
+        .map(|&sample| {
+            let sample = f64::from(sample);
+            sample * sample
+        })
+        .sum();
+    (sum_squared / count - (sum / count).powi(2)).max(0.0)
 }
 
 fn header(kind: DatagramKind) -> DatagramHeader {
@@ -462,7 +495,8 @@ fn start_session(net: &Net, config: &Config) -> Res<()> {
         max_datagram: MAX_DATAGRAM_VPC,
         token: None,
         service: SERVICE_DESKTOP.into(),
-        caps: vec![H264_BASELINE.into()],
+        // This viewer's reassembler rebuilds frames in interleaved FEC blocks.
+        caps: vec![H264_BASELINE.into(), cmux_rd_core::service::caps::FEC_BLOCKS.into()],
     };
     net.send_control(serde_json::to_vec(&hello)?);
     let start = Control::Start {
@@ -511,9 +545,11 @@ fn on_datagram(
                             stats.first_decoded_ns = Some(t1);
                             // A watcher (the share e2e) times the first picture by this line.
                             eprintln!("First frame decoded");
+                            stats.first_frame_ms = Some((t1 - stats.started_ns) as f64 / 1e6);
+                            stats.luma_variance = Some(luma_variance(&current.y));
                         }
                         if i == last {
-                            hand_off(mailbox, current, now, t1);
+                            hand_off(mailbox, current, decoder.color(), now, t1);
                             present_waker.wake();
                         }
                     }
@@ -521,6 +557,11 @@ fn on_datagram(
                     Err(_) => stats.decode_errors += 1,
                 }
             }
+        }
+        // An ultra capacity probe: only its arrival goes back, in the media feedback.
+        DatagramKind::Probe => {
+            arrivals
+                .push(Arrival { transport_seq: h.transport_seq, arrival_us: (now / 1000) as u32 });
         }
         DatagramKind::InputAck if payload.len() >= 4 => {
             sender.ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
@@ -531,7 +572,13 @@ fn on_datagram(
 
 /// Swaps `current` into the mailbox, replacing a picture the window has not taken (newest
 /// wins). `current` gets an old buffer back for the next decode: no copy, no allocation.
-fn hand_off(mailbox: &SharedMailbox, current: &mut I420, complete_ns: u64, decoded_ns: u64) {
+fn hand_off(
+    mailbox: &SharedMailbox,
+    current: &mut I420,
+    color: Yuv,
+    complete_ns: u64,
+    decoded_ns: u64,
+) {
     let mut slot = mailbox.lock().unwrap_or_else(|e| e.into_inner());
     let mut picture = match slot.ready.take() {
         Some(old) => {
@@ -540,12 +587,13 @@ fn hand_off(mailbox: &SharedMailbox, current: &mut I420, complete_ns: u64, decod
         }
         None => slot.spare.take().unwrap_or_else(|| Picture {
             image: I420::new(2, 2),
+            color: Yuv::SCREEN,
             complete_ns: 0,
             decoded_ns: 0,
         }),
     };
     std::mem::swap(&mut picture.image, current);
-    (picture.complete_ns, picture.decoded_ns) = (complete_ns, decoded_ns);
+    (picture.color, picture.complete_ns, picture.decoded_ns) = (color, complete_ns, decoded_ns);
     slot.ready = Some(picture);
 }
 
@@ -592,6 +640,7 @@ fn maybe_feedback(
         need_recovery: reassembler.need_recovery(),
         arrivals: std::mem::take(arrivals),
         nacks,
+        acked_ltr_tokens: Vec::new(),
     });
     *last_feedback_ns = now;
     *released_since_feedback = false;
@@ -607,86 +656,5 @@ pub fn pct(xs: &mut [f64]) -> serde_json::Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn picture(w: usize, h: usize, fill: u8) -> I420 {
-        let mut p = I420::new(w, h);
-        p.y.fill(fill);
-        p
-    }
-
-    #[test]
-    fn the_newest_picture_wins_and_replacements_are_counted() {
-        let mailbox: SharedMailbox = Arc::default();
-        let mut current = picture(4, 2, 1);
-        hand_off(&mailbox, &mut current, 10, 11);
-        current = picture(4, 2, 2);
-        hand_off(&mailbox, &mut current, 20, 21);
-        let mut slot = mailbox.lock().unwrap();
-        assert_eq!(slot.replaced, 1);
-        let shown = slot.ready.take().unwrap();
-        assert_eq!((shown.image.y[0], shown.complete_ns, shown.height()), (2, 20, 2));
-        assert_eq!(current.y[0], 1, "the replaced buffer comes back for the next decode");
-        assert!(slot.ready.is_none());
-    }
-
-    #[test]
-    fn the_decode_rate_runs_from_the_first_decoded_frame() {
-        let mut stats = Stats {
-            frames: 0,
-            decoded: 1,
-            decode_errors: 0,
-            bytes: 0,
-            decode_ms: Vec::new(),
-            started_ns: 0,
-            first_decoded_ns: Some(2_000_000_000),
-            last_decoded_ns: 2_000_000_000,
-        };
-        assert_eq!(stats.decoded_fps(), None, "one frame has no rate");
-        // 31 frames over the 0.5 s after the first: 60 fps, whatever came before the first.
-        stats.decoded = 31;
-        stats.last_decoded_ns = 2_500_000_000;
-        assert_eq!(stats.decoded_fps(), Some(60.0));
-        stats.first_decoded_ns = None;
-        assert_eq!(stats.decoded_fps(), None);
-    }
-
-    #[test]
-    fn a_waker_wakes_a_wait_and_drains() {
-        let w = Waker::new().unwrap();
-        w.wake();
-        let t = now_ns();
-        wait_readable(&[w.fd()], Some(1_000_000_000)).unwrap();
-        assert!(now_ns() - t < 500_000_000);
-        w.drain();
-        let t = now_ns();
-        wait_readable(&[w.fd()], Some(20_000_000)).unwrap();
-        assert!(now_ns() - t >= 15_000_000, "drained pipe is not readable");
-    }
-
-    #[test]
-    fn percentiles_of_samples() {
-        let mut xs = vec![5.0, 1.0, 3.0, 2.0, 4.0];
-        let p = pct(&mut xs);
-        assert_eq!(
-            (p["p50"].as_f64(), p["max"].as_f64(), p["n"].as_u64()),
-            (Some(3.0), Some(5.0), Some(5))
-        );
-        assert!(pct(&mut []).is_null());
-    }
-
-    #[test]
-    fn ctrl_c_wakes_the_session_loop_and_marks_it_interrupted() {
-        let w = Waker::new().unwrap();
-        INTERRUPT_FD.store(w.0.write, Ordering::SeqCst);
-        assert!(!interrupted());
-        on_interrupt(libc::SIGINT);
-        assert!(interrupted());
-        wait_readable(&[w.fd()], Some(1_000_000_000)).unwrap();
-        let mut buf = [0u8; 4];
-        // SAFETY: a read into our buffer from our own non-blocking pipe.
-        assert_eq!(unsafe { libc::read(w.fd(), buf.as_mut_ptr().cast(), 4) }, 1);
-        INTERRUPT_FD.store(-1, Ordering::SeqCst);
-    }
-}
+#[path = "stream_tests.rs"]
+mod tests;

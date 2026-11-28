@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""A pull request that changes cmux-rd-host runs its macOS fmt, clippy and tests.
+"""A feat-cmux-next push that changes cmux-rd-host runs its macOS fmt, clippy and tests on the tip.
 
 cmux-rd-host's pull request jobs (rust-workspaces.yml) run on Linux, so its code behind
 #[cfg(target_os = "macos")] (src/mac/) was never linted by one: on 2026-11-15 `cmux-tui-rust-check.sh rd-host` on
-macOS was red on feat-cmux-next with two dead_code errors in src/hybrid.rs (#43668) and no pull request job had seen
-them. This test fails unless some workflow both starts on a feat-cmux-next pull request that changes a macOS-only
-file of the crate and runs `cmux-tui-rust-check.sh` in mode `rd-host` with `--os macos` (fleet-rd-host-macos.yml).
+macOS was red on feat-cmux-next with two dead_code errors in src/hybrid.rs (#43668) and no job had seen them. The
+macOS check ran on pull requests until 2026-11-22, when it moved to the tip (once per window, base-coalesce.yml): it
+had been red 0 times in 70 pull request runs in 24 h. This test fails unless some workflow both starts on a
+feat-cmux-next push that changes a macOS-only file of the crate and runs `cmux-tui-rust-check.sh` in mode `rd-host`
+with `--os macos`, or reads that check's verdict with `fleet_compile_result.py --phase rd-host-macos`, whose read has
+the controller submit the same macOS step (fleet-rd-host-macos.yml since RFD 0162 moved it off its gateway Mac,
+2026-11-26).
 
 The trigger is read as GitHub reads it (branches, branches-ignore, paths, paths-ignore), and a job or step whose
 `if:` names another event, or a run line that asks for Linux, does not count.
@@ -34,14 +38,20 @@ MAC_ONLY_FILES = (
 SCRIPT = re.compile(r"(^|[\s/])cmux-tui-rust-check\.sh(\s|$)")
 MAC = re.compile(r"(^|\s)--os(=|\s+)[\"']?macos[\"']?(\s|$)")
 RD_HOST = re.compile(r"(^|\s)--arg(=|\s+)[\"']?rd-host[\"']?(\s|$)")
+# The controller-submitted form: the read of phase rd-host-macos submits cmux-tui-rust-check.sh rd-host on a fleet Mac.
+READER = re.compile(r"(^|[\s/\"'])fleet_compile_result\.py[\"']?(\s|$)")
+PHASE = re.compile(r"(^|\s)--phase(=|\s+)[\"']?rd-host-macos[\"']?(\s|$)")
 
 
-def admits_pull_request(document, path: str, base: str = BASE) -> bool:
-    """Whether a pull request into `base` that changes only `path` starts this workflow."""
+EVENT = "push"
+
+
+def admits_push(document, path: str, base: str = BASE) -> bool:
+    """Whether a push to `base` that changes only `path` starts this workflow."""
     events = detector.triggers(document)
-    if "pull_request" not in events:
+    if EVENT not in events:
         return False
-    config = events.get("pull_request") or {}
+    config = events.get(EVENT) or {}
     if not isinstance(config, dict):
         return True
     if "branches" in config and not detector.admits("paths", [str(b) for b in config["branches"] or []], base):
@@ -56,22 +66,24 @@ def admits_pull_request(document, path: str, base: str = BASE) -> bool:
 
 
 def runs_rd_host_on_macos(run: str) -> bool:
-    """Whether one command of a step's script runs cmux-tui-rust-check.sh rd-host on macOS."""
+    """Whether one command of a step's script runs cmux-tui-rust-check.sh rd-host on macOS, or reads its verdict."""
     for command in run.replace("\\\n", " ").splitlines():
         if SCRIPT.search(command) and MAC.search(command) and RD_HOST.search(command):
+            return True
+        if READER.search(command) and PHASE.search(command):
             return True
     return False
 
 
 def routes(root: Path, path: str) -> list[str]:
-    """The workflows (repo paths) whose pull request run for a change to `path` runs the macOS rd-host check."""
+    """The workflows (repo paths) whose feat-cmux-next push run for a change to `path` runs the macOS rd-host check."""
     repo = detector.Repo(root)  # steps_for reads only its root (to follow local reusable workflows)
     found = []
     for workflow in sorted((root / ".github" / "workflows").glob("*.y*ml")):
         document = detector.load_quietly(workflow, None)
-        if not isinstance(document, dict) or not admits_pull_request(document, path):
+        if not isinstance(document, dict) or not admits_push(document, path):
             continue
-        if any(runs_rd_host_on_macos(run) for run, _, _ in detector.steps_for(repo, document, "pull_request")):
+        if any(runs_rd_host_on_macos(run) for run, _, _ in detector.steps_for(repo, document, EVENT)):
             found.append(workflow.relative_to(root).as_posix())
     return found
 
@@ -82,8 +94,8 @@ class RdHostMacosRoute(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertNotEqual(
                     routes(ROOT, path), [],
-                    f"no pull_request workflow starts for {path} and runs `cmux-tui-rust-check.sh rd-host` with "
-                    "`--os macos`: its macOS-only code merges unlinted (#43668)")
+                    f"no workflow starts on a feat-cmux-next push of {path} and runs `cmux-tui-rust-check.sh rd-host` "
+                    "with `--os macos`: its macOS-only code lands and stays unlinted (#43668)")
 
 
 class Matcher(unittest.TestCase):
@@ -96,7 +108,7 @@ class Matcher(unittest.TestCase):
     def workflow(self, paths: str, run: str, condition: str = "true") -> str:
         return f"""
             on:
-              pull_request:
+              push:
                 branches: [feat-cmux-next]
                 paths: {paths}
             jobs:
@@ -118,6 +130,19 @@ class Matcher(unittest.TestCase):
         self.assertEqual(self.routed(self.workflow('["cmux-tui/crates/cmux-rd-host/**"]', step)),
                          [".github/workflows/w.yml"])
 
+    def test_a_read_of_the_rd_host_macos_phase_counts(self):
+        # The reader is named on the run line itself: a variable hides what it reads.
+        read = 'word="$(python3 "$reader" --sha "$REF" --repo R --phase rd-host-macos --wait 4800)"'
+        self.assertTrue(runs_rd_host_on_macos(
+            'python3 "$GITHUB_WORKSPACE/scripts/ci/fleet_compile_result.py" --sha "$REF" --phase rd-host-macos'))
+        self.assertEqual(self.routed(self.workflow('["cmux-tui/crates/cmux-rd-host/**"]',
+                                                   "python3 scripts/ci/fleet_compile_result.py --sha X --phase rd-host-macos")),
+                         [".github/workflows/w.yml"])
+        for other in ("python3 scripts/ci/fleet_compile_result.py --sha X --phase app-debug",
+                      "python3 scripts/ci/fleet_compile_result.py --sha X", read):
+            with self.subTest(run=other):
+                self.assertFalse(runs_rd_host_on_macos(other))
+
     def test_a_linux_run_or_another_mode_does_not_count(self):
         for os_flag, arg in (("--os linux", "rd-host"), ("", "rd-host"), ("--os macos", "rd-bench")):
             with self.subTest(os=os_flag, arg=arg):
@@ -130,16 +155,16 @@ class Matcher(unittest.TestCase):
 
     def test_a_job_for_another_event_does_not_count(self):
         step = self.STEP.format(os="--os macos", arg="rd-host")
-        text = self.workflow('["cmux-tui/**"]', step, condition="github.event_name == 'push'")
+        text = self.workflow('["cmux-tui/**"]', step, condition="github.event_name == 'pull_request'")
         self.assertEqual(self.routed(text), [])
 
     def test_branch_filters(self):
-        document = {"on": {"pull_request": {"branches": ["main"]}}}
-        self.assertFalse(admits_pull_request(document, MAC_ONLY_FILES[0]))
-        document = {"on": {"pull_request": {"branches-ignore": ["feat-*"]}}}
-        self.assertFalse(admits_pull_request(document, MAC_ONLY_FILES[0]))
-        self.assertTrue(admits_pull_request({"on": "pull_request"}, MAC_ONLY_FILES[0]))
-        self.assertFalse(admits_pull_request({"on": {"push": {}}}, MAC_ONLY_FILES[0]))
+        document = {"on": {"push": {"branches": ["main"]}}}
+        self.assertFalse(admits_push(document, MAC_ONLY_FILES[0]))
+        document = {"on": {"push": {"branches-ignore": ["feat-*"]}}}
+        self.assertFalse(admits_push(document, MAC_ONLY_FILES[0]))
+        self.assertTrue(admits_push({"on": "push"}, MAC_ONLY_FILES[0]))
+        self.assertFalse(admits_push({"on": {"pull_request": {}}}, MAC_ONLY_FILES[0]))
 
 
 if __name__ == "__main__":

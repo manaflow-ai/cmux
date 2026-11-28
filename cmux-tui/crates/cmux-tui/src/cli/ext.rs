@@ -6,19 +6,34 @@
 //! save (`dev.rs`), `ext shot` shows what it rendered (`shot.rs`), `ext list`
 //! and `ext remove` show and drop the folders `ext dev` loaded. `ext publish`
 //! checks a folder is ready to list on cmux.com from its git repository
-//! (`publish.rs`).
+//! (`publish.rs`). `ext remix` copies a published extension into a new folder
+//! to change (`remix.rs`). `ext share` prints the link that adds a pushed folder
+//! (`share.rs`), and publishes a folder with no `origin` yet to a new GitHub
+//! repository (`share_repo.rs`).
 
 mod daemon;
+mod design;
+mod design_system;
 mod dev;
+mod headless;
 #[cfg(test)]
 mod kinds_tests;
 mod pack;
 mod publish;
 #[cfg(test)]
 mod publish_tests;
+#[cfg(test)]
+mod recipes_tests;
+mod remix;
+#[cfg(test)]
+mod remix_tests;
 mod scaffold;
 mod scene;
+mod scene_type;
+mod share;
+mod share_repo;
 mod shot;
+mod source;
 #[cfg(test)]
 mod tests;
 
@@ -52,6 +67,14 @@ pub(super) mod exit {
     pub const BUILD_FAILED: i32 = 5;
     /// `ext shot`: it loaded and rendered, but no picture was taken.
     pub const SHOT_FAILED: i32 = 6;
+    /// `ext share`: GitHub is not connected; the folder is kept.
+    pub const NOT_CONNECTED: i32 = 7;
+    /// `ext shot --record`: the scenes could not be written to `preview/scenes.json`.
+    pub const RECORD_FAILED: i32 = 9;
+    /// `ext add`: the source could not be fetched; `ext search`: GitHub did not answer.
+    pub const FETCH_FAILED: i32 = 7;
+    /// `ext share`: the folder cannot be shared yet.
+    pub const NOT_SHAREABLE: i32 = 8;
     pub const INTERRUPTED: i32 = 130;
 }
 
@@ -60,7 +83,8 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext new NAME [--kind K] a working extension folder ./NAME on the SDK this cmux ships;
                                K: sidebar (default, a sidebar section), session-info (a section
                                in an agent chat's Session Info), pane (a view in a tab),
-                               newtab (a whole New Tab page, picked in tabs.newTabApp),
+                               newtab (a view over the New Tab composer, picked in tabs.newTabApp),
+                               widget (a New Tab and sidebar widget, small/medium/large),
                                command (a palette command, `cmux NAME ...` and an agent tool);
                                --repo OWNER/REPO (else the folder's github.com origin) makes the
                                id OWNER/NAME, sets repository and fills the README's badge
@@ -74,15 +98,44 @@ cmux ext: make a cmux extension and watch it change as you work.
                                files it names) and cmux-app.v2.json in DIR/release; prints the sha256
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
-  cmux ext shot [DIR] [--out PNG] [--json]
-                               one reload, then what it rendered: the view's outline and a
-                               picture of the cmux window that shows it; exit 6 no picture
+  cmux ext dev --once --headless --json
+                               the same with no cmux running: built, then loaded and rendered once
+                               here by the app host cmux runs (host calls answer empty); for CI
+                               and machines with no window
+  cmux ext shot [DIR] [--out PNG] [--record] [--json]
+                               one reload, then what it rendered: the view's outline, its design
+                               warnings and a picture of the cmux window that shows it; exit 6
+                               no picture. --record writes the scene (a widget: each declared size)
+                               into DIR/preview/scenes.json; exit 9 when it cannot
+  cmux ext add SOURCE [--no-install]
+                               add someone's extension: a git URL, OWNER/NAME[@REF], a GitHub
+                               /tree/REF/PATH link, URL#PATH, or a folder; again to update it
+  cmux ext share [DIR]         the link that adds yours (checks it is pushed and built); a
+                               folder with no origin yet is published first (below)
+  cmux ext search [WORDS]      extensions people tagged cmux-extension on GitHub
   cmux ext reload [NAME]       read the extension folders again now and rerun NAME (local/NAME,
                                or every extension in a local folder): a save the watch missed
                                shows, and a script that does not load names file:line while the
                                last good view stays; exit 1 when one did not load
   cmux reload-config           cmux-next.json, the Ghostty config and every local extension, at once
+  cmux ext design FILE... [--widget] [--system cmux-design.json] [--json]
+                               the design check ext dev runs, on recorded scenes (a JSON array
+                               of scene ops, or an object of them by name), against cmux's design
+                               system or yours (ext dev reads DIR/cmux-design.json); exit 1 on a warning
+  cmux ext design --listing DIR [--json]
+                               registry review's design check: the folder's recorded scenes
+                               (preview/scenes.json, which its files must ship) against its own
+                               system; exit 1 when a scene warns or none is recorded
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
+  cmux ext remix HOST/OWNER/REPO[/PATH][@COMMIT] [--dir D] [--name N]
+                               fork and customize: that extension's source at the commit in a
+                               new folder (~/Projects/NAME) as local/NAME with its own git
+                               repository, and the steps to change and publish it
+  cmux ext share [DIR] [--name REPO] [--private]
+                               no origin yet, or --name/--private: publish DIR to a new
+                               GitHub repository of yours (your gh login):
+                               the manifest and README badge made yours, topic cmux-extension,
+                               and its cmux.com page; exit 7 when GitHub is not connected
   cmux ext capabilities [--op NAME] [--json]
                                what an extension can read and do: each op's scope, risk class
                                and consent text, from the running cmux (--json adds the types)
@@ -104,6 +157,10 @@ pub(super) struct DevOptions {
     pub build_timeout: std::time::Duration,
     /// `bun` for the packer (found on PATH; tests set none).
     pub bun: Option<PathBuf>,
+    /// Render a widget at every size it declares (`ext shot --record`; `ext dev` renders one).
+    pub every_size: bool,
+    /// `--headless` (with `--once`): load and render in this process, no cmux needed.
+    pub headless: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +175,10 @@ pub(super) enum Request {
     },
     Dev(DevOptions),
     Shot(shot::ShotOptions),
+    Add(share::AddOptions),
+    Search {
+        query: Option<String>,
+    },
     List,
     Remove {
         app: String,
@@ -130,10 +191,30 @@ pub(super) enum Request {
     Capabilities {
         op: Option<String>,
     },
+    /// `ext remix REF`: fork and customize.
+    Remix(remix::RemixOptions),
+    /// `ext share [DIR]`: the link that adds a pushed folder, or, for a folder with no `origin`
+    /// (or with `--name` / `--private`), publish it to a new GitHub repository.
+    Share {
+        dir: PathBuf,
+        name: Option<String>,
+        private: bool,
+    },
     /// `ext publish [DIR]`: is the folder ready to list, and the steps.
     Publish(publish::PublishOptions),
     /// `ext pack [DIR]`: the release assets.
     Pack(pack::PackOptions),
+    /// `ext design FILE... [--widget]`: the design check on recorded scenes.
+    Design {
+        files: Vec<PathBuf>,
+        widget: bool,
+        /// `--system FILE`: a `cmux-design.json` to check against instead of cmux's system.
+        system: Option<PathBuf>,
+    },
+    /// `ext design --listing DIR`: registry review's design check of a folder.
+    DesignListing {
+        dir: PathBuf,
+    },
 }
 
 /// Parses the words after `ext` (`--json` already taken out).
@@ -180,11 +261,6 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     "{name}: a name is lowercase letters, digits and '-', starting with a letter or digit (not \"customize\")"
                 )));
             }
-            if kind == "widget" {
-                return Err(usage(
-                    "--kind widget needs the new tab page's widget interface, which this cmux does not have yet; --kind section works",
-                ));
-            }
             if let Some(problem) = scaffold::pending(&kind) {
                 return Err(usage(&problem));
             }
@@ -205,6 +281,8 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 build: None,
                 build_timeout: dev::BUILD_TIMEOUT,
                 bun: None,
+                every_size: false,
+                headless: false,
             };
             let mut dir = None;
             let mut words = rest.iter();
@@ -214,6 +292,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     "--keep" => options.remove_on_exit = false,
                     "--remove-on-exit" => options.remove_on_exit = true,
                     "--no-install" => options.install = false,
+                    "--headless" => options.headless = true,
                     "--build" => {
                         options.build = Some(
                             words.next().ok_or_else(|| usage("--build needs a command"))?.clone(),
@@ -237,11 +316,40 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             if let Some(dir) = dir {
                 options.dir = dir;
             }
+            if options.headless && !options.once {
+                return Err(usage(
+                    "--headless goes with --once: cmux ext dev --once --headless --json",
+                ));
+            }
             Ok(Request::Dev(options))
+        }
+        "add" => {
+            let mut source = None;
+            let mut install = true;
+            for word in rest {
+                match word.as_str() {
+                    "--no-install" => install = false,
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ if source.is_some() => return Err(usage("ext add takes one SOURCE")),
+                    _ => source = Some(word.clone()),
+                }
+            }
+            let source = source.ok_or_else(|| usage("ext add needs a SOURCE"))?;
+            Ok(Request::Add(share::AddOptions { source, install }))
+        }
+        "search" => {
+            if let Some(flag) = rest.iter().find(|word| word.starts_with('-')) {
+                return Err(usage(&format!("unknown option {flag}")));
+            }
+            let query = (!rest.is_empty()).then(|| rest.join(" "));
+            Ok(Request::Search { query })
         }
         "shot" => {
             // One `ext dev --once` reload with no install card, plus where the picture goes.
             let mut out = None;
+            let mut record = false;
             let mut dev = vec!["dev".to_string(), "--once".into(), "--no-install".into()];
             let mut words = rest.iter();
             while let Some(word) = words.next() {
@@ -251,6 +359,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                         Some(path) if path != "-" => out = Some(PathBuf::from(path)),
                         _ => return Err(usage("--out needs a file path")),
                     },
+                    "--record" => record = true,
                     "--once" | "--keep" | "--remove-on-exit" | "--no-install" => {
                         return Err(usage(&format!(
                             "{word}: ext shot reloads once and installs nothing"
@@ -264,9 +373,52 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 }
             }
             match parse(&dev)? {
-                Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out })),
+                Request::Dev(mut dev) => {
+                    dev.every_size = record;
+                    Ok(Request::Shot(shot::ShotOptions { dev, out, record }))
+                }
                 _ => Err(usage("ext shot")),
             }
+        }
+        "design" => {
+            let mut files = Vec::new();
+            let mut widget = false;
+            let mut system = None;
+            let mut listing = None;
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--widget" => widget = true,
+                    "--listing" => {
+                        listing = Some(PathBuf::from(
+                            words.next().ok_or_else(|| usage("--listing needs a folder"))?,
+                        ));
+                    }
+                    "--system" => {
+                        system = Some(PathBuf::from(
+                            words
+                                .next()
+                                .ok_or_else(|| usage("--system needs a cmux-design.json"))?,
+                        ));
+                    }
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ => files.push(PathBuf::from(word)),
+                }
+            }
+            if let Some(dir) = listing {
+                if !files.is_empty() || widget || system.is_some() {
+                    return Err(usage(
+                        "ext design --listing DIR takes no FILE, --widget or --system: the folder's manifest and cmux-design.json say them",
+                    ));
+                }
+                return Ok(Request::DesignListing { dir });
+            }
+            if files.is_empty() {
+                return Err(usage("ext design needs a scene FILE"));
+            }
+            Ok(Request::Design { files, widget, system })
         }
         "pack" => {
             let mut options = pack::PackOptions { dir: PathBuf::from("."), out: None };
@@ -347,6 +499,57 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             ))),
             _ => Err(usage("ext remove needs one ID")),
         },
+        "remix" => {
+            let (mut source, mut dir, mut name) = (None, None, None);
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--dir" => {
+                        dir = Some(PathBuf::from(
+                            words.next().ok_or_else(|| usage("--dir needs a path"))?,
+                        ));
+                    }
+                    "--name" => {
+                        name =
+                            Some(words.next().ok_or_else(|| usage("--name needs a name"))?.clone());
+                    }
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ if source.is_some() => return Err(usage("ext remix takes one source")),
+                    _ => source = Some(word.clone()),
+                }
+            }
+            let source = source.ok_or_else(|| {
+                usage("ext remix needs a source: HOST/OWNER/REPO[/PATH][@COMMIT]")
+            })?;
+            if remix::SourceRef::parse(&source).is_none() {
+                return Err(usage(&format!(
+                    "{source}: give the source as HOST/OWNER/REPO[/PATH][@COMMIT]"
+                )));
+            }
+            Ok(Request::Remix(remix::RemixOptions { source, dir, name }))
+        }
+        "share" => {
+            let (mut dir, mut name, mut private) = (None, None, false);
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--private" => private = true,
+                    "--public" => private = false,
+                    "--name" => {
+                        name =
+                            Some(words.next().ok_or_else(|| usage("--name needs a name"))?.clone());
+                    }
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ if dir.is_some() => return Err(usage("ext share takes one DIR")),
+                    _ => dir = Some(PathBuf::from(word)),
+                }
+            }
+            Ok(Request::Share { dir: dir.unwrap_or_else(|| PathBuf::from(".")), name, private })
+        }
         other => Err(usage(&format!("unknown ext verb {other}"))),
     }
 }
@@ -417,6 +620,9 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                                 "files": files,
                                 "repository": repo.as_ref().map(publish::Repo::url),
                                 "gitInit": git == Some(true),
+                                // Publishing to a new GitHub repository of the person's is the
+                                // last step, on by default (`ext share`).
+                                "publish": format!("cmux ext share {}", dir.display()),
                             })
                         );
                     } else {
@@ -434,6 +640,11 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                                 "share: cmux ext publish --repo OWNER/REPO --write-badge, once it has a GitHub repository"
                             ),
                         }
+                        // The last step, on by default: a new GitHub repository of the person's.
+                        println!(
+                            "when it works, publish it: cmux ext share {} makes a new GitHub repository of yours and prints its cmux.com page",
+                            dir.display()
+                        );
                     }
                     exit::OK
                 }
@@ -456,6 +667,8 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                 dev::run_watch(global, &options, globals)
             }
         }
+        Request::Add(options) => share::run_add(global, &options, &globals, json_out),
+        Request::Search { query } => share::run_search(query.as_deref(), json_out),
         Request::Shot(mut options) => {
             options.dev.dir = absolute(options.dev.dir);
             options.dev.bun = dev::find_bun();
@@ -476,6 +689,76 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
         Request::List | Request::Remove { .. } => list_or_remove(global, request, json_out),
         Request::Reload { app } => reload(global, app.as_deref(), json_out),
         Request::Capabilities { op } => capabilities(global, op.as_deref(), json_out),
+        Request::Remix(mut options) => {
+            options.dir = options.dir.map(absolute_new);
+            let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("."), PathBuf::from);
+            match remix::remix(&options, &home, None) {
+                Ok(made) => {
+                    if json_out {
+                        println!("{}", made.to_json());
+                    } else {
+                        print!("{}", made.brief());
+                    }
+                    exit::OK
+                }
+                Err(message) => {
+                    eprintln!("cmux: {message}");
+                    1
+                }
+            }
+        }
+        Request::Share { dir, name, private } => {
+            let dir = absolute(dir);
+            // A folder already on a remote gets its link; a new one (no `origin`), or one asked
+            // for a new repository by `--name` / `--private`, is published first.
+            if name.is_none() && !private && share_repo::has_origin(&dir) {
+                return share::run_share(&dir, json_out);
+            }
+            // The person's own `gh` login; `CMUX_EXT_GH` names another program (tests).
+            let gh =
+                std::env::var_os("CMUX_EXT_GH").map_or_else(|| PathBuf::from("gh"), PathBuf::from);
+            match share_repo::share(&share_repo::ShareOptions {
+                dir: dir.clone(),
+                name,
+                private,
+                gh,
+            }) {
+                Ok(shared) => {
+                    if json_out {
+                        println!("{}", shared.to_json(&dir));
+                    } else {
+                        print!("{}", shared.text(&dir));
+                    }
+                    match shared {
+                        share_repo::Shared::Published { .. } => exit::OK,
+                        share_repo::Shared::NotConnected { .. } => exit::NOT_CONNECTED,
+                    }
+                }
+                Err(message) => {
+                    eprintln!("cmux: {message}");
+                    1
+                }
+            }
+        }
+        Request::Design { files, widget, system } => {
+            let surface = if widget { design::Surface::Widget } else { design::Surface::Other };
+            let system = match system {
+                None => design_system::System::cmux(),
+                Some(path) => match std::fs::read_to_string(&path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
+                    .and_then(|value| design_system::System::from_json(&value))
+                {
+                    Ok(system) => system,
+                    Err(problem) => {
+                        eprintln!("cmux: {}: {problem}", path.display());
+                        return exit::MANIFEST_INVALID;
+                    }
+                },
+            };
+            design::run(&files, surface, &system, json_out)
+        }
+        Request::DesignListing { dir } => design::run_listing(&absolute(dir), json_out),
         Request::Pack(mut options) => {
             options.dir = absolute(options.dir);
             options.out = options.out.map(absolute);
@@ -514,6 +797,15 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
     }
 }
 
+/// `dir` made absolute against the working folder (it need not exist yet).
+fn absolute_new(dir: PathBuf) -> PathBuf {
+    if dir.is_absolute() {
+        dir
+    } else {
+        std::env::current_dir().map(|cwd| cwd.join(&dir)).unwrap_or(dir)
+    }
+}
+
 /// The app id `ext reload NAME` asks for: `NAME` is `local/NAME`, and an
 /// id with its publisher (`local/x`, `acme/x` from `CMUX_APPS_DIRS`) is
 /// itself. `None` for a word that names no app.
@@ -546,6 +838,66 @@ fn reload(global: &GlobalArgs, app: Option<&str>, json_out: bool) -> i32 {
             code
         }
     }
+}
+
+/// How long a `customize` verb waits for the daemon to load the folder it
+/// rewrote. Past it the verb returns anyway: the daemon's watch still loads it.
+const CUSTOMIZE_LOAD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How the daemon took a customization folder a `customize` verb rewrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum FolderLoad {
+    /// It read the folder: the views in it are what cmux shows now.
+    Loaded,
+    /// It refused the folder, with why (its views stay as they were).
+    Refused(String),
+    /// No daemon runs, it is in safe mode, it is older than
+    /// `apps-reload-local` or it did not answer in time: its watch loads the
+    /// folder when it can, as before.
+    NotAsked,
+}
+
+/// Asks the daemon to load the customization folder now and waits for its
+/// answer (`apps-reload-local`, the pass its folder watch runs): a
+/// `customize use` returns with the look's views (its New Tab page, its
+/// sidebar section) loaded, instead of seconds before the watch's late event
+/// on a loaded Mac, when a New Tab page opened at once found no app to show
+/// and showed cmux's own page for its whole life. Best effort: the verb
+/// is a file change and works with no daemon.
+pub(super) fn load_customize_folder(global: &GlobalArgs, folder: &std::path::Path) -> FolderLoad {
+    let (sender, wakes) = channel();
+    let Ok(mut daemon) = daemon::Daemon::connect(global, sender, wakes) else {
+        return FolderLoad::NotAsked;
+    };
+    let folder = folder.display().to_string();
+    let Ok(asked) = daemon.send(json!({ "cmd": "apps-reload-local", "folders": [&folder] })) else {
+        return FolderLoad::NotAsked;
+    };
+    let answer = daemon.wait(std::time::Instant::now() + CUSTOMIZE_LOAD_DEADLINE, |value| {
+        (value.get("id").and_then(Value::as_str) == Some(asked.as_str()))
+            .then(|| daemon::answer(value))
+    });
+    // An older daemon refuses the request it cannot parse: its watch loads the folder.
+    let Ok(Ok(data)) = answer else { return FolderLoad::NotAsked };
+    if data.field("safeMode").as_bool() == Some(true) {
+        return FolderLoad::NotAsked;
+    }
+    let refused = data.field("rejected").as_array().into_iter().flatten().find_map(|rejected| {
+        (rejected.field("dir").as_str() == Some(folder.as_str()))
+            .then(|| rejected.field("issue").as_str().unwrap_or("refused").to_owned())
+    });
+    refused.map_or(FolderLoad::Loaded, FolderLoad::Refused)
+}
+
+/// One daemon request on the session socket `global` names: the answer's data, or the daemon's
+/// refusal as `code: message`; `Err` when there is no daemon or it did not answer.
+pub(in crate::cli) fn daemon_call(
+    global: &GlobalArgs,
+    request: Value,
+) -> Result<Result<Value, String>, String> {
+    let (sender, wakes) = channel();
+    let mut daemon = daemon::Daemon::connect(global, sender, wakes)?;
+    daemon.call(request).map_err(|_| "the cmux daemon did not answer".to_string())
 }
 
 /// The daemon's `apps-reload` answer, or an exit code and message.
@@ -808,6 +1160,10 @@ pub(super) fn capabilities_table(data: &Value) -> String {
     if let Some(version) = data.field("apiVersion").as_str() {
         out.push_str(&format!("cmux app API {version}\n"));
     }
+    out.push_str(
+        "Each surface's reference, with a working example: cmux customize docs [SURFACE]; \
+copy-paste prompts for common goals: cmux customize prompts\n",
+    );
     out
 }
 

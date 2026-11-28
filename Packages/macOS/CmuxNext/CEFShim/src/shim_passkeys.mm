@@ -94,4 +94,9 @@ int cmux_shim_passkey_delete(const char* profile_cache_path, const char* credent
   return StartPasskeyRequest(profile_cache_path, credential_id, reply);
 }
 
+int cmux_shim_tab_set_webauthn_mode(int browser_id, int refuse) {
+  // CMUX_WEBAUTHN_MODE_ALLOW 0, CMUX_WEBAUTHN_MODE_REFUSE 1 (cef_cmux.h, API 23).
+  return fork_api().tab_set_webauthn_mode ? fork_api().tab_set_webauthn_mode(browser_id, refuse ? 1 : 0) : 0;
+}
+
 }  // extern "C"

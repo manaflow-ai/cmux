@@ -268,6 +268,7 @@ import Testing
         #expect(store.workspace(id: made[0].id) != nil)
     }
 
+    #if os(iOS)  // The pick rules are Rust's task_pick_toggle (cmux-mobile-link-ffi), linked on iOS only.
     /// A3: a task takes at most four agents, always keeps one, and never an agent a phone can't start;
     /// with no pick, the agent shown checked becomes the first real pick.
     @Test func pickingAgentsKeepsOneAndStopsAtTheLimit() {
@@ -285,6 +286,7 @@ import Testing
         #expect(draft.picks.count == TaskDraft.agentLimit)
         #expect(draft.toggle(agent("x", start: false), fallback: nil) == .unavailable)
     }
+    #endif
 
     /// A4: another Mac has its own agents, so its picks start over; the same Mac keeps them.
     @Test func choosingAnotherMacClearsThePicks() {
@@ -306,11 +308,13 @@ import Testing
         await creator.settle()
     }
 
+    #if os(iOS)  // Rust's task_image_mime_type.
     @Test func imageTypeIsReadFromItsBytes() {
         #expect(TaskImage(data: Data([0xFF, 0xD8, 0xFF] + Array(repeating: 0, count: 9))).mimeType == "image/jpeg")
         #expect(TaskImage(data: Data(Array("RIFF".utf8) + [0, 0, 0, 0] + Array("WEBP".utf8))).mimeType == "image/webp")
         #expect(TaskImage(data: Data(Array("ftypheic0000".utf8))).mimeType == nil)
     }
+    #endif
 }
 
 /// The workspace page finds a creating workspace's opening tab by this id (WorkspaceTabsSource.placeholderTabID).
@@ -467,6 +471,7 @@ import Testing
 }
 
 
+#if os(iOS)  // The terminal line is Rust's task_terminal_line (cmux-mobile-link-ffi), linked on iOS only.
 /// A terminal launch (classic's tasks): the agent's CLI with its model and the task, typed into
 /// the new workspace's shell. Nothing in the prompt can run.
 @MainActor @Suite struct TerminalLaunchTests {
@@ -476,6 +481,17 @@ import Testing
         #expect(AgentTask(prompt: "Fix it", launch: .terminal, family: "codex").terminalLine() == "codex -- $'Fix it'\n")
         #expect(AgentTask(prompt: "Fix it", model: "default", launch: .terminal, family: "claude").terminalLine() == "claude -- $'Fix it'\n")
         #expect(AgentTask(prompt: "Fix it", launch: .terminal, family: "opencode").terminalLine() == nil)
+    }
+
+    /// The picked mode goes to Claude Code as its own flag, the effort to Codex as its config
+    /// override; each value one quoted word.
+    @Test func modeAndEffortGoAsEachCLIsOwnFlags() {
+        #expect(AgentTask(prompt: "Fix it", model: "opus", launch: .terminal, family: "claude", effort: "high", mode: "plan").terminalLine()
+            == "claude --model=$'opus' --effort=$'high' --permission-mode=$'plan' -- $'Fix it'\n")
+        #expect(AgentTask(prompt: "Fix it", launch: .terminal, family: "codex", effort: "high").terminalLine()
+            == "codex -c $'model_reasoning_effort=high' -- $'Fix it'\n")
+        #expect(AgentTask(prompt: "x", launch: .terminal, family: "claude", mode: "pl'an; rm").terminalLine()
+            == "claude --permission-mode=$'pl\\'an; rm' -- $'x'\n")
     }
 
     @Test func thePromptIsOneQuotedWordWhateverItHolds() {
@@ -534,6 +550,7 @@ import Testing
         #expect(mock.typedLines.isEmpty)
     }
 }
+#endif
 
 /// Drafts keep files and where the task runs; a draft saved before those were kept still reads.
 @MainActor @Suite struct TaskDraftFilesTests {
@@ -662,5 +679,202 @@ import Testing
 
     @Test func filesCountAsSomethingToSave() {
         #expect(!TaskDraft(files: [TaskFile(name: "a", data: Data([1]))]).isEmpty)
+    }
+}
+
+/// New Task's pickers start on the person's last picks for each agent, when the Mac still offers
+/// them, else the Mac's own defaults; Start sends what they show and remembers it.
+@MainActor @Suite struct AgentSettingsTests {
+    let defaults: UserDefaults
+    init() throws { defaults = try #require(UserDefaults(suiteName: "cmuxMobile.tests.agentSettings.\(UUID().uuidString)")) }
+
+    var claude: AgentHarnessChoice {
+        AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
+                           models: [AgentModelChoice(id: "opus", name: "Opus", efforts: ["low", "high", "max"], defaultEffort: "high"),
+                                    AgentModelChoice(id: "sonnet", name: "Sonnet", efforts: ["low", "medium"], defaultEffort: "medium")],
+                           defaultModel: "opus", askingModes: ["default", "plan"],
+                           configOptions: [AgentConfigChoice(id: "fast-mode", name: "Fast mode",
+                                                             choices: [AgentSettingChoice(id: "off", name: "Off"), AgentSettingChoice(id: "on", name: "On")])])
+    }
+
+    func make() -> (WorkspaceCreator, ScriptedBackend, AgentCatalog) {
+        let backend = ScriptedBackend()
+        backend.creatable = ["mac-studio"]
+        backend.options = WorkspaceCreationOptions(directories: true, agents: [""], browser: true)
+        let creator = WorkspaceCreator(store: AppStore.mock(tabMemory: .inMemory()), backend: backend, defaults: defaults)
+        return (creator, backend, AgentCatalog(harnesses: [claude]))
+    }
+
+    @Test func withNoLastPickTheMacsDefaultsShow() {
+        let (creator, _, catalog) = make()
+        let pick = creator.settled(TaskAgentPick(harness: "claude"), harness: claude, catalog: catalog)
+        #expect(pick.model == "opus" && pick.effort == "high" && pick.mode == "default" && pick.options == nil)
+    }
+
+    @Test func startSendsThePicksAndTheNextTaskStartsOnThem() async {
+        let (creator, backend, catalog) = make()
+        let pick = TaskAgentPick(harness: "claude", model: "opus", effort: "max", mode: "plan", options: ["fast-mode": "on"])
+        creator.startTask(TaskDraft(prompt: "Go", picks: [pick], launch: .chat))
+        await creator.settle()
+        let task = backend.requests.first?.task
+        #expect(task?.effort == "max" && task?.mode == "plan" && task?.options == ["fast-mode": "on"])
+        let next = creator.settled(TaskAgentPick(harness: "claude"), harness: claude, catalog: catalog)
+        #expect(next.model == "opus" && next.effort == "max" && next.mode == "plan" && next.options == ["fast-mode": "on"])
+    }
+
+    @Test func aLastPickTheMacNoLongerOffersFallsBack() {
+        let (creator, _, catalog) = make()
+        creator.rememberAgentSettings([TaskAgentPick(harness: "claude", model: "gone", effort: "max", mode: "bypassPermissions",
+                                                     options: ["fast-mode": "turbo", "removed": "x"])])
+        let pick = creator.settled(TaskAgentPick(harness: "claude"), harness: claude, catalog: catalog)
+        #expect(pick.model == "opus" && pick.effort == "max" && pick.mode == "default" && pick.options == nil)
+    }
+
+    @Test func anotherModelTakesItsOwnEfforts() {
+        let (creator, _, catalog) = make()
+        // Max is Opus's; Sonnet's levels are low and medium: its default shows.
+        let pick = creator.settled(TaskAgentPick(harness: "claude", model: "sonnet", effort: "max"), harness: claude, catalog: catalog)
+        #expect(pick.effort == "medium")
+    }
+}
+
+/// Before the first send, New Task names the mode and effort the chat starts with, and Start
+/// sends exactly what it names (Leo, 2026-11-22: "opus 5.5 should have medium selected at
+/// baseline in the new chat area ... dont make it show mode if auto is the default").
+/// `settled` is what the pickers show and what Start sends; each case also starts the task and
+/// reads the request back.
+@MainActor @Suite struct ComposerStartStateTests {
+    let defaults: UserDefaults
+    init() throws { defaults = try #require(UserDefaults(suiteName: "cmuxMobile.tests.startState.\(UUID().uuidString)")) }
+
+    static let modes = [AgentSettingChoice(id: "auto", name: "Auto"), AgentSettingChoice(id: "default", name: "Manual")]
+
+    /// Opus 5.5 is the start model; acpmux sets a new chat on it to Medium (`start.effort`)
+    /// although the model's own default is High.
+    var claude: AgentHarnessChoice {
+        AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
+                           models: [AgentModelChoice(id: "claude-opus-5-5", name: "Claude Opus 5.5", efforts: ["low", "medium", "high"],
+                                                     defaultEffort: "high", shortName: "Opus 5.5", aliases: ["opus"]),
+                                    AgentModelChoice(id: "sonnet", name: "Sonnet", efforts: ["low", "high"], defaultEffort: "low"),
+                                    AgentModelChoice(id: "haiku", name: "Haiku")],
+                           defaultModel: "opus", askingModes: ["auto", "default"], startEffort: "medium", reportedModes: Self.modes)
+    }
+
+    /// A profile that passes its own model to the agent: no `start.model`, no model list, no
+    /// reported effort option, but a `start.effort`.
+    var profile: AgentHarnessChoice {
+        AgentHarnessChoice(id: "profile", name: "Profile", family: "claude", askingModes: ["auto", "default"],
+                           startEffort: "medium", reportedModes: Self.modes)
+    }
+
+    /// One mode a phone may start (Codex on the bridge), named by id alone.
+    var asker: AgentHarnessChoice {
+        AgentHarnessChoice(id: "asker", name: "Asker", family: "asker",
+                           models: [AgentModelChoice(id: "m1", name: "M1", efforts: ["low", "medium"], defaultEffort: "low")],
+                           defaultModel: "m1", askingModes: ["ask"])
+    }
+
+    func make() -> (WorkspaceCreator, ScriptedBackend, AgentCatalog) {
+        let backend = ScriptedBackend()
+        backend.creatable = ["mac-studio"]
+        backend.options = WorkspaceCreationOptions(directories: true, agents: [""], browser: true)
+        let creator = WorkspaceCreator(store: AppStore.mock(tabMemory: .inMemory()), backend: backend, defaults: defaults)
+        return (creator, backend, AgentCatalog(harnesses: [claude, profile, asker]))
+    }
+
+    /// Starts `pick` as the composer does (settled first) and returns what the pickers showed
+    /// and what the request carried.
+    func shownAndSent(_ pick: TaskAgentPick, harness: AgentHarnessChoice) async -> (shown: TaskAgentPick, sent: AgentTask?) {
+        let (creator, backend, catalog) = make()
+        let shown = creator.settled(pick, harness: harness, catalog: catalog)
+        creator.startTask(TaskDraft(prompt: "Go", picks: [shown], launch: .chat))
+        await creator.settle()
+        return (shown, backend.requests.first?.task)
+    }
+
+    @Test func theStartModelShowsTheStartEffortAndTheFirstRemoteMode() async {
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "claude"), harness: claude)
+        #expect(shown.model == "claude-opus-5-5" && shown.effort == "medium" && shown.mode == "auto")
+        #expect(claude.modes.first?.name == "Auto")
+        #expect(sent?.model == shown.model && sent?.effort == shown.effort && sent?.mode == shown.mode)
+    }
+
+    @Test func theStartEffortShowsWithoutAStartModel() async {
+        #expect(profile.efforts(model: nil).map(\.id) == ["medium"])
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "profile"), harness: profile)
+        #expect(shown.model == nil && shown.effort == "medium" && shown.mode == "auto")
+        #expect(sent?.model == nil && sent?.effort == "medium" && sent?.mode == "auto")
+    }
+
+    @Test func theOnlyModeIsNamed() async {
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "asker"), harness: asker)
+        #expect(asker.modes.map(\.name) == ["Ask"] && shown.mode == "ask" && sent?.mode == "ask")
+        #expect(shown.effort == "low" && sent?.effort == "low")
+    }
+
+    @Test func anotherModelTakesItsOwnDefaultNotTheStartEffort() async {
+        // The model picker clears the effort (`$0.effort = nil`); Sonnet's own default shows.
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "claude", model: "sonnet"), harness: claude)
+        #expect(shown.effort == "low" && sent?.effort == "low")
+    }
+
+    @Test func aModelWithNoEffortHoldsNone() async {
+        #expect(claude.efforts(model: "haiku").isEmpty)
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "claude", model: "haiku", effort: "high"), harness: claude)
+        #expect(shown.effort == nil && sent?.effort == nil)
+    }
+
+    @Test func aStaleModeAndEffortFromAnotherAgentAreDroppedToItsStartValues() async {
+        // A pick carrying another agent's mode ("default") and effort (High) that this agent
+        // offers neither of (a resumed draft, a changed catalog): its own start values, shown and sent.
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "asker", effort: "high", mode: "default"), harness: asker)
+        #expect(shown.mode == "ask" && shown.effort == "low")
+        #expect(sent?.mode == "ask" && sent?.effort == "low")
+    }
+
+    @Test func aModelTheAgentNoLongerListsFallsBackToTheStartModel() async {
+        // Its picker would read Default while Start sent the gone model.
+        let (shown, sent) = await shownAndSent(TaskAgentPick(harness: "claude", model: "gone", effort: "max"), harness: claude)
+        #expect(shown.model == "claude-opus-5-5" && shown.effort == "medium")
+        #expect(sent?.model == "claude-opus-5-5" && sent?.effort == "medium")
+    }
+}
+
+/// New Task keeps everything from its last use, also after the app quits: its agents, Mac,
+/// folder and Chat or Terminal (and each agent's model, effort, mode and options, per agent).
+@MainActor @Suite struct TaskSetupKeptTests {
+    @Test func theNextLaunchStartsWhereTheLastTaskLeftOff() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "cmuxMobile.tests.setup.\(UUID().uuidString)"))
+        let backend = ScriptedBackend()
+        backend.creatable = ["mac-studio"]
+        backend.options = WorkspaceCreationOptions(directories: true, agents: [""], browser: true)
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let creator = WorkspaceCreator(store: store, backend: backend, defaults: defaults)
+        let pick = TaskAgentPick(harness: "claude", model: "opus", name: "Claude Code", family: "claude", effort: "max", mode: "plan")
+        let folder = try #require(creator.taskFolders(on: "mac-studio").first)
+        creator.startTask(TaskDraft(prompt: "Go", picks: [pick], macID: "mac-studio", directory: folder, launch: .chat))
+        await creator.settle()
+
+        // The app quits and comes back: a new creator on the same defaults.
+        let again = WorkspaceCreator(store: store, backend: backend, defaults: defaults)
+        #expect(again.taskDraft.prompt.isEmpty)
+        #expect(again.taskDraft.picks.map(\.harness) == ["claude"])
+        #expect(again.taskDraft.macID == "mac-studio" && again.taskDraft.directory == folder)
+        #expect(again.taskDraft.launch == .chat)
+        let kept = again.lastAgentSettings("claude")
+        #expect(kept?.model == "opus" && kept?.effort == "max" && kept?.mode == "plan")
+    }
+
+    @Test func leavingWithoutStartingKeepsTheSetupToo() throws {
+        let defaults = try #require(UserDefaults(suiteName: "cmuxMobile.tests.setup.\(UUID().uuidString)"))
+        let backend = ScriptedBackend()
+        backend.creatable = ["mac-studio"]
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let creator = WorkspaceCreator(store: store, backend: backend, defaults: defaults)
+        creator.taskDraft.picks = [TaskAgentPick(harness: "codex", name: "Codex", family: "codex")]
+        creator.taskDraft.launch = .chat
+        creator.leaveTaskComposer(keep: false)
+        let again = WorkspaceCreator(store: store, backend: backend, defaults: defaults)
+        #expect(again.taskDraft.picks.map(\.harness) == ["codex"] && again.taskDraft.launch == .chat)
     }
 }

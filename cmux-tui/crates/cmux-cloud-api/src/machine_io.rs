@@ -274,7 +274,8 @@ pub fn runtime_and_client() -> Result<(tokio::runtime::Runtime, reqwest::Client)
 /// provider, so this installs ring first: a process that builds a client before any install panics.
 pub fn http_client() -> Result<reqwest::Client, String> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    cmux_egress::client_builder("cmux_cloud_api::machine_io")
+        .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -341,7 +342,8 @@ pub async fn perform(
 fn hold(cache: &Cache, now: &impl Fn() -> u64, status: u16) {
     let ms = session::hold_ms(status);
     if ms > 0 {
-        cache.store(&Entry::ProxyUntil { until_ms: now().saturating_add(ms) });
+        let at = now();
+        cache.store(&Entry::ProxyUntil { until_ms: at.saturating_add(ms) }, at);
     }
 }
 
@@ -367,7 +369,7 @@ async fn mint(
                 api_base_url: s.api_base_url,
             };
             let use_until_ms = session::use_until(s.expires_at, now());
-            cache.store(&Entry::Session { grant: grant.clone(), use_until_ms });
+            cache.store(&Entry::Session { grant: grant.clone(), use_until_ms }, now());
             Some(grant)
         }
         Err(refusal) => {
@@ -379,3 +381,6 @@ async fn mint(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod seeded_tests;

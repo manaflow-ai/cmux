@@ -3,11 +3,21 @@ import { isAgentHome, projectLabel } from "./sessionList";
 import { type FolderAsk } from "./startFolderModel";
 /// New Worktree's refusal above the composer: what happened in plain words, Retry (when the folder
 /// is known, the same ask again) and Dismiss. The host's own words are in the log.
-export function WorktreeFailure({ onRetry, onDismiss }: { onRetry?(): void; onDismiss(): void }) {
+/// `message`: the host's own words for the failure (a GitHub repository's clone), in place of the plain one.
+export function WorktreeFailure({
+  message,
+  onRetry,
+  onDismiss,
+}: {
+  message?: string;
+  onRetry?(): void;
+  onDismiss(): void;
+}) {
   const t = useT();
   return (
     <output className="acpmux-switch-notice acpmux-folder-choice">
-      <span role="alert">{t("worktree.failedPlain")}</span>{" "}
+      <span role="alert">{message ?? t("worktree.failedPlain")}</span>{" "}
+      {/* retry-prompt-ok: makes the worktree again (a new branch and checkout on disk, a clone for a GitHub repository). */}
       {onRetry && (
         <>
           <button type="button" className="acpmux-folder-choice-button" onClick={onRetry}>

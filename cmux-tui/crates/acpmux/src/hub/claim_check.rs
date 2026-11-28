@@ -239,12 +239,19 @@ impl Hub {
         if checks.is_empty() {
             return;
         }
-        let claims: Vec<Value> = checks.iter().map(ClaimCheck::to_json).collect();
+        let mut claims: Vec<Value> = checks.iter().map(ClaimCheck::to_json).collect();
+        // A build, test, lint or typecheck claim made while the harness's own check is red.
+        if super::verify::is_red(&session.id)
+            && let Some(c) =
+                checks.iter().find(|c| c.kind != ClaimKind::Ran && c.verdict != "failed")
+        {
+            claims.push(json!({"text": c.text, "kind": c.kind.as_str(), "verdict": "verify_red"}));
+        }
         self.append(session, "mux", "claim_checks", json!({"turnId": turn_id, "claims": claims}));
     }
 }
 
-fn command(update: &Value) -> Option<String> {
+pub(super) fn command(update: &Value) -> Option<String> {
     // pi names its bash call's command only in its title (`tool_shell.rs` `add_terminal_input`),
     // which this sees before that runs.
     if update.pointer("/rawInput/command").is_none() {

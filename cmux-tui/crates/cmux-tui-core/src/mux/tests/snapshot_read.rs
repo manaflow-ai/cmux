@@ -1,6 +1,6 @@
 //! The whole-session snapshot read holds no writer lock.
 //!
-//! Lawrence's daemon, 2026-11-10 (826 workspaces, 2 h): the snapshot read
+//! A large session, 2026-11-10 (826 workspaces, 2 h): the snapshot read
 //! (`resource_api::session_snapshot_with_journal_head`) took the workspace
 //! registry lock and the state lock 434 times, mean 105 ms, max 262 ms,
 //! 45.4 s in total. It was the top stall maker: a split waited behind it.
@@ -33,7 +33,7 @@ use crate::resource_api::{public_session_snapshot, public_session_snapshot_with_
 const READS: u64 = 5;
 
 /// The session sizes of each guard whose result can depend on the size:
-/// light, 60 workspaces, and the 826 workspaces of Lawrence's daemon.
+/// light, 60 workspaces, and the 826 workspaces of a large session.
 const ARMS: [usize; 3] = [1, 60, 826];
 
 fn temp_root(name: &str) -> PathBuf {
@@ -687,6 +687,7 @@ fn a_snapshot_read_between_a_commit_and_its_route_publish_shows_the_routes_of_th
     );
 }
 
+mod compact;
 mod route_wait;
 #[cfg(unix)]
 mod window;

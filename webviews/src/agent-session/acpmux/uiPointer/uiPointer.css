@@ -150,15 +150,6 @@
   white-space: nowrap;
 }
 
-.cmux-ui-pointer-kbd {
-  padding: 0 4px;
-  border: var(--tooltip-rim-width, 1px) solid color-mix(in srgb, var(--agent-text) 20%, transparent);
-  border-radius: 4px;
-  color: var(--agent-text);
-  font-family: var(--font-ui);
-  font-size: var(--text-caption);
-}
-
 /* The label moves with the outline: one short glide between elements, from where it is now. The
    first place of either (data-instant) takes none. Reduce Motion and the motion switch (data-cmux-motion)
    leave them to jump in one frame. */
@@ -183,4 +174,10 @@
     backdrop-filter: none;
     background: var(--surface-popup, var(--agent-page-bg));
   }
+}
+/* Liquid Glass off (appearance.liquidGlass): the same solid label. */
+:where(:root[data-glass="off"]) :is(.cmux-ui-pointer-label, .cmux-ui-pointer-hint) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--surface-popup, var(--agent-page-bg));
 }

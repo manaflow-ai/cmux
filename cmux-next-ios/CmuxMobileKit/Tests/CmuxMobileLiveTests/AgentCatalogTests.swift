@@ -286,3 +286,222 @@ import Testing
         if case .uncertain = LiveWorkspaceCreationBackend.deliveryFailure(CancellationError()) {} else { Issue.record("cancel") }
     }
 }
+
+/// New Task's Effort, Mode and option pickers list only what the Mac sends: each model's efforts
+/// (`_acpmux/models`), the modes a phone may start (`remote.modes`) by the names its chats use,
+/// and the agent's own options as its chats report them (`reported`).
+@Suite struct AgentSettingsFromTheMacTests {
+    func json(_ text: String) throws -> JSONValue {
+        try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+    }
+
+    var harnesses: String {
+        """
+        {"defaultHarness": "claude",
+         "harnesses": {
+           "claude": {"family": "claude", "start": {"model": "opus", "effort": "high"},
+             "remote": {"startable": true, "modes": ["default", "plan"]},
+             "reported": {
+               "modes": [{"id": "auto", "name": "Auto"}, {"id": "default", "name": "Manual", "description": "Always ask before making changes"},
+                         {"id": "plan", "name": "Plan", "description": "Create a plan before making changes"}],
+               "configOptions": [
+                 {"id": "effort", "name": "Effort", "category": "thought_level", "type": "select",
+                  "options": [{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}, {"value": "xhigh", "name": "Extra High"}]},
+                 {"id": "model", "name": "Model", "category": "model", "type": "select", "options": [{"value": "opus", "name": "Opus"}, {"value": "sonnet", "name": "Sonnet"}]},
+                 {"id": "fast-mode", "name": "Fast mode", "type": "select", "remoteSettable": false, "options": [{"value": "off", "name": "Off"}, {"value": "on", "name": "On"}]},
+                 {"id": "style", "name": "Style", "type": "select", "remoteSettable": true,
+                  "options": [{"group": "g", "name": "Concise", "options": [{"value": "terse", "name": "Terse"}, {"value": "brief", "name": "Brief"}]}]},
+                 {"id": "session-recap", "name": "Session recap", "type": "select", "options": [{"value": "off"}, {"value": "on"}]},
+                 {"id": "one", "name": "One choice", "type": "select", "options": [{"value": "only"}]},
+                 {"id": "flag", "name": "A toggle", "type": "boolean"}]}},
+           "fresh": {"family": "fresh", "remote": {"startable": true, "modes": ["ask"]}}
+         }}
+        """
+    }
+
+    var models: String {
+        """
+        {"harnesses": [{"harness": "claude", "models": [
+          {"id": "opus", "name": "Opus", "efforts": ["low", "high", "xhigh"], "defaultEffort": "high"},
+          {"id": "haiku", "name": "Haiku"}]}]}
+        """
+    }
+
+    @Test func effortsComeFromEachModelAndAreNamedAsTheAgentNamesThem() throws {
+        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
+        #expect(claude.efforts(model: "opus").map(\.id) == ["low", "high", "xhigh"])
+        #expect(claude.efforts(model: "opus").map(\.name) == ["Low", "High", "Extra High"])
+        #expect(claude.defaultEffort(model: "opus") == "high")
+        // A model that lists none: the agent's effort option.
+        #expect(claude.efforts(model: "haiku").map(\.id) == ["low", "high", "xhigh"])
+        #expect(claude.startEffort == "high")
+    }
+
+    @Test func modesAreOnlyTheOnesAPhoneMayStartNamedByTheAgent() throws {
+        let catalog = try AgentCatalog(harnesses: json(harnesses), models: json(models))
+        let claude = try #require(catalog.harness("claude"))
+        #expect(claude.modes.map(\.id) == ["default", "plan"])
+        #expect(claude.modes.map(\.name) == ["Manual", "Plan"])
+        #expect(claude.modes.first?.detail == "Always ask before making changes")
+        // No chat reported names yet: the id, readable.
+        #expect(try #require(catalog.harness("fresh")).modes.map(\.name) == ["Ask"])
+    }
+
+    @Test func otherOptionsAreTheAgentsOwnWithChoices() throws {
+        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
+        // Not the model or effort (their own pickers), a per-chat switch, one choice, a non-select,
+        // nor one a phone may not set (Fast mode: the Mac's remote rule refuses it).
+        #expect(claude.configOptions.map(\.id) == ["style"])
+        #expect(claude.configOptions[0].choices.map(\.id) == ["terse", "brief"])
+        #expect(claude.effortOption?.id == "effort")
+    }
+
+    @Test func aMacThatSendsNoneOffersNone() throws {
+        let fresh = try #require(AgentCatalog(harnesses: json(harnesses)).harness("fresh"))
+        #expect(fresh.efforts(model: nil).isEmpty && fresh.configOptions.isEmpty && fresh.effortOption == nil)
+    }
+}
+
+/// The mode and effort a new chat starts with, read from acpmux's harness row: the first
+/// `remote.modes` named by `reported.modes`, and `start.effort` with or without `start.model`
+/// (Leo, 2026-11-22: "opus 5.5 should have medium selected at baseline in the new chat area").
+@MainActor
+@Suite struct StartStateFromTheMacTests {
+    func json(_ text: String) throws -> JSONValue {
+        try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+    }
+
+    let harnesses = """
+    {"defaultHarness": "claude",
+     "harnesses": {
+       "claude": {"family": "claude", "start": {"model": "opus", "effort": "medium", "modelSource": "harness", "effortSource": "saved"},
+         "remote": {"startable": true, "modes": ["auto", "default"]},
+         "reported": {"modes": [{"id": "default", "name": "Manual"}, {"id": "auto", "name": "Auto", "description": "Asks only when it must"}]}},
+       "profile": {"family": "claude", "start": {"effort": "medium", "effortSource": "model"},
+         "remote": {"startable": true, "modes": ["accept-edits"]}}
+     }}
+    """
+    let models = """
+    {"harnesses": [{"harness": "claude", "models": [
+      {"id": "claude-opus-5-5", "name": "Claude Opus 5.5", "shortName": "Opus 5.5", "aliases": ["opus"],
+       "efforts": ["low", "medium", "high"], "defaultEffort": "high"}]}]}
+    """
+
+    actor Sent {
+        var calls: [(String, JSONValue)] = []
+        func send(_ method: String, _ params: JSONValue) { calls.append((method, params)) }
+    }
+
+    @Test func theStartModeIsTheFirstRemoteModeByItsReportedName() throws {
+        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
+        #expect(claude.askingModes.first == "auto" && claude.modes.first?.name == "Auto")
+        // Not reported: its id, readable.
+        let profile = try #require(AgentCatalog(harnesses: json(harnesses)).harness("profile"))
+        #expect(profile.modes.map(\.name) == ["Accept edits"])
+    }
+
+    @Test func theStartEffortIsTheStartModelsLevelOverItsOwnDefault() throws {
+        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
+        #expect(claude.startsOn("claude-opus-5-5") && claude.startsOn(nil))
+        #expect(claude.defaultEffort(model: "claude-opus-5-5") == "medium")
+    }
+
+    @Test func theStartEffortIsShownAndSentWithoutAStartModel() async throws {
+        let profile = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("profile"))
+        #expect(profile.defaultModel == nil && profile.startEffort == "medium")
+        #expect(profile.efforts(model: nil).map(\.name) == ["Medium"] && profile.defaultEffort(model: nil) == "medium")
+        // What the pill shows is what the new chat is set to; its only mode needs no request.
+        let sent = Sent()
+        let start = AgentChatStart(harness: "profile", effort: profile.defaultEffort(model: nil), mode: profile.askingModes.first)
+        await LiveWorkspaceCreationBackend.applyStartSettings(start, to: "s1", choice: profile) { await sent.send($0, $1) }
+        let calls = await sent.calls
+        #expect(calls.map(\.0) == ["session/set_config_option"])
+        #expect(calls.first?.1["configId"]?.stringValue == "effort" && calls.first?.1["value"]?.stringValue == "medium")
+    }
+}
+
+/// A new chat gets the phone's effort, mode and options before its first prompt, each only when
+/// the Mac offers it for that agent and model; one the Mac refuses never stops the others.
+@MainActor
+@Suite struct StartSettingsTests {
+    actor Sent {
+        var calls: [(String, JSONValue)] = []
+        var refuse: String?
+        init(refuse: String? = nil) { self.refuse = refuse }
+        func send(_ method: String, _ params: JSONValue) throws {
+            calls.append((method, params))
+            if params["configId"]?.stringValue == refuse { throw CancellationError() }
+        }
+    }
+
+    let claude = AgentHarnessChoice(
+        id: "claude", name: "Claude Code", family: "claude",
+        models: [AgentModelChoice(id: "opus", name: "Opus", efforts: ["low", "high", "max"]), AgentModelChoice(id: "haiku", name: "Haiku")],
+        defaultModel: "opus", askingModes: ["default", "plan"],
+        effortOption: AgentConfigChoice(id: "effort", name: "Effort", category: "thought_level",
+                                        choices: [AgentSettingChoice(id: "low", name: "Low")]),
+        configOptions: [AgentConfigChoice(id: "fast-mode", name: "Fast mode",
+                                          choices: [AgentSettingChoice(id: "off", name: "Off"), AgentSettingChoice(id: "on", name: "On")])])
+
+    @Test func theOfferedPicksAreSetInOrder() async {
+        let sent = Sent()
+        let start = AgentChatStart(harness: "claude", model: "opus", effort: "max", mode: "plan", options: ["fast-mode": "on"])
+        await LiveWorkspaceCreationBackend.applyStartSettings(start, to: "s1", choice: claude) { try await sent.send($0, $1) }
+        let calls = await sent.calls
+        #expect(calls.map(\.0) == ["session/set_config_option", "session/set_mode", "session/set_config_option"])
+        #expect(calls[0].1["configId"]?.stringValue == "effort" && calls[0].1["value"]?.stringValue == "max")
+        #expect(calls[1].1["modeId"]?.stringValue == "plan" && calls[1].1["sessionId"]?.stringValue == "s1")
+        #expect(calls[2].1["configId"]?.stringValue == "fast-mode" && calls[2].1["value"]?.stringValue == "on")
+    }
+
+    @Test func whatTheMacDoesNotOfferIsNeverSent() async {
+        let sent = Sent()
+        // Max is not Haiku's (it lists none: the effort option's Low only); bypassPermissions
+        // is not a mode a phone may start; the start mode needs no request; unknown options go.
+        let start = AgentChatStart(harness: "claude", model: "haiku", effort: "max", mode: "bypassPermissions",
+                                   options: ["fast-mode": "turbo", "sandbox": "off"])
+        await LiveWorkspaceCreationBackend.applyStartSettings(start, to: "s1", choice: claude) { try await sent.send($0, $1) }
+        #expect(await sent.calls.isEmpty)
+        let startMode = AgentChatStart(harness: "claude", model: "opus", mode: "default")
+        await LiveWorkspaceCreationBackend.applyStartSettings(startMode, to: "s1", choice: claude) { try await sent.send($0, $1) }
+        #expect(await sent.calls.isEmpty)
+    }
+
+    @Test func aRefusalLeavesTheRestToBeSet() async {
+        let sent = Sent(refuse: "effort")
+        let start = AgentChatStart(harness: "claude", model: "opus", effort: "high", options: ["fast-mode": "on"])
+        await LiveWorkspaceCreationBackend.applyStartSettings(start, to: "s1", choice: claude) { try await sent.send($0, $1) }
+        #expect(await sent.calls.map { $0.1["configId"]?.stringValue } == ["effort", "fast-mode"])
+    }
+}
+
+/// New Task's model picker lists each release by its version ("Opus 5.5", "Opus 5"), as the
+/// Mac's catalog names them; current ones apart from older ones; an alias names its release.
+@Suite struct ModelVersionsTests {
+    func json(_ text: String) throws -> JSONValue { try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)) }
+
+    let harnesses = """
+    {"defaultHarness": "claude", "harnesses": {"claude": {"family": "claude", "start": {"model": "opus"},
+      "remote": {"startable": true, "modes": ["default", "plan"]}}}}
+    """
+    let models = """
+    {"harnesses": [{"harness": "claude", "topModels": ["claude-opus-5-5", "claude-sonnet-5-5"], "models": [
+      {"id": "default", "name": "Default (Claude Code's choice)"},
+      {"id": "claude-opus-5-5", "name": "Claude Opus 5.5", "shortName": "Opus 5.5", "aliases": ["opus"], "curated": true},
+      {"id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5", "shortName": "Sonnet 5.5", "aliases": ["sonnet"], "curated": true},
+      {"id": "claude-opus-5", "name": "Claude Opus 5", "shortName": "Opus 5", "curated": true}]}]}
+    """
+
+    @Test func releasesAreNamedByVersionAndSplitCurrentFromOlder() throws {
+        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
+        #expect(claude.models.first { $0.id == "claude-opus-5-5" }?.displayName == "Opus 5.5")
+        #expect(claude.models.first { $0.id == "claude-opus-5" }?.isCurrent == false)
+        #expect(claude.models.first { $0.id == "claude-sonnet-5-5" }?.isCurrent == true)
+    }
+
+    @Test func anAliasNamesItsRelease() throws {
+        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
+        #expect(claude.model("opus")?.id == "claude-opus-5-5")
+        #expect(claude.offeredDefaultModel == "claude-opus-5-5")
+    }
+}

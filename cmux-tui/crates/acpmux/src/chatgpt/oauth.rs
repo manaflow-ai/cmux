@@ -2,7 +2,7 @@
 //! exchange, refresh and revocation, and the OpenID configuration's JWKS.
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -11,8 +11,10 @@ use serde_json::Value;
 use sha2::Digest as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
-use super::store::{self, Host, Record};
-use super::{DYNAMIC_CLIENT_ID, Failure, PLAN_SCOPE, Places, RESOURCE, SCOPES, jwt};
+use super::store::{self, Record};
+use super::{
+    CALLBACK_PORT, CODEX_BACKEND, CODEX_CLIENT_ID, Failure, Places, REFRESH_SCOPES, SCOPES, jwt,
+};
 use crate::routes::{self, RouteFile, RouteKind};
 
 /// How long the JWKS is kept before a refetch.
@@ -29,10 +31,14 @@ pub struct Endpoints {
     pub issuer: String,
     pub authorize_url: String,
     pub token_url: String,
-    /// The OpenID configuration (its `jwks_uri` and `revocation_endpoint`).
+    /// The OpenID configuration (its `jwks_uri`).
     pub discovery_url: String,
-    /// The `resource` every token is for.
-    pub resource: String,
+    /// Where a sign-out revokes the refresh token (Codex's `/oauth/revoke`, a JSON body).
+    pub revoke_url: String,
+    /// The OAuth client signed in with: Codex's.
+    pub client_id: String,
+    /// The loopback port the callback listens on ([`CALLBACK_PORT`]; 0 in tests: any free one).
+    pub callback_port: u16,
 }
 
 impl Endpoints {
@@ -45,10 +51,12 @@ impl Endpoints {
         let issuer = issuer.trim_end_matches('/');
         Self {
             issuer: issuer.to_owned(),
-            authorize_url: format!("{issuer}/api/accounts/authorize"),
-            token_url: format!("{issuer}/api/accounts/oauth/token"),
+            authorize_url: format!("{issuer}/oauth/authorize"),
+            token_url: format!("{issuer}/oauth/token"),
             discovery_url: format!("{issuer}/.well-known/openid-configuration"),
-            resource: RESOURCE.to_owned(),
+            revoke_url: format!("{issuer}/oauth/revoke"),
+            client_id: CODEX_CLIENT_ID.to_owned(),
+            callback_port: CALLBACK_PORT,
         }
     }
 }
@@ -92,38 +100,30 @@ pub(crate) fn form_encode(pairs: &[(&str, &str)]) -> String {
 
 /// One sign-in's secrets, kept in memory only.
 pub(crate) struct Pending {
-    pub host: Host,
     pub state: String,
     pub nonce: String,
     pub verifier: String,
     pub redirect_uri: String,
     pub reauth: Option<String>,
-    id_token_hint: Option<String>,
     login_hint: Option<String>,
 }
 
 impl Pending {
     pub fn new(
-        host: Host,
         port: u16,
         reauth: Option<String>,
-        prior: Option<&Record>,
+        prior: Option<&store::Metadata>,
     ) -> Result<Self, Failure> {
         Ok(Self {
-            host,
             state: random_token(24)?,
             nonce: random_token(24)?,
             verifier: random_token(32)?,
+            // Codex's registered redirect, on the address the listener binds (Codex moved from
+            // `localhost` to 127.0.0.1: a browser that tries ::1 first never reaches 127.0.0.1).
             redirect_uri: format!("http://127.0.0.1:{port}/auth/callback"),
             reauth,
-            id_token_hint: prior.map(|r| r.id_token.clone()).filter(|t| !t.is_empty()),
             login_hint: prior.and_then(|r| r.email.clone()),
         })
-    }
-
-    /// A first registration: no client id issued yet.
-    pub fn registering(&self) -> bool {
-        self.host.client_id.is_none()
     }
 }
 
@@ -131,7 +131,6 @@ impl Pending {
 struct Keys {
     fetched: Instant,
     jwks: Vec<Value>,
-    revocation: Option<String>,
 }
 
 /// A token endpoint answer. Not `Debug`: it holds tokens.
@@ -175,24 +174,35 @@ pub(crate) struct Client {
     pub endpoints: Endpoints,
     http: OnceLock<reqwest::Client>,
     keys: tokio::sync::Mutex<Option<Keys>>,
+    saving: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// The OAuth `error` code of an answer, only when it is a plain code (never echoed text).
-fn error_code(body: &Value) -> Option<&str> {
-    body.get("error")
-        .and_then(Value::as_str)
-        .filter(|c| c.len() <= 64 && c.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))
+/// Read where Codex reads it: `error` as a string, `error.code`, or a top-level `code`.
+pub(super) fn error_code(body: &Value) -> Option<&str> {
+    fn plain(v: Option<&Value>) -> Option<&str> {
+        v.and_then(Value::as_str)
+            .filter(|c| c.len() <= 64 && c.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))
+    }
+    plain(body.get("error"))
+        .or_else(|| plain(body.pointer("/error/code")))
+        .or_else(|| plain(body.get("code")))
 }
 
 impl Client {
     pub fn new(endpoints: Endpoints) -> Self {
-        Self { endpoints, http: OnceLock::new(), keys: tokio::sync::Mutex::new(None) }
+        Self {
+            endpoints,
+            http: OnceLock::new(),
+            keys: tokio::sync::Mutex::new(None),
+            saving: Arc::default(),
+        }
     }
 
     fn http(&self) -> &reqwest::Client {
         self.http.get_or_init(|| {
             let _ = rustls::crypto::ring::default_provider().install_default();
-            reqwest::Client::builder()
+            crate::happy_dial::http_client()
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(30))
@@ -201,31 +211,26 @@ impl Client {
         })
     }
 
+    /// Codex's own authorize request (`codex login`), so the tokens are the ones Codex runs on.
     pub fn authorize_url(&self, p: &Pending) -> Result<String, Failure> {
         let challenge = challenge(&p.verifier);
-        let client_id = p.host.client_id.as_deref().unwrap_or(DYNAMIC_CLIENT_ID);
         let mut pairs: Vec<(&str, &str)> = vec![
-            ("client_id", client_id),
-            ("ext_agent_host_id", p.host.host_id.as_str()),
             ("response_type", "code"),
+            ("client_id", self.endpoints.client_id.as_str()),
             ("redirect_uri", p.redirect_uri.as_str()),
             ("scope", SCOPES),
-            ("resource", self.endpoints.resource.as_str()),
-            ("state", p.state.as_str()),
-            ("nonce", p.nonce.as_str()),
             ("code_challenge", challenge.as_str()),
             ("code_challenge_method", "S256"),
+            ("id_token_add_organizations", "true"),
+            ("codex_cli_simplified_flow", "true"),
+            ("state", p.state.as_str()),
+            ("nonce", p.nonce.as_str()),
+            ("originator", "codex_cli_rs"),
         ];
-        if p.registering() && p.reauth.is_none() {
-            pairs.push(("agent_name_hint", "cmux"));
-        }
-        if p.reauth.is_some() {
-            if let Some(hint) = &p.id_token_hint {
-                pairs.push(("id_token_hint", hint.as_str()));
-            }
-            if let Some(hint) = &p.login_hint {
-                pairs.push(("login_hint", hint.as_str()));
-            }
+        if p.reauth.is_some()
+            && let Some(hint) = &p.login_hint
+        {
+            pairs.push(("login_hint", hint.as_str()));
         }
         Ok(format!("{}?{}", self.endpoints.authorize_url, form_encode(&pairs)))
     }
@@ -246,6 +251,22 @@ impl Client {
         Ok((status, serde_json::from_slice(&body).unwrap_or(Value::Null)))
     }
 
+    pub(super) async fn post_json(&self, url: &str, body: &Value) -> Result<(u16, Value), Failure> {
+        let answer = self
+            .http()
+            .post(url)
+            .header("content-type", "application/json")
+            .header("accept", "application/json")
+            .body(body.to_string())
+            .send()
+            .await
+            // reqwest's error names the URL, never the body.
+            .map_err(|e| Failure::new("network", e.without_url().to_string()))?;
+        let status = answer.status().as_u16();
+        let bytes = answer.bytes().await.map_err(|e| Failure::new("network", e.to_string()))?;
+        Ok((status, serde_json::from_slice(&bytes).unwrap_or(Value::Null)))
+    }
+
     async fn get_json(&self, url: &str) -> Result<Value, Failure> {
         let answer = self
             .http()
@@ -255,7 +276,9 @@ impl Client {
             .await
             .map_err(|e| Failure::new("network", e.to_string()))?;
         if !answer.status().is_success() {
-            return Err(Failure::new("discovery_failed", format!("{url}: {}", answer.status())));
+            let status = answer.status();
+            let code = if status.is_server_error() { "network" } else { "discovery_failed" };
+            return Err(Failure::new(code, format!("OpenID discovery received HTTP {status}")));
         }
         answer.json().await.map_err(|e| Failure::new("discovery_failed", e.to_string()))
     }
@@ -285,10 +308,6 @@ impl Client {
         let keys = Keys {
             fetched: Instant::now(),
             jwks: jwks.get("keys").and_then(Value::as_array).cloned().unwrap_or_default(),
-            revocation: config
-                .get("revocation_endpoint")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
         };
         *cached = Some(keys.clone());
         Ok(keys)
@@ -298,7 +317,7 @@ impl Client {
         &self,
         token: &str,
         client_id: &str,
-        nonce: &str,
+        nonce: Option<&str>,
     ) -> Result<jwt::Claims, Failure> {
         let now = super::now_unix();
         let check = |keys: &Keys| {
@@ -332,17 +351,29 @@ impl Client {
                 let _ = respond(&mut stream, "400 Bad Request", "Bad request.").await;
                 continue;
             };
+            if url.path() == "/cancel" {
+                // `codex login` asks an earlier login server on the shared port to stop before it
+                // binds: this sign-in gives the port up instead of making Codex's fail.
+                let _ = respond(&mut stream, "200 OK", "Login cancelled.").await;
+                return Err(Failure::new("cancelled", "another ChatGPT sign-in took the port"));
+            }
             if url.path() != "/auth/callback" {
                 let _ = respond(&mut stream, "404 Not Found", "Not found.").await;
                 continue;
             }
             let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
+            if query.get("state").map(String::as_str) != Some(pending.state.as_str()) {
+                // A stray request (a stale tab, a page that navigates here) never ends the
+                // sign-in on this well-known port; only this sign-in's own callback does.
+                let _ = respond(&mut stream, "400 Bad Request", "Not this sign-in.").await;
+                continue;
+            }
             let result = self.complete(pending, &query, places).await;
             let page = match &result {
-                Ok(_) => "Signed in to cmux with ChatGPT. You can close this tab.".to_owned(),
-                Err(f) => format!("ChatGPT sign-in did not finish ({}). Return to cmux.", f.code),
+                Ok(_) => Page::signed_in(),
+                Err(f) => Page::failed(&f.code),
             };
-            let _ = respond(&mut stream, "200 OK", &page).await;
+            let _ = respond_page(&mut stream, "200 OK", &page).await;
             return result;
         }
     }
@@ -371,117 +402,126 @@ impl Client {
             .get("code")
             .filter(|c| !c.is_empty())
             .ok_or_else(|| Failure::new("no_code", "the callback carried no code"))?;
-        let client_id = match &pending.host.client_id {
-            Some(id) => id.clone(),
-            None => {
-                let issued = query
-                    .get("client_id")
-                    .filter(|c| valid_client_id(c))
-                    .ok_or_else(|| {
-                        Failure::new("no_client_id", "the registration issued no client id")
-                    })?
-                    .clone();
-                // Recorded before the exchange, so a failed exchange never registers again.
-                let home = places.home.clone();
-                let id = issued.clone();
-                tokio::task::spawn_blocking(move || store::set_client_id(&home, &id))
-                    .await
-                    .map_err(|e| Failure::new("internal", e.to_string()))?
-                    .map_err(|e| Failure::new("storage", e.to_string()))?;
-                issued
-            }
-        };
+        let sign_in = self
+            .exchange(code, &pending.verifier, &pending.redirect_uri, Some(&pending.nonce))
+            .await?;
+        let guard = self.save_slot().await;
+        self.save_sign_in(places.clone(), pending.reauth.clone(), sign_in, false, guard).await
+    }
+
+    pub(super) async fn exchange(
+        &self,
+        code: &str,
+        verifier: &str,
+        redirect_uri: &str,
+        nonce: Option<&str>,
+    ) -> Result<VerifiedSignIn, Failure> {
+        let client_id = self.endpoints.client_id.as_str();
         let (status, body) = self
             .post_form(
                 &self.endpoints.token_url,
                 &[
                     ("grant_type", "authorization_code"),
-                    ("client_id", client_id.as_str()),
-                    ("code", code.as_str()),
-                    ("code_verifier", pending.verifier.as_str()),
-                    ("redirect_uri", pending.redirect_uri.as_str()),
-                    ("resource", self.endpoints.resource.as_str()),
+                    ("client_id", client_id),
+                    ("code", code),
+                    ("code_verifier", verifier),
+                    ("redirect_uri", redirect_uri),
                 ],
             )
             .await?;
         if !(200..300).contains(&status) {
-            let why = error_code(&body).unwrap_or("no error code");
-            return Err(Failure::new("token_exchange_failed", format!("{status} {why}")));
+            let reason = error_code(&body);
+            let code = match reason {
+                Some("access_denied" | "authorization_declined") => "access_denied",
+                Some("expired_token") => "expired_token",
+                _ if status >= 500 => "network",
+                _ => "token_exchange_failed",
+            };
+            return Err(Failure::new(code, format!("HTTP {status}")));
         }
         let answer: TokenAnswer = serde_json::from_value(body).map_err(|_| {
             Failure::new("token_exchange_failed", "the token answer has no access_token")
         })?;
         let id_token = answer
             .id_token
-            .clone()
+            .as_deref()
             .filter(|t| !t.is_empty())
             .ok_or_else(|| Failure::new("invalid_id_token", "no ID token"))?;
-        let claims = self.verify_id_token(&id_token, &client_id, &pending.nonce).await?;
-        let scopes = answer
-            .scopes()
-            .unwrap_or_else(|| SCOPES.split_whitespace().map(str::to_owned).collect());
-        let refresh = answer.refresh_token.clone().filter(|r| !r.is_empty());
-        if !scopes.iter().any(|s| s == PLAN_SCOPE) {
-            if let Some(refresh) = refresh {
-                let unused = Record {
-                    client_id: client_id.clone(),
-                    refresh_token: refresh,
-                    ..Record::default()
-                };
-                let _ = self.revoke(&unused).await;
-            }
-            return Err(Failure::new("no_plan_scope", "ChatGPT did not grant use of the plan"));
+        let claims = self.verify_id_token(id_token, client_id, nonce).await?;
+        if claims.account.is_none() {
+            // An API-only OpenAI account: no ChatGPT plan for Codex to run on.
+            return Err(Failure::new("no_chatgpt_account", "the sign-in names no ChatGPT account"));
         }
-        if refresh.is_none() {
+        if answer.refresh_token.as_deref().is_none_or(str::is_empty) {
             return Err(Failure::new("token_exchange_failed", "no refresh token"));
         }
-        let places = places.clone();
-        let reauth = pending.reauth.clone();
-        let now = super::now_unix();
-        tokio::task::spawn_blocking(move || save(&places, reauth, &client_id, claims, answer, now))
-            .await
-            .map_err(|e| Failure::new("internal", e.to_string()))?
+        Ok(VerifiedSignIn { claims, answer })
     }
 
-    /// A refresh of `record`'s tokens.
+    pub(super) async fn save_slot(&self) -> tokio::sync::OwnedMutexGuard<()> {
+        self.saving.clone().lock_owned().await
+    }
+
+    pub(super) async fn save_sign_in(
+        &self,
+        places: Places,
+        reauth: Option<String>,
+        sign_in: VerifiedSignIn,
+        reject_existing: bool,
+        guard: tokio::sync::OwnedMutexGuard<()>,
+    ) -> Result<String, Failure> {
+        let client_id = self.endpoints.client_id.clone();
+        tokio::task::spawn_blocking(move || {
+            let _guard = guard;
+            save(&places, reauth, &client_id, sign_in, reject_existing)
+        })
+        .await
+        .map_err(|e| Failure::new("internal", e.to_string()))?
+    }
+
+    /// A refresh of `record`'s tokens: Codex's own refresh request (a JSON body).
     pub async fn refresh(&self, record: &Record) -> Result<TokenAnswer, Failure> {
         let (status, body) = self
-            .post_form(
+            .post_json(
                 &self.endpoints.token_url,
-                &[
-                    ("grant_type", "refresh_token"),
-                    ("client_id", record.client_id.as_str()),
-                    ("refresh_token", record.refresh_token.as_str()),
-                    ("resource", self.endpoints.resource.as_str()),
-                ],
+                &serde_json::json!({
+                    "client_id": record.client_id,
+                    "grant_type": "refresh_token",
+                    "refresh_token": record.refresh_token,
+                    "scope": REFRESH_SCOPES,
+                }),
             )
             .await?;
         if !(200..300).contains(&status) {
             let why = error_code(&body);
-            let code = if matches!(status, 400 | 401) && why == Some("invalid_grant") {
-                "reauth_required"
-            } else {
-                "refresh_failed"
-            };
+            // Codex treats every 401 as a dead sign-in, and so do the codes below on a 400.
+            let dead = status == 401
+                || matches!(
+                    why,
+                    Some(
+                        "invalid_grant"
+                            | "refresh_token_expired"
+                            | "refresh_token_reused"
+                            | "refresh_token_invalidated"
+                    )
+                );
+            let code = if dead { "reauth_required" } else { "refresh_failed" };
             return Err(Failure::new(code, format!("{status} {}", why.unwrap_or("no error code"))));
         }
         serde_json::from_value(body)
             .map_err(|_| Failure::new("refresh_failed", "the token answer has no access_token"))
     }
 
-    /// Revokes `record`'s refresh token at the OpenID configuration's revocation endpoint.
+    /// Revokes `record`'s refresh token the way Codex does (`/oauth/revoke`, a JSON body).
     pub async fn revoke(&self, record: &Record) -> Result<(), Failure> {
-        let endpoint = self.keys(false).await?.revocation.ok_or_else(|| {
-            Failure::new("no_revocation_endpoint", "the OpenID configuration names none")
-        })?;
         let (status, body) = self
-            .post_form(
-                &endpoint,
-                &[
-                    ("token", record.refresh_token.as_str()),
-                    ("token_type_hint", "refresh_token"),
-                    ("client_id", record.client_id.as_str()),
-                ],
+            .post_json(
+                &self.endpoints.revoke_url,
+                &serde_json::json!({
+                    "token": record.refresh_token,
+                    "token_type_hint": "refresh_token",
+                    "client_id": record.client_id,
+                }),
             )
             .await?;
         if (200..300).contains(&status) {
@@ -495,34 +535,68 @@ impl Client {
     }
 }
 
-fn valid_client_id(id: &str) -> bool {
-    id != DYNAMIC_CLIENT_ID
-        && !id.is_empty()
-        && id.len() <= 200
-        && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+pub(super) struct VerifiedSignIn {
+    claims: jwt::Claims,
+    answer: TokenAnswer,
 }
 
 /// Writes the account's record and its `chatgpt-plan` route; the route id.
-fn save(
+pub(super) fn save_import(
     places: &Places,
-    reauth: Option<String>,
     client_id: &str,
     claims: jwt::Claims,
     answer: TokenAnswer,
-    now: i64,
 ) -> Result<String, Failure> {
-    let storage = |e: std::io::Error| Failure::new("storage", e.to_string());
+    save(places, None, client_id, VerifiedSignIn { claims, answer }, false)
+}
+
+pub(super) fn save(
+    places: &Places,
+    reauth: Option<String>,
+    client_id: &str,
+    sign_in: VerifiedSignIn,
+    reject_existing: bool,
+) -> Result<String, Failure> {
     let dir = places.routes.as_deref();
     let records = store::all(&places.home);
-    let same = |r: &Record| r.client_id == client_id && r.sub == claims.sub;
-    let id = records
-        .iter()
-        .find(|(_, r)| same(r))
-        .map(|(id, _)| id.clone())
-        .or_else(|| {
-            // A reauth of the same person whose client id changed keeps its connection.
-            reauth.filter(|id| records.iter().any(|(rid, r)| rid == id && r.sub == claims.sub))
+    let VerifiedSignIn { claims, answer } = sign_in;
+    let mut record = Record {
+        client_id: client_id.to_owned(),
+        sub: claims.sub,
+        email: claims.email,
+        plan: claims.plan,
+        workspace: claims.account,
+        ..Record::default()
+    };
+    answer.apply(&mut record, super::now_unix());
+    let workspace = record.workspace();
+    if let Some((_, expected)) = records.iter().find(|(id, _)| Some(id) == reauth.as_ref()) {
+        if expected.sub != record.sub {
+            return Err(Failure::wrong_account(
+                record.email.clone().unwrap_or_else(|| "another ChatGPT account".into()),
+                expected.email.clone().unwrap_or_else(|| "the connected ChatGPT account".into()),
+            ));
+        }
+        if expected.workspace.is_some() && expected.workspace != workspace {
+            return Err(Failure::new("different_account", "ChatGPT approved a different account"));
+        }
+    }
+    let same = |r: &store::Metadata| {
+        r.client_id == client_id && r.sub == record.sub && r.workspace == workspace
+    };
+    if reject_existing
+        && records.iter().any(|(id, r)| {
+            same(r)
+                && r.signed_in()
+                && reauth.as_ref() != Some(id)
+                && super::is_chatgpt_route(dir, id)
         })
+    {
+        return Err(Failure::new("already_signed_in", "this ChatGPT account is connected"));
+    }
+    let id = reauth
+        .filter(|id| super::is_chatgpt_route(dir, id))
+        .or_else(|| records.iter().find(|(_, r)| same(r)).map(|(id, _)| id.clone()))
         .unwrap_or_else(|| {
             let taken = |id: &str| {
                 records.iter().any(|(rid, _)| rid == id) || routes::find(dir, id).is_ok()
@@ -532,30 +606,25 @@ fn save(
                 .find(|id| !taken(id))
                 .unwrap_or_else(|| "chatgpt".to_owned())
         });
-    let mut record = Record {
-        client_id: client_id.to_owned(),
-        sub: claims.sub,
-        email: claims.email,
-        plan: claims.plan,
-        ..Record::default()
-    };
-    answer.apply(&mut record, now);
-    store::write(&places.home, &id, &record).map_err(storage)?;
+    store::write(&places.home, &id, &record).map_err(super::store_failure)?;
     let disabled = routes::find(dir, &id)
         .ok()
         .filter(|r| r.file.kind == RouteKind::ChatgptPlan)
         .is_some_and(|r| r.file.disabled);
     let file = RouteFile {
+        credential_instance: None,
         name: Some(match &record.email {
-            Some(email) => format!("ChatGPT plan ({email})"),
-            None => "ChatGPT plan".to_owned(),
+            Some(email) => format!("ChatGPT ({email})"),
+            None => "ChatGPT".to_owned(),
         }),
         kind: RouteKind::ChatgptPlan,
         families: vec!["codex".into()],
         anthropic_base_url: None,
-        openai_base_url: Some(RESOURCE.to_owned()),
+        openai_base_url: Some(CODEX_BACKEND.to_owned()),
         auth: None,
         secret: None,
+        claude_token_expires_at: None,
+        cloud_enabled: None,
         headers: Default::default(),
         health_url: None,
         fallback: vec![],
@@ -566,12 +635,17 @@ fn save(
         disabled,
         provider: Some("openai".into()),
     };
-    routes::add(dir, &id, &file, true).map_err(|e| Failure::new("storage", e.to_string()))?;
+    if let Err(error) = routes::add(dir, &id, &file, true) {
+        if !records.iter().any(|(previous, _)| previous == &id) {
+            let _ = store::delete(&places.home, &id);
+        }
+        return Err(Failure::new("storage", error.to_string()));
+    }
     Ok(id)
 }
 
 /// The request target of an HTTP request line (`GET /auth/callback?... HTTP/1.1`).
-async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
+pub(crate) async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
     let mut buf = Vec::with_capacity(1024);
     let mut chunk = [0u8; 1024];
     while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
@@ -589,14 +663,141 @@ async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
     }
 }
 
-async fn respond(
+/// A page of the loopback listener: a centered card with the outcome's mark, in light and dark.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Page {
+    pub ok: bool,
+    pub title: String,
+    pub detail: String,
+    /// The failure code, shown small under the detail.
+    pub code: Option<String>,
+}
+
+impl Page {
+    pub(crate) fn signed_in() -> Self {
+        Self {
+            ok: true,
+            title: "Signed in to ChatGPT".into(),
+            detail: "You can close this tab and return to cmux.".into(),
+            code: None,
+        }
+    }
+
+    pub(crate) fn failed(code: &str) -> Self {
+        let detail = match code {
+            "access_denied" => "The sign-in was cancelled. Return to cmux to try again.",
+            "no_chatgpt_account" => {
+                "This OpenAI account has no ChatGPT plan. Return to cmux and sign in with a ChatGPT account."
+            }
+            _ => "ChatGPT sign-in did not finish. Return to cmux and try again.",
+        };
+        Self {
+            ok: false,
+            title: "Couldn\u{2019}t sign in to ChatGPT".into(),
+            detail: detail.into(),
+            code: Some(code.to_owned()),
+        }
+    }
+
+    /// A short notice (a stray or bad request) in the same frame.
+    pub(crate) fn notice(text: &str) -> Self {
+        Self { ok: false, title: text.into(), detail: String::new(), code: None }
+    }
+
+    pub(crate) fn html(&self) -> String {
+        auth_page(self.ok, &self.title, &self.detail, self.code.as_deref())
+    }
+}
+
+/// The cmux NEXT sign-in page's frame (web/app/handler: `cmux-sign-in.tsx`'s `Page` and
+/// `Heading`, `auth-error/page.tsx`'s body, the "Last used" chip for the code) with the tokens of
+/// web/app/globals.css, for a page a loopback listener serves with no web build behind it.
+/// Keep in step with the copies in optchat-chief's `mcp_hub::oauth` and coderouter's `oauth`.
+pub(crate) fn auth_page(ok: bool, title: &str, detail: &str, code: Option<&str>) -> String {
+    let detail = if detail.is_empty() {
+        String::new()
+    } else {
+        format!("<p class=\"body\">{}</p>", escape(detail))
+    };
+    let code = code
+        .map(|c| format!("<p class=\"code\">Error code <span>{}</span></p>", escape(c)))
+        .unwrap_or_default();
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<meta name=\"color-scheme\" content=\"light dark\"><meta name=\"robots\" content=\"noindex\">\
+<title>{title} \u{b7} cmux</title><style>{AUTH_PAGE_CSS}</style></head>\
+<body><main><section class=\"card\" data-auth-state=\"{state}\">\
+<div class=\"mark\" aria-hidden=\"true\">{mark}</div><h1>{title}</h1>{detail}{code}</section></main></body></html>",
+        title = escape(title),
+        state = if ok { "ok" } else { "error" },
+        mark = if ok { AUTH_MARK_OK } else { AUTH_MARK_ERROR },
+    )
+}
+
+/// The loopback sign-in page: a centered card in the system font, with web/app/globals.css's
+/// light and dark tokens, the outcome as an inline check or alert mark (no logo, no fetched
+/// asset: the page renders the same offline).
+pub(crate) const AUTH_PAGE_CSS: &str = "\
+:root{--background:#fafafa;--foreground:#171717;--muted:#707070;--border:#e5e5e5;--card:#ffffff;\
+--ok:#10a37f;--error:#d93025}\
+@media (prefers-color-scheme:dark){:root{--background:#0a0a0a;--foreground:#ededed;--muted:#a3a3a3;--border:#262626;\
+--card:#171717;--ok:#19c37d;--error:#f28b82}}\
+*,::before,::after{box-sizing:border-box;margin:0;padding:0;border:0 solid}\
+html{line-height:1.5;-webkit-text-size-adjust:100%;\
+font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,\"Segoe UI\",system-ui,Helvetica,Arial,sans-serif;\
+-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}\
+body{background:var(--background);color:var(--foreground)}\
+main{display:flex;min-height:100vh;align-items:center;justify-content:center;padding:48px 16px}\
+.card{width:100%;max-width:400px;padding:40px 32px 36px;text-align:center;background:var(--card);\
+border:1px solid var(--border);border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.06)}\
+.mark{display:flex;justify-content:center;margin-bottom:20px}\
+.mark svg{width:44px;height:44px}\
+[data-auth-state=ok] .mark{color:var(--ok)}\
+[data-auth-state=error] .mark{color:var(--error)}\
+h1{font-size:22px;font-weight:600;line-height:30px;letter-spacing:-0.01em}\
+.body{margin-top:8px;font-size:15px;line-height:24px;color:var(--muted)}\
+.code{margin-top:20px;font-size:12px;line-height:18px;color:var(--muted)}\
+.code span{margin-left:4px;padding:1px 6px;border:1px solid var(--border);border-radius:6px;\
+font-family:ui-monospace,SFMono-Regular,Menlo,monospace}";
+
+/// The success mark: a check in a circle, in the page's own color.
+const AUTH_MARK_OK: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" \
+stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m7.5 12.5 3 3 6-6.5\"/></svg>";
+
+/// The failure mark: an exclamation in a circle.
+const AUTH_MARK_ERROR: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" \
+stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 7.5v5.5\"/><path d=\"M12 16.5h.01\"/></svg>";
+
+fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+pub(crate) async fn respond(
     stream: &mut tokio::net::TcpStream,
     status: &str,
     text: &str,
 ) -> std::io::Result<()> {
-    let body = format!(
-        "<!doctype html><meta charset=\"utf-8\"><title>cmux</title><p style=\"font-family:system-ui;margin:3em\">{text}</p>"
-    );
+    respond_page(stream, status, &Page::notice(text)).await
+}
+
+async fn respond_page(
+    stream: &mut tokio::net::TcpStream,
+    status: &str,
+    page: &Page,
+) -> std::io::Result<()> {
+    let body = page.html();
     let head = format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
         body.len()

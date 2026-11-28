@@ -5,6 +5,9 @@
     whats-new-gallery.py manifest --plan PLAN.json --cases ALL.json [--notes NOTES.json] [--covers COVERS.json]
                           [--parent SHA] --out MANIFEST.json
     whats-new-gallery.py parents --plan PLAN.json                     the commits to render befores at
+    whats-new-gallery.py overlays --plan PLAN.json --parent SHA       the gallery files to take from each commit there
+    whats-new-gallery.py heal --at DIR --parent SHA --head SHA --log BUILD.log [--plan PLAN.json]
+                                                                     the fix-forward of each file a parent's build broke on
     whats-new-gallery.py publish --plan PLAN.json --results DIR       privacy check, then upload
 
 Leo, 2026-10-20: "tho i think vids and before/afters for our techincal stuff is p important... we
@@ -27,7 +30,8 @@ whats-new-gallery.yml runs this on each push to feat-cmux-next that changes a hi
   added one to, else the first entry's first variant), writes them back to the plan, and keeps, from
   webviews/scripts/gallery/manifest.ts's cases (default dark theme, normal width, component frame),
   the one case per planned state, named HIGHLIGHT--ROLE; with `--parent SHA`, from the cases of the
-  checkout at SHA, the befores rendered there (the same state, else the entry's first one);
+  checkout at SHA, the befores rendered there (the same state; a variant the commit added to a gallery file
+  that was there already renders at SHA with that file as the commit left it, `overlays`);
 - scripts/gallery-matrix/runner.ts renders them in Chromium;
 - `publish` crops each picture to what it shows (the stage's empty background off, a small margin
   kept; an after and its before to the same box, so they line up), then reads it through
@@ -144,6 +148,7 @@ def plan(days: int, everything: bool, exists=published) -> list[dict]:
                             continue
                 if role == "before":
                     row["parent"] = git("rev-parse", f"{commit}^").strip()
+                    row["commit"] = commit
             if row["state"]:
                 row["entry"], _, row["variant"] = row["state"].partition("/")
             rows.append(row)
@@ -255,21 +260,30 @@ def marked_before(state: str, cases: list[dict], notes: dict) -> str | None:
     """The variant of `state`'s entry that its gallery file marks as the old look (its note opens with
     "Before", else its name ends in one of OLD_LOOK's words), the one sharing the longest name prefix with
     `state`'s variant, which it must share at least its first word with (`notes-flat` for `notes-sections`,
-    never another surface's old look); None when the entry marks none. It renders beside the after, at the
-    same commit."""
+    never another surface's old look); else the entry's one variant whose note opens "Before" when it has
+    exactly one (jump-place's `center` for `end`, composer-studio's `standard-beside` for `studio`: both
+    shipped with no before, 2026-11-22); None when the entry marks none. It renders beside the after, at
+    the same commit."""
     entry, _, after = state.partition("/")
     variants = list(dict.fromkeys(c["params"]["variant"] for c in _dark(cases)
                                   if c["params"].get("entry") == entry))
     family = after.split("-", 1)[0] + "-"
-    marked = []
+    marked, noted_anywhere = [], []
     for order, variant in enumerate(variants):
-        if variant == after or variant.startswith(f"{after}-light") or not variant.startswith(family):
+        if variant == after or variant.startswith(f"{after}-light"):
             continue
         noted = bool(BEFORE_NOTE.match(_note(notes, entry, variant)))
+        if noted:
+            noted_anywhere.append(variant)
+        if not variant.startswith(family):
+            continue
         if noted or OLD_LOOK.search(variant):
             shared = len(os.path.commonprefix([variant, after]))
             marked.append((not noted, -shared, order, variant))
-    return f"{entry}/{min(marked)[3]}" if marked else None
+    if marked:
+        return f"{entry}/{min(marked)[3]}"
+    # One "Before" note in the whole entry names the old look of the one surface it draws, whatever its name.
+    return f"{entry}/{noted_anywhere[0]}" if len(noted_anywhere) == 1 else None
 
 
 def _source(state: str, cases: list[dict]) -> str | None:
@@ -300,8 +314,25 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | Non
             old = marked_before(row["state"], cases, notes or {})
             if old:
                 row = {key: value for key, value in row.items() if key != "parent"} | {"state": old}
-            elif (source := _source(row["state"], cases)) and not _key(row["state"].partition("/")[2]).search(
-                    text_at(row["parent"], f"webviews/{source}") or ""):
+            elif (source := _source(row["state"], cases)) and not _key(variant := row["state"].partition("/")[2]).search(
+                    at_parent := text_at(row["parent"], f"webviews/{source}") or ""):
+                if at_parent and row.get("commit") and _key(variant).search(text_at(row["commit"], f"webviews/{source}") or ""):
+                    # A variant its commit added to a file that was already there: the parent renders it with the
+                    # file as the commit left it, so the old code draws the new state (new-tab-run-command's
+                    # typed-command, 2026-11-17, shipped with no before). `overlays` names the file to put there.
+                    row = {**row, "overlay": f"webviews/{source}"}
+                    row["entry"], _, row["variant"] = row["state"].partition("/")
+                    out.append(row)
+                    continue
+                if at_parent and row.get("commit") and (at_commit := text_at(row["commit"], f"webviews/{source}")) \
+                        and not _key(variant).search(at_commit):
+                    # The file names the variant nowhere, at its commit either: a generated name (settings.gallery.ts
+                    # makes one per Settings category in a loop), so its text cannot say the state is new. Render it
+                    # at the parent, where manifest() names it missing if that checkout has no such state
+                    # (personalization-sidebar, 2026-11-20, shipped with no before).
+                    row["entry"], _, row["variant"] = row["state"].partition("/")
+                    out.append(row)
+                    continue
                 missing.append(f"{row['id']} before: {row['state']} is new in its commit, not in {source} at "
                                f"{row['parent'][:12]}; give its gallery file the old look, a variant whose note "
                                "opens \"Before:\"")
@@ -464,6 +495,36 @@ def publish(rows: list[dict], results: Path, exists=published) -> list[str]:
     return problems
 
 
+BROKEN_SOURCE = re.compile(r"(?:SyntaxError:|\[BabelError\])\s+(/\S+?):\s")
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def heal(at: Path, parent: str, head: str, log: str, keep: set[str] = frozenset()) -> list[tuple[str, str]]:
+    """(COMMIT, PATH) for each source file the build at PARENT failed to parse: the oldest first-parent commit in
+    PARENT..HEAD that changed it, the base's fix-forward. 2026-11-27, run 46069736799: parent b2f1339a of an
+    Improved highlight sat inside a base red (#51044 declared layoutGeometry twice in VirtualTranscript.tsx; #61071
+    fixed it 106 first-parent commits later), so its gallery:build failed and the highlight shipped with no before.
+    Only the files the build named, never one the plan overlays from the highlight's commit (KEEP)."""
+    root = str(Path(at).resolve())
+    found: list[tuple[str, str]] = []
+    for match in BROKEN_SOURCE.finditer(ANSI.sub("", log)):
+        path = match.group(1)
+        for prefix in (root, str(at)):
+            if path.startswith(prefix.rstrip("/") + "/"):
+                rel = path[len(prefix.rstrip("/")) + 1:]
+                break
+        else:
+            continue
+        if rel in keep or any(rel == p for _, p in found):
+            continue
+        run = subprocess.run(["git", "-C", str(at), "log", "--first-parent", "--reverse", "--format=%H",
+                              f"{parent}..{head}", "--", rel], capture_output=True, text=True)
+        commits = run.stdout.split() if run.returncode == 0 else []
+        if commits:
+            found.append((commits[0], rel))
+    return found
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -481,6 +542,15 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("parents")
     a.add_argument("--plan", type=Path, required=True)
     a.add_argument("--limit", type=int, default=4)
+    o = sub.add_parser("overlays")
+    o.add_argument("--plan", type=Path, required=True)
+    o.add_argument("--parent", required=True)
+    h = sub.add_parser("heal")
+    h.add_argument("--at", type=Path, required=True)
+    h.add_argument("--parent", required=True)
+    h.add_argument("--head", required=True)
+    h.add_argument("--log", type=Path, required=True)
+    h.add_argument("--plan", type=Path, help="the plan: the gallery files it overlays stay as they are")
     u = sub.add_parser("publish")
     u.add_argument("--plan", type=Path, required=True)
     u.add_argument("--results", type=Path, required=True)
@@ -492,12 +562,27 @@ def main(argv: list[str] | None = None) -> int:
         if all(r.get("state") for r in rows):
             print(" ".join(sorted({r["entry"] for r in rows})))
         return 0
+    if args.cmd == "heal":
+        keep = set()
+        if args.plan:
+            keep = {r["overlay"] for r in json.loads(args.plan.read_text())
+                    if r.get("parent") == args.parent and r.get("overlay")}
+        log = args.log.read_text(errors="replace") if args.log.exists() else ""
+        for commit, path in heal(args.at, args.parent, args.head, log, keep):
+            print(f"{commit} {path}")
+        return 0
     rows = json.loads(args.plan.read_text())
     if args.cmd == "parents":
         # The newest highlights first: a commit whose before keeps failing never holds the newer ones back.
         newest = sorted((r for r in rows if r.get("parent")), key=lambda r: -r.get("born", 0))
         parents = list(dict.fromkeys(r["parent"] for r in newest))
         print(" ".join(parents[:args.limit]))
+        return 0
+    if args.cmd == "overlays":
+        # "COMMIT PATH" per gallery file to take from the highlight's commit into the checkout at PARENT (resolve).
+        for line in dict.fromkeys(f"{r['commit']} {r['overlay']}" for r in rows
+                                  if r.get("parent") == args.parent and r.get("overlay")):
+            print(line)
         return 0
     if args.cmd == "manifest":
         cases = json.loads(args.cases.read_text())

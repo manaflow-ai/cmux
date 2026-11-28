@@ -1,7 +1,7 @@
 // Sample data for the mock provider (dev loop and tests). Shapes follow the `cmux.wire/1` records the
 // Cloud app server answers (first-party-apps/cloud/server/src/api/models.rs; vectors
 // backend/catalog/cloud-vectors.json). Names, ids and numbers are made up.
-import type { CloudMachine, CloudSnapshot, CloudTeam, MigrationStatus } from "./ops";
+import type { CloudMachine, CloudSnapshot, CloudSurge, CloudTeam, MigrationStatus } from "./ops";
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 1, 9, 30);
@@ -175,5 +175,49 @@ export function sampleAccount(): SampleAccount {
       period_end: T0 + 20 * DAY,
     },
     migration: { state: "available", classic_count: 1, imported: ["vm_d4"] },
+  };
+}
+
+/**
+ * A surge of `count` machines (origin "Surge"), created over about 2 s; `starting` of them are still
+ * provisioning. The ready ones came up between 20 s and 33 s after the first create (the staging run of
+ * cmuxterm-hq docs/cloud/value-demos.md brought 25 up in 33.0 s). Returns the machines and the surge the
+ * Cloud app server reports for them (first-party-apps/cloud/server/src/ops/surge.rs).
+ */
+export function sampleSurge(count = 25, starting = 0): { machines: CloudMachine[]; surge: CloudSurge } {
+  const start = Date.now() - 4 * 60_000;
+  const ready = count - starting;
+  const machines: CloudMachine[] = Array.from({ length: count }, (_, i) => {
+    const up = i < ready;
+    return {
+      ...base,
+      id: `vm_surge${String(i + 1).padStart(2, "0")}`,
+      name: null,
+      size: { cpu: 2, memory_mb: 4096, disk_mb: 16_384 },
+      status: up ? "running" : "provisioning",
+      host: up ? `host_surge${i + 1}` : null,
+      classic: false,
+      created_at: start + i * 80,
+      last_active_at: null,
+      idle_policy: { idle_seconds: 1800 },
+      hourly_rate_usd: 0.1322,
+      running_since: up ? start + 20_000 + Math.round((i * 13_000) / Math.max(1, ready - 1)) : null,
+      origin: { kind: "person", label: "Surge" },
+      revision: "3",
+    };
+  });
+  const lastReady = Math.max(...machines.map((m) => m.running_since ?? start)) - start;
+  return {
+    machines,
+    surge: {
+      started_at: start,
+      count,
+      ready,
+      starting,
+      failed: 0,
+      drained: starting === 0,
+      ...(starting === 0 ? { last_ready_ms: lastReady } : {}),
+      machines: machines.map((m) => m.id).reverse(),
+    },
   };
 }

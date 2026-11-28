@@ -17,7 +17,7 @@ import Testing
     @discardableResult
     static func stage(_ root: URL, _ a: String, _ b: String, id: String = bundleID, build: String,
                       bins: [String] = StagedUpdatePrewarm.bundledExecutables,
-                      helpers: [String] = ["cmux Helper (GPU)", "cmux Helper"]) throws -> URL {
+                      helpers: [String] = ["cmux Helper (GPU)", "cmux Helper"], body: String = "") throws -> URL {
         let app = root.appending(path: "\(a)/\(b)/cmux.app")
         let files = FileManager.default
         try files.createDirectory(at: app.appending(path: "Contents/MacOS"), withIntermediateDirectories: true)
@@ -33,7 +33,7 @@ import Testing
         }
         for script in [app.appending(path: "Contents/MacOS/cmux")] + bins.map({ app.appending(path: "Contents/Resources/bin/\($0)") }) + helperScripts {
             let name = script.path.hasSuffix(".app/Contents/MacOS/cmux") && !script.path.contains("Helper") ? "app" : script.lastPathComponent
-            try "#!/bin/sh\necho \"\(name) $*\" >> '\(log)'\n".write(to: script, atomically: true, encoding: .utf8)
+            try "#!/bin/sh\n\(body)echo \"\(name) $*\" >> '\(log)'\n".write(to: script, atomically: true, encoding: .utf8)
             try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         }
         return app
@@ -105,10 +105,14 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
         try Self.stage(root, "u1", "x1", build: "200")
         let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork())
+        // The exec and `--version` runs start together (any order), then the app's Chromium start once they ended.
         let ran = try String(contentsOf: root.appending(path: "ran.txt"), encoding: .utf8).split(separator: "\n")
-        #expect(ran == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
-                        "cmux Helper (GPU) --version", "cmux Helper --version", "app \(StagedUpdatePrewarm.chromiumArgument)"])
+        #expect(ran.dropLast().sorted() == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux Helper (GPU) --version",
+                                            "cmux Helper --version", "cmux-tui --version"])
+        #expect(ran.last.map(String.init) == "app \(StagedUpdatePrewarm.chromiumArgument)")
         #expect(line.hasPrefix("launch pre-warm of 200 (cmux.app): cmux exit 0"), "\(line)")
+        #expect(line.contains("cmux-tui exit 0") && line.contains("cmux Helper (GPU) exit 0") && line.hasSuffix(" ms in all"), "\(line)")
+        #expect(line.hasSuffix(" ms in all"), "\(line)")
         #expect(line.contains("Frameworks read 2 files, 2 pages"), "the two helpers' executables, after they ran: \(line)")
         let none = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork())
         #expect(none.contains("no staged bundle of 300"))
@@ -151,8 +155,8 @@ import Testing
         #expect(StagedUpdatePrewarm.readPages(under: root.appending(path: "missing")) == StagedUpdatePrewarm.Pages())
     }
 
-    /// A pre-warm that ran leaves its build for that build's first launch, which consumes it (`cmux app launch-times`'
-    /// `prewarmed`); a relaunch of the same build and a launch of another build are not pre-warmed.
+    /// A pre-warm that ran leaves `full` for its build's first launch, which consumes it (`cmux app launch-times`'
+    /// `prewarmed` and `prewarm_reason`); a relaunch of the same build and a launch of another build are not pre-warmed.
     @Test func aPrewarmLeavesItsBuildForItsFirstLaunchOnly() async throws {
         let root = try Self.temporary()
         defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
@@ -161,9 +165,67 @@ import Testing
         _ = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork(), marker: marker)
         #expect(!FileManager.default.fileExists(atPath: marker.path), "no staged bundle ran: no marker")
         _ = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork(), marker: marker)
-        #expect(!StagedUpdatePrewarm.consumeLaunchMarker(build: "199", at: marker), "another build's launch")
-        #expect(StagedUpdatePrewarm.consumeLaunchMarker(build: "200", at: marker))
-        #expect(!StagedUpdatePrewarm.consumeLaunchMarker(build: "200", at: marker), "a relaunch of the same build")
+        let full = UpdatePrewarmRules.isLinked ? "full" : "full_legacy"
+        #expect(try String(contentsOf: marker, encoding: .utf8) == (UpdatePrewarmRules.isLinked ? "200 full\n" : "200\n"),
+                "one line, replaced at each step")
+        #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "199", at: marker)
+            == .init(preWarmed: false, reason: "other_build:200", consume: false), "another build's launch")
+        #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker) == .init(preWarmed: true, reason: full, consume: true))
+        #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker)
+            == .init(preWarmed: false, reason: "no_record", consume: false), "a relaunch of the same build")
+    }
+
+    /// Each step's marker reads back as that step: a pre-warm the relaunch cut short after the main executable still
+    /// counts (it pays almost all of the first launch's check), one cut before it does not, a skip says why, and a
+    /// marker an older build wrote (just the build) still reads as a full pre-warm.
+    @Test(.enabled(if: UpdatePrewarmRules.isLinked, "needs the pinned app FFI to carry CCmuxUpdatePrewarmFFI"))
+    func eachStepsMarkerReadsBackAsThatStep() throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let marker = root.appending(path: "support/launch-prewarm")
+        let cases: [(StagedUpdatePrewarm.Step, StagedUpdatePrewarm.Verdict)] = [
+            (.started, .init(preWarmed: false, reason: "started_not_finished", consume: true)),
+            (.main, .init(preWarmed: true, reason: "main", consume: true)),
+            (.full, .init(preWarmed: true, reason: "full", consume: true)),
+            (.skipped("staged build 200 is not newer than running build 300"),
+             .init(preWarmed: false, reason: "skipped:staged build 200 is not newer than running build 300", consume: true)),
+        ]
+        for (step, verdict) in cases {
+            StagedUpdatePrewarm.writeLaunchMarker(build: "200", step: step, at: marker)
+            #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker) == verdict, "\(step)")
+            #expect(!FileManager.default.fileExists(atPath: marker.path), "\(step): consumed")
+        }
+        try Data("200\n".utf8).write(to: marker)
+        #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker) == .init(preWarmed: true, reason: "full_legacy", consume: true))
+        StagedUpdatePrewarm.writeLaunchMarker(build: "", step: .full, at: marker)
+        #expect(!FileManager.default.fileExists(atPath: marker.path), "no build: no marker")
+    }
+
+    /// Run one after another under a load like Leo's, the parts took 95 s (desktop-leo's third read-back); started
+    /// together, the five exec and `--version` parts of 2 s each end in about 2 s, then the Chromium start: about 4 s, not 12.
+    @Test func thePartsRunTogether() async throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        try Self.stage(root, "u1", "x1", build: "200", body: "sleep 2\n")
+        let started = ContinuousClock.now
+        let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork())
+        let took = ContinuousClock.now - started
+        #expect(took < .seconds(9), "six 2 s parts took \(took): they ran one after another (\(line))")
+        #expect(try String(contentsOf: root.appending(path: "ran.txt"), encoding: .utf8).split(separator: "\n").count == 6)
+    }
+
+    /// The whole pre-warm stops at `total`: each part still going is stopped (its own process group) and says so.
+    @Test func theTotalCapStopsEveryPartStillGoing() async throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        try Self.stage(root, "u1", "x1", build: "200", body: "sleep 60\n")
+        let started = ContinuousClock.now
+        let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200")
+            .perform(work: BackgroundWork(), timeout: .seconds(120), total: .seconds(1))
+        let took = ContinuousClock.now - started
+        #expect(took < .seconds(20), "the 1 s cap held the pre-warm for \(took) (\(line))")
+        #expect(line.components(separatedBy: "stopped at the 1000 ms cap").count - 1 == 6, "the five parts and the Chromium start: \(line)")
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "ran.txt").path), "a stopped part ran to its end")
     }
 
     /// The running app is build 100.
@@ -202,6 +264,66 @@ import Testing
             updater.followStagedUpdate(.ready(version: "0.9.9"))
             #expect(updater.prewarmedBuild == nil)
         }
+    }
+
+    // Leo's NIGHTLY (cmux#43890's read-back): the update staged at 22:07:57Z, he clicked Restart to Update at
+    // 22:08:00Z and it relaunched at 22:08:03Z with no "launch pre-warm" line: a pre-warm that only runs while
+    // the update waits never finished for a person who installs at once. The click now waits for it, bounded.
+
+    /// The harness of the install click (the feed's newest is 300, staged build 400, so the click installs
+    /// what is staged) whose staged-build pre-warm runs until the returned continuation finishes.
+    static func clickHarness() -> (UpdateStagedYieldsToNewerTests.Harness, UpdateClickInstallsNewestTests.Installs,
+                                   AsyncStream<Void>.Continuation) {
+        let (h, installs) = UpdateClickInstallsNewestTests.make(newer: false)
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        h.updater.prewarmRunner = { _ in
+            for await _ in gate {}
+            return "pre-warmed"
+        }
+        // The harness's own staging pre-warmed build 300 (no staged bundle there); 400 is staged just now.
+        h.sparkle.staged = "400"
+        return (h, installs, open)
+    }
+
+    @Test func aClickRightAfterStagingInstallsOnceThePrewarmEnds() async throws {
+        let (h, installs, open) = Self.clickHarness()
+        h.updater.followStagedUpdate(.ready(version: "4.0.0"))
+        h.updater.installClicked()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(installs.count == 0, "the click relaunched before the pre-warm of staged build 400 ended")
+        open.finish()
+        #expect(await eventually { installs.count == 1 }, "the click never installed")
+        #expect(h.updater.log.recent.contains { $0.hasPrefix("launch pre-warm before install: done, the install waited") },
+                "\(h.updater.log.recent)")
+    }
+
+    @Test func aPrewarmThatRunsPastTheBoundDoesNotHoldTheClick() async throws {
+        let (h, installs, open) = Self.clickHarness()
+        defer { open.finish() }
+        h.updater.followStagedUpdate(.ready(version: "4.0.0"))
+        #expect(h.updater.log.recent.contains("launch pre-warm of 400: started (staged)"), "\(h.updater.log.recent)")
+        h.updater.installClicked()
+        #expect(await eventually { h.updater.prewarmWaitTimer.isScheduled }, "no bound was armed")
+        #expect(installs.count == 0)
+        for _ in 0..<40 where installs.count == 0 {
+            h.clock.advance(by: .seconds(1))
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(installs.count == 1, "the click waits past its bound on a pre-warm that never ends")
+        #expect(h.updater.log.recent.contains { $0.hasPrefix("launch pre-warm before install: partial, still running after") },
+                "\(h.updater.log.recent)")
+    }
+
+    /// A click in the same turn as the staging (no phase change seen yet) starts the pre-warm itself.
+    @Test func aClickBeforeAnyPrewarmStartsOneAndWaitsForIt() async throws {
+        let (h, installs, open) = Self.clickHarness()
+        h.updater.installClicked()
+        #expect(await eventually { h.updater.log.recent.contains("launch pre-warm of 400: started (install)") },
+                "the click did not start the pre-warm: \(h.updater.log.recent)")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(installs.count == 0, "the click relaunched before the pre-warm it started ended")
+        open.finish()
+        #expect(await eventually { installs.count == 1 })
     }
 
     // Leo's NIGHTLY (cmux#43890's second read-back, pid 12985): "staged, waiting for the user" at 22:38:18Z, "staged
@@ -245,7 +367,7 @@ import Testing
         defer { release.signal() }
         try #require(await eventually { started.wait(timeout: .now()) == .success }, "the stand-in keep never ran")
         updater.followStagedUpdate(.ready(version: "2.0.0"))
-        #expect(updater.log.recent.contains("launch pre-warm of 200: started"), "\(updater.log.recent)")
+        #expect(updater.log.recent.contains("launch pre-warm of 200: started (staged)"), "\(updater.log.recent)")
         let ran = installation.appending(path: "ran.txt")
         let firstRunLogged = await eventually { updater.log.recent.contains { $0.hasPrefix("launch pre-warm of 200: cmux exit 0") } }
         // The update log's pre-warm lines show in the failure itself (a fleet summary keeps one line per issue).

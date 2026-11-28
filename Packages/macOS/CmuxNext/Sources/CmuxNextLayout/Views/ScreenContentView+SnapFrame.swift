@@ -17,13 +17,18 @@ import CmuxNextDesign
 /// had (`ScreenFrameInput`). So every frame shows one whole layout: the one before the change, then the one after it.
 ///
 /// The tick that shows it is the first one at which every ``PaneCommitSurface`` of a resized pane reported ready, and
-/// at the latest the tick ``commitBound`` refreshes after the change. A surface that is not ready then is late: its
+/// at the latest the tick ``commitBound`` refreshes after the change (or the longer bound a surface asked for,
+/// ``PaneCommitSurface/commitWaitTicks``, at most ``longestCommitWait``). A surface that is not ready then is late: its
 /// pane shows its own ground over its content area (``PaneHostView/showsLateGround``), never the surface's old picture
 /// at the pane's new size, until the surface reports.
 extension ScreenContentView {
     /// The most frame ticks a change waits for its panes' surfaces before it shows: 3 refreshes, 25 ms at 120 Hz. With
     /// the tick itself, a change shows at most 4 refreshes after its turn.
     static let commitBound = 3
+    /// The most frame ticks a change waits for a surface that asks for more than ``commitBound``
+    /// (``PaneCommitSurface/commitWaitTicks``): a Chromium page that lays out at a size it took ahead, on an engine
+    /// with no resize fence. 8 refreshes, 67 ms at 120 Hz.
+    static let longestCommitWait = 8
 
     /// Whether a change that snapped shows at the next frame tick: a shown screen in a window whose root runs frames,
     /// with a pane whose host changes size. Gives those hosts their sizes ahead now. `keyPress`: the snap is a keyboard
@@ -85,10 +90,14 @@ extension ScreenContentView {
     private func askSurfaces(_ surfaces: [any PaneCommitSurface], of pane: PaneID, change: CGSize) {
         frameInput.commitGeneration &+= 1
         let generation = frameInput.commitGeneration
-        frameInput.commitSurfaces[pane] = (generation, Array(repeating: false, count: surfaces.count))
+        frameInput.commitSurfaces[pane] = (generation, Array(repeating: false, count: surfaces.count), Self.commitBound)
         for (index, surface) in surfaces.enumerated() {
             surface.commitWillResize(by: change) { [weak self] in self?.commitSurfaceIsReady(pane, index, of: generation) }
         }
+        // A surface that reported in its call owes nothing: only one still owed may ask the change to wait longer.
+        guard let entry = frameInput.commitSurfaces[pane], entry.generation == generation else { return }
+        let asked = surfaces.indices.compactMap { entry.ready[$0] ? nil : surfaces[$0].commitWaitTicks }.max() ?? 0
+        frameInput.commitSurfaces[pane]?.bound = min(Self.longestCommitWait, max(Self.commitBound, asked))
     }
 
     /// A surface of `pane` reported that its picture at the change's size shows now. A report of an older change is void.
@@ -106,7 +115,8 @@ extension ScreenContentView {
 
     /// Whether a held snap waits on at this frame tick. Counts this tick.
     ///
-    /// Any held snap waits for the ``PaneCommitSurface``s of its resized panes, at most ``commitBound`` ticks.
+    /// Any held snap waits for the ``PaneCommitSurface``s of its resized panes, at most ``commitBound`` ticks (each
+    /// pane's own bound: longer when one of its surfaces asked, ``PaneCommitSurface/commitWaitTicks``).
     ///
     /// A key press's snap also waits for its terminals' programs (RESIZE P0 20; films px-keys-held-2-s1r-claude under
     /// Reduce Motion, cmux21 1x 120 Hz): the press's grid went to each resized terminal's program with its size drawn
@@ -118,10 +128,9 @@ extension ScreenContentView {
     /// structural snap (a split, a close, a zoom) does not wait for programs: its grid goes when it shows.
     func heldSnapAwaitsContent() -> Bool {
         guard frameInput.snapWaitsForContent, window != nil, !isHiddenOrHasHiddenAncestor else { return false }
-        if zoomDim.holdsFrame(of: self) { return true } // a zoom's dim comes first; its panes hear their sizes when its fade is spent
         frameInput.snapRefreshesWaited += 1
         let waited = frameInput.snapRefreshesWaited
-        if waited <= Self.commitBound, frameInput.commitAwaited.contains(where: { frameInput.commitSurfaces[$0] != nil }) { return true }
+        if frameInput.commitAwaited.contains(where: { frameInput.commitSurfaces[$0].map { waited <= $0.bound } ?? false }) { return true }
         guard frameInput.snapAwaitsPrograms else { return false }
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane], host.superview === self else { continue }
@@ -134,7 +143,6 @@ extension ScreenContentView {
     func presentHeldSnap() {
         guard frameInput.snapWaitsForContent else { return }
         (frameInput.snapWaitsForContent, frameInput.snapAwaitsPrograms) = (false, false)
-        zoomDim.changeShows() // the dim that came before a zoom leaves in the commit that shows the zoom
         // The snap waited for its content (bounded): each terminal it places shows at its new size in this commit, with
         // its program's redraw or the size only, never its old size in the new pane (RESIZE P0 21).
         for pane in paneFrames.keys {
@@ -176,6 +184,14 @@ extension ScreenContentView {
         hideSnapDeparted()
         guard frameInput.changeIsUnshown else { return }
         frameInput.changeIsUnshown = false
+        // A timed change's panes show in this pass's commit: its first frame (a right split's picture was its first
+        // frame, `openSplitFromSnapshot`).
+        showTimedChange(pictured: snapshotOpen != nil)
+        if frameInput.showsSplit {
+            frameInput.showsSplit = false
+            // The split's live panes show in this pass's commit: a picture over them goes after its slide.
+            if snapshotOpen != nil { snapshotOpenLiveShown() }
+        }
         reconcileDock()
         reconcileCanvasStacking()
         guard let chrome = frameInput.heldChrome else { return }
@@ -193,7 +209,7 @@ extension ScreenContentView {
         }
         guard !frameInput.snapDeparted.isEmpty else { return }
         frameInput.snapDeparted = []
-        guard context.hideRetiredShown(of: screenID) else { return }
+        guard zoomDim.hidesDeparted(of: self) else { return }
         context.afterCommit { [weak self] in self?.releaseDeparted() }
     }
 
@@ -207,13 +223,7 @@ extension ScreenContentView {
     /// zoom's covered panes at the unzoom) show, at their places. Returns whether any did.
     func showSnapReturning() -> Bool {
         guard !frameInput.snapReturning.isEmpty else { return false }
-        var shown = false
-        for pane in frameInput.snapReturning {
-            guard paneFrames[pane] != nil, let host = context.hosts[pane], host.superview === self, host.isHidden else { continue }
-            host.isHidden = false
-            shown = true
-        }
-        frameInput.snapReturning = []
-        return shown
+        defer { frameInput.snapReturning = [] }
+        return context.showReturning(frameInput.snapReturning.filter { paneFrames[$0] != nil }, on: self)
     }
 }

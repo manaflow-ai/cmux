@@ -9,14 +9,15 @@
 #   TOKEN=... images/cmux-vm/image-roll-push.sh rollback --image ID --message-file M [--dry-run]
 #
 # TOKEN pushes cmux (the manaflow-cmux-pr-autofix App's token, so the push starts cmux-vm.yml's production
-# deploy; no ruleset or branch protection applies to feat-cmux-next). PLATFORM_TOKEN pushes cmux-platform
+# deploy; it pushes straight to feat-cmux-next, so a ruleset there that the App cannot bypass stops the roll:
+# that refusal exits 3 with GitHub's reason, never retried as a moved tip). PLATFORM_TOKEN pushes cmux-platform
 # main in platform mode. Tokens reach git only as extra headers in the environment. --dry-run makes the
 # commits and prints them, and pushes nothing.
 # Prints `pushed <sha>`, `nothing <reason>` or `dry-run <sha>` as its last line; the step output
 # `result` and `sha` (GITHUB_OUTPUT) say the same.
 set -euo pipefail
 action="${1:?usage: image-roll-push.sh roll|rollback ...}"; shift
-candidate="" revision="" run="" attempt="" pin="" image="" message_file="" dry_run="" platform_checkout=""
+candidate="" revision="" run="" attempt="" pin="" image="" message_file="" dry_run="" platform_checkout="" platform_wrangler=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --candidate) candidate="$2"; shift 2 ;;
@@ -27,6 +28,8 @@ while [ $# -gt 0 ]; do
     --image) image="$2"; shift 2 ;;
     --message-file) message_file="$2"; shift 2 ;;
     --platform-checkout) platform_checkout="$2"; shift 2 ;;
+    # cmux-platform's root wrangler.jsonc: its CLOUD_VM_API_IMAGE pins stay in every list (auto-roll.ts platformPins).
+    --platform-wrangler) platform_wrangler="$2"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
     *) echo "image-roll-push: unknown argument $1" >&2; exit 2 ;;
   esac
@@ -52,6 +55,12 @@ git_with_token() {
     git "$@"
 }
 
+pins_args=()
+if [ -n "$platform_wrangler" ]; then
+  [ -s "$platform_wrangler" ] || { echo "image-roll-push: --platform-wrangler $platform_wrangler is missing or empty" >&2; exit 2; }
+  pins_args=(--platform-wrangler "$platform_wrangler")
+fi
+
 platform_mode=0
 if [ -n "$platform_checkout" ]; then
   platform_mode=1
@@ -72,7 +81,16 @@ for push_try in 1 2 3 4 5; do
   git reset -q --hard FETCH_HEAD
   case "$action" in
     roll)
-      if [ -n "$pin" ]; then bun images/cmux-vm/pin-cmux-tui.ts --commit "$pin" --write > /dev/null; fi
+      if [ -n "$pin" ]; then
+        # Never back: a roll that landed while this one baked may pin a newer cmux-tui (auto-roll.ts behindTip).
+        set +e
+        bun images/cmux-vm/auto-roll.ts behind --pin "$pin" > "$RUNNER_TEMP/behind.json"
+        rc=$?
+        set -e
+        if [ "$rc" = 3 ]; then report nothing "$(jq -r .reason "$RUNNER_TEMP/behind.json")" ""; exit 0; fi
+        [ "$rc" = 0 ] || exit "$rc"
+        bun images/cmux-vm/pin-cmux-tui.ts --commit "$pin" --write > /dev/null
+      fi
       if [ "$platform_done" = 0 ]; then
         if [ "$platform_mode" = 1 ]; then
           if [ "$(git -C "$platform_checkout" rev-parse --is-shallow-repository)" = true ]; then
@@ -84,7 +102,7 @@ for push_try in 1 2 3 4 5; do
           git -C "$platform_checkout" reset -q --hard FETCH_HEAD
           set +e
           bun images/cmux-vm/auto-roll.ts approve --candidate "$candidate" --revision "$revision" --run "$run" --attempt "$attempt" \
-            --wrangler "$platform_checkout/workers/cmux-vm/wrangler.jsonc" --lock "$PWD/images/cmux-vm/inputs.lock.json" > "$RUNNER_TEMP/approve.json"
+            --wrangler "$platform_checkout/workers/cmux-vm/wrangler.jsonc" --lock "$PWD/images/cmux-vm/inputs.lock.json" "${pins_args[@]}" > "$RUNNER_TEMP/approve.json"
           rc=$?
           set -e
           if [ "$rc" = 4 ]; then report nothing "the tip moved the image inputs since the bake; the next roll bakes them" ""; exit 0; fi
@@ -103,7 +121,7 @@ for push_try in 1 2 3 4 5; do
           platform_done=1
         else
           set +e
-          bun images/cmux-vm/auto-roll.ts approve --candidate "$candidate" --revision "$revision" --run "$run" --attempt "$attempt" > "$RUNNER_TEMP/approve.json"
+          bun images/cmux-vm/auto-roll.ts approve --candidate "$candidate" --revision "$revision" --run "$run" --attempt "$attempt" "${pins_args[@]}" > "$RUNNER_TEMP/approve.json"
           rc=$?
           set -e
           if [ "$rc" = 4 ]; then report nothing "the tip moved the image inputs since the bake; the next roll bakes them" ""; exit 0; fi
@@ -126,7 +144,7 @@ for push_try in 1 2 3 4 5; do
         rollback_wrangler="$platform_checkout/workers/cmux-vm/wrangler.jsonc"
         rollback_repo="$platform_checkout"
       fi
-      bun images/cmux-vm/auto-roll.ts rollback --image "$image" --wrangler "$rollback_wrangler" > "$RUNNER_TEMP/rollback.json"
+      bun images/cmux-vm/auto-roll.ts rollback --image "$image" --wrangler "$rollback_wrangler" "${pins_args[@]}" > "$RUNNER_TEMP/rollback.json"
       cat "$RUNNER_TEMP/rollback.json"
       if [ "$(jq -r .rolledBack "$RUNNER_TEMP/rollback.json")" != true ]; then
         report nothing "$(jq -r .reason "$RUNNER_TEMP/rollback.json")" ""
@@ -175,7 +193,16 @@ for push_try in 1 2 3 4 5; do
     report dry-run "$sha (not pushed)" "$sha"
     exit 0
   fi
-  if git push -q origin "HEAD:refs/heads/${branch}"; then report pushed "$sha" "$sha"; exit 0; fi
+  push_err="${RUNNER_TEMP:-/tmp}/image-roll-push.err"
+  if git push -q origin "HEAD:refs/heads/${branch}" 2>"$push_err"; then cat "$push_err" >&2; report pushed "$sha" "$sha"; exit 0; fi
+  cat "$push_err" >&2
+  # A ruleset or protection refusal never clears on a retry: name it and stop, so the run reads as the
+  # refusal it is, not as a tip that kept moving.
+  if grep -qE 'GH013|GH006|declined due to repository rule|protected branch' "$push_err"; then
+    echo "image-roll-push: GitHub refused the push to ${branch} by a repository rule, not a moved tip; nothing landed." >&2
+    echo "::error title=Image roll push refused::${branch} has a ruleset or branch protection the roll's App token cannot pass (see the remote lines above); nothing landed." >&2
+    exit 3
+  fi
   echo "feat-cmux-next moved under the push; making the change again on the new tip (attempt ${push_try})"
 done
 echo "image-roll-push: feat-cmux-next kept moving; nothing landed" >&2
