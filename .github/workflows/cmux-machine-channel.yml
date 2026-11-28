@@ -381,7 +381,11 @@ jobs:
       cancel-in-progress: false
     # This run's build, or the merged PR head's (PR_HEAD_FAST_LANE); a pull request run points nothing.
     if: ${{ !cancelled() && github.event_name == 'push' && (needs.build-x86_64.result == 'success' || needs.plan.outputs.from_run != '' || needs.twin-x86_64.outputs.from_run != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # A pool runner, never Freestyle: `cmux-has-netem` is on every pool VM and on no fsr-* VM (docs/ci/cmux-next-workflow-notes.md
+    # note-206). Run 46098698250 (139abf15, 2026-11-28): on fsr-1795834231-bc4fc1 this job took 7 min of the merge's 25,
+    # checkout 103 s (77,525 files) and the 315 MB artifact 202 s (about 1.5 MB/s); point-linux on cmux-runner-pool-e4a-0261-2
+    # checked out in 13 s and downloaded both 315 MB and 321 MB artifacts in 7 s.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON('["cmux-linux","cmux-has-netem"]') }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -464,7 +468,7 @@ jobs:
       group: cmux-machine-channel-point-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
     if: ${{ !cancelled() && github.event_name == 'push' && ((needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success') || needs.plan.outputs.from_run != '' || needs.twin-linux.outputs.from_run != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON('["cmux-linux","cmux-has-netem"]') }}  # a pool runner, as point-x86_64
     timeout-minutes: 10
     permissions:
       contents: read
