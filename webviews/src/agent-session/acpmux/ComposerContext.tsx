@@ -36,6 +36,7 @@ import {
 } from "./cloudMachines";
 import {
   environmentReady,
+  environmentPickable,
   environmentSections,
   knownMachines,
   orderEnvironments,
@@ -45,15 +46,15 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
-  environmentPickable,
   type PeerGroup,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
+import { BranchGlyph } from "./BranchGlyph";
 import { FolderPopover } from "./FolderPopover";
 import { isGitHubLocation } from "./folderRows";
 import { cloudRepositoryPick, cloudSourceFolders, type CloudFolder } from "./sourcePickerModel";
-import { GitHubGlyph, GitHubMark } from "./GitHubIcons";
+import { GitHubMark, GitHubGlyph } from "./GitHubIcons";
 import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
@@ -93,7 +94,7 @@ import {
   folderMenu,
   type FolderChipState,
 } from "./folderlessCloud";
-import { chatComputerId, ownMachineName, routeOnOwnCloud, type ChatPlace } from "./chatMachine";
+import { chatComputerId, ownMachineName, type ChatPlace, routeOnOwnCloud } from "./chatMachine";
 import { useMachineCard } from "./useMachineCard";
 import { AutoIcon } from "./AutoWhere";
 import { AUTO_LOOK } from "./autoWhereModel";
@@ -1516,27 +1517,9 @@ function BranchPicker({ branch }: { branch: string }) {
   );
 }
 
-/// The git-branch glyph Claude and ChatGPT draw for a branch (Leo 2026-11-22: "use the same branch
-/// icon as chatgpt and claude"): a trunk with one branch curving off to a node at its top right.
+/// The composer's branch glyph: the shared ChatGPT/Claude one (BranchGlyph.tsx).
 function BranchIcon() {
-  return (
-    <svg
-      className="acpmux-icon acpmux-location-icon ui-ghost-icon"
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <path d="M4.5 2.5v8" />
-      <circle cx="11.5" cy="4.5" r="1.75" />
-      <circle cx="4.5" cy="12.25" r="1.75" />
-      <path d="M11.5 6.25a5.25 5.25 0 0 1-5.25 5.25" />
-    </svg>
-  );
+  return <BranchGlyph className="acpmux-icon acpmux-location-icon ui-ghost-icon" size={14} />;
 }
 
 /// The machine a chat runs on: its peer (an SSH or Cloud machine), else its Cloud host, else the page's

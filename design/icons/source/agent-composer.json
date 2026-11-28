@@ -599,7 +599,10 @@
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 3.5v12.75M17 8.75c0 5-10 3.5-10 7.5'/><circle cx='7' cy='18.5' r='2.25'/><circle cx='17' cy='6.5' r='2.25'/></svg>",
    "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 3.5v12.75M17 8.75c0 5-10 3.5-10 7.5' fill='none' stroke-width='2'/><circle cx='7' cy='18.5' r='2.5' stroke='none'/><circle cx='17' cy='6.5' r='2.5' stroke='none'/></svg>",
    "alts": [],
-   "note": "Two nodes + curve (SPEC). Nodes are what separate it from agent.fork.",
+   "note": "Two nodes + curve (SPEC), the branch glyph Claude and ChatGPT draw (Leo, ask-f87d5d43b4: \"use the same branch icon as chatgpt and claude\"). Nodes are what separate it from agent.fork. The Mac's folder picker names SF arrow.triangle.branch for git repositories, and this entry overrides it, so the palette draws this drawing too.",
+   "overrides": [
+    "arrow.triangle.branch"
+   ],
    "replaces": [
     "BranchIcon (ComposerContext local)",
     "BranchIcon (sidebarIcons)"
