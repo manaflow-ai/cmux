@@ -46,6 +46,7 @@ pub fn set_icon(
     let dir = sources.user_dir.clone().ok_or_else(|| {
         AdminError::Failed("no harness folder: set HOME or XDG_CONFIG_HOME".into())
     })?;
+    let _lock = crate::harness_admin::lock_endpoint_adds(&dir)?;
     let path = dir.join(format!("{id}.toml"));
     if !path.is_file() {
         return Err(AdminError::NotFound(format!(

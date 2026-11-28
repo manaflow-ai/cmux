@@ -29,6 +29,15 @@
 //! heartbeat, about 10 s, plus [`PONG_TIMEOUT`]). Probed this way a death in
 //! those seconds is found within about `CHECK_INTERVAL + PONG_TIMEOUT`.
 //!
+//! A loop that did not run for longer than [`STALL`] (but less than
+//! [`RELAY_RETIRES_SILENT`]) with a ping out has not been listening: the
+//! answer may be sitting in the socket, and a just-restored machine faults
+//! its memory back in and stalls for seconds while the daemon starts. Its
+//! next check is [`Check::Stalled`], and the ping gets a fresh
+//! [`PONG_TIMEOUT`] of awake time before it counts as unanswered, so a stall
+//! never reads as a dead registration (a dead one costs the dial attached
+//! to it 4 s or more, and a new ticket).
+//!
 //! The registration loop checks every [`CHECK_INTERVAL`], so a dead
 //! registration after a resume is found within about `CHECK_INTERVAL`. It
 //! then registers again with a fresh ticket ([`Retry`]): at once after a
@@ -45,6 +54,8 @@ use tokio::time::Instant;
 pub(crate) const CHECK_INTERVAL: Duration = Duration::from_secs(1);
 /// How long a ping may go unanswered.
 pub(crate) const PONG_TIMEOUT: Duration = Duration::from_secs(3);
+/// A gap between two checks past this is the loop stalling, not listening.
+pub(crate) const STALL: Duration = Duration::from_secs(2);
 /// A wall-clock step beyond the monotonic clock that counts as a resume.
 pub(crate) const CLOCK_JUMP: Duration = Duration::from_secs(2);
 /// A pause longer than this outlived the registration: the relay retires a
@@ -75,6 +86,9 @@ pub(crate) enum Check {
     /// The machine resumed from a pause the registration did not survive:
     /// close it and register again at once.
     Resumed,
+    /// The loop did not run for this long with a ping out: the ping waits a
+    /// fresh [`PONG_TIMEOUT`] (the answer may be in the socket unread).
+    Stalled(Duration),
 }
 
 /// The wall clock against the monotonic clock: how far the wall clock moved
@@ -162,6 +176,10 @@ impl Liveness {
         let look = self.clocks.look(mono, wall);
         if look.outlived_relay() {
             return Check::Resumed;
+        }
+        if self.awaiting_since.is_some() && look.mono_step > STALL {
+            self.awaiting_since = Some(mono);
+            return Check::Stalled(look.mono_step);
         }
         if self.awaiting_since.is_some_and(|since| mono.duration_since(since) >= PONG_TIMEOUT) {
             return Check::Dead;
