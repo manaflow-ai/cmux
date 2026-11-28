@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "81ce4c4dbf91a8179d6047995bb208ccf829404c5b802e542b5ad20533610dae";
+inline constexpr std::string_view kProtocolIrSha256 = "b6c8e10bf36bcc1c893daa1b3027252359899fc9d9803e5cdda22fdcf1495cac";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -83,6 +83,7 @@ enum class DetachReason;
 struct EmptyResult;
 struct ExportLayoutResult;
 struct ExportedPane;
+struct FloatingPane;
 struct FocusDirectionResult;
 enum class FrontendFocusTarget;
 struct FrontendJournalEvent;
@@ -1673,6 +1674,7 @@ enum class ClientTransport {
 
 struct ClientInfo {
     std::vector<Id> attached{};
+    std::optional<std::vector<std::string>> capabilities{};
     std::uint64_t client{};
     std::uint64_t connected_seconds{};
     std::optional<std::string> kind{};
@@ -3223,6 +3225,15 @@ struct FloatPaneRequest {
     Field<double> x{};
     Field<double> y{};
     friend bool operator==(const FloatPaneRequest&, const FloatPaneRequest&) = default;
+};
+
+struct FloatingPane {
+    double h{};
+    Id pane{};
+    double w{};
+    double x{};
+    double y{};
+    friend bool operator==(const FloatingPane&, const FloatingPane&) = default;
 };
 
 struct FlushLaunchSnapshotRequest {
@@ -5363,7 +5374,7 @@ struct Screen {
     Id active_pane{};
     Field<std::string> color{};
     std::optional<std::vector<LayoutColumnNode>> columns{};
-    std::optional<JsonValue> floating{};
+    std::optional<std::vector<FloatingPane>> floating{};
     Field<std::string> group{};
     std::optional<std::vector<Id>> hidden_dividers{};
     Field<std::string> icon{};
@@ -7472,6 +7483,12 @@ template <>
 struct Codec<ExportedPane> {
     static Result<Json> encode(const ExportedPane& value);
     static Result<ExportedPane> decode(const Json& value);
+};
+
+template <>
+struct Codec<FloatingPane> {
+    static Result<Json> encode(const FloatingPane& value);
+    static Result<FloatingPane> decode(const Json& value);
 };
 
 template <>

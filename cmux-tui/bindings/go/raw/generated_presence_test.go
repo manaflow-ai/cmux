@@ -877,6 +877,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "startedAt", true, "1")
 	})
+	t.Run("ClientInfo.Capabilities", func(t *testing.T) {
+		var missing ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Capabilities != nil {
+			t.Fatal("Capabilities did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "capabilities", false, "")
+		var nullValue ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\",\"capabilities\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field capabilities accepted null")
+		}
+		var presentValue ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\",\"capabilities\":[]}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Capabilities == nil {
+			t.Fatal("Capabilities lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "capabilities", true, "[]")
+	})
 	t.Run("ClientInfo.Kind", func(t *testing.T) {
 		var missing ClientInfo
 		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &missing); err == nil {
@@ -5961,13 +5983,13 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("non-nullable field floating accepted null")
 		}
 		var presentValue Screen
-		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null,\"floating\":{\"value\":true}}"), &presentValue); err != nil {
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null,\"floating\":[]}"), &presentValue); err != nil {
 			t.Fatal(err)
 		}
 		if presentValue.Floating == nil {
 			t.Fatal("Floating lost its value")
 		}
-		assertGeneratedFieldJSON(t, presentValue, "floating", true, "{\"value\":true}")
+		assertGeneratedFieldJSON(t, presentValue, "floating", true, "[]")
 	})
 	t.Run("Screen.Group", func(t *testing.T) {
 		var missing Screen
@@ -50086,6 +50108,36 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field surfaces decoded successfully")
 		}
 	})
+	t.Run("FloatingPane.H", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"pane\":1,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field h decoded successfully")
+		}
+	})
+	t.Run("FloatingPane.Pane", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field pane decoded successfully")
+		}
+	})
+	t.Run("FloatingPane.W", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field w decoded successfully")
+		}
+	})
+	t.Run("FloatingPane.X", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field x decoded successfully")
+		}
+	})
+	t.Run("FloatingPane.Y", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"x\":1.5}"), &decoded); err == nil {
+			t.Fatal("missing required field y decoded successfully")
+		}
+	})
 	t.Run("FocusDirectionResult.Pane", func(t *testing.T) {
 		var decoded FocusDirectionResult
 		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
@@ -59993,6 +60045,36 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded ExportedPane
 		if err := json.Unmarshal([]byte("{\"pane\":1,\"surfaces\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field surfaces accepted null")
+		}
+	})
+	t.Run("FloatingPane.H", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":null,\"pane\":1,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field h accepted null")
+		}
+	})
+	t.Run("FloatingPane.Pane", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":null,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field pane accepted null")
+		}
+	})
+	t.Run("FloatingPane.W", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":null,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field w accepted null")
+		}
+	})
+	t.Run("FloatingPane.X", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"x\":null,\"y\":1.5}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field x accepted null")
+		}
+	})
+	t.Run("FloatingPane.Y", func(t *testing.T) {
+		var decoded FloatingPane
+		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"x\":1.5,\"y\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field y accepted null")
 		}
 	})
 	t.Run("FocusDirectionResult.Pane", func(t *testing.T) {
@@ -70328,12 +70410,12 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1981
+	generatedFieldShapeCount               = 1982
 	generatedOptionalNullableFieldCount    = 1371
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 432
-	generatedRequiredFieldCount            = 1669
-	generatedRequiredNonnullableFieldCount = 1491
+	generatedOptionalNonnullableFieldCount = 433
+	generatedRequiredFieldCount            = 1674
+	generatedRequiredNonnullableFieldCount = 1496
 	generatedConstrainedFieldCount         = 139
 	generatedEncodedConstrainedFieldCount  = 139
 )
