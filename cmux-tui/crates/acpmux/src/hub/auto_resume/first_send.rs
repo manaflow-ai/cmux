@@ -88,7 +88,7 @@ impl Hub {
                 () = tokio::time::sleep(Duration::from_millis(FIRST_SEND_RETRY_MS)) => {}
                 () = wake.notified() => {}
             }
-            if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+            if hub.shutting_down() || session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
                 return;
             }
             let skipped = |why: &str, error: Option<&str>| {
@@ -104,6 +104,9 @@ impl Hub {
                 return;
             }
             let Err(e) = hub.resend_turn(&session, by, Some(&cut_turn)).await else { return };
+            if hub.shutting_down() || session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
             // What is left of its wait, if the resend did not claim it.
             hub.take_pending(&session, &cut_turn);
             let reason = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
