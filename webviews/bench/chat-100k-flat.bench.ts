@@ -726,6 +726,17 @@ try {
           }
         }
         const lastText = `Grown answer ${grow}:`;
+        if (hiddenBeforeGrow) {
+          // A hidden chat draws no rows, so it shows again (a tab switched back to) to read that its last turn came in;
+          // the hide below hides it once more before the settle.
+          for (const { page } of pages.slice(0, -1))
+            await page.evaluate(() => {
+              delete (document as unknown as Record<string, unknown>).visibilityState;
+              delete (document as unknown as Record<string, unknown>).hidden;
+              document.dispatchEvent(new Event("visibilitychange"));
+            });
+          hiddenBeforeGrow = false;
+        }
         try {
           for (const { page } of pages)
             await page.waitForFunction((text) => document.body.textContent?.includes(text), lastText, {
