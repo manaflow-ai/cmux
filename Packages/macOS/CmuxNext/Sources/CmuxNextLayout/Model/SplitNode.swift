@@ -1,5 +1,5 @@
 /// Orientation of a split.
-public nonisolated enum SplitAxis: String, Hashable, Sendable {
+public nonisolated enum SplitAxis: String, Hashable, Sendable, Codable {
     /// Children side by side; `a` is on the left. Daemon `dir: "right"`.
     case horizontal
     /// Children stacked; `a` is on top. Daemon `dir: "down"`.

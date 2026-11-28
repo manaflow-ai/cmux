@@ -116,6 +116,30 @@ import Testing
         #expect(ready["progress"] == nil)
     }
 
+    /// Settings > Updates lists "What's in this build" with the popover's PRs (Leo 2026-11-26: "hm do we
+    /// display which prs go into which nightly maybe that'd be useful per thing?").
+    @Test func settingsListsTheStagedUpdatesPullRequests() throws {
+        let (updater, _) = Self.make()
+        Self.move(updater, [.checking, .downloading(.starting), .ready(version: "2.0.0")])
+        #expect(updater.settingsPageJSON["prs"] == nil, "no PRs read yet: no list")
+        let items = [ReleaseNotes.ChangeItem(title: "Pinned tabs keep their order", author: "ada", pr: 12, area: "Mac app"),
+                     ReleaseNotes.ChangeItem(title: "Faster cold start", pr: 10),
+                     ReleaseNotes.ChangeItem(title: "CI cache", pr: 9, isInternal: true)]
+        let notes = ReleaseNotes(version: 1, build: "200", shortVersion: "2.0.0", date: "2026-11-26",
+                                 highlights: [], changes: items.map(\.title), items: items)
+        updater.stagedPullRequests = BuildPullRequests(notes: [notes])
+        let prs = try #require(updater.settingsPageJSON["prs"])
+        #expect(prs["title"]?.stringValue == UpdaterStrings.pullRequestsTitle)
+        #expect(prs["other"]?.stringValue == UpdaterStrings.pullRequestsOther)
+        #expect(prs["internalCount"]?.doubleValue == 1)
+        let groups = try #require(prs["groups"]?.arrayValue)
+        #expect(groups.map { $0["area"]?.stringValue } == ["Mac app", nil])
+        let first = try #require(groups.first?["items"]?.arrayValue?.first)
+        #expect(first["pr"]?.doubleValue == 12)
+        #expect(first["url"]?.stringValue == "https://github.com/manaflow-ai/cmux/pull/12")
+        #expect(first["author"]?.stringValue == "ada")
+    }
+
     @Test func aDownloadReSendsSettingsOnlyWhenItsPercentChanges() {
         let (updater, _) = Self.make()
         Self.move(updater, [.checking, .downloading(.downloading(received: 125 * Self.mb, expected: 250 * Self.mb))])

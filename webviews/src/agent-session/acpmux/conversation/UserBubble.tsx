@@ -31,7 +31,7 @@ import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
-import { PendingDelivery, usePendingShown } from "./PromptDelivery";
+import { PendingDelivery, resendsItself, usePendingShown } from "./PromptDelivery";
 import { ImageIcon, Pencil } from "./icons";
 import { VersionSwitcher } from "./VersionSwitcher";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -40,6 +40,7 @@ import { PromptText } from "./PromptText";
 import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
 import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
+import { withoutAttachedFileNotes } from "../attachments";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
 import { Slot } from "../../../slots/Slot";
@@ -59,7 +60,7 @@ import { SkillWordsContext } from "./skillWords";
 import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo, sentVideoFor, withoutRepeatedVideos } from "./sentVideos";
-import { recordedFiles, isImageOriginal, sentImageSize, linkedImagePath } from "./userBubbleModel";
+import { recordedFiles, isImageOriginal, sentImageSize, linkedImagePath, withoutFileNotes } from "./userBubbleModel";
 import { readLinkedImage } from "../chips/host";
 import { useMessageScope } from "../chips/messageScope";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -79,7 +80,8 @@ export function UserBubble({
   // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
   // Only a skill of the chat's list reads so (skillWords.ts).
   const skills = useContext(SkillWordsContext);
-  const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
+  // A linked file's note ("Attached file: …") went to the agent only too (userBubbleModel.ts).
+  const row = useMemo(() => shownSkills(withoutFileNotes(withoutVideoFrames(given)), skills), [given, skills]);
   // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
   const videos = useMemo(() => sentVideosOf(given), [given]);
   // A repo tour's prompt reads as its first line; the rest is instructions to the agent (repoTour/).
@@ -87,7 +89,9 @@ export function UserBubble({
     () =>
       tourBubbleText(givenText) ??
       withoutSkillDollars(
-        withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+        withoutAttachedFileNotes(
+          withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+        ),
         skills,
       ),
     [givenText, given, skills],
@@ -293,7 +297,7 @@ export function UserBubble({
         ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
-        {!row.failed && (text || hasAttachment || pending) && (
+        {(!row.failed || resendsItself(row.delivery)) && (text || hasAttachment || pending) && (
           <UserFooter
             className={
               (branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions") +
@@ -434,7 +438,9 @@ export const SentImage = memo(function SentImage({
   const { width, height } = sentImageSize(shown);
   // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
   // (conversation.css), never past the bubble's edge.
-  const shape = { width, aspectRatio: `${width} / ${height}` };
+  // `height: auto` in the style itself: the <img>'s `height` attribute (its natural height) must
+  // never set its height beside this width, or it draws stretched (https://github.com/manaflow-ai/cmux/issues/59858).
+  const shape = { width, height: "auto", aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
   const broken = shown.status === "failed" || (shown.src !== undefined && failed === shown.src);
   if (broken && fallback !== null) return <>{fallback}</>;
@@ -496,6 +502,9 @@ export const SentImage = memo(function SentImage({
   const opened = openImage ? (
     <button
       type="button"
+      // Its own class, not its band's: an image sent as its file's link draws in the file band
+      // (`cv-user__files`), where no band rule reaches it (conversation.css).
+      className="cv-user__image-open"
       /* The image drags out as a file (conversation/dragOut.ts). */
       draggable
       /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}

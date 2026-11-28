@@ -9,8 +9,9 @@
 # - pack without apply packs nothing;
 # - a target linked to a pool tree (the darwin leg) packs through the link, and stays warm.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); git_fixture_trap_exit 'rm -rf "$TMP"'
 fail() { echo "FAIL: $*" >&2; exit 1; }
 command -v cargo >/dev/null || fail "cargo is required"
 export RUNNER_TEMP="$TMP/runner-temp"; mkdir -p "$RUNNER_TEMP"
@@ -33,7 +34,7 @@ printf '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n[dependenc
 echo 'pub fn value() -> u32 { 1 }' > "$repo/ws/core/src/lib.rs"
 echo 'pub fn side() -> u32 { 7 }' > "$repo/ws/side/src/lib.rs"
 echo 'fn main() { println!("{}", core::value()); }' > "$repo/ws/app/src/main.rs"
-git -C "$repo" init -q && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
+git_fixture_init "$repo" && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
 
 delta() { bash "$repo/scripts/ci/cargo-target-delta.sh" "$@" aarch64-apple-darwin; }
 target="$repo/ws/target"; stamp="$RUNNER_TEMP/delta.stamp"; saved="$TMP/r2"; mkdir -p "$saved"
@@ -43,7 +44,7 @@ leg() {
   find "$repo/ws" -exec touch {} +
   if [[ -d "$saved/delta" ]]; then cp -a "$saved/delta" "$TMP/restored"; fi
   delta apply "$target" "$TMP/restored" "$stamp" > "$TMP/apply.log"
-  (cd "$repo/ws" && CARGO_INCREMENTAL=0 cargo build --offline -v 2>&1) > "$TMP/build.log"
+  (cd "$repo/ws" && CARGO_INCREMENTAL=0 cargo build --target-dir "$target" --offline -v 2>&1) > "$TMP/build.log"
   compiled=$(grep -cE '^ +Compiling ' "$TMP/build.log" || true)
   fresh=$(grep -cE '^ +Fresh ' "$TMP/build.log" || true)
   delta pack "$target" "$stamp" "$TMP/out" > "$TMP/pack.log"
@@ -75,6 +76,17 @@ grep -qE '^ +Fresh side ' "$TMP/build.log" || fail "an unrelated crate stays fre
 [[ "$("$target/debug/app")" == 2 ]] || fail "the rebuilt app prints the change"
 leg
 [[ $compiled == 0 ]] || fail "after the change the delta is warm again, got $compiled"
+
+# rustc's incremental cache hard-links a reused codegen unit into its new session directory with the
+# old mtime: pack keeps it (by ctime), and leaves an incremental file nobody touched.
+inc="$target/debug/incremental/crate-x"; mkdir -p "$inc/s-old" "$inc/s-other"
+echo reused > "$inc/s-old/cgu.o"; echo idle > "$inc/s-other/cgu.o"
+sleep 1.1; touch "$stamp"; : > "$stamp.list"
+mkdir -p "$inc/s-new"; ln "$inc/s-old/cgu.o" "$inc/s-new/cgu.o"
+delta pack "$target" "$stamp" "$TMP/out" > "$TMP/pack.log"
+[[ -f "$TMP/out/debug/incremental/crate-x/s-new/cgu.o" ]] || fail "pack keeps a hard-linked incremental unit"
+[[ ! -e "$TMP/out/debug/incremental/crate-x/s-other/cgu.o" ]] || fail "pack leaves an untouched incremental file"
+rm -rf "$target/debug/incremental" "$TMP/out"
 
 rm -f "$stamp"
 delta pack "$target" "$stamp" "$TMP/none" | grep -q "nothing packed" || fail "pack without apply packs nothing"

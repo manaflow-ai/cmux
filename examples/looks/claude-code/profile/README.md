@@ -51,7 +51,7 @@ sent to the customization lead. Gap letters are the lines sent.
 | [One-line prompt box, 'Type / for commands'](https://code.claude.com/docs/en/desktop) | composer | matched | agent-pane/theme.css paints the one-line #303030 box; `agentPane.composerPlaceholder` empty keeps 'Type / for commands', the app's own text |
 | [Voice dictation](https://code.claude.com/docs/en/desktop) | composer | gap | gap (i): no interface or setting for voice dictation in the composer |
 | [Slash commands in the prompt box](https://code.claude.com/docs/en/slash-commands) | slash_commands | matched | Claude's own / commands pass through; customize/ cmux.composer.command/1 adds /review /pr /test /explain; toolbar Commands button |
-| [Attach images and files, drag and drop](https://code.claude.com/docs/en/desktop) | attachments | matched | cmux composer attachments; customize/ cmux.composer.toolbar/1 Add files button |
+| [Attach images and files, drag and drop](https://code.claude.com/docs/en/desktop) | attachments | matched | cmux composer attachments; the composer + menu Add files (one attach control, as the app) |
 | [@-mention files](https://code.claude.com/docs/en/desktop) | attachments | partial | cmux composer @ file mentions (built in); not yet captured beside the app |
 | [Panes: chat, diff, browser, terminal, file, plan, tasks side by side](https://code.claude.com/docs/en/desktop) | panels | gap | gap (j): no layout preset arranges chat, diff, browser, terminal and tasks panes side by side |
 | [Preview pane with the dev server's page](https://code.claude.com/docs/en/desktop) | panels | partial | cmux browser pane opens beside the chat; no preview toggle key; gap (j): no layout preset arranges chat, diff, browser, terminal and tasks panes side by side |
