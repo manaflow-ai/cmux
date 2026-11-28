@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import io
+import json
 import re
 import sys
 import tempfile
 import unittest
+import urllib.error
 import urllib.parse
 from pathlib import Path
 from unittest import mock
@@ -903,6 +906,79 @@ class LinuxOrphanTests(unittest.TestCase):
                          [nightly["id"]])
 
 
+class JobListingEtagTests(unittest.TestCase):
+    """Dry run 44279689050 spent 564 of its 661 API calls on job listings; an unchanged one is GitHub's free 304."""
+
+    PATH = "/repos/manaflow-ai/cmux/actions/runs/7/jobs?filter=latest&per_page=100&page=1"
+
+    def github_answering(self, *, current_etag, jobs):
+        """A client whose urlopen answers like GitHub: 304 to a matching If-None-Match, else 200 with the ETag."""
+        sent = []
+
+        class Response(io.BytesIO):
+            def __init__(self, body, headers):
+                super().__init__(body)
+                self.headers = headers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            match = request.get_header("If-none-match")
+            sent.append(match)
+            if match == current_etag:
+                raise urllib.error.HTTPError(request.full_url, 304, "Not Modified", {}, None)
+            body = json.dumps({"total_count": len(jobs), "jobs": jobs}).encode()
+            return Response(body, {"ETag": current_etag})
+
+        return urlopen, sent
+
+    def test_an_unchanged_listing_is_a_free_304_with_the_kept_answer(self):
+        jobs = [{**served_job(age=5), "steps": [{"name": "s"}]}]
+        urlopen, sent = self.github_answering(current_etag='W/"a"', jobs=jobs)
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            first = janitor.GitHub("t", "manaflow-ai/cmux")
+            self.assertEqual(first.request("GET", self.PATH)["jobs"], jobs)
+            second = janitor.GitHub("t", "manaflow-ai/cmux")
+            second.etags_kept = first.etags_seen
+            answer = second.request("GET", self.PATH)
+        self.assertEqual(sent, [None, 'W/"a"'])
+        self.assertEqual(second.not_modified, 1)
+        self.assertEqual(answer["jobs"], [{k: v for k, v in jobs[0].items() if k != "steps"}])
+        self.assertEqual(second.etags_seen, first.etags_seen)
+
+    def test_a_changed_listing_is_read_and_kept_anew(self):
+        urlopen, sent = self.github_answering(current_etag='W/"b"', jobs=[served_job(age=1)])
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            github = janitor.GitHub("t", "manaflow-ai/cmux")
+            github.etags_kept = {self.PATH: {"etag": 'W/"a"', "body": {"jobs": []}}}
+            self.assertEqual(len(github.request("GET", self.PATH)["jobs"]), 1)
+        self.assertEqual((sent, github.not_modified, github.etags_seen[self.PATH]["etag"]), (['W/"a"'], 0, 'W/"b"'))
+
+    def test_only_job_listings_are_conditional(self):
+        urlopen, sent = self.github_answering(current_etag='W/"a"', jobs=[])
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            github = janitor.GitHub("t", "manaflow-ai/cmux")
+            path = "/repos/manaflow-ai/cmux/actions/runs?status=queued&per_page=100&page=1"
+            github.etags_kept = {path: {"etag": 'W/"a"', "body": {}}}
+            github.request("GET", path)
+        self.assertEqual((sent, github.etags_seen), ([None], {}))
+
+    def test_the_kept_file_round_trips_and_a_bad_one_reads_as_empty(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "etags.json.gz"
+            kept = {self.PATH: {"etag": 'W/"a"', "body": {"jobs": []}}}
+            janitor.save_etags(path, kept)
+            self.assertEqual(janitor.load_etags(path), kept)
+            path.write_bytes(b"not gzip")
+            self.assertEqual(janitor.load_etags(path), {})
+            self.assertEqual(janitor.load_etags(Path(temp) / "missing"), {})
+            self.assertEqual(janitor.load_etags(None), {})
+
+
 class OrphanDetectionTests(unittest.TestCase):
     def test_lost_assignment_is_an_orphan(self):
         # PR #13988: macOS jobs cancelled, the Linux ci-status job queued for
@@ -1318,6 +1394,15 @@ class OrphanSweepTests(unittest.TestCase):
                     mock.patch.object(janitor, "utc_now", lambda: NOW), \
                     mock.patch("builtins.print"):
                 self.assertEqual(janitor.main(argv), 1)
+
+    def test_a_sweep_reads_and_rewrites_the_kept_job_listings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "etags" / "janitor-etags.json.gz"
+            code, fake, text, _ = self.sweep("--dry-run", "--etags", str(path))
+            self.assertEqual(code, 0)
+            self.assertEqual(janitor.load_etags(path), {})
+            self.assertTrue(path.is_file())
+        self.assertIn("job listings unchanged since the last sweep (304, no quota; 0 ETags kept)", text)
 
     def test_dry_run_cancels_nothing_and_reports_orphans(self):
         code, fake, text, (stuck, ghost) = self.sweep("--dry-run")

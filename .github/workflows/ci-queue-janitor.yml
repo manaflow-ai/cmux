@@ -31,6 +31,10 @@ name: CI queue janitor
 # a "Skipped: ... spent until <reset>" summary and exit 0: nothing was
 # cancelled, and the next sweep after the reset runs.
 #
+# Each sweep keeps its job listings with their ETags as the `janitor-etags`
+# artifact, and the next one reads them conditionally: an unchanged listing is
+# a 304 that costs no quota.
+#
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
 # backed-up pool.
@@ -140,6 +144,36 @@ jobs:
         with:
           persist-credentials: false
 
+      # The last sweep's job listings with their ETags: an unchanged listing is then GitHub's free 304
+      # (scripts/ci/queue_janitor.py JOBS_PATH). Only a same-repository run on main or this ref is trusted: a fork's
+      # run could upload an artifact by that name. A missing or unreadable one only costs plain reads.
+      - name: Find the kept job listings
+        id: etags
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          run_id="$(gh api "repos/${{ github.repository }}/actions/artifacts?name=janitor-etags&per_page=20" \
+            --jq '[.artifacts[] | select(.expired | not)
+                   | select(.workflow_run.head_repository_id == .workflow_run.repository_id)
+                   | select(.workflow_run.head_branch == "main" or .workflow_run.head_branch == env.REF_NAME)]
+                  | max_by(.created_at) | .workflow_run.id // ""')" || run_id=""
+          echo "kept job listings: run ${run_id:-none}"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the kept job listings
+        if: steps.fresh.outputs.skip != 'true' && steps.etags.outputs.run_id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: janitor-etags
+          path: ${{ runner.temp }}/janitor-etags
+          run-id: ${{ steps.etags.outputs.run_id }}
+          github-token: ${{ github.token }}
+
       - name: Cancel wasted macOS runs
         if: steps.fresh.outputs.skip != 'true'
         env:
@@ -163,7 +197,18 @@ jobs:
           # 1: fold admission's owned-warm-keys artifacts into the snapshot's
           # `warm` (scripts/ci/owned_warm_state.py) for warm affinity.
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
+          JANITOR_ETAGS: ${{ runner.temp }}/janitor-etags/janitor-etags.json.gz
         run: python3 scripts/ci/queue_janitor.py
+
+      - name: Keep the job listings for the next sweep
+        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: janitor-etags
+          path: ${{ runner.temp }}/janitor-etags/janitor-etags.json.gz
+          retention-days: 1
+          if-no-files-found: ignore
 
       - name: Alert on starved fleet runner labels
         if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' && steps.cmux-bot-token.outputs.token != '' }}
