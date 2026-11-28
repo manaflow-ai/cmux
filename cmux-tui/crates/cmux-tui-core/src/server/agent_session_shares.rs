@@ -1299,6 +1299,17 @@ impl LinkShares {
         directory: Option<&Path>,
         p: AccessAsk,
     ) -> Result<Value, &'static str> {
+        self.ask_access(directory, p).map(|(answer, _)| answer)
+    }
+
+    /// [`Self::request_access`], also naming the chat (its session and stored surface) when the
+    /// request is new and pending: the owner is told of it then, not on a repeat or a declined
+    /// account asking again.
+    pub(super) fn ask_access(
+        &self,
+        directory: Option<&Path>,
+        p: AccessAsk,
+    ) -> Result<(Value, Option<(String, u64)>), &'static str> {
         let Some(account) = p.account.as_deref() else { return Err("share.needs_sign_in") };
         let account = normal_account(account)?;
         if !valid_name(&p.name) {
@@ -1316,7 +1327,7 @@ impl LinkShares {
                 None => {}
             }
             if share.requests.iter().any(|r| r.account == account) {
-                return Ok((answer, false));
+                return Ok(((answer, None), false));
             }
             let pending = share.requests.iter().filter(|r| r.state == RequestState::Pending);
             if pending.count() >= MAX_REQUESTS || share.requests.len() >= MAX_REQUEST_RECORDS {
@@ -1343,7 +1354,9 @@ impl LinkShares {
                     return Err("share.limit");
                 }
             }
-            Ok((answer, true))
+            let share = find(shares, &p.share_id)?;
+            let chat = (share.session.clone(), share.surface);
+            Ok(((answer, Some(chat)), true))
         })
     }
 
@@ -1970,15 +1983,18 @@ pub(super) fn check_guest(
         object.insert("surface".into(), json!(attached.unwrap_or(surface)));
         return Ok(Teammate { author, pinned: None });
     }
-    // The share's surface, or (after a restart renumbered the surfaces) the one showing its chat.
-    let shown = Some(surface).filter(|s| tab_session(mux, *s).as_deref() == Some(session.as_str()));
-    let shown = shown.or_else(|| {
-        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
-        surfaces.into_iter().find(|s| tab_session(mux, *s).as_deref() == Some(session.as_str()))
-    });
-    let surface = shown.ok_or(Refusal::NotShared)?;
+    let surface = chat_surface(mux, &session, surface).ok_or(Refusal::NotShared)?;
     object.insert("surface".into(), json!(surface));
     Ok(Teammate { author, pinned: Some(session) })
+}
+
+/// The share's surface, or (after a restart renumbered the surfaces) the one showing its chat.
+pub(super) fn chat_surface(mux: &Mux, session: &str, surface: u64) -> Option<u64> {
+    let shown = Some(surface).filter(|s| tab_session(mux, *s).as_deref() == Some(session));
+    shown.or_else(|| {
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        surfaces.into_iter().find(|s| tab_session(mux, *s).as_deref() == Some(session))
+    })
 }
 
 #[cfg(test)]

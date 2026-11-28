@@ -3,10 +3,12 @@
 `cmux/ios-fast` gate that requires one at the PR's current head, and the loop's plan. Run: python3 -I THIS.
 """
 import copy
+import io
 import json
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -58,6 +60,22 @@ class Record(unittest.TestCase):
         self.assertTrue(body.startswith(f"<!-- cmux-proof-record ios-flows {HEAD} -->"))
         self.assertEqual(pr.parse(body), RECORD)
 
+    def test_a_big_record_still_fits_one_comment(self):
+        # cmux#38466: 201 screens rendered 38365 characters, the broker refused it and the gate never saw the proof.
+        big = copy.deepcopy(RECORD)
+        big["captures"] = [{"name": f"{i:08X}-4C8B-4892-AAAB-66BEE93F5ACA.png", "sha256": f"{i:064x}",
+                            "diff_ratio": 0.0008, "verdict": "same"} for i in range(201)]
+        big["visual"] = {"screens": 201, "changed": [c["name"] for c in big["captures"][:100]]}
+        self.assertGreater(len(json.dumps(big, indent=1)), pr.COMMENT_BUDGET)
+        body = pr.render(big, "summary")
+        self.assertLessEqual(len(body), pr.COMMENT_BUDGET)
+        back = pr.parse(body)
+        self.assertEqual(back["verdict"], "pass")
+        self.assertEqual(len(back["captures"]), 201)
+        self.assertEqual(pr.gate(back, "ios-flows")[0], "success")
+        self.assertEqual(back["captures"][0]["sha256"], f"{0:012x}")
+        self.assertIn('\n "kind"', pr.render(RECORD))  # a small record keeps the readable indented form
+
     def test_problems(self):
         self.assertEqual(pr.problems(RECORD), [])
         bad = copy.deepcopy(RECORD)
@@ -96,6 +114,45 @@ class Gate(unittest.TestCase):
                       pr.DEFAULT_BOTS.split(","))
         self.assertIsNotNone(got)
 
+    def test_a_private_member_who_can_push_counts(self):
+        # cmux#62808: a member whose org membership is private reads as CONTRIBUTOR to a workflow's github.token,
+        # so their passing record never counted. Whether they can push is what the gate asks GitHub instead.
+        body = pr.render(RECORD)
+        asked = []
+
+        def can_write(login):
+            asked.append(login)
+            return login == "member"
+
+        self.assertIsNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="member")], "ios-flows", HEAD))
+        self.assertIsNotNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="member")], "ios-flows", HEAD,
+                                     (), can_write))
+        self.assertIsNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="outsider")], "ios-flows", HEAD,
+                                  (), can_write))
+        # A bot never passes on a permission read, and a comment with no record costs no read.
+        self.assertIsNone(pr.find([comment(body, assoc="NONE", login="member", kind="Bot")], "ios-flows", HEAD,
+                                  (), can_write))
+        pr.find([comment("no record here", assoc="CONTRIBUTOR", login="chatty")], "ios-flows", HEAD, (), can_write)
+        self.assertEqual(asked, ["member", "outsider"])
+
+    def test_writer_check_reads_the_permission_once_and_fails_closed(self):
+        from unittest import mock
+        answers = {"admin-user": "admin", "writer": "write", "reader": "read"}
+        seen = []
+
+        def fake(req, seconds, **kwargs):
+            login = req.full_url.split("/collaborators/")[1].split("/")[0]
+            seen.append(login)
+            if login == "broken":
+                raise pr.urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+            return 200, json.dumps({"permission": answers[login]}).encode(), {}
+
+        with mock.patch.object(pr.gh_http, "request", side_effect=fake):
+            can_write = pr.writer_check("o/r", ["t"])
+            got = {login: can_write(login) for login in ("admin-user", "writer", "reader", "broken", "writer")}
+        self.assertEqual(got, {"admin-user": True, "writer": True, "reader": False, "broken": False})
+        self.assertEqual(seen, ["admin-user", "writer", "reader", "broken"])
+
     def test_newest_record_wins(self):
         failed = copy.deepcopy(RECORD)
         failed["runs"][0]["result"] = "fail"
@@ -129,6 +186,138 @@ class Gate(unittest.TestCase):
         self.assertIn(ios_verify.GATE_JOB, wf)
 
 
+class NoFlows(unittest.TestCase):
+    """A head whose changed paths select no flow posts a no-flows pass the gate reads (cmux#58097: the gate asked
+    for a proof for .github/workflows/test-ios.yml, and the loop returned with nothing posted)."""
+
+    def run_main(self, argv):
+        view = {"number": 7, "headRefName": "h", "headRefOid": HEAD, "baseRefName": "feat-cmux-next",
+                "url": "https://github.com/manaflow-ai/cmux/pull/7", "isCrossRepository": False, "body": ""}
+        sh = mock.MagicMock(return_value="")
+        with mock.patch.object(ios_verify, "pr_view", return_value=view), \
+                mock.patch.object(ios_verify, "git", return_value=OTHER), \
+                mock.patch.object(ios_verify.select_flows, "changed_from_git", return_value=[".github/workflows/test-ios.yml"]), \
+                mock.patch.object(ios_verify.select_flows, "select", return_value={
+                    "ios": False, "compile": False, "flows": [], "kit": [], "ui": [], "swift": [], "scripts": [],
+                    "pair_e2e": [], "pair": False, "reason": {}}), \
+                mock.patch.object(ios_verify, "run_step", side_effect=AssertionError("no simulator run")), \
+                mock.patch.object(ios_verify, "baseline", side_effect=AssertionError("no baseline read")), \
+                mock.patch.object(ios_verify, "pushed_at", return_value="2026-11-28T00:00:00Z"), \
+                mock.patch.object(ios_verify, "rerun_gate", return_value="gate rerun") as rerun, \
+                mock.patch.object(ios_verify, "sh", sh), \
+                tempfile.TemporaryDirectory() as d:
+            out = pathlib.Path(d) / "record.json"
+            rc = ios_verify.main([*argv, "--out", str(out)])
+            record = json.loads(out.read_text()) if out.exists() else None
+        return rc, record, sh, rerun
+
+    def test_posts_a_pass_the_gate_accepts(self):
+        rc, record, sh, rerun = self.run_main(["--pr", "7", "--no-merge-base"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(pr.problems(record), [])
+        self.assertEqual(record["verdict"], "pass")
+        self.assertEqual([r["name"] for r in record["runs"]], [ios_verify.NO_FLOWS_RUN])
+        self.assertEqual(record["selection"]["flows"], [])
+        body = sh.call_args.args
+        self.assertEqual(body[:3], ("gh", "pr", "comment"))
+        rerun.assert_called_once_with("manaflow-ai/cmux", HEAD)
+        posted = pr.find([comment(pr.render(record))], "ios-flows", HEAD)
+        self.assertEqual(pr.gate(posted, "ios-flows")[0], "success")
+
+    def test_plan_still_posts_nothing(self):
+        rc, record, sh, rerun = self.run_main(["--pr", "7", "--plan"])
+        self.assertEqual(rc, 0)
+        self.assertIsNone(record)
+        sh.assert_not_called()
+        rerun.assert_not_called()
+
+
+class UnsignedPair(unittest.TestCase):
+    """A pair-e2e step with no agent account to sign in can only fail at pairing after a 45-60 min Mac build
+    (cmux#59658, cmux#56372): ios_verify stops before dispatching anything, and the automatic run holds the account."""
+    PAIR = {"name": "pair 1/1: pair-e2e", "mode": "pair-e2e", "worker": "", "args": ["pair-e2e"]}
+    SIM = {"name": "sim 1/1: test ui=AppReviewGateUITests", "mode": "test", "worker": "", "args": ["test"]}
+
+    def run_main(self, steps, account):
+        view = {"number": 7, "headRefName": "h", "headRefOid": HEAD, "baseRefName": "feat-cmux-next",
+                "url": "https://github.com/manaflow-ai/cmux/pull/7", "isCrossRepository": False, "body": ""}
+        sh = mock.MagicMock(return_value="")
+        err = io.StringIO()
+        with mock.patch.object(ios_verify, "pr_view", return_value=view), \
+                mock.patch.object(ios_verify, "git", return_value=OTHER), \
+                mock.patch.object(ios_verify.select_flows, "changed_from_git", return_value=["ios/Pair.swift"]), \
+                mock.patch.object(ios_verify.select_flows, "select", return_value={
+                    "ios": True, "compile": False, "flows": ["pair"], "kit": [], "ui": [], "swift": [], "scripts": [],
+                    "pair_e2e": ["pair"], "pair": True, "reason": {}}), \
+                mock.patch.object(ios_verify, "plan", return_value=steps), \
+                mock.patch.object(ios_verify, "has_agent_account", return_value=account), \
+                mock.patch.object(ios_verify, "run_step", side_effect=AssertionError("no simulator run")), \
+                mock.patch.object(ios_verify, "leased_hosts", return_value=set()), \
+                mock.patch.object(ios_verify, "sh", sh), \
+                mock.patch.object(ios_verify.sys, "stderr", err):
+            rc = ios_verify.main(["--pr", "7", "--no-merge-base"])
+        return rc, sh, err.getvalue()
+
+    def test_an_unsigned_pair_step_stops_before_any_mac_build(self):
+        rc, sh, err = self.run_main([self.SIM, self.PAIR], account=False)
+        self.assertEqual(rc, ios_verify.UNSIGNED_EXIT)
+        sh.assert_not_called()
+        self.assertIn(self.PAIR["name"], err)
+        self.assertIn("coordinator Mac", err)
+        self.assertIn("cmux-next-ios-verify-auto.yml", err)
+
+    def test_a_signed_or_pairless_run_is_not_stopped(self):
+        self.assertEqual(ios_verify.unsigned_pair([self.SIM], {}), [])
+        with mock.patch.object(ios_verify, "has_agent_account", return_value=True):
+            self.assertEqual(ios_verify.unsigned_pair([self.SIM, self.PAIR], {}), [])
+        with mock.patch.object(ios_verify, "has_agent_account", return_value=False):
+            self.assertEqual(ios_verify.unsigned_pair([self.PAIR], {}), [self.PAIR["name"]])
+            # a pair step read back with --from-step runs nothing, so it needs no account
+            self.assertEqual(ios_verify.unsigned_pair([self.PAIR], {self.PAIR["name"]: {}}), [])
+
+    def test_the_head_scripts_never_see_the_account(self):
+        for k in ios_verify.AGENT_KEYS:
+            self.assertIn(k, ios_verify.SCRUBBED)
+
+    def test_the_automatic_run_holds_the_account_only_in_the_verify_step(self):
+        wf = (pathlib.Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next-ios-verify-auto.yml").read_text()
+        step = wf.split("- name: Run cmux ios verify and post the record", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}", step)
+        self.assertIn("CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}", step)
+        self.assertEqual(wf.count("secrets.CMUX_DOGFOOD_STACK_"), 2)
+
+
+class FromStep(unittest.TestCase):
+    """--from-step posts a finished step's result instead of running it again, and only for the same work."""
+    HEAD = "434cecd2bc9a5be7c5031e9c7b5ddeda15dd03cf"
+    STEP = {"name": "sim 1/1: test ui=AppReviewGateUITests", "mode": "test", "worker": "cmux23",
+            "args": ["test", "ui=AppReviewGateUITests", "video"]}
+
+    def job(self, **over):
+        j = {"ref": self.HEAD, "script": ios_verify.SIM_SCRIPT, "args": self.STEP["args"], "state": "done",
+             "exit_code": 0, "worker": "aws-m4pro-4"}
+        j.update(over)
+        return mock.Mock(returncode=0, stdout=json.dumps(j))
+
+    def read(self, proc):
+        with mock.patch.object(ios_verify.subprocess, "run", return_value=proc):
+            return ios_verify.finished_step(self.STEP, self.HEAD, ["694304f17866e34a2c99d717"])
+
+    def test_a_finished_green_step_is_a_pass_from_the_host_that_ran_it(self):
+        got = self.read(self.job())
+        self.assertEqual((got["result"], got["worker"], got["step"]), ("pass", "aws-m4pro-4", "694304f17866e34a2c99d717"))
+
+    def test_a_failed_or_unfinished_step_is_a_fail(self):
+        self.assertEqual(self.read(self.job(exit_code=1))["result"], "fail")
+        self.assertEqual(self.read(self.job(state="running", exit_code=None))["result"], "fail")
+
+    def test_another_head_shard_or_script_is_not_borrowed(self):
+        self.assertIsNone(self.read(self.job(ref="0" * 40)))
+        self.assertIsNone(self.read(self.job(args=["test", "ui=OtherUITests", "video"])))
+        self.assertIsNone(self.read(self.job(script="scripts/ci/other.sh")))
+        self.assertIsNone(self.read(mock.Mock(returncode=1, stdout="")))
+
+
 class Plan(unittest.TestCase):
     def test_simulator_dispatch_identity(self):
         from unittest import mock
@@ -136,8 +325,7 @@ class Plan(unittest.TestCase):
         step = {"name": "pair", "mode": "pair-e2e", "worker": "cmux22", "args": ["pair-e2e"]}
 
         def dispatch(head=HEAD, strict=False, attempt="1", **changes):
-            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
-            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+            with mock.patch.object(ios_verify, "stream", return_value=(0, "")) as run:
                 ios_verify.run_step({**step, **changes}, head, 7, strict, attempt)
             cmd = run.call_args.args[0]
             return cmd[cmd.index("--key") + 1]
@@ -148,10 +336,51 @@ class Plan(unittest.TestCase):
             self.assertEqual(key, dispatch())
         self.assertNotEqual(key, dispatch(head=HEAD[:-1] + "b"))
         self.assertNotEqual(key, dispatch(args=["pair-e2e", "reconnect-drops=10,60"]))
-        self.assertNotEqual(key, dispatch(worker="cmux23"))
+        # The same work on another worker is one step (dedupes in the queue) unless the run is pinned strict.
+        self.assertEqual(key, dispatch(worker="aws-m4pro-4"))
+        self.assertNotEqual(dispatch(strict=True), dispatch(strict=True, worker="cmux23"))
         self.assertNotEqual(key, dispatch(strict=True))
         self.assertNotEqual(key, dispatch(attempt="2"))
         self.assertEqual(dispatch(attempt="2"), dispatch(attempt="2"))
+
+    def test_a_leased_worker_falls_to_the_next_placement(self):
+        refusal = ("refused: fleet registry reservation lease-abc holds this worker for another account: nothing is "
+                   "moved to or tested on it; omit target_worker so the job places on the rest of the fleet")
+        step = {"name": "sim 1/2: test only=K1", "mode": "test", "worker": "w1", "args": ["test"]}
+
+        def run(outputs, strict=False, leased=None, workers=("w1", "w2")):
+            with mock.patch.object(ios_verify, "stream", side_effect=outputs) as s, \
+                    mock.patch.object(ios_verify, "xcode_label", return_value=None):
+                out = ios_verify.run_step(dict(step), HEAD, 7, strict, "1", list(workers), leased or set())
+            cmds = [c.args[0] for c in s.call_args_list]
+            pins = [c[c.index("--target-worker") + 1] if "--target-worker" in c else None for c in cmds]
+            return out, pins, [c[c.index("--key") + 1] for c in cmds]
+
+        # Refused for a lease: the next named worker, then unpinned placement; each retry gets its own key.
+        out, pins, keys = run([(1, refusal), (1, refusal), (0, "ok")])
+        self.assertEqual(pins, ["w1", "w2", None])
+        self.assertEqual(len(set(keys)), 3)
+        self.assertEqual((out["result"], out["worker"], out["refused_workers"]), ("pass", None, ["w1", "w2"]))
+        self.assertNotIn("refused_workers", ios_verify.public_runs([out])[0])
+        # A lease read up front skips the worker without a refused submission.
+        _, pins, _ = run([(0, "ok")], leased={"w1"})
+        self.assertEqual(pins, ["w2"])
+        # Any other failure is the PR's result, not a reason to move.
+        out, pins, _ = run([(1, "test failed: K1")])
+        self.assertEqual((pins, out["result"]), (["w1"], "fail"))
+        # --pin-strict never falls back off its worker.
+        out, pins, _ = run([(1, refusal)], strict=True, leased={"w1"})
+        self.assertEqual((pins, out["result"]), (["w1"], "fail"))
+
+    def test_leased_hosts_reads_the_active_leases(self):
+        done = mock.Mock(returncode=0, stdout=json.dumps(
+            {"leases": [{"hosts": ["w1.tail", "w2"]}, {"hosts": None}], "view": "active"}))
+        with mock.patch.object(ios_verify.subprocess, "run", return_value=done):
+            self.assertEqual(ios_verify.leased_hosts(), {"w1", "w2"})
+        with mock.patch.object(ios_verify.subprocess, "run", side_effect=OSError("no cmux-ci")):
+            self.assertEqual(ios_verify.leased_hosts(), set())
+        with mock.patch.object(ios_verify.subprocess, "run", return_value=mock.Mock(returncode=1, stdout="")):
+            self.assertEqual(ios_verify.leased_hosts(), set())
 
     def selection(self, **kw):
         base = {"ios": True, "compile": False, "flows": ["smoke-launch-sign-in"], "kit": ["K1", "K2"],
@@ -166,6 +395,9 @@ class Plan(unittest.TestCase):
         moved = [ios_verify.step_key(s, OTHER, 7) for s in steps]
         self.assertFalse(set(keys) & set(moved))
         self.assertTrue(all(HEAD[:12] in k for k in keys))
+        # A newer head's key differs only in its head field, so cmux-ci's supersede (commits aside) replaces
+        # the older queued step instead of queueing both.
+        self.assertEqual([k.replace(HEAD, "") for k in keys], [k.replace(OTHER, "") for k in moved])
 
     def test_shards_across_workers_with_video(self):
         steps = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "auto")
@@ -183,8 +415,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(len(steps), 3)
         keys = []
         for step in steps:
-            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="step abc12345", stderr="")
-            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+            with mock.patch.object(ios_verify, "stream", return_value=(0, "step abc12345")) as run:
                 receipt = ios_verify.run_step(step, HEAD, 7, False)
             cmd = run.call_args.args[0]
             self.assertNotIn("--target-worker", cmd)
@@ -200,8 +431,7 @@ class Plan(unittest.TestCase):
         step = {"name": "sim 1/1", "mode": "test", "args": ["test"], "worker": "cmux23"}
         for strict in (False, True):
             with self.subTest(strict=strict):
-                result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
-                with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                with mock.patch.object(ios_verify, "stream", return_value=(0, "")) as run:
                     ios_verify.run_step(step, HEAD, 7, strict)
                 cmd = run.call_args.args[0]
                 self.assertEqual(cmd[cmd.index("--target-worker") + 1], "cmux23")
@@ -358,6 +588,99 @@ class Plan(unittest.TestCase):
              ios_verify.fetch) = saved
 
 
+class VisualDiff(unittest.TestCase):
+    URL = "https://github.com/manaflow-ai/cmux/pull/7#issuecomment-123"
+
+    def record(self):
+        rec = copy.deepcopy(RECORD)
+        rec["baseline"] = {"source": "nightly", "nightly_sha": OTHER}
+        rec["captures"] = [{"name": "a.png", "verdict": "same", "diff_ratio": 0.0},
+                           {"name": "b.png", "verdict": "changed", "diff_ratio": 0.5}]
+        return rec
+
+    def test_measured_changed_and_unchanged(self):
+        line = ios_verify.visual_diff_line(self.record(), self.URL)
+        self.assertIn("1 changed, 1 unchanged", line)
+        self.assertIn(self.URL, line)
+        self.assertIn(HEAD, line)
+
+    def test_unproved_runs_never_claim_a_visual_diff(self):
+        cases = []
+        for source in ("merged", "none"):
+            rec = self.record()
+            rec["baseline"]["source"] = source
+            cases.append(rec)
+        for captures in ([], [{"name": "x", "verdict": "same"}],
+                         [{"name": "x", "verdict": "changed", "diff_ratio": None}],
+                         [{"name": "x", "verdict": "unbaselined"}],
+                         [{"name": "x", "verdict": "new"}],
+                         [{"name": "x", "verdict": "missing"}]):
+            rec = self.record()
+            rec["captures"] = captures
+            cases.append(rec)
+        rec = self.record()
+        rec["verdict"] = "fail"
+        cases.append(rec)
+        rec = self.record()
+        rec["runs"][0]["result"] = "fail"
+        cases.append(rec)
+        for rec in cases:
+            with self.subTest(record=rec):
+                self.assertIsNone(ios_verify.visual_diff_line(rec, self.URL))
+        self.assertIsNone(ios_verify.visual_diff_line(self.record(), None))
+
+    def test_preserves_user_text_and_footer_and_is_idempotent(self):
+        body = "\nUser text\nVisual-diff: hand-written evidence\n\nAgent-Session: footer\n"
+        line = ios_verify.visual_diff_line(self.record(), self.URL)
+        updated = ios_verify.visual_diff_body(body, line)
+        self.assertTrue(updated.endswith(body))
+        self.assertEqual(ios_verify.visual_diff_body(updated, line), updated)
+        self.assertEqual(ios_verify.visual_diff_body(updated, None), body)
+
+    def test_head_move_before_comment_has_no_effects(self):
+        from unittest import mock
+        with mock.patch.object(ios_verify, "pr_view", return_value={"headRefOid": OTHER}), \
+                mock.patch.object(ios_verify, "sh") as run:
+            self.assertFalse(ios_verify.post_proof("manaflow-ai/cmux", 7, HEAD, self.record(), "proof", pathlib.Path("/unused")))
+            run.assert_not_called()
+
+    def test_post_reads_fresh_body_and_removes_stale_claim_on_failure(self):
+        from unittest import mock
+        import tempfile
+        user_body = "Body edited during verification\n\nAgent-Session: footer\n"
+        old = ios_verify.visual_diff_body(user_body, "Visual-diff: stale")
+        for failed in (False, True):
+            rec = self.record()
+            if failed:
+                rec["verdict"] = "fail"
+            views = [{"headRefOid": HEAD, "body": "outdated"},
+                     {"headRefOid": HEAD, "body": old}]
+            calls = []
+            def run(*args):
+                calls.append(args)
+                if args[2] == "comment":
+                    return self.URL + "\n"
+                self.assertEqual(args[2], "edit")
+                got = pathlib.Path(args[-1]).read_text()
+                self.assertTrue(got.endswith(user_body))
+                self.assertEqual(ios_verify.VISUAL_DIFF_START in got, not failed)
+                return ""
+            with tempfile.TemporaryDirectory() as temp, \
+                    mock.patch.object(ios_verify, "pr_view", side_effect=views), \
+                    mock.patch.object(ios_verify, "sh", side_effect=run):
+                self.assertTrue(ios_verify.post_proof("manaflow-ai/cmux", 7, HEAD, rec, "proof", pathlib.Path(temp)))
+                self.assertEqual(len(calls), 2)
+
+    def test_head_move_after_comment_does_not_edit_body(self):
+        from unittest import mock
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(ios_verify, "pr_view", side_effect=[{"headRefOid": HEAD}, {"headRefOid": OTHER}]), \
+                mock.patch.object(ios_verify, "sh", return_value=self.URL) as run:
+            self.assertFalse(ios_verify.post_proof("manaflow-ai/cmux", 7, HEAD, self.record(), "proof", pathlib.Path(temp)))
+            self.assertEqual(run.call_count, 1)
+
+
 class Launcher(unittest.TestCase):
     def test_cmux_ios_verify_runs_this_script(self):
         dev = (ROOT / "cmux-tui/crates/cmux-tui/src/cli/dev.rs").read_text()
@@ -447,6 +770,54 @@ class TokenFallbackTest(unittest.TestCase):
             self.assertEqual(pr.read_tokens(), ["run", "pool1", "pool2"])
         with mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": "", "TOKENS": ""}, clear=False):
             self.assertEqual(pr.read_tokens(), [])
+
+
+class SimStepRoutingTest(unittest.TestCase):
+    """cmux#38805, 11-27: a step pinned to cmux22 moved to a simulator host with no Xcode 27.2 (exit 3), and the
+    strict rerun at the same head was refused, its key already naming that step (HTTP 409)."""
+
+    def test_label_is_newest_macos_pin(self):
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "xcode-pins.txt"
+        tmp.write_text("# macOS  Xcode\n15       26.3\n26       27.2\n27       27.3  # newest\n")
+        self.assertEqual(ios_verify.xcode_label(tmp), "xcode-27.3")
+        self.assertIsNone(ios_verify.xcode_label(tmp.with_name("missing.txt")))
+        self.assertRegex(ios_verify.xcode_label() or "", r"^xcode-\d+\.\d+$")
+
+    def test_run_step_asks_for_the_xcode_label(self):
+        seen = {}
+
+        def fake_stream(cmd, tag):
+            seen["cmd"] = cmd
+            return 0, "step: abcdef123456"
+
+        real = ios_verify.stream
+        ios_verify.stream = fake_stream
+        try:
+            ios_verify.run_step({"name": "sim 1/1", "mode": "test", "worker": "cmux22", "args": ["test"]}, HEAD, 7, True)
+        finally:
+            ios_verify.stream = real
+        cmd = seen["cmd"]
+        self.assertEqual(cmd[cmd.index("--label") + 1], ios_verify.xcode_label())
+        self.assertIn("--pin-strict", cmd)
+
+    def test_stream_echoes_lines_and_returns_output(self):
+        import io
+        err, real = io.StringIO(), ios_verify.sys.stderr
+        ios_verify.sys.stderr = err
+        try:
+            code, text = ios_verify.stream([sys.executable, "-c", "print('queued'); print('step: abc'); raise SystemExit(3)"], "sim 1/1")
+        finally:
+            ios_verify.sys.stderr = real
+        self.assertEqual(code, 3)
+        self.assertEqual(text, "queued\nstep: abc\n")
+        self.assertIn("[sim 1/1] queued\n", err.getvalue())
+
+    def test_key_names_head_and_pin_mode(self):
+        step = {"mode": "test", "worker": "cmux22", "name": "sim 1/1: test", "args": ["test"]}
+        loose, strict = ios_verify.step_key(step, HEAD, 7, False), ios_verify.step_key(step, HEAD, 7, True)
+        self.assertNotEqual(loose, strict)
+        self.assertNotEqual(loose, ios_verify.step_key(step, OTHER, 7, False))
+        self.assertIn(HEAD[:12], loose)
 
 
 class SeededRegression(unittest.TestCase):
