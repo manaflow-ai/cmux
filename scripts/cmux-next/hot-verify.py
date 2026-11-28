@@ -572,6 +572,9 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         # the app's build, so a look that swaps only the daemon would show the change without them.
         out["build"][HELPERS_REASON] = list(helpers)
     out["needs_build"] = bool(out["build"])
+    # Whether a look builds the head's complete app on the fleet: the client (cmuxterm-hq build-fleet/ci-client.py
+    # hot_verify_swift_look) and the display worker read this field, so the rule lives here once.
+    out["fleet_app"] = can_build_swift_app(out)
     return out
 
 
@@ -2321,27 +2324,25 @@ def emit(result: dict, phases, began: float, code: int) -> int:
     return code
 
 
-def can_build_swift_app(planned: dict) -> bool:
-    """Whether a complete fleet app can cover every build-required layer in the plan.
+# The one build reason a fleet build of the head's complete app does not answer: a head whose history is not
+# feat-cmux-next's, so no NIGHTLY is its before.
+NOT_FLEET_APP_REASONS = {REASONS["unrelated"]}
 
-    A fleet artifact is the exact head's complete app, so it also carries web or Rust layers
-    that are live-swappable when they accompany a Swift change. The bundled helpers ride in it too: the
-    project's build phases compile them from the head's cmux-tui (only the FFI is pinned, app-ffi-pin.json).
-    Other build reasons (FFI, manifests) remain an explicit build-required result.
+
+def can_build_swift_app(planned: dict) -> bool:
+    """Whether a complete fleet app of the head covers every build reason in the plan: the look then shows that app
+    (build_swift_app), not layers swapped into NIGHTLY's copy.
+
+    The fleet's cmux build (cmuxterm-hq build-fleet/recipes/cmux-build.sh) builds the exact head: its Swift, package
+    manifests and resources, strings, web bundles, bundled helpers and daemon from the head's cmux-tui, and its app
+    FFI from source whenever the head's FFI sources differ from the pinned release (recipes/app-ffi-source.py), so
+    the app carries the PR's FFI. 2026-11-28, cmux#62151: a Swift change with a Package.swift edit, on an app FFI
+    not additive to the NIGHTLY's (cmux_updater ABI 3->4), was refused a look under the old Swift-files-only rule,
+    so cmux/ui-proof could not pass. Only a head with unrelated history is still refused.
     """
     build = planned.get("build")
-    if not (planned.get("needs_build") and isinstance(build, dict) and build
-            and set(build) <= {"Swift", "Swift, resources or manifests", "strings", HELPERS_REASON}):
-        return False
-    # A strings catalog rides in the complete app too (cmux#62345: a Swift change with its Localizable.xcstrings
-    # copy planned `strings` beside `Swift` and was refused a build, so it could get no look).
-    swift = (lambda path: path.endswith(".swift") and not path.endswith("Package.swift"))
-    copy = (lambda path: path.endswith((".xcstrings", ".strings")))
-    # A Swift change that also adds or edits a crate a bundled helper uses (cmux#38466: a new cmux-conductor-import
-    # crate, so Cargo.lock) planned that reason beside Swift and was refused a build, so it could get no look.
-    return all(paths and all(True if reason == HELPERS_REASON else copy(path) if reason == "strings" else swift(path)
-                             for path in paths)
-               for reason, paths in build.items())
+    return bool(planned.get("needs_build") and isinstance(build, dict) and build
+                and all(build.values()) and not set(build) & NOT_FLEET_APP_REASONS)
 
 
 def _ci_client() -> str:

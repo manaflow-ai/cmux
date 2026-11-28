@@ -586,22 +586,30 @@ class PlanTest(unittest.TestCase):
         self.assertEqual((result["side"], result["copy"]), ("try-test", None))
         self.assertEqual(made, [])
 
-    def test_swift_app_fallback_is_only_for_the_carried_swift_layer(self):
-        self.assertTrue(hv.can_build_swift_app({"needs_build": True, "build": {"Swift": ["App.swift"]}}))
-        self.assertFalse(hv.can_build_swift_app({
-            "needs_build": True,
-            "build": {"Swift, resources or manifests": ["Resources/Info.plist"]},
-        }))
-        self.assertFalse(hv.can_build_swift_app({
-            "needs_build": True,
-            "build": {"Swift": ["App.swift"], "Rust the app links (FFI)": ["pin.json"]},
-        }))
-        self.assertTrue(hv.can_build_swift_app({
-            "needs_build": True, "build": {"Swift, resources or manifests": ["App.swift"]},
-        }))
-        self.assertFalse(hv.can_build_swift_app({
-            "needs_build": True, "build": {"Swift, resources or manifests": ["Packages/App/Package.swift"]},
-        }))
+    def test_a_fleet_app_build_covers_every_build_reason_but_unrelated_history(self):
+        def fleet(build):
+            return hv.can_build_swift_app({"needs_build": True, "build": build})
+
+        self.assertTrue(fleet({"Swift": ["App.swift"]}))
+        self.assertTrue(fleet({"Swift, resources or manifests": ["App.swift"]}))
+        # Manifests and resources build in the complete app (cmux#62151's Package.swift).
+        self.assertTrue(fleet({"Swift, resources or manifests": ["Resources/Info.plist"]}))
+        self.assertTrue(fleet({"Swift, resources or manifests": ["Packages/App/Package.swift"]}))
+        # The fleet build links the head's own app FFI (built from source when the pin is stale), so an FFI the
+        # NIGHTLY cannot take is a full build, not a refusal.
+        self.assertTrue(fleet({"Swift": ["App.swift"], "Rust the app links (FFI)": ["pin.json"]}))
+        self.assertTrue(fleet({"Rust the app links (FFI): the app's release is not the change's": ["pin.json"]}))
+        self.assertTrue(fleet({"web ABI": ["the change's web needs ABI 5, the app has 4"]}))
+        self.assertFalse(fleet({"Swift": ["App.swift"], "unrelated history": ["x"]}))
+        self.assertFalse(fleet({"Swift": []}))
+        self.assertFalse(hv.can_build_swift_app({"needs_build": False, "build": {}}))
+
+    def test_cmux_62151s_plan_shape_gets_a_fleet_app_look(self):
+        # 2026-11-28: Swift, a Package.swift edit and a non-additive FFI (the daemon planned from daemon_from).
+        planned = {"needs_build": True, "layers": ["web", "rust"], "daemon_from": "c" * 40, "build": {
+            "Swift": ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Usage/AppResourceSource.swift"],
+            "Swift, resources or manifests": ["Packages/macOS/CmuxNext/Package.swift"]}}
+        self.assertTrue(hv.can_build_swift_app(planned))
 
     def test_fleet_zip_fallback_preserves_app_archive_with_ditto(self):
         scratch = Path(self.tmp.name) / "zip-fallback"
