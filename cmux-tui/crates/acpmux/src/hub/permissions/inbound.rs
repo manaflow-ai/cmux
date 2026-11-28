@@ -257,7 +257,7 @@ impl Hub {
                 // is answered first, as its stopped reader never will: a start waiting on its
                 // `initialize` holds the spawn lock that check takes (review 1 of #26059), unless a
                 // reattach replaced the link since (review 2).
-                Inbound::LinkBroken { agent } => {
+                Inbound::LinkBroken { agent, lost_lines } => {
                     let child =
                         session.child.lock().await.clone().filter(|c| c.generation == agent);
                     if let Some(child) = child.filter(|c| c.is_broken()) {
@@ -268,6 +268,13 @@ impl Hub {
                         // A link still broken past `BROKEN_ANSWER_BOUND` answers them with the
                         // store's refusal (`disk.full` on a full disk) or the link's own error,
                         // never left to the client's 30 s limit (#51667).
+                        if lost_lines {
+                            // A writer that panicked may have dropped request lines (#54378): no
+                            // replay answers those, so every open request is answered now.
+                            let full = self.store.durability().and_then(|d| (d.full)());
+                            let why = full.as_deref().unwrap_or(crate::agent::LINK_UNLOGGED);
+                            child.fail_pending_if_unheard_with(why).await;
+                        }
                         let (hub, c) = (self.clone(), child.clone());
                         self.scope.spawn_named("broken-link-answer-bound", async move {
                             tokio::time::sleep(BROKEN_ANSWER_BOUND).await;
