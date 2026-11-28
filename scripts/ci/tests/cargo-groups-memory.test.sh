@@ -30,7 +30,7 @@ run() { bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "ec
 echo $((24 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"
 out=$(run)
 grep -q 'memory.max 24 GiB holds 8 of 96 cores' <<<"$out" || { echo "$out"; echo "FAIL: no memory cap line"; exit 1; }
-grep -q 'CARGO_BUILD_JOBS=8 for group 1, 4 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: jobs not capped"; exit 1; }
+grep -q 'CARGO_BUILD_JOBS=6 for group 1, 2 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: jobs not capped"; exit 1; }
 
 # 2. Memory to spare (16 cores, 64 GiB): every core, no cap line.
 echo $((64 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"
@@ -58,12 +58,19 @@ meminfo 62 20
 out=$(FAKE_NPROC=16 run)
 grep -q 'memory: memory.max none GiB, MemTotal 62 GiB, MemAvailable 20 GiB, 16 cores' <<<"$out" || { echo "$out"; echo "FAIL: no memory line"; exit 1; }
 grep -q 'MemAvailable 20 GiB holds 6 of 16 cores' <<<"$out" || { echo "$out"; echo "FAIL: MemAvailable not used"; exit 1; }
-grep -q 'CARGO_BUILD_JOBS=6 for group 1, 3 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: jobs not capped by MemAvailable"; exit 1; }
+grep -q 'CARGO_BUILD_JOBS=4 for group 1, 2 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: jobs not capped by MemAvailable"; exit 1; }
 
 # 6. memory.max under MemAvailable still wins.
 echo $((24 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 512 300
 out=$(run)
 grep -q 'memory.max 24 GiB holds 8 of 96 cores' <<<"$out" || { echo "$out"; echo "FAIL: memory.max not the lesser budget"; exit 1; }
+
+# 8. The pool slot that OOM-killed the Cloud machine channel's x86_64 build (8 threads, memory.max 14 GiB, 5
+# groups; cmux-machine-channel run 46144424122, 2026-11-28): 7 tokens in all (3 + 4 x 1), not 4 + 4 x 2 = 12.
+echo $((14 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 512 500
+out=$(FAKE_NPROC=8 bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo b" "" "echo c" "" "echo d" "" "echo e" 2>&1)
+grep -q 'memory.max 14 GiB holds 7 tokens across 5 groups at 2 GiB each' <<<"$out" || { echo "$out"; echo "FAIL: no token budget line"; exit 1; }
+grep -q 'CARGO_BUILD_JOBS=3 for group 1, 1 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: token sum over the budget"; exit 1; }
 
 # 7. The OOM detector: a SIGKILLed group while oom_kill rises is named out of memory; a compile error is not.
 kill9='echo "process did not exit successfully: rustc (signal: 9, SIGKILL: kill)"; echo "oom_kill 5" > '"$tmp/vmstat"'; exit 101'
