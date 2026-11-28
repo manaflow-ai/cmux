@@ -43,7 +43,7 @@ package struct FeedPushRules {
     }
 
     /// One `cmux_layout_reducer_json` call, retried once at the size it asks for.
-    package static func appFFI(_ operation: String, _ request: Data) -> Data? {
+    nonisolated package static func appFFI(_ operation: String, _ request: Data) -> Data? {
         var capacity = 4096
         for _ in 0..<2 {
             var output = [UInt8](repeating: 0, count: capacity)
