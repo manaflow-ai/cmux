@@ -22,6 +22,11 @@ Scenarios (--scenarios), each --rounds times under each load (--loads):
   chromium-return    the Chromium page shown, switch to the terminal and back
   new-tab            a new terminal tab from the terminal (newSurface): the settled frame, the strip's insert and end
   close-tab          close that new tab (closeTab): judged against the neighbor's last frame, the strip too
+  chromium-warm      ten Chromium tabs in a pane of their own, all live: 20 switches (Ctrl-Tab steps and jumps), each
+                     judged against the tab's own picture, its reloads and restarted downloads counted
+  chromium-restored  the same pane after a relaunch restored it: 20 switches, each tab's first since the launch
+                     included (tab_switch_restored.py; Leo, 2026-11-22: restored tabs showed the wallpaper and an
+                     empty omnibar for 4 to 7 s, then loaded cold)
 With --scenarios all, also (Leo, 2026-11-16: "opening closing tabs and workspaces idk why we didn't measure settled
 states before but like / testing it under actual extreme load is the point and seeing what oddities arise is
 meaningful"):
@@ -77,6 +82,7 @@ import tab_switch_capture as capture  # noqa: E402
 import tab_switch_foreign as foreign  # noqa: E402
 import tab_switch_judge as judge  # noqa: E402
 import tab_switch_matrix as matrix  # noqa: E402
+import tab_switch_restored as restored  # noqa: E402
 import tab_switch_settle as settle  # noqa: E402
 from state_wait import wait_until  # noqa: E402
 
@@ -1187,7 +1193,9 @@ class Harness:
                 notes[(name, load)] = load_notes[load]
         self.load_seconds = rounds * 90 + 180
         cpu = None
-        for load in [x for x in loads if x not in load_notes]:
+        # The restored scenarios run after this loop, in a workspace of their own; alone, they need no loop.
+        looped = [s for s in scenarios if s not in restored.SCENARIOS and s != "launch-restore"]
+        for load in [x for x in loads if x not in load_notes and looped]:
             say(f"load {load}")
             spec = parse_load(load)
             if spec.get("cpu") and cpu is None:
@@ -1235,7 +1243,7 @@ class Harness:
                     blocks.append((pending, frames, flips))
             except Exception as error:  # noqa: BLE001 - this load's rows say why; the next load still records
                 judged = sum(len(b[0]) for b in blocks)
-                for name, _item in pending[judged:] or [(s, None) for s in scenarios]:
+                for name, _item in pending[judged:] or [(s, None) for s in looped]:
                     notes.setdefault((name, load), f"{type(error).__name__}: {error}"[:600])
                 try:
                     self.rec.end()  # a block a driving fault left open
@@ -1262,6 +1270,39 @@ class Harness:
         if "switch-workspace-cold" in scenarios and getattr(self, "cold_note", None):
             for load in loads:
                 notes.setdefault(("switch-workspace-cold", load), self.cold_note)
+        restored_rows = {}
+        if any(s in scenarios for s in restored.SCENARIOS):
+            # After the loads, before launch-restore: a pane of Chromium tabs, switched live, then after a relaunch.
+            fixture = None
+            try:
+                fixture = restored.Restored(self, say)
+                cpu_holder = {"cpu": cpu}
+
+                def enter(load):
+                    spec = parse_load(load)
+                    if spec.get("cpu") and cpu_holder["cpu"] is None:
+                        cpu_holder["cpu"] = CpuLoad(self.root)
+                    return self.enter_load(spec, agents, cpu_holder["cpu"]) if load not in load_notes else []
+
+                def leave(load):
+                    if load not in load_notes:
+                        self.exit_load(parse_load(load), agents, cpu_holder["cpu"])
+
+                got, got_notes, restored_rows = fixture.run([x for x in loads if x not in load_notes], enter, leave)
+                for key, switches in got.items():
+                    if key[0] in scenarios:
+                        rows[key] = switches
+                for key, note in got_notes.items():
+                    if key[0] in scenarios:
+                        notes.setdefault(key, note)
+            except Exception as error:  # noqa: BLE001 - the rows say why
+                for load in loads:
+                    for name in restored.SCENARIOS:
+                        if name in scenarios:
+                            notes.setdefault((name, load), f"{type(error).__name__}: {error}"[:600])
+            finally:
+                if fixture is not None:
+                    fixture.close()
         if "launch-restore" in scenarios:
             # Last: each relaunch restores what the loads left. Its own block, judged as the loads' are.
             try:
@@ -1271,6 +1312,11 @@ class Harness:
             except Exception as error:  # noqa: BLE001 - the row says why
                 notes[("launch-restore", "scale")] = f"{type(error).__name__}: {error}"[:600]
         out = [judge.scenario_row(name, load, switches) for (name, load), switches in rows.items()]
+        for row in out:
+            extra = restored_rows.get((row["name"], row["load"]))
+            if extra:
+                row.update(extra)
+                row["budget_fail"] += restored.row_budget_fails(row["name"], row["load"], extra)
         return out + [judge.scenario_row(name, load, [], notes=note) for (name, load), note in notes.items()]
 
 
@@ -1328,6 +1374,9 @@ def main(argv=None):
                              "SESSIONSxWORKSPACES, or none")
     parser.add_argument("--seeder", help="the built cmux-tui acpmux example scale_home (needed with --scale)")
     parser.add_argument("--launch-record", type=float, default=8.0, help="seconds recorded after each relaunch")
+    parser.add_argument("--no-clips", action="store_true",
+                        help="drop the video of the first block of chromium-warm and chromium-restored under idle "
+                             "(kept by default in OUT/clips/, with each flip's time in it)")
     parser.add_argument("--chat-perf", action="store_true",
                         help="the settle matrix also runs the measured chat page's own capture (agent.chat.perf) over "
                              "each step: its long tasks and layout shift say whether the page did work")

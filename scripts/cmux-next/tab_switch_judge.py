@@ -44,7 +44,10 @@ SHIFT_MATCH = 0.01
 FRAME_SLACK_MS = 1.0
 QUANT = bytes(v >> 3 for v in range(256))
 SCHEMA = "tab-switch/v1"
-SCENARIOS = ("chat-long-return", "terminal-return", "chromium-return", "new-tab", "close-tab")
+# chromium-warm and chromium-restored (tab_switch_restored.py): ten Chromium tabs switched 20 times, live and after a
+# relaunch restored them, each switch's reloads and restarted downloads counted (Leo, 2026-11-22).
+SCENARIOS = ("chat-long-return", "terminal-return", "chromium-return", "new-tab", "close-tab", "chromium-warm",
+             "chromium-restored")
 # Beside the defaults (scenarios=all): a WebKit page's return, workspaces opened, switched and closed, and rapid
 # sequences whose animations retarget mid-flight (tab_switch_frames.py's docstring says what each drives).
 MORE_SCENARIOS = ("webkit-return", "new-workspace", "switch-workspace", "close-workspace", "rapid-open-5",
@@ -243,6 +246,9 @@ BUDGETS = {
     "shift_px": "0 px shift",
     "insert_ok": "the new tab appears where the strip ends",
     "anim_end_ok": "the animation ends on the strip's final layout",
+    "reloads": "0 reloads of the switched-to tab",
+    "downloads_restarted": "0 downloads restarted",
+    "omnibar_frames": "0 frames of a wrong or empty omnibar",
 }
 
 
@@ -272,6 +278,13 @@ def budget_fails(switch, label):
     for key in ("insert_ok", "anim_end_ok"):
         if switch.get(key) is False:
             fails.append(f"{label}: {BUDGETS[key]}: no")
+    # Counted only by the scenarios that count them (tab_switch_restored.py); null or absent is not counted.
+    if (switch.get("reloads") or 0) > 0:
+        fails.append(f"{label}: the tab loaded again {switch['reloads']} times ({switch.get('url', '?')})")
+    if (switch.get("downloads_restarted") or 0) > 0:
+        fails.append(f"{label}: {switch['downloads_restarted']} downloads restarted")
+    if (switch.get("omnibar_frames") or 0) > 0:
+        fails.append(f"{label}: {switch['omnibar_frames']} frames of a wrong or empty omnibar")
     return fails
 
 

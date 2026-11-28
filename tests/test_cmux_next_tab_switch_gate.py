@@ -27,11 +27,27 @@ def switch(**over):
     return base
 
 
+LOADS = ("idle", "cpu", "agents")
+
+
+def restored_switch(**over):
+    """A switch of chromium-warm or chromium-restored: its reloads, restarted downloads and omnibar frames counted."""
+    return switch(**{"insert_ok": None, "reloads": 0, "downloads_restarted": 0, "omnibar_frames": 0, **over})
+
+
 def clean_report():
+    """Return rows (scenarios[0..2], one per load), then the required chromium-warm and chromium-restored rows."""
     return {"schema": "tab-switch/v1", "build": "abc123", "display_hz": 120,
             "scenarios": [{"name": f"return-{load}", "load": load, "switches": [switch(), switch(), switch()],
-                           "budget_fail": []} for load in ("idle", "cpu", "agents")],
+                           "budget_fail": []} for load in LOADS]
+                         + [{"name": name, "load": load, "switches": [restored_switch() for _ in range(20)],
+                             "budget_fail": [], **({"downloads_restarted": 0} if name == "chromium-restored" else {})}
+                            for name in gate.REQUIRED_SCENARIOS for load in LOADS],
             "pass": True}
+
+
+def restored_row(report, name="chromium-restored", load="cpu"):
+    return next(s for s in report["scenarios"] if s["name"] == name and s["load"] == load)
 
 
 def with_switch(**over):
@@ -51,7 +67,7 @@ class BudgetTests(unittest.TestCase):
     def test_clean_report_passes(self):
         verdict = gate.judge(clean_report())
         self.assertTrue(verdict.ok, verdict.failures)
-        self.assertEqual([s.switches for s in verdict.scenarios], [3, 3, 3])
+        self.assertEqual([s.switches for s in verdict.scenarios], [3, 3, 3] + [20] * 6)
 
     def test_content_after_one_display_frame_fails(self):
         self.assert_fails(with_switch(to_content_ms=8.4), "after one display frame")
@@ -97,9 +113,58 @@ class BudgetTests(unittest.TestCase):
 
     def test_missing_load_fails(self):
         report = clean_report()
-        del report["scenarios"][2]
+        report["scenarios"] = [s for s in report["scenarios"] if s["load"] != "agents"]
         verdict = gate.judge(report)
         self.assertIn("no scenario ran under load agents", verdict.failures)
+
+    def test_reload_on_a_switch_fails(self):
+        report = clean_report()
+        restored_row(report)["switches"][4] = restored_switch(reloads=1)
+        self.assert_fails(report, "chromium-restored (cpu): 1 reloads of a switched-to tab")
+
+    def test_warm_reload_fails(self):
+        report = clean_report()
+        restored_row(report, "chromium-warm", "idle")["switches"][0] = restored_switch(reloads=2)
+        self.assert_fails(report, "chromium-warm (idle): 2 reloads")
+
+    def test_blank_frame_on_a_restored_switch_fails(self):
+        report = clean_report()
+        restored_row(report)["switches"][0] = restored_switch(blank_frames=240, to_content_ms=4200.0)
+        self.assert_fails(report, "chromium-restored (cpu): 240 blank frames")
+        self.assert_fails(report, "after one display frame (worst 4200 ms")
+
+    def test_restarted_download_fails_per_switch_and_per_row(self):
+        report = clean_report()
+        restored_row(report)["switches"][2] = restored_switch(downloads_restarted=1)
+        self.assert_fails(report, "chromium-restored (cpu): 1 downloads restarted")
+        report = clean_report()
+        restored_row(report)["downloads_restarted"] = 2  # during the restore, before any switch
+        self.assert_fails(report, "chromium-restored (cpu): 2 downloads restarted")
+
+    def test_omnibar_frames_fail(self):
+        report = clean_report()
+        restored_row(report)["switches"][1] = restored_switch(omnibar_frames=30)
+        self.assert_fails(report, "30 frames of a wrong or empty omnibar")
+
+    def test_uncounted_reloads_are_not_misses(self):
+        # A real site on a build without browser.page.eval: reloads null, not counted, not a miss.
+        report = clean_report()
+        restored_row(report)["switches"][5] = restored_switch(reloads=None)
+        self.assertTrue(gate.judge(report).ok)
+
+    def test_bad_reload_count_raises(self):
+        report = clean_report()
+        restored_row(report)["switches"][5] = restored_switch(reloads=-1)
+        with self.assertRaises(gate.ReportError):
+            gate.judge(report)
+
+    def test_required_scenarios_must_run_under_every_load(self):
+        report = clean_report()
+        report["scenarios"] = [s for s in report["scenarios"]
+                               if not (s["name"] == "chromium-restored" and s["load"] == "agents")]
+        self.assertTrue(gate.judge(report).ok)  # judge() requires none by default
+        verdict = gate.judge(report, scenarios=gate.REQUIRED_SCENARIOS)
+        self.assertIn("chromium-restored did not run under load agents", verdict.failures)
 
     def test_scenario_without_switches_fails(self):
         report = clean_report()
@@ -131,6 +196,7 @@ class CliTests(unittest.TestCase):
             code, text = self.run_cli(report, "--summary", summary)
             self.assertEqual(code, 0)
             self.assertIn("| return-cpu | cpu | 3 |", text)
+            self.assertIn("| reloads | downloads restarted | omnibar |", text)
             with open(summary) as handle:
                 self.assertIn("pass", handle.readline())
 
@@ -148,6 +214,19 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("3 blank frames", text)
             self.assertIn("Contact sheet: .build/tab-switch/sheets/return-cpu.png", text)
+
+    def test_cli_requires_the_restored_scenarios_by_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = clean_report()
+            report["scenarios"] = [s for s in report["scenarios"] if s["name"] != "chromium-restored"]
+            path = os.path.join(directory, "report.json")
+            with open(path, "w") as handle:
+                json.dump(report, handle)
+            code, text = self.run_cli(path)
+            self.assertEqual(code, 1)
+            self.assertIn("chromium-restored did not run under load idle", text)
+            code, _ = self.run_cli(path, "--scenarios", "")
+            self.assertEqual(code, 0)
 
     def test_missing_or_bad_report_is_no_verdict(self):
         with tempfile.TemporaryDirectory() as directory:

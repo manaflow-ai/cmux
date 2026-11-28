@@ -84,6 +84,7 @@ on:
       - "scripts/cmux-next/bench_tab_switch.py"
       - "scripts/cmux-next/tab-switch-stages.py"
       - "scripts/cmux-next/tab_switch_gate.py"
+      - "scripts/cmux-next/tab_switch_restored.py"
       - "scripts/measure/tab-switch.sh"
       - "tests/test_cmux_next_tab_switch_gate.py"
       - "webviews/src/agent-session/acpmux/App.tsx"

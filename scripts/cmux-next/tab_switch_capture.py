@@ -268,6 +268,8 @@ class Capture:
         self.blocks = 0
         self.video_fps = None
         self.walls = {}  # flip name -> time.monotonic() when it was sent (the foreign-window watch's clock)
+        self.keep_next = None  # a path (no extension): the next block's video is copied there, its flips beside it
+        self.kept = None
 
     def begin(self):
         self.names = []
@@ -292,6 +294,15 @@ class Capture:
         if len(flips) != len(self.names):
             raise CaptureError(f"block {self.blocks}: {len(self.names)} flips sent, {len(flips)} seen in the video "
                                f"({decoded.get('frames')} frames at {decoded.get('fps')} fps)")
+        if self.keep_next:
+            # A clip of this block (tab_switch_restored.py, unless --no-clips): the video and each flip's time in it.
+            os.makedirs(os.path.dirname(self.keep_next), exist_ok=True)
+            kept = self.keep_next + (os.path.splitext(video)[1] or ".mov")
+            shutil.copyfile(video, kept)
+            with open(self.keep_next + ".flips.json", "w") as handle:
+                json.dump({"flips": dict(zip(self.names, flips)), "first_frame_s": frames[0][0] if frames else None,
+                           "window_points": self.window, "display_points": self.display}, handle, indent=1)
+            self.kept, self.keep_next = kept, None
         shutil.rmtree(self.block_dir, ignore_errors=True)
         return frames, dict(zip(self.names, flips))
 
