@@ -114,9 +114,15 @@ def gate_members(by_dir: dict[str, str]) -> set[str]:
         d = PurePosixPath(f).parent
         while str(d) not in by_dir and str(d) != ".":
             d = d.parent
-        if str(d) in by_dir:
+        # A crate with its own [workspace] table (cmux-next-linux, cmux-rd-host) is not a cmux-tui member: the
+        # script skips it (`-p NAME` would fail the gate), so its `cmux_next_linux::` is not a gate test.
+        if str(d) in by_dir and not own_workspace(str(d)):
             names.add(by_dir[str(d)])
     return names
+
+
+def own_workspace(crate_dir: str) -> bool:
+    return "workspace" in tomllib.loads((ROOT / crate_dir / "Cargo.toml").read_text(encoding="utf-8"))
 
 
 class DaemonPrCrateStep(unittest.TestCase):
