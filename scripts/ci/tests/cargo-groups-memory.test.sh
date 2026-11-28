@@ -66,11 +66,17 @@ out=$(run)
 grep -q 'memory.max 24 GiB holds 8 of 96 cores' <<<"$out" || { echo "$out"; echo "FAIL: memory.max not the lesser budget"; exit 1; }
 
 # 8. The pool slot that OOM-killed the Cloud machine channel's x86_64 build (8 threads, memory.max 14 GiB, 5
-# groups; cmux-machine-channel run 46144424122, 2026-11-28): 7 tokens in all (3 + 4 x 1), not 4 + 4 x 2 = 12.
+# groups; cmux-machine-channel run 46144424122, 2026-11-28): 7 tokens in all, not 4 + 4 x 2 = 12, and (run 46151055767, where seven one-token groups
+# still lost the acpmux rustc) only 14 / 4 = 3 groups at once: 3 + 2 x 2 tokens.
 echo $((14 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 512 500
 out=$(FAKE_NPROC=8 bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo b" "" "echo c" "" "echo d" "" "echo e" 2>&1)
-grep -q 'memory.max 14 GiB holds 7 tokens across 5 groups at 2 GiB each' <<<"$out" || { echo "$out"; echo "FAIL: no token budget line"; exit 1; }
-grep -q 'CARGO_BUILD_JOBS=3 for group 1, 1 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: token sum over the budget"; exit 1; }
+grep -q 'memory.max 14 GiB holds 7 tokens across 3 of 5 groups at once, 2 GiB a token, 4 GiB a group' <<<"$out" || { echo "$out"; echo "FAIL: no token budget line"; exit 1; }
+grep -q 'CARGO_BUILD_JOBS=3 for group 1, 2 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: token sum over the budget"; exit 1; }
+conc="$tmp/conc"; : > "$conc"
+g='echo start >> '"$conc"'; sleep 0.4; echo end >> '"$conc"
+FAKE_NPROC=8 bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "$g" "" "$g" "" "$g" "" "$g" "" "$g" >/dev/null 2>&1 || { echo "FAIL: capped groups failed"; exit 1; }
+peak=$(awk '/start/{n++; if(n>m)m=n} /end/{n--} END{print m}' "$conc")
+((peak == 3)) || { echo "FAIL: $peak groups at once under a 14 GiB cap, want 3"; exit 1; }
 
 # 7. The OOM detector: a SIGKILLed group while oom_kill rises is named out of memory; a compile error is not.
 kill9='echo "process did not exit successfully: rustc (signal: 9, SIGKILL: kill)"; echo "oom_kill 5" > '"$tmp/vmstat"'; exit 101'
@@ -80,5 +86,43 @@ grep -q '::error title=cargo groups out of memory::cargo group(s) 2 lost a proce
 out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo 'error[E0308]: mismatched types'; exit 101" 2>&1) && { echo "$out"; echo "FAIL: a failed group passed"; exit 1; }
 ! grep -q 'out of memory' <<<"$out" || { echo "$out"; echo "FAIL: a compile error called OOM"; exit 1; }
 grep -q 'error: cargo group(s) 2 failed' <<<"$out" || { echo "$out"; echo "FAIL: no failure line"; exit 1; }
+
+# 9. OOM_RERUN_ALONE: a group the kernel OOM-killed reruns once alone and passes when the rerun fits (the survivor
+# twin finished, so only the killed crate builds again); a group killed twice still fails (case 7).
+mark="$tmp/killed-once"; rm -f "$mark"
+once='if [ ! -e '"$mark"' ]; then : > '"$mark"'; echo "process did not exit successfully: rustc (signal: 9, SIGKILL: kill)"; echo "oom_kill 9" > '"$tmp/vmstat"'; exit 101; fi; echo "built on the rerun with $CARGO_BUILD_JOBS jobs"'
+echo "oom_kill 3" > "$tmp/vmstat"
+out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "$once" "" "echo b" 2>&1) || { echo "$out"; echo "FAIL: an OOM-killed group did not pass on its rerun"; exit 1; }
+grep -q 'cargo group 1 (): the kernel OOM-killed a process (exit 101); rerunning it once alone' <<<"$out" || { echo "$out"; echo "FAIL: no rerun line"; exit 1; }
+grep -q 'built on the rerun' <<<"$out" || { echo "$out"; echo "FAIL: the rerun did not run"; exit 1; }
+# Alone at 3 jobs, the cmux-tui group's rerun still lost cmux_tui and acpmux together (run 46161772976): one job.
+grep -q 'built on the rerun with 1 jobs' <<<"$out" || { echo "$out"; echo "FAIL: the OOM rerun did not run with one job"; exit 1; }
+grep -q 'cargo group 1 () rerun: [0-9]* s' <<<"$out" || { echo "$out"; echo "FAIL: no rerun time"; exit 1; }
+! grep -q 'out of memory' <<<"$out" || { echo "$out"; echo "FAIL: a passing rerun still reported OOM"; exit 1; }
+out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo 'error[E0308]: mismatched types'; exit 101" 2>&1) || true
+! grep -q 'rerunning' <<<"$out" || { echo "$out"; echo "FAIL: a compile error was rerun"; exit 1; }
+
+# 10. HEAVY_GROUPS_ONE_AT_A_TIME: the shipped musl legs' fat-LTO groups (CARGO_GROUPS_HEAVY, group 1 and the
+# acpmux group) never run together unless the budget holds 16 GiB each; the light groups still run beside them.
+# Under memory.max 14 GiB groups 1 and 5 lost acpmux to the kernel even with #64863's three-group cap (runs
+# 46161165035 and 46161772976, 2026-11-28).
+echo $((14 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 512 500
+conc="$tmp/heavy"; : > "$conc"
+h='echo "start $N" >> '"$conc"'; sleep 0.4; echo "end $N" >> '"$conc"
+l='echo light >> '"$conc"
+out=$(FAKE_NPROC=8 CARGO_GROUPS_HEAVY="1 3" bash "$script" "$tmp/target" x86_64-unknown-linux-gnu \
+  "" "N=1; $h" "" "$l" "" "N=3; $h" "" "$l" 2>&1) || { echo "$out"; echo "FAIL: heavy groups failed"; exit 1; }
+grep -q 'memory.max 14 GiB holds fewer than 2 heavy groups (1 3) at 16 GiB each: one at a time' <<<"$out" || { echo "$out"; echo "FAIL: no heavy line"; exit 1; }
+peak=$(awk '/^start/{n++; if(n>m)m=n} /^end/{n--} END{print m}' "$conc")
+((peak == 1)) || { cat "$conc"; echo "FAIL: $peak heavy groups at once under a 14 GiB cap, want 1"; exit 1; }
+# The light group after the deferred heavy one did not wait for it: it ran before group 3 started.
+awk '/^start 3/{exit !seen} /light/{l++; if (l == 2) seen = 1}' "$conc" || { cat "$conc"; echo "FAIL: a light group waited behind a heavy one"; exit 1; }
+# With room for both (64 GiB, no cap), they still run together.
+echo $((64 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; : > "$conc"
+out=$(FAKE_NPROC=16 CARGO_GROUPS_HEAVY="1 3" bash "$script" "$tmp/target" x86_64-unknown-linux-gnu \
+  "" "N=1; $h" "" "$l" "" "N=3; $h" 2>&1) || { echo "$out"; echo "FAIL: roomy heavy groups failed"; exit 1; }
+! grep -q 'heavy groups' <<<"$out" || { echo "$out"; echo "FAIL: serialized heavy groups with room for both"; exit 1; }
+peak=$(awk '/^start/{n++; if(n>m)m=n} /^end/{n--} END{print m}' "$conc")
+((peak == 2)) || { cat "$conc"; echo "FAIL: $peak heavy groups at once with room for both, want 2"; exit 1; }
 
 echo PASS
