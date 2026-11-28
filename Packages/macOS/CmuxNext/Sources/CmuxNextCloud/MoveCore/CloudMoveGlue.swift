@@ -146,13 +146,39 @@ public struct CloudTryAnotherApproach: Sendable {
         self.openChild = openChild
     }
 
+    /// One Cloud op (`op` with the single argument `arg` = `value`) answering the id of its record `answers`, sent with
+    /// idempotency key `key`.
+    public typealias MachineChange = @MainActor (_ op: String, _ arg: String, _ value: String, _ answers: String, _ key: String) async throws -> String?
+
+    /// The copy of a Cloud chat's machine, as `cmux vm fork` makes it: `cloud.snapshot.create` of the source, then
+    /// `cloud.snapshot.restore` of that snapshot, both the person's own CloudDO ops. RED before (cmux#56531): the copy was
+    /// a platform fork run, which finds its source among the team's TeamMachines records; a Cloud chat's machine is a
+    /// CloudDO `vm_` row with no such record, so every run failed "fork run service unavailable" and every Cloud chat's
+    /// Try another approach said "Couldn't fork this chat".
+    ///
+    /// Each op's key is the plan's `clientKey` and the op, so a retry of the same fork (the same chat, session and turn: a
+    /// failed child wait, a second click) answers the snapshot and machine the first attempt made, never another billed copy.
+    @MainActor
+    public static func copyMachine(_ plan: Plan, change: MachineChange) async throws -> CloudOwnerAPIClient.ForkRunChild {
+        let key = { (op: String) in "\(plan.clientKey):\(op)" }
+        guard let snapshot = try await change("cloud.snapshot.create", "machine", plan.sourceMachine, "snapshot", key("snapshot")),
+              !snapshot.isEmpty else {
+            return .init(id: "", harness: plan.harness, state: "failed", machineId: nil, error: "the snapshot answered no id")
+        }
+        let machine = try await change("cloud.snapshot.restore", "snapshot", snapshot, "machine", key("restore")).flatMap { $0.isEmpty ? nil : $0 }
+        return .init(id: snapshot, harness: plan.harness, state: machine == nil ? "failed" : "ready", machineId: machine,
+                     error: machine == nil ? "the restore answered no machine" : nil)
+    }
+
     @MainActor
     public func run(chat: String, throughSeq: Int) async throws -> Result {
         let plan = try prepare(chat, throughSeq)
         let child = try await forkMachine(plan)
         guard let childMachine = child.machineId else {
+            // A failed child says why (the platform's `error`), not only that no machine came back.
             throw NSError(domain: "cloud.tryAnotherApproach", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Cloud did not return a child machine"])
+                          userInfo: [NSLocalizedDescriptionKey: child.error.map { "Cloud could not make the copy: \($0)" }
+                              ?? "Cloud did not return a child machine"])
         }
         let childSession = try await forkTranscript(plan, childMachine)
         let childTab = try await openChild(plan, childMachine, childSession)

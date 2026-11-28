@@ -47,9 +47,8 @@ extension AppServices {
             place: { [weak self] chat, session in self.flatMap { cloudChatPlace(chat: chat, session: session, services: $0) }.map { ($0.workspace, $0.machine) } },
             connection: { [weak self] in self?.machines.local.connection },
             credential: { [weak self] in
-                guard let cloud = self?.cloud else { throw CancellationError() }
-                let team = (try? await cloud.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:))
-                return .init(api: FeedService.apiBaseURL(auth: cloud.auth).absoluteString, accessToken: try await cloud.auth.tokens().access, team: team)
+                guard let cloud = self?.cloud, let access = await cloud.auth.machineRoutesToken(identity: cloud.installIdentity) else { throw CancellationError() } // a cmux access token: the platform refuses the session token (401)
+                return .init(api: cloud.auth.configuration.workspaceAPIBaseURL().absoluteString, accessToken: access, team: await cloud.installIdentity.installTeam())
             })
     }
 }
@@ -70,14 +69,9 @@ func cloudTryAnotherApproach(chat key: String, session expected: String, through
                          parentLabel: "Try another approach · \(place.workspaceName)")
         },
         forkMachine: { plan in
-            let owner = CloudOwnerAPIClient(
-                baseURL: FeedService.apiBaseURL(auth: services.cloud.auth), accessToken: { try await services.cloud.auth.tokens().access },
-                teamID: { [identity = services.cloud.installIdentity] in (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, buildSpace: services.cloud.configuration.buildSpace, machineIO: services.cloud.auth.machineIO)
-            let children = try await owner.forkRun(workspace: plan.workspace, clientKey: plan.clientKey,
-                                                   sourceMachine: plan.sourceMachine, session: plan.session,
-                                                   harnesses: [plan.harness])
-            guard let child = children.first else { throw cloudTryAnotherApproachFailure("Cloud did not return a child") }
-            return child
+            try await CloudTryAnotherApproach.copyMachine(plan) { op, arg, value, answers, key in
+                try await services.cloud.machineChange(op, [arg: .string(value)], answers: answers, key: key, allow: { true })
+            }
         },
         forkTranscript: { plan, childMachine in
             let ready = await CloudWait.holds(tries: 60, each: .seconds(3),
