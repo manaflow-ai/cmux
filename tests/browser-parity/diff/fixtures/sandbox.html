@@ -1,0 +1,5 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Sandboxed frames</title></head><body><h1>Sandboxes</h1>
+<iframe id="sb" title="Sandboxed" sandbox="allow-scripts" srcdoc="<button onclick=&quot;this.textContent='sandbox clicked'&quot;>Sandbox button</button>"></iframe>
+<iframe id="sb-none" title="No scripts" sandbox srcdoc="<button>Inert button</button><p>static text</p>"></iframe>
+<iframe id="csp" title="CSP sandbox" src="/diff/sandbox-inner.html"></iframe>
+</body></html>

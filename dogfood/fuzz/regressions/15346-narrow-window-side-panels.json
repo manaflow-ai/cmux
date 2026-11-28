@@ -1,0 +1,1 @@
+{"kind": "cmux-fuzz-repro", "version": 1, "issue": 15346, "signature": {"kind": "invariant", "key": "container-degenerate", "title": "Layout invariant broken: container-degenerate", "digest": "085e7a6e329b"}, "steps": [{"do": "window_resize", "w": 320, "h": 400}]}
