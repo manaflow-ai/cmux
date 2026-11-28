@@ -72,10 +72,10 @@ pub fn groups(schema: &Schema, developer_tools: bool) -> Vec<Value> {
 /// The embedded schema's groups, read once per build kind: the menu asks on
 /// every open.
 fn groups_cached(developer_tools: bool) -> Value {
-    static CACHE: [OnceLock<Value>; 2] = [OnceLock::new(), OnceLock::new()];
-    CACHE[usize::from(developer_tools)]
-        .get_or_init(|| Value::Array(groups(Schema::embedded(), developer_tools)))
-        .clone()
+    static WITH_DEVELOPER_TOOLS: OnceLock<Value> = OnceLock::new();
+    static WITHOUT_DEVELOPER_TOOLS: OnceLock<Value> = OnceLock::new();
+    let cache = if developer_tools { &WITH_DEVELOPER_TOOLS } else { &WITHOUT_DEVELOPER_TOOLS };
+    cache.get_or_init(|| Value::Array(groups(Schema::embedded(), developer_tools))).clone()
 }
 
 #[cfg(test)]
