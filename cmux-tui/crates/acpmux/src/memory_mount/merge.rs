@@ -19,7 +19,9 @@ pub enum Merged {
 /// - Either side unchanged, or both the same: the other side.
 /// - `.jsonl`: a line log every machine appends to. The result is theirs, then each of our lines
 ///   that neither theirs nor the base has (our appends), minus the lines one side removed.
-/// - Other UTF-8 text: a line-based diff3 (`diffy`); overlapping edits are a conflict.
+/// - Other UTF-8 text: a line-based diff3 (`diffy`). When that overlaps but one side only added
+///   lines and the other side has every line of it (one side appended, the other appended more
+///   or edited elsewhere), the fuller side: nothing of either is lost. Else a conflict.
 /// - Anything else (bytes that are not UTF-8): a conflict.
 pub fn three_way(path: &str, base: &[u8], ours: &[u8], theirs: &[u8]) -> Merged {
     if ours == theirs || ours == base {
@@ -38,8 +40,20 @@ pub fn three_way(path: &str, base: &[u8], ours: &[u8], theirs: &[u8]) -> Merged 
     }
     match diffy::merge(b, o, t) {
         Ok(text) => Merged::Clean(text.into_bytes()),
+        Err(_) if holds_all_of(b, o, t) => Merged::Clean(theirs.to_vec()),
+        Err(_) if holds_all_of(b, t, o) => Merged::Clean(ours.to_vec()),
         Err(_) => Merged::Conflict,
     }
+}
+
+/// `full` has every line of `part`, and `part` changed the base only by adding lines (each base
+/// line `full` still has, `part` has too). Then `full` is `part`'s change and more.
+fn holds_all_of(base: &str, part: &str, full: &str) -> bool {
+    use std::collections::HashSet;
+    let part_set: HashSet<&str> = part.lines().collect();
+    let full_set: HashSet<&str> = full.lines().collect();
+    part_set.is_subset(&full_set)
+        && base.lines().all(|l| part_set.contains(l) || !full_set.contains(l))
 }
 
 /// Theirs, then our lines that are new since the base, with lines either side removed left out.
