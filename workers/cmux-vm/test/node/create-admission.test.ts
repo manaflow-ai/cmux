@@ -344,20 +344,20 @@ describe("parseCreateAdmission", () => {
 });
 
 describe("a create that names its deadline (cmux-platform#2217)", () => {
-  /** Three people's creates hold every slot for 100 s, the shape of staging 2026-11-28 01:13Z. */
+  /** Three people's creates hold every slot for 50 s (past the 25 s wait, under the 55 s lease), the shape of staging 2026-11-28 01:13Z. */
   const fullQueue = async () => {
     const queue = new CreateAdmissionQueue(memoryLedgerStorage());
     const client = localCreateAdmission(queue, SETTINGS);
     for (const holder of ["a", "b", "c"]) expect(await client.admit(holder)).toMatchObject({ admitted: true });
-    setTimeout(() => { void queue.release("a"); }, 100_000);
+    setTimeout(() => { void queue.release("a"); }, 50_000);
     return client;
   };
 
   it("waits for a slot across the time left before its deadline, where 25 s refused it", async () => {
     const client = await fullQueue();
     const waiting = client.admit("d", false, Date.now() + 300_000);
-    await vi.advanceTimersByTimeAsync(100_000);
-    expect(await waiting).toMatchObject({ admitted: true, waitedMs: 100_000 });
+    await vi.advanceTimersByTimeAsync(50_000);
+    expect(await waiting).toMatchObject({ admitted: true, waitedMs: 50_000 });
   });
 
   it("with no deadline keeps the configured 25 s wait", async () => {
@@ -375,13 +375,13 @@ describe("a create that names its deadline (cmux-platform#2217)", () => {
     expect(queue.state.inFlight).toBe(0);
   });
 
-  it("staging 01:13Z, before and after: 3 slots held 120 s refused all 4 of a person's tries; with its deadline the first try gets the slot", async () => {
+  it("staging 01:13Z, before and after: 3 slots held 54 s (under the 55 s lease) refused a person's first 2 tries; with its deadline the first try gets the slot", async () => {
     const tries = async (deadline: boolean) => {
       vi.setSystemTime(0);
       const queue = new CreateAdmissionQueue(memoryLedgerStorage());
       const client = localCreateAdmission(queue, SETTINGS);
       for (const holder of ["a", "b", "c"]) await client.admit(holder);
-      setTimeout(() => { void queue.release("a"); }, 120_000);
+      setTimeout(() => { void queue.release("a"); }, 54_000);
       const outcome = (async () => {
         for (let attempt = 0; attempt < 4; attempt++) {
           const answer = await client.admit("person", false, deadline ? 300_000 : undefined);
@@ -396,8 +396,8 @@ describe("a create that names its deadline (cmux-platform#2217)", () => {
     const before = await tries(false);
     const after = await tries(true);
     process.stdout.write(`create-admission deadline ${JSON.stringify({ before, after })}\n`);
-    expect(before).toEqual({ admittedAtMs: null, refusals: 4 });
-    expect(after).toEqual({ admittedAtMs: 120_000, refusals: 0 });
+    expect(before).toEqual({ admittedAtMs: 54_000, refusals: 2 });
+    expect(after).toEqual({ admittedAtMs: 54_000, refusals: 0 });
   });
 
   it("waits at most the ceiling, under the platform's 270 s call, and ignores a deadline that is not a number", () => {
