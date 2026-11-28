@@ -55,6 +55,36 @@ fn a_new_from_an_interactive_machine_is_placed_unless_a_host_is_named() {
     );
 }
 
+/// An automatic start the pick's own remote chain refused goes on to the next machine, at
+/// most `PLACE_TRIES` in all; a named machine is always started on, never moved off; any
+/// other failure ends the start.
+#[test]
+fn an_automatic_start_tries_the_next_machine_after_a_chain_refusal() {
+    let error = |reason: &str| {
+        anyhow::Error::from(crate::client::DaemonError(
+            crate::rpc::RpcError::new(-32000, "refused by vm: remote chain refused: canary")
+                .with_data(json!({"reason": reason, "host": "vm"})),
+        ))
+    };
+    let refused = error(crate::start_refusals::REASON);
+    assert!(try_next(true, Some("vm"), 1, &refused));
+    assert!(try_next(true, Some("vm"), PLACE_TRIES - 1, &refused));
+    assert!(!try_next(true, Some("vm"), PLACE_TRIES, &refused), "bounded");
+    assert!(!try_next(false, Some("vm"), 1, &refused), "a named machine is not moved off");
+    assert!(!try_next(true, None, 1, &refused), "this machine runs no remote chain");
+    assert!(!try_next(true, Some("vm"), 1, &error("remote.credential_expiring")));
+    assert!(
+        !try_next(true, Some("vm"), 1, &error(crate::start_refusals::START_REASON)),
+        "the start's own inputs are refused on every machine: it ends at once"
+    );
+    assert!(!try_next(true, Some("vm"), 1, &anyhow::anyhow!("remote chain refused")));
+    // Through `new`'s own target: `--machine auto` places, `--machine vm` names the host.
+    let placed = |h: &str| matches!(new_target(Some(h), false, false), Target::Place(_));
+    assert!(try_next(placed("auto"), Some("vm"), 1, &refused));
+    assert!(!try_next(placed("vm"), Some("vm"), 1, &refused));
+    assert_eq!(next_line("vm"), "vm refused the start (its remote chain): trying the next machine");
+}
+
 #[test]
 fn a_running_name_is_found_on_each_machine_that_runs_it() {
     let list = json!({"sessions": [

@@ -76,6 +76,30 @@ fn acpmuxs_own_disallowed_tools_pass_and_other_tool_args_do_not() {
     }
 }
 
+/// A refusal of the start's own inputs (a profile argument or env value, `sr` options, its
+/// folder or session id) says `remote start refused:` with `remote.start_refused`; the
+/// machine's own state (bwrap, the canary, the platform: every `String` the chain's checks
+/// give) says `remote chain refused:` with `remote.sandbox_refused`, the one the pickers record.
+#[test]
+fn each_refusal_says_whether_the_start_or_the_machine_refused() {
+    let start = |e: Refused| {
+        let error = e.error();
+        assert!(error.message.starts_with("remote start refused: "), "{}", error.message);
+        let reason = crate::start_refusals::reason(error.data.as_ref());
+        assert_eq!(reason, Some(crate::start_refusals::START_REASON), "{}", error.message);
+    };
+    let argv = claude_args(None, &profile(&["claude", "--settings", "{}"], &[]), vec![]);
+    start(argv.unwrap_err());
+    let env = claude_args(None, &profile(&["claude"], &[(REFUSED_ENV[0], "x")]), vec![]);
+    start(env.unwrap_err());
+    let sr = profile(&["sr", "claude", "proxy", "--extra"], &[]);
+    start(Refused::Start(subrouter_plan(&sr, vec![], None, None).unwrap_err()));
+    start(Refused::Start("a remote chain needs a session id".into()));
+    let host = Refused::from(format!("bwrap unavailable: {}", "bwrap not installed")).error();
+    assert_eq!(host.message, "remote chain refused: bwrap unavailable: bwrap not installed");
+    assert!(crate::start_refusals::is_chain_refusal(&host), "{host:?}");
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_refuses_loader_profile_env() {
@@ -505,7 +529,7 @@ fn linux_credentials_are_bounded_and_parsed_from_home() {
 #[test]
 fn linux_default_checks_the_real_sandbox_preconditions() {
     let error = Bound::for_session(Path::new("/"), "wire-default", None).unwrap_err();
-    assert!(!error.contains("platform has none"), "{error}");
+    assert!(!error.why().contains("platform has none"), "{error:?}");
 }
 
 /// A fresh `root/project` tree with `root` at `mode`, removed on drop.

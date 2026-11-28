@@ -55,31 +55,9 @@ pub(super) use time_breakdown_gate::without as without_time_breakdown;
 mod turn_opener;
 mod workflow_dispatch;
 pub use workflow_dispatch::FEATURE as DURABLE_DISPATCH_FEATURE;
+mod disallowed_tools;
 #[path = "watches.rs"]
 mod watches;
-
-/// `_meta.acpmux.disallowedTools`: Claude Code built-in tools the new chat
-/// never gets (`acpmux new --worktree` sends `["AskUserQuestion"]`). Each is
-/// a tool's name, letters, digits and `_`, so none is a permission rule
-/// (`Bash(rm *)`) or a flag; it only takes tools away, from any origin.
-fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
-    let refused = || RpcError::invalid_params("disallowedTools must be a list of tool names");
-    match meta.and_then(|m| m.get("disallowedTools")) {
-        None | Some(Value::Null) => Ok(Vec::new()),
-        Some(Value::Array(names)) => names
-            .iter()
-            .map(|n| {
-                n.as_str()
-                    .filter(|n| {
-                        !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                    })
-                    .map(str::to_owned)
-                    .ok_or_else(refused)
-            })
-            .collect(),
-        Some(_) => Err(refused()),
-    }
-}
 
 /// Validate the read-free `_acpmux/attach {hold:true}` shape and return its exact-kind filter.
 fn hold_attach_filter(params: &Value) -> Result<crate::hub::EventFilter, RpcError> {
@@ -607,7 +585,11 @@ async fn dispatch_brief(
             &params,
         );
         crate::hub::cmux_tools_answer::stamp(&mut params, answer);
-        let mut result = match peer.request_on(method::MUX_DISPATCH, params, epoch).await {
+        let sent = peer.request_on(method::MUX_DISPATCH, params, epoch).await;
+        // As for a forwarded `session/new`: the dispatch's start there is refused by that
+        // machine's own remote chain, or worked (`start_refusals.rs`).
+        hub.start_refusals.note(&peer_name, &sent, crate::store::now_ms());
+        let mut result = match sent {
             Ok(result) => result,
             Err(e) => {
                 if !durable {
@@ -1004,16 +986,20 @@ async fn new_on_peer(
     // own chat, asking, as before the start level was carried (`Carried::Person`).
     let asking = (carried == crate::hub::full_access_children::Carried::Person)
         .then(|| crate::hub::full_access_children::without_carried_policy(&p));
-    let mut result = match super::remote_guard::hint::new_on(&peer, params, p).await {
+    let started = match super::remote_guard::hint::new_on(&peer, params, p).await {
         Err(e)
             if asking.is_some()
                 && e.data.as_ref().is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
         {
             let asking = asking.unwrap_or_default();
-            super::remote_guard::hint::new_on(&peer, params, asking).await?
+            super::remote_guard::hint::new_on(&peer, params, asking).await
         }
-        r => r?,
+        r => r,
     };
+    // A refusal by its own remote chain keeps the machine out of the automatic pick
+    // for a while; a start that works there clears it (`start_refusals.rs`).
+    hub.start_refusals.note(&peer.name, &started, crate::store::now_ms());
+    let mut result = started?;
     if let Some(approved) = &unattended {
         let id = result.get("sessionId").and_then(Value::as_str);
         hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
@@ -2022,7 +2008,7 @@ async fn dispatch_method(
             if claude_team_route {
                 env.insert(crate::claude_cloud_auth::REQUIRED_TEAM.into(), "1".into());
             }
-            let disallowed_tools = disallowed_tools(meta)?;
+            let disallowed_tools = disallowed_tools::disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
             let stop_condition = crate::hub::stop_condition::requested(meta)?;
             // Read-only work in a folder not trusted (`hub/restricted.rs`): review, or narrower.

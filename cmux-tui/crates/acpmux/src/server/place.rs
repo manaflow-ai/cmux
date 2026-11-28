@@ -19,13 +19,16 @@ use serde_json::{Value, json};
 #[path = "place_hub_health.rs"]
 mod hub_health;
 
-/// `{"work": "agent"|"build", "offInteractive": bool, "outdatedOk": bool}` →
-/// `placement::place`'s verdict. With `offInteractive` (a command-line `new` on a machine a
+/// `{"work": "agent"|"build", "offInteractive": bool, "outdatedOk": bool, "skip": [host]}` →
+/// `placement::place_demoting`'s verdict. With `offInteractive` (a command-line `new` on a machine a
 /// person works at, `cli/place.rs`), the machines the registry marks interactive
 /// (`placement::interactive`), this one included, are not candidates. With `outdatedOk` (a
 /// `session move`, which reaches the peer's own daemon over ssh), a peer whose only fault is a
 /// stale build (`placement::only_outdated`) stays a candidate, its host row marked
 /// `outdated: true` with the `refresh` command that updates it.
+/// `skip`: the machines whose remote chain already refused this one start (`cli/place.rs`
+/// `try_next`), out for the rest of it only. A peer whose chain refused a start lately goes
+/// after the others (`refusing`).
 pub(super) async fn place(hub: &Hub, params: &Value) -> Value {
     let work = match params.get("work").and_then(Value::as_str) {
         Some("build") => Work::Build,
@@ -38,15 +41,33 @@ pub(super) async fn place(hub: &Hub, params: &Value) -> Value {
     if params.get("hubHealth").and_then(Value::as_bool) != Some(false) {
         hub_health::refresh(hub).await;
     }
-    let (mut candidates, mut down, outdated) = candidates_with(hub, outdated_ok).await;
+    let (candidates, mut down, outdated) = candidates_with(hub, outdated_ok).await;
+    let demoted = refusing(&candidates, &hub.start_refusals, crate::store::now_ms());
     let registry = crate::placement::load_registry();
+    let mut candidates = skipped(candidates, params.get("skip"), &mut down);
     if off_interactive {
         candidates = off_interactive_hosts(candidates, registry.as_ref());
         down.retain(|(name, _)| !crate::placement::interactive(registry.as_ref(), name));
     }
-    let verdict = crate::placement::place(&candidates, registry.as_ref(), work);
+    let verdict = crate::placement::place_demoting(&candidates, &demoted, registry.as_ref(), work);
     let verdict = with_outdated(crate::placement::with_down(verdict, &down), &outdated);
     crate::shadow_admission::with_shadow("place", verdict, &candidates)
+}
+
+/// `candidates` without the ones `skip` names (`place`), each in `down` with why.
+fn skipped(
+    candidates: Vec<Candidate>,
+    skip: Option<&Value>,
+    down: &mut Vec<(String, String)>,
+) -> Vec<Candidate> {
+    let skip: Vec<String> = skip
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(crate::placement::canonical).collect())
+        .unwrap_or_default();
+    let (kept, out) =
+        leave_out(candidates, |name| skip.contains(&crate::placement::canonical(name)));
+    down.extend(out.into_iter().map(|n| (n, "its remote chain refused this start".to_owned())));
+    kept
 }
 
 /// `verdict` with each host `outdated` names marked `outdated: true` and its `refresh` command.
@@ -101,17 +122,23 @@ pub(super) async fn pick(hub: &Hub, work: Work) -> Value {
     // A brief goes to its host's daemon over a direct link (`requests.rs` `dispatch_brief`):
     // a machine only the hub reaches takes none yet.
     let candidates: Vec<Candidate> = candidates.into_iter().filter(|c| !c.via_hub).collect();
+    let demoted = refusing(&candidates, &hub.start_refusals, crate::store::now_ms());
     // The shadow judges only the hosts the pick weighs, not the ones `dispatch_hosts` leaves out.
     let (weighed, _) = dispatch_hosts(candidates.clone(), registry.as_ref(), work);
-    let verdict = dispatch_place(candidates, registry.as_ref(), work);
+    let verdict = dispatch_place(candidates, &demoted, registry.as_ref(), work);
     crate::shadow_admission::with_shadow("pick", verdict, &weighed)
 }
 
-/// `placement::place` over the hosts `dispatch_hosts` keeps. With no pick, `why` also names
-/// the hosts it left out and why, which the verdict's `hosts` no longer lists.
-fn dispatch_place(candidates: Vec<Candidate>, registry: Option<&Value>, work: Work) -> Value {
+/// `placement::place_demoting` over the hosts `dispatch_hosts` keeps. With no pick, `why` also
+/// names the hosts it left out and why, which the verdict's `hosts` no longer lists.
+fn dispatch_place(
+    candidates: Vec<Candidate>,
+    demoted: &[(String, String)],
+    registry: Option<&Value>,
+    work: Work,
+) -> Value {
     let (kept, left_out) = dispatch_hosts(candidates, registry, work);
-    let mut v = crate::placement::place(&kept, registry, work);
+    let mut v = crate::placement::place_demoting(&kept, demoted, registry, work);
     if v.get("pick").is_some_and(Value::is_null) && !left_out.is_empty() {
         let why = v.get("why").and_then(Value::as_str).unwrap_or_default();
         let why = format!(
@@ -161,6 +188,23 @@ async fn candidates_with(
     let mut candidates = vec![this_machine(hub).await];
     candidates.extend(peers);
     (candidates, down, outdated)
+}
+
+/// The `peers` whose own remote chain refused a start while that record is fresh at `now_ms`
+/// (`start_refusals.rs`), each with the refusal and its time: the pick puts them after every
+/// other host but still weighs them (`placement::place_demoting`).
+fn refusing(
+    peers: &[Candidate],
+    refusals: &crate::start_refusals::StartRefusals,
+    now_ms: u64,
+) -> Vec<(String, String)> {
+    peers
+        .iter()
+        .filter_map(|peer| {
+            let r = refusals.fresh(&peer.name, now_ms)?;
+            Some((peer.name.clone(), crate::start_refusals::line(&r, now_ms)))
+        })
+        .collect()
 }
 
 /// Peer rows split into candidates and the names of the others with why

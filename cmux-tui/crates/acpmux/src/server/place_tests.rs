@@ -152,6 +152,62 @@ fn a_machine_only_the_hub_reaches_is_weighed_by_its_hub_reading() {
     assert!(why.contains("`acpmux machine add swarm-01`"), "{why}");
 }
 
+/// A peer whose own remote chain refused a start goes after the hosts that stand as well
+/// against their cap and room while the record is fresh, listed with the refusal and its time, and is still the pick when no other
+/// host has room; after 30 minutes, or once a start there works, it is weighed as before.
+#[test]
+fn a_peer_whose_chain_refused_a_start_is_demoted_while_the_refusal_is_fresh() {
+    let refusals = crate::start_refusals::StartRefusals::default();
+    let at = 1_763_464_980_000; // 2025-11-18T11:23:00Z
+    refusals.record("roomy", at, "remote chain refused: the sandbox canary shows no sandbox");
+    // roomy has more room than lean: without the record it is the pick.
+    let lean = |gb| named("lean", false, health(gb, 0));
+    let weigh = |now: u64, lean_gb: u64| {
+        let peers = vec![named("roomy", false, health(60, 0)), lean(lean_gb)];
+        let demoted = refusing(&peers, &refusals, now);
+        crate::placement::place_demoting(&peers, &demoted, None, Work::Agent)
+    };
+    let v = weigh(at + 5 * 60_000, 20);
+    assert_eq!(v["pick"], "lean", "{v:#}");
+    let roomy = v["hosts"].as_array().unwrap().iter().find(|h| h["name"] == "roomy").unwrap();
+    assert_eq!(roomy["ok"], json!(true), "demoted, never refused: {v:#}");
+    let line = roomy["demoted"].as_str().unwrap();
+    assert!(
+        line.starts_with("its remote chain refused a start at 2025-11-18T11:23:00")
+            && line.contains("(5 min ago;")
+            && line.ends_with("the sandbox canary shows no sandbox"),
+        "{line}"
+    );
+    // lean with no room: roomy is still picked, and the pick says why.
+    let v = weigh(at + 5 * 60_000, 1);
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("roomy"), &json!(false)), "{v:#}");
+    assert!(v["why"].as_str().unwrap().contains("picked although its remote chain"), "{v:#}");
+    // Stale after 30 minutes: weighed as before, and the pick.
+    assert_eq!(weigh(at + crate::start_refusals::FRESH_MS, 20)["pick"], "roomy");
+    // A start that works there clears it at once.
+    refusals.record("roomy", at, "remote chain refused: x");
+    refusals.note("roomy", &Ok(()), at + 1);
+    assert_eq!(weigh(at + 2, 20)["pick"], "roomy");
+}
+
+/// The machines that refused this one start (`skip`) are out of its next pick, each listed
+/// down with why; the others stay.
+#[test]
+fn a_machine_that_refused_this_start_is_out_for_the_rest_of_it() {
+    let peers =
+        vec![named("Roomy.local", false, health(60, 0)), named("lean", false, health(20, 0))];
+    let mut down = Vec::new();
+    let kept = skipped(peers, Some(&json!(["roomy"])), &mut down);
+    assert_eq!(kept.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["lean"]);
+    assert_eq!(
+        down,
+        [("Roomy.local".to_owned(), "its remote chain refused this start".to_owned())]
+    );
+    let mut none = Vec::new();
+    assert_eq!(skipped(kept, None, &mut none).len(), 1);
+    assert!(none.is_empty());
+}
+
 /// A command-line `new` on a machine a person works at weighs only the others: this one and
 /// every interactive peer drop out, the fleet hosts stay.
 #[test]
@@ -224,7 +280,7 @@ fn dispatch_auto_leaves_out_a_persons_machines_and_a_last_resort_host() {
             named("lane", false, health(60, 6)),
         ]
     };
-    let v = dispatch_place(hosts(), Some(&reg), Work::Agent);
+    let v = dispatch_place(hosts(), &[], Some(&reg), Work::Agent);
     assert_eq!(v["pick"], "lane", "{v:#}");
     assert_eq!(v["overloaded"], true, "{v:#}");
     assert_eq!(v["local"], false);
@@ -234,7 +290,7 @@ fn dispatch_auto_leaves_out_a_persons_machines_and_a_last_resort_host() {
 
     // A build may go to the last-resort host (its lanes.build "fallback"); a person's
     // machines stay out, and the lane VM takes no builds.
-    let v = dispatch_place(hosts(), Some(&reg), Work::Build);
+    let v = dispatch_place(hosts(), &[], Some(&reg), Work::Build);
     assert_eq!(v["pick"], "spare", "{v:#}");
 
     // Nothing left: no pick, and the answer names who was left out and why.
@@ -244,6 +300,7 @@ fn dispatch_auto_leaves_out_a_persons_machines_and_a_last_resort_host() {
             named("apps", false, health(60, 0)),
             named("spare", false, health(60, 0)),
         ],
+        &[],
         Some(&reg),
         Work::Agent,
     );
@@ -252,7 +309,7 @@ fn dispatch_auto_leaves_out_a_persons_machines_and_a_last_resort_host() {
     assert!(why.contains("never starts a new lane on mac, apps, spare"), "{why}");
 
     // Without a registry nothing is left out.
-    let v = dispatch_place(vec![named("mac", true, health(60, 0))], None, Work::Agent);
+    let v = dispatch_place(vec![named("mac", true, health(60, 0))], &[], None, Work::Agent);
     assert_eq!(v["pick"], "mac", "{v:#}");
 }
 
