@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b" as const;
+export const SDK_IR_SHA256 = "d86d6a724a3817ecf7b262b980f82644c383ba9a6ab25eba2b684b89d14a725e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -6279,6 +6279,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ColumnPin": {
     "additional_properties": false,
     "fields": {
+      "allow_tabs": {
+        "capability": "pinned-dock-v1",
+        "default": false,
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
       "edge": {
         "nullable": false,
         "presence": "required",
@@ -6293,6 +6304,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "permanent": {
+        "capability": "permanent-dock-v1",
+        "default": false,
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "pinned": {
+        "capability": "pinned-dock-v1",
+        "default": false,
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       },
       "role": {

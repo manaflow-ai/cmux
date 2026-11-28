@@ -23,12 +23,12 @@ public struct DockColumnCommand: Sendable {
         guard let respawn else {
             return {
                 await daemon.request("move-tab-to-column") { connection -> Void in
-                    _ = try await connection.moveTabToColumn(move.surface, target: move.target, width: move.width, dock: move.dock,
+                    _ = try await connection.moveTabToColumn(move.surface, target: move.target, width: move.width, dock: move.dock.map(DockSnapshot.init),
                                                              transaction: move.transaction)
                 } != nil
             }
         }
-        guard case .pane(let source) = move.target, case .terminal(var options) = respawn, let dock = move.dock,
+        guard case .pane(let source) = move.target, case .terminal(var options) = respawn, let dock = move.dock.map(DockSnapshot.init),
               dock.edge == .left, let width = move.width, let transaction = move.transaction,
               daemon.supports(DaemonCapability.tabColumnClientPane.rawValue) else {
             return {

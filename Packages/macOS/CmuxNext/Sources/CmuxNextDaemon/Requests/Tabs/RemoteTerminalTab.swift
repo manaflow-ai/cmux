@@ -1,8 +1,7 @@
 import Foundation
 
-/// `new-remote-terminal-tab`: a remote-terminal tab in `pane` (default: the
-/// active pane of the active workspace).
-public struct NewRemoteTerminalTabRequest: DaemonRequest {
+/// `new-remote-terminal-tab` (generated, swift_app bindings.json): what the daemon answers.
+extension NewRemoteTerminalTabRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var surface: SurfaceID
         public var tabResourceID: ResourceID?
@@ -10,25 +9,6 @@ public struct NewRemoteTerminalTabRequest: DaemonRequest {
             case surface
             case tabResourceID = "tab_resource_id"
         }
-    }
-    public static let command = "new-remote-terminal-tab"
-    public static let requiredCapability: String? = DaemonCapability.remoteTerminalTabs.rawValue
-    public var pane: PaneID?
-    public var sessionID: String
-    public var terminalID: TerminalID
-    public var sessionName: String
-    public var title: String?
-    public var cols: Int?
-    public var rows: Int?
-
-    public init(_ ref: RemoteTerminalRef, pane: PaneID? = nil, title: String? = nil, size: CellSize? = nil) {
-        self.pane = pane
-        sessionID = ref.sessionID
-        terminalID = ref.terminalID
-        sessionName = ref.sessionName
-        self.title = title
-        cols = size?.cols
-        rows = size?.rows
     }
 }
 

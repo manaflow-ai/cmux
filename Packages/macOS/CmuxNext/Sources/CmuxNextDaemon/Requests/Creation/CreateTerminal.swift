@@ -1,5 +1,7 @@
 import Foundation
 
+// create-terminal's request is generated (swift_app bindings.json, Creation); its replies stay hand-written.
+
 /// `{surface}` plus the terminal identity newer servers add.
 public struct SurfaceCreated: Decodable, Sendable, Equatable {
     public var surface: SurfaceID

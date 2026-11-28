@@ -43,7 +43,8 @@ extension DaemonConnection {
                                 transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
         let keepFocus = keepFocus && identity?.supports(DaemonCapability.tabSplitKeepFocus.rawValue) == true
         return try await requestNew(MoveTabToColumnRequest(surface: surface, target: target, afterColumn: afterColumn,
-                                                           width: width, dock: dock, keepFocus: keepFocus, transaction: transaction))
+                                                           width: width, dock: dock.map(MoveTabToColumnRequest.Dock.init),
+                                                           keepFocus: keepFocus, transaction: transaction))
     }
 
     /// New workspace holding the tab. On daemons without `tab-drag-v1` it

@@ -267,8 +267,11 @@ export type ColumnDockRole = "agent_chat";
 export type ColumnMoveDirection = "left" | "right";
 
 export type ColumnPin = {
+  "allow_tabs"?: boolean;
   "edge": string;
   "mode": string;
+  "permanent"?: boolean;
+  "pinned"?: boolean;
   "role"?: (string) | null;
 };
 

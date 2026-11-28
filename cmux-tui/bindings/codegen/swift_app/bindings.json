@@ -15,7 +15,8 @@
     "ConversationPart": "ConversationPart",
     "ConversationReactionKind": "ConversationReactionKind",
     "NameSource": "WorkspaceNameSource",
-    "SplitDirection": "SplitDirection"
+    "SplitDirection": "SplitDirection",
+    "ConversationTabSplit": "ConversationTabSplit"
   },
   "families": {
     "Agents": {
@@ -1697,7 +1698,7 @@
       }
     },
     "TabGroups": {
-      "$comment": "move-tab-group-to-column stays hand-written: it encodes its ColumnDropTarget enum as pane or screen.",
+      "$comment": "move-tab-group-to-column's target is the hand-written ColumnDropTarget enum (one_of): it sends pane or screen.",
       "requests": {
         "unsave-tab-group": {
           "name": "UnsaveTabGroupRequest",
@@ -2045,11 +2046,51 @@
             }
           },
           "response": "TabGroupResult"
+        },
+        "move-tab-group-to-column": {
+          "name": "MoveTabGroupToColumnRequest",
+          "doc": [
+            "Drops a whole group between strip columns."
+          ],
+          "order": [
+            "group",
+            "target",
+            "after_column",
+            "width",
+            "transaction"
+          ],
+          "one_of": {
+            "target": {
+              "type": "ColumnDropTarget",
+              "cases": [
+                "screen",
+                "pane"
+              ]
+            }
+          },
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "pane": {
+              "type": "PaneID"
+            },
+            "after_column": {
+              "type": "ColumnID"
+            },
+            "width": {
+              "type": "Double"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabGroupResult"
         }
       }
     },
     "TabMove": {
-      "$comment": "Hand-written still: MoveTabToWorkspaceRequest (the schema gates move-tab-to-workspace by tab-workspace-move-v1, which the app never required); the other move-tab-to-split requests (one binding per command) and move-tab-to-column (a drop target and a dock pin the emitter cannot encode).",
+      "$comment": "Hand-written still: MoveTabToWorkspaceRequest (the schema gates move-tab-to-workspace by tab-workspace-move-v1, which the app never required); the other move-tab-to-split requests (one binding per command); move-tab-to-column's respawn wrapper (MoveTabToColumnRespawnRequest: it owns respawn and pane_id, which MoveTabToColumnRequest omits).",
       "requests": {
         "move-tab": {
           "name": "MoveTabRequest",
@@ -2130,11 +2171,106 @@
             }
           },
           "response": "TabMoveResult"
+        },
+        "move-tab-to-column": {
+          "name": "MoveTabToColumnRequest",
+          "doc": [
+            "Drop between strip columns: new viewport column holding the tab."
+          ],
+          "order": [
+            "surface",
+            "target",
+            "after_column",
+            "width",
+            "dock",
+            "keep_focus",
+            "transaction"
+          ],
+          "one_of": {
+            "target": {
+              "type": "ColumnDropTarget",
+              "cases": [
+                "screen",
+                "pane"
+              ],
+              "doc": [
+                "The destination screen, named directly or by any of its panes."
+              ]
+            }
+          },
+          "omit": [
+            "respawn",
+            "pane_id"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "after_column": {
+              "type": "ColumnID",
+              "doc": [
+                "Insert after this column; nil = after the last one."
+              ]
+            },
+            "width": {
+              "doc": [
+                "Viewport fraction 0.1...1.0; nil = 2/3."
+              ]
+            },
+            "dock": {
+              "doc": [
+                "Pins the new column to an edge in the same commit (edge-docks-v1)."
+              ],
+              "object": {
+                "name": "Dock",
+                "doc": [
+                  "The dock pin a new column takes (`ColumnPin`); `init(_:)` makes it from a ``DockSnapshot``."
+                ],
+                "order": [
+                  "edge",
+                  "mode",
+                  "role",
+                  "pinned"
+                ],
+                "omit": [
+                  "permanent",
+                  "allow_tabs"
+                ],
+                "fields": {
+                  "edge": {
+                    "type": "DockSnapshot.Edge"
+                  },
+                  "mode": {
+                    "type": "DockSnapshot.Mode"
+                  },
+                  "role": {
+                    "type": "DockSnapshot.Role"
+                  },
+                  "pinned": {
+                    "encode": "if_true",
+                    "doc": [
+                      "A pinned dock (Home's): `pinned-dock-alone-v1` lets only it take a screen's only tab."
+                    ]
+                  }
+                }
+              }
+            },
+            "keep_focus": {
+              "encode": "if_true",
+              "doc": [
+                "The new column's pane does not take focus; ``DaemonConnection/moveTabToColumn`` sends true only to a daemon that has `tab-split-keep-focus-v1`."
+              ]
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabMoveResult"
         }
       }
     },
     "Tabs": {
-      "$comment": "Hand-written still: set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), create-terminal {detached} (constant fields), new-frontend-browser-tab, new-remote-terminal-tab and terminal-resources (their inits do work), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
+      "$comment": "Hand-written still: set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), terminal-resources (a filter init over private(set) fields), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
       "requests": {
         "close-surface": {
           "name": "CloseTabRequest",
@@ -2357,6 +2493,154 @@
             }
           },
           "response": "CloseTabsResult"
+        },
+        "new-frontend-browser-tab": {
+          "name": "NewFrontendBrowserTabRequest",
+          "doc": [
+            "Browser tab the app renders itself (`frontend-browser-tabs-v1`). The",
+            "daemon persists and restores it but never attaches or renders it."
+          ],
+          "order": [
+            "url",
+            "engine",
+            "pane",
+            "workspace",
+            "title",
+            "favicon_url",
+            "profile_id",
+            "size",
+            "activate",
+            "after",
+            "split"
+          ],
+          "omit": [
+            "owner",
+            "place",
+            "transaction"
+          ],
+          "fields": {
+            "engine": {
+              "type": "BrowserEngine"
+            },
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "activate": {
+              "doc": [
+                "`frontend-browser-activate-v1`: `false` keeps the pane's active tab (an automation's",
+                "background tab); nil (omitted) makes the new tab active."
+              ]
+            },
+            "after": {
+              "type": "SurfaceID",
+              "doc": [
+                "`frontend-browser-insert-after-v1`: the new tab goes right after this",
+                "tab of the pane (a link's opener, or its last child) instead of at the end."
+              ]
+            },
+            "idempotency_key": {
+              "doc": [
+                "`frontend-browser-tab-keys-v1`: a request with the same key answers",
+                "the tab the first one made (`replayed`), so a retry never makes two. `send(on:)` sets it."
+              ]
+            }
+          },
+          "response": "hand-written",
+          "flatten": {
+            "size": {
+              "type": "CellSize",
+              "optional": true
+            }
+          },
+          "initializer": {
+            "post_init": [
+              "idempotencyKey"
+            ]
+          }
+        },
+        "new-remote-terminal-tab": {
+          "name": "NewRemoteTerminalTabRequest",
+          "doc": [
+            "`new-remote-terminal-tab`: a remote-terminal tab in `pane` (default: the",
+            "active pane of the active workspace)."
+          ],
+          "order": [
+            "ref",
+            "pane",
+            "title",
+            "size"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID"
+            }
+          },
+          "response": "hand-written",
+          "flatten": {
+            "size": {
+              "type": "CellSize",
+              "optional": true
+            }
+          },
+          "init": {
+            "params": {
+              "ref": {
+                "type": "RemoteTerminalRef",
+                "label": "_"
+              }
+            },
+            "set": {
+              "session_id": "ref.sessionID",
+              "terminal_id": "ref.terminalID",
+              "session_name": "ref.sessionName"
+            }
+          }
+        },
+        "create-terminal": {
+          "name": "CreateDetachedTerminalRequest",
+          "doc": [
+            "`create-terminal {detached: true}` (`remote-terminal-tabs-v1`): a kept",
+            "terminal with no tab on its own session, whose only view lives in another",
+            "session's layout (\"Open Terminal on Machine Here\")."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "ungated": "a daemon that predates workspace-registry-v1 still spawns the terminal.",
+          "mutation": true,
+          "order": [
+            "cwd",
+            "size",
+            "terminal_id",
+            "env",
+            "mutation"
+          ],
+          "omit": [
+            "workspace",
+            "key",
+            "argv",
+            "command",
+            "name",
+            "shell_args",
+            "create_workspace",
+            "workspace_name"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "detached": {
+              "constant": true
+            },
+            "keep": {
+              "constant": true
+            }
+          },
+          "response": "hand-written",
+          "flatten": {
+            "size": {
+              "type": "CellSize",
+              "optional": true
+            }
+          }
         }
       },
       "enums": {
@@ -2590,7 +2874,7 @@
       }
     },
     "TerminalIO": {
-      "$comment": "Hand-written still: set-attach-visibility, clear-history, the clipboard subscribe and reply, cancel-creating-input, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); set-size-policy (nested Policy); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work).",
+      "$comment": "Hand-written still: set-attach-visibility, clear-history, the clipboard subscribe and reply, cancel-creating-input, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work).",
       "enums": {},
       "requests": {
         "send-key": {
@@ -2710,6 +2994,52 @@
           },
           "response": "hand-written"
         },
+        "set-size-policy": {
+          "name": "SetSizePolicyRequest",
+          "doc": [
+            "Sets the terminal's own sizing policy (`set-size-policy {surface, policy}`, `shared-sizing-v1`).",
+            "Take over under a policy that picks by size sets last active first, so its claim wins",
+            "(plans/cmux-next/sync-ux/DESIGN.md 2.6)."
+          ],
+          "order": [
+            "surface",
+            "policy"
+          ],
+          "omit": [
+            "workspace"
+          ],
+          "fields": {
+            "surface": {
+              "optional": false,
+              "encode": "always"
+            },
+            "policy": {
+              "optional": false,
+              "encode": "always",
+              "object": {
+                "name": "Policy",
+                "order": [
+                  "mode"
+                ],
+                "omit": [
+                  "priority",
+                  "fixed"
+                ],
+                "fields": {
+                  "mode": {
+                    "type": "String",
+                    "optional": false,
+                    "encode": "always",
+                    "doc": [
+                      "`latest`, `smallest`, `largest`, `priority` or `fixed`."
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "response": "EmptyResponse"
+        },
         "terminal-find": {
           "name": "TerminalFindRequest",
           "doc": [
@@ -2788,7 +3118,7 @@
       }
     },
     "Workspace": {
-      "$comment": "Hand-written still: create (the schema gates it on workspace-registry-v1, which the app does not check before sending), put-blob (its init base64-encodes).",
+      "$comment": "Hand-written still: put-blob (its init base64-encodes).",
       "enums": {},
       "requests": {
         "get-blob": {
@@ -2940,6 +3270,44 @@
             },
             "release": {
               "encode": "if_true"
+            }
+          },
+          "response": "WorkspaceMutationResult"
+        },
+        "create-workspace": {
+          "name": "CreateWorkspaceRequest",
+          "doc": [
+            "`create-workspace`: a new workspace, named `name` (else the daemon's next `workspace-N`) under `key`",
+            "(else a fresh one)."
+          ],
+          "ungated": "a daemon that predates workspace-registry-v1 still makes the workspace.",
+          "mutation": true,
+          "order": [
+            "name",
+            "key",
+            "first_tab",
+            "name_source",
+            "mutation"
+          ],
+          "fields": {
+            "key": {
+              "type": "WorkspaceKey"
+            },
+            "first_tab": {
+              "type": "WorkspaceFirstBrowserTab",
+              "doc": [
+                "The workspace's first tab, made by this request; the reply names it",
+                "(``WorkspaceMutationResult/firstTab``)."
+              ]
+            },
+            "name_source": {
+              "type": "WorkspaceNameSource",
+              "with": "name",
+              "doc": [
+                "`.user`: `name` is exactly what the caller asked for (`agents chat new --name`, `agent open --name`), so the",
+                "daemon pins it like a rename and no automatic name or chat title replaces it (#56422). Nil: a starting name",
+                "(Cmd-N's `workspace-N`, a moved tab's name), the automatic namer's. A daemon without it ignores the field."
+              ]
             }
           },
           "response": "WorkspaceMutationResult"

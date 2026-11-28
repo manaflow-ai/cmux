@@ -28,54 +28,17 @@ public enum ColumnDropTarget: Sendable, Hashable {
     case pane(PaneID)
 }
 
-/// Drop between strip columns: new viewport column holding the tab.
-public struct MoveTabToColumnRequest: DaemonRequest {
-    public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-column"
-    public static let requiredCapability: String? = DaemonCapability.tabDrag.rawValue
-    public var surface: SurfaceID
-    public var target: ColumnDropTarget
-    /// Insert after this column; nil = after the last one.
-    public var afterColumn: ColumnID?
-    /// Viewport fraction 0.1...1.0; nil = 2/3.
-    public var width: Double?
-    /// Pins the new column to an edge in the same commit (edge-docks-v1).
-    public var dock: DockSnapshot?
-    /// The new column's pane does not take focus (`tab-split-keep-focus-v1`; sent only when true,
-    /// and ``DaemonConnection/moveTabToColumn`` sends true only to a daemon that has it).
-    public var keepFocus: Bool
-    public var transaction: ClientTransactionID?
-    public init(surface: SurfaceID, target: ColumnDropTarget, afterColumn: ColumnID? = nil, width: Double? = nil,
-                dock: DockSnapshot? = nil, keepFocus: Bool = false, transaction: ClientTransactionID? = nil) {
-        self.surface = surface
-        self.target = target
-        self.afterColumn = afterColumn
-        self.width = width
-        self.dock = dock
-        self.keepFocus = keepFocus
-        self.transaction = transaction
+/// The dock pin of ``DockSnapshot``: its edge, mode, role and pinned flag (`allowsTabs` is a
+/// column setting, not part of the drop).
+extension MoveTabToColumnRequest.Dock {
+    public init(_ dock: DockSnapshot) {
+        self.init(edge: dock.edge, mode: dock.mode, role: dock.role, pinned: dock.isPinned)
     }
+}
 
-    enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, keepFocus, transaction }
-    enum PinKeys: String, CodingKey { case edge, mode, role, pinned }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(surface, forKey: .surface)
-        switch target {
-        case .screen(let screen): try c.encode(screen, forKey: .screen)
-        case .pane(let pane): try c.encode(pane, forKey: .pane)
-        }
-        try c.encodeIfPresent(afterColumn, forKey: .afterColumn)
-        try c.encodeIfPresent(width, forKey: .width)
-        if let dock {
-            var pin = c.nestedContainer(keyedBy: PinKeys.self, forKey: .dock)
-            try pin.encode(dock.edge.rawValue, forKey: .edge)
-            try pin.encode(dock.mode.rawValue, forKey: .mode)
-            try pin.encodeIfPresent(dock.role?.rawValue, forKey: .role)
-            // `pinned-dock-alone-v1`: only a pinned dock may take a screen's only tab (Home's dock).
-            if dock.isPinned { try pin.encode(true, forKey: .pinned) }
-        }
-        if keepFocus { try c.encode(true, forKey: .keepFocus) }
-        try c.encodeIfPresent(transaction, forKey: .transaction)
+extension DockSnapshot {
+    /// The column a dock drop makes: the drop's pin, without tabs beside it.
+    public init(_ dock: MoveTabToColumnRequest.Dock) {
+        self.init(edge: dock.edge, mode: dock.mode, role: dock.role, isPinned: dock.pinned)
     }
 }

@@ -445,6 +445,266 @@ class SentWithTests(unittest.TestCase):
                 self.source(**fields)
 
 
+class OneOfTests(unittest.TestCase):
+    """`one_of`: a hand-written enum whose cases each carry one optional field; only the one it holds is sent."""
+
+    def source(self, one_of: Any, order: list[str] | None = None, **fields: Any) -> str:
+        document = layout_document()
+        request = document["commands"]["set-split-ratio"]["request"]["fields"]
+        request["pane"] = _field(ID, required=False, nullable=True)
+        request["column"] = _field(ID, required=False, nullable=True)
+        bindings = layout_bindings()
+        binding = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        binding["order"] = order or ["split", "target", "ratio"]
+        binding["one_of"] = one_of
+        binding["fields"] = fields
+        return rendered(document, bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_one_of_sends_the_field_of_the_case_it_holds(self) -> None:
+        source = self.source({"target": {"type": "DropTarget", "cases": ["pane", "column"], "doc": ["Where."]}})
+        self.assertIn("    /// Where.\n    public var target: DropTarget\n", source)
+        self.assertIn("public init(split: SplitID, target: DropTarget, ratio: Double,", source)
+        self.assertIn(
+            "        switch target {\n"
+            "        case .pane(let value): try container.encode(value, forKey: .pane)\n"
+            "        case .column(let value): try container.encode(value, forKey: .column)\n"
+            "        }\n",
+            source,
+        )
+        self.assertIn("        case split\n        case pane\n        case column\n        case ratio\n", source)
+        self.assertNotIn("public var pane", source)
+
+    def test_one_of_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases = {
+            "one case": ({"target": {"type": "T", "cases": ["pane"]}}, None, {}),
+            "no type": ({"target": {"cases": ["pane", "column"]}}, None, {}),
+            "a field the schema lacks": ({"target": {"type": "T", "cases": ["pane", "nope"]}}, None, {}),
+            "a required case": ({"target": {"type": "T", "cases": ["pane", "split"]}}, ["target", "ratio"], {}),
+            "an always encoded case": (
+                {"target": {"type": "T", "cases": ["pane", "column"]}}, None, {"pane": {"encode": "always"}}
+            ),
+            "a case in order": ({"target": {"type": "T", "cases": ["pane", "column"]}}, ["split", "pane"], {}),
+            "a case in two": (
+                {"a": {"type": "T", "cases": ["pane", "column"]}, "b": {"type": "U", "cases": ["pane", "transaction"]}},
+                ["split", "ratio"], {},
+            ),
+        }
+        for name, (one_of, order, fields) in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(one_of, order, **fields)
+
+
+class NestedObjectTests(unittest.TestCase):
+    """`object`: a field whose schema type is an object becomes a struct nested in the request; `omit` drops
+    optional schema fields the Swift type never sends, on the request or on the nested object."""
+
+    PIN = {"doc": ["The pin."], "order": ["edge", "pinned"], "omit": ["size"], "fields": {"pinned": {"encode": "if_true"}}}
+
+    def document(self) -> dict[str, Any]:
+        document = layout_document()
+        document["types"]["Pin"] = {
+            "kind": "object",
+            "fields": {
+                "edge": _field({"kind": "ref", "name": "PaneDirection"}),
+                "pinned": _field({"kind": "scalar", "name": "boolean"}, required=False, default=False),
+                "size": _field({"kind": "scalar", "name": "uint32"}, required=False, nullable=True),
+            },
+            "additional_properties": False,
+        }
+        document["types"]["Bare"] = {"kind": "object", "fields": {}, "additional_properties": False}
+        request = document["commands"]["set-split-ratio"]["request"]["fields"]
+        request["pin"] = _field({"kind": "ref", "name": "Pin"}, required=False, nullable=True)
+        request["bare"] = _field({"kind": "ref", "name": "Bare"}, required=False, nullable=True)
+        request["respawn"] = _field({"kind": "scalar", "name": "boolean"}, required=False, default=False)
+        return document
+
+    def source(self, fields: dict[str, Any] | None = None, omit: list[str] | None = None,
+               order: list[str] | None = None) -> str:
+        bindings = layout_bindings()
+        binding = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        binding["order"] = order or ["split", "ratio", "pin"]
+        binding["omit"] = ["respawn", "bare"] if omit is None else omit
+        binding["fields"] = {"pin": {"object": self.PIN}} if fields is None else fields
+        return rendered(self.document(), bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_the_nested_struct_encodes_its_own_fields(self) -> None:
+        source = self.source()
+        self.assertIn("    public var pin: Pin?\n", source)
+        self.assertIn("    /// The pin.\n    public struct Pin: Encodable, Sendable, Equatable {\n", source)
+        self.assertIn("        public var edge: PaneDirection\n", source)
+        self.assertIn("        public init(edge: PaneDirection, pinned: Bool = false) {\n", source)
+        self.assertIn("        enum CodingKeys: String, CodingKey {\n            case edge\n            case pinned\n", source)
+        self.assertIn("            if pinned { try container.encode(true, forKey: .pinned) }\n", source)
+        self.assertIn("        try container.encodeIfPresent(pin, forKey: .pin)\n", source)
+        self.assertEqual(source.count("{"), source.count("}"))
+        self.assertNotIn("size", source)
+        self.assertNotIn("respawn", source)
+
+    def test_a_name_overrides_the_field_name(self) -> None:
+        source = self.source({"pin": {"object": {"name": "Dock", "order": ["edge"], "omit": ["pinned", "size"]}}})
+        self.assertIn("    public var pin: Dock?\n", source)
+        self.assertIn("    public struct Dock: Encodable, Sendable, Equatable {\n", source)
+
+    def test_object_and_omit_are_refused_where_they_cannot_keep_the_wire(self) -> None:
+        def pin(**binding: Any) -> dict[str, Any]:
+            return {"pin": {"object": {"order": ["edge", "pinned"], "omit": ["size"], **binding}}}
+
+        cases: dict[str, tuple[dict[str, Any] | None, list[str] | None, list[str] | None]] = {
+            "an object binding on a scalar": ({"ratio": {"object": {}}}, None, None),
+            "a nested field the schema lacks": (pin(order=["edge", "nope"]), None, None),
+            "omit of a required field": (pin(order=["pinned"], omit=["edge", "size"]), None, None),
+            "omit of a field it binds": (pin(order=["edge", "pinned", "size"]), None, None),
+            "omit twice": (pin(omit=["size", "size"]), None, None),
+            "an unknown key": (pin(nope=1), None, None),
+            "a bad name": (pin(name="not a name"), None, None),
+            "a nested update": (pin(order=["edge", "size"], omit=["pinned"], fields={"size": {"update": True}}), None, None),
+            "an object that sends nothing": ({"bare": {"object": {}}}, ["respawn", "pin"], ["split", "ratio", "bare"]),
+            "request omit of a required field": (None, ["respawn", "bare", "split"], ["ratio", "pin"]),
+            "request omit of a field in order": (None, ["respawn", "bare"], ["split", "ratio", "pin", "respawn"]),
+        }
+        for name, (fields, omit, order) in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(fields, omit, order)
+
+
+class InitTests(unittest.TestCase):
+    """Request `init`: parameters that are no property (`params`) and fields the init sets from Swift expressions
+    on them (`set`), as `NewRemoteTerminalTabRequest(_ ref:size:)` fills its session and size fields."""
+
+    INIT = {
+        "params": {"size": {"type": "CellSize?", "default": "nil"}},
+        "set": {"cols": "size?.cols", "rows": "size?.rows"},
+    }
+
+    def source(self, binding: dict[str, Any] | None = None) -> str:
+        document = layout_document()
+        request = document["commands"]["swap-pane"]["request"]["fields"]
+        request["cols"] = _field({"kind": "scalar", "name": "uint16"}, required=False, nullable=True)
+        request["rows"] = _field({"kind": "scalar", "name": "uint16"}, required=False, nullable=True)
+        bindings = layout_bindings()
+        swap = bindings["families"]["Layout"]["requests"]["swap-pane"]
+        swap.update({"order": ["pane", "size", "dir", "target"], "init": self.INIT,
+                     "fields": {**swap.get("fields", {}), "cols": {"type": "Int"}, "rows": {"type": "Int"}}})
+        swap.update(binding or {})
+        return rendered(document, bindings)["Layout/SwapPaneRequest.generated.swift"]
+
+    def test_a_parameter_sets_the_fields_and_is_no_property(self) -> None:
+        source = self.source()
+        self.assertIn("    public init(pane: PaneID, size: CellSize? = nil, dir: PaneDirection? = nil,"
+                      " target: PaneID? = nil) {\n", source)
+        self.assertIn("        self.cols = size?.cols\n", source)
+        self.assertIn("        self.rows = size?.rows\n", source)
+        self.assertIn("    public var cols: Int?\n", source)
+        self.assertIn("try container.encodeIfPresent(cols, forKey: .cols)", source)
+        self.assertNotIn("var size", source)
+        self.assertNotIn("case size", source)
+        self.assertNotIn("size, forKey", source)
+        self.assertEqual(source.count("{"), source.count("}"))
+
+    def test_a_label_and_a_set_with_no_parameter(self) -> None:
+        source = self.source({"order": ["size", "pane"], "init": {
+            "params": {"size": {"type": "CellSize", "label": "_"}},
+            "set": {"cols": "size.cols", "rows": "nil"},
+        }})
+        self.assertIn("    public init(_ size: CellSize, pane: PaneID, dir: PaneDirection? = nil, target: PaneID? = nil) {",
+                      source)
+        self.assertIn("        self.rows = nil\n", source)
+
+    def test_an_init_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases: dict[str, dict[str, Any]] = {
+            "an unknown init key": {"init": {**self.INIT, "nope": 1}},
+            "an unknown parameter key": {"init": {**self.INIT, "params": {"size": {"type": "CellSize", "nope": 1}}}},
+            "a parameter with no type": {"init": {**self.INIT, "params": {"size": {"default": "nil"}}}},
+            "a parameter that is a keyword": {"init": {"params": {"self": {"type": "Int"}}, "set": {"cols": "self"}}},
+            "a parameter no expression reads": {"init": {**self.INIT, "params": {"size": {"type": "CellSize?"},
+                                                                               "more": {"type": "Int"}}}},
+            "a parameter a field already names": {"order": ["pane", "dir"], "init": {
+                "params": {"target": {"type": "Int"}}, "set": {"cols": "target"}}},
+            "a set field the order names": {"order": ["pane", "size", "cols"]},
+            "a set field the schema lacks": {"init": {**self.INIT, "set": {"nope": "size?.cols"}}},
+            "a set expression that is empty": {"init": {**self.INIT, "set": {"cols": ""}}},
+            "params with no set": {"init": {"params": self.INIT["params"]}},
+        }
+        for name, binding in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(binding)
+
+
+class UngatedTests(unittest.TestCase):
+    """Request `ungated`: a command the schema gates on a capability that the app sends without asking."""
+
+    def source(self, binding: dict[str, Any], capability: str | None = "layout-v1") -> str:
+        document = layout_document()
+        if capability:
+            document["commands"]["swap-pane"]["capability"] = capability
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["requests"]["swap-pane"].update(binding)
+        return rendered(document, bindings)["Layout/SwapPaneRequest.generated.swift"]
+
+    def test_the_schema_gate_is_emitted_by_default(self) -> None:
+        self.assertIn('    public static let requiredCapability: String? = "layout-v1"\n', self.source({}))
+
+    def test_ungated_drops_the_gate_and_says_why(self) -> None:
+        source = self.source({"ungated": "an older daemon still swaps."})
+        self.assertNotIn("requiredCapability", source)
+        self.assertIn("/// The schema gates it on `layout-v1`; the app sends it without asking:\n"
+                      "/// an older daemon still swaps.\n", source)
+
+    def test_ungated_is_refused_without_a_reason_or_a_gate(self) -> None:
+        for name, binding, capability in [
+            ("an empty reason", {"ungated": " "}, "layout-v1"),
+            ("a reason that is no string", {"ungated": True}, "layout-v1"),
+            ("no schema gate", {"ungated": "why"}, None),
+        ]:
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(binding, capability)
+
+
+class ConstantTests(unittest.TestCase):
+    """Field `constant`: a fixed value always sent (no property), or with `encode: if_true` sent when a Bool is true."""
+
+    def source(self, fields: dict[str, Any], order: list[str] | None = None) -> str:
+        document = layout_document()
+        request = document["commands"]["swap-pane"]["request"]["fields"]
+        request["detached"] = _field({"kind": "scalar", "name": "boolean"}, required=False)
+        request["side"] = _field({"kind": "enum", "values": ["left", "right"]}, required=False, nullable=True)
+        request["count"] = _field({"kind": "scalar", "name": "uint16"}, required=False, nullable=True)
+        bindings = layout_bindings()
+        swap = bindings["families"]["Layout"]["requests"]["swap-pane"]
+        swap["fields"] = {**swap.get("fields", {}), **fields}
+        swap["omit"] = [wire for wire in ("detached", "side", "count") if wire not in fields]
+        if order is not None:
+            swap["order"] = order
+        return rendered(document, bindings)["Layout/SwapPaneRequest.generated.swift"]
+
+    def test_an_always_sent_constant_makes_no_property(self) -> None:
+        source = self.source({"detached": {"constant": True}})
+        self.assertIn("        try container.encode(true, forKey: .detached)\n", source)
+        self.assertIn("        case detached\n", source)
+        self.assertNotIn("var detached", source)
+        self.assertNotIn("detached:", source.split("public init(", 1)[1].split(")", 1)[0])
+
+    def test_an_if_true_constant_is_a_bool_sending_its_value(self) -> None:
+        source = self.source({"side": {"constant": "left", "encode": "if_true", "name": "left"}})
+        self.assertIn("    public var left: Bool\n", source)
+        self.assertIn("left: Bool = false", source)
+        self.assertIn('        if left { try container.encode("left", forKey: .left) }\n', source)
+        self.assertIn('        case left = "side"\n', source)
+
+    def test_a_constant_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases: dict[str, dict[str, Any]] = {
+            "a value the enum lacks": {"side": {"constant": "up"}},
+            "a string for a boolean": {"detached": {"constant": "yes"}},
+            "a negative unsigned": {"count": {"constant": -1}},
+            "a bool for an integer": {"count": {"constant": True}},
+            "a type beside it": {"detached": {"constant": True, "type": "Bool"}},
+            "an encode mode it cannot take": {"detached": {"constant": True, "encode": "if_present"}},
+        }
+        for name, fields in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(fields)
+
+
 class DecimalTests(unittest.TestCase):
     """`encode: decimal`: a UInt64 the wire carries as a decimal string."""
 

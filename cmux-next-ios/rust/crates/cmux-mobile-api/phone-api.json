@@ -11545,6 +11545,7 @@
         "chunkDeltas": true,
         "class": true,
         "cliHost": true,
+        "cloudRegistryId": true,
         "compression": true,
         "context": true,
         "createKey": true,
@@ -11621,6 +11622,7 @@
         "topic": true,
         "via": true,
         "vmBoundary": true,
+        "waitForLink": true,
         "waitStart": true,
         "workflowAllowedTools": true,
         "workspaceId": true,
@@ -17148,14 +17150,78 @@
     "daemon.ColorHex": {
       "type": "string"
     },
+    "daemon.ColumnDock": {
+      "properties": {
+        "allow_tabs": {
+          "type": "boolean"
+        },
+        "edge": {
+          "$ref": "#/types/daemon.ColumnDockEdge"
+        },
+        "mode": {
+          "$ref": "#/types/daemon.ColumnDockMode"
+        },
+        "permanent": {
+          "type": "boolean"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "role": {
+          "$ref": "#/types/daemon.ColumnDockRole"
+        }
+      },
+      "required": [
+        "edge",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "daemon.ColumnDockEdge": {
+      "enum": [
+        "left",
+        "right",
+        "top",
+        "bottom"
+      ]
+    },
+    "daemon.ColumnDockMode": {
+      "enum": [
+        "docked",
+        "overlay"
+      ]
+    },
+    "daemon.ColumnDockRole": {
+      "enum": [
+        "agent_chat"
+      ]
+    },
     "daemon.ColumnPin": {
       "additionalProperties": false,
       "properties": {
+        "allow_tabs": {
+          "default": false,
+          "type": "boolean",
+          "x-capability": "pinned-dock-v1",
+          "x-since": 12
+        },
         "edge": {
           "type": "string"
         },
         "mode": {
           "type": "string"
+        },
+        "permanent": {
+          "default": false,
+          "type": "boolean",
+          "x-capability": "permanent-dock-v1",
+          "x-since": 12
+        },
+        "pinned": {
+          "default": false,
+          "type": "boolean",
+          "x-capability": "pinned-dock-v1",
+          "x-since": 12
         },
         "role": {
           "anyOf": [
@@ -17340,6 +17406,38 @@
       "required": [
         "pane",
         "surfaces"
+      ],
+      "type": "object"
+    },
+    "daemon.FloatingPane": {
+      "additionalProperties": false,
+      "properties": {
+        "h": {
+          "format": "float64",
+          "type": "number"
+        },
+        "pane": {
+          "$ref": "#/types/daemon.Id"
+        },
+        "w": {
+          "format": "float64",
+          "type": "number"
+        },
+        "x": {
+          "format": "float64",
+          "type": "number"
+        },
+        "y": {
+          "format": "float64",
+          "type": "number"
+        }
+      },
+      "required": [
+        "h",
+        "pane",
+        "w",
+        "x",
+        "y"
       ],
       "type": "object"
     },
@@ -18070,7 +18168,7 @@
       "additionalProperties": false,
       "properties": {
         "dock": {
-          "$ref": "#/types/daemon.JsonValue",
+          "$ref": "#/types/daemon.ColumnDock",
           "x-since": 12
         },
         "id": {
@@ -19576,7 +19674,10 @@
           "x-since": 12
         },
         "floating": {
-          "$ref": "#/types/daemon.JsonValue",
+          "items": {
+            "$ref": "#/types/daemon.FloatingPane"
+          },
+          "type": "array",
           "x-since": 12
         },
         "group": {
