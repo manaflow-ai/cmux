@@ -49,6 +49,13 @@ test("a GitHub repository's start says it clones from GitHub, never that it copi
   expect(stage({ ...base, step: "folder", cwd: "/Users/dev/paint" })).toMatchObject({ label: "Copying your project" });
 });
 
+test.each(["git:https://gitlab.com/acme/api", "git:https://github.com/acme/api"])(
+  "a Git URL start clones its repository: %s",
+  (cwd) => {
+    expect(stage({ ...base, step: "folder", cwd })).toMatchObject({ id: "clone", label: "Clone repository" });
+  },
+);
+
 test("setup counts only once the host reports it, and a cached snapshot is quick", () => {
   const cloned = { ...base, hasRepository: true, clone: { state: "done" } } as const;
   // No setup reported: the next stage is the agent's.

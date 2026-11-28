@@ -1,3 +1,4 @@
+import { isGitURLFolder } from "../githubRepos";
 import { isTemporaryFolder } from "../sessionList";
 
 // The project of the chat the person last picked and started (Leo 2026-10-21: "we dont wanna have
@@ -86,7 +87,7 @@ export function startedProjectChoices(fromApp: string | undefined): string[] {
 }
 
 // The folder the person last started a Cloud chat in (a folder of this Mac, which the start copies onto the
-// machine, or a GitHub repository, `github:owner/name`): a page with Cloud picked starts there. Cloud's own,
+// machine, or a repository, `github:owner/name` or `git:URL`): a page with Cloud picked starts there. Cloud's own,
 // apart from This Mac's started project, so each mode comes back to its own last pick; with none yet, Cloud
 // starts in This Mac's (cmux#53226: Cmd+N from a Cloud workspace named a repository the person never picked, a
 // local folder's GitHub origin, or No folder). The app keeps it across launches (`newTab.remember`
@@ -95,7 +96,11 @@ export function startedProjectChoices(fromApp: string | undefined): string[] {
 const CLOUD_KEY = "cmux.acpmux.newTab.cloudPick.v1";
 
 export function isCloudPick(folder: string | undefined): folder is string {
-  return /^github:[^/\s]+\/[^/\s]+$/.test(folder ?? "") || (isStartableProject(folder) && !isTemporaryFolder(folder));
+  return (
+    isGitURLFolder(folder) ||
+    /^github:[^/\s]+\/[^/\s]+$/.test(folder ?? "") ||
+    (isStartableProject(folder) && !isTemporaryFolder(folder))
+  );
 }
 
 /// The app's copy as the last New Tab context named it, for a composer with no context of its own.
