@@ -17,7 +17,7 @@ SELF=$(readlink -f "$0")
 HERE=$(dirname "$SELF")
 if [ "$(id -u)" -ne 0 ]; then exec sudo -E bash "$SELF" "$@"; fi
 MOVES=${1:-20}
-OUT=${2:-/tmp/tnsb-$$}
+OUT=${2:-$(mktemp -d "${TMPDIR:-/tmp}/tnsb.XXXXXX")}
 GAP=${GAP:-3}
 HS_VER=0.27.1
 PY=(python3 -I "$HERE/tailnet_bench.py")

@@ -64,8 +64,13 @@ fn unresolved_outdated_threads_are_kept_and_resolved_threads_are_excluded() {
 fn partial_review_context_is_refused_instead_of_silently_dropped() {
     let threads = json!([{"isResolved":false,"comments":{"pageInfo":{"hasNextPage":true}}}]);
     assert!(append_threads(&mut String::new(), rows(&threads)).is_err());
-    let mut prompt = "a".repeat(PROMPT_LIMIT);
-    assert!(append(&mut prompt, "b").is_err());
+}
+
+#[test]
+fn large_review_context_goes_through_whole() {
+    let mut prompt = "a".repeat(1 << 20);
+    append(&mut prompt, "b").unwrap();
+    assert_eq!(prompt.len(), (1 << 20) + 1);
 }
 
 #[test]

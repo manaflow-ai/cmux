@@ -13,7 +13,6 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 const FIELDS: &str =
     "number,url,title,state,isDraft,headRefOid,reviewDecision,mergeable,statusCheckRollup";
-const PROMPT_LIMIT: usize = 64 * 1024;
 
 fn text<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or_default()
@@ -122,13 +121,9 @@ fn job_id(url: &str, repo: &str) -> Option<u64> {
     job.parse::<u64>().ok().filter(|n| *n > 0)
 }
 
+/// No size cap: review and log context of any size goes into the prompt (send-path cap guard,
+/// tests/test_send_path_caps.py). Partial context is still refused by its callers.
 fn append(prompt: &mut String, part: &str) -> Result<(), RpcError> {
-    if prompt.len() + part.len() > PROMPT_LIMIT {
-        return Err(error(
-            "pr.context_too_large",
-            "The review or log context exceeds the prompt limit",
-        ));
-    }
     prompt.push_str(part);
     Ok(())
 }

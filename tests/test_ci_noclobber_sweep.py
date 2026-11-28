@@ -166,6 +166,37 @@ ALLOWED = {
         "a path in the fuzz guest VM the run boots, where its account is the only one",
     ("scripts/fuzz/macos-matrix/fuzz.py", 'g.sh(f"cat /tmp/fuzz-unresp-{i}.txt")'):
         "a path in the fuzz guest VM the run boots, where its account is the only one",
+    ("scripts/cmux-next/bench_memory.py", 'f"/tmp/cmux-next-bm-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock"'):
+        "a socket the app binds (bind fails on any entry already there), named cmux-next*.sock in /tmp because "
+        "launch() looks there and sun_path holds 104 bytes; it also carries 32 random bits",
+    ("scripts/cmux-next/cloud-journey.ts", "`/tmp/cmux-seed-probe-${process.pid}-${run}`"):
+        "a path in the Cloud machine the run made, a single-account VM of its own, run through its exec route",
+    ("scripts/cmux-next/cloud-journey.ts", "`/tmp/cmux-exec-conformance-${process.pid}`"):
+        "a path in the Cloud machine the run made, a single-account VM of its own, run through its exec route",
+    ("scripts/cmux-next/cloud-scenarios.ts", "> /tmp/${name}.log", 1):
+        "a path in the Cloud machine the scenario made, a single-account VM of its own, run through its exec route",
+    ("scripts/cmux-next/cloud-scenarios.ts", "echo $? > /tmp/${name}.rc"):
+        "a path in the Cloud machine the scenario made, a single-account VM of its own, run through its exec route",
+    ("scripts/cmux-next/cloud-scenarios.ts", "rm -f /tmp/${name}.rc"):
+        "a path in the Cloud machine the scenario made, a single-account VM of its own, run through its exec route",
+    ("scripts/cmux-next/cloud-scenarios.ts", "cat /tmp/${name}.rc"):
+        "a path in the Cloud machine the scenario made, a single-account VM of its own, read only",
+    ("scripts/cmux-next/cloud-scenarios.ts", "tail -c 1500 /tmp/${name}.log", 1):
+        "a path in the Cloud machine the scenario made, a single-account VM of its own, read only",
+    ("scripts/cmux-next/cloud-scenarios.ts", "tail -c 1500 /tmp/${name}.log", 2):
+        "a path in the Cloud machine the scenario made, a single-account VM of its own, read only",
+    ("scripts/cmux-next/restart-to-update-migration.py", 'f"/tmp/cmux-{channel}.sock"'):
+        "read only: the app's own control socket name (ControlSocketPath.resolve), never made here",
+    ("scripts/cmux-next/restart-to-update-migration.py", 'f"/tmp/cmux-{channel}-{sanitize('):
+        "read only: the app's own control socket name (ControlSocketPath.resolve), never made here",
+    ("scripts/measure/screen-share-vs-pair.sh", "rig_root=\"/tmp/ssvp-rd-$(printf"):
+        "named from the run's secret peer token (no other account can name it first) so both halves, in different "
+        "homes, agree on one absolute root; each half removes it when done",
+    ("scripts/measure/screen-stream-eval/stage-table.sh", "rig_root=\"/tmp/cmux-stage-table-$(shasum"):
+        "named from the run's secret token file (no other account can name it first) so both halves, in different "
+        "homes, agree on one absolute root",
+    ("scripts/measure/screen-stream-eval/targets/iphone-sim.sh", 'set="/tmp/iphsim.$(printf'):
+        "made 0700 with mkdir and used only when this account owns it and it is not a symlink (the lines after it)",
 }
 
 
