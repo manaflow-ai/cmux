@@ -677,6 +677,10 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/measure-swift-typecheck.yml":
         "feat-cmux-next only; type-checks scripts/measure/*.swift on a Mac when a pull request touches them, on the "
         "light side lane only on attempt 1 while vars.CI_PR_POOL_OWNED is 1; a re-run takes the paid macOS pool",
+    ".github/workflows/ios-link-ffi-cache-seed.yml":
+        "feat-cmux-next only; a push-time cache seed for the iOS link FFI whose Mac fallback job takes the side "
+        "lane (vars.CI_SIDE_LANE_LABELS) and nothing waits on; every restoring job still builds on a miss, and the "
+        "next FFI input change seeds again",
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",

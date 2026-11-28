@@ -68,9 +68,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          head="$(git rev-parse HEAD)"
-          # The client published for this tree (resolve-exact, as gateway-e2e.yml does), waited for up to 30 minutes.
-          resolved="$(CMUX_TUI_TREE_WAIT_SECONDS=1800 CMUX_TUI_TREE_PUBLISHER_SHA="$head" scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"
+          # The client published for this tree (resolve-exact, as gateway-e2e.yml does). feat-cmux-next takes many
+          # pushes an hour, so the head this job checked out is often superseded before its tree publishes (run
+          # 46127178925: "no cmux-tui artifacts run will publish tree"). A superseded head needs no tree: move to
+          # the newest head (prompts, script and client all come from the same commit) and resolve that, up to 3 times.
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          resolved=""
+          for attempt in 1 2 3; do
+            head="$(git rev-parse HEAD)"
+            if resolved="$(CMUX_TUI_TREE_WAIT_SECONDS=900 CMUX_TUI_TREE_PUBLISHER_SHA="$head" scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"; then
+              break
+            fi
+            resolved=""
+            newest="$(git -c "http.https://github.com/.extraheader=$auth" ls-remote origin refs/heads/feat-cmux-next | cut -f1)"
+            [[ "$newest" =~ ^[0-9a-f]{40}$ && "$newest" != "$head" && "$attempt" -lt 3 ]] || break
+            echo "feat-cmux-next moved from $head to $newest; resolving the newest head (attempt $((attempt + 1)) of 3)"
+            git -c "http.https://github.com/.extraheader=$auth" fetch --depth=1 origin "$newest"
+            git checkout --detach -f "$newest"
+          done
+          [[ -n "$resolved" ]] || { echo "error: no feat-cmux-next head published its cmux-tui tree in 3 attempts" >&2; exit 1; }
           printf '%s\n' "$resolved"
           client_commit="$(sed -n 's/^commit=//p' <<<"$resolved")"
           [[ "$client_commit" =~ ^[0-9a-f]{40}$ ]]

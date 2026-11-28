@@ -14,10 +14,17 @@
 set -euo pipefail
 
 found=""
-if pgrep -x tailscaled >/dev/null 2>&1; then
+case "${RUNNER_NAME:-}" in
+  hetzner-*|gcp-agent-lane-*|fs-agent-lane-*) found="a fleet host runner ($RUNNER_NAME)" ;;
+esac
+if [[ -n "$found" ]]; then
+  :
+elif pgrep -x tailscaled >/dev/null 2>&1; then
   found="a tailscaled process"
 elif pgrep -f 'Tailscale.app|io.tailscale.ipn|IPNExtension' >/dev/null 2>&1; then
   found="the Tailscale app"
+elif [[ -S /var/run/tailscale/tailscaled.sock || -S /run/tailscale/tailscaled.sock ]]; then
+  found="a tailscaled socket"
 elif command -v tailscale >/dev/null 2>&1 && tailscale status --json >/dev/null 2>&1; then
   found="a running Tailscale backend"
 fi

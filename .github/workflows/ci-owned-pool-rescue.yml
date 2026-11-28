@@ -200,7 +200,7 @@ jobs:
       # names a tailnet OIDC client for this job, the step is skipped, the holds are unreadable, and the owned move
       # moves nothing (it fails closed). Best effort: the rest of the rescue never needs the tailnet.
       - name: Join tailnet for the build controller's holds
-        if: vars.TS_RESCUE_OIDC_CLIENT_ID != ''
+        if: vars.TS_RESCUE_OIDC_CLIENT_ID != '' && !startsWith(runner.name, 'gcp-agent-lane-') && !startsWith(runner.name, 'hetzner-') && !startsWith(runner.name, 'fs-agent-lane-')
         continue-on-error: true
         timeout-minutes: 3
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
