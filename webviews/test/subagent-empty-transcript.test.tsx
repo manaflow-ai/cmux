@@ -94,6 +94,28 @@ test("an empty known child's transcript explains itself, with no line naming its
   }
 });
 
+test("a child whose own records are still loading draws no words, only a busy row", async () => {
+  const { subagentPaneView } = await import("../src/agent-session/acpmux/subagents/subagentOwnLog");
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    const rows = subagentPaneView("reviewer", { rows: [], views: {} }, { loading: true }, new Set());
+    await act(async () =>
+      root.render(
+        <SubagentNavContext.Provider value={() => {}}>
+          <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />
+        </SubagentNavContext.Provider>,
+      ),
+    );
+    // Leo, 2026-11-27 (ask-4646da8b19), on "Loading messages… / Messages and tool calls from this
+    // agent appear here.": "unnecesssary message".
+    expect(document.querySelector("[aria-busy=true]")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Loading");
+    expect(document.body.textContent).not.toContain("Messages and tool calls from this agent appear here.");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("an unknown child remains unresolved rather than showing an empty transcript", () => {
   expect(childView("missing", [group], {}, new Set())).toBeUndefined();
 });

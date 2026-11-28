@@ -2,15 +2,18 @@ import { useT } from "../i18n";
 import type { RowProps } from "../rows/rowProps";
 import "./SubagentEmptyRow.css";
 
-/// A child with no rows to draw: loading while its pane reads its own records
-/// (subagentOwnLog.ts, `status: "loading"`), then empty. The two keep one shape, so the swap moves
-/// nothing; only the first line's words change. Never a working indicator for the agent itself.
+/// A child with no rows to draw: blank while its pane reads its own records
+/// (subagentOwnLog.ts, `status: "loading"`), then empty. Loading draws no words: the tab's own spinner
+/// already says it is loading, and "Loading messages… / Messages and tool calls from this agent appear
+/// here." was a message with nothing to act on (Leo, 2026-11-27: "unnecesssary message", ask-4646da8b19;
+/// plans/cmux-next/status-notices/web.tsv: DELETE). The blank row keeps the empty row's height, so the
+/// swap to rows or to empty moves nothing. Never a working indicator for the agent itself.
 export function SubagentEmptyRow({ row }: Pick<RowProps, "row">) {
   const t = useT();
-  const loading = row.status === "loading";
-  const title = loading ? t("subagents.loading.title") : t("subagents.empty.title");
+  if (row.status === "loading") return <section className="cv-subagent-empty" aria-busy="true" />;
+  const title = t("subagents.empty.title");
   return (
-    <section className="cv-subagent-empty" aria-label={title} aria-busy={loading || undefined}>
+    <section className="cv-subagent-empty" aria-label={title}>
       <h3>{title}</h3>
       <p>{t("subagents.empty.detail")}</p>
     </section>
