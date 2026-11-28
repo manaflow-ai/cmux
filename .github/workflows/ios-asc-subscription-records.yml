@@ -11,6 +11,13 @@ name: iOS App Store subscription records
 # record already has it, so a second apply writes nothing. Never written:
 # prices, availability, submissions, deletions, or a subscription the file
 # does not list (the retired trial included).
+#
+# Dispatch it from main: the job holds the App Store Connect key, so it runs in
+# the release environment, which serves only main and rc/**. The `ref` input
+# still picks feat-cmux-next's records.json and images:
+#   gh workflow run ios-asc-subscription-records.yml -R manaflow-ai/cmux --ref main -f mode=plan
+# A dispatch from feat-cmux-next was refused by the environment before any step
+# ran, with no log (run 46112492801); the ref check below says so in words.
 
 on:
   workflow_dispatch:
@@ -33,7 +40,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ref-check:
+    name: Dispatched from a ref the release environment serves
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 2
+    steps:
+      - name: main or rc/**
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          case "$REF" in
+            refs/heads/main|refs/heads/rc/*) echo "dispatched from $REF" ;;
+            *) echo "::error::dispatched from $REF; the release environment (App Store Connect key) serves only main and rc/**. Dispatch with --ref main (the ref input still picks feat-cmux-next's records)"; exit 1 ;;
+          esac
+
   records:
+    needs: ref-check
     name: Subscription records (${{ inputs.mode }})
     if: github.repository == 'manaflow-ai/cmux'
     environment: release
