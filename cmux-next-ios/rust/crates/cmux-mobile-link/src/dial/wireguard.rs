@@ -1249,6 +1249,9 @@ struct HybridUnderlay {
     learned: Vec<SocketAddr>,
     /// The selector's quiet route was replayed through the relays.
     suspect_replayed: bool,
+    /// The current direct route went quiet (`Paths::current_quiet`) and what
+    /// it swallowed was replayed through the relays.
+    quiet_replayed: bool,
     /// What is being sent answers the peer's liveness ping: nothing comes
     /// back for it, so it does not start the route's silence watch.
     answering: bool,
@@ -1370,6 +1373,7 @@ impl HybridUnderlay {
             last_turn_source: None,
             learned: Vec::new(),
             suspect_replayed: false,
+            quiet_replayed: false,
             answering: false,
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
@@ -2413,6 +2417,18 @@ impl HybridUnderlay {
                     self.paths.sent_data(now);
                 }
                 self.maybe_spray(datagram, route);
+                if self.is_direct(route) && self.paths.current_quiet(now) {
+                    // The direct route went quiet under a send: until it
+                    // answers or the selector judges it, what goes out goes
+                    // through the relays too, and once what it swallowed.
+                    if !self.quiet_replayed {
+                        self.quiet_replayed = true;
+                        self.replay_on_relays();
+                    }
+                    self.send_on_relays(datagram, class);
+                } else {
+                    self.quiet_replayed = false;
+                }
                 return true;
             }
             // Refused: the path is gone; the selector picks another next time.
