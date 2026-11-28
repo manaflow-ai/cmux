@@ -1,4 +1,5 @@
 import { useContext } from "react";
+import { Tooltip } from "../../../ui/Tooltip";
 import { useT } from "../i18n";
 import { TurnActionsContext } from "../conversation/turnActions";
 import "./tripwires.css";
@@ -60,25 +61,28 @@ function TripwireItem({
   );
   if (!item.toolCallId || !showCall) {
     return (
-      <span className={className} data-tripwire-verdict={item.verdict} title={label} aria-label={label}>
-        {content}
-      </span>
+      <Tooltip label={label}>
+        <span className={className} data-tripwire-verdict={item.verdict} aria-label={label}>
+          {content}
+        </span>
+      </Tooltip>
     );
   }
   return (
-    <a
-      className={className}
-      data-tripwire-verdict={item.verdict}
-      href={`#tool-${item.toolCallId}`}
-      title={label}
-      aria-label={label}
-      onClick={(event) => {
-        event.preventDefault();
-        showCall(item.toolCallId!);
-      }}
-    >
-      {content}
-    </a>
+    <Tooltip label={label}>
+      <a
+        className={className}
+        data-tripwire-verdict={item.verdict}
+        href={`#tool-${item.toolCallId}`}
+        aria-label={label}
+        onClick={(event) => {
+          event.preventDefault();
+          showCall(item.toolCallId!);
+        }}
+      >
+        {content}
+      </a>
+    </Tooltip>
   );
 }
 
