@@ -294,6 +294,70 @@ pub fn codex_with(
     out
 }
 
+/// The legacy name (`acpmux`) under which the person's own Claude Code config (user scope, or
+/// the local scope of `cwd` or a parent) still starts cmux's agent server
+/// ([`crate::acpmux_mcp_names::runs_this_server`]): the chat's `--mcp-config` entry then takes
+/// that name, so it replaces the person's entry instead of starting a second copy.
+pub fn claude_leftover(env: &BTreeMap<String, String>, cwd: &Path) -> Option<String> {
+    let claude = project_mcp::Claude::of(env, cwd);
+    let real = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+    let configs: Vec<Value> =
+        claude.configs.iter().filter_map(|f| project_mcp::read_json(f)).collect();
+    claude_leftover_in(&configs, &real)
+}
+
+/// [`claude_leftover`] over parsed `.claude.json` files, for a chat in folder `real`.
+pub fn claude_leftover_in(configs: &[Value], real: &Path) -> Option<String> {
+    let mut scopes: Vec<&Value> = Vec::new();
+    for config in configs {
+        for folder in real.ancestors() {
+            if let Some(p) = folder.to_str().and_then(|k| config.get("projects")?.get(k)) {
+                scopes.push(p);
+            }
+        }
+        scopes.push(config);
+    }
+    legacy_named(
+        scopes
+            .iter()
+            .filter_map(|scope| scope.get("mcpServers")?.as_object())
+            .flat_map(|servers| servers.iter().map(|(name, entry)| (name.as_str(), entry.clone()))),
+    )
+}
+
+/// The legacy name under which the person's Codex `config.toml` still starts cmux's agent
+/// server, enabled: the chat's ACP entry takes that name, which Codex merges into theirs.
+pub fn codex_leftover(env: &BTreeMap<String, String>) -> Option<String> {
+    let dir = crate::harness_config::config_dir("CODEX_HOME", ".codex", &[env])?;
+    codex_leftover_in(&std::fs::read_to_string(dir.join("config.toml")).ok()?)
+}
+
+/// [`codex_leftover`] over config `text`.
+pub fn codex_leftover_in(text: &str) -> Option<String> {
+    let table = text.parse::<toml::Table>().ok()?;
+    let servers = table.get("mcp_servers")?.as_table()?;
+    legacy_named(servers.iter().filter_map(|(name, server)| {
+        let server = server.as_table()?;
+        if server.get("enabled").and_then(toml::Value::as_bool) == Some(false) {
+            return None;
+        }
+        let entry = serde_json::to_value(server).ok()?;
+        Some((name.as_str(), entry))
+    }))
+}
+
+/// The first legacy name among `(name, entry)` whose entry starts cmux's agent server.
+fn legacy_named<'a>(entries: impl Iterator<Item = (&'a str, Value)>) -> Option<String> {
+    for (name, entry) in entries {
+        if crate::acpmux_mcp_names::LEGACY_SERVER_NAMES.contains(&name)
+            && crate::acpmux_mcp_names::runs_this_server(&entry)
+        {
+            return Some(name.to_owned());
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 #[path = "shared_servers_tests.rs"]
 mod tests;

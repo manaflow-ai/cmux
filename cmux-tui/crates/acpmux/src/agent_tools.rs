@@ -782,6 +782,16 @@ pub fn acp_servers_for(
     }
     let tools = acp_tools_with(current(), env, session_id, all_tools, codex);
     let tools = if http { tools.via_gateway(session_id, cwd) } else { tools };
+    // A person's own `[mcp_servers.acpmux]` that starts this server: cmux's entry takes its name,
+    // which Codex merges into theirs instead of starting both.
+    #[cfg(unix)]
+    let leftover = codex.and_then(|_| shared_servers::codex_leftover(env));
+    #[cfg(not(unix))]
+    let leftover: Option<String> = None;
+    let tools = match leftover {
+        Some(legacy) => tools.server_named(&legacy),
+        None => tools,
+    };
     let servers = tools.acp_servers();
     // The person's own Codex servers they share run once for every chat (`mcp_pool.rs`).
     #[cfg(unix)]
@@ -1132,6 +1142,21 @@ pub(crate) fn claude_args_and_hooks_for(
         }
         tools.via_gateway(session_id, cwd)
     };
+    // A person's own entry still named `acpmux` that starts this server: cmux's takes its name,
+    // so `--mcp-config` replaces it instead of Claude starting both.
+    let ours = tools.servers.iter().any(|s| s.name == crate::acpmux_mcp_names::SERVER_NAME);
+    #[cfg(unix)]
+    let leftover = if ours && !remote_origin && !strict {
+        shared_servers::claude_leftover(env, cwd)
+    } else {
+        None
+    };
+    #[cfg(not(unix))]
+    let leftover: Option<String> = None;
+    let tools = match leftover {
+        Some(legacy) => tools.server_named(&legacy),
+        None => tools,
+    };
     let callbacks = tools.plugin_dir.is_some();
     let mut project_servers = project_servers;
     for (name, entry) in shared {
@@ -1446,7 +1471,12 @@ impl AgentTools {
         let keep = session_env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
         if let Some(keep) = keep {
             let keep: Vec<&str> = keep.split(',').map(str::trim).collect();
-            self.servers.retain(|s| keep.contains(&s.name.as_str()));
+            // A list written before the rename names cmux's agent server `acpmux`.
+            self.servers.retain(|s| {
+                keep.contains(&s.name.as_str())
+                    || (s.name == crate::acpmux_mcp_names::SERVER_NAME
+                        && keep.iter().any(|k| crate::acpmux_mcp_names::is_server_name(k)))
+            });
         }
         let tools = session_env.get(MCP_TOOLS_ENV);
         let engine = session_env.get(CHIEF_ENGINE_ENV);
@@ -1736,6 +1766,20 @@ impl AgentTools {
     }
 
     /// The servers as one Claude Code MCP config, or `None` without servers.
+    /// cmux's agent server ([`crate::acpmux_mcp_names::SERVER_NAME`]) under `name` instead, one of
+    /// its legacy names a person's own config still starts it under, so the harness replaces that
+    /// entry with this one rather than running both.
+    pub fn server_named(mut self, name: &str) -> Self {
+        let ours = crate::acpmux_mcp_names::SERVER_NAME;
+        for server in self.servers.iter_mut().filter(|s| s.name == ours) {
+            server.name = name.to_owned();
+        }
+        if let Some(at) = self.http.remove(ours) {
+            self.http.insert(name.to_owned(), at);
+        }
+        self
+    }
+
     pub fn mcp_config(&self) -> Option<Value> {
         if self.servers.is_empty() && self.project_servers.is_empty() {
             return None;
