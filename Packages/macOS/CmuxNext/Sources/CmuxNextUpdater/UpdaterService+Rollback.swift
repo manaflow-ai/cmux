@@ -159,6 +159,7 @@ extension UpdaterService {
     /// here (a quit that installs an update staged before this launch).
     public func updaterWillInstallUpdate(build: String) {
         installingBuild = build
+        stopPrewarmForInstall()
         guard keptRunningBuild == nil else { return }
         do {
             // The install is waiting: the full check of the copy runs at the next launch (sealPending).

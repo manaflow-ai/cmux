@@ -3353,7 +3353,30 @@
         "required": true
       },
       "/entity/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/floating/*": {
+        "ty": "object"
+      },
+      "/entity/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/group": {
         "ty": "string",
@@ -4020,7 +4043,30 @@
         "required": true
       },
       "/entity/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/floating/*": {
+        "ty": "object"
+      },
+      "/entity/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/group": {
         "ty": "string",
@@ -4687,7 +4733,30 @@
         "required": true
       },
       "/entity/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/floating/*": {
+        "ty": "object"
+      },
+      "/entity/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/group": {
         "ty": "string",
@@ -5368,7 +5437,30 @@
         "required": true
       },
       "/entity/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/floating/*": {
+        "ty": "object"
+      },
+      "/entity/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/group": {
         "ty": "string",
@@ -8096,7 +8188,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -8905,7 +9020,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -9714,7 +9852,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -10523,7 +10684,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -11332,7 +11516,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -12119,7 +12326,30 @@
         "required": true
       },
       "/entity/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/entity/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/entity/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/entity/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/entity/screens/*/group": {
         "ty": "string",
@@ -24362,7 +24592,30 @@
         "required": true
       },
       "/data/changed/*/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/data/changed/*/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/data/changed/*/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/data/changed/*/screens/*/group": {
         "ty": "string",
@@ -25217,7 +25470,30 @@
         "required": true
       },
       "/data/workspaces/*/screens/*/floating": {
-        "ty": "json"
+        "ty": "array"
+      },
+      "/data/workspaces/*/screens/*/floating/*": {
+        "ty": "object"
+      },
+      "/data/workspaces/*/screens/*/floating/*/h": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/workspaces/*/screens/*/floating/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/workspaces/*/screens/*/floating/*/w": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/workspaces/*/screens/*/floating/*/x": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/workspaces/*/screens/*/floating/*/y": {
+        "ty": "float64",
+        "required": true
       },
       "/data/workspaces/*/screens/*/group": {
         "ty": "string",
