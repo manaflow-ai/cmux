@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { usePaneLanguage, useT } from "../i18n";
+import { intl } from "../../../ui/intl";
 import { autoSizeRowView, type AutoSizeRow as Row } from "./autosizeModel";
 import "./autosize.css";
 import { Button } from "../../../ui/Button";
@@ -71,6 +73,42 @@ export function AutoSizeRows({
       {rows.map((row) => (
         <AutoSizeRow key={row.key} row={row} look={look} onUpgrade={onUpgrade} />
       ))}
+    </div>
+  );
+}
+
+/// The rows over the composer: the newest drawn, the rest folded behind "N earlier" (a toggle that unfolds them all,
+/// oldest first). One row draws no toggle.
+export function AutoSizeFold({
+  rows,
+  look,
+  onUpgrade,
+  initiallyOpen = false,
+}: {
+  rows: readonly Row[];
+  look?: AutoSizeLook;
+  onUpgrade?: (plan: string) => void;
+  /// The gallery draws it unfolded; the app starts folded.
+  initiallyOpen?: boolean;
+}) {
+  const t = useT();
+  const lang = usePaneLanguage();
+  const [open, setOpen] = useState(initiallyOpen);
+  const newest = rows[rows.length - 1];
+  if (!newest) return null;
+  const earlier = rows.length - 1;
+  return (
+    <div className="autosize-fold" data-open={open ? "true" : "false"}>
+      {earlier > 0 && (
+        <Button bare className="autosize-fold-toggle" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+          {t("autosize.earlier", { count: intl.NumberFormat(lang).format(earlier) })}
+        </Button>
+      )}
+      {open ? (
+        <AutoSizeRows rows={rows} look={look} onUpgrade={onUpgrade} />
+      ) : (
+        <AutoSizeRow row={newest} look={look} onUpgrade={onUpgrade} />
+      )}
     </div>
   );
 }

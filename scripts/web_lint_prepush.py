@@ -156,6 +156,8 @@ MAX_SCRIPT_DEPTH = 8
 HEAVY_NICE = 10
 HEAVY_GOMEMLIMIT = "6GiB"
 HEAVY_NODE_HEAP_MB = 4096
+# One type-aware check's peak (the type-aware lint, above): heavy_slots() starts one per this much free memory.
+HEAVY_PEAK_GIB = 9.0
 # The type-aware tools: `vp lint` and `vp check` (tsgolint, #27177). Started together with the other vp checks on a
 # 4 vCPU CI runner, the web lint took 185 to 698 s over four fast-gates dispatches and once outgrew the job's 15 min;
 # with them sharing heavy_slots() it took 99.9 and 135.8 s (#39782). The runner was not short of memory or CPU then
@@ -1245,16 +1247,50 @@ def local_heavy_checks(mode: str = "web lint") -> bool:
     return free_memory_heavy(mode)
 
 
-def available_gib(meminfo: str = "/proc/meminfo") -> float | None:
-    """MemAvailable in GiB, or None where it cannot be read (macOS, no /proc)."""
+def cgroup_headroom_gib(proc_cgroup: str = "/proc/self/cgroup", root: str = "/sys/fs/cgroup") -> float | None:
+    """The least memory.max - memory.current over this process's cgroup v2 and its parents, in GiB; None when no
+    level sets a limit (or there is no cgroup v2). An acpmux session runs in a slice capped at 16 GiB on a 64 GiB
+    lane VM: MemAvailable said 56 GiB while the slice's OOM killer stopped tsgolint at 5.6 GiB (2026-11-28,
+    receipt 2fbf846289c: web lint red twice on a push with no web file)."""
+    try:
+        line = next((ln for ln in Path(proc_cgroup).read_text().splitlines() if ln.startswith("0::")), None)
+    except OSError:
+        return None
+    if line is None:
+        return None
+    best = None
+    top = Path(root)
+    level = top / line[3:].strip().lstrip("/")
+    while True:
+        try:
+            limit = (level / "memory.max").read_text().strip()
+            if limit != "max":
+                room = (int(limit) - int((level / "memory.current").read_text().strip())) / (1024 ** 3)
+                best = room if best is None else min(best, room)
+        except (OSError, ValueError):
+            pass
+        if level == top or top not in level.parents:
+            break
+        level = level.parent
+    return None if best is None else max(0.0, best)
+
+
+def available_gib(meminfo: str = "/proc/meminfo", cgroup: bool = True) -> float | None:
+    """MemAvailable in GiB, or the cgroup's headroom when that is less (cgroup_headroom_gib()); None where neither
+    can be read (macOS, no /proc)."""
+    free = None
     try:
         with open(meminfo) as handle:
             for line in handle:
                 if line.startswith("MemAvailable:"):
-                    return int(line.split()[1]) / (1024 * 1024)
+                    free = int(line.split()[1]) / (1024 * 1024)
+                    break
     except (OSError, ValueError, IndexError):
-        return None
-    return None
+        free = None
+    room = cgroup_headroom_gib() if cgroup else None
+    if room is None:
+        return free
+    return room if free is None else min(free, room)
 
 
 def free_memory_heavy(mode: str, meminfo: str = "/proc/meminfo") -> bool:
@@ -1738,11 +1774,18 @@ def weighty(piece: str, scripts: dict, seen: tuple[str, ...] = ()) -> bool:
     return False
 
 
-def heavy_slots() -> int:
+def heavy_slots(free_gib: float | None = None) -> int:
     """How many WEIGHTY checks (and ESLint runs) run at once, in CI or not: one per two cores this process may use,
-    at least one. nice lowers their priority, not the run queue: on a 2 vCPU lane VM with no bound the hook ran about
-    8 checks at once for 141 s at load 17.8 (2026-11-15). A busy machine makes the hook slower, never makes it fail."""
-    return max(1, usable_cores() // 2)
+    and one per HEAVY_PEAK_GIB of free memory (available_gib(), which a cgroup limit lowers), at least one. nice
+    lowers their priority, not the run queue: on a 2 vCPU lane VM with no bound the hook ran about 8 checks at once
+    for 141 s at load 17.8 (2026-11-15). On a 32 vCPU lane VM in a 16 GiB session slice the core bound alone let 16
+    type-aware checks start and the OOM killer stopped tsgolint (2026-11-28). A busy machine makes the hook slower,
+    never makes it fail."""
+    slots = max(1, usable_cores() // 2)
+    free = available_gib() if free_gib is None else free_gib
+    if free is not None:
+        slots = min(slots, max(1, int(free // HEAVY_PEAK_GIB)))
+    return slots
 
 
 def check_slots() -> int:

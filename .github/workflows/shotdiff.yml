@@ -3,6 +3,9 @@ name: shotdiff
 # Chrome renders (cmux-tui/crates/cmux-shotdiff/tests/fixtures/chrome): an identical re-render, a SwiftShader
 # render and a clock change under its ignore mask must pass; a 6 px button nudge and a shortened label (0.31% and
 # 0.53% of pixels, both under the 1% ratio) must fail, with diff images.
+# Then the gallery's baseline check (scripts/ci/visual_baseline.py, status cmux/visual-baseline) on a seeded
+# regression: the button nudge as a state the PR did not set out to change must fail, and pass once a
+# Visual-change line explains it; an unchanged state must pass.
 # Then the crate's tests, release profile so they reuse the action's build.
 on:
   pull_request:
@@ -10,12 +13,16 @@ on:
       - cmux-tui/crates/cmux-shotdiff/**
       - .github/actions/shotdiff/**
       - .github/workflows/shotdiff.yml
+      - scripts/ci/visual_baseline.py
+      - scripts/ci/gallery_select.py
   push:
     branches: [main, feat-cmux-next]
     paths:
       - cmux-tui/crates/cmux-shotdiff/**
       - .github/actions/shotdiff/**
       - .github/workflows/shotdiff.yml
+      - scripts/ci/visual_baseline.py
+      - scripts/ci/gallery_select.py
   workflow_dispatch:
 
 permissions:
@@ -66,6 +73,24 @@ jobs:
           want='{"web/clock":"pass","web/settings":"fail","web/settings-swiftshader":"fail"}'
           [[ "$got" == "$want" ]] || { echo "::error::changed renders: got $got, want $want"; exit 1; }
           ls "$RUNNER_TEMP/shotdiff-changed/diff/web/settings.png" "$RUNNER_TEMP/shotdiff-changed/diff/web/settings-swiftshader.png"
+      - name: Seeded regression fails the gallery baseline check
+        run: |
+          set -euo pipefail
+          review="$RUNNER_TEMP/seeded-review.json"
+          jq -n --arg sha seeded '{head_sha: $sha, images: [
+            {state: "web.settings/default", theme: "Dark", status: "changed", base_image: "same/web/settings.png",
+             head_image: "changed/web/settings.png", selected_by: {why: "host-stylesheet", file: "desktop.css", distance: 1}},
+            {state: "web.clock/default", theme: "Dark", status: "changed", base_image: "same/web/clock.png",
+             head_image: "changed/web/clock.png", selected_by: {why: "own", file: "clock.tsx", distance: 0}}]}' > "$review"
+          python3 scripts/ci/visual_baseline.py measure --review "$review" --root "$FIXTURES" \
+            --shotdiff "$CMUX_SHOTDIFF" --out "$RUNNER_TEMP/seeded-metrics.json"
+          judge() { PR_BODY="$1" python3 scripts/ci/visual_baseline.py judge --review "$review" \
+            --metrics "$RUNNER_TEMP/seeded-metrics.json" --head-sha seeded --out "$RUNNER_TEMP/seeded-verdict.json"; }
+          judge ""
+          got=$(jq -c '[.state, [.failing[].state]]' "$RUNNER_TEMP/seeded-verdict.json")
+          [[ "$got" == '["failure",["web.settings/default"]]' ]] || { echo "::error::seeded regression: got $got"; exit 1; }
+          judge "Visual-change: web.settings/default: the button moved on purpose"
+          test "$(jq -r .state "$RUNNER_TEMP/seeded-verdict.json")" = success
       - name: Crate tests
         working-directory: cmux-tui
         run: timeout 900 cargo test --locked --release -p cmux-shotdiff

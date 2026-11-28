@@ -152,7 +152,7 @@ jobs:
             echo "$id: cmux-ci run exited $rc" >> "$log"
             # 75: the step never left the queue; it would keep its place and run for nobody, so take it back.
             if [ "$rc" = 75 ]; then
-              step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+              step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
               [ -z "$step" ] || "$client" cancel --reason "What's New clip $id: not out of the queue in ${QUEUE_S}s" "$step" >> "$log" 2>&1
             fi
           }
@@ -166,7 +166,7 @@ jobs:
           for id in "${ids[@]}"; do
             log="$RUNNER_TEMP/iphone-$id.log"
             echo "::group::iPhone clip $id"; cat "$log"; echo "::endgroup::"
-            step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+            step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
             zip="$RUNNER_TEMP/iphone-$id.zip"
             # A step with one failed role still uploads the other's clip (--failed).
             if [ -z "$step" ] || ! { "$client" artifact "$step" "$zip" || "$client" artifact --failed "$step" "$zip"; }; then
