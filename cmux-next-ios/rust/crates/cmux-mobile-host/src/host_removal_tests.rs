@@ -7,6 +7,8 @@
 use super::recovery_tests::rig_config;
 use super::*;
 use crate::config::RecordedRemoval;
+use bytes::Bytes;
+use cmux_mobile_link::ChannelEvent;
 use cmux_mobile_link::api::MyDevice;
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use serde_json::json;
@@ -24,6 +26,27 @@ async fn connects_reach(backend: &FakeSignaling, device: &str, count: u64) {
     .unwrap_or_else(|_| {
         panic!("{device} reached {} signaling connects, not {count}", backend.signal_connects(device))
     });
+}
+
+/// A phone dials the Mac over WireGuard through the fake backend and echoes one message: the
+/// phone link is up, not only signaling.
+async fn phone_links_and_echoes(backend: &FakeSignaling) {
+    let phone = SignalingClient::connect(&backend.base_url, "user:owner", "team", "phone").await.unwrap();
+    let connected = dial::connect(
+        &phone,
+        "mac",
+        TransportKind::WireGuard,
+        &DialOptions { include_loopback: true, timeout: Duration::from_secs(10), ..DialOptions::default() },
+        LinkConfig::default(),
+    )
+    .await
+    .expect("the phone links to the Mac");
+    let mut echo = connected.link.open("echo", json!({})).await.unwrap();
+    echo.send(Bytes::from_static(b"after 4002")).await.unwrap();
+    assert_eq!(echo.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"after 4002"))));
+    println!("PHONE_LINK up and echoed via {:?}", connected.transport);
+    connected.link.close("test complete");
+    phone.close();
 }
 
 #[test]
@@ -50,6 +73,8 @@ async fn a_silent_4002_close_reconnects_and_only_the_owners_removal_stops_hostd(
     backend.close_device("mac", 4002, "silent");
     connects_reach(&backend, "mac", 2).await;
     assert!(!host.is_finished(), "a silent close must not stop hostd");
+    println!("RECONNECTED after 4002 silent: signaling connects = {}", backend.signal_connects("mac"));
+    phone_links_and_echoes(&backend).await;
 
     backend.remove_device("mac");
     let stopped = tokio::time::timeout(WAIT, host).await.expect("the removal stops hostd").unwrap().unwrap();
@@ -70,6 +95,8 @@ async fn a_stale_recorded_removal_is_cleared_and_hostd_connects() {
     let host = tokio::spawn(run_with_changes(config, receiver));
     connects_reach(&backend, "mac", 1).await;
     assert!(!host.is_finished());
+    println!("STALE RECORD cleared: hostd connected");
+    phone_links_and_echoes(&backend).await;
     host.abort();
 }
 
