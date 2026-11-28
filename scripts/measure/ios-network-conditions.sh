@@ -88,7 +88,7 @@
 set -euo pipefail
 trap 'echo "ios-network-conditions.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
-before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay="" blackout_ms=3000 send_rows="idle,lte,lossy-3,link-down,duress" n_given="" away="1m,10m,1h,8h" loads="idle,busy" attach_bytes="" attach_rows="" attach_sends=""
+before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay="" blackout_ms=3000 send_rows="idle,lte,lossy-3,link-down,duress" n_given="" away="1m,10m,1h,8h" loads="idle,busy" attach_bytes="" attach_rows="" attach_sends="" leg=headless evidence=""
 for kv in "$@"; do
   case "$kv" in
     before=*) before="${kv#*=}" ;;
@@ -108,7 +108,9 @@ for kv in "$@"; do
     attach_bytes=*) attach_bytes="${kv#*=}" ;;
     attach_rows=*) attach_rows="${kv#*=}" ;;
     attach_sends=*) attach_sends="${kv#*=}" ;;
-    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=, blackout_ms=, send_rows=, away=, loads=, attach_bytes=, attach_rows=, attach_sends=)" >&2; exit 2 ;;
+    leg=*) leg="${kv#*=}" ;;
+    evidence=*) evidence="${kv#*=}" ;;
+    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=, blackout_ms=, send_rows=, away=, loads=, attach_bytes=, attach_rows=, attach_sends=, leg=, evidence=)" >&2; exit 2 ;;
   esac
 done
 [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: before= is a 40-character SHA" >&2; exit 2; }
@@ -128,6 +130,32 @@ done
 [[ -z "$attach_rows" || "$attach_rows" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: attach_rows=idle,lte,duress" >&2; exit 2; }
 [[ -z "$attach_sends" || "$attach_sends" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "ios-network-conditions.sh: attach_sends is 1-999 (default 20)" >&2; exit 2; }
 [[ -z "$relay" || "$relay" =~ ^[a-z0-9-]+$ ]] || { echo "ios-network-conditions.sh: relay=NAME (one link profile)" >&2; exit 2; }
+[[ "$leg" == headless || "$leg" == sim ]] || { echo "ios-network-conditions.sh: leg=headless or leg=sim" >&2; exit 2; }
+
+if [[ "$leg" == sim ]]; then
+  root="$(git rev-parse --show-toplevel)"
+  work="$root/.build/ios-network-conditions"
+  mkdir -p "$work"
+  if [[ -z "$evidence" ]]; then
+    command -v xcrun >/dev/null || {
+      echo "ios-network-conditions.sh: leg=sim needs a Mac with Xcode (a simulator worker) or evidence=PATH;" \
+        "from Linux run the fleet step in this script's header, then pass its evidence.zip" >&2; exit 2; }
+    (( n >= 1 && n <= 30 )) || { echo "ios-network-conditions.sh: leg=sim takes n=1-30 cold runs" >&2; exit 2; }
+    code=0
+    "$root/scripts/ci/cmux-next-ios-sim.sh" test ui=ReadFirstUITests,ReadFirstColdUITests "coldruns=$n" || code=$?
+    echo "NETCOND-STATUS sim read-first exit=$code"
+    evidence="$root/artifacts/ios-sim"
+  fi
+  python3 -I "$root/scripts/measure/ios-read-first-rows.py" "$evidence" >"$work/lines-sim.txt"
+  echo "NETCOND-MACHINE leg=sim evidence=$evidence rows=$(wc -l <"$work/lines-sim.txt" | tr -d ' ')"
+  sed 's/^after /NETCOND /' "$work/lines-sim.txt"
+  : >"$work/lines.txt"
+  cat "$work/lines-sim.txt" >>"$work/lines.txt"
+  python3 "$root/scripts/measure/ios-network-conditions-report.py" "$work/lines.txt" \
+    --json "$work/report.json" --markdown "$work/report.md" --after "$(git rev-parse HEAD)"
+  sed 's/^/NETCOND-TABLE /' "$work/report.md"
+  exit "${code:-0}"
+fi
 
 export GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=120
 root="$(git rev-parse --show-toplevel)"
