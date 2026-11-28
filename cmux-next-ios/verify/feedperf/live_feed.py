@@ -148,7 +148,7 @@ def main():
         real_agents(a.agents_rig, log, stop)
     if a.asks_rig != "none":
         threading.Thread(target=fake_asks, args=(a.asks_rig, log, stop), daemon=True).start()
-    # Link each rig Mac (the Workspaces filter), then show All Macs; then the Feed while the agents work.
+    # Link each rig Mac (the Workspaces filter), then show All Computers; then the Feed while the agents work.
     sim.launch(bundle)
     time.sleep(4)
     for name in a.choose:
@@ -166,7 +166,7 @@ def main():
     if a.choose:
         sim.tap_q(ident="workspaces.filter", timeout=20)
         time.sleep(1.0)
-        sim.tap_q(label="All Macs", timeout=20)
+        sim.tap_q(ident="workspaces.filter.all", timeout=20)
         time.sleep(2.0)
     j.tab("Feed")
     log(f"agents working for {a.warmup:.0f} s")
