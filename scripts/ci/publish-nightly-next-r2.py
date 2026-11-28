@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import datetime as dt
+import email.utils
 import hashlib
 import importlib.util
 import json
@@ -70,6 +71,8 @@ FEED_CACHE = "no-cache, no-store, must-revalidate"
 CONFLICT = 3
 # The feed keeps this many builds: the new one and the newest earlier one, so a rollback can serve it.
 KEEP_BUILDS = 2
+KEEP_PUBLICATIONS = 3
+PUBLICATION_HISTORY = re.compile(rb"<cmux:publicationHistory\b[^>]*(?:/>|>.*?</cmux:publicationHistory\s*>)", re.S)
 ITEM = re.compile(rb"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
 ITEM_VERSION = re.compile(rb"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
 ITEM_SOURCE = re.compile(rb"<cmux:sourceCommit(?:\s+[^>]*)?>\s*([0-9a-f]{7,40})\s*</cmux:sourceCommit>", re.I)
@@ -502,6 +505,91 @@ def keep_earlier_builds(ours: bytes, live: bytes, keep: int = KEEP_BUILDS) -> by
     return body[:end] + b"".join(added) + body[end:]
 
 
+def publication_receipt_valid(receipt: dict[str, str]) -> bool:
+    """Only complete published identities count toward the compatibility window."""
+    if not receipt.get("build", "").isdigit() or int(receipt["build"]) <= 0:
+        return False
+    if not FULL_SOURCE.fullmatch(receipt.get("sourceCommit", "")):
+        return False
+    if not receipt.get("enclosure", "").startswith("https://"):
+        return False
+    try:
+        published = email.utils.parsedate_to_datetime(receipt.get("pubDate", ""))
+        return published.tzinfo is not None
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
+def publication_receipts(xml: bytes, promoted_builds: set[int] | None = None) -> list[dict[str, str]]:
+    """Read the live receipt window, bootstrapping only from actual live items.
+
+    An incomplete release ends the provable window: skipping it would falsely
+    describe three older releases as the last three. Embedded receipts retain
+    the original publication fields across same-build metadata/delta revisions.
+    """
+    root = ET.fromstring(bind_feed_prefixes(xml))
+    channel = root.find("channel")
+    if channel is None:
+        return []
+    history = channel.find(f"{{{CMUX_NS}}}publicationHistory")
+    embedded = []
+    if history is not None and history.get("schemaVersion") == "1":
+        embedded = [dict(entry.attrib) for entry in history.findall(f"{{{CMUX_NS}}}publication")]
+    receipts = {entry.get("build"): entry for entry in reversed(embedded)}
+    for item in channel.findall("item"):
+        enclosure = item.find("enclosure")
+        build = (item.findtext(f"{{{SPARKLE_NS}}}version") or "").strip()
+        if not build.isdigit():
+            continue
+        if (item.findtext(f"{{{SPARKLE_NS}}}channel") not in (None, "cmux-next")
+                and int(build) not in (promoted_builds or set())):
+            continue
+        receipts.setdefault(build, {
+            "build": build,
+            "sourceCommit": (item.findtext(f"{{{CMUX_NS}}}sourceCommit") or "").strip(),
+            "pubDate": item.findtext("pubDate") or "",
+            "enclosure": enclosure.get("url", "") if enclosure is not None else "",
+        })
+    result = []
+    for build in sorted(receipts, key=lambda value: int(value) if value and value.isdigit() else 0, reverse=True):
+        receipt = receipts[build]
+        if not publication_receipt_valid(receipt):
+            break
+        result.append(receipt)
+        if len(result) == KEEP_PUBLICATIONS:
+            break
+    return result
+
+
+def add_publication_history(candidate: bytes, live: bytes | None, same_build: bool) -> bytes:
+    """Write the bounded receipt window in the appcast's existing atomic CAS.
+
+    Never trust candidate history/older items: a losing producer can carry
+    unpublished builds. Every retry derives predecessors from its fresh live
+    snapshot; only this write's newest item is a prospective publication.
+    """
+    nightly_builds = {build for item, build in item_builds(candidate) if nightly_item(item.group(0))}
+    # A ring promotion joins the history using that build's actual live item,
+    # not a revision's replacement source/date/URL. A Dev-only publication keeps
+    # the proven Nightly window intact until its build is promoted.
+    receipts = publication_receipts(live, promoted_builds=nightly_builds) if live is not None else []
+    newest = newest_build(candidate)
+    if not same_build and newest in nightly_builds:
+        # Strip candidate history before reading the prospective item.
+        clean = PUBLICATION_HISTORY.sub(b"", candidate)
+        current = next((entry for entry in publication_receipts(clean)
+                        if int(entry["build"]) == newest), None)
+        receipts = ([current] + [entry for entry in receipts if entry["build"] != current["build"]]
+                    if current is not None else [])
+    clean = PUBLICATION_HISTORY.sub(b"", candidate)
+    if not receipts:
+        return clean
+    history = ET.Element("cmux:publicationHistory", {"schemaVersion": "1"})
+    for receipt in receipts[:KEEP_PUBLICATIONS]:
+        ET.SubElement(history, "cmux:publication", receipt)
+    return bind_feed_prefixes(clean.replace(b"</channel>", ET.tostring(history, encoding="utf-8") + b"</channel>", 1))
+
+
 def _uploader_module():
     spec = importlib.util.spec_from_file_location("upload_r2_object", UPLOADER)
     module = importlib.util.module_from_spec(spec)
@@ -598,6 +686,7 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
             mode = ["--write-once", "--conflict-exit-code", str(CONFLICT)]
         try:  # never publish a feed an XML reader refuses
             ET.fromstring(feed.read_bytes())
+            feed.write_bytes(add_publication_history(feed.read_bytes(), live, same_build))
         except ET.ParseError as error:
             raise RuntimeError(f"{feed.name}: refusing to publish a feed that does not parse: {error}") from error
         if source_sha or same_build:  # the two paths the CLI allows
