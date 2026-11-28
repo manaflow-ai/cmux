@@ -22,6 +22,7 @@ mod fetch;
 mod guards;
 #[cfg(unix)]
 mod history;
+mod lease_tiers;
 mod press;
 mod private_data;
 mod proxy;
@@ -239,6 +240,24 @@ impl Gate {
         self.sync_request_filter()
     }
 
+    /// Owner-side lease change (RFD 0125 D7.2): the live grants this
+    /// session holds on the person's profile, from the daemon's
+    /// `browser_grants` rows. `None` (no grant) leaves the domain policy
+    /// alone. A session on the agent profile borrows no sign-in, so it
+    /// takes none.
+    pub fn set_leases(
+        &self,
+        leases: Option<cmux_browser_grants::Leases>,
+    ) -> Result<(), DriverError> {
+        if leases.is_some() && !self.grants.signed_in_profile {
+            return Err(DriverError::invalid(
+                "leases: this session runs in the agent profile, which lends no sign-in",
+            ));
+        }
+        self.policy.lock().unwrap_or_else(PoisonError::into_inner).set_leases(leases);
+        self.sync_request_filter()
+    }
+
     /// Hands the engine a request filter while any policy layer is active,
     /// so requests the page makes itself (script navigation, links, popups,
     /// redirects, fetch) are decided before they are sent. The engine also
@@ -247,7 +266,7 @@ impl Gate {
     fn sync_request_filter(&self) -> Result<(), DriverError> {
         let active = {
             let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
-            policy.base().is_active() || policy.agent().is_active()
+            policy.is_active()
         };
         let fetching = self.fetches.lock().unwrap_or_else(PoisonError::into_inner).running > 0;
         let filter: Option<crate::driver::RequestFilter> = (active || fetching).then(|| {
@@ -264,7 +283,17 @@ impl Gate {
                 let parsed = url::Url::parse(url).ok()?;
                 let reason = {
                     let policy = policy.lock().unwrap_or_else(PoisonError::into_inner);
-                    policy.subresource_refusal(&parsed).or_else(|| match &isolated {
+                    let lease = || match request.kind {
+                        // A passive asset (image, font, style, script,
+                        // media) follows its page: its CDN is not a sign-in,
+                        // and the page cannot read a cross-site answer.
+                        // Every other request (fetch, XHR, a WebSocket, a
+                        // beacon, a document, a kind the engine did not
+                        // name) can carry a sign-in, so it needs a lease.
+                        crate::driver::RequestKind::Asset => None,
+                        _ => policy.lease_refusal(&parsed),
+                    };
+                    policy.subresource_refusal(&parsed).or_else(lease).or_else(|| match &isolated {
                         // The isolated rule, literal hosts only (the owner
                         // allow list applies; names go to the listener).
                         Some(isolated) => isolated.rule().literal_refusal(&parsed),
@@ -616,6 +645,7 @@ impl VmHost for Gate {
         }
         self.check(method, &params)?;
         self.check_cookies(method, &params)?;
+        self.check_lease_tier(method, &params)?;
         let mut params = params;
         if method == "input.insertText" {
             Self::secret_insert(&mut params)?;
@@ -957,12 +987,18 @@ fn effective(policy: &Policy) -> Value {
             prohibited.push(p);
         }
     }
-    json!({
+    let mut effective = json!({
         "allowed": allowed,
         "prohibited": prohibited,
         "blockIPs": base.block_ips || agent.block_ips,
         "locked": policy.locked(),
-    })
+    });
+    // The sites lent to the session now (RFD 0125 D7.2), only when it
+    // holds a grant.
+    if let Some(leases) = policy.leases() {
+        effective.set("leasedSites", json!(leases.live_sites(now_ms())));
+    }
+    effective
 }
 
 #[cfg(test)]
