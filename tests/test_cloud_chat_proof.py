@@ -23,15 +23,44 @@ STAGING_API = "https://cloud-api-staging.cmux.dev"
 FAKE_TOKEN = "sk-ant-oat01-" + "x" * 40
 sys.path.insert(0, str(SCRIPT.parent))
 import claude_login_cache  # noqa: E402
+import codex_chatgpt_import  # noqa: E402
+
+# A fake Codex auth.json body and the acpmux home its import makes (codex_chatgpt_import.Import, faked here).
+FAKE_CODEX_AUTH = '{"tokens": {"id_token": "fake-codex-login"}}'
+FAKE_CODEX_HOME = "/tmp/ccp-acp-test"
+
+
+class FakeCodexImport:
+    """codex_chatgpt_import.Import without a daemon: `prepare` answers `answer`, `clear` leaves nothing."""
+    made: list = []
+    answer: dict = {}
+
+    def __init__(self):
+        self.prepared, self.cleared = None, False
+        FakeCodexImport.made.append(self)
+
+    def prepare(self, bundle, auth_text):
+        self.prepared = (bundle, auth_text)
+        return dict(FakeCodexImport.answer)
+
+    def clear(self):
+        self.cleared = True
+        return []
 
 
 class CloudChatProofTests(unittest.TestCase):
     def run_proof(self, *, backend_name="staging", backend=None, environment=None, wrong_bundle=False,
                   signed_in=True, reply="CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain", cleanup_exit=0, app_exits=True,
                   from_folder=False, folder_reply=True, cut_off_chat=False, grant=False, login="", agent="claude",
-                  cache=False, secret_exit=0, cli_takes_login=True):
+                  cache=False, secret_exit=0, cli_takes_login=True, shipped=False, codex_import=None):
         calls = []
         stored = {}
+        codex = agent == "codex"
+        FakeCodexImport.made = []
+        FakeCodexImport.answer = codex_import or {
+            "home": FAKE_CODEX_HOME,
+            "connection": {"id": "chatgpt", "kind": "chatgpt-plan", "serves_cloud": True, "signed_in": True}}
+        imported = "home" in FakeCodexImport.answer
         folders = []
         configs = []
         clock = 0.0
@@ -52,6 +81,12 @@ class CloudChatProofTests(unittest.TestCase):
             # Both backend proofs must launch the exact same installed bundle.
             app = Path("/Applications/Cloud Proof.app")
             evidence_path = Path(temporary) / "evidence.json"
+            if shipped:
+                # The published cmux NIGHTLY: a real bundle whose Info.plist names the shipped bundle id.
+                app = Path(temporary).resolve() / "cmux NIGHTLY.app"
+                (app / "Contents").mkdir(parents=True)
+                import plistlib
+                (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.cmuxterm.app.nightly"}))
 
             def run(command, *, env, capture_output, text, timeout, input=None):
                 nonlocal clock, auth_reads
@@ -61,6 +96,12 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertNotIn(claude_login_cache.TOKEN_ENV, env)
                 self.assertFalse(any(FAKE_TOKEN in word for word in command))
                 self.assertEqual(env["CMUX_SOCKET_PATH"], "/tmp/cmux-debug-proof-test.sock")
+                # The Codex login reaches only the import's file, never a CLI's environment or argv.
+                self.assertNotIn("CODEX_AUTH_JSON", env)
+                self.assertFalse(any(FAKE_CODEX_AUTH in word for word in command))
+                if codex:
+                    # Every CLI call of a Codex proof reads the home that holds the imported connection.
+                    self.assertEqual(env.get("ACPMUX_HOME"), FAKE_CODEX_HOME)
                 config = env.get("CMUX_NEXT_CONFIG_FILE")
                 if grant:
                     # The app's own scratch cmux.json, private to this run, holding only the consent.
@@ -81,11 +122,16 @@ class CloudChatProofTests(unittest.TestCase):
                 if words == ["app", "identify", "--json"]:
                     value = {"pid": 200, "app_bundle_path": "/Applications/Other.app" if wrong_bundle else str(app)}
                 elif words == ["app", "call", "auth.status", "--json"]:
+                    if shipped:
+                        self.fail("a shipped build refuses app call (app.call_debug_only)")
                     auth_reads += 1
                     # The launched app can answer while its session is still restoring.
                     value = {"signed_in": signed_in and auth_reads > 1,
                              "backend": backend, "cloud_environment": environment,
                              "user_id": "stack-user-1", "team_id": "team-1"}
+                elif words[:2] == ["setup", "trust"]:
+                    # A --from-folder proof trusts its own new folder first (the start refuses an untrusted one).
+                    value = {"trusted": True}
                 elif words[:3] == ["cloud", "secret", "set"]:
                     code = secret_exit
                     stored[words[3]] = json.loads(input)
@@ -104,6 +150,8 @@ class CloudChatProofTests(unittest.TestCase):
                     value = {"removed": "conn-proof"}
                 elif words == ["vm", "token", "create", "--ttl", "30m", "--json"]:
                     value = {"stored": True}
+                elif words == ["vm", "token", "revoke", "--json"]:
+                    value = {"revoked": True, "removed": True}
                 elif words == ["cloud", "start-chat", "--help"]:
                     # The Rust start-chat (#55501) lists no --login; an older app's CLI does.
                     value = "usage: cmux cloud start-chat [--prompt TEXT]" + (" [--login MODE]" if cli_takes_login else "")
@@ -112,7 +160,9 @@ class CloudChatProofTests(unittest.TestCase):
                     signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
                     self.fail("the cut-off handler must end the proof")
                 elif words == ["cloud", "list-machines", "--json"]:
-                    value = {"loaded": True, "machines": [
+                    # The app's own sign-in (CloudHandlers.listAccount): what a shipped build names its user by.
+                    value = {"loaded": signed_in, "account": {"signed_in": signed_in, "user_id": "stack-user-1", "team_id": "team-1"},
+                             "machines": [
                         {"machine_id": "machine-proof", "title": "proof-test"},
                         {"machine_id": "machine-other", "title": "another-run"}]}
                 elif words[:2] == ["cloud", "start-chat"]:
@@ -170,16 +220,32 @@ class CloudChatProofTests(unittest.TestCase):
                 + (["--grant-claude-login"] if grant else []) + (["--login", login] if login else []) \
                 + (["--cache-claude-login"] if cache else [])
             token_env = {claude_login_cache.TOKEN_ENV: FAKE_TOKEN} if cache else {}
+            if codex:
+                token_env["CODEX_AUTH_JSON"] = FAKE_CODEX_AUTH
             handlers = {each: signal.getsignal(each) for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
             self.addCleanup(lambda: [signal.signal(each, handler) for each, handler in handlers.items()])
             with patch.object(sys, "argv", argv), patch("subprocess.run", side_effect=run), \
                     patch.dict(os.environ, token_env), \
                     patch("subprocess.Popen", return_value=launcher) as launch, \
+                    patch.object(codex_chatgpt_import, "Import", FakeCodexImport), \
                     patch("time.monotonic", side_effect=lambda: clock), \
                     patch("time.sleep", side_effect=sleep), contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaises(SystemExit) as stopped:
                     runpy.run_path(str(SCRIPT), run_name="__main__")
-            expected_launch = ["/usr/bin/open", "-W", "-g", "-n", "--env", "CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-proof-test.sock"]
+            expected_launch = ["/usr/bin/open", "-W", "-g", "-n", "--env", "CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-proof-test.sock",
+                               "--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"]
+            if codex:
+                # The import ran once, before the launch, on the job's Codex login, and was cleared after the quit.
+                self.assertEqual(len(FakeCodexImport.made), 1)
+                self.assertEqual(FakeCodexImport.made[0].prepared[1], FAKE_CODEX_AUTH)
+                self.assertEqual(FakeCodexImport.made[0].cleared, True)
+                if not imported:
+                    self.assertEqual(launch.call_count, 0, "A refused import fails before the app launches")
+                    self.assertTrue(evidence_path.is_file(), "Every terminal outcome must write its evidence")
+                    return stopped.exception.code, json.loads(evidence_path.read_text()), calls
+                expected_launch += ["--env", f"ACPMUX_HOME={FAKE_CODEX_HOME}"]
+            else:
+                self.assertEqual(FakeCodexImport.made, [], "A Claude proof imports no Codex login")
             if grant:
                 self.assertEqual(len(configs), 1, "The CLI and the launch read one scratch cmux.json")
                 expected_launch += ["--env", f"CMUX_NEXT_CONFIG_FILE={configs[0]}"]
@@ -231,10 +297,34 @@ class CloudChatProofTests(unittest.TestCase):
                 chat_index = next(index for index, words in enumerate(calls)
                                   if words[:2] == ["cloud", "start-chat"])
                 self.assertLess(max(index for index, words in enumerate(calls) if words == auth), chat_index)
+                self.assertEqual(steps["revoke VM token"]["exit"], 0)
+                self.assertLess(calls.index(["vm", "token", "revoke", "--json"]),
+                                calls.index(["app", "quit", "--json"]))
                 self.assertEqual(calls[-1], ["app", "quit", "--json"])
                 self.assertEqual(steps["app exited"]["exit"], 0)
                 self.assertFalse(any(words[:2] == ["cloud", "env"] for words in calls))
                 self.assertEqual(evidence["claude_login"], {"consent_granted": False, "login": None, "cached": False})
+
+    def test_a_shipped_nightly_is_read_signed_in_from_its_machine_list_not_app_call(self):
+        code, evidence, calls = self.run_proof(backend_name="prod", shipped=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(evidence["result"], "pass")
+        self.assertEqual(evidence["api_origin"], "https://cloud-api.cmux.dev")
+        self.assertFalse(any(words[:2] == ["app", "call"] for words in calls))
+        steps = {step["step"]: step for step in evidence["steps"]}
+        self.assertEqual(steps["selected backend active and signed in"]["exit"], 0)
+
+    def test_a_shipped_nightly_caches_the_login_for_the_user_its_machine_list_names(self):
+        # Run 45797490933: the shipped path read sign-in from list-machines but the cache step read `actual`,
+        # set only by the dev build's auth.status (NameError). The list's account names the same user and team.
+        code, evidence, calls = self.run_proof(backend_name="prod", shipped=True, grant=True, login="pass", cache=True)
+        self.assertEqual(code, 0, evidence)
+        self.assertEqual(evidence["result"], "pass")
+        self.assertFalse(any(words[:2] == ["app", "call"] for words in calls))
+        self.assertEqual(evidence["claude_login"]["cached"], True)
+        entries = [claude_login_cache.name("stack-user-1", "team-1"), claude_login_cache.name("stack-user-1", None)]
+        self.assertEqual([words[3] for words in calls if words[:3] == ["cloud", "secret", "set"]], entries)
+        self.assertEqual(sorted(words[3] for words in calls if words[:3] == ["cloud", "secret", "rm"]), sorted(entries))
 
     def test_grant_claude_login_gives_the_launch_its_consent_and_the_chat_its_login(self):
         # CI's unattended Claude chat on either backend: the consent a Release build's headless start waits for,
@@ -312,6 +402,21 @@ class CloudChatProofTests(unittest.TestCase):
         start = next(words for words in calls if words[:2] == ["cloud", "start-chat"])
         self.assertNotIn("--login", start)
 
+    def test_a_codex_chat_runs_on_the_imported_chatgpt_connection(self):
+        # Runs 45999014551 and 46040021553: every agent=codex proof refused "No Cloud connection serves codex yet"
+        # before any machine. The proof imports the job's Codex login as a chatgpt-plan connection first.
+        code, evidence, calls = self.run_proof(agent="codex")
+        self.assertEqual(code, 0, evidence)
+        self.assertEqual(evidence["codex_import"]["connection"]["kind"], "chatgpt-plan")
+        self.assertIn("import codex chatgpt connection", [step["step"] for step in evidence["steps"]])
+
+    def test_a_refused_codex_import_fails_before_the_launch(self):
+        code, evidence, calls = self.run_proof(agent="codex", codex_import={
+            "error_code": "codex.import_input", "error": "no Codex login: the job passes no CODEX_AUTH_JSON"})
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["result"], "fail: codex.import_input")
+        self.assert_no_cloud_work(calls)
+
     def test_login_is_dropped_when_the_cli_no_longer_takes_it(self):
         # cloud-chat-proof run 45643891279: the tagged app's Rust start-chat refused `--login` (usage.invalid) on
         # staging and prod, so the proof never reached its chat. A CLI without the word gets no --login.
@@ -363,6 +468,18 @@ class CloudChatProofTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(evidence["result"], "fail: selected backend active and signed in")
         self.assert_no_cloud_work(calls)
+
+    def test_a_shipped_nightly_signed_out_says_what_its_machine_list_answered(self):
+        # Run 45821163961: the NIGHTLY's list never loaded for 4 minutes and the step said only "exit 1".
+        code, evidence, calls = self.run_proof(backend_name="prod", shipped=True, signed_in=False)
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["result"], "fail: selected backend active and signed in")
+        self.assert_no_cloud_work(calls)
+        step = {step["step"]: step for step in evidence["steps"]}["selected backend active and signed in"]
+        self.assertIs(step["loaded"], False)
+        self.assertEqual(step["account"], {"signed_in": False, "team": True})
+        self.assertIn('"loaded": false', step["stderr"])
+        self.assertNotIn("stack-user-1", json.dumps(evidence), "The step never names the account's user")
 
     def test_missing_reply_fails_but_still_deletes_created_machine(self):
         code, evidence, calls = self.run_proof(reply="")

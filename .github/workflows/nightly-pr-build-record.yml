@@ -1,0 +1,59 @@
+# Records the pass of a detached "nightly app compile ARCH" fleet compile.
+#
+# Since the detach (#62619) the swift job submits its fleet step and ends, so it never saw the pass and never
+# saved the input-key cache entry that "Look up a pass with the same inputs" reads. About 31% of runs
+# 2026-11-27 repeated an input key that had already compiled (arm64 85/270, x86_64 81/265). The controller posts
+# the verdict as the check run "nightly app compile ARCH fleet verdict (advisory)"; when it concludes success
+# this saves the same key nightly-pr-build.yml computes for that head, so a later push or base merge with the
+# same Nightly inputs skips the compile. Saved from the default branch, so every pull request can restore it.
+# Off switch: repository variable CI_NIGHTLY_PR_BUILD_RECORD=0 (CI_NIGHTLY_PR_BUILD=0 turns the whole check off).
+# Leo, ask-37c2a441d3: "whatever we can reuse, we reuse."
+name: nightly pr build record
+
+on:
+  check_run:
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  record:
+    name: nightly pr build record (advisory)
+    if: ${{ github.repository_owner == 'manaflow-ai' && (vars.CI_NIGHTLY_PR_BUILD || '1') != '0' && (vars.CI_NIGHTLY_PR_BUILD_RECORD || '1') != '0' && github.event.check_run.conclusion == 'success' && startsWith(github.event.check_run.name, 'nightly app compile ') && endsWith(github.event.check_run.name, ' fleet verdict (advisory)') && github.event.check_run.pull_requests[0] != null }}
+    runs-on: cmux-linux
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      CHECK_NAME: ${{ github.event.check_run.name }}
+      HEAD_SHA: ${{ github.event.check_run.head_sha }}
+      PR: ${{ github.event.check_run.pull_requests[0].number }}
+    steps:
+      # success is green only: controller report_check.go:84-101 (cmuxterm-hq build-fleet/cmd/controller) gives success
+      # for a job done with exit 0, and check-release-compile.sh exits 0 only after xcodebuild passed; 69/75/124 and cancelled are neutral.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
+          submodules: false
+      - name: Key the inputs at the head
+        id: key
+        run: |
+          set -euo pipefail
+          # The recipe is the pull request's merge ref, as the compile job's github.sha is.
+          git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin \
+            "$HEAD_SHA" "+refs/pull/$PR/merge:refs/remotes/pull/merge" || { echo "::notice::no merge ref; nothing recorded"; exit 0; }
+          arch="${CHECK_NAME#nightly app compile }"; arch="${arch%% *}"
+          key="$(python3 scripts/ci/nightly_pr_build.py keys --rev "$HEAD_SHA" --recipe-rev refs/remotes/pull/merge | sed -n "s/^keys=//p" | python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$arch")"
+          mkdir -p "$RUNNER_TEMP/nightly-pr-build-pass" && echo "$key" > "$RUNNER_TEMP/nightly-pr-build-pass/key"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+      - name: Save the pass
+        if: ${{ steps.key.outputs.key != '' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/nightly-pr-build-pass
+          key: ${{ steps.key.outputs.key }}

@@ -44,7 +44,7 @@ jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
     # RFD 0021 route by need: attempt 1 takes the nightly's reserved label (no PR job may ask for it), a rerun cmux-linux.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Ten minutes, and its gh calls wait at most four of them for a rate limit (env below).
     # 6,152 request jobs from 2026-11-11 to 2026-11-19 (controller timing records): p50 57 s,
     # p95 83 s, p99 125 s; 12 ran past 10 minutes, every one a hung checkout fetch (up to
@@ -77,7 +77,18 @@ jobs:
       contents: read
     steps:
       # p99.9 121 s; a hung fetch held the job for up to 3,880 s (runs 43922274429, 43973045206).
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A reset fetch is tried once more: tick 45696501186's successor (2026-11-25 21:37Z) died in
+      # checkout on "curl 56 connection reset", and no tick promoted for another 30 minutes.
+      - id: checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 4
+        continue-on-error: true
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
+          fetch-depth: 150
+      - if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         with:
           persist-credentials: false
@@ -86,7 +97,7 @@ jobs:
 
       # This workflow's own copy of the wrapper, not the checked-out branch's.
       - name: Checkout the gh rate-limit wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -134,7 +145,7 @@ jobs:
           name: nightly-next-train-dispatch-${{ github.run_id }}
           path: nightly-next-train-dispatch.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on

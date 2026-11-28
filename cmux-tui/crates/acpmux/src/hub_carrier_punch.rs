@@ -10,7 +10,9 @@
 //!
 //! - Candidates ([`local_candidates`]): this machine's LAN IPv4 and global IPv6 addresses on the
 //!   listening port, and the router's mapping of that port when PCP or NAT-PMP grants one
-//!   ([`portmap`]). Tailscale's ranges stay Tailscale's.
+//!   ([`portmap`]). Tailscale's ranges stay Tailscale's; a container or VM bridge's
+//!   ([`host_bridge`]) is never offered, and a far candidate that is one of this machine's own
+//!   addresses ([`own_address`]) is never opened toward.
 //! - The offer ([`DIRECT_OFFER_SERVICE`]): one JSON line each way on a kept relay stream. A
 //!   machine from before it answers `service.unknown` and the dialer keeps to the relay.
 //! - The punch: each side connects from its listening port to each of the other's candidates,
@@ -24,6 +26,14 @@
 //!   runs beside it, and the next dial takes the punched connection. A failed punch holds the
 //!   machine on the relay for [`PUNCH_HOLD`]; a symmetric NAT on both sides with no mapping
 //!   always ends there, as it must.
+//! - Churn is bounded ([`PunchHold`]): each miss in a row doubles the hold, jittered, up to
+//!   [`PUNCH_HOLD_MAX`]; a punch asked for again within [`PUNCH_STABLE`] of one that connected
+//!   (its link did not last) counts as a miss, and only a punched link that lasted that long
+//!   clears the count. At most [`MAX_PUNCHES_AT_ONCE`] punches run and at most
+//!   [`MAX_ANSWERS_AT_ONCE`] offers are answered at once on this machine; past either a dial
+//!   rides the relay. cosmic-gray at load 187, 2026-11-27: 18.5k punch attempts and about 6k
+//!   peer disconnects across about 200 peers, with a flat 120 s hold that a short-lived punched
+//!   link cleared each time.
 //!
 //! Off with `ACPMUX_DIRECT_PUNCH=0` (no listener of its own, no offers) or `directPort` 0.
 
@@ -56,8 +66,17 @@ pub const PUNCH_WINDOW: Duration = Duration::from_secs(3);
 const ATTEMPT_BOUND: Duration = Duration::from_millis(1200);
 /// The offer exchange's bound.
 const OFFER_BOUND: Duration = Duration::from_secs(3);
-/// How long a machine whose punch failed is dialed over the relay only.
+/// How long a machine whose punch failed once is dialed over the relay only.
 pub const PUNCH_HOLD: Duration = Duration::from_secs(120);
+/// The longest hold, however many misses in a row.
+pub const PUNCH_HOLD_MAX: Duration = Duration::from_secs(60 * 60);
+/// How long a punched link must last before its machine's misses are forgotten: a punch asked
+/// for sooner (the last one's link already gone) is churn and counts as a miss.
+pub const PUNCH_STABLE: Duration = Duration::from_secs(10 * 60);
+/// The most punches this machine runs at once, across every peer.
+pub const MAX_PUNCHES_AT_ONCE: usize = 4;
+/// The most offers this machine answers (opens toward) at once, across every peer.
+pub const MAX_ANSWERS_AT_ONCE: usize = 8;
 /// How long a punched connection waits for the dial that takes it.
 const PENDING_KEEP: Duration = Duration::from_secs(30);
 /// The most candidates an offer carries or a side opens toward.
@@ -136,13 +155,37 @@ pub fn local_candidates(
     out
 }
 
+/// Whether `name` is a bridge or virtual link a container or VM host keeps for its own guests
+/// (Docker's `docker0` and `br-*`, libvirt, LXD/LXC, podman, CNI, veth pairs). Its address is
+/// the same on every such host (Docker's 172.17.0.1), so no other machine reaches this one at
+/// it: offered, it sends the far side's punch into the far side's own bridge.
+pub fn host_bridge(name: &str) -> bool {
+    const PREFIXES: [&str; 11] = [
+        "docker", "br-", "veth", "virbr", "lxdbr", "lxcbr", "podman", "cni", "flannel", "cali",
+        "vnet",
+    ];
+    PREFIXES.iter().any(|p| name.starts_with(p))
+}
+
+/// Whether `ip` is one of this machine's own addresses, on any interface, up or down: a socket
+/// binds to it. A connect to it reaches this machine, never the far one, so a far side's
+/// candidate that is one (another host's `docker0` 172.17.0.1, a VM template's address) is a
+/// connection to this machine's own listener.
+pub fn own_address(ip: IpAddr) -> bool {
+    std::net::UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
+}
+
 /// The far side's candidates this side opens toward: no wildcard, loopback only from loopback
-/// (tests), at most [`MAX_CANDIDATES`].
+/// (tests), none of this machine's own addresses, at most [`MAX_CANDIDATES`].
 fn usable_toward(candidates: &[SocketAddr]) -> Vec<SocketAddr> {
+    usable_toward_from(candidates, own_address)
+}
+
+fn usable_toward_from(candidates: &[SocketAddr], own: impl Fn(IpAddr) -> bool) -> Vec<SocketAddr> {
     let mut out: Vec<SocketAddr> = Vec::new();
     for c in candidates {
         let ip = c.ip();
-        let ok = c.port() != 0 && (candidate_ip(ip) || ip.is_loopback());
+        let ok = c.port() != 0 && (ip.is_loopback() || (candidate_ip(ip) && !own(ip)));
         if ok && !out.contains(c) && out.len() < MAX_CANDIDATES {
             out.push(*c);
         }
@@ -165,10 +208,39 @@ pub(crate) struct Punches {
     pending: Mutex<HashMap<(String, CircuitLane), (TcpStream, SocketAddr, Instant)>>,
     /// Punches running now.
     running: Mutex<HashSet<(String, CircuitLane)>>,
-    /// Machines whose punch failed, until when.
-    held: Mutex<HashMap<String, Instant>>,
+    /// Machines whose punch failed, until when and how many times in a row.
+    held: Mutex<HashMap<String, PunchHold>>,
+    /// When a punch last connected, by machine and lane (`PUNCH_STABLE`).
+    punched_at: Mutex<HashMap<(String, CircuitLane), Instant>>,
+    /// Offers being answered now (`MAX_ANSWERS_AT_ONCE`).
+    answering: std::sync::atomic::AtomicUsize,
     /// Counts for `_acpmux/carrier` and the tests.
     pub(crate) stats: PunchStats,
+}
+
+/// One machine's hold off the punch: until when, and the misses in a row that set it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PunchHold {
+    pub(crate) until: Instant,
+    pub(crate) misses: u32,
+}
+
+/// The hold after `misses` misses in a row: `PUNCH_HOLD` doubled per miss after the first,
+/// never past `PUNCH_HOLD_MAX`, spread by `jitter` (0 to 1) over 75% to 125% so 200 peers'
+/// holds do not end together.
+pub(crate) fn hold_for(misses: u32, jitter: f64) -> Duration {
+    let doubled = PUNCH_HOLD.saturating_mul(1u32 << misses.saturating_sub(1).min(16));
+    let base = doubled.min(PUNCH_HOLD_MAX);
+    base.mul_f64(0.75 + 0.5 * jitter.clamp(0.0, 1.0)).min(PUNCH_HOLD_MAX)
+}
+
+/// An offer being answered, counted in `Punches::answering` until it drops.
+struct Answering<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl Drop for Answering<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 #[derive(Default)]
@@ -177,6 +249,11 @@ pub(crate) struct PunchStats {
     pub(crate) punched: std::sync::atomic::AtomicU64,
     pub(crate) failed: std::sync::atomic::AtomicU64,
     pub(crate) answered: std::sync::atomic::AtomicU64,
+    /// Punches not started (`MAX_PUNCHES_AT_ONCE`) or offers not answered
+    /// (`MAX_ANSWERS_AT_ONCE`) because this machine was at its cap.
+    pub(crate) capped: std::sync::atomic::AtomicU64,
+    /// Punches asked for again within `PUNCH_STABLE` of one that connected.
+    pub(crate) churned: std::sync::atomic::AtomicU64,
 }
 
 impl Punches {
@@ -192,27 +269,101 @@ impl Punches {
             // A test's addresses as named, loopback included.
             return named.into_iter().map(|ip| SocketAddr::new(ip, port)).collect();
         }
-        let addresses = cmux_netwatch::usable().unwrap_or_default().into_iter().map(|(_, ip)| ip);
+        let addresses = cmux_netwatch::usable()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(name, _)| !host_bridge(name))
+            .map(|(_, ip)| ip);
         local_candidates(port, addresses, mapped)
     }
 
     fn held_off(&self, daemon: &str) -> bool {
+        self.held_off_at(daemon, Instant::now())
+    }
+
+    /// An ended hold keeps its count, so the next miss holds longer; only a punched link that
+    /// lasted (`may_start`) forgets it.
+    pub(crate) fn held_off_at(&self, daemon: &str, now: Instant) -> bool {
+        let held = self.held.lock().unwrap_or_else(|e| e.into_inner());
+        held.get(daemon).is_some_and(|h| now < h.until)
+    }
+
+    /// A punch to `daemon` failed (or its punched path did): hold it off, longer for each miss
+    /// in a row.
+    pub(crate) fn miss(&self, daemon: &str) {
+        self.miss_at(daemon, Instant::now(), crate::peer_link::jitter());
+    }
+
+    pub(crate) fn miss_at(&self, daemon: &str, now: Instant, jitter: f64) -> PunchHold {
         let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
-        match held.get(daemon) {
-            Some(until) if Instant::now() < *until => true,
-            Some(_) => {
-                held.remove(daemon);
+        let misses = held.get(daemon).map_or(0, |h| h.misses).saturating_add(1);
+        let hold = PunchHold { until: now + hold_for(misses, jitter), misses };
+        held.insert(daemon.to_owned(), hold);
+        hold
+    }
+
+    /// The hold on `daemon` now, if any (tests and `_acpmux/carrier`).
+    pub(crate) fn hold(&self, daemon: &str) -> Option<PunchHold> {
+        self.held.lock().unwrap_or_else(|e| e.into_inner()).get(daemon).copied()
+    }
+
+    /// A punch to `daemon` on `lane` connected at `now`.
+    pub(crate) fn connected_at(&self, daemon: &str, lane: CircuitLane, now: Instant) {
+        self.punched_at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert((daemon.to_owned(), lane), now);
+    }
+
+    /// A punch to `daemon` on `lane` is wanted at `now`: whether it may start. One asked for
+    /// within `PUNCH_STABLE` of the last that connected is churn (that link did not last): a
+    /// miss, and no punch. One after a link that lasted forgets the misses.
+    pub(crate) fn may_start(&self, daemon: &str, lane: CircuitLane, now: Instant) -> bool {
+        let key = (daemon.to_owned(), lane);
+        let last = self.punched_at.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
+        match last {
+            Some(at) if now.saturating_duration_since(at) < PUNCH_STABLE => {
+                self.stats.churned.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.miss_at(daemon, now, crate::peer_link::jitter());
                 false
             }
-            None => false,
+            Some(_) => {
+                self.held.lock().unwrap_or_else(|e| e.into_inner()).remove(daemon);
+                true
+            }
+            None => true,
         }
     }
 
-    pub(crate) fn miss(&self, daemon: &str) {
-        self.held
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(daemon.to_owned(), Instant::now() + PUNCH_HOLD);
+    /// Claim a running slot for a punch to `daemon` on `lane`: false while one to it runs, or
+    /// `MAX_PUNCHES_AT_ONCE` run.
+    pub(crate) fn claim(&self, daemon: &str, lane: CircuitLane) -> bool {
+        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
+        let key = (daemon.to_owned(), lane);
+        if running.contains(&key) {
+            return false;
+        }
+        if running.len() >= MAX_PUNCHES_AT_ONCE {
+            self.stats.capped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return false;
+        }
+        running.insert(key)
+    }
+
+    pub(crate) fn release(&self, daemon: &str, lane: CircuitLane) {
+        self.running.lock().unwrap_or_else(|e| e.into_inner()).remove(&(daemon.to_owned(), lane));
+    }
+
+    /// Claim a slot to answer an offer, or None at `MAX_ANSWERS_AT_ONCE`.
+    fn answer_slot(&self) -> Option<Answering<'_>> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let taken = self.answering.fetch_add(1, Relaxed);
+        let slot = Answering(&self.answering);
+        if taken >= MAX_ANSWERS_AT_ONCE {
+            self.stats.capped.fetch_add(1, Relaxed);
+            return None;
+        }
+        Some(slot)
     }
 
     fn has_pending(&self, daemon: &str, lane: CircuitLane) -> bool {
@@ -298,12 +449,11 @@ impl HubCarrier {
             return None;
         }
         let carrier = punch.carrier.read().unwrap_or_else(|e| e.into_inner()).upgrade()?;
-        if !punch
-            .running
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert((daemon.to_owned(), lane))
-        {
+        if !punch.claim(daemon, lane) {
+            return None;
+        }
+        if !punch.may_start(daemon, lane, Instant::now()) {
+            punch.release(daemon, lane);
             return None;
         }
         let daemon = daemon.to_owned();
@@ -315,6 +465,7 @@ impl HubCarrier {
                 Ok((tcp, address)) => {
                     tracing::info!("hub carrier punch: {address} connected for {}", lane.name());
                     punch.stats.punched.fetch_add(1, Relaxed);
+                    punch.connected_at(&daemon, lane, Instant::now());
                     punch
                         .pending
                         .lock()
@@ -327,7 +478,7 @@ impl HubCarrier {
                     punch.miss(&daemon);
                 }
             }
-            punch.running.lock().unwrap_or_else(|e| e.into_inner()).remove(&(daemon, lane));
+            punch.release(&daemon, lane);
         });
         None
     }
@@ -399,6 +550,8 @@ impl HubCarrier {
 
     async fn serve_offer_now(self: Arc<Self>, io: tokio::io::DuplexStream) {
         let Some(port) = self.direct.punch.listen_port() else { return };
+        // At the cap the offer goes unanswered: the dialer's punch fails and holds it off.
+        let Some(_slot) = self.direct.punch.answer_slot() else { return };
         let ours = Offer { candidates: self.direct.punch.candidates() };
         let (read, mut write) = tokio::io::split(io);
         let mut read = tokio::io::BufReader::new(read);

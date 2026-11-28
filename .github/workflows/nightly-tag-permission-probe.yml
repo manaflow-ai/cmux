@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out the probe target
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.target_sha || github.sha }}
@@ -62,7 +62,9 @@ jobs:
             exit 1
           fi
           git cat-file -e "$TARGET_SHA^{commit}"
-          if ! git diff-tree --root --no-commit-id --name-only -r "$TARGET_SHA" | grep -q '^\.github/workflows/'; then
+          # Read the whole list first: under pipefail `diff-tree | grep -q` fails on a large commit when grep exits early.
+          changed="$(git diff-tree --root --no-commit-id --name-only -r "$TARGET_SHA")"
+          if ! grep -q '^\.github/workflows/' <<<"$changed"; then
             echo "target_sha must directly change a workflow file" >&2
             exit 1
           fi

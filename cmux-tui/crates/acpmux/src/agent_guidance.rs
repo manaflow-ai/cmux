@@ -53,23 +53,21 @@ const MAX_DESCRIPTION_CHARS: usize = 300;
 /// background so the person always gets an answer (Leo, 2026-11-06: "either there's some sort
 /// of prompt or a skill that tells you to do that, or we just do it for you"; acpmux also
 /// moves it, `hub/auto_background.rs`).
-pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your work in the chat (cmux defaults; the person's own instructions win):
-- Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
-- CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine), never a loop or repeated gh pr checks, gh run view or sleep. Rate limits, deadlines, cleanup: the cmux:cmux-quota skill.
-- Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a chip. Never invent an id.
-- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision left, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
-- UI work: before your first UI edit, load the cmux:cmux-ui-preview skill: live mode and a preview tab you open, which cmux pictures before and after each turn.
-- Sub-sessions, offered sessions and editing cmux itself: load the cmux:cmux-chat skill with your first reads.";
+pub const CLAUDE_GUIDANCE: &str = "cmux NEXT draws your work in this chat (defaults; the person's own instructions win):
+- Run research, reviews, waits and subagents in the background; keep answering meanwhile. Fork helpers by default (Agent subagent_type: fork).
+- Name another session as HOST/NAME or cmux://agent/<harness>/<sessionId> in inline code (a chip); never invent an id.
+- A turn that changed files or ran commands ends with a 2-3 sentence recap (true now, verified, not done, decision left), in acpmux_wrap_up when listed, not also in prose.
+- UI work: load cmux:cmux-ui-preview before the first UI edit (live mode, a preview tab, before/after pictures).
+- Sub-sessions, offered sessions, editing cmux: load cmux:cmux-chat with your first reads.";
 
 /// Every other harness's first-turn guidance.
-pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person's own instructions win). This chat runs in cmux NEXT, which draws your work in the chat:
-- Side sessions (only with the tools listed; skip this when they are not): start a sub-session (cmux.subsessions_start_session, worktree: true when it edits files yours may touch) only when the person asked for parallel or background work, and give it the whole task. For work you noticed outside the task, offer it instead (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at the end of a turn) and do not do it here. Never use a session for a quick lookup or a step you need the answer to now.
-- Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
-- CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine; it sleeps through rate limits), never a loop or repeated calls of gh pr checks, gh run view or sleep. On a GitHub rate limit, wait for its reset (`gh api rate_limit` is free), never retry at once. Stop only processes you started, by PID.
-- Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a link. Never invent an id.
-- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision the person must make, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
-- UI work: before your first UI edit, read the cmux-ui-preview skill (live mode, a preview tab you open, which cmux pictures before and after each turn, and how to try it at turn end).
-- Editing cmux itself: when asked to change how cmux looks or behaves, use the cmux-live and cmux-customization guides (`cmux docs search live`).";
+pub const AGENT_GUIDANCE: &str = "cmux chat guidance: cmux NEXT draws your work in this chat (defaults; the person's own instructions win):
+- Side sessions (only with the tools listed; skip this when they are not): start one (cmux.subsessions_start_session, worktree: true if it edits files yours may touch) only when the person asked for parallel or background work, with the assignment and expected result (and background, in a separate worktree). Work you noticed outside the task: offer it (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at turn end), not do it here. Never a session for a quick lookup or an answer you need now.
+- Run research, reviews, waits and subagents in the background; keep answering meanwhile. Fork helpers with inherited turns by default.
+- Name another session as HOST/NAME or cmux://agent/<harness>/<sessionId> in inline code (a link); never invent an id.
+- A turn that changed files or ran commands ends with a 2-3 sentence recap (true now, verified, not done, the person's one decision), in acpmux_wrap_up when listed, not also in prose.
+- UI work: read the cmux-ui-preview skill before the first UI edit (live mode, a preview tab, before/after pictures, trying it at turn end).
+- Editing cmux itself: the cmux-live and cmux-customization guides (`cmux docs search live`).";
 
 /// The harness families the switches name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -439,15 +437,7 @@ mod tests {
         // Claude Code: the rules a cut skill listing would hide, then the skill for the rest.
         let claude = first_turn_text(Family::Claude, &on, &[]).unwrap();
         assert!(claude.contains("cmux:cmux-chat") && claude.contains("first reads"), "{claude}");
-        for rule in [
-            "background",
-            "HOST/NAME",
-            "recap",
-            "acpmux_wrap_up",
-            "acpmux pr-wait",
-            "cmux:cmux-quota",
-            "cmux:cmux-ui-preview",
-        ] {
+        for rule in ["background", "HOST/NAME", "recap", "acpmux_wrap_up", "cmux:cmux-ui-preview"] {
             assert!(claude.contains(rule), "{rule} missing: {claude}");
         }
         assert!(claude.len() < AGENT_GUIDANCE.len(), "stays under Codex's: {} bytes", claude.len());
@@ -468,6 +458,19 @@ mod tests {
             }
         }
         assert!(codex.contains("skip this when they are not"), "{codex}");
+        // How to wait on CI, kill processes or ride out a rate limit is the person's (or their
+        // own instructions') call, not cmux's (Leo, 2026-11-26: "identify all the weird
+        // opinoinated fleet things we shipped into the app and remove them").
+        for text in [&claude, &codex] {
+            for rule in ["gh pr checks", "gh run view", "rate limit", "by PID"] {
+                assert!(!text.contains(rule), "{rule} named: {text}");
+            }
+        }
+        // Every chat pays these bytes on every request (Leo, 2026-11-25: "Well we obviously need to
+        // compress the shit out of this and other docs and instructions"). A new rule replaces
+        // words, it does not add a paragraph: 1,215 -> 846 and 1,939 -> 1,462 bytes on 11-25.
+        assert!(CLAUDE_GUIDANCE.len() <= 900, "CLAUDE_GUIDANCE is {} bytes", CLAUDE_GUIDANCE.len());
+        assert!(AGENT_GUIDANCE.len() <= 1_500, "AGENT_GUIDANCE is {} bytes", AGENT_GUIDANCE.len());
     }
 
     #[test]

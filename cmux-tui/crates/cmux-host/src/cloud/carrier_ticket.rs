@@ -83,15 +83,16 @@ pub fn reply_for(answer: &Answer) -> Value {
         Answer::Http { status: 404, .. } => {
             refusal("carrier.unavailable", "cmux has no carrier route here yet.")
         }
-        Answer::Http { status: 429, .. } => {
-            refusal("rate_limited", "cmux is rate limited. Wait a moment, then retry.")
+        Answer::Http { status: 429, body } => {
+            super::github::rate_limited("cmux", super::github::retry_after_of(body))
         }
-        Answer::Http { .. } => {
-            refusal("carrier.unavailable", "cmux did not answer the carrier ticket request.")
-        }
-        Answer::Transport => refusal(
+        Answer::Http { .. } => super::github::transient_refusal(
+            "carrier.unavailable",
+            "cmux did not answer the carrier ticket request.",
+        ),
+        Answer::Transport => super::github::transient_refusal(
             "carrier.unreachable",
-            "Check this machine's connection and retry the carrier ticket request.",
+            "This Cloud machine could not reach cmux Cloud for a carrier ticket.",
         ),
     }
 }

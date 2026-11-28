@@ -128,13 +128,16 @@ async fn a_sleep_in_a_backoff_wait_redials_at_the_wake_and_starts_the_ladder_ove
 /// A peer down for `minutes` of ticked time while a chat stays open on it and asks every second
 /// (a person typing, a pane retrying its read): the dials it made in that time.
 async fn dials_while_asked(seed: u64, minutes: u64, login_refused: bool) -> usize {
+    let refuse = if login_refused { test_dial::refuse_login_all } else { test_dial::refuse_all };
+    asked_attempts(seed, minutes, refuse).await.len()
+}
+
+/// The dials of a peer down for `minutes` while a chat asks every second, each dial failing as
+/// `refuse` sets up.
+async fn asked_attempts(seed: u64, minutes: u64, refuse: fn()) -> Vec<test_dial::Attempt> {
     test_clock::follow_tokio();
     test_jitter::seed(seed);
-    if login_refused {
-        test_dial::refuse_login_all()
-    } else {
-        test_dial::refuse_all()
-    }
+    refuse();
     let peer = unreachable();
     // The loop runs beside the asks on this task, so it ends with them (`Peer::stop`).
     let asking = async {
@@ -145,11 +148,29 @@ async fn dials_while_asked(seed: u64, minutes: u64, login_refused: bool) -> usiz
         peer.stop();
     };
     tokio::join!(peer.clone().run(), asking);
-    let dials = test_dial::attempts().len();
+    let dials = test_dial::attempts();
     test_dial::clear();
     test_jitter::clear();
     test_clock::reset();
     dials
+}
+
+/// cosmic-gray, 2026-11-26: after one "Host key verification failed" the link stayed down
+/// about 2 h with ssh working again, held by the refused login's hour-long backoff. A refused
+/// host key neither redials each second while a chat asks nor waits longer than
+/// `Backoff::HOST_KEY_REFUSED_CAP` (plus its jitter) between attempts.
+#[tokio::test(start_paused = true)]
+async fn a_refused_host_key_is_redialed_within_minutes_not_hours() {
+    let attempts = asked_attempts(5, 60, test_dial::refuse_host_key_all).await;
+    let ten_minutes =
+        attempts.iter().filter(|a| a.0 - attempts[0].0 <= Duration::from_secs(600)).count();
+    assert!(ten_minutes <= 12, "{ten_minutes} host-key dials in 10 minutes");
+    assert!(attempts.len() >= 20, "{} host-key dials in an hour", attempts.len());
+    let most = Backoff::HOST_KEY_REFUSED_CAP + Backoff::HOST_KEY_REFUSED_CAP / 5 + TICK;
+    for pair in attempts.windows(2) {
+        let gap = pair[1].0 - pair[0].0;
+        assert!(gap <= most, "a refused host key waited {gap:?} for its next dial");
+    }
 }
 
 /// A remote that refuses this computer's key or password is not dialed again in a loop, however

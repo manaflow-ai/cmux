@@ -5,7 +5,7 @@ import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextPages
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     static let stats = InternalPageID(rawValue: "stats")
     static let artifacts = InternalPageID(rawValue: "artifacts")
 }

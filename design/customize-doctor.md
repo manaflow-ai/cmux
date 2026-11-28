@@ -30,8 +30,9 @@ Web gallery `pages.settings-customize-doctor`, variants `treatment-banner` and `
 Choosing one is one line (`customizeDoctor.ts` `treatment`).
 
 - **inline** (shipped): the count and the line in the card's own header, nothing else. Quiet and never
-  in the way; outside Settings the native toast on launch (`customize.doctorNotice`, default on) is
-  what tells the person.
+  in the way. The native toast on launch (`customize.doctorNotice`) is off by default (Leo 2026-11-25:
+  "make it stop showing the customization not applied/reviewd and shit popup tosts"); the card is
+  where the findings show, and the toast comes back for whoever turns Customization notices on.
 - **banner**: ui/Notice's warning banner with Review (and Recover…) across the top of the Settings
   column. Nobody misses it, but a warning stays until resolved, so a finding the person chose to leave
   (an `info` leftover) pushes every Settings page down until they dismiss it, and it competes with the

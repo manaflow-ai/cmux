@@ -20,6 +20,39 @@ pub fn choices(option: &Value) -> Vec<(String, String)> {
     out
 }
 
+/// The reasoning levels ACP `session/new` names in model ids, low to high.
+const EFFORT_SUFFIXES: [&str; 7] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// Each model's reasoning levels, read from the agent's `models.availableModels` when it lists
+/// one id per level in place of the model itself (Antigravity 1.5.16: option `gemini-3.8-flash`,
+/// `availableModels` `gemini-3.8-flash-low`, `-medium`, `-high`, never `gemini-3.8-flash`). A
+/// model the list names as it is (`gpt-oss-120b-medium`; `gpt-5.1-codex` beside its own model
+/// `gpt-5.1-codex-max`) or with no such ids (the orchestrators) gets no entry: no levels.
+pub fn variant_efforts(
+    models: &[(String, String)],
+    available: Option<&Value>,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let ids: std::collections::HashSet<&str> = available
+        .and_then(|m| m.get("availableModels"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|m| m.get("modelId").and_then(Value::as_str))
+        .collect();
+    models
+        .iter()
+        .filter(|(id, _)| !ids.contains(id.as_str()))
+        .filter_map(|(id, _)| {
+            let levels: Vec<String> = EFFORT_SUFFIXES
+                .iter()
+                .filter(|level| ids.contains(format!("{id}-{level}").as_str()))
+                .map(|level| (*level).to_owned())
+                .collect();
+            (!levels.is_empty()).then(|| (id.clone(), levels))
+        })
+        .collect()
+}
+
 /// Preserve exact ids. DSH also permits the friendly provider/model spelling
 /// or a bare model name, but only if that name identifies one advertised route.
 pub fn resolve(option: &Value, requested: &str) -> Result<String, String> {
@@ -470,6 +503,39 @@ pub fn capacity_fallback(entry: &crate::catalog::CatalogHarness, running: &str) 
         .max_by(|a, b| a.0.cmp(&b.0))?
         .1;
     Some(format!("{newest}{suffix}"))
+}
+
+/// Whether a capacity error asks the client for another model: Codex's "Selected model is at
+/// capacity. Please try a different model." The provider says this model has no room, not that
+/// it has none at all, so the chat goes on on another (`hub/auto_resume/capacity_failover.rs`).
+pub fn asks_for_another_model(error: &str) -> bool {
+    let m = error.to_ascii_lowercase();
+    m.contains("at capacity") && (m.contains("different model") || m.contains("another model"))
+}
+
+/// The model a chat running `running` moves to when its provider's error asks for another
+/// ([`asks_for_another_model`]): its [`capacity_fallback`] when its family has one, else the
+/// newest catalog model of the same head and family words at a lower version (`gpt-6.2-sol` ->
+/// `gpt-6.1-sol`), which the provider serves from other capacity; with `running`'s suffix. None
+/// when the catalog does not know `running` or lists no such model.
+pub fn asked_fallback(entry: &crate::catalog::CatalogHarness, running: &str) -> Option<String> {
+    if let Some(to) = capacity_fallback(entry, running) {
+        return Some(to);
+    }
+    let (base, suffix) = split_suffix(running.trim());
+    let id = catalog_id(entry, base)?;
+    let parts = id_parts(split_suffix(&id).0)?;
+    let older = entry
+        .models
+        .iter()
+        .filter_map(|m| {
+            let p = id_parts(&m.id)?;
+            (p.head == parts.head && p.words == parts.words && p.version < parts.version)
+                .then_some((p.version, m.id.as_str()))
+        })
+        .max_by(|a, b| a.0.cmp(&b.0))?
+        .1;
+    Some(format!("{older}{suffix}"))
 }
 
 /// Whether `a` and `b` name the same model in `entry` (each read as its catalog id), so a chat

@@ -224,6 +224,29 @@ pub const SUSPECT_PROBE: Duration = Duration::from_secs(1);
 /// data is outstanding: a one-way stream with a live peer costs one ping
 /// round trip per this long, an idle link none.
 pub const OUTSTANDING_PROBE: Duration = Duration::from_secs(2);
+/// While data is outstanding, both detection waits scale with the link's
+/// smoothed round trip: [`BUSY_RTT_FACTOR`] round trips, at least the
+/// floor below and at most the fixed wait ([`OUTSTANDING_PROBE`], the
+/// link's `suspect_after`). On a phone link (lte, wifi to cell, 5G
+/// falling back to LTE) a busy link is then suspect in about 1.5 s instead
+/// of 5 s; a slow one (satellite, 2G) keeps the fixed waits. Without a
+/// round trip yet, the fixed waits. Idle pings keep `suspect_after`.
+pub const BUSY_RTT_FACTOR: u32 = 4;
+/// The shortest wait before unanswered data gets its ping.
+pub const BUSY_OUTSTANDING_FLOOR: Duration = Duration::from_millis(500);
+/// The shortest wait for that ping, with data outstanding, before the link
+/// is suspect: two of a lossy link's 500 ms datagram ping resends
+/// ([`DATAGRAM_PING_RESEND`]) and a TCP retransmit of an in-stream ping.
+pub const BUSY_SUSPECT_FLOOR: Duration = Duration::from_millis(1000);
+
+/// The detection waits while data is outstanding ([`BUSY_RTT_FACTOR`]):
+/// before the ping, and from the ping to suspect.
+fn busy_waits(srtt: Option<Duration>, suspect_after: Duration) -> (Duration, Duration) {
+    let Some(srtt) = srtt else { return (OUTSTANDING_PROBE, suspect_after) };
+    let scaled = srtt.saturating_mul(BUSY_RTT_FACTOR);
+    let bound = |floor: Duration, cap: Duration| scaled.max(floor.min(cap)).min(cap);
+    (bound(BUSY_OUTSTANDING_FLOOR, OUTSTANDING_PROBE), bound(BUSY_SUSPECT_FLOOR, suspect_after))
+}
 
 /// The lane both sides list when their pings and pongs can travel as
 /// datagrams beside the link's stream ([`LivenessDatagrams`]). A peer that
@@ -2717,7 +2740,8 @@ struct Unanswered {
 
 /// Detection, apart from teardown (the keepalive's [`KEEPALIVE_TIMEOUT`]):
 /// data with nothing received for [`OUTSTANDING_PROBE`] gets a ping; a ping
-/// with nothing received for `after` makes the link suspect; a suspect link
+/// with nothing received for `after` makes the link suspect (both waits
+/// shorter on a fast link while data is outstanding: [`BUSY_RTT_FACTOR`]); a suspect link
 /// pings every [`SUSPECT_PROBE`] until anything arrives. Every ping counts
 /// (the keepalive's, the app's probes, these), so an idle link is suspect
 /// `after` past whichever ping comes first, and an idle healthy link sends
@@ -2744,6 +2768,10 @@ async fn watch_liveness(link: Link, after: Duration) {
         }
         let now = Instant::now();
         let unanswered = inner.unanswered();
+        let srtt = *inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
+        let (outstanding_wait, busy_after) = busy_waits(srtt, after);
+        // A ping with data outstanding waits `busy_after`; an idle one, `after`.
+        let ping_after = if unanswered.traffic.is_some() { busy_after } else { after };
         let next = if inner.suspect_flag.load(Ordering::Relaxed) {
             let due = last_probe.map_or(now, |at| at + SUSPECT_PROBE);
             if now >= due {
@@ -2754,7 +2782,7 @@ async fn watch_liveness(link: Link, after: Duration) {
                 Some(due)
             }
         } else if let Some(ping) = unanswered.ping {
-            if now >= ping + after {
+            if now >= ping + ping_after {
                 inner.raise_suspect(ping);
                 if inner.suspect_flag.load(Ordering::Relaxed) {
                     probe(&link);
@@ -2762,14 +2790,14 @@ async fn watch_liveness(link: Link, after: Duration) {
                 }
                 continue;
             }
-            Some(ping + after)
+            Some(ping + ping_after)
         } else if let Some(traffic) = unanswered.traffic {
-            if now >= traffic + OUTSTANDING_PROBE {
+            if now >= traffic + outstanding_wait {
                 // Its ping wakes this loop (`unanswered_changed`) once out.
                 probe(&link);
-                Some(now + after)
+                Some(now + busy_after)
             } else {
-                Some(traffic + OUTSTANDING_PROBE)
+                Some(traffic + outstanding_wait)
             }
         } else {
             None
@@ -3277,18 +3305,20 @@ async fn handle_frame(
             let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
             let closed = Arc::new(AtomicBool::new(false));
             let inbox = Inbox::new(tx, inner, stream, frame.channel);
-            // Replies are sent as datagrams too only when this side
-            // also has the peer's word that it takes them.
+            // The peer asks for a delivery only when both sides listed its
+            // lane, so the request is the agreement: the channel is numbered
+            // (and a screen channel's messages carry their base) from its
+            // first message, as the peer reads it. Whether a message also
+            // goes as datagrams is decided per send (`send_numbered`): the
+            // Mac attaches its datagram lane after the link is accepted, and
+            // the phone's first opens can arrive before that. Deciding here
+            // left those channels on the stream path for their life.
             let delivery = request.delivery;
-            // A screen delivery from a peer this side did not agree it with
-            // gets the stream path only.
-            let delivery = delivery.filter(|delivery| *delivery != Delivery::Screen || inner.screen());
             let route = Route::new(inbox, &closed, delivery);
             let screen = route.screen.clone();
             inner.lock_channels().insert(frame.channel, route);
-            let mirror = delivery.filter(|_| inner.classes());
             let channel =
-                Channel::new(frame.channel, stream, class, Arc::clone(inner), rx, closed, mirror, screen);
+                Channel::new(frame.channel, stream, class, Arc::clone(inner), rx, closed, delivery, screen);
             let accepted =
                 IncomingChannel { service: request.service, args: request.args, lane: request.lane, channel };
             if incoming.send(accepted).await.is_err() {
@@ -3440,8 +3470,8 @@ pub struct ChannelSender {
     closed: Arc<AtomicBool>,
     /// Where queued payload bytes are counted, if anywhere.
     meter: Option<Arc<ByteMeter>>,
-    /// Each send is a numbered message, sent as datagrams too
-    /// (`crate::classes`).
+    /// Each send is a numbered message, also sent as datagrams while this
+    /// link has the class lane (`crate::classes`).
     mirror: Option<Delivery>,
     next_seq: AtomicU64,
     /// Present on a [`Delivery::Screen`] channel.
@@ -3493,11 +3523,18 @@ impl ChannelSender {
         data: Bytes,
         mark: Option<crate::frame::FlushMark>,
     ) -> Result<(), LinkError> {
-        self.send_numbered(data, mark).await.map(|_| ())
+        self.send_numbered(data, mark, None).await.map(|_| ())
     }
 
-    /// Whether this channel sends screen datagrams ([`Delivery::Screen`] and
-    /// the peer agreed [`crate::classes::SCREEN_LANE`]).
+    /// Report a chunk only after this particular write acquired room in the transport queue.
+    /// Other writers on the same channel never contribute to this count.
+    pub async fn send_observed(&self, data: Bytes, accepted: &AtomicU64) -> Result<(), LinkError> {
+        self.send_numbered(data, None, Some(accepted)).await.map(|_| ())
+    }
+
+    /// Whether this is a screen channel ([`Delivery::Screen`], agreed with
+    /// the peer through [`crate::classes::SCREEN_LANE`]): its messages carry
+    /// their base and go as screen datagrams too once the lane is attached.
     pub fn screen_class(&self) -> bool {
         self.screen.is_some() && self.mirror.is_some()
     }
@@ -3528,19 +3565,27 @@ impl ChannelSender {
             return Ok(0);
         }
         let message = crate::classes::screen_wire(base.unwrap_or(crate::classes::NO_BASE), payload);
-        Ok(self.send_numbered(message, None).await?.unwrap_or(0))
+        Ok(self.send_numbered(message, None, None).await?.unwrap_or(0))
     }
 
     async fn send_numbered(
         &self,
         data: Bytes,
         mark: Option<crate::frame::FlushMark>,
+        accepted: Option<&AtomicU64>,
     ) -> Result<Option<u64>, LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
         }
         let seq = self.mirror.map(|_| self.next_seq.fetch_add(1, Ordering::Relaxed));
+        // The lane is checked at send time: a channel accepted before this
+        // side attached its datagrams starts sending them once it has.
+        let lane = match self.screen {
+            Some(_) => self.inner.screen(),
+            None => self.inner.classes(),
+        };
         if let (Some(delivery), Some(seq)) = (self.mirror, seq)
+            && lane
             && data.len() <= crate::classes::MIRROR_MAX
             && !self.inner.writes_held.load(Ordering::Acquire)
         {
@@ -3589,6 +3634,9 @@ impl ChannelSender {
                 .await
             {
                 Pushed::Queued => {
+                    if let Some(accepted) = accepted {
+                        accepted.fetch_add(size as u64, Ordering::Relaxed);
+                    }
                     self.sent.fetch_add(size as u64, Ordering::Relaxed);
                     if let Some(meter) = &self.meter {
                         meter.add_sent(size);
@@ -3755,6 +3803,20 @@ mod tests {
         assert_eq!(resume_hedge_after(Some(ms(70))), ms(310));
         assert_eq!(resume_hedge_after(Some(ms(300))), ms(1000));
         assert_eq!(resume_hedge_after(Some(Duration::from_secs(2))), RESUME_HEDGE_CAP);
+    }
+
+    #[test]
+    fn busy_waits_scale_with_the_round_trip_within_the_fixed_waits() {
+        let ms = Duration::from_millis;
+        let after = SUSPECT_AFTER;
+        assert_eq!(busy_waits(None, after), (OUTSTANDING_PROBE, after), "no pong yet: fixed waits");
+        assert_eq!(busy_waits(Some(ms(20)), after), (ms(500), ms(1000)), "wifi: the floors");
+        assert_eq!(busy_waits(Some(ms(70)), after), (ms(500), ms(1000)), "lte: the floors");
+        assert_eq!(busy_waits(Some(ms(400)), after), (ms(1600), ms(1600)), "a slow cell link");
+        assert_eq!(busy_waits(Some(ms(650)), after), (OUTSTANDING_PROBE, ms(2600)), "satellite");
+        assert_eq!(busy_waits(Some(Duration::from_secs(2)), after), (OUTSTANDING_PROBE, after), "2g: caps");
+        // A suspect_after below the floor caps it, without panicking.
+        assert_eq!(busy_waits(Some(ms(10)), ms(300)), (ms(500), ms(300)));
     }
 
     fn pair() -> (Link, Link) {
@@ -4200,15 +4262,20 @@ mod tests {
         let channel = phone.open("daemon", serde_json::json!({})).await.unwrap();
         let sender = Arc::new(channel.sender);
         let total = CHANNEL_QUEUE_BYTES * 8;
+        let accepted = Arc::new(AtomicU64::new(0));
+        sender.send(Bytes::from_static(b"other")).await.unwrap();
+        assert_eq!(accepted.load(Ordering::Relaxed), 0);
         let sending = tokio::spawn({
             let sender = Arc::clone(&sender);
-            async move { sender.send(Bytes::from(vec![0u8; total])).await }
+            let accepted = Arc::clone(&accepted);
+            async move { sender.send_observed(Bytes::from(vec![0u8; total]), &accepted).await }
         });
         tokio::time::sleep(Duration::from_millis(200)).await;
         let stuck = sender.sent_bytes();
         assert!(stuck > 0 && stuck < total as u64, "part of the write got in: {stuck}");
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(sender.sent_bytes(), stuck, "a stalled link makes no progress");
+        assert_eq!(accepted.load(Ordering::Relaxed), stuck - 5, "only the observed write");
         sender.close("cancelled", "").await;
         let _ = sending.await;
 
@@ -5453,6 +5520,71 @@ mod tests {
         assert!(mac.datagram_wins() >= 5 && phone.datagram_wins() >= 1);
     }
 
+    /// The Mac attaches its datagram lane after it accepts the link, so the
+    /// phone's first opens can be accepted before it. Those channels still
+    /// send class and screen datagrams once the lane is attached: before,
+    /// the accept fixed them to the stream path for their life (echo-flood
+    /// runs with `datagram_wins: 0`).
+    #[tokio::test(start_paused = true)]
+    async fn channels_accepted_before_the_lane_attaches_send_datagrams_after() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(LivenessDatagrams { classes: true, screen: true, ..phone_lane });
+        let server = tokio::spawn({
+            let mac = mac.clone();
+            async move {
+                let echo = mac.accept().await.expect("echo");
+                let screen = mac.accept().await.expect("screen");
+                (echo.channel, screen.channel)
+            }
+        });
+        let mut echo = phone.open_latest("echo", serde_json::json!({})).await.unwrap();
+        let mut screen = phone.open_screen("screen", serde_json::json!({})).await.unwrap();
+        let (mac_echo, mac_screen) = server.await.unwrap();
+        assert!(!mac.class_datagrams(), "the Mac's lane is not attached yet");
+        let (echo_tx, _echo_rx) = mac_echo.split();
+        let (screen_tx, _screen_rx) = mac_screen.split();
+        assert!(screen_tx.screen_class(), "the phone's request is the agreement");
+        // A message before the lane goes on the stream only, and arrives.
+        echo_tx.send(Bytes::from_static(b"early")).await.unwrap();
+        match tokio::time::timeout(Duration::from_millis(500), echo.recv()).await {
+            Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], b"early"),
+            other => panic!("early: {other:?}"),
+        }
+        screen_tx.send_screen(None, b"first").await.unwrap();
+        match tokio::time::timeout(Duration::from_millis(500), screen.recv()).await {
+            Ok(Some(ChannelEvent::Data(bytes))) => {
+                let message = crate::classes::screen_message(&bytes).expect("a screen message");
+                assert_eq!(&message.payload[..], b"first");
+            }
+            other => panic!("first screen: {other:?}"),
+        }
+
+        mac.attach_liveness_datagrams(LivenessDatagrams { classes: true, screen: true, ..mac_lane });
+        dark.send_replace(true);
+        echo_tx.send(Bytes::from_static(b"late")).await.unwrap();
+        match tokio::time::timeout(Duration::from_millis(100), echo.recv()).await {
+            Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], b"late"),
+            other => panic!("late echo over a dark stream: {other:?}"),
+        }
+        screen_tx.send_screen(None, b"second").await.unwrap();
+        match tokio::time::timeout(Duration::from_millis(100), screen.recv()).await {
+            Ok(Some(ChannelEvent::Data(bytes))) => {
+                let message = crate::classes::screen_message(&bytes).expect("a screen message");
+                assert_eq!(&message.payload[..], b"second");
+            }
+            other => panic!("second screen over a dark stream: {other:?}"),
+        }
+        assert!(phone.datagram_wins() >= 2);
+        dark.send_replace(false);
+        assert!(phone.ping().await.is_ok());
+        assert!(tokio::time::timeout(Duration::from_millis(200), echo.recv()).await.is_err(), "echo twice");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err(),
+            "screen twice"
+        );
+    }
+
     /// Screen messages cross a dark stream as screen datagrams, newest wins,
     /// the receiver's acknowledgements give the sender its base, and the
     /// stream copies that follow are dropped as duplicates.
@@ -5514,6 +5646,109 @@ mod tests {
             tokio::time::timeout(Duration::from_millis(500), screen.recv()).await,
             Ok(Some(ChannelEvent::Data(_)))
         ));
+    }
+
+    /// Mixed builds (RFD 0164 row 1): a phone and a Mac of any two
+    /// generations (no class lanes; `classes` only; `classes` with
+    /// `classes-screen-v1`) agree the same lanes through
+    /// [`crate::classes::ClassLanes`], the dial's own negotiation, and
+    /// keystrokes and screen updates still arrive once each: keystrokes as
+    /// datagrams across a dark stream where both listed `classes`, on the
+    /// stream once it is back otherwise.
+    #[tokio::test(start_paused = true)]
+    async fn mixed_builds_negotiate_down_and_still_deliver() {
+        use crate::classes::ClassLanes;
+        let generations =
+            [ClassLanes::offer(false, false), ClassLanes::offer(true, false), ClassLanes::offer(true, true)];
+        for phone_offer in generations {
+            for mac_offer in generations {
+                let case = format!("phone {phone_offer:?}, mac {mac_offer:?}");
+                // The phone dials with its lanes; the Mac lists back what it agreed.
+                let mac_agreed = mac_offer.agreed(&phone_offer.lanes());
+                let phone_agreed = phone_offer.agreed(&mac_agreed.lanes());
+                let both = ClassLanes::offer(
+                    phone_offer.classes && mac_offer.classes,
+                    phone_offer.screen && mac_offer.screen,
+                );
+                assert_eq!((phone_agreed, mac_agreed), (both, both), "{case}");
+
+                let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+                let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+                phone.attach_liveness_datagrams(LivenessDatagrams {
+                    classes: phone_agreed.classes,
+                    screen: phone_agreed.screen,
+                    ..phone_lane
+                });
+                mac.attach_liveness_datagrams(LivenessDatagrams {
+                    classes: mac_agreed.classes,
+                    screen: mac_agreed.screen,
+                    ..mac_lane
+                });
+                for link in [&phone, &mac] {
+                    assert_eq!(
+                        (link.class_datagrams(), link.screen_datagrams()),
+                        (both.classes, both.screen),
+                        "{case}"
+                    );
+                }
+                let server = tokio::spawn({
+                    let mac = mac.clone();
+                    async move {
+                        let keys = mac.accept().await.expect("keys");
+                        let screen = mac.accept().await.expect("screen");
+                        (keys.channel, screen.channel)
+                    }
+                });
+                let keys = phone.open_on("keys", serde_json::json!({}), Lane::Input).await.unwrap();
+                let mut screen = phone.open_screen("screen", serde_json::json!({})).await.unwrap();
+                let (mut mac_keys, mac_screen) = server.await.unwrap();
+                assert_eq!(screen.screen_class(), both.screen, "{case}");
+
+                dark.send_replace(true);
+                for key in 0u8..3 {
+                    keys.send(Bytes::from(vec![key; 3])).await.unwrap();
+                }
+                if !both.classes {
+                    assert!(
+                        tokio::time::timeout(Duration::from_millis(100), mac_keys.recv()).await.is_err(),
+                        "{case}: a key crossed a dark stream with no class datagrams agreed"
+                    );
+                    dark.send_replace(false);
+                }
+                for key in 0u8..3 {
+                    match tokio::time::timeout(Duration::from_millis(500), mac_keys.recv()).await {
+                        Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], &[key; 3], "{case}"),
+                        other => panic!("{case}: key {key}: {other:?}"),
+                    }
+                }
+                dark.send_replace(false);
+                assert!(phone.ping().await.is_ok(), "{case}");
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(200), mac_keys.recv()).await.is_err(),
+                    "{case}: a key arrived twice"
+                );
+
+                let (mac_tx, _mac_rx) = mac_screen.split();
+                assert_eq!(mac_tx.screen_class(), both.screen, "{case}");
+                mac_tx.send_screen(None, b"state").await.unwrap();
+                match tokio::time::timeout(Duration::from_millis(500), screen.recv()).await {
+                    Ok(Some(ChannelEvent::Data(bytes))) => {
+                        let payload = if both.screen {
+                            crate::classes::screen_message(&bytes).expect("a screen message").payload.to_vec()
+                        } else {
+                            bytes.to_vec()
+                        };
+                        assert_eq!(payload, b"state", "{case}");
+                    }
+                    other => panic!("{case}: screen: {other:?}"),
+                }
+                assert!(phone.ping().await.is_ok(), "{case}");
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err(),
+                    "{case}: a screen update arrived twice"
+                );
+            }
+        }
     }
 
     /// Each side's flags are what negotiation agreed (both listed the lane),

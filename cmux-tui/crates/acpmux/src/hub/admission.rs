@@ -151,18 +151,9 @@ pub(crate) fn check(inputs: &Inputs<'_>) -> Verdict {
     let Some(machine) = inputs.machine else {
         return uncapped("this host is no registry machine".into());
     };
-    let Some(max) = registry
-        .pointer(&format!(
-            "/machines/{}/lanes/max_lanes",
-            machine.replace('~', "~0").replace('/', "~1")
-        ))
-        .and_then(Value::as_u64)
-    else {
+    let Some(max) = max_lanes(registry, machine) else {
         return uncapped(format!("no lanes entry with max_lanes for {machine}"));
     };
-    // One lane per machine (`lane_place.one_lane_per_host`): a second lane here is over.
-    let max =
-        if super::admission_scale_up::one_per_host(Some(registry)) { max.min(1) } else { max };
     let at = || OverCap {
         live: inputs.live,
         max,
@@ -172,6 +163,18 @@ pub(crate) fn check(inputs: &Inputs<'_>) -> Verdict {
     let over = (inputs.live as u64 >= max).then(at);
     let last_slot = (over.is_none() && inputs.live as u64 + 1 >= max).then(at);
     Verdict { under_floor, over, last_slot, uncapped: None }
+}
+
+/// `machine`'s `lanes.max_lanes` in `registry`, at most 1 with one lane per machine
+/// (`lane_place.one_lane_per_host`: a second lane there is over); `None`: no cap.
+pub(crate) fn max_lanes(registry: &Value, machine: &str) -> Option<u64> {
+    let max = registry
+        .pointer(&format!(
+            "/machines/{}/lanes/max_lanes",
+            machine.replace('~', "~0").replace('/', "~1")
+        ))
+        .and_then(Value::as_u64)?;
+    Some(if super::admission_scale_up::one_per_host(Some(registry)) { max.min(1) } else { max })
 }
 
 /// The registry machine this host is (module docs), lowercase names compared.
@@ -500,7 +503,9 @@ impl Hub {
             && peers.as_ref().is_some_and(|verdict| {
                 super::admission_scale_up::room_elsewhere(verdict).is_none()
             });
-        if should_wait_for_scale_up(ask.auto, no_peer_room)
+        // A create that may move (`reason`) waits for the added machine as an Auto one does:
+        // a cap routes the start elsewhere and never only warns (cmuxterm-hq lane-router RFD).
+        if should_wait_for_scale_up(ask.auto || reason.is_some(), no_peer_room)
             && let Some(over) = verdict.over.as_ref()
         {
             // Subscribe before triggering the provider so a fast join cannot be missed.
@@ -668,7 +673,7 @@ impl Hub {
     /// Where the placement engine would put a create from the connected peers' last
     /// readings (`server/place.rs` `pick` weighs the same hosts, this one too), with
     /// the shadow verdict of its pick (`shadow_admission.rs`).
-    fn peer_verdict(&self, registry: Option<&Value>) -> Value {
+    pub(super) fn peer_verdict(&self, registry: Option<&Value>) -> Value {
         use crate::placement::{Candidate, Work};
         let peers: Vec<Candidate> = self
             .peers()
@@ -759,8 +764,11 @@ fn waiting_note(over: &OverCap, ask: &Ask<'_>) -> Value {
     })
 }
 
-fn should_wait_for_scale_up(auto: bool, no_peer_room: bool) -> bool {
-    auto && no_peer_room
+/// `movable`: the caller chose Auto, or a create past this lane host's cap that may move
+/// (`admission_redirect::considered`). Only a create tied here (a person's, an explicit
+/// machine, a named folder) never waits.
+fn should_wait_for_scale_up(movable: bool, no_peer_room: bool) -> bool {
+    movable && no_peer_room
 }
 
 /// Waits for the provider to fail or for a connected peer notification.
@@ -1194,6 +1202,7 @@ mod tests {
         assert!(!failed, "a provider failure falls back immediately");
 
         assert!(!should_wait_for_scale_up(false, true), "an explicit machine never waits");
-        assert!(should_wait_for_scale_up(true, true), "only Auto waits with no room");
+        assert!(should_wait_for_scale_up(true, true), "a movable create waits with no room");
+        assert!(!should_wait_for_scale_up(true, false), "a peer with room takes it at once");
     }
 }

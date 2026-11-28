@@ -63,6 +63,26 @@ if [[ "$got" != "$C3" ]]; then
   exit 1
 fi
 
+# 2026-11-26: origin (github.com) answered 403 to every deepen. A local mirror holding the
+# same history answers instead, and the remote is never needed.
+git clone -q --depth 1 "file://$TMP/src" "$TMP/mirror-work"
+git -C "$TMP/mirror-work" remote set-url origin "file://$TMP/refuses-like-a-403"
+got="$(cd "$TMP/mirror-work" && CMUX_TUI_CLIENT_MIRROR="$TMP/src/.git" CMUX_TUI_CLIENT_FETCH_ATTEMPTS=1 \
+  CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS=0 "$RESOLVER" 2>"$TMP/mirror.err")" || true
+if [[ "$got" != "$C3" ]]; then
+  echo "FAIL: with origin refusing, the local mirror must deepen to $C3, got '$got'"
+  cat "$TMP/mirror.err"
+  exit 1
+fi
+# Without the mirror the same refusal fails, so the case above proves the mirror did it.
+git clone -q --depth 1 "file://$TMP/src" "$TMP/nomirror-work"
+git -C "$TMP/nomirror-work" remote set-url origin "file://$TMP/refuses-like-a-403"
+if (cd "$TMP/nomirror-work" && CMUX_TUI_CLIENT_MIRROR= CMUX_TUI_CLIENT_FETCH_ATTEMPTS=1 \
+    CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS=0 "$RESOLVER" >/dev/null 2>&1); then
+  echo "FAIL: with origin refusing and no mirror, the resolver must fail"
+  exit 1
+fi
+
 # The newest cmux-tui commit lost its artifacts (failed or still-running artifacts run).
 rm "$STORE/$C3/manifest.json"
 if (cd "$TMP/work" && "$RESOLVER" >/dev/null 2>&1); then
@@ -215,6 +235,40 @@ for missing in 404 410; do
     exit 1
   fi
 done
+
+# Exact mode tells "not published" from "lookup failed" (handbook failure-drops-its-reason).
+# Reload run 45957833267 (a9d66bb6) printed one "no published client" line for a real
+# 404 and a probe that never got an answer alike, and its callers could not take the
+# nightly's older tree on a real miss without also taking it on an outage.
+# In $TMP/full, HEAD's input version is C3's alone: one probe decides exact mode.
+exact_with_curl_script() {
+  printf '%s\n' "$@" >"$TMP/curl-script"
+  rc=0
+  (cd "$TMP/full" && PATH="$TMP/shim:$PATH" CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS=0 "$RESOLVER" >/dev/null 2>"$TMP/exact.err") || rc=$?
+}
+exact_with_curl_script 404
+expect_curl_script_drained
+if [[ $rc != 4 ]] || ! grep -q '^error: not published:' "$TMP/exact.err" || grep -q 'lookup failed' "$TMP/exact.err"; then
+  echo "FAIL: a definitive 404 in exact mode must exit 4 with \"not published\", got exit $rc:"
+  cat "$TMP/exact.err"
+  exit 1
+fi
+# Six failed attempts (DNS, 5xx, 429, an empty answer) never answered: lookup failed, exit 1.
+exact_with_curl_script dns 503 429 502 dns 500
+expect_curl_script_drained
+if [[ $rc != 1 ]] || ! grep -q '^error: lookup failed:' "$TMP/exact.err" || grep -q '^error: not published' "$TMP/exact.err"; then
+  echo "FAIL: a probe that keeps failing must exit 1 with \"lookup failed\", got exit $rc:"
+  cat "$TMP/exact.err"
+  exit 1
+fi
+# A transient failure that clears is no failure: the same probe retried finds C3.
+exact_with_curl_script 503 dns
+expect_curl_script_drained
+if [[ $rc != 0 ]]; then
+  echo "FAIL: a transient probe failure that clears must resolve $C3, got exit $rc:"
+  cat "$TMP/exact.err"
+  exit 1
+fi
 
 for bad in x -1; do
   rc=0

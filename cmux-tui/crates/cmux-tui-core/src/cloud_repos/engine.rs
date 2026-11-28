@@ -31,7 +31,7 @@ impl Failure {
             return install_link_required();
         }
         Self(
-            json!({"code":"repo.needs_github", "message":"Connect GitHub in the card. This add will retry automatically when connected; no new message is needed.", "install_url":url}),
+            json!({"code":"repo.needs_github", "message":"Connect GitHub in the card. This add continues on its own once GitHub is connected; no new message is needed.", "install_url":url}),
         )
     }
 }
@@ -56,7 +56,7 @@ pub(super) fn valid_install_url(value: &str) -> bool {
 pub(super) fn install_link_required() -> Failure {
     Failure::new(
         "seed.bad_request",
-        "Open Add repository on your Mac to refresh the GitHub installation link, then retry.",
+        "Open Add repository on your Mac to refresh the GitHub installation link.",
     )
 }
 
@@ -227,7 +227,7 @@ fn choose(matches: Vec<Repo>) -> Result<String, Failure> {
 pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure> {
     let session =
         args.get("session").and_then(Value::as_str).filter(|s| valid_name(s)).ok_or_else(|| {
-            Failure::new("seed.bad_request", "Open a Cloud chat and retry with its chat ID.")
+            Failure::new("seed.bad_request", "Pass the chat ID of an open Cloud chat.")
         })?;
     let input = args
         .get("repo")
@@ -244,10 +244,7 @@ pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure
             Some(r.as_str())
         }
         _ => {
-            return Err(Failure::new(
-                "seed.bad_request",
-                "Choose a valid branch, tag or commit and retry.",
-            ));
+            return Err(Failure::new("seed.bad_request", "Choose a valid branch, tag or commit."));
         }
     };
     let result = (|| {
@@ -302,7 +299,7 @@ pub(crate) fn seed_failure(value: &Value) -> Failure {
     if code == "repo.no_access" || code == "seed.no_access" {
         let mut result = Failure::new(
             "repo.no_access",
-            "Install GitHub access for this organization, or request access from its owner, then retry Add repository.",
+            "Install GitHub access for this organization, or request access from its owner.",
         );
         if let Some(org) = value.get("org").and_then(Value::as_str) {
             result.0.set("org", json!(org));
@@ -315,21 +312,15 @@ pub(crate) fn seed_failure(value: &Value) -> Failure {
         return result;
     }
     let message = match code {
-        "seed.folder_not_empty" => {
-            "Choose a different chat or move the existing folder, then retry Add repository."
+        "seed.folder_not_empty" => "Choose a different chat or move the existing folder.",
+        "seed.disk_full" => "Free disk space on this Cloud machine.",
+        "seed.bad_request" => "Choose a valid GitHub repository and branch.",
+        "seed.checkout_failed" => "Choose an existing branch, tag or full commit SHA.",
+        "seed.unknown_job" => {
+            "The Cloud machine's clone service restarted and lost this clone; adding the repository starts a new one."
         }
-        "seed.disk_full" => "Free disk space on this Cloud machine, then retry Add repository.",
-        "seed.bad_request" => {
-            "Choose a valid GitHub repository and branch, then retry Add repository."
-        }
-        "seed.checkout_failed" => {
-            "Choose an existing branch, tag or full commit SHA, then retry Add repository."
-        }
-        "seed.unknown_job" => "Retry Add repository to start a new clone job.",
-        "seed.unavailable" => "Open a chat on a Cloud machine, then retry Add repository.",
-        _ => {
-            "Retry Add repository. If cloning still fails, check repository access and the machine's network."
-        }
+        "seed.unavailable" => "Open a chat on a Cloud machine to add a repository to it.",
+        _ => "Cloning failed. Check the repository's access and the Cloud machine's network.",
     };
     Failure::new(if code.starts_with("seed.") { code } else { "seed.clone_failed" }, message)
 }

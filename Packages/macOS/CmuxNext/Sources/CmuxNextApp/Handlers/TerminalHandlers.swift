@@ -168,20 +168,20 @@ enum TerminalHandlers {
 extension TerminalHandlers {
     static func bindComments(into registry: ActionRegistry, context ctx: AppActionContext) {
         let id: ActionID = "terminal.sendSelectionToChat"
-        let threads = TerminalCommentThreads()
+        let threads = TerminalCommentThreads(terminal: { ctx.services.cache.existingTerminal($0)?.session }, refuse: { ctx.refuse($0) })
         registry.bindEffect(id, effect: { invocation in
             guard invocation.isPersonsOwnRun else { return .refused(TerminalCommentStrings.gesture) }
             let (found, reason) = commentTarget(invocation, ctx)
             guard let target = found else { return .refused(reason ?? TerminalToChatPlaceholders.reason) }
             guard let entry = ctx.terminal(invocation) else { return .done }
             guard let quote = selection(of: entry) else { return .refused(RefusalStrings.nothingSelected) }
-            let anchor = entry.session.surfaceView
+            let anchor = entry.session.surfaceView, rows = entry.session.commentAnchorRows()
             guard let window = anchor.window else { return .refused(RefusalStrings.notATerminal) }
             // ChatQuote titles a source by its last path component; a terminal title is not a path.
             let title = (target.terminal.title ?? "").isEmpty ? TerminalCommentStrings.terminal : target.terminal.title ?? ""
             ViewerCommentPrompt(quote: ChatQuote(source: title.replacingOccurrences(of: "/", with: "\u{2215}"), kind: .code, quoted: quote))
                 .run(in: window) { commented in
-                    threads.send(commented.comment, quote: quote, to: target, anchor: anchor, failed: { ctx.refuse($0) })
+                    threads.send(commented.comment, quote: quote, rows: rows, to: target, anchor: anchor, failed: { ctx.refuse($0) })
                 }
             return .done
         })

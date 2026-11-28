@@ -202,7 +202,9 @@ _NON_RUNNING_FILES = frozenset({
     ".github/actionlint.yaml",
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
+    ".github/cloud-harness-matrix/request",
     ".github/cloud-machine-count-probe/request",
+    ".github/cloud-staging-test-sweep/request",
     ".github/cloud-surge-proof/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
     ".github/design-surfaces.json",
@@ -1117,6 +1119,12 @@ SHARED_WEB_WORKFLOW_EXACT = frozenset({
     "scripts/run-diff-sidecar-cargo.sh",
 })
 
+RELAY_PARAMS_RULE = frozenset({
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+})
+
 SHARED_WEB_WORKFLOW_PREFIXES = (
     "Native/DiffSidecar/",
     # The diff sidecar links this crate by path.
@@ -1285,6 +1293,11 @@ def is_web_change(path: str) -> bool:
     # these (web_subareas.UNIT_TESTS_EXACT); #38631 changed the catalog alone,
     # skipped Web tests and turned them red on base.
     if path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        return True
+    # webviews/test/agent-pane-relay-params-contract.test.ts checks every key the page sends
+    # against the relay's params rule and its Rust mirror (web_subareas.REACT_EXACT): a PR that
+    # changes only the rule runs it too (cmux#46563 refused every handshake).
+    if path in RELAY_PARAMS_RULE:
         return True
     if is_web_bundle_input(path):
         return True
@@ -1835,7 +1848,12 @@ def test_registry_linux_only(base_path: Optional[Path]) -> bool:
 def classify_files(paths: Iterable[str], *,
                    ci_workflow_areas: Optional[ChangeAreas] = None,
                    macos_workflow_areas: Optional[ChangeAreas] = None,
-                   test_registry_linux_only: bool = False) -> ChangeAreas:
+                   test_registry_linux_only: bool = False,
+                   fallbacks: Optional[list[tuple[str, str]]] = None) -> ChangeAreas:
+    """`fallbacks`, when given, collects (rule, path) for every path a
+    fail-open rule broadened because the planner could not narrow it."""
+    if fallbacks is None:
+        fallbacks = []
     macos = False
     web = False
     agent_session_web = False
@@ -1858,6 +1876,7 @@ def classify_files(paths: Iterable[str], *,
             # Python lanes consume it indirectly through their lane runner.
             # A Linux reference alone cannot prove native execution unchanged.
             if not test_registry_linux_only:
+                fallbacks.append(("test_registry_not_linux_only", path))
                 macos = True
                 release_build = True
             continue
@@ -1887,6 +1906,7 @@ def classify_files(paths: Iterable[str], *,
                 release_build = release_build or helper_areas.release_build
                 continue
         if forces_all_areas(path):
+            fallbacks.append(("ci_yml_jobs_unreadable" if path == CI_WORKFLOW_PATH else "unowned_ci_helper", path))
             macos = True
             web = True
             agent_session_web = True
@@ -1910,6 +1930,8 @@ def classify_files(paths: Iterable[str], *,
             # only when a Release job or a job feeding it changed; without
             # the comparison, every job body including the Release check.
             macos = True
+            if macos_workflow_areas is None:
+                fallbacks.append(("ci_macos_yml_jobs_unreadable", path))
             if macos_workflow_areas is None or macos_workflow_areas.release_build:
                 release_build = True
             continue
@@ -1942,6 +1964,8 @@ def classify_files(paths: Iterable[str], *,
                 agent_session_web = agent_session_web or script_areas.agent_session_web
                 release_build = release_build or script_areas.release_build
                 continue
+            if is_walkable_script(path):
+                fallbacks.append(("unplaced_script", path))
             macos = True
             if not is_release_build_neutral(path):
                 release_build = True
@@ -1983,6 +2007,36 @@ def load_macos_workflow_areas(base_path: Optional[Path]) -> Optional[ChangeAreas
     release = "unknown" if selected is None else bool_output(selected.release_build)
     print(f"ci-macos.yml changed; a Release job or its input differs: {release}")
     return selected
+
+
+def plan_line(reason: str, fallbacks: list[tuple[str, str]]) -> str:
+    """One line naming the plan this run took, for a weekly roll-up of how
+    often PR CI falls back to a broad plan and which rule forced it
+    (docs/reading/2026-11-26-cloudflare-dns-targeted-zone-builds.md in
+    cmuxterm-hq). `full` is the post-merge run, broad by design; `fail_open`
+    is a PR run a fail-open rule broadened; `targeted` is a PR run the
+    planner placed path by path."""
+    if reason == "post_merge_event":
+        plan = "full"
+    elif reason or fallbacks:
+        plan = "fail_open"
+    else:
+        plan = "targeted"
+    rules: dict[str, int] = {}
+    for rule, _ in fallbacks:
+        rules[rule] = rules.get(rule, 0) + 1
+    if not reason:
+        reason = ",".join(f"{rule}:{count}" for rule, count in sorted(rules.items())) or "none"
+    first = f" first={fallbacks[0][1]}" if fallbacks else ""
+    return f"ci-plan v1 class={plan} fallback={reason}{first}"
+
+
+def emit_plan(line: str) -> None:
+    print(line)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        # An annotation, so the roll-up reads it from the check run
+        # without downloading the job log.
+        print(f"::notice title=ci-plan::{line}")
 
 
 def run_git(args: list[str]) -> str:
@@ -2045,9 +2099,12 @@ def main(argv: list[str]) -> int:
         print(f"Non-PR event '{args.event_name or 'unknown'}'; running all CI areas.")
         write_outputs(areas, args.github_output)
         print("Resolved areas: " + " ".join(areas.as_output_lines()))
+        emit_plan(plan_line("post_merge_event", []))
         return 0
 
     files: list[str] = []
+    fallbacks: list[tuple[str, str]] = []
+    reason = ""
     try:
         if args.files_from:
             files = args.files_from.read_text(encoding="utf-8").splitlines()
@@ -2061,12 +2118,15 @@ def main(argv: list[str]) -> int:
                 ci_workflow_areas=load_ci_workflow_areas(args.ci_workflow_base),
                 macos_workflow_areas=load_macos_workflow_areas(args.macos_workflow_base),
                 test_registry_linux_only=test_registry_linux_only(args.test_registry_base),
+                fallbacks=fallbacks,
             )
         else:
             areas = ChangeAreas.all()
+            reason = "empty_diff"
             print("PR diff is empty; running all CI areas.")
     except Exception as error:
         areas = ChangeAreas.all()
+        reason = "classify_error"
         print(f"Could not classify diff, running all CI areas: {error}", file=sys.stderr)
 
     if files:
@@ -2078,6 +2138,7 @@ def main(argv: list[str]) -> int:
 
     write_outputs(areas, args.github_output)
     print("Resolved areas: " + " ".join(areas.as_output_lines()))
+    emit_plan(plan_line(reason, fallbacks))
     return 0
 
 

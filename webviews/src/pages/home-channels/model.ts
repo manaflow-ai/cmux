@@ -26,9 +26,6 @@ export interface RailSections {
   direct: HomeConversation[];
 }
 
-const byPinThenTime = (a: HomeConversation, b: HomeConversation) =>
-  Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt;
-
 /** The channels: every group, and every titled room that repeats a member's direct message. With
  * one other member, the oldest conversation (created, then id; the rule HomeChiefName.select uses
  * for the Chief) is the direct message, whatever its title (the Chief's DM is titled "Chief" in
@@ -58,33 +55,81 @@ export function withChiefNames(
   channels: ReadonlySet<string>,
   me: string | undefined,
   chiefs: ReadonlyMap<string, { name: string }>,
+  cache?: RenamedCache,
 ): ReadonlyMap<string, HomeConversation> {
-  if (chiefs.size === 0) return conversations;
+  if (chiefs.size === 0) {
+    cache?.clear();
+    return conversations;
+  }
   let changed: Map<string, HomeConversation> | undefined;
+  const seen = new Set<string>();
   for (const c of conversations.values()) {
     if (channels.has(c.id)) continue;
     const others = c.participants.filter((p) => p.id !== me);
     const record = others.length === 1 && others[0]!.chief ? chiefs.get(others[0]!.id) : undefined;
     if (!record || (c.title === record.name && others[0]!.name === record.name)) continue;
     changed ??= new Map(conversations);
-    changed.set(c.id, {
+    seen.add(c.id);
+    // The same conversation under the same name is the object the list already holds: its memo row
+    // draws again only when the conversation or the Chief's name changed.
+    const held = cache?.get(c.id);
+    if (held && held.input === c && held.name === record.name) {
+      changed.set(c.id, held.output);
+      continue;
+    }
+    const output = {
       ...c,
       title: record.name,
       participants: c.participants.map((p) => (p.id === others[0]!.id ? { ...p, name: record.name } : p)),
-    });
+    };
+    cache?.set(c.id, { input: c, name: record.name, output });
+    changed.set(c.id, output);
   }
+  if (cache) for (const id of cache.keys()) if (!seen.has(id)) cache.delete(id);
   return changed ?? conversations;
 }
 
-export function railSections(conversations: Iterable<HomeConversation>, me?: string): RailSections {
-  const list = [...conversations];
-  const ids = channelIds(list, me);
-  const channels: HomeConversation[] = [];
-  const direct: HomeConversation[] = [];
-  for (const conversation of list) (ids.has(conversation.id) ? channels : direct).push(conversation);
-  channels.sort(byPinThenTime);
-  direct.sort((a, b) => Number(b.kind === "chief") - Number(a.kind === "chief") || byPinThenTime(a, b));
-  return { channels, direct };
+/** withChiefNames' renamed conversations by id: the input it renamed, the name, and the result. */
+export type RenamedCache = Map<string, { input: HomeConversation; name: string; output: HomeConversation }>;
+
+/** withChiefNames over its own RenamedCache: each call keeps the renamed conversations of the last
+ * one while their input and name hold. One per page, so the cache lives with it and not in a ref. */
+export function chiefNamer(): (
+  conversations: ReadonlyMap<string, HomeConversation>,
+  channels: ReadonlySet<string>,
+  me: string | undefined,
+  chiefs: ReadonlyMap<string, { name: string }>,
+) => ReadonlyMap<string, HomeConversation> {
+  const cache: RenamedCache = new Map();
+  return (conversations, channels, me, chiefs) => withChiefNames(conversations, channels, me, chiefs, cache);
+}
+
+/**
+ * A reply's conversations, each one that did not change kept as the object the page already holds:
+ * the inbox re-sends the whole list, and a memoized row draws again only for the one that changed.
+ */
+export function keepUnchanged(
+  previous: ReadonlyMap<string, HomeConversation>,
+  next: readonly HomeConversation[],
+): HomeConversation[] {
+  return next.map((conversation) => {
+    const old = previous.get(conversation.id);
+    return old && sameValue(old, conversation) ? old : conversation;
+  });
+}
+
+/** Equal as data: the same primitives, arrays and plain objects (a conversation's participants). */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(b, key) &&
+      sameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
+  );
 }
 
 /** The rail and header name: the title, else the other participants' names. */
@@ -181,9 +226,6 @@ export function partText(part: HomePart): string {
       return part.fallback;
   }
 }
-
-/** Whether a part shows anything (a work part without a preview is no bubble, Swift `HomeMapping.parts`). */
-export const partShows = (part: HomePart): boolean => part.type !== "work" || workShownText(part) !== undefined;
 
 export function messageText(message: HomeMessage): string {
   return message.parts.map(partText).join("\n");
@@ -463,43 +505,6 @@ export function lastEditable(
 /** The other participants (an @ mention's choices). */
 export function others(conversation: HomeConversation | undefined, me: string | undefined) {
   return conversation ? conversation.participants.filter((p) => p.id !== me) : [];
-}
-
-/** What the other member of a direct message is (Chief, Agent); nothing for a person or a channel.
- * The rail shows it only when the name does not already say it. */
-export function memberTag(
-  conversation: HomeConversation,
-  me: string | undefined,
-  channel: boolean,
-): "chief" | "agent" | undefined {
-  if (channel) return undefined;
-  const other = conversation.participants.find((p) => p.id !== me);
-  if (!other || other.kind !== "agent") return undefined;
-  return other.chief ? "chief" : "agent";
-}
-
-/** A muted disambiguator for conversations that share a name: the last activity, and the id's
- * end when even that is the same. Conversations with a unique name get none. */
-export function disambiguators(
-  conversations: Iterable<HomeConversation>,
-  me: string | undefined,
-  stamp: (at: number) => string,
-): Map<string, string> {
-  const byName = new Map<string, HomeConversation[]>();
-  for (const c of conversations) {
-    const key = conversationName(c, me).trim().toLowerCase();
-    byName.set(key, [...(byName.get(key) ?? []), c]);
-  }
-  const out = new Map<string, string>();
-  for (const group of byName.values()) {
-    if (group.length < 2) continue;
-    const stamps = group.map((c) => stamp(c.updatedAt));
-    group.forEach((c, index) => {
-      const same = stamps.filter((s) => s === stamps[index]).length > 1;
-      out.set(c.id, same ? `${stamps[index]} · ${c.id.slice(-4)}` : stamps[index]!);
-    });
-  }
-  return out;
 }
 
 /** The id prefix of a message I sent that the owner has not shown yet. */

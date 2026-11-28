@@ -229,6 +229,7 @@ extension AgentPaneGitPullRequest {
 
     /// The Create PR caller did not provide the session-host push wire.
     nonisolated static var pushUnavailableMessage: String {
+        // retry-prompt-ok: pushing a branch is a side effect the person started
         String(localized: "agentPane.error.gitPushUnavailable",
                defaultValue: "The branch could not be pushed; reconnect the chat and try again.", bundle: .localizedModule)
     }
@@ -247,6 +248,7 @@ extension AgentPaneGitPullRequest {
     }
 
     nonisolated static var sessionRepositoryMessage: String {
+        // retry-prompt-ok: opening a pull request is a side effect the person started
         "The pull request folder is not this chat's repository. Refresh the chat and try again."
     }
 
