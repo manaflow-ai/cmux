@@ -98,6 +98,8 @@ CLEAR_FRACTION = 0.5
 REFRESH = dt.timedelta(minutes=15)
 MAX_RECORD_PAGES = 3
 DEFAULT_CONTROLLER = "http://100.89.225.106:18765"
+# The hourly runner-minute budget per workflow (observe-only; see workflow_budget()). Unset: nothing is judged.
+BUDGET_VAR = "CI_WORKFLOW_HOUR_BUDGET"
 
 
 def parse_time(value: object) -> dt.datetime | None:
@@ -465,6 +467,52 @@ def read_runners(token: str, repo: str, *, github: Callable[[str, str], Any] | N
         return None
 
 
+def budgets(raw: str | None) -> dict[str, float]:
+    """CI_WORKFLOW_HOUR_BUDGET: a JSON object of workflow name -> runner-min an hour. Anything else is no budget."""
+    try:
+        parsed = json.loads(raw or "")
+    except ValueError:
+        return {}
+    if not isinstance(parsed, Mapping):
+        return {}
+    return {str(name): float(cap) for name, cap in parsed.items()
+            if isinstance(cap, (int, float)) and not isinstance(cap, bool) and cap > 0}
+
+
+def hour_minutes(records: Iterable[Mapping[str, Any]], start: dt.datetime, end: dt.datetime) -> dict[str, float]:
+    """Workflow -> runner-minutes of the jobs that finished in [start, end), from timing records."""
+    out: dict[str, float] = {}
+    for item in records:
+        at = parse_time(item.get("at"))
+        seconds = item.get("seconds")
+        if at is None or not start <= at < end or not isinstance(seconds, (int, float)):
+            continue
+        name = str(item.get("workflow") or "")
+        out[name] = out.get(name, 0.0) + seconds / 60.0
+    return out
+
+
+def workflow_budget(records: Iterable[Mapping[str, Any]] | None, now: dt.datetime,
+                    caps: Mapping[str, float]) -> dict[str, dict[str, Any]]:
+    """Per-workflow hourly runner-minute budget, judged over the last whole hour: {workflow: {"hour", "min",
+    "budget", "over", "would_hold_min"}} for each budgeted workflow.
+
+    Observe-only. CI spend is a rate, so a 5-hour spike shows within the hour instead of in the next day's rolling
+    total (goal ci-runner-min-per-day-500k, 11-26 10-15Z). Nothing reads `over` to route yet: once a few days of
+    passes show what the budget would have held, the hold is a queued job (a runner label nothing serves until the
+    hour turns), never a failed one, and required jobs of a landing head or a base push stay exempt."""
+    if not caps or records is None:
+        return {}
+    end = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    spent = hour_minutes(records, end - dt.timedelta(hours=1), end)
+    out: dict[str, dict[str, Any]] = {}
+    for name in sorted(caps):
+        used = spent.get(name, 0.0)
+        out[name] = {"hour": iso(end - dt.timedelta(hours=1)), "min": round(used, 1), "budget": caps[name],
+                     "over": used > caps[name], "would_hold_min": round(max(0.0, used - caps[name]), 1)}
+    return out
+
+
 def admission(env: Mapping[str, str], now: dt.datetime, *,
               request: Callable[[str, float], tuple[int, bytes, Any]] | None = None,
               previous: Mapping[str, Any] | None = None,
@@ -481,6 +529,10 @@ def admission(env: Mapping[str, str], now: dt.datetime, *,
     if not controller or not repo:
         return {}
     feed, records = read_feeds(controller, repo, now, request=request)
+    for name, entry in workflow_budget(records, now, budgets(env.get(BUDGET_VAR))).items():
+        print(f"::notice title=Workflow hour budget (observe-only)::{name}: {entry['min']:.0f} of "
+              f"{entry['budget']:.0f} runner-min in the hour from {entry['hour']}"
+              + (f"; over: a hold would queue {entry['would_hold_min']:.0f}" if entry["over"] else ""))
     runners = read_runners((env.get("RUNNER_ADMISSION_RUNNERS_TOKEN") or "").strip(), repo, github=github)
     found = verdicts(feed, records, now=now, slots_raw=env.get("CI_OWNED_POOL_SLOTS"), previous=previous,
                      runners=runners)
@@ -489,6 +541,24 @@ def admission(env: Mapping[str, str], now: dt.datetime, *,
 
 if __name__ == "__main__":
     import os
+
+    if sys.argv[1:2] == ["budget-replay"]:
+        # expected_wait.py budget-replay RECORDS.json '{"pr router": 3000}': each whole hour's minutes and what the
+        # budget would have held, over saved timing records (a measurement, no controller read).
+        rows = json.loads(Path(sys.argv[2]).read_text())
+        caps = budgets(sys.argv[3])
+        times = sorted(t for t in (parse_time(r.get("at")) for r in rows) if t is not None)
+        hour = times[0].replace(minute=0, second=0, microsecond=0) if times else None
+        total = 0.0
+        while hour is not None and hour <= times[-1]:
+            spent = hour_minutes(rows, hour, hour + dt.timedelta(hours=1))
+            for name, cap in sorted(caps.items()):
+                held = max(0.0, spent.get(name, 0.0) - cap)
+                total += held
+                print(f"{iso(hour)}\t{name}\t{spent.get(name, 0.0):.0f}\t{cap:.0f}\t{held:.0f}")
+            hour += dt.timedelta(hours=1)
+        print(f"would hold\t{total:.0f}")
+        raise SystemExit(0)
 
     moment = dt.datetime.now(UTC)
     environment = dict(os.environ)

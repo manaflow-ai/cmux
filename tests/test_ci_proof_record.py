@@ -7,7 +7,9 @@ import json
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -56,6 +58,22 @@ class Record(unittest.TestCase):
         body = pr.render(RECORD, "summary")
         self.assertTrue(body.startswith(f"<!-- cmux-proof-record ios-flows {HEAD} -->"))
         self.assertEqual(pr.parse(body), RECORD)
+
+    def test_a_big_record_still_fits_one_comment(self):
+        # cmux#38466: 201 screens rendered 38365 characters, the broker refused it and the gate never saw the proof.
+        big = copy.deepcopy(RECORD)
+        big["captures"] = [{"name": f"{i:08X}-4C8B-4892-AAAB-66BEE93F5ACA.png", "sha256": f"{i:064x}",
+                            "diff_ratio": 0.0008, "verdict": "same"} for i in range(201)]
+        big["visual"] = {"screens": 201, "changed": [c["name"] for c in big["captures"][:100]]}
+        self.assertGreater(len(json.dumps(big, indent=1)), pr.COMMENT_BUDGET)
+        body = pr.render(big, "summary")
+        self.assertLessEqual(len(body), pr.COMMENT_BUDGET)
+        back = pr.parse(body)
+        self.assertEqual(back["verdict"], "pass")
+        self.assertEqual(len(back["captures"]), 201)
+        self.assertEqual(pr.gate(back, "ios-flows")[0], "success")
+        self.assertEqual(back["captures"][0]["sha256"], f"{0:012x}")
+        self.assertIn('\n "kind"', pr.render(RECORD))  # a small record keeps the readable indented form
 
     def test_problems(self):
         self.assertEqual(pr.problems(RECORD), [])
@@ -112,7 +130,8 @@ class Gate(unittest.TestCase):
         try:
             out = io.StringIO()
             with redirect_stdout(out):
-                pr.main(["gate", "--suite", "ios-flows"])
+                rc = pr.main(["gate", "--suite", "ios-flows"])
+            self.assertEqual(rc, pr.UNREAD)
             self.assertTrue(out.getvalue().startswith("error\t"))
         finally:
             os.environ.update({k: v for k, v in saved.items() if v is not None})
@@ -128,11 +147,85 @@ class Gate(unittest.TestCase):
 
 
 class Plan(unittest.TestCase):
+    def test_simulator_dispatch_identity(self):
+        from unittest import mock
+
+        step = {"name": "pair", "mode": "pair-e2e", "worker": "cmux22", "args": ["pair-e2e"]}
+
+        def dispatch(head=HEAD, strict=False, attempt="1", **changes):
+            with mock.patch.object(ios_verify, "stream", return_value=(0, "")) as run:
+                ios_verify.run_step({**step, **changes}, head, 7, strict, attempt)
+            cmd = run.call_args.args[0]
+            return cmd[cmd.index("--key") + 1]
+
+        with mock.patch.object(ios_verify.time, "time", return_value=1):
+            key = dispatch()
+        with mock.patch.object(ios_verify.time, "time", return_value=2):
+            self.assertEqual(key, dispatch())
+        self.assertNotEqual(key, dispatch(head=HEAD[:-1] + "b"))
+        self.assertNotEqual(key, dispatch(args=["pair-e2e", "reconnect-drops=10,60"]))
+        # The same work on another worker is one step (dedupes in the queue) unless the run is pinned strict.
+        self.assertEqual(key, dispatch(worker="aws-m4pro-4"))
+        self.assertNotEqual(dispatch(strict=True), dispatch(strict=True, worker="cmux23"))
+        self.assertNotEqual(key, dispatch(strict=True))
+        self.assertNotEqual(key, dispatch(attempt="2"))
+        self.assertEqual(dispatch(attempt="2"), dispatch(attempt="2"))
+
+    def test_a_leased_worker_falls_to_the_next_placement(self):
+        refusal = ("refused: fleet registry reservation lease-abc holds this worker for another account: nothing is "
+                   "moved to or tested on it; omit target_worker so the job places on the rest of the fleet")
+        step = {"name": "sim 1/2: test only=K1", "mode": "test", "worker": "w1", "args": ["test"]}
+
+        def run(outputs, strict=False, leased=None, workers=("w1", "w2")):
+            with mock.patch.object(ios_verify, "stream", side_effect=outputs) as s, \
+                    mock.patch.object(ios_verify, "xcode_label", return_value=None):
+                out = ios_verify.run_step(dict(step), HEAD, 7, strict, "1", list(workers), leased or set())
+            cmds = [c.args[0] for c in s.call_args_list]
+            pins = [c[c.index("--target-worker") + 1] if "--target-worker" in c else None for c in cmds]
+            return out, pins, [c[c.index("--key") + 1] for c in cmds]
+
+        # Refused for a lease: the next named worker, then unpinned placement; each retry gets its own key.
+        out, pins, keys = run([(1, refusal), (1, refusal), (0, "ok")])
+        self.assertEqual(pins, ["w1", "w2", None])
+        self.assertEqual(len(set(keys)), 3)
+        self.assertEqual((out["result"], out["worker"], out["refused_workers"]), ("pass", None, ["w1", "w2"]))
+        self.assertNotIn("refused_workers", ios_verify.public_runs([out])[0])
+        # A lease read up front skips the worker without a refused submission.
+        _, pins, _ = run([(0, "ok")], leased={"w1"})
+        self.assertEqual(pins, ["w2"])
+        # Any other failure is the PR's result, not a reason to move.
+        out, pins, _ = run([(1, "test failed: K1")])
+        self.assertEqual((pins, out["result"]), (["w1"], "fail"))
+        # --pin-strict never falls back off its worker.
+        out, pins, _ = run([(1, refusal)], strict=True, leased={"w1"})
+        self.assertEqual((pins, out["result"]), (["w1"], "fail"))
+
+    def test_leased_hosts_reads_the_active_leases(self):
+        done = mock.Mock(returncode=0, stdout=json.dumps(
+            {"leases": [{"hosts": ["w1.tail", "w2"]}, {"hosts": None}], "view": "active"}))
+        with mock.patch.object(ios_verify.subprocess, "run", return_value=done):
+            self.assertEqual(ios_verify.leased_hosts(), {"w1", "w2"})
+        with mock.patch.object(ios_verify.subprocess, "run", side_effect=OSError("no cmux-ci")):
+            self.assertEqual(ios_verify.leased_hosts(), set())
+        with mock.patch.object(ios_verify.subprocess, "run", return_value=mock.Mock(returncode=1, stdout="")):
+            self.assertEqual(ios_verify.leased_hosts(), set())
+
     def selection(self, **kw):
         base = {"ios": True, "compile": False, "flows": ["smoke-launch-sign-in"], "kit": ["K1", "K2"],
                 "ui": ["U1", "U2", "U3"], "swift": [], "scripts": []}
         base.update(kw)
         return base
+
+    def test_step_keys_name_the_head_and_the_shard(self):
+        steps = ios_verify.plan(self.selection(), [], ["cmux22"], "always")
+        keys = [ios_verify.step_key(s, HEAD, 7) for s in steps]
+        self.assertEqual(len(keys), len(set(keys)))
+        moved = [ios_verify.step_key(s, OTHER, 7) for s in steps]
+        self.assertFalse(set(keys) & set(moved))
+        self.assertTrue(all(HEAD[:12] in k for k in keys))
+        # A newer head's key differs only in its head field, so cmux-ci's supersede (commits aside) replaces
+        # the older queued step instead of queueing both.
+        self.assertEqual([k.replace(HEAD, "") for k in keys], [k.replace(OTHER, "") for k in moved])
 
     def test_shards_across_workers_with_video(self):
         steps = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "auto")
@@ -142,12 +235,78 @@ class Plan(unittest.TestCase):
         for t in ("K1", "K2", "U1", "U2", "U3"):
             self.assertIn(t, joined)
 
+    def test_default_shards_and_pair_let_the_fleet_choose_workers(self):
+        # A default host hint hit a reservation and refused the proof before entering the queue.
+        steps = ios_verify.plan(self.selection(), [], ios_verify.workers_from(""), "always")
+        explicit = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "always")
+        self.assertEqual([s["args"] for s in steps], [s["args"] for s in explicit])
+        self.assertEqual(len(steps), 3)
+        keys = []
+        for step in steps:
+            with mock.patch.object(ios_verify, "stream", return_value=(0, "step abc12345")) as run:
+                receipt = ios_verify.run_step(step, HEAD, 7, False)
+            cmd = run.call_args.args[0]
+            self.assertNotIn("--target-worker", cmd)
+            self.assertNotIn("--pin-strict", cmd)
+            self.assertEqual(receipt["step"], "abc12345")
+            key = cmd[cmd.index("--key") + 1]
+            self.assertEqual(key, ios_verify.step_key(step, HEAD, 7))
+            self.assertNotEqual(key, ios_verify.step_key(step, OTHER, 7))
+            keys.append(key)
+        self.assertEqual(len(set(keys)), len(keys))
+
+    def test_explicit_worker_hint_and_strict_pin_reach_dispatch(self):
+        step = {"name": "sim 1/1", "mode": "test", "args": ["test"], "worker": "cmux23"}
+        for strict in (False, True):
+            with self.subTest(strict=strict):
+                with mock.patch.object(ios_verify, "stream", return_value=(0, "")) as run:
+                    ios_verify.run_step(step, HEAD, 7, strict)
+                cmd = run.call_args.args[0]
+                self.assertEqual(cmd[cmd.index("--target-worker") + 1], "cmux23")
+                self.assertEqual("--pin-strict" in cmd, strict)
+
+    def test_cli_worker_defaults_environment_and_override(self):
+        for env, args, expected in (({}, [], ""),
+                                    ({"CMUX_IOS_VERIFY_WORKERS": "cmux23"}, [], "cmux23"),
+                                    ({"CMUX_IOS_VERIFY_WORKERS": "cmux23"},
+                                     ["--workers", "cmux22"], "cmux22")):
+            with self.subTest(env=env, args=args), \
+                    mock.patch.dict(ios_verify.os.environ, env, clear=True), \
+                    mock.patch.object(ios_verify, "workers_from", wraps=ios_verify.workers_from) as workers, \
+                    mock.patch.object(ios_verify, "pr_view", side_effect=RuntimeError("stop before GitHub")):
+                with self.assertRaisesRegex(RuntimeError, "stop before GitHub"):
+                    ios_verify.main(args)
+                workers.assert_called_once_with(expected)
+
+    def test_strict_pin_without_workers_stops_before_github(self):
+        with mock.patch.dict(ios_verify.os.environ, {}, clear=True), \
+                mock.patch.object(ios_verify, "pr_view") as view, \
+                mock.patch("sys.stderr"):
+            with self.assertRaises(SystemExit) as raised:
+                ios_verify.main(["--pin-strict"])
+        self.assertEqual(raised.exception.code, 2)
+        view.assert_not_called()
+
     def test_pair_e2e_follows_the_flows(self):
         flows = [{"id": "pairing", "pair_e2e": True}]
         sel = self.selection(flows=["pairing"])
         self.assertEqual(ios_verify.plan(sel, flows, ["cmux23"], "auto")[-1]["mode"], "pair-e2e")
         self.assertNotIn("pair-e2e", [s["mode"] for s in ios_verify.plan(sel, flows, ["cmux23"], "never")])
         self.assertNotIn("pair-e2e", [s["mode"] for s in ios_verify.plan(self.selection(), flows, ["cmux23"], "auto")])
+
+    def test_selected_pair_is_dispatched_once_and_respects_never(self):
+        flows = [{"id": "pairing", "pair_e2e": True}]
+        for workers in ([], ["cmux23"]):
+            for words in ([], ["reconnect-drops=10,60"]):
+                sel = self.selection(flows=["pairing"], pair=True, pair_e2e=words)
+                for policy in ("auto", "always", "never"):
+                    with self.subTest(workers=workers, words=words, policy=policy):
+                        steps = ios_verify.plan(sel, flows, workers, policy)
+                        pairs = [s for s in steps if s["mode"] == "pair-e2e"]
+                        self.assertEqual(len(pairs), 0 if policy == "never" else 1)
+                        if pairs:
+                            self.assertEqual(pairs[0]["args"], ["pair-e2e", *words])
+                            self.assertEqual(pairs[0]["worker"], workers[0] if workers else None)
 
     def test_never_on_leos_gui_macs(self):
         for bad in ("cosmic-gray", "air-blue.local"):
@@ -183,6 +342,56 @@ class Plan(unittest.TestCase):
             self.assertNotIn(host, body)
         self.assertEqual(rec["runs"][0]["step"], "abc12345")
         self.assertEqual(pr.problems(rec), [])
+
+    def test_posted_body_scrubs_every_host_it_knows(self):
+        # #57488, #57672: a host in any field (a tail, a note, a script name) still got the proof refused.
+        rec = dict(RECORD, runs=[{"name": "script: x on huge-blue", "result": "pass", "step": "abc12345",
+                                  "note": "moved off cmux22 to aws-m4pro-7.local"}], timing={"push_to_proof_s": 212})
+        body = ios_verify.scrub_hosts(pr.render(rec, ios_verify.summary_md(rec)),
+                                      ["cmux22", "huge-blue", "aws-m4pro-7.local", "cmux2"])
+        for host in ("cmux22", "huge-blue", "aws-m4pro-7"):
+            self.assertNotIn(host, body)
+        got = pr.parse(body)
+        self.assertEqual(got["runs"][0]["note"], "moved off a fleet worker to a fleet worker")
+        self.assertEqual((got["head_sha"], got["repo"], got["verdict"]), (HEAD, "manaflow-ai/cmux", "pass"))
+        self.assertEqual(pr.problems(got), [])
+
+    def test_a_base_merge_that_changes_the_loop_runs_the_merged_loop(self):
+        # cmux#57582: its head predated #62103, so the loop it ran still posted the worker, and public-body-guard
+        # refused the comment ("this text names fleet host 'cmux22'"). Merging the base brought the fix onto disk
+        # only; the loop now re-executes the merged copy, pinned to the merged head, before it verifies or posts.
+        from unittest import mock
+
+        class Exec(Exception):
+            pass
+
+        view = {"number": 7, "url": "https://github.com/o/r/pull/7", "baseRefName": "feat-cmux-next",
+                "headRefOid": OTHER}
+        merged_loop = {f: b"merged" for f in ios_verify.TOOL}
+        with mock.patch.object(ios_verify, "pr_view", return_value=view), \
+                mock.patch.object(ios_verify, "merge_base_first", return_value=(HEAD, True)), \
+                mock.patch.object(ios_verify, "TOOL_LOADED", merged_loop), \
+                mock.patch.dict(ios_verify.os.environ, {}, clear=False), \
+                mock.patch.object(ios_verify.os, "execve", side_effect=Exec) as execve:
+            ios_verify.os.environ.pop(ios_verify.REEXEC_HEAD, None)
+            with self.assertRaises(Exec):
+                ios_verify.main(["--pr", "7", "--workers", "cmux22"])
+        exe, args, env = execve.call_args.args
+        self.assertEqual(args[1:], ["-I", str(ios_verify.HERE / "ios_verify.py"), "--pr", "7", "--workers", "cmux22"])
+        self.assertEqual(env[ios_verify.REEXEC_HEAD], HEAD)
+
+        # The merged loop takes the merged head as given: it neither merges again nor re-executes again.
+        with mock.patch.object(ios_verify, "pr_view", return_value=view), \
+                mock.patch.object(ios_verify, "merge_base_first") as merge, \
+                mock.patch.dict(ios_verify.os.environ, {ios_verify.REEXEC_HEAD: HEAD}), \
+                mock.patch.object(ios_verify, "git", side_effect=Exec) as git:
+            with self.assertRaises(Exec):
+                ios_verify.main(["--pr", "7", "--workers", "cmux22"])
+        merge.assert_not_called()
+        self.assertEqual(git.call_args.args, ("merge-base", "origin/feat-cmux-next", HEAD))
+
+        # An unchanged loop goes on in this process.
+        self.assertFalse(ios_verify.tool_changed())
 
     def test_baseline_prefers_a_proof_in_the_nightly(self):
         rec = dict(RECORD, runs=[dict(RECORD["runs"][0], mode="test")])
@@ -236,6 +445,37 @@ class TokenFallbackTest(unittest.TestCase):
         self.assertEqual(pr.with_tokens(read, ["run", "pool1", "pool2"]), "read with pool1")
         self.assertEqual(seen, ["run", "pool1"])
 
+    def test_a_rate_limited_token_moves_on_without_waiting_it_out(self) -> None:
+        # Before -> after on cmux job 140783003633 (2026-11-27 23:21Z): the run token's comments read got a
+        # rate-limit 403, gh_http slept 900 s in a 5-min job, and the job was cancelled unposted. After: the
+        # pool token reads it at once; only the last token may wait, and no longer than RATE_WAIT_LAST_S.
+        import functools
+        http = pr.gh_http.deadline_http
+        limited = (403, b'{"message":"API rate limit exceeded for installation"}',
+                   http.Headers({"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1900"}))
+        ok = (200, json.dumps([comment("x")]).encode(), http.Headers({}))
+        seen, slept = [], []
+
+        def fake(req, seconds, **kwargs):
+            token = req.get_header("Authorization").split()[-1]
+            seen.append(token)
+            return limited if token == "run" else ok
+
+        retrying = functools.partial(pr.gh_http.request, sleep=slept.append, now=lambda: 1000.0,
+                                     log=lambda line: None)
+        with mock.patch.object(http, "request", side_effect=fake), mock.patch.object(pr.gh_http, "request", retrying):
+            got = pr.with_tokens(lambda token: pr.pr_comments("o/r", 7, token), ["run", "pool1"])
+        self.assertEqual([c["body"] for c in got], ["x"])
+        self.assertEqual(seen, ["run", "pool1"])
+        self.assertEqual(slept, [])
+        # The last token: a limit ending past the bound is not slept on either.
+        seen.clear()
+        with mock.patch.object(http, "request", side_effect=fake), mock.patch.object(pr.gh_http, "request", retrying):
+            with self.assertRaises(pr.urllib.error.HTTPError):
+                pr.with_tokens(lambda token: pr.pr_comments("o/r", 7, token), ["run"])
+        self.assertEqual(slept, [])
+        self.assertEqual(pr._rate_wait_s.get(), pr.RATE_WAIT_LAST_S)
+
     def test_the_last_refusal_and_other_errors_raise(self) -> None:
         import urllib.error
 
@@ -265,6 +505,122 @@ class TokenFallbackTest(unittest.TestCase):
             self.assertEqual(pr.read_tokens(), ["run", "pool1", "pool2"])
         with mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": "", "TOKENS": ""}, clear=False):
             self.assertEqual(pr.read_tokens(), [])
+
+
+class SimStepRoutingTest(unittest.TestCase):
+    """cmux#38805, 11-27: a step pinned to cmux22 moved to a simulator host with no Xcode 27.2 (exit 3), and the
+    strict rerun at the same head was refused, its key already naming that step (HTTP 409)."""
+
+    def test_label_is_newest_macos_pin(self):
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "xcode-pins.txt"
+        tmp.write_text("# macOS  Xcode\n15       26.3\n26       27.2\n27       27.3  # newest\n")
+        self.assertEqual(ios_verify.xcode_label(tmp), "xcode-27.3")
+        self.assertIsNone(ios_verify.xcode_label(tmp.with_name("missing.txt")))
+        self.assertRegex(ios_verify.xcode_label() or "", r"^xcode-\d+\.\d+$")
+
+    def test_run_step_asks_for_the_xcode_label(self):
+        seen = {}
+
+        def fake_stream(cmd, tag):
+            seen["cmd"] = cmd
+            return 0, "step: abcdef123456"
+
+        real = ios_verify.stream
+        ios_verify.stream = fake_stream
+        try:
+            ios_verify.run_step({"name": "sim 1/1", "mode": "test", "worker": "cmux22", "args": ["test"]}, HEAD, 7, True)
+        finally:
+            ios_verify.stream = real
+        cmd = seen["cmd"]
+        self.assertEqual(cmd[cmd.index("--label") + 1], ios_verify.xcode_label())
+        self.assertIn("--pin-strict", cmd)
+
+    def test_stream_echoes_lines_and_returns_output(self):
+        import io
+        err, real = io.StringIO(), ios_verify.sys.stderr
+        ios_verify.sys.stderr = err
+        try:
+            code, text = ios_verify.stream([sys.executable, "-c", "print('queued'); print('step: abc'); raise SystemExit(3)"], "sim 1/1")
+        finally:
+            ios_verify.sys.stderr = real
+        self.assertEqual(code, 3)
+        self.assertEqual(text, "queued\nstep: abc\n")
+        self.assertIn("[sim 1/1] queued\n", err.getvalue())
+
+    def test_key_names_head_and_pin_mode(self):
+        step = {"mode": "test", "worker": "cmux22", "name": "sim 1/1: test", "args": ["test"]}
+        loose, strict = ios_verify.step_key(step, HEAD, 7, False), ios_verify.step_key(step, HEAD, 7, True)
+        self.assertNotEqual(loose, strict)
+        self.assertNotEqual(loose, ios_verify.step_key(step, OTHER, 7, False))
+        self.assertIn(HEAD[:12], loose)
+
+
+class SeededRegression(unittest.TestCase):
+    """A seeded visual regression (a bar painted over 5% of a screen) fails the proof unless the PR body justifies it;
+    no baseline, a size change and a change under 1% never fail."""
+
+    @staticmethod
+    def png(path, w, h, bar=False):
+        """An RGB PNG, stdlib only: a dark screen, with a blue bar over rows 40-49 when BAR (5% of 100x200)."""
+        import struct
+        import zlib
+        dark, blue = bytes((20, 20, 24)), bytes((40, 120, 255))
+        raw = b"".join(b"\0" + (blue if bar and 40 <= y < 50 else dark) * w for y in range(h))
+        chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                         + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+    def setUp(self):
+        import tempfile
+        self.dir = pathlib.Path(tempfile.mkdtemp())
+        (self.dir / "base" / "terminal").mkdir(parents=True)
+        (self.dir / "head" / "terminal").mkdir(parents=True)
+        self.base = self.dir / "base" / "terminal" / "attach.png"
+        self.head = self.dir / "head" / "terminal" / "attach.png"
+        self.png(self.base, 100, 200)
+        self.png(self.head, 100, 200, bar=True)  # the seeded regression
+
+    def run_compare(self, body="", base=True):
+        caps = ios_verify.compare([self.head], {"attach.png": self.base} if base else {}, body)
+        return caps, ios_verify.verdict([{"name": "sim", "result": "pass"}], caps)
+
+    def test_unjustified_change_fails(self):
+        caps, v = self.run_compare()
+        self.assertEqual(v, "fail")
+        self.assertEqual(ios_verify.unjustified(caps), ["attach.png"])
+        self.assertEqual(caps[0]["verdict"], "changed")
+        self.assertEqual(pr.problems({**RECORD, "captures": caps}), [])
+
+    def test_justified_change_passes(self):
+        for line in ("Visual-change: attach.png: new bar", "Visual-change: terminal/*: bar", "Visual-change: *: all"):
+            caps, v = self.run_compare(f"Summary\n\n{line}\n")
+            self.assertEqual(v, "pass", line)
+            self.assertTrue(caps[0]["why"])
+
+    def test_fenced_example_justifies_nothing(self):
+        self.assertEqual(self.run_compare("```\nVisual-change: *: example\n```")[1], "fail")
+
+    def test_no_baseline_passes(self):
+        caps, v = self.run_compare(base=False)
+        self.assertEqual((v, caps[0]["verdict"]), ("pass", "unbaselined"))
+
+    def test_same_and_size_change_pass(self):
+        self.png(self.head, 100, 200)
+        caps, v = self.run_compare()
+        self.assertEqual((v, caps[0]["verdict"]), ("pass", "same"))
+        self.png(self.head, 120, 200, bar=True)  # another device: not comparable, not judged
+        self.assertEqual(self.run_compare()[1], "pass")
+
+    def test_stdlib_decoder_agrees(self):
+        import builtins
+        real = builtins.__import__
+        no_pil = lambda name, *a, **k: (_ for _ in ()).throw(ImportError(name)) if name == "PIL" else real(name, *a, **k)
+        with mock.patch.object(builtins, "__import__", no_pil):
+            self.assertEqual(ios_verify.diff_ratio(self.head, self.base), 0.05)
+            self.assertEqual(self.run_compare()[1], "fail")
+
+    def test_a_failed_run_still_fails(self):
+        self.assertEqual(ios_verify.verdict([{"name": "sim", "result": "error"}], []), "fail")
 
 
 if __name__ == "__main__":
