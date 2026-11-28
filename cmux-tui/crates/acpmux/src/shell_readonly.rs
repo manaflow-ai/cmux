@@ -247,7 +247,7 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path, env: &En
 
 /// Whether shell `script` only reads, as far as its text shows: every command in it passes
 /// the allowlist. Its bare names still need `resolve`, and its git reads `repository_runs_nothing`.
-#[cfg(test)]
+/// Text only, so cheap: the spin rule of `hub/sidecars.rs` reads a turn's commands with it.
 pub(crate) fn is_read_only(script: &str) -> bool {
     git_dirs(script, &|_| true, 0).is_some()
 }

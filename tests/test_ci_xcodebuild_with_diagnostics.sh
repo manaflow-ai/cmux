@@ -312,4 +312,81 @@ if grep -Fq 'xcodebuild stalled' "$TMP_DIR/busy-silent.log"; then
   exit 1
 fi
 
-echo "PASS: xcodebuild failures retain diagnostics, quiet builds emit heartbeats, and stalled builds end"
+# A build service crash ("The Xcode build system has crashed. Build again to continue.") builds once more, once.
+# The fake counts its runs in a file; FAKE_CRASH_TIMES says how many of them crash.
+cat >"$TMP_DIR/fake-service-crash.sh" <<'EOF'
+#!/usr/bin/env bash
+count_file="$FAKE_CRASH_COUNT_FILE"
+runs=$(( $(cat "$count_file" 2>/dev/null || echo 0) + 1 ))
+echo "$runs" >"$count_file"
+echo "fake build run $runs"
+if (( runs <= FAKE_CRASH_TIMES )); then
+  echo "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
+  echo "** BUILD FAILED **"
+  exit 65
+fi
+echo "** BUILD SUCCEEDED **"
+EOF
+chmod +x "$TMP_DIR/fake-service-crash.sh"
+set +e
+FAKE_CRASH_COUNT_FILE="$TMP_DIR/crash-once.count" FAKE_CRASH_TIMES=1 \
+  "$WRAPPER" -- "$TMP_DIR/fake-service-crash.sh" >"$TMP_DIR/crash-once.log" 2>&1
+status=$?
+set -e
+if [[ "$status" -ne 0 || "$(cat "$TMP_DIR/crash-once.count")" != 2 ]] \
+  || ! grep -q '^::warning::xcodebuild: the Xcode build service crashed' "$TMP_DIR/crash-once.log"; then
+  echo "FAIL: a build service crash must build once more and pass, got status $status" >&2
+  cat "$TMP_DIR/crash-once.log" >&2
+  exit 1
+fi
+set +e
+FAKE_CRASH_COUNT_FILE="$TMP_DIR/crash-twice.count" FAKE_CRASH_TIMES=9 \
+  "$WRAPPER" -- "$TMP_DIR/fake-service-crash.sh" >"$TMP_DIR/crash-twice.log" 2>&1
+status=$?
+set -e
+if [[ "$status" -ne 65 || "$(cat "$TMP_DIR/crash-twice.count")" != 2 ]]; then
+  echo "FAIL: a build service that crashes again must fail after exactly one rerun, got status $status after $(cat "$TMP_DIR/crash-twice.count") runs" >&2
+  cat "$TMP_DIR/crash-twice.log" >&2
+  exit 1
+fi
+# The rerun builds without the compilation cache when the crashed build had it on
+# (nightly-next on ultra1-glaeda, 2026-11-27: every attempt on the kept CAS crashed).
+cat >"$TMP_DIR/fake-cas-crash.sh" <<'EOF2'
+#!/usr/bin/env bash
+count_file="$FAKE_CRASH_COUNT_FILE"
+runs=$(( $(cat "$count_file" 2>/dev/null || echo 0) + 1 ))
+echo "$runs" >"$count_file"
+echo "fake build run $runs args: $*"
+for arg in "$@"; do
+  if [[ "$arg" == COMPILATION_CACHE_ENABLE_CACHING=YES ]]; then
+    echo "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
+    exit 65
+  fi
+done
+echo "** BUILD SUCCEEDED **"
+EOF2
+chmod +x "$TMP_DIR/fake-cas-crash.sh"
+set +e
+FAKE_CRASH_COUNT_FILE="$TMP_DIR/crash-cas.count" \
+  "$WRAPPER" -- "$TMP_DIR/fake-cas-crash.sh" -scheme cmux COMPILATION_CACHE_ENABLE_CACHING=YES COMPILATION_CACHE_LIMIT_SIZE=1 \
+  >"$TMP_DIR/crash-cas.log" 2>&1
+status=$?
+set -e
+if [[ "$status" -ne 0 || "$(cat "$TMP_DIR/crash-cas.count")" != 2 ]] \
+  || ! grep -q 'building once more, without the compilation cache' "$TMP_DIR/crash-cas.log" \
+  || ! grep -q 'fake build run 2 args: -scheme cmux COMPILATION_CACHE_ENABLE_CACHING=NO COMPILATION_CACHE_LIMIT_SIZE=1$' "$TMP_DIR/crash-cas.log"; then
+  echo "FAIL: a build service crash with the compilation cache on must rerun with it off, got status $status" >&2
+  cat "$TMP_DIR/crash-cas.log" >&2
+  exit 1
+fi
+# A plain compile error never reruns.
+set +e
+FAKE_XCODEBUILD_ERRORS=1 FAKE_XCODEBUILD_STATUS=65 \
+  "$WRAPPER" -- "$TMP_DIR/fake-xcodebuild.sh" -scheme cmux >"$TMP_DIR/no-crash.log" 2>&1
+set -e
+if grep -q '^::warning::xcodebuild: the Xcode build service crashed' "$TMP_DIR/no-crash.log"; then
+  echo "FAIL: a compile error must not be retried as a build service crash" >&2
+  exit 1
+fi
+
+echo "PASS: xcodebuild failures retain diagnostics, quiet builds emit heartbeats, stalled builds end, and a build service crash builds once more"

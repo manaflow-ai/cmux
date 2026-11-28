@@ -67,6 +67,18 @@ class HostEarlyExitTests(unittest.TestCase):
                     serve.wait()
                 serve.stdout.close()
 
+class MeasurementArgTests(unittest.TestCase):
+    """queue-depth=, max-refresh= and max-fps= are checked before anything runs (exit 2)."""
+
+    def run_pair(self, *args):
+        return subprocess.run(['bash', str(PAIR), 'mode=probe', 'partner=cmux17', *args],
+                              cwd=ROOT, capture_output=True, text=True, timeout=30)
+
+    def test_bad_values_exit_2(self):
+        for bad in ('queue-depth=9', 'queue-depth=2', 'queue-depth=x', 'max-refresh=2', 'max-fps=1000', 'max-fps=x'):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.run_pair(bad).returncode, 2, bad)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -54,6 +54,63 @@ pub(crate) async fn requested(params: &Value) -> Result<Vec<PathBuf>, RpcError> 
     Ok(out)
 }
 
+/// The cmux setting whose folders every new chat gets on top of its Sources.
+pub(crate) const SETTING: &str = "agents.additionalDirectories";
+
+/// The folders `agents.additionalDirectories` names in `doc`, as [`requested`] keeps them:
+/// absolute or `~/` paths to folders that exist, canonical, each once. An entry that is none of
+/// these is skipped with a warning (a folder removed since must not stop every chat).
+pub(crate) fn from_settings_doc(doc: &Value, home: Option<&Path>) -> Vec<PathBuf> {
+    let Some(list) = crate::user_settings::value(doc, SETTING) else { return Vec::new() };
+    let mut out: Vec<PathBuf> = Vec::new();
+    for item in list.as_array().into_iter().flatten() {
+        let Some(raw) = item.as_str().map(str::trim).filter(|s| !s.is_empty()) else { continue };
+        let path = match (raw.strip_prefix("~/"), raw == "~", home) {
+            (Some(rest), _, Some(home)) => home.join(rest),
+            (None, true, Some(home)) => home.to_path_buf(),
+            _ => PathBuf::from(raw),
+        };
+        let kept = path
+            .is_absolute()
+            .then(|| std::fs::canonicalize(&path).ok())
+            .flatten()
+            .filter(|c| c.is_dir());
+        match kept {
+            Some(c) if out.len() < MAX_DIRS => {
+                if !out.contains(&c) {
+                    out.push(c);
+                }
+            }
+            _ => tracing::warn!(folder = raw, "{SETTING}: skipped a folder that is not there"),
+        }
+    }
+    out
+}
+
+/// A new chat's folders: its own (`asked`, from `session/new`), then the setting's, each once.
+/// A remote-origin chat gets only its own: the setting is this person's, for their own chats.
+pub(crate) fn with_settings(asked: Vec<PathBuf>, remote: bool) -> Vec<PathBuf> {
+    if remote {
+        return asked;
+    }
+    let crate::user_settings::Settings::Parsed(doc) = crate::user_settings::read() else {
+        return asked;
+    };
+    merged(asked, from_settings_doc(&doc, dirs::home_dir().as_deref()))
+}
+
+fn merged(mut asked: Vec<PathBuf>, extra: Vec<PathBuf>) -> Vec<PathBuf> {
+    for dir in extra {
+        if asked.len() >= MAX_DIRS {
+            break;
+        }
+        if !asked.contains(&dir) {
+            asked.push(dir);
+        }
+    }
+    asked
+}
+
 /// The compare-and-set token comes from the persisted session info. Validate its shape without
 /// requiring paths to still exist, so a deleted source folder can still be removed.
 fn expected_directories(value: &Value, cwd: &Path) -> Result<Vec<PathBuf>, RpcError> {
