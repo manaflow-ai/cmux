@@ -452,7 +452,7 @@ mod check_record_tests {
     fn check_record_reads_as_parse_record_does() {
         let lines: &[&[u8]] = &[
             br#"{"seq":1,"at":2,"dir":"mux","kind":"git","msg":{"gitBranch":"main","n":[1,2.5,null]}}"#,
-            br#"{"seq":1,"at":2,"dir":"in","kind":"x\u00e9","msg":"text","hostSeq":7}"#,
+            br#"{"seq":1,"at":2,"dir":"in","kind":"x\\u00e9","msg":"text","hostSeq":7}"#,
             br#"{"seq":1,"at":2,"dir":"mux","kind":"x","msg":null,"extra":{"a":1}}"#,
             br#"{"seq":1,"at":2,"dir":"mux","kind":"x"}"#,
             br#"{"seq":-1,"at":2,"dir":"mux","kind":"x","msg":{}}"#,
