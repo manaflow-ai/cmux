@@ -71,21 +71,34 @@ pub fn identity_path(home: &Path, session: &str) -> PathBuf {
 /// The base64url public key of an identity file's text, or `None` when it
 /// is not a version 1 identity with a 32-byte key.
 pub fn public_key(text: &str) -> Option<String> {
+    let private = private_key(text)?;
+    let public = PublicKey::from(&StaticSecret::from(*private));
+    Some(URL_SAFE_NO_PAD.encode(public.as_bytes()))
+}
+
+/// The X25519 private key of an identity file's text (zeroed when dropped), or `None` when it is not
+/// a version 1 identity with a 32-byte key. Only the cmux vault's pull (`vault_thread.rs`) takes it,
+/// to open the values devices sealed to this key; it never leaves the process.
+pub fn private_key(text: &str) -> Option<Zeroizing<[u8; 32]>> {
     let value: Value = serde_json::from_str(text).ok()?;
     if value.get("version").and_then(Value::as_u64) != Some(IDENTITY_VERSION) {
         return None;
     }
     let encoded = value.get("private_key")?.as_str()?;
     let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(encoded).ok()?);
-    let private: Zeroizing<[u8; 32]> = Zeroizing::new(bytes.as_slice().try_into().ok()?);
-    let public = PublicKey::from(&StaticSecret::from(*private));
-    Some(URL_SAFE_NO_PAD.encode(public.as_bytes()))
+    Some(Zeroizing::new(bytes.as_slice().try_into().ok()?))
 }
 
 /// The session host's public key from its identity file at `file`.
 pub fn read(file: &Path) -> Option<String> {
     let text = Zeroizing::new(std::fs::read_to_string(file).ok()?);
     public_key(&text)
+}
+
+/// The session host's private key from its identity file at `file` (zeroed when dropped).
+pub fn read_private(file: &Path) -> Option<Zeroizing<[u8; 32]>> {
+    let text = Zeroizing::new(std::fs::read_to_string(file).ok()?);
+    private_key(&text)
 }
 
 #[cfg(test)]
