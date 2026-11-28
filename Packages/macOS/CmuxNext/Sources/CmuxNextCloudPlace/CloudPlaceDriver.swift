@@ -51,10 +51,7 @@ public struct CloudPlaceIdentity: Equatable, Sendable {
     public var user: String?, team: String?, cloud: String
     public init(user: String?, team: String?, cloud: String) { self.user = user; self.team = team; self.cloud = cloud }
     /// The account, team and Cloud `auth` is signed in to now; nil signed out.
-    @MainActor public init?(signedIn auth: CloudAuth) {
-        guard auth.isSignedIn else { return nil }
-        self.init(user: auth.user?.id, team: auth.teamID, cloud: auth.configuration.apiBaseURL.absoluteString)
-    }
+    @MainActor public init?(signedIn auth: CloudAuth) { guard auth.isSignedIn else { return nil }; self.init(user: auth.user?.id, team: auth.teamID, cloud: auth.configuration.apiBaseURL.absoluteString) }
 }
 
 /// What the app supplies: its chats, how it runs a move, and what its ledger knows. Everything else is here.
