@@ -396,7 +396,7 @@ impl Hub {
         };
         // The profile's env with its bound route (claude-sr, claude-cr, a route file); for a
         // chat's own call, the env its own spawn takes (`ChatRoute`).
-        let env = match chat {
+        let mut env = match chat {
             Some(chat) => self.chat_completion_env(name, chat).await.map_err(failed)?,
             None => {
                 let mut env = profile.env.clone();
