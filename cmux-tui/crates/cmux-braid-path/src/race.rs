@@ -72,6 +72,43 @@ pub fn stagger_after(lead: Option<Duration>, floor: Duration, ceiling: Duration)
     (lead + lead / 2).clamp(floor, ceiling.max(floor))
 }
 
+/// The stagger of a dial with no connect time to go by: RFC 8305's default connection attempt
+/// delay.
+pub const STAGGER_UNKNOWN: Duration = Duration::from_millis(250);
+
+/// The longest a slow route remembered from a bad network holds the next one back.
+pub const STAGGER_CEILING: Duration = Duration::from_secs(2);
+
+/// The one stagger rule (RFD 0164 A2), for a first connect and a redial alike: 1.5 times the
+/// lead route's last connect time, at least [`stagger_floor`], at most [`STAGGER_CEILING`];
+/// [`stagger_unknown`] with no connect time to go by.
+#[must_use]
+pub fn stagger_for(lead: Option<Duration>) -> Duration {
+    match lead {
+        Some(lead) => stagger_after(Some(lead), stagger_floor(), STAGGER_CEILING),
+        None => stagger_unknown(),
+    }
+}
+
+/// [`STAGGER_FLOOR`], or `CMUX_BRAID_STAGGER_FLOOR_MS` (the routes bench's knob, read once).
+#[must_use]
+pub fn stagger_floor() -> Duration {
+    static FLOOR: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *FLOOR.get_or_init(|| env_ms("CMUX_BRAID_STAGGER_FLOOR_MS").unwrap_or(STAGGER_FLOOR))
+}
+
+/// [`STAGGER_UNKNOWN`], or `CMUX_BRAID_STAGGER_UNKNOWN_MS` (the routes bench's knob, read once).
+#[must_use]
+pub fn stagger_unknown() -> Duration {
+    static UNKNOWN: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *UNKNOWN.get_or_init(|| env_ms("CMUX_BRAID_STAGGER_UNKNOWN_MS").unwrap_or(STAGGER_UNKNOWN))
+}
+
+fn env_ms(name: &str) -> Option<Duration> {
+    let value = std::env::var(name).ok()?;
+    value.trim().parse::<u64>().ok().map(Duration::from_millis)
+}
+
 /// The attempt that won a [`race`].
 #[derive(Debug)]
 pub struct Won<T> {

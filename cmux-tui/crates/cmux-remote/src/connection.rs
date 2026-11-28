@@ -1500,9 +1500,8 @@ impl ClientConnection {
     }
 
     /// When a redial's second route starts beside its first: a warm standby's own stagger, else
-    /// 1.5 times the last winning handshake (`cmux_braid_path::stagger_after`, at least
-    /// [`cmux_braid_path::race::STAGGER_FLOOR`], at most [`REDIAL_STAGGER_CEILING`]), else
-    /// [`REDIAL_STAGGER_UNKNOWN`]. `None`: the redial is not raced (its source has no other
+    /// Braid's one stagger rule on the last winning handshake (RFD 0164 A2,
+    /// `cmux_braid_path::stagger_for`, the same as the first connect's race). `None`: the redial is not raced (its source has no other
     /// route to hand over, or `CMUX_REMOTE_REDIAL_RACE=0`).
     fn redial_stagger(&self, standby: Option<Duration>) -> Option<Duration> {
         if self.redial_alternates() == 0 || !redial_race_enabled() {
@@ -1512,14 +1511,7 @@ impl ClientConnection {
             return standby;
         }
         let last = *self.last_handshake.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        Some(match last {
-            Some(last) => cmux_braid_path::stagger_after(
-                Some(last),
-                cmux_braid_path::race::STAGGER_FLOOR,
-                REDIAL_STAGGER_CEILING,
-            ),
-            None => REDIAL_STAGGER_UNKNOWN,
-        })
+        Some(cmux_braid_path::stagger_for(last))
     }
 
     /// The routes a redial may race behind its first ([`ReconnectGroupSource::alternates`]).
@@ -2088,10 +2080,6 @@ struct RedialRound {
 
 /// Routes dialed at once in a redial round, as `cmux_braid_path::RacePolicy::INTERNET` keeps.
 const REDIAL_RACERS: usize = 3;
-/// The longest a slow route holds the next one back in a redial round.
-const REDIAL_STAGGER_CEILING: Duration = Duration::from_secs(2);
-/// The stagger of a redial with no handshake time to go by (RFC 8305's default delay).
-const REDIAL_STAGGER_UNKNOWN: Duration = Duration::from_millis(250);
 
 /// How often a redial round with no winner dials afresh ([`ClientConnection::race_redial`]).
 /// The source's pass staggers its own routes behind its first, so with three routes a fresh

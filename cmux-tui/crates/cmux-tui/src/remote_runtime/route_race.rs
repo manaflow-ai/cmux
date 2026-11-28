@@ -45,21 +45,17 @@ pub(crate) struct RouteRace {
 }
 
 impl RouteRace {
-    /// The shortest stagger: RFC 8305's recommended connection attempt delay.
-    pub(crate) const FLOOR: Duration = Duration::from_millis(250);
-    /// The longest: a slow route remembered from a bad network never holds the next one back
-    /// longer than this.
-    pub(crate) const CEILING: Duration = Duration::from_secs(2);
+    /// The stagger with no connect time to go by (`cmux_braid_path::STAGGER_UNKNOWN`).
+    pub(crate) const UNKNOWN: Duration = cmux_braid_path::race::STAGGER_UNKNOWN;
 
-    /// The race for a dial whose leading route last connected in `lead` (`None`: not known).
-    /// The stagger is `max(250 ms, 1.5 × lead)`, at most [`Self::CEILING`]: a route that took
-    /// 400 ms over a long path last time gets 600 ms before the next one starts beside it,
-    /// one on a LAN gets the floor. A connect takes several round trips, so this is never
-    /// shorter than 1.5 round trips.
+    /// The race for a dial whose leading route last connected in `lead` (`None`: not known),
+    /// on Braid's one stagger rule (RFD 0164 A2, `cmux_braid_path::stagger_for`, the same as
+    /// cmux-remote's redial): 1.5 times `lead`, at least the floor, at most
+    /// `cmux_braid_path::race::STAGGER_CEILING` (2 s); [`Self::UNKNOWN`] with no `lead`. A route
+    /// that took 400 ms over a long path last time gets 600 ms before the next one starts beside
+    /// it, one on a LAN gets the floor.
     pub(crate) fn after(lead: Option<Duration>) -> Self {
-        let stagger =
-            lead.map_or(Self::FLOOR, |lead| lead.mul_f64(1.5).clamp(Self::FLOOR, Self::CEILING));
-        Self { stagger }
+        Self { stagger: cmux_braid_path::stagger_for(lead) }
     }
 }
 
