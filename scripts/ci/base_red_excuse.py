@@ -2095,10 +2095,12 @@ RUNNER_LEADING_STEPS = ("Set up runner",)
 RUNNER_TRAILING_STEPS = ("Complete runner",)
 
 
-def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[int, bool] | StepNamesUnknown:
+def workflow_step_names(repo: str, job: dict, path, github, seen: dict, *, _depth: int = 0
+                        ) -> dict[int, bool] | StepNamesUnknown:
     """step_owners' STEP_NAMES for JOB: {the number of each of its jobs-API steps its workflow (PATH, read at the
     job's head_sha) lists: True when that step has a `name:`, False when it has none}, or STEP_NAMES_UNKNOWN. Only a
-    proven mapping names anything: one workflow job whose name is JOB's (no matrix, no called workflow), its steps
+    proven mapping names anything: one workflow job whose name is JOB's (no matrix; a called workflow's job is read
+    by the workflow it calls, _called_step_names), its steps
     matched to the jobs API's by order between the runner's own (RUNNER_LEADING_STEPS, RUNNER_TRAILING_STEPS), every
     fixed `name:` the step's API name, every unnamed step's API name `Run <its uses>` or, for a `run:` step, `Run ...`
     (_step_marks); a job whose name is an expression _check_matcher does not read (cmux-next.yml's
@@ -2162,7 +2164,9 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
     # step name or script line that holds an expression is matched only up to it (_step_marks, _step_headers).
     # cmux#43014's 'Reviewer path (appstore, ipad)' (ios-review-gate.yml, matrix family) was refused because its
     # composite setup-cmux-tui-rust step printed three inner `Run` lines and no header was known to place them.
-    if len(named) != 1 or "uses" in named[0]:
+    if len(named) == 1 and "uses" in named[0]:
+        return _called_step_names(repo, job, path, named[0], unread, names, github, seen, _depth)
+    if len(named) != 1:
         return STEP_NAMES_UNKNOWN
     marks = _step_marks(named[0].get("steps"), names)
     if marks is None or any(_step_marks(spec.get("steps"), names) not in (None, marks) for spec in unread):
@@ -2183,6 +2187,35 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
            and _failure_gates(spec["steps"], api, marks) != found.gates for spec in unread):
         found.gates = None
     return found
+
+
+# How deep workflow_step_names follows a called workflow (a caller job's `uses: ./.github/workflows/X.yml`): cmux
+# nests one (pr-router.yml calls pr-pipeline.yml); the bound only ends a workflow that calls itself.
+CALLED_WORKFLOW_DEPTH = 4
+
+
+def _called_step_names(repo: str, job: dict, path: str, caller: dict, unread: list, names: list, github,
+                       seen: dict, depth: int = 0) -> dict[int, bool] | StepNamesUnknown:
+    """workflow_step_names for JOB, named '<CALLER's name> / <its job>' because CALLER (the one job of PATH named
+    like JOB) calls a local workflow: the called workflow's job of that inner name, read the same way at the same
+    head_sha. Only a fixed local call (`./.github/workflows/X.yml`, no `@ref`, no matrix) is followed, at most
+    CALLED_WORKFLOW_DEPTH deep, and only when no job of PATH whose name is not read has steps that fit JOB's (it could
+    be JOB instead). Anything else is STEP_NAMES_UNKNOWN. 2026-11-28: cmux#63846's 'pr pipeline / linux'
+    (pr-router.yml's pr-pipeline job calling pr-pipeline.yml, run 46108532940) failed only in its step table, the base
+    red of test_ci_daemon_pr_member_steps, and was refused with "does not map one to one onto its steps": five
+    upload-artifact steps that share a second were placeable only by their workflow's headers, which a caller job
+    never gave (a called workflow's job was always STEP_NAMES_UNKNOWN)."""
+    called = caller.get("uses")
+    prefix = f"{caller.get('name')} / " if isinstance(caller.get("name"), str) else None
+    name = job.get("name")
+    if (depth >= CALLED_WORKFLOW_DEPTH or not isinstance(called, str) or prefix is None
+            or not re.fullmatch(r"\./\.github/workflows/[\w.-]+\.ya?ml", called)
+            or (caller.get("strategy") or {}).get("matrix") or "${{" in prefix
+            or not isinstance(name, str) or not name.startswith(prefix) or len(name) == len(prefix)
+            or any(_step_marks(spec.get("steps"), names) is not None for spec in unread)):
+        return STEP_NAMES_UNKNOWN
+    inner = dict(job, name=name[len(prefix):])
+    return workflow_step_names(repo, inner, called.removeprefix("./"), github, seen, _depth=depth + 1)
 
 
 def _rendered_name_fits(template, name) -> bool:
@@ -6492,6 +6525,8 @@ PACKAGE_JOBS = {
                   # cmux-remote reaches cmux-proxy (#53785); ghostty-vt-sys and cmux-tui-core reach
                   # cmux-transport-rewrite (#56272)
                   "cmux-tui/crates/cmux-proxy/", "cmux-tui/crates/cmux-transport-rewrite/",
+                  # cmux-next-ios/rust names cmux-json (its Cargo.toml path dependency)
+                  "cmux-tui/crates/cmux-json/",
                   # files those crates include_str! and paths the kit's Swift names as literals (same date)
                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night.avif",
                   "cmux-tui/crates/acpmux/src/share_approval_vectors.json", "design/icons/source/agent-composer.json",

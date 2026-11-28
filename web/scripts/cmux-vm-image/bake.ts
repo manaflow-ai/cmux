@@ -1572,6 +1572,8 @@ async function bakeOn(
     result.builderVmId = builder.vmId;
     // A layer's builder boots its parent: this is what a chain of snapshots costs per link.
     result.builderFirstExecMs = await firstExec(builder.vm, builder.t0);
+    // The disk as the snapshot boot left it: a slow read here is the provider filling in blocks, not our steps.
+    await L.logIoProbe(builder.vm, `boot ${name}`, `booted from ${from}`);
     await steps(builder.vm);
     const tSnap = Date.now();
     // A layered snapshot records its parent layer in its label (layers.ts layerLabel), which gc-layers.ts follows

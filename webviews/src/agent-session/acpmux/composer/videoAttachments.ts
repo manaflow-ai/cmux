@@ -15,7 +15,7 @@
 // scene change, even spacing between), and the host decodes those frames at 1280 px
 // (`video.frames`). They replace the answer's four even frames on the chip, within the same
 // deadline; past it, or from an older host, the four go.
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { callChipHost } from "../chips/host";
 import { parseVideoTranscript } from "./videoTranscript";
@@ -114,6 +114,29 @@ export function useVideoReading(id: string): boolean {
   return useSyncExternalStore(subscribe, busyNow, busyNow).info.has(id);
 }
 
+/// The chips whose poster is still on its way, by chip id (each read its own token): from the
+/// read's start to its answer or refusal, past the send's deadline too, since a late answer still
+/// draws it. The tile shows its one loading look all that time (VideoAttachmentTile.tsx), the same
+/// as the pending chip before it, never a neutral square in between (Leo, 2026-11-08: "it is bad
+/// that there are 2+ loading states it goes from themed opaque (which is frequently ugly) into
+/// unthemed then to loaded").
+let drawing: ReadonlyMap<string, symbol> = new Map();
+function setDrawing(id: string, token: symbol, on: boolean) {
+  if (on ? drawing.get(id) === token : drawing.get(id) !== token) return;
+  const next = new Map(drawing);
+  if (on) next.set(id, token);
+  else next.delete(id);
+  drawing = next;
+  for (const listener of listeners) listener();
+}
+const drawingNow = () => drawing;
+
+/// Whether chip `id`'s poster is still on its way.
+export function useVideoPosterLoading(id: string | undefined): boolean {
+  const now = useSyncExternalStore(subscribe, drawingNow, drawingNow);
+  return id !== undefined && now.has(id);
+}
+
 /// A read out now: the chip object it was asked for (its answer goes on that chip only; picked
 /// frames and a transcript on the chip that holds `video`, the answer they follow), and while the
 /// send still waits for it, its deadline.
@@ -135,7 +158,9 @@ function settle(reads: Map<symbol, Read>, token: symbol) {
 
 /// Read `token` is over: its answer, whenever it comes, goes nowhere.
 function drop(reads: Map<symbol, Read>, token: symbol) {
+  const read = reads.get(token);
   settle(reads, token);
+  if (read?.kind === "info") setDrawing(read.chip.id, token, false);
   reads.delete(token);
 }
 
@@ -240,7 +265,9 @@ export function useVideoInfo(
       }
     };
   }, []);
-  useEffect(() => {
+  // Before paint: a chip's read is out (and its tile in its loading look) in the frame the chip first
+  // shows, never one frame of the square a read that could not answer leaves.
+  useLayoutEffect(() => {
     const reads = out.current;
     const staged = new Set(enabled ? attachments : []);
     for (const [token, read] of reads) {
@@ -325,6 +352,7 @@ export function useVideoInfo(
       since.current.set(chip.id, Date.now());
       const token = Symbol(chip.id);
       setBusy("info", chip.id, token, true);
+      setDrawing(chip.id, token, true);
       // The send waits no longer than this; a late answer still draws the poster.
       reads.set(token, {
         kind: "info",
@@ -334,18 +362,21 @@ export function useVideoInfo(
       void callChipHost("video.info", { src: chip.path }).then(
         (answer) => {
           if (!reads.has(token)) return;
-          drop(reads, token);
           const video = parseVideoInfo(answer);
-          if (!video) return;
-          // The poster first: its key frames and probes follow (`video.probes`).
-          if ((answer as { more?: unknown } | null | undefined)?.more === true) partial.current.add(video);
-          const probes = parseProbes(answer);
-          if (probes?.length) picks.current.set(video, pickFrameTimes(video.durationMs, probes));
-          setAttachments((current) =>
-            current.includes(chip)
-              ? current.map((staged) => (staged === chip ? { ...staged, video } : staged))
-              : current,
-          );
+          if (video) {
+            // The poster first: its key frames and probes follow (`video.probes`).
+            if ((answer as { more?: unknown } | null | undefined)?.more === true) partial.current.add(video);
+            const probes = parseProbes(answer);
+            if (probes?.length) picks.current.set(video, pickFrameTimes(video.durationMs, probes));
+            setAttachments((current) =>
+              current.includes(chip)
+                ? current.map((staged) => (staged === chip ? { ...staged, video } : staged))
+                : current,
+            );
+          }
+          // After the poster is on its chip, in the same task: the tile goes from loading to its
+          // poster in one render, never through the square between.
+          drop(reads, token);
         },
         () => {
           // A host refusal leaves the video as a file chip. Finish its read immediately so Stop/Send
