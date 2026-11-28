@@ -616,6 +616,13 @@ describe("devbox image template", () => {
     }
     expect(bashrc).toContain("/etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs; do");
     expect(bashrc).toContain("/usr/local/share/blesh/lib/keymap.emacs.sh");
+    // ble.sh loads the emacs keymap lazily: a seed shell fed a bare `exit`
+    // never writes keymap.emacs (rebake 46100366318). Both bakes force the load.
+    const seedInput = "echo 'ble-bind -m emacs -P >/dev/null; exit' | TERM=\"$term\"";
+    expect(dockerfile).toContain(seedInput);
+    expect(readScript("build-devbox-freestyle.ts")).toContain(seedInput);
+    expect(dockerfile).not.toContain("echo exit | TERM=");
+    expect(readScript("build-devbox-freestyle.ts")).not.toContain("echo exit | TERM=");
   });
 
   test("publishes each ble.sh cache seed atomically", () => {
