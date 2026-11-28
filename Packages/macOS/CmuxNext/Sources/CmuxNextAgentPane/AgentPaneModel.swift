@@ -599,7 +599,7 @@ public final class AgentPaneModel {
     public private(set) var touchedBy: String?
 
     public func adoptNewTab(_ page: AgentPaneNewTab) {
-        guard newTab != nil else { return }
+        guard newTab != nil || sessionId == nil else { return } // a chat-less page takes it, as becomeNewTab does (ask-acaf57cddd)
         newTab = page
     }
 
