@@ -913,6 +913,11 @@ impl Inner {
     /// durable by now) to its `session.json`.
     pub(super) fn project_metas(&self, metas: BTreeMap<String, Pending>) -> Result<()> {
         for (id, pending) in metas {
+            // The seal began: the images stay in the journal for the next daemon's open, and
+            // this checkpoint writes no LSN past them (`checkpoint::SealCut`).
+            if self.sealing.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(anyhow::Error::new(super::checkpoint::SealCut));
+            }
             self.write_through(&id, &pending)?;
         }
         Ok(())
