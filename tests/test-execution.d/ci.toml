@@ -453,6 +453,10 @@ path = "tests/test_ci_ios_kit_base_red.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ios_launch_tti_intent.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ios_loading_placeholders.py"
 lane = "linux-guard"
 
