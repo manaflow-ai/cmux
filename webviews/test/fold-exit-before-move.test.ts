@@ -237,11 +237,13 @@ test("a reader opening Worked for plays no lead: the rows move at once", () => {
   }
 });
 
-test("the since line moves no row: it fades and narrows on the compositor, never animating size", () => {
+// The line comes and goes in place by opacity alone, no scale (Leo, 2026-11-25: "the animation it does when it falls
+// from the top of the screen down is wack"; #56110).
+test("the since line moves no row: it fades in place on the compositor, never animating size", () => {
   const css = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/conversation/unread.css"), "utf8");
   const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference)"));
   expect(motion).toMatch(
-    /\.cv-since__line,\s*\.cv-since__rule \{\s*transition:\s*opacity var\(--agent-motion-calm\) var\(--agent-ease-out\),\s*scale var\(--agent-motion-calm\) var\(--agent-ease-out\);/,
+    /\.cv-since__line \{\s*transition:\s*opacity var\(--agent-motion-calm\) var\(--agent-ease-out\);/,
   );
   const since = css.slice(css.indexOf(".cv-since {"), css.indexOf(".acpmux-over-top"));
   expect(since).not.toMatch(/transition:[^;]*\b(?:height|margin|padding|block-size)\b/);

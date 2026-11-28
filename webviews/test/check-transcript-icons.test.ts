@@ -24,8 +24,9 @@ const Empty = () => <svg />;`;
     expect(newInlineSvgs("nested/NoticeMark.tsx", "const Mark = () => <svg />;")).toHaveLength(1);
   });
 
-  test("the shared spinner and two brands are the only icons-file exceptions", () => {
-    expect(newInlineSvgs("icons.tsx", "const Icons = () => <><svg /><svg /><svg /></>;")).toEqual([]);
-    expect(newInlineSvgs("icons.tsx", "const Icons = () => <><svg /><svg /><svg /><svg /></>;")).toHaveLength(1);
+  // The shared spinner left icons.tsx for the one arc (#50467), so the two brand marks are all it keeps.
+  test("the two brands are the only icons-file exceptions", () => {
+    expect(newInlineSvgs("icons.tsx", "const Icons = () => <><svg /><svg /></>;")).toEqual([]);
+    expect(newInlineSvgs("icons.tsx", "const Icons = () => <><svg /><svg /><svg /></>;")).toHaveLength(1);
   });
 });

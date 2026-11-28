@@ -3976,6 +3976,7 @@ function shapeLiveRows(
   if (steer) {
     let below = shaped.findIndex((row) => row.id === steer.id);
     // The note of a compaction that ended under the steer stays over the header, as the ended turn draws it.
+    // ends: `below` rises by one each pass and stops at the first row past the end that is not a compaction.
     while (below >= 0 && shaped[below + 1]?.kind === "compaction") below += 1;
     if (below >= 0) {
       header.id = `${WORKED}-${steer.id}`;
