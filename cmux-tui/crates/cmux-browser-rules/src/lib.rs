@@ -44,8 +44,8 @@ pub mod frames;
 pub mod links;
 pub mod load_waits;
 pub mod ops;
-pub mod password_fill;
 pub mod page_events;
+pub mod password_fill;
 pub mod tab_state;
 pub mod tab_watcher;
 pub mod url_filter;
@@ -73,9 +73,9 @@ mod links_tests;
 #[cfg(test)]
 mod load_waits_tests;
 #[cfg(test)]
-mod password_fill_tests;
-#[cfg(test)]
 mod page_events_tests;
+#[cfg(test)]
+mod password_fill_tests;
 #[cfg(test)]
 mod tab_state_tests;
 #[cfg(test)]
