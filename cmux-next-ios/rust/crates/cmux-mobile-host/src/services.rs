@@ -291,6 +291,7 @@ const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
 /// reaches a port on this Mac's loopback).
+/// `localhost-hosts-v1`: the same service may target a private host named by the phone.
 /// `needs-you-v1`: the `needs-you` service (the Mac app's own open Feed requests, `needs_you.rs`).
 /// `appearance-v1`: the `appearance` and `appearance-wallpaper` services (the Mac's theme and
 /// wallpaper, `appearance.rs`).
@@ -311,6 +312,7 @@ pub const CAPABILITIES: [&str; 15] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
+    names::LOCALHOST_HOSTS,
     names::CLOUD_DIRECTORY,
     names::CLOUD_ACPMUX,
     names::NEEDS_YOU,
@@ -3480,6 +3482,7 @@ mod tests {
                 "removal-v1",
                 "file-preview-v1",
                 "localhost-forward-v1",
+                "localhost-hosts-v1",
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",
@@ -3504,6 +3507,7 @@ mod tests {
                 "removal-v1",
                 "file-preview-v1",
                 "localhost-forward-v1",
+                "localhost-hosts-v1",
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",

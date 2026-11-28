@@ -564,6 +564,9 @@ final class ShellModel {
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
                 macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.forwardCapability) ?? false
             }
+            NativeBrowserTabs.shared.macForwardsPrivateHost = { [store] macID in
+                macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.privateHostForwardCapability) ?? false
+            }
             // Open on iPhone's sign-in hand-off, when the Mac's person turned it on.
             NativeBrowserTabs.shared.siteData = { macID, tab, url in
                 await StreamedBrowserDirectory.shared.siteData(macID: macID, tab: tab, url: url)
@@ -577,6 +580,7 @@ final class ShellModel {
             PhonePageChannel.answer = nil
             StreamedBrowserDirectory.shared.browserTabsListed = nil
             NativeBrowserTabs.shared.readMacHTML = nil
+            NativeBrowserTabs.shared.macForwardsPrivateHost = { _ in false }
             ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
