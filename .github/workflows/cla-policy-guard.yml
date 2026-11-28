@@ -90,8 +90,8 @@ jobs:
           if [[ -f "$candidate_dir/cla.yml" ]]; then
             archive="$RUNNER_TEMP/actionlint.tar.gz"
             curl -fsSL -o "$archive" \
-              "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz"
-            echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $archive" | sha256sum --check --strict
+              "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+            echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check --strict
             tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
             "$RUNNER_TEMP/actionlint" "$candidate_dir/cla.yml"
           fi

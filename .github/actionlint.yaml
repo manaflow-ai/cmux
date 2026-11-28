@@ -25,26 +25,26 @@ self-hosted-runner:
     # a plain Mac names, behind vars.CI_OVERFLOW_MAC.
     - cmux-mac
     - warp-ubuntu-latest-x64-4x
-    # GitHub-hosted, not self-hosted. actionlint 1.7.7 ships a fixed list of
+    # GitHub-hosted, not self-hosted. actionlint before 1.7.12 shipped a fixed list of
     # hosted labels and macos-15-intel postdates it, so the only way to say
     # "this label is real" is here. It is: run 34656982146's
     # `compat-tests (macos-15-intel, ...)` job was served by "GitHub Actions
     # 1000200229", the same kind of runner name as the macos-14 job beside it.
     - macos-15-intel
-    # GitHub-hosted macOS 26 (actionlint 1.7.7 predates it; 1.7.12 knows it).
+    # GitHub-hosted macOS 26 (listed from the 1.7.7 days; 1.7.12 knows it).
     # Nightly signing, notarization and fallback builds run there.
     - macos-26
 
 paths:
-  .github/workflows/cloud-mvp-nightly-readback.yml:
+  .github/workflows/nightly.yml:
     ignore:
-      # `environment.deployment: false` (an environment's secrets without a deployment record) is a real GitHub
-      # key; actionlint 1.7.7 predates it and 1.7.12 knows it.
-      - 'unexpected key "deployment" for "environment" section'
-  .github/workflows/ui-proof-stale-sweep.yml:
+      # await-release-surface-ack and promote-nightly-next-acked are retired jobs kept as `if: false` for the
+      # workflow contract (their old conditions are commented beside them); actionlint 1.7.12 flags a constant `if:`.
+      - 'constant expression "false" in condition'
+  .github/workflows/screen-stream-eval.yml:
     ignore:
-      # Same key as cloud-mvp-nightly-readback.yml (#64805 added it here).
-      - 'unexpected key "deployment" for "environment" section'
+      # The eval job never runs (`if: false`); the runner guards still read its runs-on. Same 1.7.12 rule.
+      - 'constant expression "false" in condition'
   .github/workflows/test-ios.yml:
     ignore:
       # `swift_package` is a workflow_dispatch choice input whose first option
