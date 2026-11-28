@@ -4,10 +4,12 @@
 // agent row was never remembered, so the next New Tab went back to an older harness and model
 // picked before it (a subrouter Claude profile came back as plain Claude Code).
 import { beforeEach, expect, test } from "bun:test";
-import { lastModel, lastPick, rememberPick } from "../src/agent-session/acpmux/lastPick";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { newTabStart } from "../src/agent-session/acpmux/newtab/chipDefaults";
-import { newTabScreenActions } from "../src/agent-session/acpmux/newtab/screenActions";
+import { importWithDom } from "./support/importWithDom";
+
+const { lastModel, lastPick, rememberPick } = await importWithDom(() => import("../src/agent-session/acpmux/lastPick"));
+const { newTabStart } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/chipDefaults"));
+const { newTabScreenActions } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/screenActions"));
 
 const store = new Map<string, string>();
 (globalThis as Record<string, unknown>).localStorage = {

@@ -1,8 +1,11 @@
 //! `acpmux care status|clean|why|tick|install-timer` (also `cmux care ...`): keep this
 //! machine's disk under budget (`cmux_worktree_care::care`).
 //!
-//! - `status`: the disk, its budget and forecast, and what each family would free. Changes nothing.
-//! - `clean`: a pass now, under the budget; `--dry-run` is `status`; `--family F` limits it.
+//! - `status`: the disk now (one `statvfs`), its budget and forecast, and what each family would
+//!   free as the last whole pass found it (the timer's, a daemon's or a `clean`). No walk, no git,
+//!   no write: it answers in milliseconds however big the tree. Changes nothing.
+//! - `clean`: a pass now, under the budget; `--dry-run` measures everything afresh without acting
+//!   (and records what it found for `status`); `--family F` limits it.
 //! - `why PATH`: what the ledger recorded for it, whether the never-delete list holds it.
 //! - `tick`: the cheap headless pass the timer runs every five minutes: samples the disk and runs a
 //!   pass when one is due, under the machine's claim (a daemon's worker takes the same).
@@ -15,7 +18,9 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 use clap::Subcommand;
-use cmux_worktree_care::care::{self, Report};
+use cmux_worktree_care::budget::{Forecast, Plan};
+use cmux_worktree_care::care::{self, FamilySummary, Report};
+use cmux_worktree_care::disk::Usage;
 use cmux_worktree_care::inventory::now_ms;
 use serde_json::json;
 
@@ -24,11 +29,11 @@ use crate::cli::output::print_json;
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum CareCmd {
-    /// The disk, its budget and forecast, and what each family would free.
+    /// The disk, its budget and forecast, and what each family would free (as of the last pass).
     Status,
     /// A pass now, under the disk budget.
     Clean {
-        /// Only report, as `status` does.
+        /// Only report: a whole scan now, acting on nothing.
         #[arg(long)]
         dry_run: bool,
         /// Only this family (repeatable), e.g. worktrees, npm-cache, tmp-files.
@@ -49,7 +54,7 @@ pub enum CareCmd {
 
 pub fn run(cmd: CareCmd, json_out: bool) -> Result<()> {
     match cmd {
-        CareCmd::Status => pass(false, Vec::new(), json_out),
+        CareCmd::Status => status(json_out),
         CareCmd::Clean { dry_run, families } => pass(!dry_run, families, json_out),
         CareCmd::Why { path } => why(path, json_out),
         CareCmd::Tick { force } => match care_machine::tick(force).map_err(|e| anyhow!(e))? {
@@ -134,6 +139,56 @@ fn pass(apply: bool, families: Vec<String>, json_out: bool) -> Result<()> {
     Ok(())
 }
 
+/// The volume now and the last whole pass's report: no walk, no git.
+fn status(json_out: bool) -> Result<()> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("no home folder"))?;
+    let store = care_machine::store().map_err(|e| anyhow!(e))?;
+    let status = care::status(&home, &store, &Default::default())
+        .ok_or_else(|| anyhow!("cannot read the disk's size"))?;
+    let look = &status.look;
+    if json_out {
+        // The last report's shape, with the volume, budget and forecast of now.
+        let mut value = status
+            .last
+            .as_ref()
+            .map(|last| last.report.clone())
+            .filter(serde_json::Value::is_object)
+            .unwrap_or_else(|| json!({"families": []}));
+        if let Some(object) = value.as_object_mut() {
+            object.insert("disk".into(), json!(look.usage));
+            object.insert("budget".into(), json!(look.plan));
+            object.insert("forecast".into(), json!(look.forecast));
+            object.insert("lastPassAtMs".into(), json!(status.last.as_ref().map(|l| l.at_ms)));
+            object.insert("lastPassTookMs".into(), json!(status.last.as_ref().map(|l| l.took_ms)));
+        }
+        print_json(&value);
+        return Ok(());
+    }
+    print_disk(look.usage, &look.plan, &look.forecast);
+    let Some(last) = &status.last else {
+        println!(
+            "no pass recorded yet: the timer's next one records it (`cmux care clean --dry-run` measures now)"
+        );
+        return Ok(());
+    };
+    let age_min = now_ms().saturating_sub(last.at_ms) / 60_000;
+    println!(
+        "last pass {age_min} min ago ({}, took {:.1} s):",
+        if last.applied() { "cleaned" } else { "dry run" },
+        last.took_ms as f64 / 1000.0
+    );
+    print_families(&last.families());
+    for error in last.errors() {
+        println!("error    {error}");
+    }
+    if last.applied() {
+        println!("freed {}; would free {} more", gib(last.freed()), gib(last.reclaimable()));
+    } else {
+        println!("would free {}", gib(last.reclaimable()));
+    }
+    Ok(())
+}
+
 fn why(path: PathBuf, json_out: bool) -> Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("no home folder"))?;
     let store = care_machine::store().map_err(|e| anyhow!(e))?;
@@ -193,26 +248,27 @@ fn hours(h: Option<f64>) -> String {
     h.map_or_else(|| "never at this rate".into(), |h| format!("{h:.1} h"))
 }
 
-fn print_report(report: &Report) {
-    if let Some(disk) = report.disk {
-        println!(
-            "disk {:.0}% used, {} free; pressure {:?}, budget 75% (over: {}, predicted: {})",
-            disk.used_fraction() * 100.0,
-            gib(disk.available),
-            report.budget.pressure,
-            report.budget.over_budget,
-            report.budget.predicted
-        );
-    }
+fn print_disk(disk: Usage, budget: &Plan, forecast: &Forecast) {
+    println!(
+        "disk {:.0}% used, {} free; pressure {:?}, budget 75% (over: {}, predicted: {})",
+        disk.used_fraction() * 100.0,
+        gib(disk.available),
+        budget.pressure,
+        budget.over_budget,
+        budget.predicted
+    );
     println!(
         "fill {}/h over {} samples; 75% in {}, 90% in {}; next pass spaced {} min",
-        gib(report.forecast.fill_bytes_per_hour.unwrap_or(0.0).max(0.0) as u64),
-        report.forecast.samples,
-        hours(report.forecast.hours_to_target),
-        hours(report.forecast.hours_to_critical),
-        report.budget.spacing_ms / 60_000
+        gib(forecast.fill_bytes_per_hour.unwrap_or(0.0).max(0.0) as u64),
+        forecast.samples,
+        hours(forecast.hours_to_target),
+        hours(forecast.hours_to_critical),
+        budget.spacing_ms / 60_000
     );
-    for f in &report.families {
+}
+
+fn print_families(families: &[FamilySummary]) {
+    for f in families {
         let mut tag = String::new();
         if !f.enabled {
             tag.push_str(" [off]");
@@ -229,6 +285,13 @@ fn print_report(report: &Report) {
             gib(f.freed)
         );
     }
+}
+
+fn print_report(report: &Report) {
+    if let Some(disk) = report.disk {
+        print_disk(disk, &report.budget, &report.forecast);
+    }
+    print_families(&report.families);
     for error in &report.errors {
         println!("error    {error}");
     }
