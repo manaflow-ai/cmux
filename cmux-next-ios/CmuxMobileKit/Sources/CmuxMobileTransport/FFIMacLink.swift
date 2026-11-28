@@ -38,8 +38,8 @@ public struct FFIMacLinkDialer: MacLinkDialer {
         setLanMemoryDir(dir: dir.path)
     }
 
-    /// Settings → Transport → Tailnet (`CmuxMobilePreferences.Key.tailnetCarrier`, the same
-    /// `UserDefaults` key; this module does not link CmuxMobileDesign): "off", "direct-only" or "on".
+    /// Settings → Transport → Tailnet (UserDefaults key `cmuxMobile.settings.tailnetCarrier`; the Settings
+    /// row adds it to `CmuxMobilePreferences.Key`): "off", "direct-only" or "on".
     /// Off when unset; Rust reads anything else as off (`set_tailnet_carrier`, RFD 0164 T5). Called
     /// at each dial, like the keepalive and Direct on Wi-Fi settings.
     static func applyTailnetCarrierToCore(_ defaults: UserDefaults = .standard) {
