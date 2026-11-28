@@ -291,3 +291,76 @@ async fn seeded_token_and_team_ride_only_in_their_headers() {
         assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
     }
 }
+
+/// Only an answer whose headers carry the gateway object's `do-gateway` span shows the call went through it; the
+/// same text in the body does not (review follow-up on #37434, I37612-1).
+#[test]
+fn a_200_counts_only_with_the_gateways_server_timing() {
+    let mark = probe_mark();
+    let through = "HTTP/2 200\r\nserver-timing: auth;dur=1, worker-do;dur=9, do-wait;dur=0, do-gateway;dur=8\r\n";
+    assert!(reached_gateway(&probe_out(&mark, through, "{}"), &mark));
+    let around = "HTTP/2 200\r\nserver-timing: upstream;dur=4\r\n";
+    assert!(!reached_gateway(&probe_out(&mark, around, "server-timing: do-gateway;dur=1"), &mark));
+    assert!(!reached_gateway(&probe_out(&mark, "HTTP/2 200\r\n", "{}"), &mark));
+}
+
+fn sh_in(home: &std::path::Path, script: &str) -> std::process::Output {
+    std::process::Command::new("bash").arg("-c").arg(script).env("HOME", home).output().unwrap()
+}
+
+fn scratch_home(name: &str) -> std::path::PathBuf {
+    let home = std::env::temp_dir().join(format!("inference-setup-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".codex")).unwrap();
+    std::fs::create_dir_all(home.join(".cache/cmux")).unwrap();
+    home
+}
+
+/// A login the machine already held is not the device login's answer; one written after the start is, and an
+/// empty or null field is no login at all.
+#[test]
+fn a_device_login_counts_only_when_written_after_it_started() {
+    let home = scratch_home("login");
+    let auth = home.join(".codex/auth.json");
+    std::fs::write(&auth, r#"{"tokens":{"refresh_token":"rt-old"}}"#).unwrap();
+    assert!(sh_in(&home, &login_present()).status.success());
+    std::thread::sleep(Duration::from_millis(1100));
+    std::fs::write(home.join(".cache/cmux/inference-login-codex.started"), "").unwrap();
+    assert!(!sh_in(&home, &device_login_done()).status.success(), "a stale login passed");
+    std::thread::sleep(Duration::from_millis(1100));
+    std::fs::write(&auth, r#"{"tokens":{"refresh_token": "rt-new"}}"#).unwrap();
+    assert!(sh_in(&home, &device_login_done()).status.success());
+    std::fs::write(&auth, r#"{"OPENAI_API_KEY": null, "tokens": {"refresh_token": ""}}"#).unwrap();
+    assert!(!sh_in(&home, &login_present()).status.success(), "an empty login passed");
+    std::fs::write(&auth, r#"{"OPENAI_API_KEY": "sk-test"}"#).unwrap();
+    assert!(sh_in(&home, &login_present()).status.success(), "an API-key login was missed");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// After a failed setup, the earlier gateway that no longer runs starts again from its kept command line, the pid
+/// file names it (not a wrapper) and its marker is back; one still running is left alone.
+#[test]
+fn a_failed_setup_starts_the_earlier_gateway_again() {
+    let home = scratch_home("restart");
+    std::fs::write(home.join(".cache/cmux/inference-gateway.earlier"), b"sleep\x0030\x00").unwrap();
+    std::fs::write(home.join(".cache/cmux/inference-gateway.pid"), "999999999").unwrap();
+    let out = sh_in(&home, &restart_earlier());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("restarted"), "{out:?}");
+    let pid = std::fs::read_to_string(home.join(".cache/cmux/inference-gateway.pid")).unwrap();
+    let pid = pid.trim().to_owned();
+    let mut cmdline = String::new();
+    for _ in 0..50 {
+        cmdline = std::fs::read_to_string(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+        if cmdline.starts_with("sleep") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(cmdline, "sleep\u{0}30\u{0}");
+    assert!(home.join(".config/cmux/inference-gateway/enabled").exists());
+    // Running now: a second undo leaves it be.
+    let again = sh_in(&home, &restart_earlier());
+    assert!(!String::from_utf8_lossy(&again.stdout).contains("restarted"));
+    let _ = std::process::Command::new("kill").arg(&pid).status();
+    let _ = std::fs::remove_dir_all(&home);
+}

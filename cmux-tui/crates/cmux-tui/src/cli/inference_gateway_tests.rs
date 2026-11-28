@@ -766,3 +766,15 @@ async fn seeded_codex_login_rides_only_where_chatgpt_needs_it() {
         assert_eq!(cmux_egress::capture::leaks(secret), Vec::<String>::new(), "{secret}");
     }
 }
+
+/// A call whose body never ended is given up after PENDING_FOR; a younger one stays (review follow-up on #37434).
+#[test]
+fn an_incomplete_call_expires_after_pending_for() {
+    let now = tokio::time::Instant::now();
+    let since: HashMap<String, tokio::time::Instant> = [
+        ("old".to_owned(), now.checked_sub(PENDING_FOR + Duration::from_secs(1)).unwrap()),
+        ("young".to_owned(), now.checked_sub(Duration::from_secs(5)).unwrap()),
+    ]
+    .into();
+    assert_eq!(expired(&since, now, PENDING_FOR), vec!["old".to_owned()]);
+}

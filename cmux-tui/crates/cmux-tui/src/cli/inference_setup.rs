@@ -235,10 +235,54 @@ fn run(options: Options) -> i32 {
 struct Machine<'a> {
     http: reqwest::Client,
     options: &'a Options,
-    token: String,
+    /// The cmux API token, read again from its source when the API answers 401: a device login can wait 15 minutes,
+    /// longer than a short-lived token lives (review follow-up on #37434, I37612-1).
+    token: std::sync::Mutex<String>,
 }
 
 impl Machine<'_> {
+    fn bearer(&self) -> String {
+        self.token.lock().map(|t| t.clone()).unwrap_or_default()
+    }
+
+    /// Reads the token again from its source; false when the source cannot give another (stdin is read once) or
+    /// gives the same one.
+    async fn renew(&self) -> bool {
+        if matches!(self.options.token, TokenSource::Stdin) {
+            return false;
+        }
+        let Ok(fresh) = backend_token(&self.options.token, self.options.team.as_deref()).await
+        else {
+            return false;
+        };
+        let Ok(mut token) = self.token.lock() else { return false };
+        let changed = *token != fresh;
+        *token = fresh;
+        changed
+    }
+
+    /// One cmux API call (`build` given the bearer token), with the team header and a 20 s bound; a 401 renews the
+    /// token and sends it once more.
+    async fn api(
+        &self,
+        build: impl Fn(&str) -> reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, String> {
+        let send = |token: String| {
+            let mut request = build(&token);
+            if let Some(team) = &self.options.team {
+                request = request.header("x-cmux-team", team);
+            }
+            // timeout: an API call that never answers fails setup with an error (or one failed check of a wait).
+            request.timeout(Duration::from_secs(20)).send()
+        };
+        let response =
+            send(self.bearer()).await.map_err(|_| "the cmux API did not answer".to_owned())?;
+        if response.status() != reqwest::StatusCode::UNAUTHORIZED || !self.renew().await {
+            return Ok(response);
+        }
+        send(self.bearer()).await.map_err(|_| "the cmux API did not answer".to_owned())
+    }
+
     /// One command on the machine as its work user: its exit code and output.
     async fn exec(&self, command: &str, timeout_ms: u64) -> Result<(i64, String), String> {
         self.exec_on(&self.options.machine, command, timeout_ms).await
@@ -251,9 +295,9 @@ impl Machine<'_> {
         command: &str,
         timeout_ms: u64,
     ) -> Result<(i64, String), String> {
-        let request = Request {
+        let mut request = Request {
             api: self.options.api.clone(),
-            credential: self.token.clone(),
+            credential: self.bearer(),
             team: self.options.team.clone(),
             machine: machine.to_owned(),
             op: Op::Exec,
@@ -268,7 +312,11 @@ impl Machine<'_> {
             local_only: false,
             max_bytes: None,
         };
-        let (_, answer) = perform(&self.http, &request, now_ms).await;
+        let (_, mut answer) = perform(&self.http, &request, now_ms).await;
+        if answer.status == 401 && self.renew().await {
+            request.credential = self.bearer();
+            answer = perform(&self.http, &request, now_ms).await.1;
+        }
         if !(200..300).contains(&answer.status) {
             // Only the error's code: its message is the server's (or a proxy's) text and could echo a credential.
             let code: String = answer
@@ -305,7 +353,7 @@ async fn setup(options: &Options) -> Result<(), String> {
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())?;
-    let machine = Machine { http, options, token };
+    let machine = Machine { http, options, token: std::sync::Mutex::new(token) };
     if let Some(gw) = &options.gateway {
         // Naming a gateway machine asks for the gateway path: it either works end to end or the team's routing goes
         // back to what it was. No device login is offered in its place.
@@ -338,6 +386,13 @@ async fn make_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<Befo
         mode: state.get("mode").and_then(Value::as_str).unwrap_or("off").to_owned(),
         machine: state.get("machine").and_then(Value::as_str).map(str::to_owned),
     };
+    // The running gateway's command line is kept on its machine first: naming another machine retires its socket
+    // ("unnamed", and it exits), and a new one on the same machine replaces it, so a failed setup starts it again.
+    if before.mode == "gateway"
+        && let Some(earlier) = &before.machine
+    {
+        let _ = machine.exec_on(earlier, KEEP_EARLIER, 30_000).await;
+    }
     put_gateway(machine, "gateway", Some(&gw.machine)).await?;
     match start_gateway(machine, gw).await {
         Ok(()) => Ok(before),
@@ -354,35 +409,71 @@ struct Before {
     machine: Option<String>,
 }
 
-/// Stops the gateway on `gw.machine`, removes its opt-in marker, and gives the team its earlier mode and machine.
+/// The running gateway's pid file, its command line kept by setup (NUL-separated, as /proc gives it), and the pid
+/// file of the one setup is starting until it comes online.
+const GATEWAY_PID: &str = "$HOME/.cache/cmux/inference-gateway.pid";
+const GATEWAY_EARLIER: &str = "$HOME/.cache/cmux/inference-gateway.earlier";
+const GATEWAY_NEW_PID: &str = "$HOME/.cache/cmux/inference-gateway.pid.new";
+const GATEWAY_MARKER: &str = "$HOME/.config/cmux/inference-gateway/enabled";
+
+/// Run on the earlier gateway machine before setup names another: keeps the running gateway's command line.
+const KEEP_EARLIER: &str = "p=\"$HOME/.cache/cmux/inference-gateway.pid\"; e=\"$HOME/.cache/cmux/inference-gateway.earlier\"; \
+    rm -f \"$e\"; [ -f \"$p\" ] && q=$(cat \"$p\") && kill -0 \"$q\" 2>/dev/null && cp \"/proc/$q/cmdline\" \"$e\"; true";
+
+/// Stops the gateway setup started on `gw.machine`, gives the team its earlier mode and machine, and starts the
+/// earlier gateway again from its kept command line when it is no longer running (it was replaced or retired). The
+/// opt-in marker stays on a machine that was already the gateway machine, which keeps its gateway token coming.
 async fn undo_gateway(machine: &Machine<'_>, gw: &GatewayMachine, before: &Before) {
-    let undo = "p=\"$HOME/.cache/cmux/inference-gateway.pid\"; [ -f \"$p\" ] && kill \"$(cat \"$p\")\" 2>/dev/null; \
-                rm -f \"$HOME/.config/cmux/inference-gateway/enabled\" \"$p\"";
-    let _ = machine.exec_on(&gw.machine, undo, 30_000).await;
+    let earlier = before.machine.as_deref().filter(|_| before.mode == "gateway");
+    let marker = if earlier == Some(gw.machine.as_str()) {
+        String::new()
+    } else {
+        format!(" \"{GATEWAY_MARKER}\"")
+    };
+    let undo = format!(
+        "n=\"{GATEWAY_NEW_PID}\"; [ -f \"$n\" ] && kill \"$(cat \"$n\")\" 2>/dev/null; rm -f \"$n\"{marker}"
+    );
+    let _ = machine.exec_on(&gw.machine, &undo, 30_000).await;
     if put_gateway(machine, &before.mode, before.machine.as_deref()).await.is_err() {
         say(&format!(
             "Could not set the team's gateway back to {}; run `cmux inference setup` again.",
             before.mode
         ));
+        return;
     }
+    if let Some(earlier) = earlier {
+        match machine.exec_on(earlier, &restart_earlier(), 30_000).await {
+            Ok((0, out)) if out.contains("restarted") => {
+                say(&format!("Started the earlier inference gateway on {earlier} again."));
+            }
+            Ok((0, _)) => {}
+            _ => say(&format!(
+                "Could not start the earlier inference gateway on {earlier} again; run `cmux inference setup` again."
+            )),
+        }
+    }
+}
+
+/// Run on the earlier gateway machine after a failed setup: its gateway, when it no longer runs, starts again from
+/// the kept command line, with its marker (bash execs into it, so the pid file names the gateway itself; the kept file
+/// stays until the next setup, as the start reads it after this returns). Prints `restarted` when it did.
+fn restart_earlier() -> String {
+    format!(
+        "p=\"{GATEWAY_PID}\"; e=\"{GATEWAY_EARLIER}\"; [ -s \"$e\" ] || exit 0; \
+         if [ -f \"$p\" ] && kill -0 \"$(cat \"$p\")\" 2>/dev/null; then rm -f \"$e\"; exit 0; fi; \
+         mkdir -p \"$(dirname \"{GATEWAY_MARKER}\")\" && touch \"{GATEWAY_MARKER}\" && \
+         nohup bash -c 'mapfile -d \"\" -t a < \"$1\"; exec \"${{a[@]}}\"' sh \"$e\" \
+           >> \"$HOME/.cache/cmux/inference-gateway.log\" 2>&1 < /dev/null & \
+         echo $! > \"$p\"; echo restarted"
+    )
 }
 
 /// The team's gateway state (`gateway` in GET /v1/cloud/inference-gateway).
 async fn gateway_state(machine: &Machine<'_>) -> Result<Value, String> {
-    let o = machine.options;
-    let mut request = machine
-        .http
-        .get(format!("{}/v1/cloud/inference-gateway", o.api))
-        .bearer_auth(&machine.token);
-    if let Some(team) = &o.team {
-        request = request.header("x-cmux-team", team);
-    }
-    let v: Value = request
-        // timeout: a stuck API call is an error: setup's, or one failed check of the start wait.
-        .timeout(Duration::from_secs(20))
-        .send()
-        .await
-        .map_err(|_| "the cmux API did not answer".to_owned())?
+    let url = format!("{}/v1/cloud/inference-gateway", machine.options.api);
+    let v: Value = machine
+        .api(|token| machine.http.get(&url).bearer_auth(token))
+        .await?
         .json()
         .await
         .map_err(|_| "the cmux API's answer was not JSON".to_owned())?;
@@ -390,22 +481,10 @@ async fn gateway_state(machine: &Machine<'_>) -> Result<Value, String> {
 }
 
 async fn put_gateway(machine: &Machine<'_>, mode: &str, gw: Option<&str>) -> Result<(), String> {
-    let o = machine.options;
-    let mut request = machine
-        .http
-        .put(format!("{}/v1/cloud/inference-gateway", o.api))
-        .bearer_auth(&machine.token)
-        .json(&serde_json::json!({"mode": mode, "machine": gw}));
-    if let Some(team) = &o.team {
-        request = request.header("x-cmux-team", team);
-    }
-    let status = request
-        // timeout: an API call that never answers fails setup with an error.
-        .timeout(Duration::from_secs(20))
-        .send()
-        .await
-        .map_err(|_| "the cmux API did not answer".to_owned())?
-        .status();
+    let url = format!("{}/v1/cloud/inference-gateway", machine.options.api);
+    let body = serde_json::json!({"mode": mode, "machine": gw});
+    let status =
+        machine.api(|token| machine.http.put(&url).bearer_auth(token).json(&body)).await?.status();
     if !status.is_success() {
         return Err(format!(
             "the cmux API refused to set the team's gateway (HTTP {})",
@@ -428,10 +507,9 @@ async fn start_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<(),
         "set -e; d=\"$HOME/.config/cmux/inference-gateway\"; mkdir -p \"$d\" \"$HOME/.cache/cmux\"; chmod 700 \"$d\"; \
          touch \"$d/enabled\"; for i in $(seq 1 90); do [ -s {TOKEN_FILE} ] && break; sleep 1; done; \
          [ -s {TOKEN_FILE} ] || {{ echo no-token; exit 4; }}; \
-         p=\"$HOME/.cache/cmux/inference-gateway.pid\"; [ -f \"$p\" ] && kill \"$(cat \"$p\")\" 2>/dev/null || true; \
          c=$(command -v cmux || command -v cmux-tui); \
          nohup \"$c\" inference gateway --api '{api}' --upstream '{up}'{key} --token-file {TOKEN_FILE} \
-           > \"$HOME/.cache/cmux/inference-gateway.log\" 2>&1 < /dev/null & echo $! > \"$p\"",
+           > \"$HOME/.cache/cmux/inference-gateway.log\" 2>&1 < /dev/null & echo $! > \"{GATEWAY_NEW_PID}\"",
         api = o.api,
         up = gw.upstream,
     );
@@ -449,6 +527,13 @@ async fn start_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<(),
     for _ in 0..30 {
         tokio::time::sleep(Duration::from_secs(2)).await;
         if gateway_state(machine).await.is_ok_and(|g| g.get("online") == Some(&Value::Bool(true))) {
+            // Online: the new gateway is the machine's gateway. One that ran there before was replaced on the socket
+            // ("replaced") and has stopped; it is stopped here too, should it not have.
+            let promote = format!(
+                "p=\"{GATEWAY_PID}\"; [ -f \"$p\" ] && kill \"$(cat \"$p\")\" 2>/dev/null; mv -f \"{GATEWAY_NEW_PID}\" \"$p\"; \
+                 rm -f \"{GATEWAY_EARLIER}\""
+            );
+            let _ = machine.exec_on(&gw.machine, &promote, 30_000).await;
             return Ok(());
         }
     }
@@ -467,24 +552,8 @@ const TOKEN_FILE: &str = "/run/cmux-inference-gateway/token";
 
 /// The gateway path: the team's state, then one real call from the machine through it.
 async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
-    let o = machine.options;
-    let mut request = machine
-        .http
-        .get(format!("{}/v1/cloud/inference-gateway", o.api))
-        .bearer_auth(&machine.token);
-    if let Some(team) = &o.team {
-        request = request.header("x-cmux-team", team);
-    }
-    let state: Value = request
-        // timeout: an API call that never answers fails setup with an error.
-        .timeout(Duration::from_secs(20))
-        .send()
-        .await
-        .map_err(|_| "the cmux API did not answer".to_owned())?
-        .json()
-        .await
-        .map_err(|_| "the cmux API's answer was not JSON".to_owned())?;
-    let field = |name: &str| state.get("gateway").and_then(|g| g.get(name));
+    let state = gateway_state(machine).await?;
+    let field = |name: &str| state.get(name);
     if field("mode").and_then(Value::as_str) != Some("gateway") {
         return Err("this team is not in gateway mode (PUT /v1/cloud/inference-gateway {\"mode\":\"gateway\"})".into());
     }
@@ -506,7 +575,18 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
             shown_answer(&out, &mark)
         ));
     }
-    let holds = machine.exec(login_present(), 30_000).await?.0 == 0;
+    // A 200 alone does not show the gateway answered: a machine made before its team's gateway mode keeps the route
+    // it was made with, and its old route answers too. Only the gateway's object stamps `do-gateway` on the answer's
+    // Server-Timing (cmux-platform InferenceGateway.ts objectTiming), so that is the proof the call went through it.
+    if !reached_gateway(&out, &mark) {
+        return Err(format!(
+            "the machine's model call answered 200 but not through the gateway: the machine keeps the route it was \
+             made with, so one made before this team's gateway mode goes around it. Make a new machine, then run \
+             setup again.\n{}",
+            shown_answer(&out, &mark)
+        ));
+    }
+    let holds = machine.exec(&login_present(), 30_000).await?.0 == 0;
     say(&format!(
         "Path: gateway ({}). The machine's model call went machine -> edge -> cmux -> gateway -> provider and answered 200.",
         if kind == "machine" { "the team's gateway machine" } else { "a person's own computer" }
@@ -600,8 +680,50 @@ fn shown_answer(out: &str, mark: &str) -> String {
     shown.join("\n").trim().to_owned()
 }
 
-fn login_present() -> &'static str {
-    "test -s \"$HOME/.codex/auth.json\" && grep -q '\"refresh_token\"' \"$HOME/.codex/auth.json\""
+/// Whether the probe's answer (`mark` its marker lines) came through the team's gateway: a header line of the header
+/// part is a Server-Timing holding the gateway object's `do-gateway` span. Pure, for the tests.
+fn reached_gateway(out: &str, mark: &str) -> bool {
+    let mut part = "";
+    out.lines().skip(1).any(|line| {
+        if let Some(next) = line.strip_prefix(mark) {
+            part = next;
+            return false;
+        }
+        part == "headers"
+            && line.split_once(':').is_some_and(|(name, value)| {
+                name.trim().eq_ignore_ascii_case("server-timing")
+                    && value
+                        .split(',')
+                        .any(|span| span.trim().split(';').next() == Some("do-gateway"))
+            })
+    })
+}
+
+/// The machine holds a Codex login of its own: `~/.codex/auth.json` with a non-empty refresh token (a ChatGPT
+/// sign-in) or a non-empty API key (`codex login --with-api-key`), not merely a field of that name (null or "").
+fn login_present() -> String {
+    format!(
+        "f=\"$HOME/.codex/auth.json\"; test -s \"$f\" && grep -Eq '{}|{}' \"$f\"",
+        filled("refresh_token"),
+        filled("OPENAI_API_KEY")
+    )
+}
+
+/// An extended regex for a JSON field `name` holding a non-empty string.
+fn filled(name: &str) -> String {
+    format!("\"{name}\"[[:space:]]*:[[:space:]]*\"[^\"]")
+}
+
+/// Started before the device login: the login it makes is the auth file written after this file.
+const LOGIN_STARTED: &str = "$HOME/.cache/cmux/inference-login-codex.started";
+
+/// The device login finished: an auth file with a non-empty refresh token, written after the sign-in started. A login
+/// the machine already held does not count, so a stale one cannot pass for the person's approval.
+fn device_login_done() -> String {
+    format!(
+        "f=\"$HOME/.codex/auth.json\"; [ \"$f\" -nt \"{LOGIN_STARTED}\" ] && grep -Eq '{}' \"$f\"",
+        filled("refresh_token")
+    )
 }
 
 /// The device path: the machine runs Codex's own device sign-in; the person approves on their computer.
@@ -614,7 +736,7 @@ async fn device(machine: &Machine<'_>) -> Result<(), String> {
         return Err("a device login goes only on your own machine, not a team machine".into());
     }
     let start = format!(
-        "mkdir -p \"$HOME/.cache/cmux\" && unset CODEX_HOME OPENAI_API_KEY OPENAI_BASE_URL; \
+        "mkdir -p \"$HOME/.cache/cmux\" && touch \"{LOGIN_STARTED}\" && sleep 1 && unset CODEX_HOME OPENAI_API_KEY OPENAI_BASE_URL; \
          c=/usr/local/libexec/cmux-codex-real; [ -x \"$c\" ] || c=$(command -v codex); \
          [ -n \"$c\" ] || {{ echo no-codex; exit 3; }}; \
          nohup \"$c\" login --device-auth > {LOG} 2>&1 < /dev/null & echo $! > \"$HOME/.cache/cmux/inference-login-codex.pid\""
@@ -645,7 +767,7 @@ async fn device(machine: &Machine<'_>) -> Result<(), String> {
     let done = format!(
         "p=$(cat \"$HOME/.cache/cmux/inference-login-codex.pid\" 2>/dev/null); \
          if {login}; then echo signed-in; elif [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null; then echo waiting; else echo ended; fi",
-        login = login_present()
+        login = device_login_done()
     );
     let deadline = std::time::Instant::now() + DEVICE_WAIT;
     loop {
