@@ -171,6 +171,24 @@ fn turns_split_by_the_features_they_ran_with_and_counters_sum() {
 }
 
 #[test]
+fn the_dedupe_regret_rate_is_stubs_asked_past_per_stub() {
+    let dedupe = |d: Value| json!({"harnessMagic": {"enabled": ["dedupe"], "dedupe": d}});
+    let log = [
+        prompt(1_000, "p1"),
+        result(2_000, dedupe(json!({"readsStubbed": 3, "searchesStubbed": 1, "spills": 4}))),
+        prompt(3_000, "p2"),
+        result(4_000, dedupe(json!({"stubRegrets": 1, "spillReadBacks": 1}))),
+        prompt(5_000, "p3"),
+        result(6_000, json!({"harnessMagic": {"enabled": []}})),
+    ];
+    let c = card(&store(&log, json!({})));
+    assert_eq!(c.totals.dedupe_regret_rate, Some(0.25));
+    assert_eq!(c.totals.spill_read_back_rate, Some(0.25));
+    assert_eq!(c.by_feature["dedupe"].on.dedupe_regret_rate, Some(0.25));
+    assert_eq!(c.by_feature["dedupe"].off.dedupe_regret_rate, None, "no stub: no rate");
+}
+
+#[test]
 fn pull_requests_count_on_the_turn_that_opened_them_and_settle_from_any_session() {
     let pr = "https://github.com/o/r/pull/5";
     let log =

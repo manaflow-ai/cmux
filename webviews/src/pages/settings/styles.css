@@ -4910,7 +4910,7 @@ button.menu-disclosure {
 }
 
 /* The row, card or connection a deep link landed on (settingsLinks.ts): ringed while
- * LinkLanding.tsx holds the attribute (LINK_HIGHLIGHT_MS). */
+ * linkLandingModel.ts holds the attribute (LINK_HIGHLIGHT_MS). */
 [data-link-target] {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
   outline-offset: 2px;

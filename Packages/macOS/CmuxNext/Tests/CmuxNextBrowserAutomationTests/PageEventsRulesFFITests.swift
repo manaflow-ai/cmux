@@ -1,4 +1,5 @@
 import Security
+import CmuxNextBrowserCore
 import Foundation
 import Testing
 import CmuxNextBrowserCore

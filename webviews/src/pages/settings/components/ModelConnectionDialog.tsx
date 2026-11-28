@@ -340,14 +340,10 @@ export function ModelConnectionDialog({
                 onCancel={onDismiss}
               />
             ))}
-          {allowChatGPTBrowser && !devicePending && !accountSignIn.running && (
-            <ChatGPTBrowserForm
-              models={models}
-              busy={busy}
-              failure={accountFamily ? error : null}
-              run={run}
-              onClose={onClose}
-            />
+          {/* ChatGPT signs in with a device code (the Connect above). The browser form only shows a
+              browser sign-in already running (its wait and Cancel); it never starts one beside Connect. */}
+          {browserPending && !devicePending && !accountSignIn.running && (
+            <ChatGPTBrowserForm models={models} busy={busy} failure={null} run={run} onClose={onClose} />
           )}
         </div>
       )}
