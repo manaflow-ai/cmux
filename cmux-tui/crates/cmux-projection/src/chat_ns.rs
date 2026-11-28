@@ -366,8 +366,9 @@ impl Authority {
     /// # Errors
     /// [`NsError::UnknownToken`] when no open write has `token`.
     pub fn close(&mut self, token: u64, meta: Meta, now_ms: u64) -> Result<Closed, NsError> {
-        let path = self.grants.get(&token).ok_or(NsError::UnknownToken(token))?.path.clone();
-        let member = self.grants[&token].writer.member.clone();
+        let grant = self.grants.get(&token).ok_or(NsError::UnknownToken(token))?;
+        let path = grant.path.clone();
+        let member = grant.writer.member.clone();
         self.renew_member(&member, now_ms);
         self.sweep(&path, now_ms);
         let grant = self.grants.get_mut(&token).ok_or(NsError::UnknownToken(token))?;

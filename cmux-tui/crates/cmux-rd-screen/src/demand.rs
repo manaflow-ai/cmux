@@ -45,7 +45,11 @@ pub struct ViewerDemand {
 /// The rung for a viewer's `long_edge` on a display `display_long_edge`
 /// pixels long; `None` when the rung is the display's own size or more.
 pub fn rung(long_edge: i64, display_long_edge: i64) -> Option<i64> {
-    let rung = RUNGS.iter().copied().find(|r| *r >= long_edge).unwrap_or(RUNGS[RUNGS.len() - 1]);
+    let rung = RUNGS
+        .iter()
+        .copied()
+        .find(|r| *r >= long_edge)
+        .unwrap_or_else(|| RUNGS.iter().copied().last().unwrap_or_default());
     if display_long_edge > 0 && rung >= display_long_edge { None } else { Some(rung) }
 }
 

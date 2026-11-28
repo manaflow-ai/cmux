@@ -152,7 +152,7 @@ pub fn create(opts: &Options) -> Result<Created, String> {
     if diff.len() > MAX_DIFF_BYTES {
         return Err(format!(
             "the local diff against {} is {} bytes (limit {MAX_DIFF_BYTES}): commit and push what the failure doesn't need, or pass --base",
-            &base[..12.min(base.len())],
+            base.chars().take(12).collect::<String>(),
             diff.len()
         ));
     }

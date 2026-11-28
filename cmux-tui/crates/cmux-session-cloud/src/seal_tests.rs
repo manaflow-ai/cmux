@@ -18,3 +18,12 @@ fn the_same_plaintext_seals_differently_each_time() {
     let key = Key::generate().unwrap();
     assert_ne!(seal(&key, b"same").unwrap(), seal(&key, b"same").unwrap());
 }
+
+#[test]
+fn every_short_header_is_rejected_without_panicking() {
+    let key = Key::generate().unwrap();
+    let sealed = seal(&key, b"history").unwrap();
+    for len in 0..MAGIC.len() + NONCE {
+        assert!(open(&key, sealed.get(..len).unwrap(), 7).is_err());
+    }
+}

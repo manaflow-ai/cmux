@@ -63,7 +63,7 @@ impl Ticket {
         if parts.len() != 3 {
             return Err(not_jws());
         }
-        let data = base64_url(parts[1]).ok_or_else(not_jws)?;
+        let data = base64_url(parts.get(1).copied().ok_or_else(not_jws)?).ok_or_else(not_jws)?;
         let Ok(Value::Object(payload)) = serde_json::from_slice::<Value>(&data) else {
             return Err(not_jws());
         };
@@ -282,7 +282,7 @@ impl TicketSignaling {
 pub fn signal_url_with_ticket(signal_url: &str, jws: &str) -> Result<String, TicketError> {
     let bad = || TicketError::BadTicket("bad signal URL".into());
     let scheme_end = signal_url.find(':').ok_or_else(bad)?;
-    let scheme = &signal_url[..scheme_end];
+    let scheme = signal_url.get(..scheme_end).ok_or_else(bad)?;
     let scheme_ok = scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
         && scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
     if !scheme_ok || signal_url.chars().any(|c| c.is_whitespace()) {
@@ -340,7 +340,7 @@ fn percent_decode(text: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%'
+        if bytes.get(i) == Some(&b'%')
             && let Some(hex) = text.get(i + 1..i + 3)
             && let Ok(byte) = u8::from_str_radix(hex, 16)
         {
@@ -348,7 +348,7 @@ fn percent_decode(text: &str) -> String {
             i += 3;
             continue;
         }
-        out.push(bytes[i]);
+        out.push(bytes.get(i).copied().unwrap_or_default());
         i += 1;
     }
     String::from_utf8(out).unwrap_or_else(|_| text.to_owned())
@@ -400,7 +400,7 @@ pub fn verify(
         return false;
     };
     // X9.63: uncompressed only.
-    if key_data.len() != 65 || key_data[0] != 0x04 || raw.len() != 64 {
+    if key_data.len() != 65 || key_data.first() != Some(&0x04) || raw.len() != 64 {
         return false;
     }
     let (Ok(key), Ok(signature)) =

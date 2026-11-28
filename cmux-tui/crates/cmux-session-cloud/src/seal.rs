@@ -3,7 +3,7 @@
 //! learns only sizes and counts. A random nonce means two machines never produce the same blob for the same
 //! segment; that costs nothing here, since a sealed segment is written by one machine once.
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, anyhow};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use std::path::Path;
@@ -97,16 +97,12 @@ pub fn seal(key: &Key, plain: &[u8]) -> anyhow::Result<Vec<u8>> {
 
 /// Decrypts and decompresses a sealed blob; `plain_len` bounds the decompressed size.
 pub fn open(key: &Key, sealed: &[u8], plain_len: usize) -> anyhow::Result<Vec<u8>> {
-    if sealed.len() < MAGIC.len() + NONCE || &sealed[..MAGIC.len()] != MAGIC {
-        bail!("not a sealed history blob");
-    }
-    let nonce = &sealed[MAGIC.len()..MAGIC.len() + NONCE];
+    let payload = sealed.strip_prefix(MAGIC).ok_or_else(|| anyhow!("not a sealed history blob"))?;
+    let (nonce, body) =
+        payload.split_at_checked(NONCE).ok_or_else(|| anyhow!("not a sealed history blob"))?;
     let packed = key
         .cipher()
-        .decrypt(
-            XNonce::from_slice(nonce),
-            Payload { msg: &sealed[MAGIC.len() + NONCE..], aad: MAGIC },
-        )
+        .decrypt(XNonce::from_slice(nonce), Payload { msg: body, aad: MAGIC })
         .map_err(|_| anyhow!("the blob does not open with this history key"))?;
     zstd::bulk::decompress(&packed, plain_len).context("cannot decompress")
 }
