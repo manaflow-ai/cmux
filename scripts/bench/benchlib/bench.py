@@ -61,6 +61,11 @@ class Bench:
     # Benches the nightly runs against each new NIGHTLY (cmux-bench nightly).
     nightly: bool = False
     nightly_args: dict[str, str] = {}
+    # A bench whose number is a ratio of two arms run interleaved on one host (A B A B, the median of per-pair ratios):
+    # host load hits both arms of a pair alike and cancels, so it needs no quiet host. fleet_step refuses to queue
+    # it as an exclusive measurement (scripts/bench/tests/test_self_normalizing_not_exclusive.py is the detector; cmuxterm-hq
+    # docs/handbook/self-normalizing-metric-queued-exclusive.md).
+    self_normalizing: bool = False
 
     def run(self, ctx: "Context") -> None:
         raise NotImplementedError
@@ -206,16 +211,23 @@ class Context:
     def fleet_step(self, script: str, args: list[str] | None = None, artifact: str | None = None, *,
                    step_class: str = "exclusive", labels: tuple[str, ...] = ("bench",), timeout: int | None = None,
                    target_worker: str | None = None, ref: str | None = None,
-                   env: dict[str, str] | None = None, display: bool = False) -> FleetResult:
-        """Run one harness on a fleet Mac with `cmux-ci run` (as a measurement, alone on its worker) and
-        fetch its log and artifact. Never runs anything on this machine."""
+                   env: dict[str, str] | None = None, display: bool = False,
+                   measurement: bool = True) -> FleetResult:
+        """Run one harness on a fleet Mac with `cmux-ci run` and fetch its log and artifact. Never runs anything on
+        this machine. By default a measurement alone on its worker (class exclusive, --measurement); a
+        self-normalizing bench passes a shared class (light or isolated) and measurement=False, so it starts in
+        minutes instead of waiting for a whole quiet host behind every other measurement."""
         if self.host_role != "fleet":
             raise BenchError(f"{self.bench.name}: a fleet step needs --host fleet")
+        if self.bench.self_normalizing and (step_class == "exclusive" or measurement):
+            raise BenchError(f"{self.bench.name}: a self-normalizing (paired A/B ratio) bench never queues as an "
+                             f"exclusive measurement; pass step_class='light' or 'isolated' and measurement=False")
         ref = ref or self.args.get("ref") or base_tip()
         if len(ref) < 40:  # cmux-ci run --ref takes all 40 characters
             ref = parse_build(ref)["sha"]
         target_worker = target_worker or self.args.get("worker")
-        cmd = ["cmux-ci", "run", "--class", step_class, "--measurement", "--script", script, "--ref", ref]
+        cmd = ["cmux-ci", "run", "--class", step_class] + (["--measurement"] if measurement else [])
+        cmd += ["--script", script, "--ref", ref]
         for label in labels:
             cmd += ["--label", label]
         for a in args or []:
