@@ -141,6 +141,13 @@
       "risk": "destructive",
       "digest": "b2916cf80742a092"
     },
+    "cloud.machine.board": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "8011b74e05581e83"
+    },
     "cloud.machine.chat_access": {
       "source": "local",
       "class": "read",

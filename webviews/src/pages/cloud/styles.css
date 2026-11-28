@@ -227,6 +227,12 @@ select {
   padding: 14px 0 6px;
 }
 
+.cloud-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* The surge card (SurgeCard.tsx): one line above the machine list after a surge. */
 .cloud-surge {
   display: flex;

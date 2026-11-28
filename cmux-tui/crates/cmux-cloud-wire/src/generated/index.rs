@@ -46,6 +46,7 @@ pub mod op_names {
     pub const CLOUD_ENVIRONMENT_LIST: &str = "cloud.environment.list";
     pub const CLOUD_ENVIRONMENT_SET: &str = "cloud.environment.set";
     pub const CLOUD_MACHINE_ARCHIVE_DELETE: &str = "cloud.machine.archive_delete";
+    pub const CLOUD_MACHINE_BOARD: &str = "cloud.machine.board";
     pub const CLOUD_MACHINE_CONNECT_INFO: &str = "cloud.machine.connect_info";
     pub const CLOUD_MACHINE_CREATE: &str = "cloud.machine.create";
     pub const CLOUD_MACHINE_DELETE: &str = "cloud.machine.delete";
@@ -303,6 +304,7 @@ pub mod op_names {
         CLOUD_ENVIRONMENT_LIST,
         CLOUD_ENVIRONMENT_SET,
         CLOUD_MACHINE_ARCHIVE_DELETE,
+        CLOUD_MACHINE_BOARD,
         CLOUD_MACHINE_CONNECT_INFO,
         CLOUD_MACHINE_CREATE,
         CLOUD_MACHINE_DELETE,
@@ -563,6 +565,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.environment.list" => visitor.visit::<CloudEnvironmentListOp>(),
         "cloud.environment.set" => visitor.visit::<CloudEnvironmentSetOp>(),
         "cloud.machine.archive_delete" => visitor.visit::<CloudMachineArchiveDeleteOp>(),
+        "cloud.machine.board" => visitor.visit::<CloudMachineBoardOp>(),
         "cloud.machine.connect_info" => visitor.visit::<CloudMachineConnectInfoOp>(),
         "cloud.machine.create" => visitor.visit::<CloudMachineCreateOp>(),
         "cloud.machine.delete" => visitor.visit::<CloudMachineDeleteOp>(),

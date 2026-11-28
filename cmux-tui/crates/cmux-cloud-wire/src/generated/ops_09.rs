@@ -5,6 +5,76 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes mail.send declares.
+    MailSendError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationUnavailable = "integration.unavailable",
+        MutationIndeterminate = "mutation.indeterminate",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read one Gmail thread (every message, as mail.get) at call time; nothing is stored.
+    MailThreadGetOp {
+        name: "mail.thread.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: MailThreadGetParams,
+        result: Value,
+        error: MailThreadGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailThreadGetParams {
+    pub connection: ConnectionId,
+    pub thread_id: String,
+}
+
+wire_errors! {
+    /// The error codes mail.thread.get declares.
+    MailThreadGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only.
+    MailThreadsPeekOp {
+        name: "mail.threads.peek",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: MailThreadsPeekParams,
+        result: Value,
+        error: MailThreadsPeekError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailThreadsPeekParams {
+    pub connection: ConnectionId,
+    pub thread_ids: Vec<String>,
+}
+
+wire_errors! {
     /// The error codes mail.threads.peek declares.
     MailThreadsPeekError {
         AuthForbidden = "auth.forbidden",
@@ -828,76 +898,5 @@ wire_errors! {
         UnknownConversation = "unknown_conversation",
         UnknownInvite = "unknown_invite",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read one kept run with the body of the automation version that fired it.
-    RunGetOp {
-        name: "run.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:SchedulerDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: RunGetParams,
-        result: RunWithBody,
-        error: RunGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunGetParams {
-    pub run: RunId,
-}
-
-wire_errors! {
-    /// The error codes run.get declares.
-    RunGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages).
-    RunListOp {
-        name: "run.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:SchedulerDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: RunListParams,
-        result: RunListResult,
-        error: RunListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub automation: Option<AutomationId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<RunState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunListResult {
-    pub runs: Vec<Run>,
-    pub next_cursor: Option<String>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes run.list declares.
-    RunListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }

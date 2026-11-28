@@ -5,6 +5,56 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes cloud.snapshot.restore declares.
+    CloudSnapshotRestoreError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMemberBudgetReached = "cloud.member_budget.reached",
+        CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
+        CloudPlanRequired = "cloud.plan.required",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudQuotaExceeded = "cloud.quota.exceeded",
+        CloudQuotaVmLimit = "cloud.quota.vm_limit",
+        CloudRateLimited = "cloud.rate_limited",
+        CloudSizeLocked = "cloud.size.locked",
+        CloudSnapshotNotFound = "cloud.snapshot.not_found",
+        CloudSpendCapReached = "cloud.spend_cap.reached",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted. Agent principals are refused; the client asks a person first.
+    CloudSurgeCreateOp {
+        name: "cloud.surge.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "money",
+        principals: [Session],
+        params: CloudSurgeCreateParams,
+        result: CloudSurgeReceipt,
+        error: CloudSurgeCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSurgeCreateParams {
+    pub count: i64,
+    pub ttl_seconds: i64,
+}
+
+wire_errors! {
     /// The error codes cloud.surge.create declares.
     CloudSurgeCreateError {
         AuthForbidden = "auth.forbidden",
@@ -848,52 +898,5 @@ wire_op! {
         params: ConversationSnapshotParams,
         result: ConversationSnapshotResult,
         error: ConversationSnapshotError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationSnapshotParams {
-    pub conversation: ConversationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tail: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationSnapshotResult {
-    pub conversation: HomeConversationSummary,
-    pub messages: Vec<HomeMessage>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threads: Option<Vec<HomeThreadSummary>>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes conversation.snapshot declares.
-    ConversationSnapshotError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message.
-    ConversationThreadOp {
-        name: "conversation.thread",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConversationDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: ConversationThreadParams,
-        result: ConversationThreadResult,
-        error: ConversationThreadError,
     }
 }

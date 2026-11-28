@@ -1,7 +1,7 @@
 // The Cloud page (plans/cmux-next/cloud-app.md L7, cloud-parity.md "cmux-next UI mapping"). State
 // lives in `CloudStore`; this file only renders it and turns plain keys and clicks into intents.
 // Cmd and Ctrl chords never reach a page handler (`plain`): the app's key dispatcher owns them.
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore, useMemo } from "react";
 import type { Strings } from "../shared/i18n";
 import { useLasting, useLoadingShown } from "../../ui/lasting";
 import { AccountPanel } from "./AccountPanel";
@@ -13,6 +13,7 @@ import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
 import type { CloudStore } from "./store";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
+import { CLOUD_BOARD_ROUTE } from "../board/cloudClient";
 import { shownSurge } from "./surge";
 import { SurgeCard } from "./SurgeCard";
 
@@ -132,9 +133,19 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
           <section className="cloud-machines" aria-label={t(L.machines)}>
             <div className="cloud-section-header">
               <h2 className="cloud-section-title">{t(L.machines)}</h2>
-              <button type="button" className="cloud-button cloud-create-button" onClick={() => store.openCreate()}>
-                {t(L.create)}
-              </button>
+              <span className="cloud-section-actions">
+                {/* The team board (`#/board`): every machine and agent of the team, with Stop and Open. */}
+                <button
+                  type="button"
+                  className="cloud-link-button cloud-board-button"
+                  onClick={() => (location.hash = CLOUD_BOARD_ROUTE)}
+                >
+                  {t(L.teamBoard)}
+                </button>
+                <button type="button" className="cloud-button cloud-create-button" onClick={() => store.openCreate()}>
+                  {t(L.create)}
+                </button>
+              </span>
             </div>
             <SurgeCard surge={shownSurge(snap.surge, snap.machines)} strings={strings} />
             <MachineList

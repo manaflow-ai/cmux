@@ -260,6 +260,11 @@ export const PAGES = {
     out: "webviews/src/pages/stash/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
   },
+  // The team board (src/pages/board/README.md).
+  board: {
+    out: "webviews/src/pages/board/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/board/Localizable.xcstrings" }],
+  },
   // The Forum page (the team's hosted agent forum; behind experiments.forum).
   forum: {
     out: "webviews/src/pages/forum/generated/strings.json",

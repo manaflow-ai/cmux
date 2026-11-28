@@ -437,6 +437,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.board": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.machine.connect": {
       "scope": "cloud:write",
       "class": "mutation"

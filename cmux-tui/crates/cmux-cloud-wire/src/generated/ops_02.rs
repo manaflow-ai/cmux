@@ -756,6 +756,47 @@ wire_errors! {
 }
 
 wire_op! {
+    /// The team board in one read: `machines`, `usage` and `audit` are exactly what GET /v1/machines, GET /v1/machines/usage (the last 30 days) and GET /v1/machines/audit (the newest 50 rows) answer the caller (TeamMachine[], MachineUsage, MachineAuditRow[]); `members` is the first 200 of the team's members by user id with their display names (team.members.list), or null when the caller may not read them; `self` is the caller's user id. The same access as those reads: a member of the team, or its billing role.
+    CloudMachineBoardOp {
+        name: "cloud.machine.board",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudMachineBoardParams,
+        result: CloudMachineBoardResult,
+        error: CloudMachineBoardError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineBoardParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineBoardResult {
+    pub machines: Vec<Value>,
+    pub usage: Value,
+    pub audit: Vec<Value>,
+    pub members: Option<Vec<BoardMember>>,
+    #[serde(rename = "self")]
+    pub self_: UserId,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.board declares.
+    CloudMachineBoardError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team).
     CloudMachineConnectInfoOp {
         name: "cloud.machine.connect_info",
@@ -850,53 +891,6 @@ wire_errors! {
         CloudSizeLocked = "cloud.size.locked",
         CloudSnapshotNotFound = "cloud.snapshot.not_found",
         CloudSpendCapReached = "cloud.spend_cap.reached",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
-    CloudMachineDeleteOp {
-        name: "cloud.machine.delete",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "destructive",
-        principals: [Session, Install],
-        params: CloudMachineDeleteParams,
-        result: CloudMachineDeleteResult,
-        error: CloudMachineDeleteError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineDeleteParams {
-    pub machine: MachineId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineDeleteResult {
-    pub deleted: BoolLit<true>,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.delete declares.
-    CloudMachineDeleteError {
-        ApprovalDenied = "approval.denied",
-        ApprovalExpired = "approval.expired",
-        ApprovalPending = "approval.pending",
-        ApprovalTooManyPending = "approval.too_many_pending",
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudRateLimited = "cloud.rate_limited",
         IdempotencyConflict = "idempotency.conflict",
         MutationIndeterminate = "mutation.indeterminate",
         OwnerUnreachable = "owner.unreachable",

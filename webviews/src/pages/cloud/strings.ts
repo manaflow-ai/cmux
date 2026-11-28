@@ -94,6 +94,7 @@ export const L = {
   surgeStarting: "surge.starting",
   surgeFailed: "surge.failed",
   create: "machines.create",
+  teamBoard: "machines.teamBoard",
   classic: "machines.classic",
   classicReadOnly: "machines.classicReadOnly",
   migrationTitle: "migration.title",

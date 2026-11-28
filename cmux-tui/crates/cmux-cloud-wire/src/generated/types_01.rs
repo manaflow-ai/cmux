@@ -119,6 +119,13 @@ wire_enum! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BoardMember {
+    pub user: UserId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Body {
     AgentPrompt(BodyAgentPrompt),
@@ -889,13 +896,5 @@ wire_enum! {
         Waking = "waking",
         Unresponsive = "unresponsive",
         Gone = "gone",
-    }
-}
-
-wire_enum! {
-    CloudSessionScope {
-        Mine = "mine",
-        Team = "team",
-        Following = "following",
     }
 }

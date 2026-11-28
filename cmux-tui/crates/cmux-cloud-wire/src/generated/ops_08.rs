@@ -4,6 +4,65 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Sign this install out: revokes the calling install (its token, grant, push targets and presence key) so a signed-out device keeps nothing usable.
+    InstallSignOutOp {
+        name: "install.sign_out",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: InstallSignOutParams,
+        result: Install,
+        error: InstallSignOutError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InstallSignOutParams {}
+
+wire_errors! {
+    /// The error codes install.sign_out declares.
+    InstallSignOutError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Approve, allow once, a Cloud request your own session confirmed, by its request id: refused unless it holds exactly that op and params, pending, posted by that team's Cloud. Answers the approved run's reply when it ends within the wait.
+    IntegrationApprovalApproveOp {
+        name: "integration.approval.approve",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: IntegrationApprovalApproveParams,
+        result: IntegrationApprovalApproveResult,
+        error: IntegrationApprovalApproveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalApproveParams {
+    pub request: String,
+    pub op: String,
+    pub params: Value,
+    pub team: TeamId,
+}
+
+wire_enum! {
+    IntegrationApprovalApproveResultAnswered {
+        Here = "here",
+        Elsewhere = "elsewhere",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IntegrationApprovalApproveResult {
     pub request: String,
@@ -831,74 +890,4 @@ pub struct MailSendParams {
     pub thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes mail.send declares.
-    MailSendError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read one Gmail thread (every message, as mail.get) at call time; nothing is stored.
-    MailThreadGetOp {
-        name: "mail.thread.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: MailThreadGetParams,
-        result: Value,
-        error: MailThreadGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MailThreadGetParams {
-    pub connection: ConnectionId,
-    pub thread_id: String,
-}
-
-wire_errors! {
-    /// The error codes mail.thread.get declares.
-    MailThreadGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only.
-    MailThreadsPeekOp {
-        name: "mail.threads.peek",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: MailThreadsPeekParams,
-        result: Value,
-        error: MailThreadsPeekError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MailThreadsPeekParams {
-    pub connection: ConnectionId,
-    pub thread_ids: Vec<String>,
 }
