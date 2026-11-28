@@ -465,7 +465,8 @@ mod pending_effort_tests {
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
         let meta: SessionMeta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA, "id": "pending-effort", "name": "pending-effort",
-            "harness": "claude", "cwd": "/tmp", "status": "starting", "createdAt": 1, "updatedAt": 1
+            "harness": "claude", "cwd": "/tmp", "status": crate::store::SessionStatus::Idle,
+            "createdAt": 1, "updatedAt": 1
         }))
         .unwrap();
         let session = hub.make_session(meta);
