@@ -1967,7 +1967,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(self.runner(""), self.SIDE)
         self.assertEqual(self.runner("something-else"), self.SIDE)
         # with the switch unset the ordinary run takes the nightly slot; a rescue still goes first
-        self.assertEqual(self.runner("", pin_slot=""), "glaeda-nightly-std-xcode-26.6")
+        self.assertEqual(self.runner("", pin_slot=""), "mac-nightly")
         self.assertEqual(self.runner("blacksmith", pin_slot=""), self.SMALL)
 
     POOL = "glaeda-promote-trusted-light-xcode-26.6"
@@ -1995,7 +1995,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(self.pool_runner(""), self.SIDE)
         # the dedicated pool, when set, goes ahead of the nightly slot; unset, the nightly slot takes the build
         self.assertEqual(self.pool_runner(self.POOL, pin_slot=""), self.POOL)
-        self.assertEqual(self.pool_runner("", pin_slot=""), "glaeda-nightly-std-xcode-26.6")
+        self.assertEqual(self.pool_runner("", pin_slot=""), "mac-nightly")
 
     def test_only_this_workflow_reads_the_ffi_release_pool(self):
         readers = sorted(path.name for path in (ROOT / ".github/workflows").glob("*.yml")
