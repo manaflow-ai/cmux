@@ -214,7 +214,7 @@
 .acpmux-composer-foot.acpmux-composer-foot .acpmux-composer-status > .acpmux-composer-status-machine {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 18ch;
+  max-width: 100%;
   min-height: var(--grid-composer-quiet-row-height, 28px);
   padding: 0 4px 0 0;
   border: 0;
