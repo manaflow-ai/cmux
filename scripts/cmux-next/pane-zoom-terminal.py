@@ -11,6 +11,8 @@ through the toggleSplitZoom action. Each zoom and unzoom is measured with:
   grid_reports   terminal grid reports the views made (`debug.window_transition`); resizes_sent: grids
                  sent to the daemon, each a PTY resize, a shell redraw and a reflow at the owner
   hangs          main-thread hangs (`debug.hangs`)
+  act parts      the app's `layout.act.` spans of the record, kept raw in the report and printed as one ACT-ROW
+                 line for each round; scripts/measure/pane-act-spans.py reads either into a table
 
 Budget rows (always printed; they fail the run with --gate): a zoom or unzoom sends at most one grid per
 terminal that changed size (the zoomed pane: 1), and misses no more than --missed-budget frames.
@@ -18,7 +20,14 @@ terminal that changed size (the zoomed pane: 1), and misses no more than --misse
 Usage: pane-zoom-terminal.py --tag <tag> --app PATH [--layouts 1x2,2x2,2x4] [--rounds 3] [--scrollback 20000]
        [--stream] [--json PATH] [--out DIR] [--gate]
 """
-import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
+import argparse, glob, importlib.util, json, os, signal, subprocess, sys, tempfile, time
+
+# The reader of an act's parts: it says what this tool keeps of each record, and reads it back from the report
+# or from this tool's log.
+_reader = importlib.util.spec_from_file_location(
+    "pane_act_spans", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "measure", "pane-act-spans.py"))
+spans = importlib.util.module_from_spec(_reader)
+_reader.loader.exec_module(spans)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from state_wait import wait_stable, wait_until  # noqa: E402
@@ -159,11 +168,12 @@ def measure(label):
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     hangs = rpc("debug.hangs") or {}
-    # The display-link tick is the per-frame work MotionTrace measures ("clock"); layout.travel samples
-    # above zero are the frames the layout springs moved in (no moving frame: the zoom never ran).
+    # The display-link tick is the per-frame work MotionTrace measures ("clock"). The frames in which the zoom moved:
+    # layout.travel samples above zero (the layout springs moved) and layout.commit samples above zero (a move at a
+    # commit moved panes; it steps no spring). No moving frame of either kind: the zoom never ran.
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
-    moving = sum(1 for s in (motion.get("samples") or []) if s.get("name") == "layout.travel" and (s.get("v") or 0) > 0) \
-        if isinstance(motion, dict) else 0
+    kept = spans.kept(motion)
+    moving = kept["travel_frames"] + kept["commit_frames"]
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     result = {
         "label": label, "reply_error": reply.get("error") if isinstance(reply, dict) else None,
@@ -175,6 +185,7 @@ def measure(label):
         "layout_frames": work.get("frames"),
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
+        **kept,
     }
     print(f"  {label:<18} moved {moving} frames  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms missed {result['missed']}  "
@@ -184,6 +195,26 @@ def measure(label):
           f"layout max {result['layout_max_ms']} p95 {result['layout_p95_ms']} ms  grids {result['grid_reports']}/"
           f"{result['resizes_sent']}  hangs {result['hangs']}", flush=True)
     return result
+
+
+def round_of(name, direction, index):
+    """One zoom or unzoom of the layout `name`: measured, with its rows. The round's line in the log carries what
+    the reader of an act's parts needs: with a failed row the run ends with exit 1, and a step then returns its
+    log and not its report."""
+    run = measure(f"{name} {direction} #{index}")
+    run.update(layout=name, direction=direction, round=index)
+    print(spans.log_line(run), flush=True)
+    if index == 0 and direction == "zoom":
+        rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-zoomed.png")})
+    row(f"{name} {direction} #{index}: the zoom animated (layout springs or a move at a commit)", "> 0 frames",
+        str(run["moving_frames"]), run["moving_frames"] > 0)
+    sent = run["resizes_sent"]
+    row(f"{name} {direction} #{index}: grids sent to the PTY owner" + ("" if opts.gate else " (info)"),
+        "<= 1", str(sent), sent is not None and sent <= 1 or not opts.gate)
+    missed = run["missed"]
+    row(f"{name} {direction} #{index}: missed frames" + ("" if opts.gate else " (info)"),
+        f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
+    return run
 
 
 def cleanup():
@@ -228,19 +259,7 @@ def main():
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for direction in ("zoom", "unzoom"):
-                run = measure(f"{name} {direction} #{index}")
-                run.update(layout=name, direction=direction)
-                report["runs"].append(run)
-                if index == 0 and direction == "zoom":
-                    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-zoomed.png")})
-                row(f"{name} {direction} #{index}: the zoom animated (layout springs moved)", "> 0 frames",
-                    str(run["moving_frames"]), run["moving_frames"] > 0)
-                sent = run["resizes_sent"]
-                row(f"{name} {direction} #{index}: grids sent to the PTY owner" + ("" if opts.gate else " (info)"),
-                    "<= 1", str(sent), sent is not None and sent <= 1 or not opts.gate)
-                missed = run["missed"]
-                row(f"{name} {direction} #{index}: missed frames" + ("" if opts.gate else " (info)"),
-                    f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
+                report["runs"].append(round_of(name, direction, index))
                 time.sleep(0.5)  # test harness: idle between runs
         if opts.json:
             json.dump(report, open(opts.json, "w"), indent=1)
@@ -261,12 +280,13 @@ def main():
         json.dump(report, open(opts.json, "w"), indent=1)
 
 
-try:
-    main()
-except Exception:  # the step log is stdout only
-    import traceback
-    traceback.print_exc(file=sys.stdout)
-finally:
-    cleanup()
-    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
+if __name__ == "__main__":  # a test loads this file as a module and calls its parts
+    try:
+        main()
+    except Exception:  # the step log is stdout only
+        import traceback
+        traceback.print_exc(file=sys.stdout)
+    finally:
+        cleanup()
+        print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
+        sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
