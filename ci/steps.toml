@@ -3152,6 +3152,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/review_brief_fixtures/*",
   "cmux-tui/crates/acpmux/src/rows/*",
   "cmux-tui/crates/acpmux/src/server/*",
+  "cmux-tui/crates/acpmux/src/server/pull_request_actions/*",
   "cmux-tui/crates/acpmux/src/server/account_sign_in/*",
   "cmux-tui/crates/acpmux/src/server/accounts/*",
   "cmux-tui/crates/acpmux/src/server/chats/*",
