@@ -32,7 +32,13 @@ const PLACEHOLDER: &str = "cmux-vm-edge-placeholder";
 const DEVICE_WAIT: Duration = Duration::from_secs(15 * 60);
 // timeout: not a deadline: the pace of polls over exec (no push); each loop has its deadline.
 const POLL: Duration = Duration::from_secs(3);
-const LOG: &str = "$HOME/.cache/cmux/inference-login-codex.log";
+/// A path in the Cloud machine's own cache folder (its work user's, on the machine: no state root of this computer).
+macro_rules! guest_cache {
+    ($name:literal) => {
+        concat!("$HOME/.cache/cmux/", $name)
+    };
+}
+const LOG: &str = guest_cache!("inference-login-codex.log");
 
 const HELP: &str = "\
 cmux inference setup: choose and check how a Cloud machine's Codex reaches a model.
@@ -411,14 +417,20 @@ struct Before {
 
 /// The running gateway's pid file, its command line kept by setup (NUL-separated, as /proc gives it), and the pid
 /// file of the one setup is starting until it comes online.
-const GATEWAY_PID: &str = "$HOME/.cache/cmux/inference-gateway.pid";
-const GATEWAY_EARLIER: &str = "$HOME/.cache/cmux/inference-gateway.earlier";
-const GATEWAY_NEW_PID: &str = "$HOME/.cache/cmux/inference-gateway.pid.new";
+const GATEWAY_PID: &str = guest_cache!("inference-gateway.pid");
+const GATEWAY_EARLIER: &str = guest_cache!("inference-gateway.earlier");
+const GATEWAY_NEW_PID: &str = guest_cache!("inference-gateway.pid.new");
+const GATEWAY_LOG: &str = guest_cache!("inference-gateway.log");
 const GATEWAY_MARKER: &str = "$HOME/.config/cmux/inference-gateway/enabled";
 
 /// Run on the earlier gateway machine before setup names another: keeps the running gateway's command line.
-const KEEP_EARLIER: &str = "p=\"$HOME/.cache/cmux/inference-gateway.pid\"; e=\"$HOME/.cache/cmux/inference-gateway.earlier\"; \
-    rm -f \"$e\"; [ -f \"$p\" ] && q=$(cat \"$p\") && kill -0 \"$q\" 2>/dev/null && cp \"/proc/$q/cmdline\" \"$e\"; true";
+const KEEP_EARLIER: &str = concat!(
+    "p=\"",
+    guest_cache!("inference-gateway.pid"),
+    "\"; e=\"",
+    guest_cache!("inference-gateway.earlier"),
+    "\"; rm -f \"$e\"; [ -f \"$p\" ] && q=$(cat \"$p\") && kill -0 \"$q\" 2>/dev/null && cp \"/proc/$q/cmdline\" \"$e\"; true"
+);
 
 /// Stops the gateway setup started on `gw.machine`, gives the team its earlier mode and machine, and starts the
 /// earlier gateway again from its kept command line when it is no longer running (it was replaced or retired). The
@@ -463,7 +475,7 @@ fn restart_earlier() -> String {
          if [ -f \"$p\" ] && kill -0 \"$(cat \"$p\")\" 2>/dev/null; then rm -f \"$e\"; exit 0; fi; \
          mkdir -p \"$(dirname \"{GATEWAY_MARKER}\")\" && touch \"{GATEWAY_MARKER}\" && \
          nohup bash -c 'mapfile -d \"\" -t a < \"$1\"; exec \"${{a[@]}}\"' sh \"$e\" \
-           >> \"$HOME/.cache/cmux/inference-gateway.log\" 2>&1 < /dev/null & \
+           >> \"{GATEWAY_LOG}\" 2>&1 < /dev/null & \
          echo $! > \"$p\"; echo restarted"
     )
 }
@@ -509,7 +521,7 @@ async fn start_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<(),
          [ -s {TOKEN_FILE} ] || {{ echo no-token; exit 4; }}; \
          c=$(command -v cmux || command -v cmux-tui); \
          nohup \"$c\" inference gateway --api '{api}' --upstream '{up}'{key} --token-file {TOKEN_FILE} \
-           > \"$HOME/.cache/cmux/inference-gateway.log\" 2>&1 < /dev/null & echo $! > \"{GATEWAY_NEW_PID}\"",
+           > \"{GATEWAY_LOG}\" 2>&1 < /dev/null & echo $! > \"{GATEWAY_NEW_PID}\"",
         api = o.api,
         up = gw.upstream,
     );
@@ -715,7 +727,7 @@ fn filled(name: &str) -> String {
 }
 
 /// Started before the device login: the login it makes is the auth file written after this file.
-const LOGIN_STARTED: &str = "$HOME/.cache/cmux/inference-login-codex.started";
+const LOGIN_STARTED: &str = guest_cache!("inference-login-codex.started");
 
 /// The device login finished: an auth file with a non-empty refresh token, written after the sign-in started. A login
 /// the machine already held does not count, so a stale one cannot pass for the person's approval.
