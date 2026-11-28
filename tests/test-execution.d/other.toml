@@ -92,15 +92,15 @@ path = "tests/test_bead_autoclose.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_bench_baselines.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_bench_coverage_map.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_bench_relevance_map.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_bench_baselines.py"
 lane = "linux-guard"
 
 [[test]]
@@ -658,6 +658,10 @@ path = "tests/test_merge_xcstrings.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_migrate_journey_key.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_migrate_journey_verdict.py"
 lane = "linux-guard"
 
@@ -1044,7 +1048,7 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Reads the sc
 [[test]]
 path = "tests/test_side_instance_parked_launch.py"
 lane = "manual"
-reason = "Run by the lane that changes side-instance.sh launch or stop (kept with its siblings): python3 tests/test_side_instance_parked_launch.py; needs only bash and python3 (open, ps and pgrep are stand-ins)."
+reason = "Run by the lane that changes side-instance.sh launch or stop (kept with its siblings): python3 tests/test_side_instance_parked_launch.py (about 55 s: the TERM-ignoring helper case waits out stop's 15 s TERM grace); needs only bash and python3 (open, ps and pgrep are stand-ins)."
 
 [[test]]
 path = "tests/test_side_instance_protected_root.py"
@@ -1304,6 +1308,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_whats_new_clips.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_whats_new_gallery_heal.py"
 lane = "linux-guard"
 
 [[test]]
