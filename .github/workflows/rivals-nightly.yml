@@ -48,7 +48,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # The client's queue wait (30 min) and run limit (60 min: 3 apps, each launches plus a 5 minute soak), the upload.
     timeout-minutes: 100
-    environment: next-cache-writer
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
     steps:
