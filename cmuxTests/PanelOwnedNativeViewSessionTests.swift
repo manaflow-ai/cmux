@@ -493,6 +493,55 @@ struct FilePreviewPDFSharingTests {
         #expect(picker.presentedView == nil)
     }
 
+    @Test
+    func shareButtonClearsLegacyVerticalScroller() throws {
+        // A volatile argument-domain override forces legacy scrollers without persisting anything.
+        let defaults = UserDefaults.standard
+        let argumentDomain = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defaults.setVolatileDomain(
+            argumentDomain.merging(["AppleShowScrollBars": "Always"]) { $1 },
+            forName: UserDefaults.argumentDomain
+        )
+        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        defer {
+            defaults.setVolatileDomain(argumentDomain, forName: UserDefaults.argumentDomain)
+            NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        }
+
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-pdf-share-scroller-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try Data("%PDF-1.4".utf8).write(to: fileURL)
+
+        let container = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        defer { container.close() }
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        container.setPanel(panel)
+        container.setURL(fileURL, revision: panel.previewRevision)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        window.makeKeyAndOrderFront(nil)
+        container.layoutSubtreeIfNeeded()
+        defer { window.close() }
+
+        let pdfView = try #require(descendants(of: container).compactMap { $0 as? PDFView }.first)
+        let scrollView = try #require(descendants(of: pdfView).compactMap { $0 as? NSScrollView }.first)
+        try #require(scrollView.scrollerStyle == .legacy)
+        let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+        let scrollerMinX = scrollView.convert(scrollView.bounds, to: container).maxX - scrollerWidth
+
+        let shareButton = try #require(findShareButton(in: container))
+        #expect(shareButton.convert(shareButton.bounds, to: container).maxX <= scrollerMinX)
+    }
+
     private func findShareButton(in view: NSView) -> FilePreviewPDFShareButtonControl? {
         descendants(of: view)
             .compactMap { $0 as? FilePreviewPDFShareButtonControl }
