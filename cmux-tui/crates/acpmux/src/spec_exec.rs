@@ -321,6 +321,6 @@ pub fn main(words: &[String]) -> i32 {
     status.ok().and_then(|s| s.code()).unwrap_or(1)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))] // its stand-in cargo is a /bin/sh script
 #[path = "spec_exec_tests.rs"]
 mod tests;
