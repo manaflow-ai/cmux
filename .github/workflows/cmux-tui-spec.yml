@@ -652,6 +652,7 @@ jobs:
       # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
       # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
       - name: Cap cargo jobs at this runner's memory
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         run: |
           s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
@@ -877,6 +878,7 @@ jobs:
       # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
       # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
       - name: Cap cargo jobs at this runner's memory
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         run: |
           s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
@@ -1310,6 +1312,7 @@ jobs:
       # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
       # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
       - name: Cap cargo jobs at this runner's memory
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         run: |
           s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
@@ -1470,6 +1473,7 @@ jobs:
       # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
       # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
       - name: Cap cargo jobs at this runner's memory
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         run: |
           s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
@@ -1643,6 +1647,7 @@ jobs:
       # 2026-11-28) and 62 clippy jobs ran into the 40 min timeout in 24 h. One cargo job per 3 GiB of
       # the slot's memory, as cmux-tui.yml does (#64782); nothing is set where every core fits.
       - name: Cap cargo jobs at this runner's memory
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         run: |
           s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"

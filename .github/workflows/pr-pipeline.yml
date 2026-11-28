@@ -103,10 +103,10 @@ jobs:
     # cmux-tui-core and cmux-tui 45 min each, the iOS matrix protocol 45 min, the App Store shelf 45 min, the acpmux
     # instruction counts 40 min, the memory per item A/B 50 min, the compile canary 30 min, the Swift test-target compile 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min,
     # wire-lockstep-peers 30 min, the nightly and cmux-tui
-    # release guards 20 min, the cmux cloud CLI 15 min, the idle daemon tests 45 min, and the rest): 1216 min with the
-    # 70 shared steps two at once, the isolated hook tests (6 min), and the setup and
+    # release guards 20 min, the cmux cloud CLI 15 min, the idle daemon tests 45 min, and the rest): 1231 min with the
+    # 71 shared steps two at once, the isolated hook tests (6 min), and the setup and
     # tool bounds, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 1216
+    timeout-minutes: 1231
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -229,6 +229,11 @@ jobs:
           # turns it on; unset or 0 re-runs every red on the base, as before, and passes no token to the steps.
           CI_GUARDS_REACHED_BASE_VERDICTS: ${{ vars.CI_GUARDS_REACHED_BASE_VERDICTS || '0' }}
           GH_TOKEN: ${{ vars.CI_GUARDS_REACHED_BASE_VERDICTS == '1' && github.token || '' }}
+          # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." A blocking step that went
+          # red ends the launching of further steps (253 of 493 runs of this job were red 11-28 17-20Z, 3835 of 6006
+          # runner-min). Off when the base is red in tooling-tests (a base red must not hide a head-only red behind
+          # it: every step runs) and with vars.CI_PR_PIPELINE_LINUX_FAIL_FAST == '0'.
+          CI_RUN_FAIL_FAST: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_PR_PIPELINE_LINUX_FAIL_FAST) != '0' && steps.tooling-tests-base-red.outputs.base_red != 'true' && '1' || '0' }}
         run: |
           scope=()
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
