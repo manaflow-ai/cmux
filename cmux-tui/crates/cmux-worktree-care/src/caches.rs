@@ -59,7 +59,8 @@ pub enum Source {
     /// The user's own idle files and folders directly in `root` (`/tmp`).
     TmpEntries,
     /// `target`, `.build`, `.zig-cache` and `node_modules` of checkouts under
-    /// `search` (two levels deep), outside `exclude` (worktree roots).
+    /// `search` (two levels deep), outside `exclude` (worktree roots). Never
+    /// inside a folder macOS guards (`guarded_folder`).
     BuildDirs { search: Vec<PathBuf>, exclude: Vec<PathBuf> },
     /// Plain clones directly in each of `roots` (or in their children).
     Clones { roots: Vec<PathBuf> },
@@ -265,7 +266,7 @@ pub fn entries(families: &[Family]) -> Vec<Entry> {
             Source::Docker | Source::Simulators => {
                 let present = match family.source {
                     Source::Docker => crate::external::docker_reclaimable().is_some(),
-                    _ => cfg!(target_os = "macos"),
+                    _ => crate::external::simulators_present(),
                 };
                 if !present {
                     continue;
@@ -395,18 +396,15 @@ fn build_entries(index: usize, search: &[PathBuf], exclude: &[PathBuf], found: &
         for child in level1.flatten() {
             let path = child.path();
             let hidden = child.file_name().to_string_lossy().starts_with('.');
-            if hidden || !real_dir(&path) {
+            if hidden || guarded_folder(base, &path) || !real_dir(&path) {
                 continue;
             }
             if path.join(".git").exists() {
                 checkouts.push(path);
             } else if let Ok(level2) = std::fs::read_dir(&path) {
-                checkouts.extend(
-                    level2
-                        .flatten()
-                        .map(|e| e.path())
-                        .filter(|p| real_dir(p) && p.join(".git").exists()),
-                );
+                checkouts.extend(level2.flatten().map(|e| e.path()).filter(|p| {
+                    !guarded_folder(base, p) && real_dir(p) && p.join(".git").exists()
+                }));
             }
         }
         checkouts.sort();
@@ -431,6 +429,33 @@ fn build_entries(index: usize, search: &[PathBuf], exclude: &[PathBuf], found: &
     }
 }
 
+/// The folders macOS guards with a privacy prompt, relative to the home folder: acpmux's one list
+/// (LAUNCH-NO-TCC-PROMPTS, `acpmux/data/protected-folders.json`, `inHome`).
+fn guarded_in_home() -> &'static [String] {
+    static LIST: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    LIST.get_or_init(|| {
+        let json: serde_json::Value =
+            serde_json::from_str(include_str!("../../acpmux/data/protected-folders.json"))
+                .unwrap_or_default();
+        let rows = json.get("inHome").and_then(|rows| rows.as_array());
+        rows.into_iter()
+            .flatten()
+            .filter_map(|row| row.get("path")?.as_str().map(str::to_owned))
+            .collect()
+    })
+}
+
+/// Whether `path` (a folder under the home folder `home`) is, or is inside, one macOS guards
+/// (Desktop, Documents, Downloads, iCloud Drive, other apps' data...). Listing or opening inside
+/// one raises macOS's privacy prompt, attributed to cmux, so the build-folder search, which runs
+/// unasked from the daemon's startup pass, never reads inside one (LAUNCH-NO-TCC-PROMPTS): a new
+/// Mac's first launch asked for Desktop, Documents and Downloads one after another. Their build
+/// folders are left alone; a stat of a path is no read.
+fn guarded_folder(home: &Path, path: &Path) -> bool {
+    let Ok(rel) = path.strip_prefix(home) else { return false };
+    guarded_in_home().iter().any(|guarded| rel.starts_with(guarded))
+}
+
 /// The newer of the build folder's changes and the checkout's own git state.
 fn build_activity(checkout: &Path, build: &Path) -> Option<u64> {
     let built = activity(build, SCAN_DEPTH, BUILD_LIMIT)?;
@@ -445,6 +470,10 @@ fn build_activity(checkout: &Path, build: &Path) -> Option<u64> {
 
 fn clone_entries(index: usize, roots: &[PathBuf], found: &mut Vec<Entry>) {
     for root in roots {
+        // A root that is a symlink could lead out of the home folder.
+        if !real_dir(root) {
+            continue;
+        }
         let Ok(level1) = std::fs::read_dir(root) else { continue };
         let mut clones = Vec::new();
         for child in level1.flatten() {
@@ -463,6 +492,20 @@ fn clone_entries(index: usize, roots: &[PathBuf], found: &mut Vec<Entry>) {
             let last_activity_ms = clone_activity(&path);
             found.push(Entry { family: index, guard: path.clone(), path, last_activity_ms });
         }
+    }
+}
+
+/// Whether `path` resolves to the same place under the resolved home: no
+/// folder between the home and it (a clone root included) is a symlink that
+/// leads elsewhere. The home itself may be a symlink (`/tmp` on macOS).
+fn really_under_home(home: &Path, path: &Path) -> bool {
+    let (Ok(real_home), Ok(real)) = (std::fs::canonicalize(home), std::fs::canonicalize(path))
+    else {
+        return false;
+    };
+    match (path.strip_prefix(home), real.strip_prefix(&real_home)) {
+        (Ok(asked), Ok(found)) => !asked.as_os_str().is_empty() && asked == found,
+        _ => false,
     }
 }
 
@@ -621,7 +664,7 @@ pub struct Options<'a> {
 }
 
 fn bytes_of(path: &Path) -> Option<u64> {
-    let sizes = crate::disk::sizes(path, &[], Instant::now() + MEASURE);
+    let sizes = crate::disk::sizes_memo(path, &[], Instant::now() + MEASURE);
     Some(sizes.total)
 }
 
@@ -740,6 +783,11 @@ fn guard_of(family: &Family, path: &Path) -> PathBuf {
 /// The checks that the path is still what the family listed.
 fn still_an_entry(options: &Options, family: &Family, path: &Path) -> Result<(), Verdict> {
     let gone = || verdict(Action::Keep, "no longer a real entry of its family");
+    // A command family's one entry is its name (`docker:images`), not a
+    // folder: there is nothing on disk to check.
+    if matches!(family.source, Source::Docker | Source::Simulators) {
+        return if path == family.root { Ok(()) } else { Err(gone()) };
+    }
     let Ok(meta) = std::fs::symlink_metadata(path) else { return Err(gone()) };
     if meta.file_type().is_symlink() {
         return Err(gone());
@@ -783,6 +831,7 @@ fn still_an_entry(options: &Options, family: &Family, path: &Path) -> Result<(),
             if !roots.iter().any(|r| path.starts_with(r))
                 || !is_plain_clone(path)
                 || !path.starts_with(options.home)
+                || !really_under_home(options.home, path)
             {
                 return Err(gone());
             }

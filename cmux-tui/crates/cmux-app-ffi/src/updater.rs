@@ -16,6 +16,11 @@
 //!   word for a run's exit.
 //! - `staged_prewarm.write_marker` / `staged_prewarm.consume_marker`
 //!   `{build, marker}` → whether it was written / named `build` and was taken.
+//! - `rollback.decide`, `rollback.previous`: which kept build going back picks,
+//!   or why it refuses (src/updater/rollback.rs).
+//! - `web_updates.read_pointer`, `web_updates.tree_digest`,
+//!   `web_updates.archive_digest`: a web update's pointer, tree and archive
+//!   checks (src/updater/web_updates.rs).
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -23,12 +28,16 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// cbindgen:ignore
+pub mod rollback;
+/// cbindgen:ignore
 pub mod staged_prewarm;
 /// cbindgen:ignore
 pub mod update_flow;
+/// cbindgen:ignore
+pub mod web_updates;
 
 /// Bumped on any change to a type, a function or an op.
-pub const CMUX_UPDATER_ABI_VERSION: u32 = 2;
+pub const CMUX_UPDATER_ABI_VERSION: u32 = 4;
 /// The op ran; `*out` holds its reply.
 pub const CMUX_UPDATER_OK: i32 = 0;
 /// A null pointer where one is required.
@@ -126,6 +135,8 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
             let Pill { flow, silent } = de(request)?;
             Ok(json!(flow.footer_pill(silent)))
         }
+        op if op.starts_with("rollback.") => rollback::call(op, request),
+        op if op.starts_with("web_updates.") => web_updates::call(op, request),
         _ => Err(OpError::Unknown),
     }
 }

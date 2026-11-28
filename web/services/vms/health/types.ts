@@ -47,9 +47,9 @@ export type ProviderTlsRuleInventory = {
 };
 
 /**
- * A control-path probe. `hung` means the provider accepted the request but the
- * VM did not answer (timeout, 409 stale runtime, 5xx); `error` is a probe that
- * says nothing about the VM (401, 429, a network failure before the provider).
+ * A control-path probe. `hung` requires an explicit unresponsive-runtime
+ * response. Client deadlines, state lookup failures, and generic provider
+ * errors leave guest connectivity unknown.
  */
 export type VmControlProbe =
   | { readonly outcome: "ok"; readonly latencyMs: number }
@@ -91,6 +91,8 @@ export type VmHealthSize = {
 };
 
 export type HungVm = {
+  /** Older snapshots omit this. False retains history after an inconclusive probe. */
+  readonly confirmedThisSweep?: boolean;
   readonly vmId: string;
   readonly workload: VmWorkload;
   readonly owner: VmHealthOwner | null;

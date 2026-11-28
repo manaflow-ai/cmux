@@ -1228,6 +1228,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::RendererProfile { .. }
         | AppCommand::ChatPerf { .. }
         | AppCommand::ChatPage(_)
+        | AppCommand::ChatPageSource { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Health(_)
@@ -2299,7 +2300,7 @@ fn a_not_run_refusal_that_never_passes_ends_at_the_deadline() {
 
 /// A person's `cmux machine new` / `cloud new-machine` opens the machine it made, so the window's
 /// new-terminal button opens there; a script's JSON or quiet run, a machine still starting, and
-/// every other action open nothing. The open is `cloud open-machine` on that machine.
+/// every other action open nothing. The open is `cloud new-terminal-on-machine` on that machine.
 #[test]
 fn a_persons_new_machine_opens_the_machine_it_made() {
     let params = json!({ "action": "cloud new-machine" });
@@ -2315,7 +2316,8 @@ fn a_persons_new_machine_opens_the_machine_it_made() {
 
     let (method, open) = call(open_created_command("machine:vm_1".to_owned()).unwrap());
     assert_eq!(method, "action.run");
-    assert_eq!(open["action"], "cloud open-machine");
+    assert_eq!(open["action"], "cloud new-terminal-on-machine");
+    assert_eq!(open["cli"], true, "named by its CLI name: {open}");
     assert!(open.to_string().contains("machine:vm_1"), "{open}");
     assert_eq!(open["focus"], true, "a CLI run shows the workspace only when it asks to: {open}");
 }

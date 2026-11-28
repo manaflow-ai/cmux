@@ -470,6 +470,9 @@
     ]},
     {"case": "agentSessionStartVMKind", "wire": "agent-session-start-vm-kind-v1", "tier": "optional"},
     {"case": "agentSessionStartModel", "wire": "agent-session-start-model-v1", "tier": "optional"},
+    {"case": "agentSessionStartClaudeTeamRoute", "wire": "agent-session-start-claude-team-route-v1", "tier": "optional", "doc": [
+      "An owner Cloud start can explicitly select the team route for Claude."
+    ]},
     {"case": "agentSessionStartPermissionMode", "wire": "agent-session-start-permission-mode-v1", "tier": "optional"},
     {"case": "agentSessionStartMode", "wire": "agent-session-start-mode-v1", "tier": "optional", "doc": [
       "`mode` on `agent-session-start`: the person's mode pick, applied on their own Cloud VM only."
@@ -506,6 +509,10 @@
       "`agent-session-login` for a new chat with no session yet (an unbound tab of that machine's",
       "store): its agent's sign-in runs on that machine itself, gated there as a start is",
       "(`vm_kind: \"owner\"` on a Cloud VM). Without it a new chat's failed start says to sign in there."
+    ]},
+    {"case": "agentSessionLoginSettings", "wire": "agent-session-login-settings-v1", "tier": "optional", "doc": [
+      "`agent-session-login-settings`: Settings starts Claude Code's own sign-in on the owner's Cloud",
+      "machine with no chat. Without it Cloud models says to sign in from the first Cloud chat."
     ]},
     {"case": "agentSessionContext", "wire": "agent-session-context-v1", "tier": "optional", "doc": [
       "Owner-only context inventory and cmux-added overrides for an attached session."
@@ -671,6 +678,11 @@
       "`settings.edit` (with `settings.snapshot`): cmux-next.json owned by the daemon (cmux-config);",
       "the app sends every write of the file there (plans/cmux-next/settings-react.md section 1).",
       "v2: the `set_exact` edit and the `file` check; an older owner cannot take the app's writes."
+    ]},
+    {"case": "settingsHistory", "wire": "settings-history-v1", "tier": "optional", "doc": [
+      "`settings.history`, `settings.undo`, `settings.restore` and `settings.reset_group`: the owner's",
+      "record of every published change of cmux-next.json, for every writer (the Settings page's Undo,",
+      "Redo and Reset <card>, `SettingsFileClient.historyCapability`)."
     ]},
     {"case": "iconAssets", "wire": "icon-assets-v1", "tier": "optional", "doc": [
       "`put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`",

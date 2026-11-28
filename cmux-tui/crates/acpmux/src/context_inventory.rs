@@ -423,11 +423,16 @@ fn rules_text(parts: &[ContextPart], channel: &str) -> Option<String> {
 /// Whether `part` is one of cmux's rules: the default rule or the person's override of it,
 /// or the chat guidance.
 fn is_rule(part: &ContextPart) -> bool {
-    matches!(
-        part.source.as_str(),
-        "cmux-default" | "cmux-user" | "cmux-project" | GUIDANCE_SOURCE | crate::agent_card::SOURCE
-    )
+    RULE_SOURCES.contains(&part.source.as_str())
 }
+
+/// Every `contextSource` of a hidden cmux block: each goes out as `<SOURCE-context>` and the
+/// transcript hides it. The acpmux test fakes strip exactly these, from each fake's own
+/// `GUIDANCE_SOURCES` line; `context_inventory_tests` fails when one differs, so a new
+/// block cannot reach the fakes unstripped (cmux#56653 added `cmux-card` and the session-move
+/// matrix went red after merge).
+pub const RULE_SOURCES: [&str; 5] =
+    ["cmux-default", "cmux-user", "cmux-project", GUIDANCE_SOURCE, crate::agent_card::SOURCE];
 
 /// The words a spawn of `profile` (as resolved for this start: its presets, route and
 /// expanded env) in `cwd` adds for the captured rules on a system-level channel
