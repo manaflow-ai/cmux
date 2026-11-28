@@ -198,6 +198,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     }
     /// Why the last pause, resume or resize failed; nil when it did not.
     public var lastChangeFailure: ChangeFailure?
+    /// A create the server still retries (the record's `pending_error`): its last provider error, `text` naming the
+    /// failed tries; nil once it binds or fails.
+    public var pendingError: ChangeFailure?
     /// The newest unresolved Pause, Resume or Kill sent from this app (``CloudMachineChanges``).
     public var pendingChange: Status?
     /// Local mutation identity; never read from a server record.
@@ -213,6 +216,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
         case declaredCapabilities = "capabilities"
         case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick, disk
         case lastChangeFailure = "error"
+        case pendingError
         case pendingChange, pendingMutationID, failedMutationID, servesDesktop
     }
 

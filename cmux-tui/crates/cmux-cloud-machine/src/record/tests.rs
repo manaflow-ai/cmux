@@ -549,3 +549,29 @@ fn a_record_in_the_swift_shape_round_trips() {
     }
     assert_eq!(serde_json::from_value::<Machine>(written).unwrap(), machine);
 }
+
+#[test]
+fn the_records_pending_error_names_the_retrying_create() {
+    let retrying = next(json!({"id": "vm_1", "status": "provisioning", "pending_error": {
+        "code": "cloud.provider.unavailable", "message": "VM API: vm-provider.create_queue_full",
+        "attempts": 2, "retry_after_ms": 3_500, "at": 1_700_000_000_000_i64}}));
+    let pending = retrying.pending_error.clone().unwrap();
+    assert_eq!(pending.code, "cloud.provider.unavailable");
+    assert_eq!(pending.message, "VM API: vm-provider.create_queue_full");
+    assert_eq!(
+        pending.text,
+        "the provider's create is retrying (2 failed tries, next in 4 s): VM API: vm-provider.create_queue_full"
+    );
+    assert!(retrying.last_change_failure.is_none());
+    let one =
+        next(json!({"id": "vm_1", "pending_error": {"code": "x", "message": "m", "attempts": 1}}));
+    assert_eq!(
+        one.pending_error.unwrap().text,
+        "the provider's create is retrying (1 failed try): m"
+    );
+    assert!(next(json!({"id": "vm_1"})).pending_error.is_none());
+    assert!(next(json!({"id": "vm_1", "pending_error": {"code": ""}})).pending_error.is_none());
+    // The app's own record keeps it (camelCase, as the Swift CloudMachine decodes it).
+    let encoded = serde_json::to_value(&retrying).unwrap();
+    assert_eq!(encoded["pendingError"]["code"], "cloud.provider.unavailable");
+}

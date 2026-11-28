@@ -458,3 +458,21 @@ fn a_loaded_list_says_who_is_signed_in_and_when_each_machine_was_last_used() {
     assert_eq!(fields["machines"][1]["last_active_at"], json!("2023-11-14T22:13:20Z"));
     assert_eq!(fields["machines"][2]["last_active_at"], Value::Null);
 }
+
+#[test]
+fn a_listed_machine_whose_create_retries_carries_its_pending_error() {
+    let list: MachineList = serde_json::from_value(json!({
+        "loaded": true, "signedIn": true,
+        "machines": [{"machineId": "vm-1", "title": "box", "status": "provisioning",
+                      "pendingError": {"code": "cloud.provider.unavailable", "message": "retrying: VM API: HTTP 503"}},
+                     {"machineId": "vm-2", "title": "two", "status": "running"}],
+    }))
+    .unwrap();
+    let fields = machine_list(&list);
+    assert_eq!(
+        fields["machines"][0]["pending_error"],
+        json!({"code": "cloud.provider.unavailable", "message": "retrying: VM API: HTTP 503"})
+    );
+    assert_eq!(fields["machines"][0]["error"], Value::Null);
+    assert!(fields["machines"][1].get("pending_error").is_none());
+}

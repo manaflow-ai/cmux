@@ -541,6 +541,9 @@ pub struct Listed {
     /// When it last started running, unix seconds; none while paused.
     pub running_since: Option<f64>,
     pub failure: Option<Failure>,
+    /// A create the server is still retrying: its last provider error (`message` is the shown
+    /// text, naming the failed tries); none once it binds or fails.
+    pub pending_error: Option<Failure>,
     /// The machine's disk size (its record's `size.disk_mb`) and the guest's
     /// last report of it, MiB: the row's `disk` bar. All optional: a row
     /// without them has no `disk`, one with the size alone the size alone.
@@ -611,6 +614,9 @@ pub fn machine_list(list: &MachineList) -> Fields {
                     "last_active_at": m.last_active_at().map(time::iso8601),
                     "error": m.failure.as_ref().map(|f| json!({"code": f.code, "message": f.message})),
                 });
+                if let Some(f) = &m.pending_error {
+                    row["pending_error"] = json!({"code": f.code, "message": f.message});
+                }
                 if let Some(disk) = m.disk().and_then(|view| serde_json::to_value(view).ok()) {
                     row["disk"] = disk;
                 }

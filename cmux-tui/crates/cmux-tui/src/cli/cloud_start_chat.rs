@@ -1187,8 +1187,14 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
             machine_id: at(row, "machine_id").as_str().map(str::to_owned).or(id),
             status: at(row, "status").as_str().map(str::to_owned),
             listed: true,
-            // A failed machine's own error (`list-machines`' `error`), e.g. the VM API's machine cap.
-            reason: at(row, "error").get("message").and_then(Value::as_str).map(str::to_owned),
+            // A failed machine's own error (`list-machines`' `error`), e.g. the VM API's machine cap;
+            // else a create the server still retries (`pending_error`), e.g. the provider's VM
+            // start capacity, so a pending start names why instead of only waiting out its time.
+            reason: at(row, "error")
+                .get("message")
+                .or_else(|| at(row, "pending_error").get("message"))
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             ..StartStage::default()
         };
     }

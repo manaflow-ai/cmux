@@ -4183,3 +4183,25 @@ fn a_refused_effort_sends_nothing_and_names_the_chat() {
     assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
     assert_eq!(fake.ran.len(), 3, "no send after the refusal: {:?}", fake.ran);
 }
+
+/// A machine whose create the server still retries (`list-machines`' `pending_error`, e.g. the provider's VM start
+/// capacity) names that cause in a pending start, instead of only "the machine is provisioning" until the wait ends.
+#[test]
+fn a_pending_start_names_the_create_the_server_still_retries() {
+    let retrying =
+        "the provider's create is retrying (3 failed tries, next in 8 s): VM API: HTTP 503";
+    let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": true}, "creating": [],
+        "machines": [{"machine_id": "vm-7", "title": "chat-1", "status": "provisioning", "error": null,
+                      "pending_error": {"code": "cloud.provider.unavailable", "message": retrying}}]}))]);
+    let stage = super::start_stage(&mut fake, &json!({"machine_id": "vm-7"}));
+    assert_eq!(stage.reason.as_deref(), Some(retrying));
+    assert!(!stage.is_final(), "a retrying create is still pending");
+    assert_eq!(stage.describe(), format!("the machine is provisioning: {retrying}"));
+    // A failed machine's own error stands first.
+    let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": true}, "creating": [],
+        "machines": [{"machine_id": "vm-7", "title": "chat-1", "status": "failed",
+                      "error": {"code": "c", "message": "the VM API's machine cap"},
+                      "pending_error": {"code": "cloud.provider.unavailable", "message": retrying}}]}))]);
+    let stage = super::start_stage(&mut fake, &json!({"machine_id": "vm-7"}));
+    assert_eq!(stage.reason.as_deref(), Some("the VM API's machine cap"));
+}
