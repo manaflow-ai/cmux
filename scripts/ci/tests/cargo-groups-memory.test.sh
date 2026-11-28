@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # cargo-groups.sh sizes CARGO_BUILD_JOBS from the cores its cgroup's memory can hold: a pool slot that sees all 96
 # host threads under MemoryMax 24G gave group 1 96 jobs and nine more groups 20 each, and the kernel SIGKILLed the
-# fat-LTO cmux-tui rustc (cmux-tui job 140826310692, 2026-11-28). A fake cgroup tree and getconf stand in.
+# fat-LTO cmux-tui rustc (cmux-tui job 140826310692, 2026-11-28). It also holds to the host's MemAvailable: an
+# uncapped 16-thread GCE pool slot sharing its VM ran 46 tokens and lost the fat-LTO acpmux and cmux-tui-core rustc
+# to SIGKILL (cmux-tui-artifacts job 140972969989, 2026-11-28), and a SIGKILLed group says it ran out of memory.
+# A fake cgroup tree, /proc/meminfo, /proc/vmstat and getconf stand in.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +17,11 @@ printf '#!/bin/sh\necho "${FAKE_NPROC:-96}"\n' > "$tmp/bin/getconf"; chmod +x "$
 echo "0::/ci.slice/r2.service" > "$tmp/proc-cgroup"
 echo max > "$tmp/cg/memory.max" 2>/dev/null || true
 echo $((112 * 1073741824)) > "$tmp/cg/ci.slice/memory.max"
-export PATH="$tmp/bin:$PATH" CARGO_GROUPS_CGROUP_ROOT="$tmp/cg" CARGO_GROUPS_PROC_CGROUP="$tmp/proc-cgroup"
+meminfo() { printf 'MemTotal: %d kB\nMemFree: 1 kB\nMemAvailable: %d kB\n' $(($1 * 1048576)) $(($2 * 1048576)) > "$tmp/meminfo"; }
+meminfo 512 500 # memory to spare unless a case says otherwise
+echo "oom_kill 3" > "$tmp/vmstat"
+export PATH="$tmp/bin:$PATH" CARGO_GROUPS_CGROUP_ROOT="$tmp/cg" CARGO_GROUPS_PROC_CGROUP="$tmp/proc-cgroup" \
+  CARGO_GROUPS_MEMINFO="$tmp/meminfo" CARGO_GROUPS_VMSTAT="$tmp/vmstat"
 unset CARGO_BUILD_JOBS GITHUB_ACTIONS || true
 
 run() { bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo b" "" "echo c" "" "echo d" 2>&1; }
@@ -37,10 +44,34 @@ out=$(run)
 grep -q 'CARGO_BUILD_JOBS=96 for group 1, 48 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: uncapped runner changed"; exit 1; }
 CARGO_GROUPS_PROC_CGROUP="$tmp/none" out=$(run)
 grep -q 'CARGO_BUILD_JOBS=96 for group 1' <<<"$out" || { echo "$out"; echo "FAIL: no /proc cgroup changed"; exit 1; }
+# (Both words above are assignments, so the override stayed in the shell: put the real path back.)
+CARGO_GROUPS_PROC_CGROUP="$tmp/proc-cgroup"
 
 # 4. A caller's CARGO_BUILD_JOBS still wins.
 echo $((24 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"
 out=$(CARGO_BUILD_JOBS=5 run)
 grep -q 'CARGO_BUILD_JOBS=5 each' <<<"$out" || { echo "$out"; echo "FAIL: caller's jobs overridden"; exit 1; }
+
+# 5. No memory.max, but the VM's sibling slot holds most of its RAM (64 GiB, 20 available): 6 of 16 cores.
+echo max > "$tmp/cg/ci.slice/r2.service/memory.max"; echo max > "$tmp/cg/ci.slice/memory.max"
+meminfo 62 20
+out=$(FAKE_NPROC=16 run)
+grep -q 'memory: memory.max none GiB, MemTotal 62 GiB, MemAvailable 20 GiB, 16 cores' <<<"$out" || { echo "$out"; echo "FAIL: no memory line"; exit 1; }
+grep -q 'MemAvailable 20 GiB holds 6 of 16 cores' <<<"$out" || { echo "$out"; echo "FAIL: MemAvailable not used"; exit 1; }
+grep -q 'CARGO_BUILD_JOBS=6 for group 1, 3 each for the others' <<<"$out" || { echo "$out"; echo "FAIL: jobs not capped by MemAvailable"; exit 1; }
+
+# 6. memory.max under MemAvailable still wins.
+echo $((24 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 512 300
+out=$(run)
+grep -q 'memory.max 24 GiB holds 8 of 96 cores' <<<"$out" || { echo "$out"; echo "FAIL: memory.max not the lesser budget"; exit 1; }
+
+# 7. The OOM detector: a SIGKILLed group while oom_kill rises is named out of memory; a compile error is not.
+kill9='echo "process did not exit successfully: rustc (signal: 9, SIGKILL: kill)"; echo "oom_kill 5" > '"$tmp/vmstat"'; exit 101'
+echo "oom_kill 3" > "$tmp/vmstat"
+out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "$kill9" 2>&1) && { echo "$out"; echo "FAIL: a killed group passed"; exit 1; }
+grep -q '::error title=cargo groups out of memory::cargo group(s) 2 lost a process to SIGKILL; the kernel OOM-killed 2 process(es)' <<<"$out" || { echo "$out"; echo "FAIL: no OOM error"; exit 1; }
+out=$(bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo a" "" "echo 'error[E0308]: mismatched types'; exit 101" 2>&1) && { echo "$out"; echo "FAIL: a failed group passed"; exit 1; }
+! grep -q 'out of memory' <<<"$out" || { echo "$out"; echo "FAIL: a compile error called OOM"; exit 1; }
+grep -q 'error: cargo group(s) 2 failed' <<<"$out" || { echo "$out"; echo "FAIL: no failure line"; exit 1; }
 
 echo PASS
