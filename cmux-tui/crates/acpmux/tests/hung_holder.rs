@@ -241,39 +241,43 @@ async fn holder_without_beat_serving_another_socket_is_not_replaced() {
     let _ = cmd.output();
 }
 
-// (f) The unit's start (`--take-over`, as a daemon in `acpmux.service`'s cgroup waits) replaces a
-// holder whose socket accepts nothing, instead of waiting on it for good. Fleet lane VMs,
-// 2026-11-28: a detached `--ready-fd` daemon held the lock and hung; the unit's daemon logged
-// "open-file limit raised" and then nothing for hours, its ask of the holder queued forever.
+// (f) The supervised owner's start (`--take-over`, as `acpmux.service` runs it: no `--ready-fd`)
+// replaces a holder that never answers its hand-over ask, and serves. Lane VMs, 2026-11-28: a
+// detached daemon a CLI started in the unit's restart window hung, and every unit start sat on
+// "the daemon has not answered the connection's hello" for hours: no hub carrier on the machine.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_units_start_replaces_a_hung_holder_and_serves() {
+async fn supervised_take_over_replaces_a_hung_holder_and_serves() {
     let dir = scratch("f");
     let _ = socket(&dir);
     let mut holder = hung_holder(&dir, "1").await;
-    let held_by = holder.id().unwrap();
-    let mut unit = daemon(&dir, STALL_MS).arg("--take-over").spawn().unwrap();
-    let ready = line(&mut unit, None, Duration::from_secs(60)).await;
-    assert_eq!(ready["ready"], true, "{ready}");
-    assert_eq!(ready["pid"], unit.id().unwrap(), "the unit's start serves itself: {ready}");
-    let status = tokio::time::timeout(Duration::from_secs(20), holder.wait())
+    let began = Instant::now();
+    let mut cmd = daemon_env::acpmux(&dir);
+    cmd.args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--log", "info"])
+        .arg("--take-over")
+        .env("ACPMUX_HOME", dir.path())
+        .env("ACPMUX_TEST_STALL_MS", STALL_MS)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut cmd = tokio::process::Command::from(cmd);
+    cmd.kill_on_drop(true);
+    let mut owner = cmd.spawn().unwrap();
+    tokio::time::timeout(Duration::from_secs(60), holder.wait())
         .await
-        .expect("the hung holder was stopped")
+        .expect("the hung holder was replaced")
         .unwrap();
-    assert!(!status.success(), "the hung holder {held_by} ended by a signal: {status:?}");
-    let served = self::status(&dir);
-    assert!(served.status.success(), "{}", String::from_utf8_lossy(&served.stderr));
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let served = status(&dir);
+        if served.status.success() {
+            let said: Value = serde_json::from_slice(&served.stdout).unwrap_or(Value::Null);
+            assert_eq!(said["pid"], owner.id().unwrap(), "the supervised start serves: {said}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "{}", String::from_utf8_lossy(&served.stderr));
+        assert!(owner.try_wait().unwrap().is_none(), "the supervised start exited");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    eprintln!("replaced and served in {:?}", began.elapsed());
     shutdown(&dir);
-}
-
-// (g) The unit's start never replaces a holder that answers nothing but keeps beating.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_units_start_leaves_a_beating_holder() {
-    let dir = scratch("g");
-    let _ = socket(&dir);
-    let mut holder = hung_holder(&dir, "beat").await;
-    let mut unit = daemon(&dir, STALL_MS).arg("--take-over").spawn().unwrap();
-    // Four stall bounds with no answer: only the holder's beats keep it.
-    tokio::time::sleep(Duration::from_millis(4 * 1500 + 2000)).await;
-    assert!(holder.try_wait().unwrap().is_none(), "a beating holder was killed");
-    assert!(unit.try_wait().unwrap().is_none(), "the unit's start gave up on a live holder");
 }

@@ -359,10 +359,10 @@
       "after_minutes": 10,
       "served_by": "owned Mac runners carrying cmux-mac"
     },
-    "xcode-27.0": {
+    "xcode-27.2": {
       "fallback": "blacksmith-6vcpu-macos-26 after the owned Xcode 27 pool is unavailable",
       "after_minutes": 10,
-      "served_by": "owned Mac runners carrying Xcode 27.0"
+      "served_by": "owned Mac runners carrying Xcode 27.2 (cmux#64672 moved the iOS INTERNAL archive to it)"
     },
     "glaeda-gateway-xcode-26.6": {
       "fallback": "the gateway job is skipped when its CI_*_GATEWAY variable is unset; an operator restores the gateway pool before enabling it again",
@@ -621,11 +621,11 @@
         "vars.MACOS_RUNNER_26",
         "blacksmith-6vcpu-macos-26",
         "cmux-mac",
-        "xcode-27.0"
+        "xcode-27.2"
       ],
       "array_pin": "glaeda-runner-",
       "constrained_by": "ios-internal-nightly.yml's picker emits the fallback only when no idle dedicated mini is available; the fallback is the configured Blacksmith macOS 26 route.",
-      "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.0] when a live Xcode 27 runner exists."
+      "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.2] when a live Xcode 27 runner exists."
     },
     "nightly.yml:route-visual-gate-nightly.runs_on": {
       "labels": [
