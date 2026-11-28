@@ -262,6 +262,29 @@ async function mounted(rows: AcpmuxRow[]) {
   const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
   const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
   const shown = turnView(rows, new Set(), { working: true, now: 1_700_000_000_000 + rows.length * 10 });
+  // DIAG (removed before landing)
+  {
+    const kinds: Record<string, number> = {};
+    for (const row of shown) kinds[row.kind] = (kinds[row.kind] ?? 0) + 1;
+    console.log(`DIAG shown kinds=${JSON.stringify(kinds)}`);
+    const brief = (row: AcpmuxRow) => [
+      row.id,
+      row.kind,
+      (row.items ?? []).map((item) => `${item.tool?.title ?? item.kind}:${item.tool?.status ?? ""}`).join("|"),
+      row.foldOpen,
+      (row as { workedFor?: unknown }).workedFor !== undefined,
+    ];
+    console.log(`DIAG shown first30=${JSON.stringify(shown.slice(0, 30).map(brief))}`);
+    console.log(`DIAG shown last30=${JSON.stringify(shown.slice(-30).map(brief))}`);
+    const rowsWithAgent = rows.filter((row) =>
+      (row.items ?? []).some((item) => item.tool?.title === "Agent" && item.tool.status === "in_progress"),
+    );
+    console.log(
+      `DIAG source running-agent rows=${rowsWithAgent.length} sample=${JSON.stringify(rowsWithAgent.slice(-2)).slice(0, 1500)}`,
+    );
+    const users = rows.filter((row) => row.kind === "user").slice(0, 3);
+    console.log(`DIAG users=${JSON.stringify(users).slice(0, 1500)}`);
+  }
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   try {
