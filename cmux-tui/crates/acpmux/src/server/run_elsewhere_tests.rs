@@ -57,3 +57,16 @@ fn the_carrier_task_runs_the_hidden_runner_then_removes_the_script() {
         "'/opt/acpmux' 'run-elsewhere-carrier' '--machine' 'cloud-a' '--script' '/h/r1.sh'; rc=$?; rm -f '/h/r1.sh'; exit $rc"
     );
 }
+
+#[test]
+fn offer_now_needs_a_fetch_and_a_machine_that_can_take_it() {
+    let ready = vec![("cloud-a".to_owned(), Ok(Route::Carrier("cloud-a".to_owned())))];
+    let down = vec![("box".to_owned(), Err("not connected now".to_owned()))];
+    assert!(offer_now("npm install", &ready));
+    assert!(!offer_now("npm install", &down));
+    assert!(!offer_now("npm install", &[]));
+    assert!(!offer_now("npm test", &ready));
+    let reply = offer_reply("npm ci", &ready);
+    assert_eq!(reply, json!({"offerNow": true, "fetch": "npm"}));
+    assert_eq!(offer_reply("ls", &ready), json!({"offerNow": false}));
+}

@@ -105,6 +105,14 @@ pub fn command_refusal(command: &str) -> Option<String> {
     None
 }
 
+/// Whether a command is worth offering another machine at once, not after the usual slow-command
+/// delay: a big fetch (`fetch_kind`) that is allowed to leave this machine (`command_refusal`).
+/// The caller adds the other half, that a machine can take the run now (download bridge,
+/// Leo-Ask-Trace: ask-4774198626, gap 3).
+pub fn offer_now(command: &str) -> bool {
+    command_refusal(command).is_none() && fetch_kind(command).is_some()
+}
+
 /// What a command downloads, when it is a big fetch: a package install, a dependency fetch, an
 /// image pull or a model download (`npm`, `pip`, `cargo`, `docker`, `model`). Such a command runs
 /// better on a machine with a datacenter link and a warm package cache, and its output (node_modules,

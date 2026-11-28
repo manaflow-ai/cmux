@@ -120,6 +120,22 @@ pub(super) fn routes(
     out
 }
 
+/// Offer the run at once: a big fetch that may leave this machine, and a machine that can take
+/// it now.
+fn offer_now(command: &str, machines: &[(String, Result<Route, String>)]) -> bool {
+    re::offer_now(command) && machines.iter().any(|(_, route)| route.is_ok())
+}
+
+/// The reply to an `offerOnly` plan call.
+fn offer_reply(command: &str, machines: &[(String, Result<Route, String>)]) -> Value {
+    let mut reply = serde_json::Map::new();
+    reply.insert("offerNow".into(), json!(offer_now(command, machines)));
+    if let Some(kind) = re::fetch_kind(command) {
+        reply.insert("fetch".into(), json!(kind));
+    }
+    Value::Object(reply)
+}
+
 async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
     let key = str_param(params, "sessionId")
         .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
@@ -132,9 +148,15 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         .ok_or_else(|| RpcError::invalid_params("command is required"))?;
     let cwd = str_param(params, "cwd").filter(|c| !c.is_empty()).map(PathBuf::from);
     let cwd = cwd.unwrap_or(meta.cwd.clone());
+    let machines = machines(hub);
+    // Only the early-offer answer: no git read, so a caller can ask as a command starts.
+    if m == method::MUX_RUN_ELSEWHERE_PLAN
+        && params.get("offerOnly").and_then(Value::as_bool) == Some(true)
+    {
+        return Ok(offer_reply(command, &machines));
+    }
     let plan = re::plan(&cwd).await;
     let refusal = re::command_refusal(command);
-    let machines = machines(hub);
     if m == method::MUX_RUN_ELSEWHERE_PLAN {
         let list: Vec<Value> = machines
             .iter()
@@ -153,6 +175,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         if let Some(kind) = re::fetch_kind(command) {
             reply.insert("fetch".into(), json!(kind));
         }
+        reply.insert("offerNow".into(), json!(offer_now(command, &machines)));
         if let Ok(plan) = &plan {
             reply.insert("tree".into(), plan.view());
         }
