@@ -1138,8 +1138,12 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
-          # github.token holds statuses: write here; the pool's minted tokens do not.
-          TOKENS: ${{ github.token }}
+          # github.token holds statuses: write here, but it 403s once the repo's shared hour is spent: on 2026-11-28
+          # every failure post of the result runs ("no fleet Mac took the look within 3h0m0s": #63536, #63257,
+          # #63593, #38624, #62740, #63639, #62075, #63669, #63367) was refused three rounds running and the status
+          # stayed pending for the sweep's 6 h. The sweep's pool secrets post it (ui-proof-stale-sweep.yml), so they
+          # follow github.token (ui_proof_verdict.py post_status tries each token in turn).
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           REPO: ${{ github.repository }}
           SHA: ${{ inputs.head }}
           PR: ${{ inputs.pr }}
