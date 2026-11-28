@@ -46,9 +46,11 @@ if device_type is None:
 runtimes = [
     r for r in simctl_json("list", "runtimes").get("runtimes", [])
     if r.get("isAvailable", True) and r.get("platform", "iOS") == "iOS"
+    # Skip runtimes that cannot host the base device (Xcode 27.2's iOS 27.1 has no iPhone 17).
+    and any(d.get("identifier") == device_type for d in r.get("supportedDeviceTypes", []))
 ]
 if not runtimes:
-    print("error: no available iOS simulator runtime", file=sys.stderr)
+    print(f"error: no available iOS simulator runtime supports {base} (set CMUX_IOS_SIM_BASE_DEVICE)", file=sys.stderr)
     raise SystemExit(1)
 runtime = max(runtimes, key=lambda r: [int(p) for p in str(r.get("version", "0")).split(".") if p.isdigit()])
 
