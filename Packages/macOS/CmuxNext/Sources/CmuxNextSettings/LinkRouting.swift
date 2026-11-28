@@ -16,7 +16,7 @@ public import Foundation
 /// `browser.openTerminalLinksInCmuxBrowser`, classic cmux's name for the first key, is still read
 /// when `openLinksInCmuxBrowser` is absent (a classic `cmux.json`, an MDM profile written for it);
 /// the new key wins when both are set, and Settings writes only the new key. External rules
-/// match as classic matched them (`BrowserExternalURLPatternMatcher`): plain text is a
+/// match as classic matched them (Rust `link_rules.external_matches`): plain text is a
 /// substring, `*`/`?` are wildcards, `re:` is a bounded regex.
 ///
 /// `browser.enabled` (classic's Disable cmux Browser switch, on by default) turns the cmux browser
@@ -78,6 +78,12 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
         return cmux || Self.normalizedHost(url.host ?? "") == nil ? .system : .cmuxBrowser
     }
 
+    /// Whether one of the classic external-URL `rules` matches `url` (Rust `link_rules.external_matches`).
+    public static func externalRulesMatch(_ rules: [String], _ url: URL) -> Bool {
+        let request: JSONValue = ["patterns": .array(rules.map(JSONValue.string)), "url": .string(url.absoluteString)]
+        return SettingsRust.answer("link_rules.external_matches", request)["matches"]?.boolValue ?? false
+    }
+
     /// True when this http(s) link opens in a cmux browser tab, false when it
     /// goes to the default browser: the cmux browser is off, an external rule matches, the host is
     /// unusable, or, for a link that is not a sign-in page kept in cmux (``keepsSignInPageInCmux(_:)``),
@@ -85,7 +91,7 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
     /// host list is set and misses the host.
     public func opensInCmux(_ url: URL, explicit: Bool = false) -> Bool {
         guard browserEnabled else { return false }
-        if !externalRules.isEmpty, BrowserExternalURLPatternMatcher(patterns: externalRules).matches(url.absoluteString) {
+        if !externalRules.isEmpty, Self.externalRulesMatch(externalRules, url) {
             return false
         }
         guard let host = Self.normalizedHost(url.host ?? "") else { return false }
