@@ -314,7 +314,7 @@ class ReadFailureTest(unittest.TestCase):
                                                       "GH_TOKEN": "secret"}), \
                             mock.patch.object(module, target, side_effect=error), \
                             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                        # proof_record's gate exits UNREAD so its job fails rerunnable (pr-router.yml); ui proof posts.
+                        # proof_record's gate exits UNREAD so its job fails red (#62363); ui_proof_verdict's exits 0 (status posts).
                         want = proof_record.UNREAD if module is proof_record else 0
                         self.assertEqual(module.main(argv), want)
                     self.assertTrue(stdout.getvalue().startswith("error\t"))
@@ -380,6 +380,107 @@ class RouterTest(unittest.TestCase):
         self.assertEqual(job["name"], u.GATE_JOB)
         self.assertIn("needs.route.outputs.ui_status == 'pending'", job["if"])
         self.assertIn("ui_proof_verdict.py gate", job["steps"][-1]["run"])
+
+
+class LookFailedTest(unittest.TestCase):
+    """A look that could not run posts failure with its reason within a bound, never an endless pending
+    (cmux#61289, #61543, #61546 sat pending 4 h+ on 2026-11-27 while each look was cancelled)."""
+
+    CANCELLED = "cancelled: no fleet Mac took the look within 3h0m0s"
+
+    def test_look_failed_names_reason_and_next_step(self) -> None:
+        state, desc = u.look_failed(self.CANCELLED, 61289)
+        self.assertEqual(state, "failure")
+        self.assertTrue(desc.startswith(u.LOOK_FAILED + ": " + self.CANCELLED))
+        self.assertIn("hot-verify.py look --pr 61289 --record", desc)
+        self.assertLessEqual(len(desc), 140)
+        self.assertIn("one more look is queued", u.look_failed(self.CANCELLED, 1, again=True)[1])
+        self.assertLessEqual(len(u.look_failed("x " * 200, 1)[1]), 140)
+        self.assertIn("no reason given", u.look_failed("", 1)[1])
+
+    def test_look_reason_from_step_outputs(self) -> None:
+        self.assertEqual(u.look_reason({"TAR": "false", "REASON": self.CANCELLED}), self.CANCELLED)
+        self.assertEqual(u.look_reason({"TAR": "false"}), "the fleet sent no result")
+        self.assertEqual(u.look_reason({"RESULT_OUTCOME": "failure"}), "the look's result was not read")
+        self.assertIn("build", u.look_reason({"TAR": "true", "NEEDS_BUILD": "true"}))
+        self.assertIn("nothing", u.look_reason({"TAR": "true", "NOTHING": "true"}))
+        self.assertIn("receipt", u.look_reason({"TAR": "true", "NO_RECEIPT": "true"}))
+        self.assertIn("unpacked", u.look_reason({"TAR": "true", "STAGE_OUTCOME": "failure"}))
+
+    def test_gate_rerun_keeps_the_failure(self) -> None:
+        failed = {"context": u.STATUS_CONTEXT, "state": "failure", "description": u.look_failed(self.CANCELLED, 7)[1]}
+        self.assertEqual(u.kept_look_failure(failed), ("failure", failed["description"]))
+        self.assertIsNone(u.kept_look_failure({"state": "failure", "description": "UI proof at this head failed: x"}))
+        self.assertIsNone(u.kept_look_failure({"state": "pending", "description": failed["description"]}))
+        self.assertIsNone(u.kept_look_failure(None))
+
+    def gate(self, status, records=None) -> tuple[str, str]:
+        def api(path, token, *a, **k):
+            if "/status" in path:
+                if isinstance(status, Exception):
+                    raise status
+                return {"statuses": [status] if status else []}
+            return {"body": ""}
+        with mock.patch.dict(os.environ, {"CI_UI_PROOF": ""}), \
+                mock.patch.object(u, "changed_files", return_value=["webviews/src/a.tsx"]), \
+                mock.patch.object(u, "added_files", return_value=[]), \
+                mock.patch.object(u, "api", side_effect=api), \
+                mock.patch.object(u.proof_record, "pr_comments", return_value=[]), \
+                mock.patch.object(u.proof_record, "find", return_value=None):
+            return u.gate_now("manaflow-ai/cmux", "7", HEAD, "t", [])
+
+    def test_gate_now_keeps_posted_failure_else_pending(self) -> None:
+        desc = u.look_failed(self.CANCELLED, 7)[1]
+        self.assertEqual(self.gate({"context": u.STATUS_CONTEXT, "state": "failure", "description": desc}),
+                         ("failure", desc))
+        self.assertEqual(self.gate(None)[0], "pending")
+        self.assertEqual(self.gate(RuntimeError("403"))[0], "pending")
+
+    @staticmethod
+    def node(n, state, created, desc="Visual change, no look at this head: hot-verify.py look"):
+        return {"number": n, "headRefOid": f"{n:040d}", "commits": {"nodes": [{"commit": {"status": {"context": (
+            {"state": state, "createdAt": created, "description": desc} if state else None)}}}]}}
+
+    def test_stale_pending_is_bounded(self) -> None:
+        now = u.dt.datetime(2026, 11, 28, 0, 0, tzinfo=u.dt.timezone.utc)
+        prs = [self.node(61289, "PENDING", "2026-11-27T14:12:00Z"),
+               self.node(2, "PENDING", "2026-11-27T22:00:00Z"),
+               self.node(3, "FAILURE", "2026-11-27T01:00:00Z"),
+               self.node(4, None, None),
+               self.node(5, "PENDING", "2026-11-27T01:00:00Z", "New visible UI (2 files) ships whole")]
+        stale = u.stale_pending(prs, now, 6)
+        self.assertEqual([s["pr"] for s in stale], [61289])
+        self.assertEqual(stale[0]["sha"], f"{61289:040d}")
+
+    def test_sweep_posts_failure_on_each_stale(self) -> None:
+        now = u.dt.datetime(2026, 11, 28, 0, 0, tzinfo=u.dt.timezone.utc)
+        posts = []
+        prs = [self.node(61289, "PENDING", "2026-11-27T14:12:00Z"), self.node(2, "PENDING", "2026-11-27T23:00:00Z")]
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            stale = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True)
+        self.assertEqual(len(posts), 1)
+        state, desc, repo, sha = posts[0][:4]
+        self.assertEqual((state, repo, sha), ("failure", "manaflow-ai/cmux", f"{61289:040d}"))
+        self.assertTrue(desc.startswith(u.LOOK_FAILED + ": no look result within 6 h"))
+        self.assertTrue(stale[0]["posted"])
+
+    def test_workflows_post_it(self) -> None:
+        import yaml
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text())
+        job = wf["jobs"]["publish"]
+        self.assertEqual(job["permissions"].get("statuses"), "write")
+        step = next(s for s in job["steps"] if s.get("name") == "Post cmux/ui-proof for a look that could not run")
+        self.assertIn("always()", step["if"])
+        for out in ("tar == 'false'", "again == 'true'", "nothing == 'true'", "needs_build == 'true'"):
+            self.assertIn(out, step["if"])
+        self.assertIn("ui_proof_verdict.py look-failed", step["run"])
+        self.assertIn("ui_proof_verdict.py", "\n".join(
+            s.get("with", {}).get("sparse-checkout", "") for s in job["steps"]) + str(job))
+        sw = yaml.safe_load((ROOT / ".github/workflows/ui-proof-stale-sweep.yml").read_text())
+        self.assertIn("schedule", sw[True])
+        sj = sw["jobs"]["sweep"]
+        self.assertEqual(sj["permissions"].get("statuses"), "write")
+        self.assertIn("ui_proof_verdict.py sweep", sj["steps"][-1]["run"])
 
 
 if __name__ == "__main__":

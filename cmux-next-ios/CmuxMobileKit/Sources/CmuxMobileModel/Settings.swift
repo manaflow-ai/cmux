@@ -240,6 +240,7 @@ public final class SettingsStore {
     }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
     public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
+    public var terminalPhoneProjection: Bool { didSet { save(terminalPhoneProjection, "terminalPhoneProjection") } }
     /// Settings → Browser → Open New Pages. Read by the workspace tabs
     /// (`BrowserOpenDefault.current`) through the same key when a new browser tab appears.
     public var browserOpenDefault: BrowserOpenDefault { didSet { save(browserOpenDefault.rawValue, "browserOpenDefault") } }
@@ -325,6 +326,7 @@ public final class SettingsStore {
         predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")
         terminalFitToPhone = bool("terminalFitToPhone", false)
+        terminalPhoneProjection = bool("terminalPhoneProjection", false)
         browserOpenDefault = string("browserOpenDefault").flatMap(BrowserOpenDefault.init(rawValue:)) ?? BrowserOpenDefault.fallback
         cloudAutoMode = bool("cloudAutoMode", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.

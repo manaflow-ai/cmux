@@ -1576,6 +1576,12 @@ async fn dispatch_request_with_identity(
     // refused when they name one session beside them.
     let rows_by_key =
         m == method::MUX_INFO && params.get("sessionIds").is_some_and(|keys| !keys.is_null());
+    // An agent's prompt that wakes a chat on a host past its lane cap or held moves the chat
+    // first, behind `lane_overflow.rebalance`; once moved, the forward below takes the prompt
+    // there (`wake_move.rs`, RFD 0181 B6).
+    if m == method::SESSION_PROMPT {
+        Box::pin(super::wake_move::before_prompt(hub, &params)).await;
+    }
     // A session that lives on a peer (`peer_forward.rs`).
     if !rows_by_key && let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
         return reply;

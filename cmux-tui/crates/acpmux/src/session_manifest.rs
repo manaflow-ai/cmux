@@ -11,6 +11,7 @@
 //! and every start derives as before; the counter still counts, so the before number is the same
 //! code's.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -69,6 +70,41 @@ pub fn all_tools(
     derive: impl FnOnce() -> bool,
 ) -> bool {
     all_tools_with(on(), manifest, cwd, derive)
+}
+
+/// The marker the hub sets in a Claude Code start's profile env (`hub/spawn.rs`, [`mark`]): `1`
+/// or `0`, the manifest's tool listing, for the command build (`agent_tools.rs`
+/// `claude_args_and_hooks_for`), which reads it in place of the settings files. The build
+/// removes it from the agent's env (`agent/command.rs`).
+pub const RECORDED_ENV: &str = "ACPMUX_MANIFEST_ALL_TOOLS";
+
+/// [`mark`] under an explicit switch.
+pub fn mark_with(
+    on: bool,
+    env: &mut BTreeMap<String, String>,
+    manifest: Option<&SessionManifest>,
+    cwd: &Path,
+) {
+    env.remove(RECORDED_ENV);
+    if on && let Some(m) = manifest.filter(|m| m.folder == cwd) {
+        env.insert(RECORDED_ENV.to_owned(), if m.all_tools { "1" } else { "0" }.to_owned());
+    }
+}
+
+/// Sets [`RECORDED_ENV`] in a start's profile env when the switch is on and the manifest holds
+/// for `cwd`; else no marker (a profile's own is removed), and the command build derives.
+pub fn mark(env: &mut BTreeMap<String, String>, manifest: Option<&SessionManifest>, cwd: &Path) {
+    mark_with(on(), env, manifest, cwd)
+}
+
+/// Whether a Claude Code command line lists every cmux tool: [`RECORDED_ENV`]'s answer when the
+/// hub marked one, else `derive()` (counted).
+pub fn claude_all_tools(env: &BTreeMap<String, String>, derive: impl FnOnce() -> bool) -> bool {
+    if let Some(v) = env.get(RECORDED_ENV) {
+        return v.trim() == "1";
+    }
+    DERIVED.fetch_add(1, Ordering::Relaxed);
+    derive()
 }
 
 /// The names in an ACP `mcpServers` array.
