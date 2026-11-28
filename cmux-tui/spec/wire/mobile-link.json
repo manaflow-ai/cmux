@@ -440,6 +440,9 @@
       "event:metered",
       "field:metered#addresses",
       "field:metered#t"
+    ],
+    "zstd-stream-v1": [
+      "param:acpmux#compressions"
     ]
   },
   "versions": {

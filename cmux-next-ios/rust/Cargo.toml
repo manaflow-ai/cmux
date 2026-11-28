@@ -106,6 +106,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# zstd-stream-v1 on the phone link (cmux-mobile-link src/zstd_stream.rs); no dictionary builder.
+zstd = { version = "0.13", default-features = false }
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time", "fs", "signal"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
 tokio-util = { version = "0.7", features = ["codec"] }
