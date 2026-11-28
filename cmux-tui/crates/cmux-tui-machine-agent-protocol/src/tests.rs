@@ -194,9 +194,12 @@ mod version_range {
         assert!(speaks(PROTOCOL_VERSION));
         // Every build before the range wrote `"version": 1`.
         assert!(speaks(1));
-        assert!(PROTOCOL_MIN <= PROTOCOL_MAX);
-        if PROTOCOL_MAX > 1 {
-            assert!(PROTOCOL_MIN < PROTOCOL_MAX, "PROTOCOL_MIN must stay at most MAX - 1");
+        const {
+            assert!(PROTOCOL_MIN <= PROTOCOL_MAX);
+            assert!(
+                PROTOCOL_MAX <= 1 || PROTOCOL_MIN < PROTOCOL_MAX,
+                "PROTOCOL_MIN must stay at most MAX - 1"
+            );
         }
     }
 

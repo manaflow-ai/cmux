@@ -5,16 +5,19 @@ const V2_3: ProtocolRange = ProtocolRange { min: 2, max: 3 };
 
 #[test]
 fn this_build_speaks_its_own_version() {
-    assert!(ProtocolRange::OURS.contains(crate::PROTOCOL_VERSION));
-    assert!(PROTOCOL_MIN <= PROTOCOL_MAX);
+    assert!(ProtocolRange::OURS.contains(PROTOCOL_VERSION));
+    const { assert!(PROTOCOL_MIN <= PROTOCOL_MAX) };
     assert_eq!(ProtocolRange::OURS.versions().last(), Some(&PROTOCOL_MAX));
 }
 
 #[test]
 fn the_window_keeps_n_minus_1_once_a_second_version_exists() {
     // A build that drops a version must still speak the one before its newest.
-    if PROTOCOL_MAX > 1 {
-        assert!(PROTOCOL_MIN < PROTOCOL_MAX, "PROTOCOL_MIN must stay at most PROTOCOL_MAX - 1");
+    const {
+        assert!(
+            PROTOCOL_MAX <= 1 || PROTOCOL_MIN < PROTOCOL_MAX,
+            "PROTOCOL_MIN must stay at most PROTOCOL_MAX - 1"
+        );
     }
 }
 
