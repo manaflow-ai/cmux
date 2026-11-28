@@ -409,7 +409,7 @@ A notification about a tab (`cmux notify --surface <term_…>`, or an agent hook
 
 A notification goes to the host only when the tab is not drawn or the host window does not have focus. It never goes to the host for the tab that shows the TUI's own host terminal, or when the TUI's session already shows that host terminal (its clients show the notification). At most one passes per second, and one per tab every five seconds. Inside tmux or screen, `auto` passes nothing, because the multiplexer swallows the sequence; `always` still sends it.
 
-The tabs that need you form one queue: tabs whose agent is `blocked` first, then tabs with an unread `error` or `warning` notification, then other unread tabs, each oldest first. `Ctrl-b a` (`keys.next-attention`) goes to the next one, `Ctrl-b A` (`keys.attention-list`) lists them, and `cmux attention next` and `cmux attention list` answer the same queue as JSON.
+The tabs that need you form one queue: tabs whose agent is `blocked` first, then tabs with an unread `error` or `warning` notification, then tabs where an agent finished its turn and you have not looked (`done`), then other unread tabs, each oldest first. `Ctrl-b a` (`keys.next-attention`) goes to the next one, `Ctrl-b A` (`keys.attention-list`) lists them, and `cmux attention next` and `cmux attention list` answer the same queue as JSON. `cmux attention next` answers the most urgent tab; `cmux attention next --focus` goes to the tab after the focused one, as `Ctrl-b a` does.
 
 ```json
 {

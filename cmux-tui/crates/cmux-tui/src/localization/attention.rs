@@ -11,6 +11,8 @@ pub(crate) struct AttentionMessages {
     pub filter_placeholder: &'static str,
     /// Row detail of a tab whose agent waits on the person.
     pub blocked: &'static str,
+    /// Row detail of a tab whose agent finished a turn nobody has viewed.
+    pub done: &'static str,
     /// Row detail of a tab with an unread notification.
     pub unread: &'static str,
     /// Toast when the chosen tab closed after the list opened.
@@ -22,6 +24,7 @@ pub(super) const ENGLISH: AttentionMessages = AttentionMessages {
     list_title: "Needs you",
     filter_placeholder: "type to filter",
     blocked: "waiting on you",
+    done: "done",
     unread: "unread",
     gone: "That tab is closed",
 };
@@ -31,6 +34,7 @@ pub(super) const JAPANESE: AttentionMessages = AttentionMessages {
     list_title: "対応が必要",
     filter_placeholder: "入力して絞り込む",
     blocked: "あなたの応答待ち",
+    done: "完了",
     unread: "未読",
     gone: "そのタブは閉じられています",
 };
