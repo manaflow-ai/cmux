@@ -314,24 +314,20 @@ test("a peer's pending notice that beats its chat's summary is not held as an as
 });
 
 // The read path, against the real allowlists rather than a stand-in: the pane's relay sends only
-// the methods in AcpmuxPaneMethods.requests (Swift), so `_acpmux/info` there is refused and every
-// read fails, leaving answered asks listed (PR #22646 review). In the app the read is the page op
-// the host serves (AgentPageOps), and Ask about this sends a relay method the allowlist takes, with
-// params its knownParams take.
+// the methods in policy.json `requests` (cmux-agent-pane-policy; the Swift tables are generated from it
+// since cmux#58248); a read it refused left answered asks listed (PR #22646 review). In the app the
+// read is the page op the host serves (AgentPageOps), never the relay, and Ask about this sends a
+// relay method the allowlist takes, with params its known_params take.
 const repo = path.resolve(import.meta.dir, "../..");
 const swift = (file: string) =>
   readFileSync(path.join(repo, "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane", file), "utf8");
 const literals = (text: string) => [...text.matchAll(/"([^"\\]+)"/g)].map((match) => match[1]!);
-function swiftSet(text: string, name: string): string[] {
-  const start = text.indexOf(`static let ${name}: Set<String> = [`);
-  expect(start).toBeGreaterThan(-1);
-  const body = text.slice(start, text.indexOf("\n    ]", start));
-  // String literals outside `//` comments.
-  return literals(body.replace(/\/\/.*$/gm, ""));
-}
+const policy = JSON.parse(
+  readFileSync(path.join(repo, "cmux-tui/crates/cmux-agent-pane-policy/policy.json"), "utf8"),
+) as { requests: string[]; known_params: Record<string, { params: string[] }> };
 
 test("in the app a chat's open requests are read through the host op, never the relay", async () => {
-  const relay = swiftSet(swift("AcpmuxPaneMethods.swift"), "requests");
+  const relay = policy.requests;
   const ops = literals(swift("AgentPageProvider.swift").slice(0, swift("AgentPageProvider.swift").indexOf("].map")));
   expect(ops).toContain(PENDING_ASKS_OP);
   const host: string[] = [];
@@ -370,12 +366,8 @@ test("in the app a chat's open requests are read through the host op, never the 
 });
 
 test("Ask about this sends a relay method the pane's allowlist takes, with params it knows", () => {
-  const relay = swiftSet(swift("AcpmuxPaneMethods.swift"), "requests");
-  expect(relay).toContain(SIDE_SESSION_METHOD);
-  const params = swift("AcpmuxPaneMethods+Params.swift");
-  const line = params.split("\n").find((text) => text.includes(`"${SIDE_SESSION_METHOD}": (`));
-  expect(line).toBeDefined();
-  const known = literals(line!.slice(line!.indexOf("(")));
+  expect(policy.requests).toContain(SIDE_SESSION_METHOD);
+  const known = policy.known_params[SIDE_SESSION_METHOD]?.params ?? [];
   // direct.ts `btw` sends exactly these.
   for (const key of ["sessionId", "question"]) expect(known).toContain(key);
 });
