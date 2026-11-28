@@ -1890,7 +1890,10 @@ class LookKitErrorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
             receipt = {"errors": [], "app": {}}
-            with unittest.mock.patch.object(hv, "load_kit", return_value=object()), \
+            with unittest.mock.patch.object(hv, "prepare_kit_home",
+                                            return_value=({}, unittest.mock.Mock(notes={}))), \
+                    unittest.mock.patch.object(hv, "kit_launch_args", return_value=[]), \
+                    unittest.mock.patch.object(hv, "load_kit", return_value=object()), \
                     unittest.mock.patch.object(hv, "load_steps", return_value=[]), \
                     unittest.mock.patch.object(hv, "steps_engine", return_value="webkit"), \
                     unittest.mock.patch.object(hv, "Shooter", side_effect=shooter), \
@@ -1934,6 +1937,50 @@ class IsolatedHarnessTest(unittest.TestCase):
             state.write_text(json.dumps({"fakeHarness": True, "steps": [{"shot": "chat"}]}))
             with self.assertRaisesRegex(hv.Usage, "fakeHarness.*kit"):
                 hv.load_steps(str(state), None)
+
+
+    def test_preparation_keeps_profiles_and_trust_inside_the_copy(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / "steps.json"
+            state.write_text(json.dumps({"fakeHarness": {"id": "claude"}, "steps": []}))
+            side = SimpleNamespace(dir=lambda: root, app=lambda: root / "copy.app",
+                                   env=lambda: {"CMUX_NEXT_CONFIG_FILE": str(root / "config.json")})
+            spec = {"id": "claude"}
+            fake = SimpleNamespace(normalize=lambda value: spec, AGENT_PATH="tests/fake_agent.py", SIBLINGS=("data.json",))
+            prepared = SimpleNamespace(notes={"fake_harness": {"id": "claude"}}, finish=lambda: None)
+            def prepare(env, bundle, capture, **kw):
+                self.assertEqual(kw["account_home"], env["HOME"])
+                self.assertEqual(env["CFFIXED_USER_HOME"], env["HOME"])
+                self.assertNotIn("ACPMUX_HOME", env)
+                self.assertNotIn("ACPMUX_SOCKET", env)
+                self.assertNotIn("XDG_CONFIG_HOME", env)
+                self.assertTrue(Path(env["HOME"]).is_relative_to(capture))
+                files = kw["fake_dir"]
+                self.assertEqual((files / "fake_agent.py").read_text(), "agent at head\n")
+                self.assertEqual((files / "data.json").read_text(), "data at head\n")
+                self.assertEqual(json.loads((files / "fake_harness.json").read_text()), spec)
+                config = capture / "settings.json"
+                config.write_text('{"agents": {"trust": {"autoTrust": true}}}')
+                env["CMUX_NEXT_CONFIG_FILE"] = str(config)
+                return prepared
+            kit = SimpleNamespace(__file__=str(root / "kit/nightly_steps.py"), _load=lambda *a: fake,
+                                  prepare_home=prepare, acpmux_home=lambda env, app: (env["HOME"] + "/.acpmux", False),
+                                  acpmux_socket=lambda env, app: env["ACPMUX_HOME"] + "/socket")
+            def git(repo, *args, **kw):
+                self.assertTrue(args[-1].startswith("exact-head:"))
+                return "blob" if args[0] == "cat-file" else ("data at head" if args[-1].endswith("data.json") else "agent at head")
+            with unittest.mock.patch.object(hv, "git", side_effect=git), unittest.mock.patch.dict(os.environ, {
+                    "ACPMUX_HOME": "/account/daemon", "ACPMUX_SOCKET": "/account/socket", "XDG_CONFIG_HOME": "/account/config"}):
+                env, actual = hv.prepare_kit_home(kit, str(state), root, "exact-head", side, "webkit")
+            self.assertIs(actual, prepared)
+            self.assertEqual(json.loads((root / "config.json").read_text())["agents"]["trust"]["autoTrust"], True)
+            self.assertEqual(env["ACPMUX_SOCKET"], env["HOME"] + "/.acpmux/socket")
+            args = hv.kit_launch_args(env)
+            self.assertIn("HOME=" + env["HOME"], args)
+            self.assertIn("CFFIXED_USER_HOME=" + env["HOME"], args)
+            self.assertIn("ACPMUX_SOCKET=" + env["ACPMUX_SOCKET"], args)
 
 
 class LaunchBound(unittest.TestCase):

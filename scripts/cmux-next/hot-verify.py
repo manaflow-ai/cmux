@@ -1293,6 +1293,8 @@ def load_steps(path: str | None, kit) -> list:
     data = json.loads(Path(path).read_text())
     if kit is not None:
         return kit.validate(data)
+    if isinstance(data, dict) and data.get("fakeHarness"):
+        raise Usage("fakeHarness needs the capture kit (--kit)")
     steps = data.get("steps") if isinstance(data, dict) else None
     if not isinstance(steps, list) or not 0 < len(steps) <= MAX_STEPS:
         raise Usage(f"--state {path}: a steps file is {{\"steps\": [...]}} with 1 to {MAX_STEPS} steps")
@@ -1397,7 +1399,8 @@ def run_steps(steps: list, pid: int, sock: str, app: Path, out: Path, shoot: Sho
     return results
 
 
-def run_kit_steps(kit, steps: list, pid: int, sock: str, app: Path, out: Path) -> list[dict]:
+def run_kit_steps(kit, steps: list, pid: int, sock: str, app: Path, out: Path,
+                  env: dict | None = None, prepared=None) -> list[dict]:
     """STEPS through the kit's runner (nightly_steps.Steps: pointer, keyboard, chat and recording steps too);
     its shots/ become steps/."""
 
@@ -1409,7 +1412,8 @@ def run_kit_steps(kit, steps: list, pid: int, sock: str, app: Path, out: Path) -
             return None if process_runs_any(self.pid) else 0
 
     runner = kit.Steps(steps, out, "/nonexistent/ocr", str(Path(kit.__file__).with_name("private-terms.json")))
-    runner(Process(pid), sock, dict(os.environ), app, out, {"rendered_at": 0})
+    runner.prepared = prepared
+    runner(Process(pid), sock, dict(os.environ) if env is None else env, app, out, {"rendered_at": 0})
     results = json.loads((out / kit.RESULT).read_text()).get("steps") or []
     shots = out / "shots"
     if shots.is_dir():
@@ -1421,6 +1425,55 @@ def run_kit_steps(kit, steps: list, pid: int, sock: str, app: Path, out: Path) -
         if str(entry.get("shot", "")).startswith("shots/"):
             entry["shot"] = "steps/" + entry["shot"][len("shots/"):]
     return results
+
+
+def prepare_kit_home(kit, state: str | None, repo: Path, head: str, side: Side, engine: str):
+    """Use the capture kit's preflight inside this copy, never the worker account's home.
+
+    Launch Services does not inherit the caller's HOME. Return the exact environment to give both `open --env`
+    and Steps, so harness profiles, folder trust and the composer socket name all refer to the same app.
+    """
+    data = json.loads(Path(state).read_text()) if state else {}
+    root = side.dir() / "capture"
+    home = root / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    kit_path = Path(kit.__file__).parent
+    files = root / "kit"
+    files.mkdir(exist_ok=True)
+    fake = kit._load("hot_verify_fake_harness", kit_path / "fake_harness.py")
+    spec = fake.normalize(data.get("fakeHarness"))
+    if spec is not None:
+        # The head's test agent speaks the same protocol as the daemon under test. Its data files are versioned
+        # alongside it; fake.prepare rejects missing required siblings rather than running a real harness.
+        (files / "fake_harness.json").write_text(json.dumps(spec))
+        (files / "fake_agent.py").write_text(git(repo, "show", f"{head}:{fake.AGENT_PATH}") + "\n")
+        folder = fake.AGENT_PATH.rsplit("/", 1)[0]
+        for name in fake.SIBLINGS:
+            if git(repo, "cat-file", "-t", f"{head}:{folder}/{name}", check=False) == "blob":
+                (files / name).write_text(git(repo, "show", f"{head}:{folder}/{name}") + "\n")
+    env = {**os.environ, **side.env(), "HOME": str(home), "CFFIXED_USER_HOME": str(home)}
+    # An inherited daemon/socket/config must never point this isolated copy at the caller's session.
+    for key in ("ACPMUX_HOME", "ACPMUX_SOCKET", "XDG_CONFIG_HOME"):
+        env.pop(key, None)
+    prepared = kit.prepare_home(env, "", root, account_home=str(home), kit=kit_path,
+                                engine=engine, fake_dir=files)
+    if spec is not None and not isinstance(prepared.notes.get("fake_harness"), dict):
+        prepared.finish()
+        raise LookError(f"fakeHarness: {prepared.notes.get('fake_harness', 'preparation failed')}")
+    # Keep the side copy's config path: web-overlay and the app must continue to edit/read one file.
+    config = side.env()["CMUX_NEXT_CONFIG_FILE"]
+    shutil.copyfile(env["CMUX_NEXT_CONFIG_FILE"], config)
+    env["CMUX_NEXT_CONFIG_FILE"] = config
+    env["ACPMUX_HOME"] = kit.acpmux_home(env, side.app())[0]
+    env["ACPMUX_SOCKET"] = kit.acpmux_socket(env, side.app())
+    env["XDG_CONFIG_HOME"] = str(home / ".config")
+    return env, prepared
+
+
+def kit_launch_args(env: dict) -> list[str]:
+    """Only the isolated runtime's explicit settings cross Launch Services, never arbitrary worker variables."""
+    return [part for key in ("HOME", "CFFIXED_USER_HOME", "PATH", "CMUX_NEXT_CONFIG_FILE", "ACPMUX_HOME",
+                              "ACPMUX_SOCKET", "XDG_CONFIG_HOME") for part in ("--env", f"{key}={env[key]}")]
 
 
 def process_runs_any(pid: int) -> bool:
@@ -1969,19 +2022,30 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
     src_tree = resolve_tree(planned, args.source)
     scratch = Path(tempfile.mkdtemp(prefix="hot-verify-look-"))
     video = None
+    prepared = None
+    step_env = None
 
     def copy_of(app: Path):
         """A fresh side copy of APP, launched: its pid, control socket and repaint watch."""
+        nonlocal prepared, step_env
         if side.exists():
             side.stop()
+        if prepared is not None:
+            prepared.finish()
+            prepared = None
+        if side.exists():
             side.run("remove", timeout=300)
         side.run(*side_make_args(app), timeout=600)
+        if kit is not None:
+            step_env, prepared = prepare_kit_home(kit, args.state, repo, planned["head"], side, engine)
+            receipt["preparation"] = prepared.notes
         set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
         if planned.get("ffi_baseline"):
             receipt["ffi_baseline"] = apply_ffi_baseline(rules, planned, side)
         # The kit's Recorder records the main display (Video), so a kit look shows the copy there; else the copy
         # is parked on a display no person looks at (side-instance.sh launch, "parked") and shot by its window.
-        launched = side.run("launch", *(["--shown"] if kit is not None else []), timeout=launch_seconds())
+        launch_args = ["--shown", *kit_launch_args(step_env)] if kit is not None else []
+        launched = side.run("launch", *launch_args, timeout=launch_seconds())
         found = re.search(r"pid (\d+)", launched)
         if not found:
             raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
@@ -2067,7 +2131,8 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
             # video ends here, with the change in and the after shots, and the clips show the steps.
             video = stop_video(video, receipt, side, phases)
         with phases("steps"):
-            receipt["steps"] = (run_kit_steps(kit, steps, pid, sock, side.app(), out) if kit is not None
+            receipt["steps"] = (run_kit_steps(kit, steps, pid, sock, side.app(), out,
+                                              env=step_env, prepared=prepared) if kit is not None
                                 else run_steps(steps, pid, sock, side.app(), out, shoot))
         if video is not None:
             video = stop_video(video, receipt, side, phases)
@@ -2079,6 +2144,8 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
         if not args.watch:
             with phases("stop"):
                 receipt["errors"] += side.stop()
+            if prepared is not None:
+                prepared.finish()
             shutil.rmtree(scratch, ignore_errors=True)
         else:
             log(f"watching: {side.name} keeps running; hot-verify.py stop --side {side.name} ends it")
