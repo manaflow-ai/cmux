@@ -1868,7 +1868,7 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
     PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
     SMALL = "blacksmith-6vcpu-macos-26"
 
-    NIGHTLY_SLOT = "glaeda-nightly-std-xcode-26.6"
+    NIGHTLY_SLOT = "mac-nightly"  # #61222 (RFD 0185): workflows read the unified mac-* labels
 
     def runner(self, promote: str, event: str = "push", attempt: int = 1, slot: str = "off",
                owner: str = "manaflow-ai") -> str:
