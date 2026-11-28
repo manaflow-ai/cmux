@@ -816,8 +816,8 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_prepush_backup_refs.py"
-lane = "linux-guard"
-reason = "Pins that a push of only backup/* refs (saved work, no pull request) skips scripts/cmux-next/prepush-gate.py's code-quality layers and arch ratchet and keeps its workflow checks; module load and mocks, under a second."
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_prepush_backup_refs.py"
 
 [[test]]
 path = "tests/test_prepush_no_verdict_never_subtracts.py"
