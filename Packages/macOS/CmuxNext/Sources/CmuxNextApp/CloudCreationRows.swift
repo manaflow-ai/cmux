@@ -53,8 +53,8 @@ enum CloudCreationRows {
         if let changing = changeStatus(stage) {
             // A pause, resume or delete on its way reads as itself, whatever the link says.
             header.status = changing
-        } else if case .paused(let idle) = stage, header.status == .connecting || header.status == .offline {
-            // Paused never reads failed: "Paused (idle)" or "Paused"; an attach resumes it.
+        } else if case .paused(let idle) = stage {
+            // Paused never reads failed or connected (a frozen machine's link may still read up, cmux#57136); an attach resumes it.
             header.status = idle ? .pausedIdle : .paused
         } else if let failure = stage.failure, header.status == .connecting || header.status == .offline {
             header.status = session.stageInput.isDisconnect ? .disconnected : .failed

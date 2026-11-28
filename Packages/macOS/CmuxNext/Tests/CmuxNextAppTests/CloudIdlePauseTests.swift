@@ -161,6 +161,20 @@ struct CloudIdlePauseTests {
         #expect(SectionHeaderRowView.statusWords(.paused) == "Paused")
     }
 
+    /// The provider froze the machine while the app's link to it still reads up (the idle pause, or `cmux vm pause`:
+    /// closing a link to a frozen machine waits on it): the header and the chat's link word say Paused, not
+    /// connected, so the chat rests instead of asking the frozen machine again and again (cmux#57136).
+    @Test func aPausedMachineWhoseLinkStillReadsUpReadsPaused() throws {
+        let f = Self.pausedMachine(reason: .idle)
+        let json = #"{"app":"cmux-tui","protocol":1,"session":"s-vm","generation":"g1","capabilities":[]}"#
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
+        f.session.daemon.store.connectionState = .connected(identity)
+        #expect(CloudCreationRows.machine(f.session, compatibility: nil, updates: DaemonUpdateBoard()).status == .pausedIdle)
+        #expect(SidebarBridge.paneLink(f.session.machineID, in: f.services.machines)?.link == "paused")
+        f.session.machine.status = .running
+        #expect(CloudCreationRows.machine(f.session, compatibility: nil, updates: DaemonUpdateBoard()).status == .connected)
+    }
+
     @Test func aPausedMachinesCreationRowHasNoSpinner() throws {
         let f = Self.pausedMachine(reason: .idle)
         let creation = CloudMachineCreation(windowID: nil, session: f.session)
