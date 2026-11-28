@@ -39,7 +39,18 @@ const rows = [
 
 const message = (text: string) => ({ name: "review-lane", sessionId: "lane-1", text, raw: text });
 const received = (id: string, text: string) => (
-  <IncomingMessageLine id={id} message={message(text) as never} onOpen={() => {}} />
+  <IncomingMessageLine
+    id={id}
+    message={message(text) as never}
+    onOpen={() => {}}
+    // The app hands a received line its actions (rows/MessageRow.tsx `ReceivedActions`); without
+    // them its hover row is empty and there is no edge to measure.
+    actions={
+      <button type="button" className="cv-copy-button">
+        Copy
+      </button>
+    }
+  />
 );
 const notice = (text: string) => (
   <DisclosureRow

@@ -61,6 +61,11 @@ const open = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length >= 3);
 };
 
+// Both variants check the carded head's columns (its mark, time and chevron); the one-line head
+// (trayFoldHead `line`, the default since #56287) draws none while tucked, so they pin the carded
+// `groups` head, as SubagentTray.gallery.ts does.
+const CARD_HEAD = { "subagent-tray-fold-head": "groups" } as const;
+
 export default agentPaneEntry({
   id: "agent-pane.subagent-tray-head",
   title: "Running tray header and trailing column",
@@ -91,11 +96,13 @@ export default agentPaneEntry({
         await ctx.waitFor(() => head(ctx));
       },
       snapshot: betweenTurns,
+      experiments: CARD_HEAD,
     },
     open: {
       note: "Open: every Stop sits inside its line on the line's centre, before the chevron; the header's and every line's chevrons end on one x.",
       play: open,
       snapshot: betweenTurns,
+      experiments: CARD_HEAD,
     },
   },
 });

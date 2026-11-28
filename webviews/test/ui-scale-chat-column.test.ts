@@ -7,7 +7,10 @@ import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-type Box = { left: number; width: number };
+// `lead`: how far the box starts in from the column's left edge. A transcript row is tucked to the
+// composer's + (conversation.css --cv-lead, #50920: "The column's right edge does not move"); the
+// New Tab composer is the column itself.
+type Box = { left: number; width: number; lead: number };
 
 await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
   // 80px wider than the 843 this suite used beside the old 720px column, so each scale keeps the same
@@ -67,7 +70,18 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
     await target.waitFor();
     const box = await target.boundingBox();
     if (!box) throw new Error(`missing ${selector}`);
-    return { left: box.x * effectiveScale, width: box.width * effectiveScale };
+    // The row's tuck, resolved where the row resolves it (a probe beside it in the same container).
+    const lead = await target.evaluate((row) => {
+      if (!row.classList.contains("acpmux-row") || !row.parentElement) return 0;
+      const probe = document.createElement("div");
+      probe.style.cssText =
+        "position:absolute;visibility:hidden;height:0;width:calc(var(--cv-lead) - var(--cv-lead-outset))";
+      row.parentElement.append(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return width;
+    });
+    return { left: box.x * effectiveScale, width: box.width * effectiveScale, lead: lead * effectiveScale };
   };
 
   beforeAll(async () => {
@@ -99,8 +113,15 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
       const chatBox = await measure(chat, ".acpmux-row", effectiveScale);
       await chat.close();
       const drawn = transcriptBox(effectiveScale);
-      expect(chatBox.width, `chat width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(drawn.width, -0.5);
-      expect(chatBox.left, `chat inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(drawn.left, -0.5);
+      expect(chatBox.lead, `chat lead at ${interfaceScale} x ${chatZoom}`).toBeGreaterThan(0);
+      expect(chatBox.width + chatBox.lead, `chat width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(
+        drawn.width,
+        -0.5,
+      );
+      expect(chatBox.left - chatBox.lead, `chat inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(
+        drawn.left,
+        -0.5,
+      );
 
       const newTab = await open("agent-pane.new-tab", "minimal-default", interfaceScale, chatZoom);
       const newTabBox = await measure(newTab, ".nt-box", effectiveScale);
@@ -124,8 +145,11 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
         await page.setViewportSize({ width: Math.round(PANE / scale), height: Math.round(900 / scale) });
         await publishNativePageZoom(page, 1, scale);
         const drawn = await measure(page, selector, scale);
-        expect(Math.abs(drawn.width - 800), `${entry} width at ${scale}`).toBeLessThan(0.1);
-        expect(Math.abs(drawn.left - transcriptBox(scale).left), `${entry} inset at ${scale}`).toBeLessThan(0.1);
+        expect(Math.abs(drawn.width + drawn.lead - 800), `${entry} width at ${scale}`).toBeLessThan(0.1);
+        expect(
+          Math.abs(drawn.left - drawn.lead - transcriptBox(scale).left),
+          `${entry} inset at ${scale}`,
+        ).toBeLessThan(0.1);
       }
       await page.close();
     }

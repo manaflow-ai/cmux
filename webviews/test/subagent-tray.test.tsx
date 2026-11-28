@@ -505,8 +505,15 @@ describe("the tray", () => {
       NONE,
       true,
     );
+    // The chat has a harness with no mark of its own: the hat draws no glyph while the harness is
+    // unknown (#62299), so each line's mark is the subagent fallback in its tone.
+    const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
     const shown = await render(
-      createElement(SubagentTray, { items: few, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      createElement(
+        SubagentHarnessContext.Provider,
+        { value: "fixture-harness" },
+        createElement(SubagentTray, { items: few, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      ),
     );
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
@@ -883,7 +890,11 @@ describe("the tray", () => {
       expect(opened).toEqual(["agent:Watcher"]);
       for (const line of lines.slice(1))
         await act(async () =>
-          line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click(),
+          // A command's detail is the chat's Shell block (#53464), whose own Wrap and Copy come first.
+          (
+            line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] .acpmux-running-tray__terminal") ??
+            line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!
+          ).click(),
         );
       expect(opened).toEqual(["agent:Watcher", "command:s/1", "chat:c1"]);
       await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-session-info-stop")!.click());
@@ -1024,7 +1035,12 @@ describe("a tray line says what it is and what a click does", () => {
       // It expands to its tail in place; the tail's button opens its terminal.
       await act(async () => button.click());
       expect(opened).toEqual([]);
-      await act(async () => line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click());
+      await act(async () =>
+        line
+          .closest("li")!
+          .querySelector<HTMLButtonElement>("[data-line-detail] .acpmux-running-tray__terminal")!
+          .click(),
+      );
       expect(opened).toEqual(["s/1"]);
       // One stop control on the line, and it says exactly what it stops.
       const stops = [...root.querySelectorAll<HTMLButtonElement>("button")].filter((each) =>

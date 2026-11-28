@@ -381,7 +381,10 @@ try {
     expect(host.querySelector(".cv-user__bubble")?.textContent).toBe("what is this");
   });
 
-  test("inline: a placed prompt keeps its unplaced strip image in the band, not in the text", async () => {
+  // The inline view bands nothing (Leo, 2026-11-27: "pure inline isn't giving pure inline"): an
+  // attachment left unplaced beside placed ones draws at the bubble's end (bubbleParts.ts
+  // `inlineOrder`), not in a band over it.
+  test("inline: a placed prompt draws its unplaced image at the bubble's end, with no band", async () => {
     clearImageEntries();
     resetTranscriptDisclosure();
     await act(async () => setComposerSettings({ attachmentView: "inline" }));
@@ -397,10 +400,8 @@ try {
         { id: "strip-shot", mimeType: "image/png", name: "strip-shot.png" },
       ],
     });
-    expect(inlineShape()).toEqual(["look", "image:placed-shot.png", "here"]);
-    expect(
-      [...host.querySelectorAll("[data-inline-attachment-strip] img")].map((img) => img.getAttribute("alt")),
-    ).toEqual(["strip-shot.png"]);
+    expect(inlineShape()).toEqual(["look", "image:placed-shot.png", "here", "image:strip-shot.png"]);
+    expect(host.querySelector("[data-inline-attachment-strip]")).toBeNull();
   });
 
   test("inline: a placed image draws from its own bytes before acpmux knows it", async () => {
