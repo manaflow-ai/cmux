@@ -2862,7 +2862,7 @@ timeout = 360
 title = "Web lint hook tests"
 about = "the pre-push web lint hook's integration tests pass independently of whole-tree typechecking"
 needs = ["bun", "node"]
-nightly = ["nightly.yml:check-nightly-webviews:Webview checks on the build commit"]
+# No `nightly` pointer: that nightly step's one table is webviews-typecheck (.github/nightly-step-coverage.json).
 inputs = [
   "webviews/**",
   "scripts/web_lint_prepush.py",
