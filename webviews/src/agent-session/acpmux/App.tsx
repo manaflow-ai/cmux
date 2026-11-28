@@ -10157,6 +10157,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   focusComposer={() => composerHandle.current?.focus()}
                                                                   // Quick Chat's panel stacks its composer below the transcript.
                                                                   dock={quick ? undefined : dock}
+                                                                  dockPending={
+                                                                    !quick && !childRows && !snapshot.listedSessions
+                                                                  }
                                                                   stackOutside={
                                                                     !quick && composerPlaceArm === "outside"
                                                                   }

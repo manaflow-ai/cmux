@@ -69,6 +69,9 @@ export type RoomUnderInput = {
   dockNotice: number;
   /// The rest gap's extra over the stack (VirtualTranscript `restExtra`).
   restExtra: number;
+  /// The room the saved copy's bottom stack took that the live one still lacks (VirtualTranscript
+  /// `copyDock`), 0 once acpmux's state is here: held as room so the swap moves no row. A gap, never a cover.
+  copyDock?: number;
   /// The last row is the running turn's live line.
   lineLast: boolean;
   /// The rows' own growth since the last pass (room taken or given above them is none).
@@ -230,7 +233,11 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
         : released
           ? 0
           : dockNotice - noticeHeldAt;
-  const holds = trayHold + cardHold + noticeHold;
+  const copyHold =
+    (input.copyDock ?? 0) > 0 && dockSpace > 0 && following
+      ? Math.max(0, (input.copyDock ?? 0) - (dockSpace - noticeHold))
+      : 0;
+  const holds = trayHold + cardHold + noticeHold - copyHold;
   const rowsAtDock = input.rowsHeight + input.over + input.dockRoom - holds;
   const atDock = Math.max(input.floor, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back; while a floor reaches past

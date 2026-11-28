@@ -249,6 +249,7 @@ import {
   widthChanged,
 } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
+import { chatSnapshotDock, showsChatSnapshot } from "./chatSnapshot/live";
 import {
   type DrawnHeight,
   type ReportDrawn,
@@ -810,6 +811,7 @@ function TranscriptView({
   jumpButton = false,
   needsYou,
   dock,
+  dockPending = false,
   stackOutside = false,
   queueWithdrawn,
   queueIds,
@@ -897,6 +899,10 @@ function TranscriptView({
   /// it, the scrollbar's track to the pane's bottom as in the Claude and Codex apps, and its end sits
   /// above it. Its height is room under the last row, followed as it changes before the frame paints.
   dock?: HTMLElement | null;
+  /// The bottom stack still lacks acpmux's state of the chat (its queue: the pane has not read acpmux's
+  /// chat list yet, snapshot `listedSessions`). While it does, the room under the last row keeps the
+  /// saved copy's stack (`copyHold`).
+  dockPending?: boolean;
   /// The bottom stack sits under the scroller, in the pane's flow (composerPlace.experiment.ts
   /// `outside`): the composer's growth shrinks the viewport. While the chat follows the latest, each
   /// resize of the viewport puts its end back on the last row before the frame paints; scrolled up,
@@ -1700,6 +1706,29 @@ function TranscriptView({
   const dockRoom = dockSpace > 0 ? dockSpace + restExtra : 0;
   const dockRoomRef = useRef(0);
   dockRoomRef.current = dockRoom;
+  /// The room the saved copy's bottom stack took under its last row (chatSnapshot/live.ts
+  /// `chatSnapshotDock`): its reach over the view's foot less the notices that lay over the foot
+  /// (`noticeHold`, within the rest gap), read as the transcript mounts under the copy. The copy draws
+  /// the chat's queue, and the live page's first frame does not until acpmux's list comes (direct.ts
+  /// `drawTailWhileConnecting`): every row moved down by the queue's height at the swap, and back up as
+  /// the queue came (chat-copy-dock-swap test, queued). Gone for good once the stack has acpmux's state.
+  const [copyDock, setCopyDock] = useState(() => {
+    const copy = chatSnapshotDock(DOCK_NOTICE);
+    return Math.max(0, copy.space - Math.min(copy.notice, restExtra));
+  });
+  /// Released only once the copy is off screen: if acpmux's state came while the copy still showed,
+  /// letting go at once moved every row by the dock's height difference in the swap's own frame (the
+  /// chat-copy-dock-swap test, queue sent meanwhile). After the swap the rows settle once, as it expects.
+  useEffect(() => {
+    if (dockPending || copyDock <= 0) return;
+    let frame = 0;
+    const release = () => {
+      if (showsChatSnapshot()) frame = requestAnimationFrame(release);
+      else setCopyDock(0);
+    };
+    release();
+    return () => cancelAnimationFrame(frame);
+  }, [dockPending, copyDock]);
   // Full stack height is distinct from the overlap room: a tall dock can extend beyond the
   // viewport, while an after-latest tray still needs the whole stack reserved in stage flow.
   const [dockHeight, setDockHeight] = useState(0);
@@ -4364,6 +4393,7 @@ function TranscriptView({
     dockNotice,
     restExtra,
     lineLast: rows.length > 0 && isLiveLine(rows[rows.length - 1]!),
+    copyDock,
     rowsGrew,
     rowsHeight: measured.layout.totalHeight,
     over: THREAD_TOP + topInset + tailGap,
