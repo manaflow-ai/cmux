@@ -192,7 +192,7 @@ public struct CloudStartSessionStrings {
     package static var claudeSettingsSecret: String {
         // retry-prompt-ok: the start can only work after the person edits their settings file; an unchanged retry
         // would be refused the same way and each start spends a new machine.
-        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again.", table: "CloudSessions", bundle: .localizedModule)
+        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude's settings file holds a credential the team launch would copy. Remove it from the file and try again.", table: "CloudSessions", bundle: .localizedModule)
     }
 
     /// A named refusal (`namedRefusals`) in the run's words. `agentName`: the agent as a person reads it; `expired`:
