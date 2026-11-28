@@ -369,7 +369,9 @@ fi
 app_host_gen=cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts
 if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
   (cd "$repo" && bun "$app_host_gen" >/dev/null)
-  changed="$(git -C "$repo" status --porcelain -- cmux-tui/crates/cmux-app-host/generated | cut -c4-)"
+  # generated/ and schema/merged/ (the merged op index and digests the generator's --check also compares):
+  # collecting only generated/ dropped schema/merged's rewrite and left app platform red on base (run 46172899166).
+  changed="$(git -C "$repo" status --porcelain --untracked-files=all -- cmux-tui/crates/cmux-app-host/generated cmux-tui/crates/cmux-app-host/schema/merged | cut -c4-)"
   if [[ -n "$changed" ]]; then
     while IFS= read -r rel; do
       if frozen "$rel"; then
