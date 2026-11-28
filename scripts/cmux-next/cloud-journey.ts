@@ -5123,6 +5123,15 @@ export const PROOF_JOB = "deploy-staging";
 export const PROOF_EVENTS = new Set(["push", "workflow_dispatch"]);
 export const PROOF_BRANCHES = new Set(["feat-cmux-next", "main"]);
 export const JOURNEY_REPO = "manaflow-ai/cmux";
+/**
+ * Reviewed one-off exceptions to the proof rule above, each pinned to ONE finished job: its job name, run id, workflow,
+ * event, branch and commit must all be these, on the first attempt. A pull request's own-branch run cannot otherwise
+ * prove a leak, so a leak from one needs an entry here, made in a reviewed change. Nothing else is loosened.
+ */
+export const PROOF_PINNED = [{
+  job: "140510160758", run: 46000366770, name: "wake-echo", workflow: ".github/workflows/cloud-wake-echo.yml",
+  event: "pull_request", branch: "lane/wake-echo-measure-2", sha: "83a4815a39a2eb91197b517223bd8a8829eb8f45",
+}] as const;
 
 /**
  * Whether a job's log proves this machine leaked: one journey in it (from its `health` step to the next) logged
