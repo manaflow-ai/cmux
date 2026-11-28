@@ -278,9 +278,11 @@ async fn a_broken_router_is_caught() {
 
 #[test]
 fn the_router_notes_are_not_output_and_name_where_it_ran() {
-    let routed = b"[run-vm] a Rust build: running on a fork of this machine\nbuilt\n\
-[run-vm] ran on a run VM: exit 0, 2 file(s) back, 3 s\n";
-    let (kept, verdict) = split_notes(routed);
+    let routed = format!(
+        "{}\nbuilt\n[run-vm] ran on a run VM: exit 0, 2 file(s) back, 3 s\n",
+        crate::placement::run_vm::start_notice("a Rust build", None)
+    );
+    let (kept, verdict) = split_notes(routed.as_bytes());
     assert_eq!(kept, b"built\n");
     assert_eq!(verdict, Some(("fork", None)));
     let here = b"[run-vm] ran here: fork: the pool has no room\nout\n";
@@ -292,6 +294,29 @@ fn the_router_notes_are_not_output_and_name_where_it_ran() {
     assert_eq!(split_notes(mid).0, mid.to_vec());
     assert_eq!(split_notes(b"no newline").0, b"no newline");
     assert_eq!(split_notes(b"").1, None);
+}
+
+/// Prod run 46112352774: the sized start note (AutoCloud on) was kept as output, so
+/// `cargo-build-test` read DIFF on stdout alone. Every start note the router can print is a note.
+#[test]
+fn every_start_note_the_router_prints_is_a_note() {
+    use crate::placement::run_vm::{Sizing, start_notice};
+    let sized = |runs, floor| Sizing { size: "xl", vcpu: 16.0, mem_gib: 32.0, runs, floor };
+    for note in [
+        start_notice("a Rust build", None),
+        start_notice("a Rust build", Some(&sized(0, None))),
+        start_notice("a Rust build", Some(&sized(1, None))),
+        start_notice("a Rust build", Some(&sized(4, None))),
+        start_notice("a Chromium build", Some(&sized(0, Some("Chromium")))),
+    ] {
+        let fell_back =
+            format!("{note}\nbuilt\n[run-vm] ran here: fork: the Cloud API answered HTTP 404\n");
+        let (kept, verdict) = split_notes(fell_back.as_bytes());
+        assert_eq!(kept, b"built\n", "{note}");
+        assert_eq!(verdict.map(|v| v.0), Some("here"), "{note}");
+        // The start note asks; only the verdict says where it ran.
+        assert!(!note.contains("running on"), "{note}");
+    }
 }
 
 #[test]
