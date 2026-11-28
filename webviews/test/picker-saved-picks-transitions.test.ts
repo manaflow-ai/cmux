@@ -3,6 +3,7 @@
 // "Preserve the selection while a cloud session starts, then apply it when the session is ready."
 // "Please record the implementation PR and a before/after state-transition test."
 //
+// The behaviour is #63742's (cloudAgentPick.ts, cloudLastPick.ts); this pins it step by step.
 // One state machine: This Mac's saved pick (lastPick.ts) and Cloud's (cloudAgentPick.ts held for the
 // page, cloudLastPick.ts kept for the next page). Each step is a person's click or a non-human
 // source (the app's copy of the picks a New Tab context carries, a page reload); after each, both
@@ -25,8 +26,7 @@ const macLast = () => import("../src/agent-session/acpmux/lastPick");
 const post = async () => undefined;
 
 afterEach(async () => {
-  (await agentPick()).clearCloudAgentPick();
-  (await cloudLast()).clearCloudLastPick();
+  (await agentPick()).forgetCloudAgentPicksForTests();
   globalThis.localStorage?.clear();
 });
 
@@ -39,7 +39,7 @@ async function state() {
 }
 
 test("This Mac's and Cloud's saved picks move only on a click, each in its own bucket", async () => {
-  const { holdCloudAgentPick, holdCloudEffortPick } = await agentPick();
+  const { holdCloudAgentPick, holdCloudAgentEffort } = await agentPick();
   const { rememberPick } = await macLast();
 
   // 1. Click on This Mac: Opus. Only This Mac's moves.
@@ -54,7 +54,7 @@ test("This Mac's and Cloud's saved picks move only on a click, each in its own b
   });
 
   // 3. Click Cloud's level High. The agent and model stay; no chat starts on this Mac, so This Mac's stays.
-  holdCloudEffortPick("codex", "gpt-6", "high");
+  holdCloudAgentEffort("codex", "high", "gpt-6");
   expect(await state()).toEqual({
     cloud: { harness: "codex", model: "gpt-6", effort: "high" },
     mac: { harness: "claude", model: "opus-5.5" },
@@ -81,12 +81,12 @@ test("the app's copy of the picks (a backend list) never overwrites a pick the p
 });
 
 test("before any click the app's copy seeds a fresh page, and a level picked later keeps its model", async () => {
-  const { holdCloudEffortPick } = await agentPick();
+  const { holdCloudAgentEffort } = await agentPick();
   const { seedCloudLastPick } = await cloudLast();
   seedCloudLastPick({ harness: "codex", model: "gpt-6" });
   expect((await state()).cloud).toEqual({ harness: "codex", model: "gpt-6" });
   // A level clicked with no model named (the chip had none yet) keeps the remembered model.
-  holdCloudEffortPick("codex", undefined, "low");
+  holdCloudAgentEffort("codex", "low");
   expect((await state()).cloud).toEqual({ harness: "codex", model: "gpt-6", effort: "low" });
 });
 

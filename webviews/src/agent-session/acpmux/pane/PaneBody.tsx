@@ -36,8 +36,7 @@ import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
-import { cloudAgentPick } from "../cloudAgentPick";
-import { cloudLastPick } from "../cloudLastPick";
+import { cloudAgentPick, cloudStartPick, rememberedCloudAgentPick } from "../cloudAgentPick";
 import { jumpSide } from "../jumpPlace";
 import type { ComposerPlace } from "../composerPlace.experiment";
 import { StyleSwitch } from "../newtab/StyleSwitch";
@@ -46,7 +45,7 @@ import { newTabPageSubmit } from "../newtab/pageSubmit";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
 import { EmptyState } from "../EmptyState";
 import { projectName } from "../emptyStateModel";
-import { TourStartContext } from "../repoTour/TourBlock";
+import { TourStartContext } from "../repoTour/tourBlockModel";
 import { ChatUnavailableState } from "../ChatUnavailableState";
 import { PastChat } from "../PastChat";
 import { ComputerUsePreviewCard } from "../computerUse/ComputerUsePreviewCard";
@@ -89,7 +88,7 @@ import { DeleteChatDialog } from "../header/DeleteChatDialog";
 import { readChatMini } from "../header/miniRow";
 import { ToastLayer } from "../ToastLayer";
 import { SubagentClockContext } from "../subagents/subagentGroupModel";
-import { NewProjectUnsupported } from "../newtab/NewProjectName";
+import { NewProjectUnsupported } from "../newtab/newProjectUnsupported";
 import { newWorktree, cloneRepository } from "../startFolderModel";
 import { LiveChatChoice } from "../LiveChatChoice";
 import { WatchBanner } from "../WatchBanner";
@@ -1027,18 +1026,23 @@ export function drawPaneBody({
                               // The agent the Mode chip names and its pick: a harness with no
                               // Cloud start mode is left out, so the machine starts Claude.
                               // The agent picked for the machine (cloudAgentPick.ts), as the chips show it.
+                              // The agent, model and level the chips drew (cloudAgentPick.ts `cloudStartPick`):
+                              // Cloud's own pick, with its mode, never this Mac's.
                               ...(() => {
-                                const machine = cloudAgentPick() ?? cloudLastPick();
-                                const agent = machine?.harness ?? harness;
+                                const family = snapshot.catalog.find((entry) => entry.id === harness)?.family;
+                                const pick = cloudStartPick({
+                                  harness,
+                                  ...(model ? { model } : {}),
+                                  ...(family ? { family } : {}),
+                                });
                                 return {
                                   ...cloudSendAgent(
-                                    snapshot.catalog.find((entry) => entry.id === agent)?.family,
-                                    agent,
-                                    machine ? machine.model : model,
-                                    machine !== undefined,
+                                    snapshot.catalog.find((entry) => entry.id === pick.harness)?.family ?? pick.harness,
+                                    pick.harness,
+                                    pick.model,
+                                    (cloudAgentPick() ?? rememberedCloudAgentPick()) !== undefined,
                                   ),
-                                  // The level picked for Cloud goes with its model, as the pane's own Cloud send does.
-                                  ...(machine?.effort ? { effort: machine.effort } : {}),
+                                  ...(pick.effort && pick.effort !== "default" ? { effort: pick.effort } : {}),
                                 };
                               })(),
                             },

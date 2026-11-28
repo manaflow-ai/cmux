@@ -15,35 +15,26 @@ test("a pick is held with its model, a later one replaces it, and an empty harne
   expect(cloudAgentPick()).toEqual({ harness: "pi" });
 });
 
-test("Cloud keeps its own effort with its pick: a model pick keeps the level, another agent drops it", async () => {
-  const { holdCloudEffortPick } = await import("../src/agent-session/acpmux/cloudAgentPick");
-  holdCloudAgentPick({ harness: "codex", model: "gpt-6" });
-  holdCloudEffortPick("codex", "gpt-6", "high");
-  expect(cloudAgentPick()).toEqual({ harness: "codex", model: "gpt-6", effort: "high" });
-  // Picking another model of the same agent never resets the person's level.
-  holdCloudAgentPick({ harness: "codex", model: "gpt-6-mini" });
-  expect(cloudAgentPick()).toEqual({ harness: "codex", model: "gpt-6-mini", effort: "high" });
-  // Another agent's levels are its own.
-  holdCloudAgentPick({ harness: "claude", model: "opus" });
-  expect(cloudAgentPick()).toEqual({ harness: "claude", model: "opus" });
+// cmux#59716: a page another tab adopts drops the Cloud pick an earlier tab made there, so a Codex chat
+// never starts on the Claude a reused page still held. A pick handed to this tab by its own handshake
+// stays through the first adoption (the host can replay one right after that handshake).
+test("an adoption drops an earlier tab's pick, and keeps a handed one once", async () => {
+  const { dropCloudAgentPickForAdoption } = await import("../src/agent-session/acpmux/cloudAgentPick");
+  holdCloudAgentPick({ harness: "claude", model: "claude-opus-5-5", effort: "high" });
+  dropCloudAgentPickForAdoption();
+  expect(cloudAgentPick()).toBeUndefined();
+  holdCloudAgentPick({ harness: "codex", model: "gpt-6", handed: true });
+  dropCloudAgentPickForAdoption();
+  expect(cloudAgentPick()).toEqual({ harness: "codex", model: "gpt-6" });
+  dropCloudAgentPickForAdoption();
+  expect(cloudAgentPick()).toBeUndefined();
 });
 
-test("the Cloud pick is kept in Cloud's own store, apart from This Mac's remembered pick", async () => {
-  const values = new Map<string, string>();
-  const prior = globalThis.localStorage;
-  (globalThis as { localStorage?: unknown }).localStorage = {
-    getItem: (k: string) => values.get(k) ?? null,
-    setItem: (k: string, v: string) => void values.set(k, v),
-    removeItem: (k: string) => void values.delete(k),
-  };
-  try {
-    holdCloudAgentPick({ harness: "codex", model: "gpt-6", effort: "medium" });
-    expect(JSON.parse(values.get("cmux.acpmux.cloudLastPick") ?? "null")).toEqual({
-      pick: { harness: "codex", model: "gpt-6", effort: "medium" },
-      picked: true,
-    });
-    expect(values.has("cmux.acpmux.lastPick")).toBe(false);
-  } finally {
-    (globalThis as { localStorage?: unknown }).localStorage = prior;
-  }
+test("a pick the person makes replaces a handed one, which then no longer survives an adoption", async () => {
+  const { dropCloudAgentPickForAdoption } = await import("../src/agent-session/acpmux/cloudAgentPick");
+  holdCloudAgentPick({ harness: "codex", handed: true });
+  holdCloudAgentPick({ harness: "claude", model: "claude-opus-5-5" });
+  expect(cloudAgentPick()).toEqual({ harness: "claude", model: "claude-opus-5-5" });
+  dropCloudAgentPickForAdoption();
+  expect(cloudAgentPick()).toBeUndefined();
 });

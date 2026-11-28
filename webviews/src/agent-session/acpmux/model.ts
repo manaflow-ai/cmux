@@ -1573,6 +1573,10 @@ export type AcpmuxSnapshot = {
   /// Composer only: this new chat's first send starts it on a Cloud machine (Cloud picked as where
   /// it runs, `cloud.startChat`), not on this Mac. That machine decides the chat's start mode.
   startsOnCloud?: true;
+  /// Composer only: Auto is picked as where this new chat runs, and its first send may start it on a
+  /// Cloud machine. Its model picker is Cloud's (cloudAgentPick.ts), as with Cloud picked: one pick for
+  /// Cloud and Auto, apart from This Mac's; where Auto runs it here, it starts on that same pick.
+  cloudPicker?: true;
   /// Composer only, with `startsOnCloud`: the permission mode picked for that Cloud start
   /// (cloudModePick.ts), which the send carries (`CloudStart.mode`).
   cloudStartMode?: string;
@@ -1734,6 +1738,10 @@ export type AcpmuxSnapshot = {
       effort?: string;
       modelSource?: StartSource;
       effortSource?: StartSource;
+      /** New Tab's own start model when it differs from `model`: the same chain without the saved
+       * default a pick in a chat rewrites (Leo 2026-11-27: "it should purely just be new tab").
+       * Empty when nothing below that pick names a model. */
+      newTab?: { model?: string; modelSource?: StartSource };
     };
     /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
      * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken

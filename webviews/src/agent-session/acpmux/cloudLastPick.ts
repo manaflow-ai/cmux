@@ -9,6 +9,8 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { postNative } from "./native";
 
+/// `effort`: the level picked with it (model-picker-local-cloud-state), so a level comes back with its
+/// model; a pick of another agent names its own or none.
 export type CloudLastPick = { harness: string; model?: string; effort?: string };
 
 const STORAGE_KEY = "cmux.acpmux.cloudLastPick";
@@ -21,7 +23,9 @@ function parse(value: unknown): CloudLastPick | undefined {
   const model =
     typeof pick.model === "string" && pick.model !== "" && pick.model.length <= 256 ? pick.model : undefined;
   const effort =
-    typeof pick.effort === "string" && pick.effort !== "" && pick.effort.length <= 128 ? pick.effort : undefined;
+    typeof pick.effort === "string" && pick.effort !== "" && pick.effort !== "default" && pick.effort.length <= 128
+      ? pick.effort
+      : undefined;
   return { harness: pick.harness, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
 }
 
@@ -58,9 +62,7 @@ export function seedCloudLastPick(value: unknown): void {
   if (pick) write({ pick });
 }
 
-/// Remembers `pick` as Cloud's: the agent, model and level the next page with Cloud picked starts on.
-/// Only a person's pick calls this (cloudAgentPick.ts); the app's copy (seedCloudLastPick) names no
-/// level, so a level lives in this viewer's storage.
+/// Remembers `pick` as Cloud's: the agent and model the next page with Cloud picked starts on.
 /// `post` sends it to the app (a page's `callNative`); else the page's native bridge.
 export function rememberCloudPick(
   pick: CloudLastPick,
@@ -69,14 +71,19 @@ export function rememberCloudPick(
   const kept = parse(pick);
   if (!kept) return;
   const before = read().pick;
-  // A pick naming no model keeps the model last picked on the same agent; one naming no level keeps
-  // that agent's level (a model pick never resets the person's effort).
-  const sameAgent = before?.harness === kept.harness;
-  const model = kept.model ?? (sameAgent ? before?.model : undefined);
-  const effort = kept.effort ?? (sameAgent ? before?.effort : undefined);
+  // A pick naming no model keeps the model (and a pick naming no level, the level) last picked on the
+  // same agent.
+  const same = before?.harness === kept.harness ? before : undefined;
+  const model = kept.model ?? same?.model;
+  const effort = kept.effort ?? same?.effort;
   const next: CloudLastPick = { harness: kept.harness, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
   write({ pick: next, picked: true });
-  const params = { agent: next.harness, ...(next.model ? { model: next.model } : {}), place: "cloud" };
+  const params = {
+    agent: next.harness,
+    ...(next.model ? { model: next.model } : {}),
+    ...(next.effort ? { effort: next.effort } : {}),
+    place: "cloud",
+  };
   const direct = post ? undefined : globalThis.window?.cmuxAcpmuxActions?.["newTab.remember"];
   const send = post ?? ((method: string, body: typeof params) => (direct ? direct(body) : postNative(method, body)));
   try {
