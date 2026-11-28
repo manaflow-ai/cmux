@@ -111,6 +111,7 @@ def collect(args: argparse.Namespace) -> int:
     if state and state[0] != args.since:
         print(f"resuming the saved cursor at {state[0]}, not --since {args.since}; pass --restart to start over", file=sys.stderr)
     if args.restart:
+        cursor_file.unlink(missing_ok=True)  # first, so no stop can leave this cursor over an emptied cache
         cache.write_text("")
     start = date.fromisoformat(state[0]) if state else date.fromisoformat(args.since)
     after = state[1] if len(state) > 1 else None
