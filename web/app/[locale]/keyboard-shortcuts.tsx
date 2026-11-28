@@ -50,6 +50,14 @@ function ShortcutRow({ shortcut, locale }: { shortcut: Shortcut; locale: string 
             <KeyCombo combo={combo} />
           </span>
         ))}
+        {shortcut.aliases?.map((combo, idx) => (
+          <span key={`${shortcut.id}-alias-${idx}`} className="inline-flex items-center">
+            <span className="mr-3 select-none font-mono text-[11px] text-muted/30">
+              /
+            </span>
+            <KeyCombo combo={combo} />
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -71,7 +79,7 @@ export function KeyboardShortcuts() {
         const catTitle = localizedShortcutText(cat.title, locale);
         const description = localizedShortcutText(shortcut.description, locale);
         const note = shortcut.note ? localizedShortcutText(shortcut.note, locale) : "";
-        const combos = shortcut.combos.map(comboToText).join(" ");
+        const combos = [...shortcut.combos, ...(shortcut.aliases ?? [])].map(comboToText).join(" ");
         return normalize(`${catTitle} ${combos} ${description} ${note}`).includes(q);
       }),
     })).filter((cat) => cat.shortcuts.length > 0);

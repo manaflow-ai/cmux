@@ -21,6 +21,8 @@ export type Shortcut = {
   /** Alternative key combinations, or with `sequence` the strokes of one chord in order. */
   combos: string[][];
   sequence?: boolean;
+  /** With `sequence`, the table aliases: single keys that also run the action, shown after the chord. */
+  aliases?: string[][];
   description: LocalizedText;
   note?: LocalizedText;
   /** The value for `shortcuts.bindings.<id>` in cmux.json. */
@@ -71,6 +73,8 @@ export function shortcutCategoriesOf(file: DocsShortcutsFile): ShortcutCategory[
         id: row.id,
         combos,
         sequence: row.chord ? true : undefined,
+        // A chord row's aliases are alternatives to the whole chord, not more strokes of it.
+        aliases: row.chord && row.aliases.length > 0 ? row.aliases.map((alias) => shortcutStroke(alias.keys[0])) : undefined,
         description: row.title as LocalizedText,
         configValue: row.chord ? JSON.stringify(row.chord.map(shortcutConfigStroke)) : strokes.map(shortcutConfigStroke)[0],
       };
