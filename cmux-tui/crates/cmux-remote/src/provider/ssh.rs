@@ -569,12 +569,9 @@ impl FrameLink for SshProcessLink {
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
         match self.inner.send(frame).await {
             Ok(()) => Ok(()),
-            Err(error) if self.stderr.is_some() => {
-                Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
-            }
             Err(error) => {
                 self.forwarded().await;
-                Err(error)
+                Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
             }
         }
     }
@@ -582,12 +579,17 @@ impl FrameLink for SshProcessLink {
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
         match self.inner.receive().await {
             Ok(Some(frame)) => Ok(Some(frame)),
-            ended if self.stderr.is_none() => {
+            ended => {
+                // A forwarded stderr is written out first; a captured one
+                // (and the run's exit, either way) goes into the error.
                 self.forwarded().await;
-                ended
+                match ended {
+                    Ok(_) => self.with_stderr(None).await.map_or(Ok(None), Err),
+                    Err(error) => {
+                        Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
+                    }
+                }
             }
-            Ok(None) => self.with_stderr(None).await.map_or(Ok(None), Err),
-            Err(error) => Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed)),
         }
     }
 

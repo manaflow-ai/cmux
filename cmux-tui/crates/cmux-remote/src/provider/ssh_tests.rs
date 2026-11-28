@@ -49,8 +49,18 @@ fn fake_ssh(directory: &std::path::Path, stderr: &str) -> (String, std::path::Pa
 
 #[cfg(unix)]
 async fn group_with(ssh_binary: String, extra_args: &[&str]) -> Arc<dyn LinkGroup> {
+    group_capturing(ssh_binary, extra_args, false).await
+}
+
+#[cfg(unix)]
+async fn group_capturing(
+    ssh_binary: String,
+    extra_args: &[&str],
+    capture_stderr: bool,
+) -> Arc<dyn LinkGroup> {
     let provider = SshProvider::new(SshProviderConfig {
         ssh_binary,
+        capture_stderr,
         extra_args: extra_args.iter().map(|argument| (*argument).to_owned()).collect(),
         ..SshProviderConfig::default()
     })
@@ -183,8 +193,8 @@ fn quiet_ssh(directory: &std::path::Path, code: u8) -> String {
 }
 
 #[cfg(unix)]
-async fn first_receive(ssh: String) -> Result<Option<Bytes>, LinkError> {
-    let group = group_with(ssh, &[]).await;
+async fn first_receive(ssh: String, capture: bool) -> Result<Option<Bytes>, LinkError> {
+    let group = group_capturing(ssh, &[], capture).await;
     let link = group
         .open(LinkRequest { lane: cmux_remote_protocol::Lane::Interactive, generation: 0 })
         .await
@@ -201,15 +211,15 @@ async fn first_receive(ssh: String) -> Result<Option<Bytes>, LinkError> {
 #[tokio::test]
 async fn a_quiet_ssh_run_that_failed_names_its_exit() {
     let directory = tempfile::tempdir().unwrap();
-    for code in [255_u8, 1] {
-        match first_receive(quiet_ssh(directory.path(), code)).await {
+    for (code, capture) in [(255_u8, true), (1, true), (255, false)] {
+        match first_receive(quiet_ssh(directory.path(), code), capture).await {
             Err(LinkError::Transport(detail)) => {
                 assert_eq!(detail, format!("the ssh link ended (ssh exit {code})"));
             }
             other => panic!("exit {code}: {other:?}"),
         }
     }
-    assert!(matches!(first_receive(quiet_ssh(directory.path(), 0)).await, Ok(None)));
+    assert!(matches!(first_receive(quiet_ssh(directory.path(), 0), true).await, Ok(None)));
 }
 
 /// ssh's stderr keeps its quoted field, now after the run's exit.
@@ -218,7 +228,7 @@ async fn a_quiet_ssh_run_that_failed_names_its_exit() {
 async fn a_said_ssh_failure_carries_its_exit_before_its_stderr() {
     let directory = tempfile::tempdir().unwrap();
     let (ssh, _) = fake_ssh(directory.path(), "kex_exchange_identification: read: reset");
-    match first_receive(ssh).await {
+    match first_receive(ssh, true).await {
         Err(LinkError::Transport(detail)) => {
             assert_eq!(
                 detail,
