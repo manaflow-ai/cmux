@@ -487,8 +487,7 @@ fn diag_rchar() -> u64 {
     std::fs::read_to_string("/proc/self/io")
         .ok()
         .and_then(|io| {
-            io.lines()
-                .find_map(|l| l.strip_prefix("rchar: ").and_then(|v| v.trim().parse().ok()))
+            io.lines().find_map(|l| l.strip_prefix("rchar: ").and_then(|v| v.trim().parse().ok()))
         })
         .unwrap_or(0)
 }
