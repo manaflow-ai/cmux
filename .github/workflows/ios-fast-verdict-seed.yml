@@ -63,7 +63,7 @@ jobs:
       group: ios-fast-verdict-seed-${{ github.ref }}
       cancel-in-progress: false
     # The pool pr-pipeline.yml's ios-fast-runner falls back to, so the workspace path matches.
-    runs-on: blacksmith-6vcpu-macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
