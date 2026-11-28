@@ -60,9 +60,21 @@ describe("provider start capacity", () => {
     expect(providerCapacityCooldownMs(PROVIDER, now + FLEET_CAPACITY_COOLDOWN_MS)).toBe(0);
     expect(noteProviderStartRefusal(PROVIDER, { status: 409, code: "CONFLICT", message: "slug taken" }, now)).toBe(false);
     expect(noteProviderStartRefusal(PROVIDER, new Error("socket hang up"), now)).toBe(false);
+    expect(noteProviderStartRefusal(PROVIDER, { status: 429, message: "rate limited" }, now)).toBe(false);
     const exit = await Effect.runPromiseExit(admitFleetCapacity(repoLive(0).repo, { provider: PROVIDER, now: now + FLEET_CAPACITY_COOLDOWN_MS, env: {} }));
     expect(Exit.isSuccess(exit)).toBe(true);
   });
+});
+
+test("the 429 start-capacity throttle, wrapped in the create error, starts the cooldown too", () => {
+  const now = 3_000_000;
+  const wrapped = new VmProviderOperationError({
+    provider: PROVIDER,
+    operation: "create",
+    cause: { status: 429, message: "infrastructure overloaded: VM start capacity reached, retry later" },
+  });
+  expect(noteProviderStartRefusal(PROVIDER, wrapped, now)).toBe(true);
+  expect(providerCapacityCooldownMs(PROVIDER, now + 1_000)).toBe(FLEET_CAPACITY_COOLDOWN_MS - 1_000);
 });
 
 describe("fleet machine cap", () => {

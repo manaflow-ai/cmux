@@ -15,7 +15,7 @@ import { reportError } from "../observability/report";
  * module covers the fleet:
  *
  * - The provider's start capacity. It reports no free count, so the only
- *   signal is its placement refusal. After one, new creates on that provider
+ *   signals are its 409 placement refusal and its 429 start-capacity throttle. After one, new creates on that provider
  *   are refused here for FLEET_CAPACITY_COOLDOWN_MS with the same capacity
  *   answer, so a burst does not spend a row, a credit and a provider round
  *   trip per refused start. The cooldown is per web instance (in memory).
@@ -36,9 +36,31 @@ export function quotaAlertThreshold(limit: number): number {
   return Math.ceil(limit * FLEET_QUOTA_ALERT_RATIO);
 }
 
+const START_CAPACITY_THROTTLE_MESSAGE = /start capacity|infrastructure overloaded/i;
+
+/**
+ * A provider start refused for capacity: a 409 placement refusal
+ * (providerConflictKind), or the account-wide 429 "infrastructure overloaded:
+ * VM start capacity" throttle, which no other classifier reads.
+ */
+export function isProviderStartCapacityRefusal(err: unknown): boolean {
+  if (providerConflictKind(err) === "capacity") return true;
+  let current = err;
+  for (let depth = 0; depth < 8 && current && typeof current === "object"; depth += 1) {
+    const record = current as { status?: unknown; message?: unknown; body?: { message?: unknown }; cause?: unknown };
+    if (typeof record.status === "number") {
+      if (record.status !== 429) return false;
+      const message = typeof record.message === "string" ? record.message : typeof record.body?.message === "string" ? record.body.message : "";
+      return START_CAPACITY_THROTTLE_MESSAGE.test(message);
+    }
+    current = record.cause;
+  }
+  return false;
+}
+
 /** Remember a provider start refused for capacity; later creates wait out the cooldown. */
 export function noteProviderStartRefusal(provider: ProviderId, cause: unknown, now = Date.now()): boolean {
-  if (providerConflictKind(cause) !== "capacity") return false;
+  if (!isProviderStartCapacityRefusal(cause)) return false;
   capacityRefusedAt.set(provider, now);
   alertOnce(`start_capacity:${provider}`, "Cloud VM provider refused a start for capacity", {
     code: "provider_start_capacity",
