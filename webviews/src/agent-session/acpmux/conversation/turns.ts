@@ -1440,6 +1440,17 @@ function shapedTurn(
   const opener = rows[end];
   const endedByPerson = !live && !last && opener?.kind === "user" && !opener.incoming && !opener.received;
   const cached = live ? undefined : shapedTurns.get(user);
+  {
+    const g = ((globalThis as any).__rmbMiss ??= {}) as Record<string, number>;
+    const why = live ? "live" : !cached ? (shapedTurns.has(user) ? "undef" : "nouser") :
+      cached.open !== open ? "open" : cached.background !== background ? "background" :
+      cached.messageRuns !== messageRuns ? "messageRuns" : cached.backgroundRuns !== backgroundRuns ? "backgroundRuns" :
+      cached.last !== last ? "last" : cached.retryTarget !== retryTarget ? "retry" : cached.clockOffset !== clockOffset ? "clock" :
+      cached.dated !== dated ? "dated" : cached.endedByPerson !== endedByPerson ? "endedByPerson" :
+      cached.source.length !== source.length ? "len" : cached.source.some((r, i) => r !== source[i]) ? "rowobj" : "hit-or-arm";
+    g[why] = (g[why] ?? 0) + 1;
+    if (why === "rowobj") { const i = cached!.source.findIndex((r, i) => r !== source[i]); const a = cached!.source[i]!, b = source[i]!; const k = a.id === b.id ? `rowobj:${b.kind}:sameid:v${a.version === b.version ? "=" : "!"}` : `rowobj:${b.kind}:otherid`; g[k] = (g[k] ?? 0) + 1; }
+  }
   if (
     cached &&
     cached.open === open &&
