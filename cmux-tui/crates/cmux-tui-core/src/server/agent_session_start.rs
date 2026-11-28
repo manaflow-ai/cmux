@@ -494,13 +494,20 @@ impl StartTimings {
         self.step = Some(step);
     }
 
-    /// `data` of a refusal with the phase it came from: a bare `refused` only (every other
-    /// refusal names its own cause), and never over a `step` already there.
+    /// `data` of a refusal with the phase it came from, never over a `step` already there: a bare
+    /// `refused`, and the link's own ends, `unavailable` (acpmux closed the link, or was not back
+    /// in [`RECONNECT_WAIT`]) and `timeout`, which carry no cause of their own. Those two also get
+    /// a short `reason` code, `acpmux_closed.STEP` or `acpmux_timeout.STEP`: the app prints a
+    /// refusal's reason code beside its code, so the chat probe's row names the phase (the
+    /// 2026-11-28T11:45Z cloud-chat-replies-production row said only "refused to start the agent
+    /// chat (agent_session.unavailable)", with nothing on which call lost acpmux).
     fn refusal_data(&self, refusal: Refusal, data: Option<Value>) -> Option<Value> {
-        let (Refusal::Refused | Refusal::Unavailable | Refusal::Timeout, Some(step)) =
-            (refusal, self.step)
-        else {
-            return data;
+        let Some(step) = self.step else { return data };
+        let lost = match refusal {
+            Refusal::Refused => None,
+            Refusal::Unavailable => Some("acpmux_closed"),
+            Refusal::Timeout => Some("acpmux_timeout"),
+            _ => return data,
         };
         let mut data = match data {
             Some(Value::Object(map)) => map,
@@ -508,6 +515,9 @@ impl StartTimings {
             None => serde_json::Map::new(),
         };
         data.entry("step").or_insert_with(|| json!(step));
+        if let Some(lost) = lost {
+            data.entry("reason").or_insert_with(|| json!(format!("{lost}.{step}")));
+        }
         Some(Value::Object(data))
     }
 
@@ -961,13 +971,28 @@ fn ask_again(
     loop {
         match ask(link, until, method, params.clone()) {
             Ok(answer) => return Ok(answer),
-            Err(LinkError::Closed) if Instant::now() < until => link.close(),
+            Err(error) if gone_under(&error) && Instant::now() < until => link.close(),
             Err(error) => {
                 link.close();
                 return Err(Refusal::of(error));
             }
         }
         *link = reconnect(socket, until).ok_or(Refusal::Unavailable)?;
+    }
+}
+
+/// acpmux went away under a call (restarting): it closed the link, or its stop answered the
+/// call it cut with the typed `daemon.restarting` (retryable) refusal before it hung up (acpmux
+/// `shutdown_drain.rs`). The staging Cloud chat proof (cmux run 46167191461, 2026-11-28) got
+/// the typed answer to its `session/new` and refused, where a close was already sent again.
+fn gone_under(error: &LinkError) -> bool {
+    match error {
+        LinkError::Closed => true,
+        LinkError::Rpc(_, data) => {
+            data.get("errorKind").and_then(Value::as_str) == Some("daemon.restarting")
+                && data.get("retryable").and_then(Value::as_bool) == Some(true)
+        }
+        _ => false,
     }
 }
 
@@ -1041,8 +1066,11 @@ fn create_session(
             },
         );
         match sent {
-            Err(LinkError::Closed)
-                if key.is_some() && resends < CREATE_RESENDS && Instant::now() < until =>
+            Err(error)
+                if gone_under(&error)
+                    && key.is_some()
+                    && resends < CREATE_RESENDS
+                    && Instant::now() < until =>
             {
                 link.close();
                 *link = reconnect(socket, until).ok_or(LinkError::Closed)?;

@@ -542,7 +542,6 @@
 {"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"height","property":"height","values":{"22px":3}}
 {"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"height","property":"min-height","values":{"22px":1}}
 {"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"token-copy","property":"outline","values":{"1.5px":1}}
-{"file":"agent-session/acpmux/WhereMenu.gallery.tsx","kind":"spacing","property":"padding-top","values":{"360px":1}}
 {"file":"agent-session/guest/guest.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"agent-session/guest/guest.css","kind":"token-copy","property":"outline","values":{"1.5px":3}}
 {"file":"gallery/fixtures/inlineChips.gallery.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
@@ -949,3 +948,4 @@
 {"file":"viewer-empty/styles.css","kind":"height","property":"height","values":{"13px":1,"30px":1}}
 {"file":"viewer-empty/styles.css","kind":"height","property":"min-height","values":{"132px":1}}
 {"file":"viewer-empty/styles.css","kind":"spacing","property":"padding","values":{"max(40px, 13vh) 16px 40px":1,"0 1px":1,"1px 3px":1}}
+{"file":"agent-session/acpmux/WhereMenu.gallery.tsx","kind":"spacing","property":"padding-top","values":{"360px":1}}

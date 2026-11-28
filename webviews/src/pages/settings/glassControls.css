@@ -35,6 +35,16 @@
   --glass-knob-grow: 1.18;
 }
 
+/* Reduce Transparency (the system's or the app's): the knob keeps its fill and rim, no lens. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-settings-look="refined"] .settings[data-glass-controls] {
+    --glass-knob-lens: none;
+  }
+}
+:root[data-settings-look="refined"][data-reduce-transparency] .settings[data-glass-controls] {
+  --glass-knob-lens: none;
+}
+
 /* SWITCH. Off and on draw the same glass knob; the track keeps its color (grey off, accent on), so
    the knob tints with it. */
 :root[data-settings-look="refined"] .settings[data-glass-controls] .ui-switch .ui-switch-thumb,

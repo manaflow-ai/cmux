@@ -245,6 +245,36 @@ fn a_bare_start_refusal_names_its_step() {
     assert_eq!(timings.refusal_data(Refusal::NeedsKeyedStart, Some(keyed.clone())), Some(keyed));
 }
 
+/// A start that lost acpmux (`unavailable`: the link closed, or acpmux was not back within the
+/// reconnect wait) or waited it out (`timeout`) names the phase as `data.step` and as a reason
+/// code the app prints beside the refusal's code, so the 2026-11-28T11:45Z production row, which
+/// read only "refused to start the agent chat (agent_session.unavailable)", says where.
+#[test]
+fn a_start_that_lost_acpmux_names_its_step() {
+    let mut timings = super::StartTimings::default();
+    assert_eq!(timings.refusal_data(Refusal::Unavailable, None), None);
+    timings.at("catalog");
+    assert_eq!(
+        timings.refusal_data(Refusal::Unavailable, None),
+        Some(json!({"step": "catalog", "reason": "acpmux_closed.catalog"}))
+    );
+    timings.at("session_new");
+    assert_eq!(
+        timings.refusal_data(Refusal::Timeout, None),
+        Some(json!({"step": "session_new", "reason": "acpmux_timeout.session_new"}))
+    );
+    let own = json!({"reason": "route.unavailable"});
+    assert_eq!(
+        timings.refusal_data(Refusal::Unavailable, Some(own)),
+        Some(json!({"step": "session_new", "reason": "route.unavailable"}))
+    );
+    let lost = timings.refusal_data(Refusal::Timeout, None).unwrap();
+    assert_eq!(
+        super::super::refusal_text(Refusal::Timeout, &lost),
+        "acpmux did not answer in time at session_new"
+    );
+}
+
 /// An agent the machine's acpmux catalog does not have (pi on a Cloud machine, whose image
 /// ships `pi` but not the `pi-acp` adapter acpmux runs it through) is refused as
 /// `harness_missing` naming it, never `not_asking`, which said the agent cannot ask first
@@ -449,6 +479,17 @@ fn restarting_acpmux(
     close_on: &'static str,
     closes: usize,
 ) -> (std::path::PathBuf, Arc<Mutex<Vec<(String, Option<String>)>>>) {
+    acpmux_restarting(features, close_on, closes, false)
+}
+
+/// [`restarting_acpmux`]; `typed`: each cut call is first answered with acpmux's stop refusal
+/// (`daemon.restarting`, retryable), as acpmux's own stop does (acpmux `shutdown_drain.rs`).
+fn acpmux_restarting(
+    features: Value,
+    close_on: &'static str,
+    closes: usize,
+    typed: bool,
+) -> (std::path::PathBuf, Arc<Mutex<Vec<(String, Option<String>)>>>) {
     use std::io::{BufRead, BufReader, Write};
     let dir = std::env::temp_dir().join(format!(
         "ras-{}-{}",
@@ -479,6 +520,14 @@ fn restarting_acpmux(
                     if method == close_on
                         && closed.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < closes
                     {
+                        if typed {
+                            // acpmux's stop answers the call it cut, then hangs up.
+                            let cut = json!({"jsonrpc": "2.0", "id": request["id"], "error": {
+                                "code": -32000, "message": "acpmux is restarting",
+                                "data": {"reason": "daemon.restarting",
+                                    "errorKind": "daemon.restarting", "retryable": true}}});
+                            let _ = writeln!(writer, "{cut}");
+                        }
                         let _ = writer.shutdown(std::net::Shutdown::Both);
                         return;
                     }
@@ -555,13 +604,57 @@ fn a_check_acpmux_closed_under_is_asked_again() {
     let _ = std::fs::remove_file(&socket);
 }
 
+/// The staging Cloud chat proof (cmux run 46167191461, 2026-11-28): acpmux's stop answered the
+/// start's `session/new` `daemon.restarting` (retryable) before it hung up, and the start
+/// refused. The typed answer is a restart like a close: sent again with the same create key.
+#[test]
+fn a_create_acpmux_stop_answered_restarting_is_sent_again_with_its_key() {
+    let (socket, seen) = acpmux_restarting(json!(["createKey"]), "session/new", 1, true);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let new = json!({"cwd": "/w", "mcpServers": [], "_meta": {"acpmux": {}}});
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let created = super::create_session(&socket, &mut link, new, until).expect("created");
+    assert_eq!(created, json!({"sessionId": "s1"}));
+    let keys = creates(&seen);
+    assert_eq!(keys.len(), 2, "{keys:?}");
+    assert!(keys[0].is_some());
+    assert_eq!(keys[0], keys[1], "the resend names the first create's key");
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// Without create keys the typed restart answer stays the refusal: a resend could make two.
+#[test]
+fn a_create_stop_answered_restarting_without_keys_is_not_sent_again() {
+    let (socket, seen) = acpmux_restarting(json!([]), "session/new", 1, true);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let new = json!({"cwd": "/w", "mcpServers": [], "_meta": {"acpmux": {}}});
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let created = super::create_session(&socket, &mut link, new, until);
+    assert!(matches!(created, Err(LinkError::Rpc(..))), "{created:?}");
+    assert_eq!(creates(&seen), vec![None]);
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// A check acpmux's stop answered `daemon.restarting` is asked again on a new link too.
+#[test]
+fn a_check_stop_answered_restarting_is_asked_again() {
+    let (socket, seen) = acpmux_restarting(json!([]), "_acpmux/web_modes", 1, true);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let table = super::ask_again(&socket, &mut link, until, "_acpmux/web_modes", json!({}));
+    assert_eq!(table, Ok(json!({"ok": true})));
+    let asked = seen.lock().unwrap().iter().filter(|(m, _)| m == "_acpmux/web_modes").count();
+    assert_eq!(asked, 2);
+    let _ = std::fs::remove_file(&socket);
+}
+
 /// A start acpmux went away in names its phase, so the next such refusal says where.
 #[test]
 fn an_unavailable_start_names_its_step() {
     let mut timings = super::StartTimings::default();
     timings.at("trust");
     let data = timings.refusal_data(Refusal::Unavailable, None).expect("a step");
-    assert_eq!(data, json!({"step": "trust"}));
+    assert_eq!(data, json!({"step": "trust", "reason": "acpmux_closed.trust"}));
     assert_eq!(
         super::super::refusal_text(Refusal::Unavailable, &data),
         "this daemon has no acpmux to attach to at trust"

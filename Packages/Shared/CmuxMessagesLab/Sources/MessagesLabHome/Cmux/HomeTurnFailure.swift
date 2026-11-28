@@ -26,6 +26,13 @@ struct HomeTurnFailure: Equatable, Sendable {
         title = Self.title(error)
     }
 
+    /// The agent a failure line names (`turn failed on codex: …` → "codex"), else "claude", the
+    /// Chief's default agent: what Sign in signs in.
+    static func agent(_ detail: String) -> String {
+        guard let match = detail.firstMatch(of: #/\Aturn failed on ([A-Za-z0-9_-]+)/#) else { return "claude" }
+        return String(match.output.1).lowercased()
+    }
+
     /// The sentence for a harness error: a usage limit, a sign-in, the network, the model service,
     /// else the general one. The raw error says the rest under Details.
     private static func title(_ error: String) -> String {

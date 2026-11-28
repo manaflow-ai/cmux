@@ -3,7 +3,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { SPLIT, tokenLines, tokenLineMarkup } from "./support/turnTokenLines";
+import { SPLIT, TABULAR_NUMS, tokenLines, tokenLineMarkup } from "./support/turnTokenLines";
 
 const conversationCss = readFileSync(
   path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
@@ -27,15 +27,16 @@ for (const [name, line] of Object.entries(tokenLines))
     );
   });
 
-test("the count takes the theme's tertiary text token, in tabular numerals, never a literal color", () => {
+test("the count takes the transcript's dim text token, in tabular numerals, never a literal color", () => {
   const tokens = rule(".cv-worked__count:has(> .cv-worked__tokens)");
   expect(tokens).toContain("color: var(--cv-text-dim);");
-  expect(tokens).toContain("font-variant-numeric: tabular-nums;");
+  expect(tokens).toMatch(TABULAR_NUMS);
   expect(tokens).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(|oklch\(/i);
-  // The line's words take the background activity tone (#27074); the count's is the tertiary one.
+  // The line's words take the background activity tone (#27074); the count's is the dim one, the
+  // theme's secondary ink since #51433 ("the dim ink is the theme's secondary ink, so it holds 4.5:1").
   expect(rule(".cv-worked")).toContain("color: var(--cv-activity-text);");
   expect(conversationCss).toContain("--cv-text-muted: var(--agent-muted);");
-  expect(conversationCss).toContain("--cv-text-dim: var(--agent-soft);");
+  expect(conversationCss).toContain("--cv-text-dim: var(--agent-muted);");
 });
 
 for (const [name, line] of Object.entries(tokenLines))
