@@ -91,7 +91,8 @@ impl Drop for CpuLoad {
 fn spin(stop: &AtomicBool, duty: &AtomicU32, spins: &AtomicU64) {
     while !stop.load(Ordering::Relaxed) {
         let percent = duty.load(Ordering::Relaxed);
-        let busy = SLICE * percent / 100;
+        let busy =
+            SLICE.checked_mul(percent.min(100)).and_then(|d| d.checked_div(100)).unwrap_or(SLICE);
         let started = Instant::now();
         let mut rounds = 0_u64;
         while started.elapsed() < busy {
@@ -141,12 +142,12 @@ impl RamLoad {
 
     /// Bytes held and resident now.
     pub fn held(&self) -> u64 {
-        (self.chunks.len() * CHUNK) as u64
+        u64::try_from(self.chunks.len().saturating_mul(CHUNK)).unwrap_or(u64::MAX)
     }
 
     /// Grows or shrinks to `bytes` (rounded down to whole MiB, at most the ceiling).
     pub fn set(&mut self, bytes: u64) {
-        let target = (bytes.min(self.ceiling) as usize) / CHUNK;
+        let target = usize::try_from(bytes.min(self.ceiling)).unwrap_or(usize::MAX) / CHUNK;
         if target == self.chunks.len() {
             return;
         }
