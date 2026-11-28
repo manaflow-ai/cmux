@@ -20,7 +20,7 @@ import { Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { RunScroll } from "./RunScroll";
-import { ShimmerEnabledContext } from "./ShimmerText";
+import { ShimmerEnabledContext } from "./shimmerEnabledContext";
 import { useT } from "../i18n";
 import {
   callDisclosureKeys,
@@ -37,7 +37,7 @@ import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
-import { sameList, stepProbe } from "./toolGroupRowModel";
+import { stepProbe, sameList } from "./toolGroupRowModel";
 import { DisclosureChevron } from "./DisclosureChevron";
 import { useRevealPins, useStepWindow, windowedSteps } from "./stepWindow";
 
