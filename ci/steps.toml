@@ -300,6 +300,27 @@ inputs = [
 ]
 run = "python3 tests/test_vendored_cmux_agent_cursor.py"
 
+# Native split detector fixtures exercise the same acceptance command used on dev captures.
+[step.new-tab-split-acceptance]
+job = "linux"
+timeout = 120
+title = "New Tab split first-frame acceptance"
+about = "reject late or blank split content against an independently settled frame"
+inputs = [
+  "scripts/cmux-next/new_tab_split_acceptance.py",
+  "scripts/cmux-next/fixtures/new-tab-split-baseline/**",
+  "tests/test_new_tab_split_acceptance.py",
+]
+run = '''
+if ! python3 -c 'from PIL import Image, ImageChops' 2>/dev/null; then
+  detector_python="$CI_TOOLS/new-tab-split-python"
+  python3 -m venv --system-site-packages "$detector_python"
+  "$detector_python/bin/python" -m pip install --disable-pip-version-check --no-input --quiet Pillow==11.3.0
+  export PATH="$detector_python/bin:$PATH"
+fi
+python3 tests/test_new_tab_split_acceptance.py
+'''
+
 [step.r2-upload]
 job = "linux"
 timeout = 300
@@ -1880,18 +1901,20 @@ python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md
 job = "linux"
 timeout = 180
 title = "Bench relevance map"
-about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open"
+about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open; per-area baselines: only own areas fetched, 3-of-3 >15% rule, fail open"
 inputs = [
   "docs/benches/*",
   "docs/benches/templates/*",
   "scripts/bench/cmux-bench",
   "scripts/bench/benchlib/relevance.py",
+  "scripts/bench/benchlib/baselines.py",
   "tests/test_bench_relevance_map.py",
+  "tests/test_bench_baselines.py",
   "cmux-tui/crates/*/Cargo.toml",
   "cmux-next-ios/rust/crates/*/Cargo.toml",
   "Packages/*/*/Package.swift",
 ]
-run = "python3 -I tests/test_bench_relevance_map.py"
+run = "python3 -I tests/test_bench_relevance_map.py && python3 -I tests/test_bench_baselines.py"
 
 # What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
 # for them, in the advisory log, and the Linux benches those areas name (`run`), each against its area's budget_s.
@@ -1920,12 +1943,19 @@ if ! grep -q -- "--run" scripts/bench/cmux-bench 2>/dev/null; then
 fi
 # --run also runs the benches the matched areas name (`run`) and exits 1 only on a measured result over the
 # area's budget_s. A missing or failing bench, a timeout with no budget, or a broken map warns and passes.
+# --baselines (Leo, 2026-11-27: "A PR fetches only the baselines for its own areas"): each bench runs 3 times
+# against its areas' nightly baseline on this runner class (bench-baselines-nightly.yml, R2); it is red only when
+# all 3 repeats are more than 15% over. A missing baseline or an unreachable store warns and passes.
+extra=""
+if grep -q -- "--baselines" scripts/bench/cmux-bench 2>/dev/null; then
+  extra="--repeats 3 --baselines"
+fi
 set +e
-python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 < "$paths"
+python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 $extra < "$paths"
 code=$?
 set -e
 if [ "$code" -eq 1 ]; then
-  echo "::error::A bench for these paths is over its budget_s (docs/benches/relevance-map.toml); see the Bench runs above."
+  echo "::error::A bench for these paths is over its budget_s, or 3 of 3 repeats are >15% over its area's nightly baseline (docs/benches/relevance-map.toml); see the Bench runs above."
   exit 1
 elif [ "$code" -ne 0 ]; then
   echo "::notice::for-paths --run exited $code; fail open"
