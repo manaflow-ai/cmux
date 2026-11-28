@@ -24,6 +24,10 @@ pub struct Watch {
     pub sessions: Vec<String>,
     pub until: Vec<String>,
     pub match_text: Option<String>,
+    /// Which text of a turn `match_text` is looked for in (`watch_events::MatchIn`). Older
+    /// files have none: the whole turn, as before.
+    #[serde(default, skip_serializing_if = "watch_events::MatchIn::is_turn")]
+    pub match_in: watch_events::MatchIn,
     pub once: bool,
     pub caller: Option<String>,
     pub active: bool,
@@ -47,7 +51,7 @@ pub struct Watch {
 impl Watch {
     fn status(&self) -> Value {
         let mut v = json!({"id": self.id, "to": self.to, "sessions": self.sessions, "until": self.until,
-            "match": self.match_text, "once": self.once, "active": self.active, "offline": self.offline});
+            "match": self.match_text, "matchIn": self.match_in, "once": self.once, "active": self.active, "offline": self.offline});
         if self.prompt.is_some() {
             v["nextDueMs"] = json!(self.due_ms);
             v["everyMs"] = json!(self.every_ms);
@@ -326,6 +330,14 @@ pub fn resolve(hub: &Hub, key: &str) -> Result<String, RpcError> {
     }
     hub.resolve_remote(key)
         .map(|(p, id, _)| format!("{}/{id}", p.name))
+        .or_else(|| {
+            let id = hub.mesh_book_resolve(key)?;
+            let host = key
+                .split_once('/')
+                .map(|(host, _)| host.to_owned())
+                .or_else(|| hub.mesh_book_host(&id))?;
+            Some(format!("{host}/{id}"))
+        })
         .ok_or_else(|| RpcError::not_found(format!("no session matches {key:?}; run acpmux ls")))
 }
 pub(super) fn summary(hub: &Hub, key: &str) -> Value {
@@ -335,10 +347,14 @@ pub(super) fn summary(hub: &Hub, key: &str) -> Value {
     if let Some((_, _, s)) = hub.resolve_remote(key) {
         return s;
     }
+    if let Some(row) = hub.mesh_book_row(key) {
+        return row.summary.value();
+    }
     if let Some((peer, _)) = key.split_once('/') {
         if hub.peer(peer).is_some_and(|p| {
             p.connected.load(std::sync::atomic::Ordering::SeqCst) && *p.settled().borrow() > 0
-        }) {
+        }) || hub.mesh_book_has_host(peer)
+        {
             return json!({"status": "closed", "missing": true});
         }
         json!({"status": "unreachable", "stale": true})

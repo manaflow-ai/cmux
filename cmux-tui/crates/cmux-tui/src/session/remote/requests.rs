@@ -411,6 +411,11 @@ impl RemoteSession {
         self.disconnect_state.shutdown_notice()
     }
 
+    /// Whether the daemon detached this client on someone's request (a kick).
+    pub(crate) fn disconnected_by_peer(&self) -> bool {
+        self.disconnect_state.disconnected_by_peer()
+    }
+
     /// Returns the first reason recorded when the remote reader stopped.
     pub fn transport_disconnect_reason(&self) -> Option<String> {
         match &*self.disconnect_state.lock().unwrap() {

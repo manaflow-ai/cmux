@@ -8,8 +8,12 @@
 
 #[cfg(target_os = "macos")]
 mod cf;
+pub mod chrome;
+pub mod features;
+pub mod manifest;
 mod policy;
 mod reader;
+pub mod status;
 mod team;
 
 use std::collections::BTreeMap;

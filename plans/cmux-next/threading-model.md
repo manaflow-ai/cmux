@@ -164,6 +164,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   the bundled `cmux cloud hands` child's stdin, user-initiated, serial: its pipe writes block only it and keep
   their order; a few small lines per answer, level change or token ask, so no back-pressure; a write to an
   engine that exited fails with EPIPE (no SIGPIPE) and the engine is started again; HandsEngine)
+- Cloud event socket: `com.cmuxterm.next.cloud.wire.path` (CloudMachineWire's `NWPathMonitor` updates, utility,
+  serial: it blocks on nothing and hops each usable path change to the main actor; one per started wire)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,

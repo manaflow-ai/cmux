@@ -845,7 +845,7 @@
     "setting.sidebar.showNewWorkspaceChooser": false,
     "setting.sidebar.showProfileControl": true,
     "setting.sidebar.showProjects": true,
-    "setting.sidebar.showSearchButton": false,
+    "setting.sidebar.showSearchButton": true,
     "setting.sidebar.showSpaces": false,
     "setting.sidebar.showTimestamps": false,
     "setting.sidebar.side": "left",

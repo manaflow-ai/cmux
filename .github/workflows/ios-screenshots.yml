@@ -188,7 +188,7 @@ jobs:
     # Same lane as the iOS simulator tests: screenshots run inside the Simulator,
     # not as a foregrounded Mac app, so the Blacksmith foreground limitation does
     # not apply.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     # Nine localized languages are captured serially on each required device
     # class. Keep enough budget for cold Xcode builds plus the frame lane on
     # shared macOS runners, where simulator resets can be slow.
