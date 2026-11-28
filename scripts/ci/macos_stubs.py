@@ -217,6 +217,9 @@ def cmd_merge(stub_dir: Path, newer: Path) -> int:
 # system-configuration-sys SystemConfiguration from build.rs).
 SYS_CRATES = {
     "core-foundation-sys": "CoreFoundation",
+    # objc2's runtime FFI (objc2::ffi): the Mac binaries import only the calls they already make, so a
+    # first objc_alloc or class_getName (2026-11-28, every Linux link of cmux-tui) found no stub.
+    "objc2": "libobjc",
     # netwatch (iroh, #56513) links these two; neither framework had a stub, so every
     # Linux link of the daemon failed "framework not found for -framework CoreWLAN".
     "objc2-core-wlan": "CoreWLAN",
@@ -228,7 +231,7 @@ SYS_CRATES = {
 # whenever it is built, so a new one fails the Linux link unless its framework has a stub:
 # tests/test_ci_macos_stubs.py fails until a new crate is put in SYS_CRATES or here.
 OBJC2_STUBBED_FROM_BINARIES = {  # the framework's stub comes from our Mac binaries' imports
-    "objc2": "libobjc", "objc2-encode": "none", "objc2-app-kit": "AppKit",
+    "objc2-encode": "none", "objc2-app-kit": "AppKit",
     "objc2-core-foundation": "CoreFoundation", "objc2-core-graphics": "CoreGraphics",
     "objc2-foundation": "Foundation", "objc2-security": "Security",
     "objc2-system-configuration": "SystemConfiguration",
@@ -239,7 +242,9 @@ OBJC2_NOT_IN_DAEMON_BUILD = {  # locked for a feature or target the daemon famil
 }
 NEW_FRAMEWORK_INSTALL = "/System/Library/Frameworks/{0}.framework/Versions/A/{0}"
 SYS_CRATES_FILE = "sys-crates.txt"
-EXTERN_BLOCK = re.compile(r'extern\s+"C(?:-unwind)?"\s*\{')
+# objc2 declares its runtime calls in its own extern_c! and extern_c_unwind! blocks (objc2::ffi), not a bare
+# `extern "C" {`: reading only the bare form found 10 of its externs and left objc_alloc out.
+EXTERN_BLOCK = re.compile(r'(?:extern\s+"C(?:-unwind)?"|\bextern_c(?:_unwind)?!)\s*\{')
 EXTERN_ITEM = re.compile(r"\b(?:static(?:\s+mut)?|fn)\s+([A-Za-z_][A-Za-z0-9_]*)")
 LOCKED = re.compile(r'^\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"', re.M)
 
@@ -263,7 +268,10 @@ def declared_externs(src: Path) -> set[str]:
             while depth and end < len(text):
                 depth += {"{": 1, "}": -1}.get(text[end], 0)
                 end += 1
-            names |= {f"_{name}" for name in EXTERN_ITEM.findall(text[match.end():end - 1])}
+            # A comment is no declaration: objc2's doc examples ("fn some_external_function") and prose ("static
+            # and", "the linker") made stub symbols of words.
+            body = re.sub(r"//[^\n]*", "", text[match.end():end - 1])
+            names |= {f"_{name}" for name in EXTERN_ITEM.findall(body)}
     return names
 
 
