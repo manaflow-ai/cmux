@@ -1108,15 +1108,29 @@ jobs:
           CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
           CI_LAND_TIER_AT_ASK: ${{ vars.CI_LAND_TIER_AT_ASK || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && steps.route.outputs.fast_tier_cargo != 'false'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint a read token with its own quota
         id: base-red-token
         if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && steps.route.outputs.fast_tier_cargo != 'false'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-actions: read
       # Why: 2026-11-24-path_route-3.md, 2026-11-26-route-retry.md, 2026-11-27-base-red-token-burn.md
       - name: Jobs red on the base right now
@@ -1363,7 +1377,6 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
           persist-credentials: false
-
       - name: Mint the cmux-bot read token
         # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-macos-placement-mint-the-cmux-bot-read-token-2.md
         id: route-token-bot
@@ -1377,15 +1390,29 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
+        if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the owned-pool routing token
         id: route-token
         if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -1415,15 +1442,29 @@ jobs:
           permission-actions: read
           permission-pull-requests: read
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
+        if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && steps.snapshot-read-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the glaeda read token
         id: snapshot-read-token
         if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && steps.snapshot-read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-actions: read
           permission-pull-requests: read
 
@@ -2519,7 +2560,6 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
           persist-credentials: false
-
       - name: Mint the cmux-bot read token
         # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-app-compile-placement-mint-the-cmux-bot-read-token.md
         id: route-token-bot
@@ -2533,15 +2573,29 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the owned-pool routing token
         id: route-token
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -2748,7 +2802,6 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
           persist-credentials: false
-
       - name: Mint the cmux-bot read token
         # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-fast-tier-rerun-placement-mint-the-cmux-bot-read-token.md
         id: route-token-bot
@@ -2762,15 +2815,29 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the owned-pool routing token
         id: route-token
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -3031,7 +3098,6 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
           persist-credentials: false
-
       - name: Mint the cmux-bot read token
         # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-fast-tier-handback-placement-mint-the-cmux-bot-read-token-2.md
         id: route-token-bot
@@ -3045,15 +3111,29 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the owned-pool routing token
         id: route-token
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -3082,15 +3162,29 @@ jobs:
           permission-actions: read
           permission-pull-requests: read
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.snapshot-read-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the glaeda read token
         id: snapshot-read-token
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.snapshot-read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-actions: read
           permission-pull-requests: read
 
@@ -4885,16 +4979,30 @@ jobs:
           # Why: 2026-11-24-generated-files-base-red-1.md
           path: .base-red-src
           sparse-checkout: scripts/ci
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint a read token with its own quota
         id: base-red-token
         # The repository's GITHUB_TOKEN quota answers 403 under load; this app token is read when it does.
         if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-actions: read
       - name: Red on the base right now?
         id: decide
@@ -5961,15 +6069,29 @@ jobs:
           permission-organization-self-hosted-runners: read
           permission-actions: read
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the owned-pool read token
         id: route-token
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
           permission-actions: read
@@ -6711,15 +6833,29 @@ jobs:
           permission-organization-self-hosted-runners: read
           permission-actions: read
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
       - name: Mint the owned-pool read token
         id: route-token
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
           permission-actions: read
