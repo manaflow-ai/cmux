@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "computer.size.moreRoomHelp" : {
+      "comment" : "Agent chat: tooltip on the More room button.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يسمح لهذه المحادثة بأن تكبر خطوة واحدة حتى نهاية المهمة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dozvoljava ovom razgovoru da naraste za jedan korak do kraja zadatka"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lader denne chat vokse et trin mere resten af opgaven"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lässt diesen Chat für den Rest der Aufgabe eine Stufe größer werden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lets this chat grow one step larger for the rest of the task"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permite que este chat crezca un nivel más durante el resto de la tarea"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permet à ce chat de grandir d’un cran pour le reste de la tâche"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consente a questa chat di crescere di un livello per il resto dell’attività"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このタスクが終わるまで、このチャットを一段階大きくできるようにします"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អនុញ្ញាតឱ្យការជជែកនេះធំឡើងមួយកម្រិតរហូតដល់ចប់កិច្ចការ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "작업이 끝날 때까지 이 채팅이 한 단계 더 커질 수 있게 합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lar denne chatten vokse ett trinn til resten av oppgaven"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pozwala temu czatowi urosnąć o jeden poziom do końca zadania"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permite que este chat cresça um nível a mais pelo resto da tarefa"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Позволяет этому чату вырасти на одну ступень до конца задачи"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ให้แชทนี้ขยายใหญ่ขึ้นอีกหนึ่งขั้นจนจบงาน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sohbetin görevin geri kalanında bir adım daha büyümesine izin verir"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дозволяє цьому чату вирости на один рівень до кінця завдання"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cho phép cuộc trò chuyện này lớn thêm một bậc đến hết tác vụ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让此聊天在本任务剩余时间内再扩大一级"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "讓此聊天在本任務剩餘時間內再擴大一級"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
