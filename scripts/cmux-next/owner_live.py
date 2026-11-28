@@ -230,9 +230,11 @@ def is_self(how: str) -> bool:
 
 def holder(cell: str, rows: list[dict], coordinator: str | None = None,
            area: str | None = None, pusher: str | None = None,
-           branch: str | None = None) -> tuple[str | None, str]:
+           branch: str | None = None, worked=None) -> tuple[str | None, str]:
     """(live session, how) for the owner CELL of AREA, or (None, why none). PUSHER (HOST/NAME) and its BRANCH, when
-    given, are asked first (pusher_holds)."""
+    given, are asked first (pusher_holds). WORKED(short name) says whether that lane has its own recent commits under
+    the area's paths: a role glob holds only a lane it says yes for (a name alone is never a holder; with no WORKED,
+    no role lane holds)."""
     workstreams, sessions = cell_names(cell)
     mine = pusher_holds(cell, rows, pusher, area, branch)
     if mine:
@@ -248,7 +250,8 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None,
             return _name(tagged[0]), f"holds owns={owns_area(tagged[0], area)}"
     globs = cell_lanes(cell)
     if globs:
-        lanes = sorted((r for r in live if fills_role(_short(_name(r)), globs) and not r.get(ENDED_KEY)),
+        lanes = sorted((r for r in live if fills_role(_short(_name(r)), globs) and not r.get(ENDED_KEY)
+                        and worked is not None and worked(_short(_name(r)))),
                        key=lambda r: -(r.get("updatedAt") or 0))
         if lanes:
             return _name(lanes[0]), f"a lane of {','.join(globs)}"
@@ -300,6 +303,11 @@ def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, s
     return merged, None
 
 
+# A name is not a holder. 2026-11-28: a fresh lane named sidebar-bench-chiefs-61230-2 (a bench, no sidebar code, no
+# owns= tag) was sent a sidebar push because its name starts with the area word. A role glob now picks among lanes
+# that also have their own commits under the area's paths (holder's WORKED, which the pre-push hook reads from the
+# lanes' pushed branches); with none, the push goes on down the chain (the named session, its successor, the lead,
+# the coordinator), never to a lane picked by name.
 # A lane holds a role by its name only while its work goes on. 2026-11-28: a lane named sidebar-bench-chiefs-61230
 # (a CI-routing PR, no sidebar code) checked in `dropped` at 01:15Z and stayed listed idle, so `lanes *sidebar*` sent
 # it two sidebar pushes it never touched. The check-in outcome (tools/checkin.py: `checkin done|dropped`) reaches every
