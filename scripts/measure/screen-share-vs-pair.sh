@@ -57,13 +57,20 @@
 #             gains `-maxhz`. Pair it with max-fps=120 so the viewer asks for the rate.
 # max-fps=N   the viewer's asked frame rate (--max-fps; default 60). The label gains `-fpsN` when not 60.
 #             Each row records host_env; host=nightly runs the NIGHTLY's helper, which may not read either.
+# vt-power-efficient=0|1  CMUX_RD_VT_POWER_EFFICIENT=0|1 on the host's serve: VideoToolbox's MaximizePowerEfficiency
+#             hint off or on (cmux-encode videotoolbox.rs; unset: the shipping default). The label gains `-pw0`/`-pw1`.
+# timing-log=1  keep the host's CMUX_RD_TIMING_LOG frame lines of every key attempt (idr_reason, target_kbps,
+#             the frame's times) as host-timing.jsonl in report.tgz (screen-share-vs.py --keep-timing).
+# mode=encode-ab  no viewer and no partner=: run cmux-tui/crates/cmux-rd-host/scripts/encode-gap-ab.sh on this Mac
+#             (VideoToolbox encode back to back vs 150 ms key-press gaps, the power hint unset/0/1) and put its
+#             encode-gap-ab.jsonl and log in report.tgz.
 # Exit: 0 measured, 1 the run failed, 2 bad arguments, 3 the partner is unreachable or the tools did not build.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600 host_ip_kind=lan queue_depth="" max_refresh=0 max_fps=60 scene="" stats_ms="" marker_log=0
+mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600 host_ip_kind=lan queue_depth="" max_refresh=0 max_fps=60 scene="" stats_ms="" marker_log=0 vt_power="" timing_log=0
 for arg in "$@"; do
   case "$arg" in
-    mode=probe|mode=run) mode="${arg#mode=}" ;;
+    mode=probe|mode=run|mode=encode-ab) mode="${arg#mode=}" ;;
     partner=*) partner="${arg#partner=}" ;;
     partner-ip=*) partner_ip="${arg#partner-ip=}" ;;
     loss=*) loss="${arg#loss=}" ;;
@@ -84,6 +91,8 @@ for arg in "$@"; do
     scene=bars|scene=text|scene=noise|scene=churn) scene="${arg#scene=}" ;;
     stats-ms=*) stats_ms="${arg#stats-ms=}" ;;
     marker-log=0|marker-log=1) marker_log="${arg#marker-log=}" ;;
+    vt-power-efficient=0|vt-power-efficient=1) vt_power="${arg#vt-power-efficient=}" ;;
+    timing-log=0|timing-log=1) timing_log="${arg#timing-log=}" ;;
     *) echo "screen-share-vs-pair.sh: unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -95,7 +104,19 @@ done
 [[ -z "$scene" || "$source" == synthetic ]] || { echo "scene= needs source=synthetic" >&2; exit 2; }
 [[ "$role" == host || -n "$peer_token" ]] || { echo "role=viewer needs peer-token=" >&2; exit 2; }
 [[ "$role" == viewer ]] && mode=run partner=peer
-[[ -n "$mode" ]] || { echo "screen-share-vs-pair.sh: mode=probe or mode=run" >&2; exit 2; }
+[[ -n "$mode" ]] || { echo "screen-share-vs-pair.sh: mode=probe, mode=run or mode=encode-ab" >&2; exit 2; }
+if [[ "$mode" == encode-ab ]]; then
+  # The host encode A/B alone: no partner, no viewer, no rig.
+  out=artifacts/screen-share-vs-pair
+  work=$(mktemp -d "${TMPDIR:-/tmp}/ssvp.XXXXXX")
+  trap 'rm -rf "$work"' EXIT
+  mkdir -p "$out"
+  echo "SSVP encode-ab on $(hostname -s) at $(git rev-parse --short HEAD)"
+  FAST_CHECKS_OUT="$work" bash cmux-tui/crates/cmux-rd-host/scripts/encode-gap-ab.sh 2>&1 | tee "$work/encode-gap-ab.log"
+  ab=${PIPESTATUS[0]}
+  tar -czf "$out/report.tgz" -C "$work" $(cd "$work" && ls encode-gap-ab.jsonl encode-gap-ab.log 2>/dev/null)
+  exit "$ab"
+fi
 [[ "$partner" =~ ^[a-z0-9-]+$ ]] || { echo "screen-share-vs-pair.sh: partner= is a fleet Mac name" >&2; exit 2; }
 [[ -z "$partner_ip" || "$partner_ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "partner-ip= is an IPv4 address" >&2; exit 2; }
 [[ "$loss" =~ ^[0-9]{1,2}([.][0-9]{1,3})?$ ]] || { echo "loss= is a percentage below 100" >&2; exit 2; }
@@ -124,7 +145,7 @@ trap 'viewer_done; rm -rf "$work"' EXIT
 mkdir -p "$out"
 self=$(hostname -s)
 self_ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
-pack() { tar -czf "$out/report.tgz" -C "$work" $(cd "$work" && ls run.jsonl run.log probe.txt rig.log 2>/dev/null); }
+pack() { tar -czf "$out/report.tgz" -C "$work" $(cd "$work" && ls run.jsonl run.log probe.txt rig.log host-timing.jsonl 2>/dev/null); }
 
 {
   echo "SSVP self $self ip=${self_ip:-?} user=$(id -un)"
@@ -305,6 +326,8 @@ env_args=() rate_args=()
 [[ "$marker_log" == 1 ]] && rate_args+=(--marker-log)
 [[ -n "$queue_depth" ]] && { env_args+=(--host-env "CMUX_RD_SCK_QUEUE_DEPTH=$queue_depth"); suffix+="-q$queue_depth"; }
 [[ "$max_refresh" == 1 ]] && { env_args+=(--host-env CMUX_RD_MAC_MAX_REFRESH=1); suffix+="-maxhz"; }
+[[ -n "$vt_power" ]] && { env_args+=(--host-env "CMUX_RD_VT_POWER_EFFICIENT=$vt_power"); suffix+="-pw$vt_power"; }
+[[ "$timing_log" == 1 ]] && rate_args+=(--keep-timing "$work/host-timing.jsonl")
 [[ "$max_fps" != 60 ]] && suffix+="-fps$max_fps"
 if [[ "$loss" != 0 ]]; then
   link="loss${loss}" loss_args=(--host-test-loss "$loss")

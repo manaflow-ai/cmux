@@ -1330,7 +1330,10 @@ VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
 # timing and loss variables, checked here and again by the rig. Both are cmux-rd-host's
 # measurement switches (mac/capture.rs): the ScreenCaptureKit surface-pool depth, and the raise of
 # the captured display to its fastest refresh for the serve process.
-HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]"}
+# The third is cmux-encode's (videotoolbox.rs power_efficiency): VideoToolbox's
+# MaximizePowerEfficiency hint, 1 on, 0 off (unset: the shipping default).
+HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]",
+            "CMUX_RD_VT_POWER_EFFICIENT": r"[01]"}
 
 
 def checked_env(items):
@@ -3094,6 +3097,12 @@ class Orchestrator:
             origin = self.marker([])
             rec = self.cmux_attempt(origin, "key")
             timing = self.host_timing()
+            keep = getattr(self.a, "keep_timing", None)
+            if keep:
+                # Every frame line of the attempt as the host logged it (idr_reason,
+                # target_kbps, its times), for per-frame analysis beyond the breakdown's join.
+                with open(keep, "a") as f:
+                    f.write(json.dumps({"trial": n, "warmup": n < 1, "lines": timing}) + "\n")
             if n < 1:
                 rec.pop("sample_times", None)
                 self.log(dict(rec, warmup=True))
@@ -3838,6 +3847,9 @@ def build_parser():
                    help="drop PCT %% of the host's video and parity datagrams (CMUX_RD_TEST_LOSS_PCT "
                         "on its `cmux-rd serve`): a loss leg with no dummynet hold and no sudo. Each "
                         "row records host_test_loss_pct")
+    r.add_argument("--keep-timing", metavar="PATH",
+                   help="append each key attempt's host CMUX_RD_TIMING_LOG lines to PATH, one JSON "
+                        "line per attempt ({trial, warmup, lines})")
     r.add_argument("--host-env", action="append", metavar="NAME=VALUE",
                    help="an environment variable on the host's `cmux-rd serve`, repeatable; only "
                         + ", ".join(sorted(HOST_ENV)) + ". Each row records host_env")
