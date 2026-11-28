@@ -138,11 +138,11 @@ for _kind, _kind_label in (("signed-in", "Signed in"), ("tabs", "Background tabs
 UNITS = {row: unit for row, _label, unit, _summary in ROWS}
 LABELS = {"cmux": "cmux NEXT", "claude": "Claude", "codex": "Codex", "t3code": "T3 Code", "rex": "Rex",
           "slack": "Slack", "chrome": "Chrome", "edge": "Microsoft Edge", "helium": "Helium", "safari": "Safari",
-          "zed": "Zed"}
-ORDER = ["cmux", "rex", "zed", "claude", "codex", "t3code", "slack", "chrome", "edge", "helium", "safari"]
+          "zed": "Zed", "chatgpt": "ChatGPT"}
+ORDER = ["cmux", "rex", "zed", "claude", "chatgpt", "codex", "t3code", "slack", "chrome", "edge", "helium", "safari"]
 CHROMIUM = {"chrome", "edge", "helium"}
 ELECTRON = {"claude", "codex", "t3code", "slack"}
-NATIVE = {"zed"}  # native UI, no webview (Zed: Rust and its own GPU UI): launched with no extra switches
+NATIVE = {"zed", "chatgpt"}  # native UI (Zed: Rust and its own GPU UI; ChatGPT: SwiftUI): launched with no extra switches
 SYSTEM = {"safari"}  # sealed system apps: no fresh copy
 BROWSERS = CHROMIUM | SYSTEM
 GROUPS = ["app", "renderer", "gpu", "acpmux", "terminals", "other"]

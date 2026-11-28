@@ -26,7 +26,7 @@ final class AgentDisclosureUITests: XCTestCase {
         // A prompt gets the demo's short turn: a thought, then "Read a file, ran a command" and
         // the answer under it, the chat following its newest row.
         // The agent chat shows its composer collapsed until tapped.
-        let bar = app.buttons["Reply to Claude"]
+        let bar = app.buttons["agentChat.composer.collapsed"]
         XCTAssertTrue(bar.waitForExistence(timeout: 20), "the composer bar is shown\n\(app.debugDescription)")
         bar.tap()
         let field = app.textViews["chat.composer.field"]

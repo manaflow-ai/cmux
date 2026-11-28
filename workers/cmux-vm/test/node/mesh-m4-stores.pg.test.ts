@@ -5,6 +5,7 @@
  * written by a database without 0007 (the Worker may deploy before it).
  */
 import { PGlite } from "@electric-sql/pglite";
+import { freshPg } from "./fresh-pglite.ts";
 import { Effect, Layer } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
@@ -40,7 +41,7 @@ const t0 = Date.UTC(2026, 9, 7, 12, 0);
 const at = (ms: number) => new Date(t0 + ms);
 
 beforeEach(async () => {
-  pg = new PGlite();
+  pg = await freshPg();
   for (const migration of [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4]) await pg.exec(migration);
   layer = layerOver(pg);
 });

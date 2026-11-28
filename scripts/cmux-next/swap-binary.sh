@@ -79,8 +79,8 @@ check_paths() {
 
 fetch_commit() { # REPO SHA: SHA in REPO, fetched when missing
   git -C "$1" cat-file -e "$2^{commit}" 2>/dev/null && return 0
-  git -C "$1" fetch -q --no-tags origin "$2" 2>/dev/null \
-    || git -C "$1" fetch -q --no-tags "${CMUX_SWAP_BINARY_FETCH_URL:-https://github.com/manaflow-ai/cmux.git}" "$2"
+  git -C "$1" fetch -q --no-tags --no-recurse-submodules origin "$2" 2>/dev/null \
+    || git -C "$1" fetch -q --no-tags --no-recurse-submodules "${CMUX_SWAP_BINARY_FETCH_URL:-https://github.com/manaflow-ai/cmux.git}" "$2"
 }
 
 cmd_check() {
@@ -214,7 +214,7 @@ cmd_build() {
     # A shallow step checkout may refuse a local clone: then an empty repository that fetches REF from GitHub.
     rm -rf "$src"; git clone -q --no-checkout "$repo" "$src" 2>/dev/null || { rm -rf "$src"; git init -q "$src"; }
   fi
-  fetch_commit "$src" "$ref" || git -C "$src" fetch -q --no-tags "$repo" "$ref" || die "cannot fetch $ref"
+  fetch_commit "$src" "$ref" || git -C "$src" fetch -q --no-tags --no-recurse-submodules "$repo" "$ref" || die "cannot fetch $ref"
   ref="$(git -C "$src" rev-parse "$ref^{commit}")"
   git -C "$src" -c advice.detachedHead=false checkout -q --force --detach "$ref"
   git -C "$src" clean -qfdx

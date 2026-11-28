@@ -73,7 +73,7 @@ pub fn params_rule_violation(
             .then(|| "_meta holds more than the gesture ticket".into());
     }
     // A prompt held for the folder trust answer redeems its ticket beside its
-    // acpmux.promptId (AcpmuxPaneMethods.swift `breaksParamsRule`).
+    // acpmux.promptId.
     let prompt = method == "session/prompt";
     if let Some(key) = meta
         .keys()
@@ -108,8 +108,19 @@ pub fn params_rule_violation(
     }
     // A start's model is a spawn parameter (Claude Code's `--model`, `${model}`
     // in a harness's argv or env): one model id, never a flag or anything else.
-    (method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m)))
-        .then(|| "_meta.acpmux.model is not a model id".into())
+    if method != "session/new" {
+        return None;
+    }
+    if acpmux.get("model").is_some_and(|m| !is_model_id(m)) {
+        return Some("_meta.acpmux.model is not a model id".into());
+    }
+    acpmux
+        .get("cloudRegistryId")
+        .is_some_and(|registry| {
+            registry.as_str().is_none_or(|id| id.is_empty() || id.len() > 128)
+                || acpmux.get("peer").and_then(Value::as_str).is_none_or(str::is_empty)
+        })
+        .then(|| "_meta.acpmux.cloudRegistryId requires a peer and a registry id".into())
 }
 
 fn quoted(key: &str) -> String {

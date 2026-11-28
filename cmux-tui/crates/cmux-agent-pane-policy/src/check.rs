@@ -445,7 +445,9 @@ fn check_frame_inner(
     // decision. Copy only this permission, not the pane's growing history.
     let options = state.options.snapshot_for(params.get("permissionId").and_then(Value::as_str));
     // Answers go only to a pending question, keyed by its items and bounded.
-    if let Some(cause) = crate::answers::answers_rule_violation(&object, &options) {
+    if let Some(cause) = crate::answers::answers_rule_violation(&object, |permission| {
+        options.question_keys(permission)
+    }) {
         let refused = Refused {
             refusal: Refusal::IntentInvalid,
             method,

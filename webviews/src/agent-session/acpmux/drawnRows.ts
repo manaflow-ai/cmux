@@ -13,6 +13,9 @@ import { oneRowChangeFrom } from "./rowChanges";
 /// closed "Working for", else undefined. A row of the turn missing here draws nothing; only the
 /// live line hears it (liveThought.ts `liveThoughtHeard`, the header's clock).
 let shownUnderFold: Set<string> | undefined;
+/// Whether that closed "Working for" was drawn with nothing to open yet (turns.ts `foldEmpty`): its
+/// chevron unseen until a step lands under it.
+let foldDrawnEmpty = false;
 
 /// What the transcript drew of the running turn, read from the end back to the turn's prompt, so
 /// O(the running turn's rows), not the chat's. VirtualTranscript calls it (through
@@ -20,15 +23,25 @@ let shownUnderFold: Set<string> | undefined;
 export function drewRunningTurn(rows: readonly AcpmuxRow[] | undefined): void {
   const shown = new Set<string>();
   let folded = false;
+  let empty = false;
   if (rows)
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index]!;
       if (row.kind === "user") break;
       shown.add(row.id);
-      if (row.kind === WORKED && row.turnPhase === "running" && row.foldOpen === false) folded = true;
+      if (row.kind === WORKED && row.turnPhase === "running" && row.foldOpen === false) {
+        folded = true;
+        empty = row.foldEmpty === true;
+      }
     }
   shownUnderFold = folded ? shown : undefined;
+  foldDrawnEmpty = folded && empty;
 }
+
+/// Whether the transcript last drew the running turn's closed "Working for" with nothing under it:
+/// a hidden row that comes to show (a thought no longer quiet) must draw the pane, so the header
+/// shows its chevron (liveThought.ts `thoughtOnly`).
+export const drewEmptyFold = (): boolean => foldDrawnEmpty;
 
 /// Whether the transcript last drew the running turn's work under its closed "Working for".
 export const drewUnderClosedFold = (): boolean => shownUnderFold !== undefined;

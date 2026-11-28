@@ -8,10 +8,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ContextRing } from "../src/agent-session/acpmux/ComposerPickers";
 import { settleReact } from "./support/domTeardown";
-import { compactingUsage } from "../src/agent-session/acpmux/usageStats";
-import { translate } from "../src/agent-session/acpmux/i18n";
+import { importWithDom } from "./support/importWithDom";
+
+const { ContextRing } = await importWithDom(() => import("../src/agent-session/acpmux/ComposerPickers"));
+const { compactingUsage } = await importWithDom(() => import("../src/agent-session/acpmux/usageStats"));
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

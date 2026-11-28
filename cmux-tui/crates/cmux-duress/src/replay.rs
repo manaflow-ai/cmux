@@ -155,9 +155,9 @@ fn terminal_run(scenario: &Scenario, inputs: &Inputs, metrics: &mut Metrics) -> 
                 let stall = match stall_ms {
                     Some(stall) => *stall,
                     None => match link.as_ref().and_then(|link| link.disruption.clone()) {
-                        Some(cmux_fault::shaper::Disruption::AddressChange { stall_ms }) => {
-                            stall_ms
-                        }
+                        Some(cmux_fault::shaper::Disruption::AddressChange {
+                            stall_ms, ..
+                        }) => stall_ms,
                         _ => return Err("path_reset: no stall_ms and no address_change".into()),
                     },
                 };

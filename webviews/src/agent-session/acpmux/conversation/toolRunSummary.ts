@@ -37,9 +37,13 @@ function callCategory(tool: NonNullable<AcpmuxActivity["tool"]>): ToolRunCategor
 }
 
 /// A run the Codex-style runs (Debug toggle) settle folds under one summary line once it holds two
-/// or more calls. Otherwise every run lists its calls (TurnRows.tsx `shouldFoldToolRun`).
+/// or more calls, or one call with the thinking around it: a lone call kept its thought on a row of
+/// its own, so a collapsed turn still showed its thinking (Lawrence, 2026-11-24: "we also still show
+/// too much thinking when a turn is fully collapsed"). Otherwise every run lists its calls
+/// (TurnRows.tsx `shouldFoldToolRun`).
 export function isFoldedRun(items: readonly AcpmuxActivity[]): boolean {
-  return items.filter((item) => item.tool).length >= 2;
+  const calls = items.filter((item) => item.tool).length;
+  return calls >= 2 || (calls === 1 && items.length > 1);
 }
 
 /// The categories a run's calls fall in, in the order the run first did each, as the Codex app

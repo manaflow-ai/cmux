@@ -34,7 +34,7 @@ fn options() -> PermissionOptions {
 fn answer(params: Value) -> Option<String> {
     let object = frame(&policy().question_answers.method, params);
     let options = options();
-    let cause = answers_rule_violation(&object, &options);
+    let cause = answers_rule_violation(&object, |permission| options.question_keys(permission));
     assert_eq!(breaks_answers_rule(&object, &options), cause.is_some());
     cause
 }
