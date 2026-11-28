@@ -86,7 +86,11 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     # integration ref (TRUNK_PREFIXES). It gets the unchanged-key rule only, never BASE-MOVED: a key that
     # differs from its merge base's still builds. Until 2026-11-27 such heads built every push, the slowest
     # check on 9 of 15 iOS pull requests that touched no tree-key input (darwin build 37 min on #61389).
-    integration_head = ref.startswith(superseded.TRUNK_PREFIXES) and ref not in superseded.TRUNK_REFS
+    # Only while an open pull request targets it (the superseded check's integration_base, passed as
+    # CMUX_TUI_INTEGRATION=false by push-gate): a feature branch takes BASE-MOVED like any pull request head.
+    # Unset (a failed or skipped check) keeps the integration rule.
+    integration_head = (ref.startswith(superseded.TRUNK_PREFIXES) and ref not in superseded.TRUNK_REFS
+                        and os.environ.get("CMUX_TUI_INTEGRATION", "") != "false")
     if not integration_head and (not superseded.needs_open_pull_request(ref) or ref in superseded.PROTECTED):
         return False, f"{ref} is a trunk or integration ref; it builds every changed tree"
     deadline = time.monotonic() + DEADLINE_SECONDS
