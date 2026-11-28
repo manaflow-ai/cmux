@@ -239,6 +239,9 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None,
 
 # The tag a pass carries in its description, and the reuse's own description.
 INPUTS_TAG = "[inputs {}]"
+# The reuse read is optional (a failed read builds as before), so it never waits out a rate limit: the plan job's
+# timeout is 5 minutes, and gh_http's default rate wait (up to 1200 s) let a 403 cancel the job, not build.
+REUSE_READ_S = 30.0
 REUSED = "Reused the pass at this head " + INPUTS_TAG
 
 
@@ -274,7 +277,7 @@ def passed_at(repo: str, sha: str, digest: str, token: str) -> bool:
                                  headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                                           "X-GitHub-Api-Version": "2022-11-28"})
     try:
-        status, body, _ = gh_http.request(req, 20)
+        status, body, _ = gh_http.request(req, 20, budget_s=REUSE_READ_S, rate_budget_s=REUSE_READ_S)
         rows = json.loads(body) if status == 200 else []
     except Exception as e:  # noqa: BLE001 - no reuse; the Mac builds as before
         print(f"{STATUS_CONTEXT}: earlier statuses not read ({type(e).__name__}: {e}); building", file=sys.stderr)
