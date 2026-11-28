@@ -643,12 +643,14 @@ struct AgentPaneVideoInfoTests {
                     let info = await Self.ask(model, "video.info", ["src": src])
                     #expect((info["value"] as? [String: Any])?["width"] as? Int == 1920, "\(info)")
                     log.posters[name] = ms(started)
-                    async let probes = Self.ask(model, "video.probes", ["src": src])
-                    async let speech = Self.ask(model, "video.transcript", ["src": src])
-                    _ = await probes
+                    // Main-actor tasks that drop their replies, not `async let`: a reply is a non-Sendable
+                    // `[String: Any]` and cannot leave the main actor for an `async let` child.
+                    let probes = Task { @MainActor in _ = await Self.ask(model, "video.probes", ["src": src]) }
+                    let speech = Task { @MainActor in _ = await Self.ask(model, "video.transcript", ["src": src]) }
+                    await probes.value
                     let frames = await Self.ask(model, "video.frames", ["src": src, "times": picked])
                     #expect(((frames["value"] as? [String: Any])?["frames"] as? [Any])?.count == 16, "\(frames)")
-                    _ = await speech
+                    await speech.value
                     log.done[name] = ms(started)
                 }
             }
