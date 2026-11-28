@@ -434,7 +434,12 @@ final class SidebarListView: NSView {
     override func updateLayer() {}
     override var acceptsFirstResponder: Bool { true }
     var metrics: SidebarLayoutMetrics { .standard }
-    var inset: CGFloat { SidebarStyle.horizontalInset }
+    var inset: CGFloat {
+        insetReads += 1
+        return SidebarStyle.horizontalInset
+    }
+    /// Reads of ``inset`` (red: counted, not fixed).
+    private(set) var insetReads = 0
     // MARK: - Hover
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
