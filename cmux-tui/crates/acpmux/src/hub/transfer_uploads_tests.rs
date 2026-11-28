@@ -18,9 +18,10 @@ fn uploaded(session: &str, name: &str, bytes: &[u8]) -> (String, PathBuf) {
     (upload, file)
 }
 
+/// A bundle folder of its own, not under `transfers/` (its sweep tests count that folder).
 fn bundle_dir() -> PathBuf {
     let dir =
-        crate::config::home().join("transfers").join(format!("test-{}", uuid::Uuid::now_v7()));
+        crate::config::home().join("test-upload-bundles").join(uuid::Uuid::now_v7().to_string());
     crate::home_fs::create_dirs(&dir).unwrap();
     dir
 }
@@ -117,10 +118,10 @@ fn a_symlink_in_a_chats_uploads_is_never_bundled() {
 fn a_guarded_move_takes_uploads_and_an_older_target_is_left_them_out() {
     let upload = upload_id();
     let path = format!("uploads/{upload}/notes.txt");
-    assert_eq!(super::super::transfer_guard::bundle_path_kind(&path), Some(false));
+    assert_eq!(crate::hub::transfer_guard::bundle_path_kind(&path), Some(false));
     let own = format!("uploads/{upload}/.meta");
-    assert_eq!(super::super::transfer_guard::bundle_path_kind(&own), None);
-    assert_eq!(super::super::transfer_guard::bundle_path_kind("uploads/x/notes.txt"), None);
+    assert_eq!(crate::hub::transfer_guard::bundle_path_kind(&own), None);
+    assert_eq!(crate::hub::transfer_guard::bundle_path_kind("uploads/x/notes.txt"), None);
     assert_eq!(
         crate::capabilities::optional_bundle_file(&path),
         Some(crate::capabilities::TRANSFER_UPLOADS)

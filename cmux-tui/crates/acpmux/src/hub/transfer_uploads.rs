@@ -21,7 +21,7 @@
 //! that gets the chat without them: the move's client leaves them out
 //! (`capabilities::leave_out_untaken`).
 
-use super::file_uploads;
+use crate::hub::file_uploads;
 use std::path::Path;
 
 /// The bundle folder a moved chat's uploads go in.

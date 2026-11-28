@@ -255,8 +255,8 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
         // A chat's uploads, under their upload id; a restore writes each only in the chat's own
         // uploads folder (`transfer_uploads.rs`).
         [d, upload, name]
-            if *d == super::transfer_uploads::BUNDLE_DIR
-                && super::transfer_uploads::valid_parts(upload, name) =>
+            if *d == super::transfer::transfer_uploads::BUNDLE_DIR
+                && super::transfer::transfer_uploads::valid_parts(upload, name) =>
         {
             Some(false)
         }

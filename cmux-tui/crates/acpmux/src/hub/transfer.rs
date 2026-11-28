@@ -5,6 +5,10 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::Mutex;
 
+// A moved chat's uploads, behind `ACPMUX_MOVE_UPLOADS` (a child here: `mod.rs` is at its size cap).
+#[path = "transfer_uploads.rs"]
+pub(crate) mod transfer_uploads;
+
 static HARNESS_STATE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Durable markers are made, rolled back and swept under one lock (`HARNESS_STATE_LOCK`), so a
@@ -139,8 +143,8 @@ impl Hub {
         };
         super::prompt_images::bundle_images(&images, &dir)?;
         // Its uploads, when this daemon bundles them (`transfer_uploads.rs`, behind its flag).
-        if super::transfer_uploads::enabled() {
-            super::transfer_uploads::bundle_uploads(&meta.id, &dir)?;
+        if transfer_uploads::enabled() {
+            transfer_uploads::bundle_uploads(&meta.id, &dir)?;
         }
         crate::home_fs::write(dir.join(super::composers::BUNDLE_FILE), composers.to_string())?;
         // The agent's own files (`transfer_agent_files.rs`), which an Auto snapshot carries too.
@@ -441,7 +445,7 @@ impl Hub {
         }
         // Its uploads (`transfer_uploads.rs`): a queued prompt that names one resolves here.
         let uploads =
-            crate::qos::off_worker(|| super::transfer_uploads::restore_uploads(bundle, &meta.id));
+            crate::qos::off_worker(|| transfer_uploads::restore_uploads(bundle, &meta.id));
         if let Err(e) = &uploads {
             tracing::warn!(session = %meta.id, "moved uploads not kept: {e:#}");
         }
@@ -456,7 +460,7 @@ impl Hub {
                     |id| format!("{}/{id}: image not kept", super::prompt_images::BUNDLE_DIR),
                 ));
                 unacked.extend(
-                    super::transfer_uploads::unacked_uploads(bundle, &meta.id)
+                    transfer_uploads::unacked_uploads(bundle, &meta.id)
                         .into_iter()
                         .map(|path| format!("{path}: upload not kept")),
                 );
