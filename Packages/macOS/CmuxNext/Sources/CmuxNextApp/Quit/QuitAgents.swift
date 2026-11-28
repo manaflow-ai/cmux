@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextQuit
 import Foundation
 import os
 

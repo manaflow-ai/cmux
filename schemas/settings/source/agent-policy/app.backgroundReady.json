@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "Keeps cmux running hidden after Quit and can add a login item: only the person trades that memory for instant opens."
+}

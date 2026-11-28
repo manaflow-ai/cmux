@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextDaemonService
+import CmuxNextQuit
 import CmuxNextSettings
 import Testing
 

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextQuit
 import os
 
 /// The quit's unsaved-changes step (R96 quit hook), before the terminals
