@@ -64,7 +64,7 @@
     // An empty thread puts its composer in the middle of the page (the draft hero).
     "agentPane.emptyChatComposerPosition": "center",
     // The empty box reads as the app's does, not cmux's "Type / for commands" (parity table, composer:
-    // T3 Code's box says "Ask anything, @tag files/folders, $use skills, or / for commands").
+    // the reference app's box says "Ask anything, @tag files/folders, $use skills, or / for commands").
     "agentPane.composerPlaceholder": "Ask anything, @tag files/folders, $use skills, or / for commands",
     // No context ring at the row's end (parity table, composer): the reference app's composer draws none.
     "agentPane.showContextUsage": false,
