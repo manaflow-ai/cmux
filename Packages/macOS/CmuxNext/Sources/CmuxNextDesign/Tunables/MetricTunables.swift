@@ -90,14 +90,14 @@ public nonisolated enum MetricTunables {
     /// The favicon and the close button side by side, whole (Lawrence 2026-10-20, replacing Chrome's 32, where
     /// the x never fits): `TabStripMetrics.faviconCloseWidth` at each density's tokens. Pill insets 2 x 1,
     /// leading inset 8 (6 under Compact tabs), favicon 14 (16 comfortable), gap 4, x 16 (20 pt click
-    /// target), trailing inset 4. Plus `TabStripMetrics.crowdedTitleRoom` (24) so a crowded tab keeps the start
+    /// target), trailing inset 4. Plus `TabStripMetrics.crowdedTitleRoom` (32) so a crowded tab keeps the start
     /// of its title, faded (Lawrence msg 19596, 26 tabs: "all here is … which is not very helpful"); past
     /// that the strip scrolls. A test keeps these equal to the sum. Unset, `TabStripMetrics` takes the sum itself
     /// (`explicitValue` nil), so a density between the two (Default, level 0.5) gets its own parts' sum, not this pair's
     /// midpoint.
     public static let tabMinInactiveWidth = MetricTunable.make(
         "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls: room for the favicon, a few title characters and the close button.",
-        compact: 72, comfortable: 74, tight: 70, key: .tabMinInactiveWidth, range: 16...320)
+        compact: 80, comfortable: 82, tight: 78, key: .tabMinInactiveWidth, range: 16...320)
     public static let tabPinnedWidth = MetricTunable.make(
         "tabPinnedWidth", .tabs, "Pinned tab width", help: "Width of a pinned tab.",
         compact: MotionTabStrip(comfortable: false).pinnedWidth, comfortable: MotionTabStrip(comfortable: true).pinnedWidth,
