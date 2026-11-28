@@ -9,12 +9,18 @@ import Testing
         try DriverParams(method: "page.goto", json: .object(fields))
     }
 
-    private func message(_ body: () throws(DriverError) -> Void) -> String? {
-        do throws(DriverError) {
+    /// The closures passed here are `{ _ = try ... }` literals, which Swift infers as throwing `any Error`
+    /// (it does not infer a typed throw for a closure body), so this takes an untyped closure and reads the
+    /// DriverError back; any other error fails the test.
+    private func message(_ body: () throws -> Void) -> String? {
+        do {
             try body()
             return nil
-        } catch {
+        } catch let error as DriverError {
             return error.message
+        } catch {
+            Issue.record("expected a DriverError, got \(error)")
+            return nil
         }
     }
 
