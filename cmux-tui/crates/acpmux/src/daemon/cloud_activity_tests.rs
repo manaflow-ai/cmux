@@ -402,6 +402,73 @@ fn a_session_at_work_across_a_restart_is_unknown_until_its_turn_ends() {
     );
 }
 
+fn parked(entries: &[(&str, &str, u64)]) -> crate::parked_wait::ParkedMap {
+    let mut map = crate::parked_wait::ParkedMap::new();
+    for (sid, call, at_ms) in entries {
+        let wake = crate::parked_wait::Wake::Timer { at_ms: *at_ms };
+        map.entry((*sid).to_owned()).or_default().insert((*call).to_owned(), wake);
+    }
+    map
+}
+
+/// RFD 0063 step 2: a `sleep` handed to the platform is not a running local tool call. While
+/// every call a session has open is parked it reports `parked` with the timer's wake, not
+/// `tool` (which keeps the machine awake); a call that is not parked beside it, a process of its
+/// own or a subagent keeps it awake; the end of the parked call brings `model-wait` back.
+#[test]
+fn a_parked_sleep_is_no_local_tool_and_carries_its_wake() {
+    let mut t = Tracker::default();
+    assert!(t.tool_event("a", "tool_call_update", &call("sleep1", "in_progress")));
+    // Open but not (yet) parked: a tool runs in the guest.
+    t.observe(&[turn("a")], 1_000);
+    assert_eq!(phases(&t.line(1, false, 1_000).unwrap()), [("tool".to_owned(), 1_000)]);
+
+    // The waiter parked it until 601 000: the platform may pause and must wake by then.
+    t.set_parked(parked(&[("a", "sleep1", 601_000)]));
+    t.observe(&[turn("a")], 1_200);
+    let line = t.line(1, false, 1_200).expect("the phase change goes at once");
+    assert_eq!(
+        line["acp_activity"]["phases"]["turns"][0],
+        json!({"phase": "parked", "since": 1_200, "processes": 0, "attached": false,
+            "wake": [{"kind": "timer", "at": 601_000}]})
+    );
+
+    // A second call that is not parked: the guest works.
+    assert!(!t.tool_event("a", "tool_call", &call("grep", "in_progress")));
+    t.observe(&[turn("a")], 2_000);
+    assert_eq!(phases(&t.line(1, false, 2_000).unwrap()), [("tool".to_owned(), 2_000)]);
+    assert!(!t.tool_event("a", "tool_call_update", &call("grep", "completed")));
+    t.observe(&[turn("a")], 3_000);
+    assert_eq!(phases(&t.line(1, false, 3_000).unwrap()), [("parked".to_owned(), 3_000)]);
+
+    // A background process of its own pins the machine awake.
+    let busy = SessionAtWork { processes: 1, ..turn("a") };
+    t.observe(&[busy], 4_000);
+    assert_eq!(phases(&t.line(1, false, 4_000).unwrap()), [("pinned".to_owned(), 4_000)]);
+
+    // The sleep ended: unparked, its call completed, the turn waits on the model again.
+    t.set_parked(parked(&[]));
+    assert!(t.tool_event("a", "tool_call_update", &call("sleep1", "completed")));
+    t.observe(&[turn("a")], 601_100);
+    let line = t.line(1, false, 601_100).unwrap();
+    assert_eq!(phases(&line), [("model-wait".to_owned(), 601_100)]);
+    assert!(line["acp_activity"]["phases"]["turns"][0].get("wake").is_none());
+}
+
+/// A parked entry for a call that is not open (its `completed` already read) parks nothing,
+/// and a session that missed events stays `unknown` even with a parked call.
+#[test]
+fn only_an_open_call_parks_and_unknown_wins() {
+    let mut t = Tracker::default();
+    t.set_parked(parked(&[("a", "gone", 9_000)]));
+    t.observe(&[turn("a")], 1_000);
+    assert_eq!(phases(&t.line(1, false, 1_000).unwrap()), [("model-wait".to_owned(), 1_000)]);
+    assert!(t.tool_event("a", "tool_call_update", &call("gone", "in_progress")));
+    t.lagged();
+    t.observe(&[turn("a")], 2_000);
+    assert_eq!(phases(&t.line(1, false, 2_000).unwrap()), [("unknown".to_owned(), 2_000)]);
+}
+
 /// Every line carries the turn-end promise (version 1), at work or not, so the agent can
 /// advertise `activity-turn-end`; an older daemon's line has none (cmux-host's old-vs-new test).
 #[test]

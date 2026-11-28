@@ -19,7 +19,7 @@ extension SidebarBridge {
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView, approvals: SidebarApprovals(environment: QuitAgents.environment(services)))
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
         let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks, restoring: { [weak services] in services?.daemon.recovery.restoringText }, additionalTopItems: { [weak self] in self?.machineSections.topItems() ?? [] })
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks, restoring: { [weak services] in services?.daemon.recovery.restoringCardText }, additionalTopItems: { [weak self] in self?.machineSections.topItems() ?? [] })
             .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }

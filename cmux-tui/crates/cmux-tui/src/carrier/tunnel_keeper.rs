@@ -75,6 +75,10 @@ pub(crate) enum KeeperEvent {
     Started,
     /// Its tunnel is up: the hub serves the socket.
     Ready,
+    /// Its supervisor is retrying, and why: written once per reason, so a
+    /// tunnel that never comes up names its cause in link.log (the failover
+    /// probe reads it there) before its attempts run out.
+    Retrying(String),
     /// It ended by itself, with its final status and the team it asked for
     /// (a "no mesh" is that team's answer).
     Ended(TunnelStatus, String),
@@ -95,6 +99,10 @@ pub(crate) struct KeeperTiming {
     /// How often the join is looked at (a file read), while the hub runs and
     /// while it waits for a join or a sign-in.
     pub check_every: Duration,
+    /// How often the join is looked at while a refused sign-in waits out
+    /// `check_every`: a sign-in rewrites the join (its enroll), and the new
+    /// join is asked for at once instead of up to `check_every` later.
+    pub join_poll: Duration,
     /// How often the app is asked whether someone is still signed in while
     /// the hub runs (one token mint by the app).
     pub sign_in_every: Duration,
@@ -109,6 +117,7 @@ impl Default for KeeperTiming {
     fn default() -> Self {
         Self {
             check_every: Duration::from_secs(30),
+            join_poll: Duration::from_secs(1),
             sign_in_every: Duration::from_secs(5 * 60),
             restart_floor: Duration::from_secs(2),
             restart_ceiling: Duration::from_secs(5 * 60),
@@ -185,7 +194,7 @@ impl Keeper {
                     self.emit(KeeperEvent::Unstarted(why.clone()));
                     refused = Some(why);
                 }
-                tokio::time::sleep(self.timing.check_every).await;
+                self.rejoined_within(self.timing.check_every, &joined, self.timing.join_poll).await;
                 continue;
             }
             refused = None;
@@ -259,6 +268,27 @@ impl Keeper {
         }
     }
 
+    /// Waits `delay` quietly, reading the join every `poll`; true as soon as it is
+    /// no longer `joined` (left, or a sign-in's enroll made a new one). A join that
+    /// cannot be read counts as unchanged here (the next pass of `run` says why), so a
+    /// short poll writes nothing more to the log.
+    async fn rejoined_within(&self, delay: Duration, joined: &Joined, poll: Duration) -> bool {
+        let until = tokio::time::Instant::now() + delay;
+        let poll = poll.max(Duration::from_millis(1));
+        loop {
+            let now = tokio::time::Instant::now();
+            if now >= until {
+                return false;
+            }
+            tokio::time::sleep(until.saturating_duration_since(now).min(poll)).await;
+            if let Ok(now) = (self.joined)()
+                && !now.is_some_and(|now| now.same_device(joined))
+            {
+                return true;
+            }
+        }
+    }
+
     /// The wait before start number `restarts` (1-based): the floor doubling
     /// up to the ceiling, full jitter, never under half the floor.
     fn restart_delay(&self, restarts: u32) -> Duration {
@@ -327,6 +357,7 @@ impl Keeper {
     async fn watch(&self, handle: tunnel::TunnelHandle, joined: &Joined) -> Run {
         let mut status = handle.status();
         let mut ready = false;
+        let mut retrying: Option<String> = None;
         let start = tokio::time::Instant::now();
         let mut check = tokio::time::interval_at(
             start + self.timing.check_every,
@@ -348,7 +379,14 @@ impl Keeper {
                     }
                     if matches!(now, TunnelStatus::Ready { .. }) && !ready {
                         ready = true;
+                        retrying = None;
                         self.emit(KeeperEvent::Ready);
+                    }
+                    if let TunnelStatus::Retrying(why) = now
+                        && retrying.as_deref() != Some(why.as_str())
+                    {
+                        self.emit(KeeperEvent::Retrying(why.clone()));
+                        retrying = Some(why);
                     }
                 }
                 _ = check.tick() => {

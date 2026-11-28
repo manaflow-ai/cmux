@@ -78,7 +78,7 @@ const px = (value: string | undefined) => (value && /^-?[\d.]+px$/.test(value) ?
 
 /** Each selector's last border-radius, height and width, in source order. */
 function boxes(css: string) {
-  const found = new Map<string, { radius?: string; height?: string; width?: string }>();
+  const found = new Map<string, { radius?: string; height?: string; width?: string; aspect?: string }>();
   const plain = css.replace(/\/\*[\s\S]*?\*\//g, "");
   for (const [, selectors, body] of plain.matchAll(/([^{}@;]+)\{([^{}]*)\}/g)) {
     const declared = (property: string) =>
@@ -88,7 +88,9 @@ function boxes(css: string) {
     // are, slots/thinkingIndicator/thinkingIndicator.css) is as square as one sized in physical ones.
     const height = declared("height") ?? declared("block-size");
     const width = declared("width") ?? declared("inline-size");
-    if (!radius && !height && !width) continue;
+    // `aspect-ratio: 1` (or `1 / 1`) makes a box square whatever its one declared side.
+    const aspect = declared("aspect-ratio");
+    if (!radius && !height && !width && !aspect) continue;
     for (const selector of selectors!.split(/,(?![^(]*\))/).map((part) =>
       part
         .trim()
@@ -100,6 +102,7 @@ function boxes(css: string) {
         radius: radius ?? box.radius,
         height: height ?? box.height,
         width: width ?? box.width,
+        aspect: aspect ?? box.aspect,
       });
     }
   }
@@ -116,6 +119,7 @@ function capsules(css: string) {
     // Square when both sides are the same length, or the same token (`var(--ds-control-primary)`
     // on both: the drop overlay's round mark, #24644).
     const square =
+      (box.aspect !== undefined && /^1(?:\s*\/\s*1)?$/.test(box.aspect)) ||
       (height !== undefined && width !== undefined && Math.abs(width - height) < 1) ||
       (box.height !== undefined && box.height === box.width);
     const capsule = !square && (radius >= 999 || (height !== undefined && radius >= height / 2 - 0.5));
@@ -146,6 +150,8 @@ describe("capsule detection", () => {
       ".control { inline-size: 2em; block-size: 1em; border-radius: 999px; }",
       true,
     ],
+    ["a circle squared by aspect-ratio", ".control { width: 6px; aspect-ratio: 1; border-radius: 999px; }", false],
+    ["a pill with a wide aspect-ratio", ".control { width: 30px; aspect-ratio: 3 / 1; border-radius: 999px; }", true],
     ["a small-radius rectangle", ".control { width: 60px; height: 24px; border-radius: 4px; }", false],
     ["a fully rounded rectangle", ".control { width: 60px; height: 24px; border-radius: 999px; }", true],
     ["a half-height radius", ".control { width: 60px; height: 24px; border-radius: 12px; }", true],

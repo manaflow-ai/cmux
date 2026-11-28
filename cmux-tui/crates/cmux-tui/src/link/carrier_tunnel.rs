@@ -199,6 +199,7 @@ fn log_event(event: &KeeperEvent) {
         KeeperEvent::Waiting(_) => {}
         KeeperEvent::Started => eprintln!("cmux link: Cloud tunnel starting"),
         KeeperEvent::Ready => eprintln!("cmux link: Cloud tunnel ready"),
+        KeeperEvent::Retrying(why) => eprintln!("cmux link: Cloud tunnel retrying: {why}"),
         // The team it asked for: "no mesh" is that team's answer.
         KeeperEvent::Ended(status, team) => {
             eprintln!("cmux link: Cloud tunnel ended: {status:?} (team {team})");

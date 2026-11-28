@@ -90,38 +90,3 @@ public struct SpawnOptions: Sendable, Hashable {
         try c.encodeIfPresent(around, forKey: .around)
     }
 }
-
-public struct NewTabRequest: TerminalSpawningRequest {
-    public typealias Response = SurfaceCreated
-    public static let command = "new-tab"
-    public var pane: PaneID?
-    public var options: SpawnOptions
-    public init(pane: PaneID?, options: SpawnOptions = SpawnOptions()) {
-        self.pane = pane
-        self.options = options
-    }
-    enum CodingKeys: String, CodingKey { case pane }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(pane, forKey: .pane)
-        try options.encode(to: encoder)
-    }
-}
-
-public struct NewScreenRequest: TerminalSpawningRequest {
-    public typealias Response = SurfaceCreated
-    public static let command = "new-screen"
-    public var workspace: WorkspaceHandle?
-    public var size: CellSize?
-    public init(workspace: WorkspaceHandle?, size: CellSize? = nil) {
-        self.workspace = workspace
-        self.size = size
-    }
-    enum CodingKeys: String, CodingKey { case workspace, cols, rows }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(workspace, forKey: .workspace)
-        try c.encodeIfPresent(size?.cols, forKey: .cols)
-        try c.encodeIfPresent(size?.rows, forKey: .rows)
-    }
-}

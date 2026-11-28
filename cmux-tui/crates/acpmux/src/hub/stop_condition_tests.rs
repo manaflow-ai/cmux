@@ -73,3 +73,112 @@ fn a_stop_the_check_already_sent_back_ends_the_turn() {
     quoted["last_assistant_message"] = json!("stop_hook_active: true");
     assert_eq!(repeat_stop(&quoted), json!({}));
 }
+
+// RFD 0158 §15, harness magic `continue` (cmux#59633).
+/// `continue` is opt-in: off with no setting, on with `true`, and the kill switch wins.
+#[test]
+fn continue_is_off_unless_asked_for_and_the_kill_switch_wins() {
+    let on = json!({"agents": {"harnessMagic": {"continue": {"enabled": true}}}});
+    let off = json!({"agents": {"harnessMagic": {"continue": {"enabled": false}}}});
+    assert!(!continue_enabled_in(None, None));
+    assert!(!continue_enabled_in(None, Some(&json!({}))));
+    assert!(!continue_enabled_in(None, Some(&off)));
+    assert!(continue_enabled_in(None, Some(&on)));
+    assert!(!continue_enabled_in(Some("0"), Some(&on)));
+    assert!(continue_enabled_in(Some("1"), None));
+    assert_eq!(crate::hub::harness_magic::env_key(CONTINUE_FEATURE), "ACPMUX_HM_CONTINUE");
+    assert_eq!(crate::hub::harness_magic::setting_key(CONTINUE_FEATURE), CONTINUE_SETTING);
+}
+
+fn stop(active: bool) -> Value {
+    json!({"hook_event_name": "Stop", "stop_hook_active": active, "cwd": "/tmp"})
+}
+
+/// While the work moves between stops the check is asked again; a stop with nothing changed
+/// ends the turn (the spin guard), and so does a stop with no fingerprint (fail open to the
+/// one-continuation rule).
+#[test]
+fn continue_sends_a_moving_turn_on_and_ends_a_spinning_one() {
+    let mut c = Continuation::default();
+    assert_eq!(c.on_stop(&stop(false), Some(1)), json!({}), "the first stop is the check's");
+    assert_eq!(c.on_stop(&stop(true), Some(2)), json!({}), "work moved: the check again");
+    assert_eq!(c.on_stop(&stop(true), Some(3)), json!({}));
+    let spun = c.on_stop(&stop(true), Some(3));
+    assert_eq!(spun["continue"], false, "{spun}");
+    assert!(spun["stopReason"].as_str().unwrap().starts_with("No file or commit changed"));
+    let counts = c.turn_ended();
+    assert_eq!(counts, ContinueCounters { continued: 2, spin_stopped: 1, ..Default::default() });
+    assert_eq!(
+        counts.to_json(),
+        json!({"continued": 2, "spinStopped": 1, "budgetStopped": 0, "unreadStopped": 0})
+    );
+    assert_eq!(c.turn_ended(), ContinueCounters::default(), "a new turn starts at zero");
+
+    // No fingerprint, before or now: the turn ends as it would without the feature.
+    assert_eq!(c.on_stop(&stop(false), None), json!({}));
+    assert_eq!(c.on_stop(&stop(true), Some(5))["continue"], false);
+    assert_eq!(c.on_stop(&stop(false), Some(5)), json!({}));
+    assert_eq!(c.on_stop(&stop(true), None)["continue"], false);
+    assert_eq!(c.turn_ended().unread_stopped, 2);
+}
+
+/// A turn whose work keeps moving still ends at the soft budget: [`SOFT_BUDGET`]
+/// continuations, Claude Code's own default cap.
+#[test]
+fn continue_ends_a_moving_turn_at_its_soft_budget() {
+    let mut c = Continuation::default();
+    assert_eq!(c.on_stop(&stop(false), Some(0)), json!({}));
+    let mut sent_on = 0;
+    for n in 1..=SOFT_BUDGET as u64 + 3 {
+        let out = c.on_stop(&stop(true), Some(n));
+        if out.get("continue").is_some() {
+            assert!(out["stopReason"].as_str().unwrap().contains("budget"), "{out}");
+            break;
+        }
+        sent_on += 1;
+    }
+    assert_eq!(sent_on, SOFT_BUDGET - 1, "the stop after the budget's last continuation ends");
+    let counts = c.turn_ended();
+    assert_eq!((counts.continued, counts.budget_stopped), (u64::from(SOFT_BUDGET) - 1, 1));
+}
+
+/// The fingerprint moves on an edit, on a second edit of a file already modified, on a new
+/// file and on a commit, and stays put when nothing changed. Outside a repository: none.
+#[test]
+fn the_worktree_fingerprint_moves_with_files_and_commits() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    assert_eq!(worktree_fingerprint(root), None, "not a repository");
+    git(&["init", "-q"]);
+    std::fs::write(root.join("a.txt"), "one\n").unwrap();
+    git(&["add", "a.txt"]);
+    git(&["commit", "-q", "-m", "one"]);
+    let clean = worktree_fingerprint(root).expect("a repository with a commit");
+    assert_eq!(worktree_fingerprint(root), Some(clean), "nothing changed");
+    std::fs::write(root.join("a.txt"), "two\n").unwrap();
+    let edited = worktree_fingerprint(root).unwrap();
+    assert_ne!(edited, clean);
+    std::fs::write(root.join("a.txt"), "three, longer\n").unwrap();
+    let edited_again = worktree_fingerprint(root).unwrap();
+    assert_ne!(edited_again, edited, "the same ` M` line, a different file");
+    std::fs::write(root.join("b.txt"), "new\n").unwrap();
+    let added = worktree_fingerprint(root).unwrap();
+    assert_ne!(added, edited_again);
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "two"]);
+    let committed = worktree_fingerprint(root).unwrap();
+    assert_ne!(committed, added);
+    assert_ne!(committed, clean);
+}

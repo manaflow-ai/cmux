@@ -1060,6 +1060,7 @@ async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
         allow_downgrade: false,
         caller: None,
         now: true,
+        same_build_installed: false,
     };
 
     // The timer holds it: an update from another machine changes nothing.
@@ -1174,6 +1175,7 @@ fn host_update(peer: &FakePeer, build: &str, now: bool) -> PeerUpdate {
         allow_downgrade: false,
         caller: None,
         now,
+        same_build_installed: false,
     };
     once_free(|| {
         let up = update_locked(peer, &opts);
@@ -1442,11 +1444,12 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     let units = home.join(".config/systemd/user");
     let read = |name: &str| std::fs::read_to_string(units.join(name)).unwrap_or_default();
     let enable = "systemctl --user enable --now acpmux-update.timer";
+    let enabled = "systemctl --user is-enabled --quiet acpmux-update.timer";
 
     let (calls, _) = install_units(&home);
     assert_eq!(read("acpmux-update.service"), UPDATE_SERVICE);
     assert_eq!(read("acpmux-update.timer"), UPDATE_TIMER);
-    assert_eq!(calls, ["systemctl --user daemon-reload", enable]);
+    assert_eq!(calls, ["systemctl --user daemon-reload", enable, enabled]);
     assert!(UPDATE_SERVICE.contains("ExecStart=%h/.local/bin/acpmux host self-update --json"));
     assert!(UPDATE_SERVICE.contains("Type=oneshot") && UPDATE_SERVICE.contains("KillMode=process"));
     for line in
@@ -1458,7 +1461,7 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
 
     // Again: nothing to write, so no reload; the timer stays on.
     let (calls, _) = install_units(&home);
-    assert_eq!(calls, [enable]);
+    assert_eq!(calls, [enable, enabled]);
 
     // Re-review: a copy cut off halfway was left under the unit's name, and
     // every later run took it for someone else's unit.
@@ -1468,7 +1471,7 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     assert!(calls.is_empty(), "{calls:?}");
     std::fs::remove_file(home.join("cp-cut")).unwrap();
     let (calls, err) = install_units(&home);
-    assert_eq!(calls, ["systemctl --user daemon-reload", enable], "{err}");
+    assert_eq!(calls, ["systemctl --user daemon-reload", enable, enabled], "{err}");
     assert_eq!(read("acpmux-update.timer"), UPDATE_TIMER);
 
     // Re-review: a unit that could not be staged was installed empty.
@@ -1479,7 +1482,7 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     assert!(!units.exists(), "nothing is installed");
     std::fs::remove_file(home.join("cat-cut")).unwrap();
     let (calls, err) = install_units(&home);
-    assert_eq!(calls, ["systemctl --user daemon-reload", enable], "{err}");
+    assert_eq!(calls, ["systemctl --user daemon-reload", enable, enabled], "{err}");
 
     // A timer someone else wrote is kept, its service is not written, and
     // nothing is started.

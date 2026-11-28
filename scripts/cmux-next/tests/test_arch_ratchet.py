@@ -2353,8 +2353,7 @@ class BloblessCloneTests(Repo):
         self.git("config", "uploadpack.allowFilter", "true")
         self.git("config", "uploadpack.allowAnySHA1InWant", "true")
         self.clone = Path(self.tmp.name) / "blobless"
-        subprocess.run(["git", "clone", "--quiet", "--bare", "--filter=blob:none", f"file://{self.repo}",
-                        str(self.clone)], env=self.env, check=True, capture_output=True)
+        git_fixture_env.clone_repo(f"file://{self.repo}", self.clone, "--bare", "--filter=blob:none", env=self.env)
 
     def packs(self):
         return len(list((self.clone / "objects" / "pack").glob("*.pack")))

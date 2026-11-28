@@ -12,6 +12,7 @@ enum SectionStrings {
     static var bookmarks: String { String(localized: "sidebar.builtin.bookmarks", defaultValue: "Bookmarks", bundle: .localizedModule) }
     static var automations: String { String(localized: "sidebar.builtin.automations", defaultValue: "Automations", bundle: .localizedModule) }
     static var forum: String { String(localized: "sidebar.builtin.forum", defaultValue: "Forum", bundle: .localizedModule) }
+    static var feed: String { String(localized: "sidebar.builtin.feed", defaultValue: "Feed", bundle: .localizedModule) }
     static var appStore: String { String(localized: "sidebar.builtin.appStore", defaultValue: "App Store", bundle: .localizedModule) }
     static var newTerminal: String { String(localized: "sidebar.builtin.newTerminal", defaultValue: "New Terminal Tab", bundle: .localizedModule) }
     static var newBrowser: String { String(localized: "sidebar.builtin.newBrowser", defaultValue: "New Browser Tab", bundle: .localizedModule) }

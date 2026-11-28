@@ -36,6 +36,9 @@ mock.module("../services/vms/routeHelpers", () => ({
   resolveVmProvisioningAccountScope: async () => ({ ok: true, entitlements: { billingTeamId: "team-route" } }),
   resolveVmRouteAccountScope: () => ({ ok: true, entitlements: { billingTeamId: "team-route" } }),
   jsonResponse,
+  // app/api/workspaces/route.ts imports it (#64063); a mock missing an export
+  // the route imports fails the whole file at load.
+  vmCreateWaitingResponse: () => jsonResponse({ error: "vm_create_waiting" }, 202),
 }));
 mock.module("../services/vms/allocationRateLimit", () => ({ enforceVmAllocationRateLimit }));
 

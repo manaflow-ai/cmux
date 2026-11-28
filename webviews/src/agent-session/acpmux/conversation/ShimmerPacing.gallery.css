@@ -1,0 +1,76 @@
+/* Gallery only (ShimmerPacing.gallery.tsx): candidate paces for the Thinking shimmer, scoped to
+   `.cv-shimmer-pacing[data-pace]`. The shipped look (`data-pace="current"`) takes no rule here but the
+   stage's layout. A candidate keeps the shipped mechanism (shimmerCadence.ts adds `is-shimmer-active`
+   for one sweep; the masked band crosses the line while its lit copy moves back by as much, transform
+   only, steps(48)) and changes the band: a fixed em-wide stripe instead of half the line's width, so a
+   long line does not get a wider band, resting just off the line's start and ending just past its end. */
+.cv-shimmer-pacing {
+  height: auto;
+  padding: var(--ds-space-4) var(--ds-space-5);
+}
+.cv-shimmer-pacing__lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ds-space-3);
+}
+.cv-shimmer-pacing[data-pace="word-band"] {
+  --pace-band: 5.5em;
+}
+.cv-shimmer-pacing[data-pace="mid-band"] {
+  --pace-band: 4em;
+}
+.cv-shimmer-pacing[data-pace="letter-band"] {
+  --pace-band: 3em;
+}
+
+@keyframes cmux-pace-shimmer-band {
+  from {
+    transform: translateX(calc(-1 * var(--pace-band)));
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes cmux-pace-shimmer-lit {
+  from {
+    transform: translateX(var(--pace-band));
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]) .cv-shimmer-pacing:not([data-pace="current"]) .cv-shimmer__band {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+    -webkit-mask-size: var(--pace-band) 100%;
+    mask-size: var(--pace-band) 100%;
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    transform: translateX(calc(-1 * var(--pace-band)));
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer-pacing:not([data-pace="current"]) .cv-shimmer__lit {
+    transform: translateX(var(--pace-band));
+  }
+  :root:not([data-status-indicators="static"])
+    .cv-shimmer-pacing:not([data-pace="current"])
+    .cv-shimmer__band.is-shimmer-active {
+    /* motion-allow: gallery-only candidate of the decorative loading sweep, on the shipped cadence controller. */
+    animation: cmux-pace-shimmer-band var(--cv-shimmer-sweep-duration) steps(48, end) 1;
+  }
+  :root:not([data-status-indicators="static"])
+    .cv-shimmer-pacing:not([data-pace="current"])
+    .cv-shimmer__band.is-shimmer-active
+    > .cv-shimmer__lit {
+    /* motion-allow: gallery-only candidate of the decorative loading sweep, on the shipped cadence controller. */
+    animation: cmux-pace-shimmer-lit var(--cv-shimmer-sweep-duration) steps(48, end) 1;
+  }
+  /* The letter band rests over darker words, so its few lit letters stand out more. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer-pacing[data-pace="letter-band"] .cv-thinking.is-shimmer {
+    color: color-mix(in srgb, var(--cv-text-dim) 75%, transparent);
+  }
+}

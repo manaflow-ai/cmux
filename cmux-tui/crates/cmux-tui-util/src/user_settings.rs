@@ -217,7 +217,9 @@ pub enum UltraConnection {
 }
 
 /// Settings' Tailscale carrier policy (`transport.tailnetCarrier`). The
-/// default is deliberately off until a LocalAPI snapshot is available.
+/// default is off. With direct-only, the tailnet address joins the race only
+/// when tailscaled's LocalAPI reports a direct path, and must win it on round
+/// trip; without Tailscale it adds nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TailnetCarrier {
     /// Do not add Tailscale addresses to races.
@@ -235,10 +237,17 @@ pub fn tailnet_carrier_from_config_text(text: &str) -> TailnetCarrier {
     let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
         return TailnetCarrier::default();
     };
-    match document.pointer("/transport/tailnetCarrier").and_then(Value::as_str) {
-        Some("direct-only") | Some("direct_only") => TailnetCarrier::DirectOnly,
-        Some("on") => TailnetCarrier::On,
-        _ => TailnetCarrier::Off,
+    let value = document
+        .pointer("/transport/tailnetCarrier")
+        .or_else(|| document.get("transport.tailnetCarrier"));
+    match value {
+        None | Some(Value::Null) => TailnetCarrier::default(),
+        Some(Value::String(text)) if text == "direct-only" || text == "direct_only" => {
+            TailnetCarrier::DirectOnly
+        }
+        Some(Value::String(text)) if text == "on" => TailnetCarrier::On,
+        // "off", and anything not understood.
+        Some(_) => TailnetCarrier::Off,
     }
 }
 
@@ -253,7 +262,7 @@ pub fn tailnet_carrier() -> TailnetCarrier {
         };
     }
     if cfg!(test) {
-        return TailnetCarrier::default();
+        return TailnetCarrier::Off;
     }
     let path = config_path();
     match std::fs::metadata(&path) {
@@ -499,94 +508,8 @@ impl AgentsCmuxMcp {
     }
 }
 
-/// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
-/// outside strings (the dialect the app's `JSONC` parser reads).
-pub fn strip_jsonc(text: &str) -> String {
-    drop_trailing_commas(&drop_comments(text))
-}
-
-/// The text without comments; strings are copied unchanged.
-fn drop_comments(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        match (byte, bytes.get(index + 1)) {
-            (b'"', _) => {
-                in_string = true;
-                index += 1;
-            }
-            (b'/', Some(b'/')) => {
-                output.push_str(&text[start..index]);
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-                start = index;
-            }
-            (b'/', Some(b'*')) => {
-                output.push_str(&text[start..index]);
-                index += 2;
-                while index < bytes.len()
-                    && !(bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/'))
-                {
-                    index += 1;
-                }
-                index = (index + 2).min(bytes.len());
-                start = index;
-            }
-            _ => index += 1,
-        }
-    }
-    output.push_str(&text[start.min(bytes.len())..]);
-    output
-}
-
-/// Removes a comma whose next non-space byte closes an object or array.
-fn drop_trailing_commas(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-        } else if byte == b','
-            && matches!(
-                bytes[index + 1..].iter().find(|byte| !byte.is_ascii_whitespace()),
-                Some(b'}' | b']')
-            )
-        {
-            output.push_str(&text[start..index]);
-            start = index + 1;
-        }
-        index += 1;
-    }
-    output.push_str(&text[start.min(bytes.len())..]);
-    output
-}
+/// JSONC to JSON (`cmux_json::strip_jsonc`, shared with the phone host).
+pub use cmux_json::strip_jsonc;
 
 #[cfg(test)]
 mod tests {
@@ -682,14 +605,35 @@ mod tests {
     }
 
     #[test]
-    fn tailnet_carrier_is_off_unless_direct_only_or_on_is_named() {
+    fn tailnet_carrier_is_off_unless_the_file_names_direct_only_or_on() {
         use super::TailnetCarrier::{DirectOnly, Off, On};
         use super::tailnet_carrier_from_config_text as carrier;
-        assert_eq!(carrier(""), Off);
+        assert_eq!(carrier(""), Off, "no file: the default");
+        assert_eq!(carrier("{}"), Off, "no key: the default");
         assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"direct-only"}}"#), DirectOnly);
+        assert_eq!(carrier(r#"{"transport.tailnetCarrier":"on"}"#), On, "the flat key");
         assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"on"}}"#), On);
-        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"off"}}"#), Off);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off, "not understood");
         assert_eq!(carrier("{not json"), Off);
+        assert_eq!(super::tailnet_carrier(), Off, "unit tests never read the developer's file");
+    }
+
+    #[test]
+    fn invalid_tailnet_setting_types_do_not_enable_the_default() {
+        use serde_json::json;
+        for value in [json!(false), json!(true), json!(0), json!(1), json!([]), json!({})] {
+            for doc in [
+                json!({"transport.tailnetCarrier": value}),
+                json!({"transport": {"tailnetCarrier": value}}),
+            ] {
+                assert_eq!(
+                    super::tailnet_carrier_from_config_text(&doc.to_string()),
+                    super::TailnetCarrier::Off,
+                    "{doc}",
+                );
+            }
+        }
     }
 
     #[test]

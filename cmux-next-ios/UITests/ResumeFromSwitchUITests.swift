@@ -103,7 +103,7 @@ final class ResumeFromSwitchUITests: XCTestCase {
                 var row: [String: Double] = ["activate_wall_ms": Date().timeIntervalSince(start) * 1000]
                 var reconnectLabel = reconnectingShown(app)
                 let field = app.textViews["chat.composer.field"]
-                let reply = app.buttons["Reply to Claude"].firstMatch
+                let reply = app.buttons["agentChat.composer.collapsed"].firstMatch
                 let deadline = Date().addingTimeInterval(10)
                 while !(field.exists && field.isHittable) && !(reply.exists && reply.isHittable), Date() < deadline {
                     RunLoop.current.run(until: Date().addingTimeInterval(0.02))
@@ -134,7 +134,7 @@ final class ResumeFromSwitchUITests: XCTestCase {
     @MainActor
     private func openChatField(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let field = app.textViews["chat.composer.field"]
-        let reply = app.buttons["Reply to Claude"].firstMatch
+        let reply = app.buttons["agentChat.composer.collapsed"].firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         while !field.exists, Date() < deadline {
             if reply.exists, reply.isHittable { reply.tap() }

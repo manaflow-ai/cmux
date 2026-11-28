@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { brokenReason, brokenStates, judge, stateKey, summary } from "./health";
+import { brokenReason, brokenStates, judge, shardStates, stateKey, summary } from "./health";
 
 const ready = { id: "a", params: { entry: "ui.select", variant: "open" }, ready: "1" };
 
@@ -73,4 +73,40 @@ test("every allowlisted state names an entry and variant and says why it waits",
     expect(state).toMatch(/^[\w.-]+#[\w.-]+$/);
     expect(typeof reason === "string" && reason.trim().length > 10).toBe(true);
   }
+});
+
+test("a shard holds the same states whatever cases come before them", () => {
+  // By position (shardCases), one case added ahead moved every later state to another leg, so a bisect probe of
+  // `health (8)` judged other states than the batch's leg 8 (batch run 46040477174).
+  const at = (entry: string, variant: string, theme: string) => ({ id: `${entry}#${variant}-${theme}`, params: { entry, variant, theme } });
+  const before = ["a", "b", "c", "d", "e", "f", "g", "h"].flatMap((v) => [at("x", v, "dark"), at("x", v, "light")]);
+  const after = [at("new", "one", "dark"), ...before];
+  for (let leg = 0; leg < 3; leg++) {
+    const was = shardStates(before, 3, leg).map((item) => item.id);
+    expect(shardStates(after, 3, leg).map((item) => item.id).filter((id) => !id.startsWith("new"))).toEqual(was);
+  }
+  // Each state's cases share a leg, and every case lands in exactly one.
+  const legs = [0, 1, 2].map((leg) => shardStates(after, 3, leg));
+  expect(legs.flat().length).toBe(after.length);
+  for (const leg of legs) for (const item of leg) expect(leg.filter((o) => stateKey(o) === stateKey(item)).length).toBe(2 - Number(item.params.entry === "new"));
+});
+
+test("retries run a quarter of the first render's workers, at least one", async () => {
+  const { retryConcurrency } = await import("./health");
+  // A shard left 86 cases not ready; one at a time their retries outran the 20-minute step (run 46081509797).
+  expect(retryConcurrency(12)).toBe(3);
+  expect(retryConcurrency(3)).toBe(1);
+  expect(retryConcurrency(1)).toBe(1);
+});
+
+test("the last retry of a few cases renders them one at a time, as the base replay does", async () => {
+  const { retryConcurrency, QUIET_RETRY_CASES } = await import("./health");
+  // Ten legs of batch run 46113542594 held load-only shift and ready-time reds through retries at a
+  // quarter of the workers; the base replay, one case at a time, rendered them clean and the judge failed them.
+  expect(retryConcurrency(12, true, 4)).toBe(1);
+  expect(retryConcurrency(12, true, QUIET_RETRY_CASES)).toBe(1);
+  // Many cases left (86 not ready in run 46081509797): one at a time outran the step, so a quarter still.
+  expect(retryConcurrency(12, true, 86)).toBe(3);
+  // An earlier retry still runs a quarter, however few cases it has.
+  expect(retryConcurrency(12, false, 4)).toBe(3);
 });

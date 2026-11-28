@@ -2,7 +2,7 @@
 //! restored or never-shown tab doesn't spawn its shell until it is first
 //! shown. It keeps its title, cwd and scrollback from the snapshot."
 //!
-//! With `CMUX_TUI_LAZY_START=1`, a plain shell of a hidden workspace whose
+//! With lazy start on (the default; the harness also sets `CMUX_TUI_LAZY_START=1`), a plain shell of a hidden workspace whose
 //! host is gone after a reboot is parked (`relaunch.on_show`), not
 //! respawned; an agent terminal, a command and the shell of the shown
 //! workspace respawn as before. The parked shell starts on its first need,
