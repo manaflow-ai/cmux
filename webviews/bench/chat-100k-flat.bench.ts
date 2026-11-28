@@ -125,6 +125,10 @@ if (!["all", "main", "grown-many", "running", "long", "long-many"].includes(CASE
 const GROW_OPEN = process.env.GROW_OPEN === "1";
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
 const HEAP_RETAINERS = process.env.HEAP_RETAINERS === "1";
+// EXPERIMENTS='{"<id>":"<arm>"}' runs every page on those experiment arms (experiments/experiment.ts).
+const EXPERIMENTS = process.env.EXPERIMENTS
+  ? (JSON.parse(process.env.EXPERIMENTS) as Record<string, string>)
+  : undefined;
 const retainerBase = new Map<number, Retainers>();
 const WAKES = process.env.WAKES === "1";
 const TRACE = process.env.TRACE;
@@ -444,6 +448,10 @@ try {
     const context = await browser.newContext({
       viewport: { width: 1200, height: 800 },
     });
+    if (EXPERIMENTS)
+      await context.addInitScript((arms) => {
+        (globalThis as unknown as { cmuxExperiments: Record<string, string> }).cmuxExperiments = arms;
+      }, EXPERIMENTS);
     if (WAKES)
       await context.addInitScript(() => {
         const wakes = { timers: 0, raf: 0, posts: 0, mutations: 0 };
@@ -641,8 +649,10 @@ try {
           }
           for (let index = 0; index < count && !GROW_OPEN; index++) {
             const id = sessionId(index);
-            emit(id, "mux", "user_message", { text: `Grown question ${turn}` });
-            emit(id, "mux", "turn_started", {});
+            // Named, as acpmux names each prompt and turn: the pane keeps per-turn ids (direct.ts `SeqIds`).
+            const named = { promptId: `grown-p-${turn}`, turnId: `grown-t-${turn}` };
+            emit(id, "mux", "user_message", { text: `Grown question ${turn}`, ...named });
+            emit(id, "mux", "turn_started", named);
             emit(id, "in", "agent_message_chunk", {
               method: "session/update",
               params: {
@@ -656,7 +666,7 @@ try {
                 },
               },
             });
-            emit(id, "mux", "turn_result", { status: "completed" });
+            emit(id, "mux", "turn_result", { status: "completed", turnId: named.turnId });
             batch += 4;
           }
           if (batch >= GROW_BATCH) {
@@ -1203,6 +1213,20 @@ try {
       const heapMb = usedSize / 1048576;
       const elements = await shownPage.page.evaluate(() => document.getElementsByTagName("*").length);
       console.log(`  ${name}: JS heap ${heapMb.toFixed(1)} MB; shown page ${elements} elements`);
+      if (process.env.PRESSURE === "1") {
+        // PRESSURE=1: how much of renderer MB is free space the renderer has not handed back (V8 and Oilpan pages,
+        // malloc and PartitionAlloc slack) rather than memory something holds: a critical memory-pressure signal
+        // releases that slack, then the same collection and reading.
+        for (const { cdp } of pages)
+          await cdp.send("Memory.simulatePressureNotification", { level: "critical" } as never).catch(() => {});
+        for (const { cdp } of pages) await cdp.send("HeapProfiler.collectGarbage");
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        const pressed = renderers(root).reduce((sum, pid) => sum + pssMB(pid), 0);
+        const { usedSize: pressedHeap } = (await shownPage.cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
+        console.log(
+          `  ${name}: after critical pressure renderer MB ${pressed.toFixed(1)} (was ${mb.toFixed(1)}); JS heap ${(pressedHeap / 1048576).toFixed(1)} MB`,
+        );
+      }
       if (HEAP_SNAPSHOT) {
         // HEAP_SNAPSHOT=DIR: the first page's (hidden in an xN launch) and the shown page's V8 heap, for DevTools.
         fs.mkdirSync(HEAP_SNAPSHOT, { recursive: true });
