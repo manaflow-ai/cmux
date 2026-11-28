@@ -5012,6 +5012,17 @@
       "title" : "Intro Walk",
       "type" : "boolean"
     },
+    "experiments.lookDescriptions" : {
+      "default" : "phrase",
+      "description" : "How each look in the Looks gallery is described.",
+      "enum" : [
+        "phrase",
+        "name",
+        "tagged"
+      ],
+      "title" : "Look Descriptions",
+      "type" : "string"
+    },
     "experiments.menuRowStates" : {
       "default" : false,
       "description" : "Menu rows that are unavailable say why, and rows that start work show their progress.",

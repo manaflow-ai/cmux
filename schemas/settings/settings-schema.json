@@ -2657,6 +2657,7 @@
               "experiments.composerButtonsVisible",
               "experiments.startedTaskTitleChip",
               "experiments.composerV2",
+              "experiments.lookDescriptions",
               "experiments.paletteV2",
               "experiments.palettePreview",
               "experiments.hoverLook",
@@ -134880,6 +134881,167 @@
       "title" : {
         "key" : "settings.experiments.composerV2",
         "text" : "Composer Refresh"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "phrase",
+        "name",
+        "tagged"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.lookDescriptions.phrase",
+            "text" : "A: One Short Phrase"
+          },
+          "value" : "phrase"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.lookDescriptions.name",
+            "text" : "B: Name Only"
+          },
+          "value" : "name"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.lookDescriptions.tagged",
+            "text" : "C: Phrase and Tag Line"
+          },
+          "value" : "tagged"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "phrase",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.lookDescriptions.help",
+        "text" : "How each look in the Looks gallery is described."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.lookDescriptions",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "looks",
+        "gallery",
+        "descriptions",
+        "tagline",
+        "themes"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "lookDescriptions"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.lookDescriptions"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.lookDescriptions",
+        "text" : "Look Descriptions"
       },
       "validation" : "portable"
     },

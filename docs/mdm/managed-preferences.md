@@ -871,6 +871,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.composerButtonsVisible` | boolean | `false` |  | Always Show Composer Buttons. Keep Send, attachment removal, and queued message actions visible in agent chats. |
 | `experiments.startedTaskTitleChip` | boolean | `false` |  | Started Tasks: Title Opens Chat. In Suggested Tasks, a started task opens its chat and highlights from its title only, not the whole row. |
 | `experiments.composerV2` | boolean | `false` |  | Composer Refresh. A glass composer with mode chips, mention chips and a round send button. Still being shaped. |
+| `experiments.lookDescriptions` | string | `"phrase"` | `phrase`, `name`, `tagged` | Look Descriptions. How each look in the Looks gallery is described. |
 | `experiments.paletteV2` | string | `"off"` | `off`, `flat`, `rail`, `scoped` | Command Palette v2. Groups results under Workspaces, Sessions, Commands and Agents, regrouping as you type, with the top match selected. |
 | `experiments.palettePreview` | boolean | `false` |  | Command Palette Preview. Shows the selected workspace or session's details beside the results, with its primary action and Actions ⌘K at the bottom. |
 | `experiments.hoverLook` | boolean | `false` |  | Tooltip Refresh. Tooltips and hover cards get a crisper glass, a sharper edge and a softer shadow. |
