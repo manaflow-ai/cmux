@@ -952,6 +952,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate the queue janitor's stale-ref routing pass (base merge, shed, leave alone)
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_stale_route_runs.py
+
       - name: Validate when a nightly run may be cancelled (attempts, pickers, latest-wins, known-bad)
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_delivery_workflows_cancel.py

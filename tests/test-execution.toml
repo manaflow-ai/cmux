@@ -2585,3 +2585,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_wait_for_run_artifact.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_stale_route_runs.py"
+lane = "linux-guard"
