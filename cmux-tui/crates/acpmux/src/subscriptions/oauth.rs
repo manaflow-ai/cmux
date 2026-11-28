@@ -159,7 +159,7 @@ impl OAuth {
             return Ok(client);
         }
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = Client::builder()
+        let client = cmux_egress::client_builder("acpmux::subscriptions::oauth")
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(20))
             .build()
@@ -576,3 +576,7 @@ fn form(request: RequestBuilder, pairs: &[(&str, &str)]) -> RequestBuilder {
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(crate::chatgpt::oauth::form_encode(pairs))
 }
+
+#[cfg(test)]
+#[path = "oauth_seeded_tests.rs"]
+mod seeded_tests;

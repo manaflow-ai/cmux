@@ -74,6 +74,16 @@ api.github.com
 # when: when an agent on a Cloud machine calls a GitHub tool
 # off: don't connect GitHub to Cloud machines
 api.githubcopilot.com
+# Kimi's API, when you sign in to Kimi Code: the sign-in reads your account there
+# sends: your Kimi sign-in's access token and a device id
+# when: when you sign in to Kimi or cmux checks that sign-in
+# off: disconnect the Kimi sign-in
+api.kimi.ai
+# Kimi's API in mainland China, when you sign in to Kimi Code in that region: the sign-in reads your account there
+# sends: your Kimi sign-in's access token and a device id
+# when: when you sign in to Kimi (China) or cmux checks that sign-in
+# off: disconnect the Kimi sign-in
+api.kimi.com
 # the clock and weather widget's forecast, only when you install it (a customize template)
 # sends: your city's coordinates
 # when: when the clock and weather widget refreshes
@@ -109,6 +119,21 @@ app.notion.com
 # when: only when an agent uses that integration in your signed-in browser
 # off: don't give an agent the integration, or sign out of the site in cmux's browser
 app.slack.com
+# Kimi's sign-in, when you sign in to Kimi Code: a device sign-in and its token refresh
+# sends: the device sign-in request, your Kimi refresh token and a device id
+# when: when you sign in to Kimi and when that sign-in is refreshed
+# off: disconnect the Kimi sign-in
+auth.kimi.ai
+# Kimi's sign-in in mainland China, when you sign in to Kimi Code in that region: a device sign-in and its token refresh
+# sends: the device sign-in request, your Kimi refresh token and a device id
+# when: when you sign in to Kimi (China) and when that sign-in is refreshed
+# off: disconnect the Kimi sign-in
+auth.kimi.com
+# xAI's sign-in, when you sign in to Grok: a device sign-in, its token refresh and its revoke
+# sends: the device sign-in request and your Grok refresh token
+# when: when you sign in to Grok, when that sign-in is refreshed, and when you disconnect it
+# off: disconnect the Grok sign-in
+auth.x.ai
 # images in GitHub pages and agent replies
 # sends: an image request (your IP address and the image's URL)
 # when: when a GitHub page or agent reply you open shows an image
@@ -399,6 +424,11 @@ openaccess-cdn.clevelandart.org
 # when: when you install OpenCode
 # off: don't install OpenCode
 opencode.ai
+# OpenRouter, when you sign in to OpenRouter: the sign-in trades its one-time code for your key there
+# sends: the sign-in's one-time code and its verifier
+# when: when you sign in to OpenRouter
+# off: don't sign in to OpenRouter
+openrouter.ai
 # update channel push: tells the app a new build is out
 # sends: an update-channel subscription, no account data
 # when: while the app runs, to learn a new build is out

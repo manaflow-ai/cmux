@@ -435,6 +435,15 @@
           "tests/test_ios_placeholder_bounds.py"
         ]
       },
+      "egress-new-sites": {
+        "why": "runs on every pull request head whose diff reaches the egress scan's roots (or this workflow), read by workflow-start-lint's route step, and reports skipped (a pass) otherwise; fast-gates' copy of the check skips a feat-cmux-next pull request under the land tier (#54956); under a second of git",
+        "suggested_inputs": [
+          "cmux-tui/",
+          "cmux-next-ios/",
+          "scripts/ci/egress_new_sites.py",
+          "tests/test_egress_gate.py"
+        ]
+      },
       "spec-checks": {
         "why": "runs on every pull request head and push whose diff reaches scripts/ci/spec_checks.py INPUTS (or this workflow), read by workflow-start-lint's route step, and reports skipped (a pass) otherwise; the job audits INPUTS against the files its checks open; about 35 s of stdlib Python",
         "suggested_inputs": [
