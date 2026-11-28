@@ -96,10 +96,12 @@ class PortRankTests(unittest.TestCase):
                                             "events": {}}))
         self.write(rank.BINDINGS, json.dumps({"types": {}, "families": {"Agents": {"requests": {
             "agent.list": {"name": "ListAgentsRequest"}}}}}))
-        # ios/CmuxiOS reaches Packages/Shared/Core, which reaches Packages/Shared/Deep: both are iOS-shared.
-        self.write("ios/CmuxiOS/Package.swift", 'let p = Package(dependencies: [.package(path: "../../Packages/Shared/Core")])\n')
-        self.write("Packages/Shared/Core/Package.swift", 'dependencies: [.package(path: "../Deep")]\n')
-        self.write("Packages/Shared/Deep/Sources/Deep/Shared.swift", "struct Shared {\n" + "    let a = 1\n" * 30 + "}\n")
+        # ios/CmuxiOS reaches Packages/Shared/Core, which reaches the counted CmuxNextShared folder: both are
+        # iOS-shared (the counter only reads CmuxNext's closure, so the fixture's shared code sits in it).
+        self.write("ios/CmuxiOS/Package.swift", 'Package(dependencies: [.package(path: "../../Packages/Shared/Core")])\n')
+        self.write("Packages/Shared/Core/Package.swift", 'dependencies: [.package(path: "../../macOS/CmuxNext/Sources/'
+                   'CmuxNextShared")]\n')
+        self.write(f"{SRC}/CmuxNextShared/Shared.swift", "struct Shared {\n" + "    let a = 1\n" * 30 + "}\n")
         self.write("crates/x/src/lib.rs", "pub struct RustOnly { c: i64 }\n")
         self.commit()
         for i in range(4):  # Hot.swift gets 4 more commits: 3 lines x 5 = 15 > Big's 10 x 1
@@ -108,7 +110,7 @@ class PortRankTests(unittest.TestCase):
         r = self.run_rank()
         self.assertEqual(r["ios_shared"]["pure_logic_lines"], 32)
         self.assertEqual(r["ios_shared"]["packages"], {"Packages/Shared/Core": ["CmuxiOS"],
-                                                       "Packages/Shared/Deep": ["CmuxiOS"], "ios/CmuxiOS": ["CmuxiOS"]})
+                                                       f"{SRC}/CmuxNextShared": ["CmuxiOS"], "ios/CmuxiOS": ["CmuxiOS"]})
         self.assertNotIn("Shared.swift", [f["path"].rsplit("/", 1)[1] for f in r["files"]])  # mac-only by default
         files = {f["path"].rsplit("/", 1)[1]: f for f in r["files"]}
         self.assertEqual([f["path"].rsplit("/", 1)[1] for f in r["files"]][:2], ["Hot.swift", "Big.swift"])
