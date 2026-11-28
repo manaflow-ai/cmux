@@ -1703,7 +1703,7 @@ export function playTurnEnd(
         from: snapshot ? (drawnTop.get(node) ?? prior.from) : prior.from + shift,
         to: snapshot ? prior.to : tops[index]!,
         height: snapshot ? prior.height : heights[index]!,
-        delay: started + timing.delay - origin,
+        delay: started + (timing.delay ?? 0) - origin,
       };
       const slot = retainedGroups[index]!.findIndex((entry) => entry.node === node);
       if (slot < 0) retainedGroups[index]!.push(path);
