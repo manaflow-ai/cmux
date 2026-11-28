@@ -125,6 +125,7 @@ import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./plan
 import { GO_PAUSE_INTENT_KEY } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { admitNetworkAddress } from "./networkAdmission";
+import { admitFleetCapacity, alertTeamQuotaUsage, noteProviderStartRefusal } from "./fleetAdmission";
 import {
   createWaitFromMetadata,
   createWaitStateForCause,
@@ -1469,6 +1470,22 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       return yield* createWait.waitOrFail(create.vm.id, admission.left);
     }
 
+    // Fleet admission (fleetAdmission.ts): the provider's start capacity
+    // (a recent placement refusal) and the optional fleet machine cap refuse
+    // here with the provider's capacity answer, before any provider call.
+    if (create.activeBefore !== undefined) {
+      alertTeamQuotaUsage({ provider: input.provider, billingTeamId: input.billingTeamId, activeAfter: create.activeBefore + 1, limit: input.maxActiveVms });
+    }
+    const fleetAdmission = yield* Effect.either(admitFleetCapacity(repo, { provider: input.provider }));
+    if (Either.isLeft(fleetAdmission)) {
+      yield* repo.markCreateFailed({
+        id: create.vm.id,
+        code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+        message: errorMessage(fleetAdmission.left.cause),
+      }).pipe(Effect.catchAll(() => Effect.void));
+      return yield* createWait.waitOrFail(create.vm.id, fleetAdmission.left);
+    }
+
     // A failed row may have become retryable between the preflight lookup and
     // the insert transaction. Re-run create-only checks before provider I/O.
     if (runtimeBudgetSeconds === undefined && input.billingPlanId === "go") {
@@ -1544,6 +1561,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
       }),
     ).pipe(
+      Effect.tapError((err) => Effect.sync(() => noteProviderStartRefusal(input.provider, err))),
       Effect.tapError((err) =>
         awaitRequestedEvents.pipe(Effect.andThen(Effect.all([
           revokeModelPlane(input.modelPlane, create.vm.id),
