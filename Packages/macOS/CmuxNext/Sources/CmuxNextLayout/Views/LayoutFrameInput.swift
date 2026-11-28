@@ -29,8 +29,13 @@ struct LayoutFrameInput {
         guard root.screenViews.values.contains(where: { $0.activeDrag?.waiting == true }) else { return }
         root.context.holdsPresentations = true
         defer { root.context.holdsPresentations = false }
-        for view in root.screenViews.values where view.activeDrag?.waiting == true { DividerDrag(screen: view).applyWaiting() }
-        root.syncWithModel()
+        var dragged: Set<ScreenID> = []
+        for (id, view) in root.screenViews where view.activeDrag?.waiting == true {
+            DividerDrag(screen: view).applyWaiting()
+            dragged.insert(id)
+        }
+        // Only the dragged screens' values changed in this frame's writes: the sync compares and lays out just them.
+        root.syncWithModel(onlyScreens: dragged)
     }
 
     /// The pass a screen's presentation waited for in the frame's input, for each screen whose springs did not
