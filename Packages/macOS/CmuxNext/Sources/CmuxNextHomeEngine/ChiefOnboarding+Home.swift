@@ -72,10 +72,7 @@ extension ChiefOnboarding {
     /// - Returns: The state after the action, as text.
     public func debugRun(_ action: String, step: String?) -> [String: String] {
         switch action {
-        case "meet_chief":
-            reopen()
-            let target = step.flatMap(ChiefOnboardingStep.init(rawValue:)) ?? .meet
-            while self.step != target, !isLast { next() }
+        case "meet_chief": reopen(step: step)
         case "meet_chief_next": next()
         case "meet_chief_back": back()
         case "meet_chief_end": finish()
