@@ -9,8 +9,17 @@
 # list_ms (process start to the workspaces list usable) per leg, the probe's first_connect samples.
 name: iOS launch TTI (hosted)
 
+# A pull request runs the legs only when it says it is a measurement: the label `launch-tti`, or a title
+# with `[measure`, `launch tti` or `hosted tti` in it (any case). Any other pull request that touches
+# this file (a retention-days comment, a runner label, a guard sweep over every workflow) used to start
+# both hosted macOS legs, about 50 min each, to measure the default refs again: 740 of 983 job-minutes
+# on 2026-11-27 17:19-23:58Z were such pull requests (ci-oops-fixfwd-guards-a/b, retention-days-one-source,
+# swift-out-design-tokens-2, promoted-base-red-group-d-caches, chat-drive-wheel-waits). Their legs now
+# skip with no runner. Adding the label starts the legs on the head as it is; another label starts nothing
+# and cancels nothing. (tests/test_ci_ios_launch_tti_intent.py)
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - .github/workflows/ios-launch-tti-hosted.yml
   workflow_dispatch:
@@ -28,12 +37,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A label other than launch-tti gets a group of its own, so it never cancels a measurement in flight.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'launch-tti' && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   measure:
     name: launch TTI (${{ matrix.leg }})
+    if: ${{ github.event_name != 'pull_request' || (github.event.action == 'labeled' && github.event.label.name == 'launch-tti') || (github.event.action != 'labeled' && (contains(github.event.pull_request.labels.*.name, 'launch-tti') || contains(github.event.pull_request.title, '[measure') || contains(github.event.pull_request.title, 'launch tti') || contains(github.event.pull_request.title, 'hosted tti'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 90
     strategy:

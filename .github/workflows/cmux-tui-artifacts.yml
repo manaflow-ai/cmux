@@ -582,12 +582,30 @@ jobs:
           STALE: ${{ steps.stale.outputs.stale }}
           # 'false' only from a dispatch that asks for the tree alone (inputs.daemon_tests).
           DISPATCH_DAEMON_TESTS: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.daemon_tests) || '' }}
+          # REQUESTED-RERUN-TREE-ONLY: a re-run (attempt > 1) of a feat-cmux-next push that is no longer the tip
+          # publishes its tree without the cmux_next_ daemon tests. Those re-runs are cmux-tui-tree-request.yml
+          # building a coalesced commit's tree on demand for an install (scripts/ci/cmux_tui_tree_request_rerun.py);
+          # the newest tree's window run tests the daemon, and the feat-cmux-next channel only moves to a newer
+          # tested tree. 2026-11-27 00-17Z (controller timing feed): those re-runs spent 684 runner-min in daemon
+          # tests, 33 of 34 jobs red on the same base failure the tip run was already reporting. A re-run on the tip
+          # still tests; an unreadable tip tests too. Undo: vars.CMUX_TUI_RERUN_DAEMON_TESTS = '1'.
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SHA: ${{ github.sha }}
+          CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
+          CMUX_TUI_RERUN_DAEMON_TESTS: ${{ vars.CMUX_TUI_RERUN_DAEMON_TESTS }}
         run: |
           set -euo pipefail
           daemon_tests=true
+          tip=""
+          if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/feat-cmux-next && "${RUN_ATTEMPT:-1}" -gt 1 && "${CMUX_TUI_RERUN_DAEMON_TESTS:-}" != 1 ]]; then
+            tip="$(timeout 60 git ls-remote "$CMUX_TUI_REF_REMOTE" refs/heads/feat-cmux-next 2>/dev/null | awk 'NR==1{print $1}' || true)"
+          fi
           if [[ "${STALE:-}" == true ]]; then
             daemon_tests=false
             echo "A newer push superseded this one; its daemon tests are not run."
+          elif [[ "$tip" =~ ^[0-9a-f]{40}$ && "$tip" != "$SHA" ]]; then
+            daemon_tests=false
+            echo "::notice title=daemon tests skipped::attempt $RUN_ATTEMPT re-runs feat-cmux-next commit $SHA for its tree (the tip is $tip); the tip's window run tests the daemon. vars.CMUX_TUI_RERUN_DAEMON_TESTS = '1' tests re-runs again"
           elif [[ "$EVENT_NAME" == workflow_dispatch && "${DISPATCH_DAEMON_TESTS:-}" == false ]]; then
             daemon_tests=false
             echo "::notice title=daemon tests skipped::this dispatch asked for the tree only (daemon_tests=false); the pull request's own run tests the daemon"

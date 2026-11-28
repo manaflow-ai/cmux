@@ -339,7 +339,7 @@ jobs:
     # cmux-next-generated-catch-up.yml; on feat-cmux-next only.
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'ci-routing-agent' || '' }}
     needs: action-areas
-    if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true'
+    if: ${{ !cancelled() && !failure() && needs.action-areas.result == 'success' && ((needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 65
     permissions:
@@ -480,7 +480,7 @@ jobs:
   action-exports-linux:
     name: action exports (Linux)
     needs: [action-areas, pushed-exports]
-    if: needs.action-areas.outputs.actions == 'true' && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && (vars.CMUX_ACTION_EXPORTS_LINUX || 'on') != '0'
+    if: ${{ !cancelled() && !failure() && needs.action-areas.result == 'success' && needs.pushed-exports.result == 'success' && (needs.action-areas.outputs.actions == 'true' && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && (vars.CMUX_ACTION_EXPORTS_LINUX || 'on') != '0') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
@@ -592,7 +592,7 @@ jobs:
   settings-exports-linux:
     name: settings exports (Linux)
     needs: [action-areas, pushed-exports]
-    if: needs.action-areas.outputs.settings == 'true' && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && (vars.CMUX_SETTINGS_EXPORTS_LINUX || 'on') != '0'
+    if: ${{ !cancelled() && !failure() && needs.action-areas.result == 'success' && needs.pushed-exports.result == 'success' && (needs.action-areas.outputs.settings == 'true' && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && (vars.CMUX_SETTINGS_EXPORTS_LINUX || 'on') != '0') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
