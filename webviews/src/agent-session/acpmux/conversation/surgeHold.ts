@@ -133,10 +133,6 @@ export function searchThreads(threads: readonly HeldThread[], query: string): He
   });
 }
 
-/// How many threads the panel draws at a time: each drawn line reads its thread once, so a surge of
-/// hundreds costs what a short one does until the person asks for more.
-export const HELD_PAGE = 20;
-
 /// The threads drawn, as one notice for the received-messages card.
 export function heldNotice(threads: readonly HeldThread[], shown: number): InboxNotice {
   return { threads: threads.slice(0, Math.max(0, shown)) };
