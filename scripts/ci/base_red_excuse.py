@@ -504,8 +504,24 @@ def settled_answer(route: str):
         return kept if completed_state(kept) == state else NOT_KEPT
     if (found := SETTLED_RUN_JOBS.fullmatch(route)) is not None:
         state = completed_state(run_now(found["repo"], int(found["run"])))
-        return settled_get(route, state) if state is not None else NOT_KEPT
+        if state is None:
+            return NOT_KEPT
+        kept = settled_get(route, state)
+        if kept is NOT_KEPT and state[0] == 1:
+            kept = settled_get(sibling_jobs_route(route), state)
+        return kept
     return NOT_KEPT
+
+
+# One attempt, one list (2026-11-28, forge-land-no-github-read): a completed run of one attempt has the same jobs
+# under filter=all (last_real_jobs) and filter=latest (base_run_jobs), yet each was kept under its own route, so a
+# judgement that read a base run both ways spent two job-list reads on one answer. Each now serves the other's kept
+# list for that attempt only: a run re-run since names attempt 2, and is read live as before. Detector:
+# tests/test_base_red_excuse.py SettledEvidence.test_a_one_attempt_run_serves_both_filters_from_one_kept_list.
+def sibling_jobs_route(route: str) -> str:
+    """ROUTE (a run's jobs list) under the other filter: filter=all for filter=latest, and the reverse."""
+    return (route.replace("filter=all&", "filter=latest&", 1) if "filter=all&" in route
+            else route.replace("filter=latest&", "filter=all&", 1))
 
 
 def settle(route: str, found) -> None:
@@ -1468,10 +1484,22 @@ def never_carries(run: dict, name: str) -> bool:
     return name in SUITE_JOBS and jobs is not None and name not in jobs
 
 
+# A workflow_dispatch run runs on the branch it was dispatched on (feat-cmux-next's tip), so its head_sha is that tip
+# whatever head it looks at; a dispatch whose run name names its target says which: cmux-next-hot-verify.yml's
+# "cmux-next hot verify PR N <head>[ merge][ result]". cmux#63955 at 3bf87e15 (2026-11-28): its cmux/ui-proof linked
+# result run 46156338209, named for 3bf87e15, head_sha the tip 62a30cd0; refused "which tested 62a30cd0, not" the
+# head on every base merge, a loop no base merge breaks. The same misread was fixed for fast gates alone twice
+# (cmux#38640, cmux#62419). Detector: tests/test_base_red_excuse.py DispatchTestedShaTest.
+DISPATCH_TARGET = re.compile(r"\bPR \d+ ([0-9a-f]{40})(?: merge)?(?: result)?$")
+
+
 def tested_sha(run: dict) -> str:
-    """The commit a cmux-next.yml run tested: the sha its name ends in (a same-tree run tests it after the
-    branch moved on), else its head_sha."""
-    match = re.search(r" · ([0-9a-f]{40})$", run.get("display_title") or "")
+    """The commit a run tested: the sha a cmux-next.yml run's name ends in (a same-tree run tests it after the
+    branch moved on), the head a dispatch run's name targets (DISPATCH_TARGET), else its head_sha."""
+    title = run.get("display_title") or ""
+    match = re.search(r" · ([0-9a-f]{40})$", title)
+    if match is None and run.get("event") == "workflow_dispatch":
+        match = DISPATCH_TARGET.search(title)
     return match.group(1) if match else str(run.get("head_sha") or "")
 
 
@@ -4473,6 +4501,10 @@ SAME_TREE_SUFFIX = " (same-tree)"
 # dispatched run's head_sha is the feat-cmux-next tip, not the PR head, so its red is never compared by the run: it is
 # the PR's own at that base (a merger reruns one at a stale base), never a base red (cmux#38640, 2026-11-09).
 FAST_GATES_STATUS = "cmux-next/fast-gates"
+# cmux's UI proof gate (scripts/ci/ui_proof_verdict.py): a look's verdict, or no look ("UI look could not run: ...
+# the fleet's look queue was full"), never a CI job's red the base can share. A red one is refused as the head's own,
+# naming the act that clears it, before any run lookup (the run behind it is a dispatch: DISPATCH_TARGET).
+UI_PROOF_STATUS = "cmux/ui-proof"
 # The cmux-next-fast-gates.yml jobs behind that status: `fast gates` runs the checks on the merge with the base and
 # compares every red with the base itself (fast_gate_webviews_checks.py: a red the base has too passes), and `post`
 # posts FAST_GATES_STATUS. When `post` could not post (a rate limit), no status exists, so the status rule above never
@@ -4671,6 +4703,12 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
         raise Refused(f"'{name}': {state} at base {tested[1][:12] if tested else '(none named)'}"
                       f"{f' (run {run[1]})' if run else ''} is the pull request's own: the fast gates ran on it merged "
                       "with that base, never a base red; fix it, or dispatch them again on the tip if that base is stale")
+    if name == UI_PROOF_STATUS and state in ("failure", "error"):
+        description = str(status.get("description") or "no description")
+        raise Refused(f"'{name}': {state} at {sha[:12]} ({description[:200]}) is a look's verdict or no look, never a "
+                      "base red: a look at this head clears it (scripts/cmux-next/hot-verify.py look --pr N --record; "
+                      "a look at an older head carries across base merges alone), or a `Visual: none (WHY)` body line "
+                      "for a change with no visible output")
     if (name == LINUX_CROSS_STATUS and state in ("failure", "error")
             and LINUX_CROSS_COVERED.match(status.get("description") or "")):
         return linux_cross_covered(repo, sha, name, state, status, github)
@@ -6443,6 +6481,8 @@ _FAIL_FAST = ("head fail-fast (head-fail-fast.yml, #54837): cancels the head's o
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
         "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
+        "app-store-shelf-pr": "installs every App Store shelf listing at the head (app-store-shelf-check.sh): "
+                              "a product check whose red reads the packages, judged as any job's",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
@@ -6627,6 +6667,8 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-proxy/", "cmux-tui/crates/cmux-transport-rewrite/",
                   # cmux-next-ios/rust names cmux-json (its Cargo.toml path dependency)
                   "cmux-tui/crates/cmux-json/",
+                  # cmux-mobile-host depends on cmux-api-compat, the typed floating pane schema (#63394)
+                  "cmux-tui/crates/cmux-api-compat/",
                   # files those crates include_str! and paths the kit's Swift names as literals (same date)
                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night.avif",
                   "cmux-tui/crates/acpmux/src/share_approval_vectors.json", "design/icons/source/agent-composer.json",
@@ -8022,6 +8064,9 @@ def risk_evidence_quota(view: "FailedView | Unplaced", workflow_info: dict | Non
         r"Policy: docs/ci/risk-tiers\.md|"
         r"(?:::|##\[)warning(?:::|\])the glaeda-route App's read failed; grading on GITHUB_TOKEN|"
         r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, GitHub rate limit \(not a verdict on this pull request\)|"
+        # risk-tier.yml's own line when the reset is past RATE_LIMIT_WAIT_S (#64468 run 46145858015).
+        r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, the soonest budget reset \(\d{2}:\d{2}:\d{2}Z\) "
+        r"is past the \d+s wait; rerun after it|"
         r"gh api .* exited [1-9]\d* \(GitHub API quota: structured refusal; endpoint [^,]+, HTTP (?:403|429)\)|"
         r"gh api .*: GitHub rate limit; waiting \d+s for the budget|"
         r"##\[error\]Process completed with exit code 1\.?|Cleaning up orphan processes"

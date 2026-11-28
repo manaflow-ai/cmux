@@ -1088,9 +1088,14 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--samples", type=int, default=60)
     ap.add_argument("--deps", action="store_true", help="apt-get the build and rig packages first")
     ap.add_argument("--keep-logs", action="store_true", help="keep host logs and timing records under --out")
+    ap.add_argument("--build-only", type=Path, metavar="PATH",
+                    help="build the one --commit's cmux-rd (bench,openh264,link), copy it to PATH and measure nothing "
+                         "(the nightly netem probe, screen-share-netem.py --probe, runs that binary)")
     args = ap.parse_args(argv)
     if not args.commit and not args.bin:
         ap.error("give --commit or --bin")
+    if args.build_only and (len(args.commit) != 1 or args.bin):
+        ap.error("--build-only takes exactly one --commit and no --bin")
     if any("=" not in b for b in args.bin):
         ap.error("--bin takes LABEL=PATH")
     for c in args.commit:
@@ -1108,6 +1113,15 @@ def main(argv: list[str]) -> int:
               "cmuxterm-hq docs/handbook/netem-route-without-host-module.md)", file=sys.stderr)
         return 3
     work = Path(tempfile.mkdtemp(prefix="rd-netem-build-"))
+    if args.build_only:
+        try:
+            binary = build(args.commit[0], work, args.repo_url)
+            args.build_only.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(binary, args.build_only)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        print(f"rd-netem-linux: cmux-rd {args.commit[0][:12]} at {args.build_only}", file=sys.stderr, flush=True)
+        return 0
     rows = []
     try:
         targets = [(label, Path(path)) for label, path in (b.split("=", 1) for b in args.bin)]
