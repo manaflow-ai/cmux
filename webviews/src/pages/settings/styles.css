@@ -4276,6 +4276,13 @@ button.menu-disclosure {
   min-width: 0;
 }
 
+/* The editor's menu host is the control's flex item: sized to its content it ended the editor short
+   of the card's control edge (the json row's rule above), so it fills the control's width. */
+.row-layout-menu {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
 .row-layout .ui-tabs {
   display: flex;
   flex-direction: column;
