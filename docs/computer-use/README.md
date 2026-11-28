@@ -213,7 +213,9 @@ the agent's words.
   person uses the mouse or keyboard, and fails with `person_in_control` if they
   keep on.
 - `computerUse.allowForeground` (default off; on for cloud VMs): whether
-  `delivery: "foreground"` may raise a window and use system-wide input.
+  `delivery: "foreground"` may raise a window and use system-wide input. On
+  macOS pointer gestures still go to the raised app's process, so the person's
+  pointer never moves; only keys use the system-wide queue.
 
 - `computerUse.alerts` (default off, also on cloud VMs): see System alerts below.
 
@@ -468,7 +470,10 @@ audit log: `{"kept": true}`, `{"kept": true, "restored_from": "<id>"}`,
 The takeover tap's count of the person's own inputs decides who moved it; any
 input of theirs during the call leaves focus alone. Without the tap, only a
 change to the target app or to cmux Remote is put back. Foreground delivery is
-not guarded: it raises the window because it was asked to.
+not guarded: it raises the window because it was asked to. It still never
+moves the person's pointer on macOS: after the raise, clicks, drags, scrolls and
+hovers are posted to the now-front app's process, addressed to its window, never
+at the HID tap.
 
 ## Platforms and display servers
 
