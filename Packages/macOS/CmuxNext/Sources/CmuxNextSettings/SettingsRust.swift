@@ -1,4 +1,5 @@
 import CCmuxSettingsFFI
+import CmuxNextCompat
 import Foundation
 
 /// The settings reads Rust answers (cmux-tui/crates/cmux-config/src/app_ops, linked through
@@ -25,6 +26,7 @@ public nonisolated struct SettingsRust {
                 cmux_settings_call(operation, bytes.baseAddress, bytes.count, &out)
             }
         }
+        BridgeByteMeter.record(op, sent: body.count, received: out.len)
         defer { cmux_settings_bytes_free(out) }
         guard status == 0, let pointer = out.ptr else { throw Failure(status: status) }
         return try JSONValue.parse(Data(bytes: pointer, count: out.len))
@@ -34,5 +36,15 @@ public nonisolated struct SettingsRust {
     /// programming error, answered as `{}`.
     public static func answer(_ op: String, _ request: JSONValue) -> JSONValue {
         (try? call(op, request)) ?? .object([:])
+    }
+
+    /// `value` as an op's request member: a Codable model goes to Rust in its serde shape.
+    public static func json(_ value: some Encodable) -> JSONValue {
+        (try? JSONValue.parse(JSONEncoder().encode(value))) ?? .null
+    }
+
+    /// A reply member as `T`; nil when it is missing or of another shape.
+    public static func decode<T: Decodable>(_ value: JSONValue?, as _: T.Type = T.self) -> T? {
+        value.flatMap { try? JSONDecoder().decode(T.self, from: Data($0.compactText.utf8)) }
     }
 }
