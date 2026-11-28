@@ -373,6 +373,9 @@ jobs:
   # all runtime binaries and checksum markers exist, so there is no reason to spend a macOS build
   # or daemon-test slot on another commit with the same inputs.
   tree-preflight:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: cmux-tui tree preflight
     # push-gate is skipped for trunk pushes and dispatches; !cancelled() runs this job then.
     # coalesce is skipped (run empty) everywhere but a feat-cmux-next push, so only a coalesced push stops here.
@@ -708,7 +711,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
           # Only defer to a publisher queued on the current daemon-test runner.
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+          # Both pools the gate can take: cmux-linux, and the nightly spill pool an
+          # attempt-2+ rerun on a nightly ref moves to (#64136).
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
         run: |
           set -euo pipefail
           superseded=false
@@ -1209,7 +1214,9 @@ jobs:
           TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
           DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
           # Only defer to a publisher queued on the current daemon-test runner.
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+          # Both pools the gate can take: cmux-linux, and the nightly spill pool an
+          # attempt-2+ rerun on a nightly ref moves to (#64136).
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
           # How long a live owner holds its key before a feat-cmux-next push
           # takes it over. On 2026-10-28 a healthy owner published about 20
           # minutes after it started, and owners hung for up to an hour in a Zig
@@ -1898,6 +1905,9 @@ jobs:
   # FALLBACK_AFTER_TIMEOUT: a timed-out leg ends as cancelled, so either a
   # failure or a timeout can trigger the native build of the missing targets.
   darwin-fallback-plan:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: plan the macOS fallback build
     # FALLBACK_STARTS_WHEN_BUILD_FAILS: the plan no longer waits on build-linux. Run 46095639867's
     # macOS cross leg failed at 02:18Z, but the plan waited for build-linux until 02:26Z, so the Mac
