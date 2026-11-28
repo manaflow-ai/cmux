@@ -177,6 +177,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         )],
     ),
     (
+        "machine grantors",
+        &[(
+            "List the Macs that may switch Control and Screen here",
+            "acpmux machine grantors list",
+        )],
+    ),
+    (
+        "machine grantors list",
+        &[(
+            "List the Macs that may switch Control and Screen here",
+            "acpmux machine grantors list",
+        )],
+    ),
+    (
+        "machine grantors rm",
+        &[(
+            "Stop a Mac's Control and Screen grants here at once",
+            "acpmux machine grantors rm mac-0123456789abcdef",
+        )],
+    ),
+    (
         "machine tunnel",
         &[(
             "Ask to put this Mac in its team's peer map; a shell is refused, the cmux app does it",

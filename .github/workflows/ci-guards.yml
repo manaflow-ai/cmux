@@ -160,6 +160,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workload_profiles.py
 
+      - name: Validate shared CAS replay producer and consumers
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cas_replay_workflow.py
+
       - name: Validate repository variable defaults
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
@@ -236,6 +240,10 @@ jobs:
       - name: Validate the green receipts that skip unchanged checks
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_receipt.py
+
+      - name: Validate the darwin pool leg makes its own room
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_make_room.py
 
       - name: Validate CDN readers name their client
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -338,12 +346,15 @@ jobs:
 
       # Every connectivity host NEXT's code names (ICE servers, relays, signaling, backend, update hosts) is in
       # config/network/allowlist.json, the list firewall admins allow; docs/network-requirements.md is rendered from it.
+      # On a pull request the coverage check reads only the changed files (tests/guard_delta.py); a branch's own run
+      # reads them all.
       - name: Validate NEXT's connectivity hosts are in the network allowlist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_network_allowlist.py
 
       # Every outbound HTTP client or socket NEXT makes goes through the egress gate, which refuses unlisted hosts
-      # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink.
+      # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink. On a pull request
+      # it reads only the changed files and list entries (tests/guard_delta.py); a branch's own run reads them all.
       - name: Validate NEXT's outbound sites go through the egress gate
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_egress_gate.py
@@ -868,7 +879,9 @@ jobs:
       # full database (fake bun and fake connect; no network, no secret).
       - name: Validate the Cloud journey and deploy gate retries
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
-        run: bun test scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
+        run: |
+          python3 tests/test_auto_journal_nightly_artifact.py
+          bun test scripts/cmux-next/auto-journal-nightly-recovery.test.ts scripts/cmux-next/auto-journey-socket.test.ts scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/autocloud-sync-probe.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
 
       # The staging test account sweep's picker: age, state, activity and creator decide what goes (pure; no
       # network, no secret).
@@ -963,6 +976,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_path_filter_parity.py
 
+      # A hint, never a gate: annotate pattern downloads a lone match flattens into path: itself
+      # (cmuxterm-hq docs/handbook/lone-artifact-flattens-its-download.md).
+      - name: Hint at pattern downloads a lone artifact flattens
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_pattern_download_layout_hint.py
+          python3 scripts/ci/pattern_download_layout_hint.py || true
+
       - name: Check that path-filtered workflows start for their tests' inputs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_paths_cover_inputs.py
@@ -1001,6 +1022,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/ci/install-actionlint.sh
+          ACTIONLINT="$RUNNER_TEMP/actionlint" python3 tests/test_ci_workflow_start_lint.py
           "$RUNNER_TEMP/actionlint"
 
       # zizmor over the workflows and composite actions this change adds or edits, at its base and its head: a
@@ -1457,6 +1479,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
+      - name: Validate fixed-window hook context measurements
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_hook_context_window.py
+          python3 tests/test_hook_context_dedup_bound.py
+
       - name: Validate the web performance gate keeps measurement and validation apart
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_perf_validation_boundary.py
@@ -1481,6 +1509,18 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_branch_history_fetch.py
 
+      - name: Validate registered cargo delta matched entry
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cargo_delta_matched_entry.py
+
+      - name: Validate registered live base merge jobs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_live_base_jobs.py
+
+      - name: Validate registered private names fetch wait
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_private_names_fetch_wait.py
+
       - name: Validate registered ci cmux tui mac warm target
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cmux_tui_mac_warm_target.py
@@ -1488,6 +1528,10 @@ jobs:
       - name: Validate registered ci fixit handoff
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fixit_handoff.py
+
+      - name: Validate registered ci fixit lint
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fixit_lint.py
 
       - name: Validate registered ci fleet fast tier result
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1512,6 +1556,10 @@ jobs:
       - name: Validate registered ci light jobs pool mirror checkout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_light_jobs_pool_mirror_checkout.py
+
+      - name: Validate registered ci pool checkout reuse sparse
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_checkout_reuse_sparse.py
 
       - name: Validate registered ci pool tokens
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1713,6 +1761,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate workflow routing and iOS guard fixtures
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          status=0
+          python3 tests/test_ci_post_merge_call_concurrency.py || status=1
+          python3 tests/test_ci_pr_router_handoff_queue.py || status=1
+          python3 tests/test_ios_internal_archive_mirror_fetch.py || status=1
+          python3 tests/test_iphone_clips_priority.py || status=1
+          python3 tests/test_whats_new_gallery_triggers.py || status=1
+          exit "$status"
+
       - name: Validate workflow apt installs survive a mirror that is mid-sync
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         # "E: Failed to fetch ... File has unexpected size ... Mirror sync in progress?" was 10 false reds in 24 h
@@ -1881,6 +1940,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_workspaces_land_head.py
 
+      - name: Validate Rust workspace PR diff gating
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_rust_workspaces_pr_diff_gate.py
+
       - name: Validate workflow self-edit sweep routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_self_edit_sweep.py
@@ -1967,9 +2030,21 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_binaries_prune.py
 
+      - name: Validate the cmux-vmd autocloud template bake
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_vmd_autocloud_template.py
+
+      - name: Validate the cmux-vmd host artifacts bundle
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_vmd_host_artifacts.py
+
       - name: Validate the Actions artifact pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
+
+      - name: Validate Nightly Computer Use transport diagnostics
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_accounts_nightly_transport.py
 
       - name: Validate upload-artifact retention and large artifacts on R2
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2000,6 +2075,10 @@ jobs:
       - name: Validate the PR media privacy check and its writers
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_media_privacy.py
+
+      - name: Validate the warn-only PR media lint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_lint.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
@@ -2252,6 +2331,10 @@ jobs:
       - name: Validate the Node, Bun and Rust restore from the CI cache bucket
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_toolchain_r2.sh
+
+      - name: Validate the Bun and Node restore on the nightly Macs
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ci_toolchain_r2_darwin.py
 
       - name: Validate the machine bun store puts the pinned bun back with no download
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
@@ -2693,8 +2776,16 @@ jobs:
           python3 tests/test_ci_cloud_journey_prod_preclaim_login.py
           python3 tests/test_ci_checkout_lean.py
           python3 tests/test_ci_sparse_checkout_imports.py
+          python3 tests/test_ci_sparse_cargo_path_deps.py
+          python3 tests/test_web_cas_upload_rerun.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
+
+      # A script fetched or checked out with a few files (a workflow's sparse list, a fleet probe's single-file
+      # fetch in .github/standalone-files.json) loads with just those files (cmux#62040, #63419).
+      - name: Validate single-file-run scripts carry what they read
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_standalone_files.py
 
       - name: Validate unsigned nightly resume provenance and routing
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
