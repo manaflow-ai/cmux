@@ -31,12 +31,15 @@ impl VmdProvider {
         token: impl Into<String>,
     ) -> Result<Self, MachineProviderError> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
+        let base = base.into().trim_end_matches('/').to_owned();
+        // The operator named this cmux-vmd host, so the egress gate lets it through.
+        cmux_egress::allow_named(&base);
+        let client = cmux_egress::client_builder("cmux_vmd::provider")
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(3700))
             .build()
             .map_err(|e| MachineProviderError::Backend(format!("http client: {e}")))?;
-        Ok(Self { base: base.into().trim_end_matches('/').to_owned(), token: token.into(), client })
+        Ok(Self { base, token: token.into(), client })
     }
 
     fn url(&self, path: &str) -> String {
@@ -365,5 +368,32 @@ mod tests {
         assert!(matches!(e, MachineProviderError::InvalidState { .. }));
         let e = map_error(MachineOperation::Create, "", 500, &Value::Null);
         assert!(matches!(e, MachineProviderError::Backend(_)));
+    }
+}
+
+#[cfg(test)]
+mod seeded_tests {
+    use super::*;
+
+    /// tests/egress_seeded.json names this for the `cmux_vmd::provider` gate site: the host's
+    /// bearer rides only in `Authorization`, on each call to the named host.
+    #[tokio::test]
+    async fn the_host_token_rides_only_in_authorization() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        cmux_egress::capture::install().unwrap();
+        let token = "SEEDvmdHostToken-8e3c";
+        let vmd = VmdProvider::new("https://vmd.seeded.example", token).unwrap();
+        let machine = MachineHandle("m-seeded".into());
+        let _ = vmd.pause(&machine).await;
+        let _ = vmd.delete(&machine).await;
+        let mut places = cmux_egress::capture::leaks(token);
+        places.sort();
+        assert_eq!(
+            places,
+            [
+                "vmd.seeded.example DELETE /v1/machines/m-seeded: header authorization",
+                "vmd.seeded.example POST /v1/machines/m-seeded/pause: header authorization",
+            ]
+        );
     }
 }

@@ -104,3 +104,17 @@ async fn a_socket_that_never_opens_ends_with_no_code() {
     assert_eq!(last["closed"], Value::Null);
     assert!(last["error"].is_string());
 }
+
+/// tests/egress_seeded.json names this for the `cmux_tui::cli::cloud_pair_invite_watch` gate
+/// site: the watch secret rides only in the upgrade's `sec-websocket-protocol` header.
+#[tokio::test]
+async fn the_watch_secret_rides_only_in_the_subprotocol_header() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let secret = "SEEDpairInviteWatch-5c2d";
+    let _ = watch(&input("https://api.cmux.dev", "7KQ4MX2D9P", secret), &mut |_| {}).await;
+    let places = cmux_egress::capture::leaks(secret);
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert!(places[0].starts_with("api.cmux.dev GET /v1/pair/invite/wait"), "{places:?}");
+    assert!(places[0].ends_with(": header sec-websocket-protocol"), "{places:?}");
+}

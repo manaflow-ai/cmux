@@ -145,6 +145,9 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `api.z.ai` | connects | the Z.ai API, when you add a Z.ai key in Settings | your prompts, the files and output the agent sends, and your Z.ai key | when an agent uses your Z.ai key | remove the Z.ai key |
 | `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser | the requests your signed-in browser makes for the agent's task, with that site's cookies | only when an agent uses that integration in your signed-in browser | don't give an agent the integration, or sign out of the site in cmux's browser |
+| `auth.kimi.ai` | connects | Kimi's sign-in server (global), when you sign Kimi in with your Kimi account | the sign-in code and your Kimi refresh token, to get a new access token | when you sign Kimi in, and when its access token is renewed | sign Kimi out |
+| `auth.kimi.com` | connects | Kimi's sign-in server (China), when you sign Kimi in with your Kimi account | the sign-in code and your Kimi refresh token, to get a new access token | when you sign Kimi in, and when its access token is renewed | sign Kimi out |
+| `auth.x.ai` | connects | xAI's sign-in server, when you sign Grok in with your xAI account | the sign-in code and your xAI refresh token, to renew or revoke the access token | when you sign Grok in or out, and when its access token is renewed | sign Grok out |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies | an image request (your IP address and the image's URL) | when a GitHub page or agent reply you open shows an image | not a setting: it follows what you open |
 | `bedrock-mantle.*.api.aws` | connects | the Amazon Bedrock API in the region you pick, when you add a Bedrock key in Settings | your prompts, the files and output the agent sends, and your Bedrock key | when an agent uses your Bedrock key | remove the Bedrock key |
 | `bedrock-mantle.us-east-1.api.aws` | connects | the Amazon Bedrock API's default region (us-east-1), when you add a Bedrock key in Settings | your prompts, the files and output the agent sends, and your Bedrock key | when an agent uses your Bedrock key | remove the Bedrock key |
@@ -212,6 +215,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `openaccess-api.clevelandart.org` | connects | museum art for backgrounds, when you search for art | your art search words, then image requests | when you search for background art | don't search for art (`appearance.background`) |
 | `openaccess-cdn.clevelandart.org` | connects | museum art for backgrounds, when you search for art | your art search words, then image requests | when you search for background art | don't search for art (`appearance.background`) |
 | `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode | a download request for the schema and installer | when you install OpenCode | don't install OpenCode |
+| `openrouter.ai` | connects | OpenRouter, when you sign it in from Settings: the app trades the sign-in code for an API key | the one-time sign-in code and its verifier | once, when you sign OpenRouter in | don't sign OpenRouter in (paste a key instead) |
 | `presence.cmux.dev` | connects | update channel push: tells the app a new build is out | an update-channel subscription, no account data | while the app runs, to learn a new build is out | no setting yet |
 | `preview.chatmux.dev` | connects | preview pages of a chatmux session | a page request for the session's preview | when you open a chatmux session's preview | don't open previews |
 | `private-user-images.githubusercontent.com` | connects | images in GitHub pages and agent replies | an image request (your IP address and the image's URL) | when a GitHub page or agent reply you open shows an image | not a setting: it follows what you open |
@@ -250,10 +254,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 |---|---|---|
 | `lmstudio.ai` | opens | a provider's download page, opened from Settings |
 | `console.mistral.ai` | opens | a page to get an API key, opened from Settings |
-| `openrouter.ai` | opens | a page to get an API key, opened from Settings |
 | `console.x.ai` | opens | a page to get an API key, opened from Settings |
 | `accounts.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
-| `auth.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `airbnb.com` | opens | a site the address bar suggests before it is in your history |
 | `amazon.com` | opens | a site the address bar suggests before it is in your history |
 | `console.aws.amazon.com` | opens | a page to get an API key, opened from Settings |
@@ -366,8 +368,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `api.slack.com` | opens | Slack's app page that shows the configuration token, opened from Settings |
 | `grok.com` | opens | Grok's sign-in and plans pages, opened when you sign that agent in or from Settings |
 | `www.grok.com` | opens | a provider's sign-in page, opened when you sign that agent in |
-| `auth.kimi.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
-| `auth.kimi.com` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `kimi.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `kimi.com` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `www.kimi.ai` | opens | a provider's sign-in page or API key page, opened when you sign that agent in or from Settings |
