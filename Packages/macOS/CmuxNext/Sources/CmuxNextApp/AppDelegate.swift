@@ -291,14 +291,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule(); services?.windows.recordSaver.layoutCache.note() }
         DebugTimings.markLaunch("dfl.windows")
         // The runtime pack check wires the engine reason at once; its download waits until asked.
-        services.startChromiumRuntime(); launchHold.whenReleased { [weak services] in services?.startHiddenPageSpares() } // pages nobody sees (CMUX-629)
+        services.startChromiumRuntime(); DebugTimings.markLaunch("dfl.chromium_runtime"); launchHold.whenReleased { [weak services] in services?.startHiddenPageSpares() } // pages nobody sees (CMUX-629)
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
                                                    profiles: services.browserStores.offTheRecord, signInCallbacks: services.signInCallbacks,
                                                    contextMenus: services.contextMenus, activeLook: services.activeLook)
         // The same panel opens Connect GitHub's pages over the app's window; the app finishes GitHub's return itself.
-        webAuthHandler = GitHubInstallSheet.install(opener: webAuthWindows, auth: services.cloud.auth)
+        webAuthHandler = GitHubInstallSheet.install(opener: webAuthWindows, auth: services.cloud.auth); DebugTimings.markLaunch("dfl.web_auth")
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         // A cmux tab's return to this app (GitHub's completion, the sign-in callback): same route, no prompt, its tab closes.
@@ -314,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         // A launch whose first window never draws (no window, a daemon that never answers) still
         // starts the work waiting for that frame.
-        openedURLs.start { [weak self] in self?.routeReadyURL($0) }
+        openedURLs.start { [weak self] in self?.routeReadyURL($0) }; DebugTimings.markLaunch("dfl.opened_urls")
         // Work the launch window does not draw: one step per main turn after the first frame (Chromium's crash-loop border and
         // the glass look too). Cloud then Home in one turn (the front may be Home's Chief; apart, Home waited ~180 ms behind Chromium's start); the rest after the front chat drew.
         let stop: @MainActor () -> Bool = { [weak services] in services?.windows.isTerminating ?? true }, mark: @MainActor @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }

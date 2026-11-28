@@ -43,7 +43,8 @@ jobs:
   record:
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
     name: Record per-area bench baselines
-    # The same label as pr-checks.yml's advisory job: a baseline is only comparable on its own machine class.
+    # The same label as pr-checks.yml's advisory job: a baseline is only comparable on its own machine class, which
+    # names the CPU model (benchlib/baselines.py machine_class), so each record fills the class of the host it got.
     runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
     # next-cache-writer, whose deployment branches are feat-cmux-next only, in the exact form
