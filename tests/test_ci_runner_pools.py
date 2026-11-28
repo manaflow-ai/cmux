@@ -1890,5 +1890,158 @@ class FastWatch(unittest.TestCase):
         # The watch's 9 min still fits the job's limit beside its probe and pass.
         self.assertGreaterEqual(job["timeout-minutes"], 30)
 
+
+class SlowSpill(unittest.TestCase):
+    """A Blacksmith macOS label that starts jobs, but slowly, spills its pool to the next member with headroom
+    (runner_pools.slow_waits(), spill_target()). The loads are the janitor's 2026-11-28 snapshots."""
+    M15, M26, M26L = "blacksmith-6vcpu-macos-15", "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
+    POOLS = {"macos_15": {"why": "x", "members": [M15, M26]}, "macos_26": {"why": "x", "members": [M26]}}
+
+    def snapshot(self, m15, m26, *, at=NOW - dt.timedelta(minutes=1), **extra):
+        load = lambda q, o: {"queued": q, "running": 1, "reserved_queued": 0, "oldest_queued_minutes": o}
+        return dict({"generated_at": runner_pools.iso(at), "truncated": False, "label_started": {},
+                     "pools": {self.M15: load(*m15), self.M26: load(*m26), self.M26L: load(4, 15)}}, **extra)
+
+    def step(self, current, snapshot, now=NOW):
+        waits = runner_pools.slow_waits(snapshot, now=now)
+        return runner_pools.reconcile(current, self.POOLS, dead_now=(), served_now=(), now=now, waits=waits)
+
+    def test_a_slow_label_spills_to_a_next_member_with_headroom(self) -> None:
+        # 11-28T14:51Z: macOS 15 8 queued, oldest 118 min; macOS 26 2 queued, oldest 0.
+        value, lines = self.step({}, self.snapshot((8, 118), (2, 0)))
+        self.assertEqual(value["macos_15"], self.M26)
+        self.assertEqual(value["macos_26"], self.M26)
+        self.assertEqual(value[runner_pools.SLOW_KEY], {self.M15: runner_pools.iso(NOW)})
+        self.assertTrue(any("spilling to" in line for line in lines), lines)
+
+    def test_no_spill_onto_a_busy_next_member(self) -> None:
+        # 11-28T14:23Z: macOS 15 oldest 100 min, but macOS 26 oldest 28: moving there starves its 12 vCPU sibling.
+        value, lines = self.step({}, self.snapshot((11, 100), (19, 28)))
+        self.assertEqual(value["macos_15"], self.M15)
+        self.assertIn(self.M15, value[runner_pools.SLOW_KEY])
+        self.assertTrue(any("no headroom" in line for line in lines), lines)
+        # Under half the bound starts a spill; between half and all of it only keeps one.
+        half = runner_pools.SLOW_SPILL_MINUTES / 2
+        value, _ = self.step({}, self.snapshot((11, 100), (3, half)))
+        self.assertEqual(value["macos_15"], self.M15)
+        spilled, _ = self.step({}, self.snapshot((11, 100), (3, 0)))
+        kept, _ = self.step(spilled, self.snapshot((11, 100), (3, half)))
+        self.assertEqual(kept["macos_15"], self.M26)
+        back, _ = self.step(spilled, self.snapshot((11, 100), (3, runner_pools.SLOW_SPILL_MINUTES)))
+        self.assertEqual(back["macos_15"], self.M15)
+
+    def test_a_wait_under_the_bound_or_nothing_queued_is_not_slow(self) -> None:
+        for m15 in ((3, runner_pools.SLOW_SPILL_MINUTES - 1), (0, 154)):
+            value, _ = self.step({}, self.snapshot(m15, (2, 0)))
+            self.assertEqual(value["macos_15"], self.M15, m15)
+            self.assertNotIn(runner_pools.SLOW_KEY, value)
+
+    def test_the_pool_moves_back_when_the_queue_clears(self) -> None:
+        spilled, _ = self.step({}, self.snapshot((8, 118), (2, 0)))
+        # Still past half the bound: the mark holds, so a queue draining by one start does not flap the pool.
+        held, _ = self.step(spilled, self.snapshot((4, runner_pools.SLOW_SPILL_MINUTES / 2), (2, 0)))
+        self.assertEqual(held["macos_15"], self.M26)
+        # 11-28T16:15Z: macOS 15 drained (0 queued).
+        back, lines = self.step(held, self.snapshot((0, 0), (16, 27)))
+        self.assertEqual(back["macos_15"], self.M15)
+        self.assertNotIn(self.M15, back[runner_pools.SLOW_KEY])
+        self.assertTrue(any("queue cleared" in line for line in lines), lines)
+
+    def test_no_fresh_complete_snapshot_keeps_the_state(self) -> None:
+        spilled, _ = self.step({}, self.snapshot((8, 118), (2, 0)))
+        stale = self.snapshot((0, 0), (2, 0), at=NOW - runner_pools.SNAPSHOT_MAX_AGE - dt.timedelta(minutes=5))
+        truncated = self.snapshot((0, 0), (2, 0), truncated=True, listed=10, total=400)
+        for snapshot in (None, stale, truncated, {"generated_at": "nope"}):
+            self.assertIsNone(runner_pools.slow_waits(snapshot, now=NOW))
+            kept, lines = self.step(spilled, snapshot)
+            self.assertEqual(kept["macos_15"], self.M26, snapshot)
+            self.assertEqual(kept[runner_pools.SLOW_KEY], spilled[runner_pools.SLOW_KEY])
+            self.assertTrue(any("slow marks kept" in line for line in lines), lines)
+            # A pool not yet spilled never spills on missing data.
+            unspilled = dict(spilled, macos_15=self.M15)
+            self.assertEqual(self.step(unspilled, snapshot)[0]["macos_15"], self.M15)
+
+    def test_the_mark_round_trips_and_a_bad_one_is_dropped(self) -> None:
+        spilled, _ = self.step({}, self.snapshot((8, 118), (2, 0)))
+        parsed, dropped = runner_pools.parse_value(runner_pools.render(spilled), self.POOLS)
+        self.assertEqual(parsed[runner_pools.SLOW_KEY], spilled[runner_pools.SLOW_KEY])
+        self.assertEqual(dropped, [])
+        bad = dict(spilled, **{runner_pools.SLOW_KEY: {"blacksmith-4vcpu-ubuntu-2404": runner_pools.iso(NOW),
+                                                        self.M15: "x"}})
+        parsed, dropped = runner_pools.parse_value(json.dumps(bad), self.POOLS)
+        self.assertNotIn(runner_pools.SLOW_KEY, parsed)
+        self.assertEqual(len(dropped), 1)
+
+    def test_the_declared_macos_15_pool_spills_to_macos_26_and_swift_package_tests_stays_on_15(self) -> None:
+        pools = runner_pools.load_pools()
+        self.assertEqual(pools["macos_15"]["members"][:2], [self.M15, self.M26])
+        value, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW,
+                                          waits=runner_pools.slow_waits(self.snapshot((8, 118), (2, 0)), now=NOW))
+        self.assertEqual(value["macos_15"], self.M26)
+        # Zig 0.15.2 cannot link the Ghostty helper on macOS 26, so swift-package-tests names the label, not the pool.
+        job = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())["jobs"]["swift-package-tests"]
+        self.assertNotIn("RUNNER_POOLS", job["runs-on"])
+        self.assertTrue(job["runs-on"].endswith("|| 'blacksmith-6vcpu-macos-15') }}"), job["runs-on"])
+
+    def test_main_spills_and_a_failed_snapshot_read_keeps_the_spill(self) -> None:
+        class Refused:
+            def snapshot(self, *, now):
+                raise RuntimeError("HTTP 403: API rate limit exceeded")
+        switch = Main.Switch()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(runner_pools.main([], {}, api=Main.Api(self.snapshot((8, 118), (2, 0))),
+                                               switch=switch, now=NOW), 0)
+        raw = dict(switch.writes)["RUNNER_POOLS"]
+        self.assertEqual(json.loads(raw)["macos_15"], self.M26)
+        again = Main.Switch()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": raw}, api=Refused(), switch=again, now=NOW), 0)
+        self.assertNotIn("RUNNER_POOLS", dict(again.writes))
+        self.assertIn("slow marks kept", out.getvalue())
+
+
+class SlowSpillReplay(unittest.TestCase):
+    """The data behind SLOW_SPILL_MINUTES (cmux#65148): 29 janitor snapshots, 2026-11-27 18:17Z to 11-28 16:15Z,
+    replayed through reconcile() by scripts/ci/macos_pool_replay.py. A change to the slow rule that moves these
+    numbers must restate them here and in the rule's comment."""
+
+    def setUp(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import macos_pool_replay
+        self.replay = macos_pool_replay
+        self.data = macos_pool_replay.load()
+
+    def test_the_fixture_holds_no_runner_names_or_other_labels(self) -> None:
+        self.assertEqual(len(self.data["snapshots"]), 29)
+        for snapshot in self.data["snapshots"]:
+            self.assertNotIn("running", snapshot)
+            for label in snapshot["pools"]:
+                self.assertRegex(label, runner_pools.SLOW_SPILL)
+
+    def test_the_fixture_pool_is_the_declared_macos_15_pool(self) -> None:
+        declared = runner_pools.members(runner_pools.load_pools()["macos_15"])
+        self.assertEqual(self.data["pools"]["macos_15"]["members"], declared)
+
+    def test_the_bound_brings_the_median_swift_check_wait_under_10_min(self) -> None:
+        result = self.replay.replay(self.data["snapshots"], self.data["pools"], runner_pools.SLOW_SPILL_MINUTES)
+        self.assertEqual(runner_pools.SLOW_SPILL_MINUTES, 20.0)
+        self.assertEqual((result["spilled"], result["median_before"], result["median_after"]), (11, 21.0, 3.0))
+        self.assertLess(result["median_after"], 10)
+        self.assertEqual((round(result["mean_before"]), round(result["mean_after"])), (38, 15))
+
+    def test_a_spill_lands_only_on_macos_26_under_10_min(self) -> None:
+        result = self.replay.replay(self.data["snapshots"], self.data["pools"], 20.0)
+        previous = None
+        for row in result["rows"]:
+            if row["chosen"] == self.replay.OTHER and previous != self.replay.OTHER:
+                self.assertLess(row["other"], 10, row)
+            previous = row["chosen"]
+
+    def test_the_replay_leaves_the_module_bound_unchanged(self) -> None:
+        self.replay.replay(self.data["snapshots"], self.data["pools"], 30.0)
+        self.assertEqual(runner_pools.SLOW_SPILL_MINUTES, 20.0)
+
+
 if __name__ == "__main__":
     unittest.main()

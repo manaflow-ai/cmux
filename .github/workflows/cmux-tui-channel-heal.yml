@@ -47,6 +47,21 @@ jobs:
           fetch-depth: 1500
           persist-credentials: false
 
+      # The floor script lives on this branch (main), not in the feat-cmux-next checkout above, as
+      # ui-proof-stale-sweep.yml. Run from that tree it was missing ("can't open file", exit 2), the floor never held,
+      # and the steps below spent the shared hour and failed "API rate limit exceeded for installation" for 18 h on
+      # 2026-11-28.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .job-floor
+          sparse-checkout: |
+            /.gitmodules
+            scripts/ci/job_token_floor.py
+            scripts/ci/app_spend_mark.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this tick sends nothing on it
       # and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
       - name: Read the GITHUB_TOKEN floor
@@ -55,7 +70,7 @@ jobs:
         timeout-minutes: 1
         env:
           JOB_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/job_token_floor.py cmux-tui-channel-heal/heal
+        run: python3 -I .job-floor/scripts/ci/job_token_floor.py cmux-tui-channel-heal/heal
 
       - name: Read the channel and act once
         if: steps.job-floor.outputs.held != 'true'

@@ -3,39 +3,227 @@
 # Reduce counts when warnings are fixed. CI fails if new warnings exceed this budget.
 1	CLI/cmux.swift	literal value is already handled by previous pattern; consider removing it
 2	CLI/cmux.swift	variable 'groups' was never mutated; consider changing to 'let' constant
+1	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/MarkdownViewer/MarkdownRemoteImageLoader.swift	'init(cString:)' is deprecated: Use String(decoding: array, as: UTF8.self) instead, after truncating the null termination. [#DeprecatedDeclaration]
+1	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/BrowserSignIn/AuthCallbackTrust.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/TokenProviding.swift	conformance to 'Sendable' must occur in the same source file as class 'AuthCoordinator'; use '@unchecked Sendable' for retroactive conformance; this will be an error in a future Swift language mode
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxConnectivityDiscoveryScope.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohBrokerModels.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohCachedHostPolicy.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohClientOfflinePolicyModels.swift	public import of 'CMUXMobileCore' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohClientOfflinePolicyModels.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohClientRuntime+Lifecycle.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohClientRuntime+Policy.swift	public import of 'CMUXMobileCore' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohClientRuntime+Policy.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohCustomRelayCredentialStore.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohCustomRelayDefinition.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohHostPolicyExpectation.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohHostRuntime+SignOut.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohRelayPreferenceStore.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxAdmission.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxAdmission.swift	public import of 'IrohLib' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxDeadline.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxGrantJudge.swift	public import of 'CMUXMobileCore' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxGrantJudge.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxJSONCache.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxListJudge.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxPeerEngine.swift	'weak' ownership of capture 'self' differs from implicitly-captured strong reference in outer scope [#ImplicitStrongCapture]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxRelayCredentialAutopilot.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/Legacy/LegacyCompatibilityService.swift	no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+1	Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/Legacy/LegacyCompatibilityService.swift	public import of 'CMUXMobileCore' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxSentryTelemetry/Sources/CmuxSentryScrubbing/ScrubberDenylists.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/Shared/CmuxSimulatorStreamKit/Sources/CmuxSimulatorStreamKit/SimStreamWireCodec.swift	result of call to 'withUnsafeMutableBytes(of:_:)' is unused [#NoUsage]
+1	Packages/Shared/CmuxTerminalPrediction/Sources/CmuxTerminalPrediction/TerminalOutputScanner.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MacWorkspaceState.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileMacListAuthState.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/iOS/CmuxMobileSupport/Sources/CmuxMobileSupport/AppVersionInfo.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/iOS/CmuxMobileTransport/Sources/CmuxMobileTransport/SystemNetworkInterfaceAddressProvider.swift	'init(cString:)' is deprecated: Use String(decoding: array, as: UTF8.self) instead, after truncating the null termination. [#DeprecatedDeclaration]
+1	Packages/macOS/CmuxAppKitSupportUI/Sources/CmuxAppKitSupportUI/AboutTitlebarDebug/Values/AboutTitlebarDebugOptions.swift	public import of 'AppKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxAppKitSupportUI/Sources/CmuxAppKitSupportUI/AboutTitlebarDebug/Windows/AboutTitlebarDebugWindowController.swift	public import of 'SwiftUI' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxAppKitSupportUI/Sources/CmuxAppKitSupportUI/WindowChrome/Overlay/WindowContentOverlayBrowserHost.swift	'public' modifier is redundant for static property declared in a public extension
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Emulation/BrowserEmulationOverrides+PageScript.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Emulation/BrowserEmulationOverrides.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Navigation/NavigationAvailability.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Navigation/SessionNavigationHistorySnapshot.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Repl/BrowserReplContentRuleLists.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Repl/BrowserReplPublicSuffixList.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Screenshot/BrowserOffscreenRenderPanel.swift	main actor-isolated property 'isKeyWindow' can not be referenced from a nonisolated autoclosure
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Scripting/ReactGrabBridgeScripts.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/WebView/BrowserAutomationContextMenuSuppression.swift	public import of 'AppKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/WebView/BrowserViewportHostView.swift	call to main actor-isolated instance method 'applyRawWebViewGeometryIfSafe()' in a synchronous nonisolated context [#ActorIsolatedCall]
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/WebView/BrowserViewportHostView.swift	call to main actor-isolated instance method 'layout()' in a synchronous nonisolated context [#ActorIsolatedCall]
+2	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/WebView/CmuxWebView.swift	call to main actor-isolated instance method 'becomeFirstResponder()' in a synchronous nonisolated context [#ActorIsolatedCall]
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/WebView/CmuxWebView.swift	main actor-isolated property 'body' can not be referenced from a nonisolated context
+2	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/WebView/CmuxWebView.swift	main actor-isolated property 'currentEvent' can not be referenced from a nonisolated context
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/WebView/CmuxWebView.swift	main actor-isolated property 'webView' can not be referenced from a nonisolated context
+2	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/WebView/CmuxWebView.swift	main actor-isolated var 'NSApp' can not be referenced from a nonisolated context
+1	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/WebView/WKWebView+BrowserUserAgentPolicy.swift	public import of 'ObjectiveC' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxCanvasUI/Sources/CmuxCanvasUI/CanvasModel.swift	public import of 'CoreGraphics' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxCanvasUI/Sources/CmuxCanvasUI/CanvasPaneContentMounting.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudAttachmentReconcileDecision.swift	File 'CloudAttachmentReconcileDecision.swift' is part of module 'CmuxCloud'; ignoring import (in target 'CmuxCloud' from project 'CmuxCloud')
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudAttachmentReconcileDecision.swift	file 'CloudAttachmentReconcileDecision.swift' is part of module 'CmuxCloud'; ignoring import [#ModuleSelfImport]
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudPaneCreationFailure.swift	File 'CloudPaneCreationFailure.swift' is part of module 'CmuxCloud'; ignoring import (in target 'CmuxCloud' from project 'CmuxCloud')
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudPaneCreationFailure.swift	file 'CloudPaneCreationFailure.swift' is part of module 'CmuxCloud'; ignoring import [#ModuleSelfImport]
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTerminalAttachmentLog.swift	File 'CloudTerminalAttachmentLog.swift' is part of module 'CmuxCloud'; ignoring import (in target 'CmuxCloud' from project 'CmuxCloud')
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTerminalAttachmentLog.swift	file 'CloudTerminalAttachmentLog.swift' is part of module 'CmuxCloud'; ignoring import [#ModuleSelfImport]
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTerminalAttachmentResolver.swift	File 'CloudTerminalAttachmentResolver.swift' is part of module 'CmuxCloud'; ignoring import (in target 'CmuxCloud' from project 'CmuxCloud')
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTerminalAttachmentResolver.swift	file 'CloudTerminalAttachmentResolver.swift' is part of module 'CmuxCloud'; ignoring import [#ModuleSelfImport]
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTerminalCreationRequest.swift	File 'CloudTerminalCreationRequest.swift' is part of module 'CmuxCloud'; ignoring import (in target 'CmuxCloud' from project 'CmuxCloud')
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTerminalCreationRequest.swift	file 'CloudTerminalCreationRequest.swift' is part of module 'CmuxCloud'; ignoring import [#ModuleSelfImport]
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTerminalMutationCommandRunner.swift	File 'CloudTerminalMutationCommandRunner.swift' is part of module 'CmuxCloud'; ignoring import (in target 'CmuxCloud' from project 'CmuxCloud')
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTerminalMutationCommandRunner.swift	file 'CloudTerminalMutationCommandRunner.swift' is part of module 'CmuxCloud'; ignoring import [#ModuleSelfImport]
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTerminalSourcePlacement.swift	File 'CloudTerminalSourcePlacement.swift' is part of module 'CmuxCloud'; ignoring import (in target 'CmuxCloud' from project 'CmuxCloud')
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTerminalSourcePlacement.swift	file 'CloudTerminalSourcePlacement.swift' is part of module 'CmuxCloud'; ignoring import [#ModuleSelfImport]
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTuiDaemonAnswer.swift	File 'CloudTuiDaemonAnswer.swift' is part of module 'CmuxCloud'; ignoring import (in target 'CmuxCloud' from project 'CmuxCloud')
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTuiDaemonAnswer.swift	file 'CloudTuiDaemonAnswer.swift' is part of module 'CmuxCloud'; ignoring import [#ModuleSelfImport]
+1	Packages/macOS/CmuxCloud/Sources/CmuxCloud/Surfaces/CloudTuiDaemonAnswer.swift	left side of nil coalescing operator '??' has non-optional type 'String', so the right side is never used
+1	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Interaction/AppKitCommandPaletteEventMonitorSource.swift	weak variable 'observedWindow' was never mutated; consider changing to 'let' constant [#WeakMutability]
+1	Packages/macOS/CmuxComputerUse/Sources/CmuxComputerUse/ComputerUseHelperTrust.swift	converting non-sendable function value to '@Sendable (URL) -> Bool' may introduce data races
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Browser/ControlCommandCoordinator+BrowserPanelV1.swift	conditional downcast from '(any ControlCommandContext)?' to 'any ControlBrowserPanelContext' is equivalent to an implicit conversion to an optional 'any ControlBrowserPanelContext'
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Canvas/ControlCanvasFrame.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug.swift	conditional downcast from '(any ControlCommandContext)?' to 'any ControlDebugContext' is equivalent to an implicit conversion to an optional 'any ControlDebugContext'
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Project/ControlCommandCoordinator+Project.swift	conditional downcast from '(any ControlCommandContext)?' to 'any ControlProjectContext' is equivalent to an implicit conversion to an optional 'any ControlProjectContext'
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Sidebar/ControlCommandCoordinator+SidebarV1.swift	conditional downcast from '(any ControlCommandContext)?' to 'any ControlSidebarContext' is equivalent to an implicit conversion to an optional 'any ControlSidebarContext'
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Sidebar/ControlSidebarCloseStrings.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlSurfaceCloseStrings.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlSurfaceInputStrings.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlSurfaceRespawnStrings.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/System/ControlCommandCoordinator+System.swift	conditional cast from 'any ControlCommandContext' to 'any ControlSystemContext' always succeeds
+2	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/System/ControlCommandCoordinator+System.swift	conditional downcast from '(any ControlCommandContext)?' to 'any ControlSystemContext' is equivalent to an implicit conversion to an optional 'any ControlSystemContext'
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/System/ControlSystemCloseStrings.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/System/ControlSystemTreeResolution.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlWorkspaceMoveToWindowResolution.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/WorkspaceGroup/ControlWorkspaceGroupPinResolution.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxCore/Sources/CmuxCore/Remote/PrivateNetworkHostPolicy.swift	trailing closure in this context is confusable with the body of the statement; pass as a parenthesized argument to silence this warning
+1	Packages/macOS/CmuxFeedback/Sources/CmuxFeedback/Models/FeedbackComposerAppMetadata.swift	'init(cString:)' is deprecated: Use String(decoding: array, as: UTF8.self) instead, after truncating the null termination. [#DeprecatedDeclaration]
+1	Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/FileSystem/OwnedMarkerFileReader.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Process/CmuxPathEnvironment.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SSHPTY/SSHPTYAttachSignalMonitor.swift	use of protocol 'DispatchSourceSignal' as a type must be written 'any DispatchSourceSignal'; this will be an error in a future Swift language mode [#ExistentialAny]
+1	Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/TerminalThemes/CmuxManagedThemeBlock.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/UnixSocket/UnixSocketConnectProbe.swift	public import of 'Darwin' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxMemoryPressure/Sources/CmuxMemoryPressure/DarwinMemoryPressureCoalitionSampler.swift	public import of 'Darwin' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxMobileHost/Sources/CmuxMobileHost/Host/MobileHostNetworkPathMonitor.swift	'init(cString:)' is deprecated: Use String(decoding: array, as: UTF8.self) instead, after truncating the null termination. [#DeprecatedDeclaration]
+1	Packages/macOS/CmuxMobileHost/Sources/CmuxMobileHost/MobileHostConnectionEventQueue.swift	public import of 'CMUXMobileCore' was not used in public declarations or inlinable code [#UnusedImportAccess]
+2	Packages/macOS/CmuxMobileHost/Sources/CmuxMobileHost/MobileRouteResolver.swift	'init(cString:)' is deprecated: Use String(decoding: array, as: UTF8.self) instead, after truncating the null termination. [#DeprecatedDeclaration]
+1	Packages/macOS/CmuxPanes/Sources/CmuxPanes/Model/SplitLayoutModel.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/PhonePushCrypto.swift	public import of 'Security' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Reachability/RemoteHostReachabilityProbing.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Broker/RemoteProxyBroker.swift	capture of 'entry' with non-sendable type 'RemoteProxyBroker.Entry' in a '@Sendable' closure [#SendableClosureCaptures]
+1	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Relay/RemoteCLIRelaySession.swift	'weak' ownership of capture 'self' differs from implicitly-captured strong reference in outer scope [#ImplicitStrongCapture]
+1	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Relay/RemoteRelayAgentHookAdmission.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Stores/FileRouteSettingsStore.swift	'nonisolated(unsafe)' is unnecessary for a constant with 'Sendable' type 'NotificationCenter', consider removing it
+2	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Rows/ShortcutListStableLazyView.swift	main actor-isolated property 'entries' can not be referenced from a nonisolated context
+1	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AgentMessagesSettingsCard.swift	converting non-sendable function value to '@isolated(any) @Sendable (Bool) -> Void' may introduce data races
+2	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/ComputerAccessMenuItems.swift	converting non-sendable function value to '@isolated(any) @Sendable (Bool) -> Void' may introduce data races
+1	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/DevicesAccessToggleRow.swift	converting non-sendable function value to '@isolated(any) @Sendable (Bool) -> Void' may introduce data races
+1	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/PiIntegrationCard.swift	converting non-sendable function value to '@isolated(any) @Sendable (Bool) -> Void' may introduce data races
+1	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/TerminalGhosttyOptionsCard.swift	passing non-sendable parameter 'set' to function expecting a '@Sendable' closure
+1	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/TerminalThemeGallery.swift	'weak' ownership of capture 'hostActions' differs from implicitly-captured strong reference in outer scope [#ImplicitStrongCapture]
+1	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/SleepyMode/SleepyModeSettingsStore.swift	call to main actor-isolated instance method 'reloadFromDefaults()' in a synchronous nonisolated context [#ActorIsolatedCall]
+1	Packages/macOS/CmuxSidebar/Sources/CmuxSidebar/Detail/SidebarWorkspaceAuxiliaryDetailVisibility.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxSidebar/Sources/CmuxSidebar/Detail/SidebarWorkspaceDetailVisibility.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxSidebar/Sources/CmuxSidebar/Metadata/SidebarMutationTabTargetResolution.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxSidebar/Sources/CmuxSidebar/Status/SidebarAgentUsage.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxSidebar/Sources/CmuxSidebar/Status/SidebarAgentWorkState.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxSidebarGit/Sources/CmuxSidebarGit/Model/String+DirectoryNormalization.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxSudoBroker/Sources/CmuxSudoBroker/SudoCodeSigningRequirement.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
 1	Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CmuxTuiSnapshotParser.swift	default will never be executed
 1	Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/SurfaceCatalogModel.swift	immutable value 'rowID' was never used; consider replacing with '_' or removing it
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Services/Pasteboard/String+ClipboardCopyText.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+CopyMode.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+CopyMode.swift	public import of 'GhosttyKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Debug.swift	public import of 'CmuxTerminalCore' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+ForceRefresh.swift	public import of 'AppKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+ForceRefresh.swift	public import of 'GhosttyKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Mobile.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Mobile.swift	public import of 'GhosttyKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+MobileViewportFit.swift	public import of 'AppKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+MobileViewportFit.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+MobileViewportFit.swift	public import of 'GhosttyKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+PaneGeometry.swift	public import of 'AppKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+PaneGeometry.swift	public import of 'CoreGraphics' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+PortalLease.swift	capture of 'self' with non-sendable type 'TerminalSurface?' in a '@Sendable' closure [#SendableClosureCaptures]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+PortalLease.swift	public import of 'CmuxTerminalCore' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+ProcessInfo.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+ProcessInfo.swift	public import of 'GhosttyKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Renderer.swift	public import of 'AppKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Renderer.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Renderer.swift	public import of 'GhosttyKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift	public import of 'AppKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift	public import of 'CmuxTerminalCore' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Sizing.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Sizing.swift	public import of 'GhosttyKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+SizingDiagnostics.swift	public import of 'CmuxTerminalCore' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurfaceRawSizingSample.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ColorScheme/TerminalStartupAppearancePreviewOverride.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Interop/GhosttyRuntimeCInterop.swift	public import of 'Darwin' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Interop/GhosttyRuntimeCInterop.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Interop/GhosttySurfaceRuntimeProbe.swift	public import of 'Darwin' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/KeyHints/CodexActionCommandDetector.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/LinkRouting/TerminalOpenURLFileRoutingPolicy.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/PathResolution/RemoteTerminalPathResolver.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxTestSupport/Sources/CmuxTestSupport/TestCaptureWriting.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/TestSupport/UpdateTestSupport.swift	'init(dictionary:)' is deprecated: Properties that depend on the system or application version are not supported when used with this initializer. The designated initializer is available in SUAppcastItem+Private.h. Please first explore other APIs or contact us to describe your use case. [#DeprecatedDeclaration]
+1	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateDriver+SPUUpdaterDelegate.swift	'@preconcurrency' on conformance to 'SPUUpdaterDelegate' has no effect
+1	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateDriver.swift	'@preconcurrency' on conformance to 'SPUUserDriver' has no effect
+1	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateStateModel+ErrorFormatting.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateStateModel+ErrorFormatting.swift	public import of 'Sparkle' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdaterHandle.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Session/SessionSnapshotRepresenting.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Session/SessionSnapshotRichness.swift	public import of 'Foundation' was not used in public declarations or inlinable code [#UnusedImportAccess]
+1	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Window/Blur/CompositorBlurController.swift	public import of 'AppKit' was not used in public declarations or inlinable code [#UnusedImportAccess]
 1	Sources/App/TerminalDirectoryOpenSupport.swift	'fullPath(forApplication:)' was deprecated in macOS 11.0: Use -[NSWorkspace URLForApplicationWithBundleIdentifier:] instead.
+1	Sources/App/TerminalDirectoryOpenSupport.swift	'fullPath(forApplication:)' was deprecated in macOS 11.0: Use -[NSWorkspace URLForApplicationWithBundleIdentifier:] instead. [#DeprecatedDeclaration]
 2	Sources/AppDelegate+PaneMemoryGuardrail.swift	trailing closure in this context is confusable with the body of the statement; pass as a parenthesized argument to silence this warning
+1	Sources/AppDelegate+RecoverableMainWindowRoutes.swift	'weak' ownership of capture 'lifecycleCoordinator' differs from implicitly-captured strong reference in outer scope [#ImplicitStrongCapture]
 1	Sources/AppDelegate.swift	'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h)
+1	Sources/AppDelegate.swift	'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h) [#DeprecatedDeclaration]
 5	Sources/AppDelegate.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
+3	Sources/AppDelegate.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect. [#DeprecatedDeclaration]
 1	Sources/AppDelegate.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'Dispatch'
+1	Sources/AppDelegate.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'Dispatch' [#AddPreconcurrencyImport]
 1	Sources/AppDelegate.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ObjectiveC'
+1	Sources/AppDelegate.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ObjectiveC' [#AddPreconcurrencyImport]
 1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'beginSuppressWebViewFocusForAddressBar()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'beginSuppressWebViewFocusForAddressBar()' in a synchronous nonisolated context [#ActorIsolatedCall]
 3	Sources/AppDelegate.swift	call to main actor-isolated instance method 'browserPanel(for:)' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated instance method 'browserPanel(for:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'browserPanelOwning' in a synchronous nonisolated context
 1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'clearConfiguredShortcutChordState()' in a synchronous nonisolated context
 3	Sources/AppDelegate.swift	call to main actor-isolated instance method 'endSuppressWebViewFocusForAddressBar()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'endSuppressWebViewFocusForAddressBar()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'handleSocketLine' in a synchronous nonisolated context
 2	Sources/AppDelegate.swift	call to main actor-isolated instance method 'recordGotoSplitUITestActiveElement(panelId:keyPrefix:)' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated instance method 'recordGotoSplitUITestActiveElement(panelId:keyPrefix:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/AppDelegate.swift	call to main actor-isolated instance method 'recordGotoSplitUITestWebViewFocus(panelId:key:)' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated instance method 'recordGotoSplitUITestWebViewFocus(panelId:key:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'recordJumpUnreadFocusIfExpected(tabId:surfaceId:)' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'recordJumpUnreadFocusIfExpected(tabId:surfaceId:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'refreshConfiguredShortcutChordActions()' in a synchronous nonisolated context
 1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'refreshGhosttyGotoSplitShortcuts()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'refreshGhosttyGotoSplitShortcuts()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'scheduleSplitButtonTooltipRefreshAcrossWorkspaces()' in a synchronous nonisolated context
 2	Sources/AppDelegate.swift	call to main actor-isolated instance method 'shouldPreserveBrowserAddressBarTracking(for:)' in a synchronous nonisolated context
 4	Sources/AppDelegate.swift	call to main actor-isolated instance method 'stopBrowserOmnibarSelectionRepeat()' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated instance method 'stopBrowserOmnibarSelectionRepeat()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'unregisterMainWindow' in a synchronous nonisolated context
 1	Sources/AppDelegate.swift	call to main actor-isolated instance method 'writeUITestDiagnosticsIfNeeded(stage:)' in a synchronous nonisolated context
 4	Sources/AppDelegate.swift	call to main actor-isolated local function 'attemptFocus()' in a synchronous nonisolated context
+4	Sources/AppDelegate.swift	call to main actor-isolated local function 'attemptFocus()' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/AppDelegate.swift	call to main actor-isolated local function 'attemptResolve()' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated local function 'attemptResolve()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/AppDelegate.swift	call to main actor-isolated local function 'finishIfReady()' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated local function 'finishIfReady()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/AppDelegate.swift	call to main actor-isolated local function 'publishCurrentState(isTimedOut:)' in a synchronous nonisolated context
+1	Sources/AppDelegate.swift	call to main actor-isolated local function 'publishCurrentState(isTimedOut:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/AppDelegate.swift	call to main actor-isolated local function 'recordFocusedState()' in a synchronous nonisolated context
+2	Sources/AppDelegate.swift	call to main actor-isolated local function 'recordFocusedState()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/AppDelegate.swift	call to main actor-isolated static method 'feedSidebarUITestPushUpdates(response:)' in a synchronous nonisolated context
 1	Sources/AppDelegate.swift	call to main actor-isolated static method 'runFeedSidebarUITestPush(requestId:)' in a synchronous nonisolated context
 1	Sources/AppDelegate.swift	capture of 'observer' with non-sendable type '(any NSObjectProtocol)?' in a '@Sendable' closure
+1	Sources/AppDelegate.swift	capture of 'observer' with non-sendable type '(any NSObjectProtocol)?' in a '@Sendable' closure [#SendableClosureCaptures]
 1	Sources/AppDelegate.swift	capture of 'timeoutWorkItem' with non-sendable type 'DispatchWorkItem?' in a '@Sendable' closure
+1	Sources/AppDelegate.swift	capture of 'timeoutWorkItem' with non-sendable type 'DispatchWorkItem?' in a '@Sendable' closure [#SendableClosureCaptures]
 1	Sources/AppDelegate.swift	conformance of 'AppDelegate' to protocol 'UNUserNotificationCenterDelegate' crosses into main actor-isolated code and can cause data races
 3	Sources/AppDelegate.swift	converting non-sendable function value to '@MainActor @Sendable @convention(block) () -> Void' may introduce data races
 1	Sources/AppDelegate.swift	converting non-sendable function value to '@Sendable @convention(block) () -> Void' may introduce data races
@@ -46,49 +234,92 @@
 1	Sources/AppDelegate.swift	main actor-isolated property 'webView' can not be referenced from a Sendable closure
 1	Sources/AppDelegate.swift	main actor-isolated static property 'shared' can not be referenced from a Sendable closure
 1	Sources/AppDelegate.swift	value 'browserPanel' was defined but never used; consider replacing with boolean test
+1	Sources/AppDelegate.swift	value 'browserPanel' was defined but never used; consider replacing with boolean test [#NoUsage]
 2	Sources/AppDelegate.swift	value 'self' was defined but never used; consider replacing with boolean test
+2	Sources/AppDelegate.swift	value 'self' was defined but never used; consider replacing with boolean test [#NoUsage]
 1	Sources/Auth/AuthManager.swift	main actor-isolated static property 'logTimestampFormatter' can not be referenced from a nonisolated context
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'addCursorRect(_:cursor:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'addCursorRect(_:cursor:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'addSubview(_:positioned:relativeTo:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'addSubview(_:positioned:relativeTo:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'addTrackingArea' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'addTrackingArea' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'applyHostedInspectorDividerWidth(_:to:minimumInspectorWidth:reason:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'applyHostedInspectorDividerWidth(_:to:minimumInspectorWidth:reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'applyResolvedDropZoneOverlay()' in a synchronous nonisolated context
+2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'applyResolvedDropZoneOverlay()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'attachDropZoneOverlayIfNeeded()' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'attachDropZoneOverlayIfNeeded()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'bringInteractionLayersToFrontIfNeeded()' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'bringInteractionLayersToFrontIfNeeded()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'browserPortalHasVisibleWebKitCompanionSubview(for:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'browserPortalHasVisibleWebKitCompanionSubview(for:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'clearActiveDividerCursor(restoreArrow:)' in a synchronous nonisolated context
+2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'clearActiveDividerCursor(restoreArrow:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'clearLinkHoverURLs()' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'clearLinkHoverURLs()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'cmuxApplyBrowserViewportLayout(in:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'cmuxApplyBrowserViewportLayout(in:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 7	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'convert(_:from:)' in a synchronous nonisolated context
+7	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'convert(_:from:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'didAddSubview' in a synchronous nonisolated context
+2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'didAddSubview' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'hostedInspectorDividerHit(at:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'hostedInspectorDividerHit(at:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 5	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'invalidateCursorRects(for:)' in a synchronous nonisolated context
+5	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'invalidateCursorRects(for:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 6	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'invalidateSplitDividerRegionCache()' in a synchronous nonisolated context
+6	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'invalidateSplitDividerRegionCache()' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'layout()' in a synchronous nonisolated context
+2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'layout()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'linkHoverIndicatorFrame()' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'linkHoverIndicatorFrame()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'mouseDown(with:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'mouseDown(with:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'mouseDragged(with:)' in a synchronous nonisolated context
+2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'mouseDragged(with:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'mouseUp(with:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'mouseUp(with:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'performHitTest(at:currentEvent:dragPasteboard:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'performHitTest(at:currentEvent:dragPasteboard:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'reapplyHostedInspectorDividerIfNeeded(in:reason:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'reapplyHostedInspectorDividerIfNeeded(in:reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'reapplyHostedInspectorDividersIfNeeded(reason:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'reapplyHostedInspectorDividersIfNeeded(reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'recordPreferredHostedInspectorWidth(_:containerBounds:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'recordPreferredHostedInspectorWidth(_:containerBounds:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'removeTrackingArea' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'removeTrackingArea' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'resetCursorRects()' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'resetCursorRects()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'scheduleHostedInspectorDividerReapply(in:reason:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'scheduleHostedInspectorDividerReapply(in:reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'setFrameSize' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'setFrameSize' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'splitDividerRegions()' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'splitDividerRegions()' in a synchronous nonisolated context [#ActorIsolatedCall]
 4	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'updateDividerCursor(at:dividerHit:hostedInspectorHit:)' in a synchronous nonisolated context
+4	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'updateDividerCursor(at:dividerHit:hostedInspectorHit:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'updateSplitDividerResizeObserver()' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'updateSplitDividerResizeObserver()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'updateTrackingAreas()' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'updateTrackingAreas()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'viewDidMoveToSuperview()' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'viewDidMoveToSuperview()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'viewDidMoveToWindow()' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'viewDidMoveToWindow()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'viewWillMove(toWindow:)' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'viewWillMove(toWindow:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'willRemoveSubview' in a synchronous nonisolated context
+1	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'willRemoveSubview' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'yieldOwnedFirstResponderIfNeeded(in:reason:)' in a synchronous nonisolated context
+2	Sources/BrowserWindowPortal.swift	call to main actor-isolated instance method 'yieldOwnedFirstResponderIfNeeded(in:reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/BrowserWindowPortal.swift	call to main actor-isolated static method 'sizeApproximatelyEqual(_:_:epsilon:)' in a synchronous nonisolated context
+2	Sources/BrowserWindowPortal.swift	call to main actor-isolated static method 'sizeApproximatelyEqual(_:_:epsilon:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/BrowserWindowPortal.swift	main actor-isolated property 'autoresizingMask' can not be mutated from a nonisolated context
 8	Sources/BrowserWindowPortal.swift	main actor-isolated property 'bounds' can not be referenced from a nonisolated context
 1	Sources/BrowserWindowPortal.swift	main actor-isolated property 'cmuxBrowserViewportPresentationView' can not be referenced from a nonisolated context
@@ -119,10 +350,14 @@
 1	Sources/BrowserWindowPortal.swift	main actor-isolated static property 'dividerHitExpansion' can not be referenced from a nonisolated context
 2	Sources/BrowserWindowPortal.swift	main actor-isolated static property 'minimumHostedInspectorWidth' can not be referenced from a nonisolated context
 1	Sources/BrowserWindowPortal.swift	main actor-isolated var 'NSApp' can not be referenced from a nonisolated context
+1	Sources/Cloud/ConnectivityInvalidationSubscriberCoordinator.swift	'weak' ownership of capture 'auth' differs from implicitly-captured strong reference in outer scope [#ImplicitStrongCapture]
 24	Sources/ContentView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+19	Sources/ContentView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
+1	Sources/ContentView.swift	'weak' ownership of capture 'tabManager' differs from implicitly-captured strong reference in outer scope [#ImplicitStrongCapture]
 1	Sources/ContentView.swift	treating a forced downcast to 'CGColor' as optional will never produce 'nil'
 1	Sources/ContentView.swift	use of protocol 'Panel' as a type must be written 'any Panel'; this will be an error in a future Swift language mode
 1	Sources/Feed/FeedPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/Feed/FeedPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
 1	Sources/FileExplorerView.swift	'icon(forFileType:)' was deprecated in macOS 12.0: Use -[NSWorkspace iconForContentType:] instead.
 1	Sources/FocusStealingResponderConformances.swift	extension declares a conformance of imported type 'WKWebView' to imported protocol 'FocusStealingResponder'; this will not behave correctly if the owners of 'WebKit' introduce this conformance in the future
 1	Sources/GhosttyTerminalView.swift	'unsafeBitCast' from '@convention(c) (UnsafeMutableRawPointer?, ghostty_clipboard_e, UnsafeMutableRawPointer?) -> Bool' to 'ghostty_runtime_read_clipboard_cb' (aka '@convention(c) (Optional<UnsafeMutableRawPointer>, ghostty_clipboard_e, Optional<UnsafeMutableRawPointer>) -> Bool') is unnecessary and can be removed
@@ -130,19 +365,33 @@
 1	Sources/GhosttyTerminalView.swift	left side of nil coalescing operator '??' has non-optional type '[NSPasteboard.PasteboardType]', so the right side is never used
 1	Sources/GhosttyTerminalView.swift	left side of nil coalescing operator '??' has non-optional type 'ghostty_input_mods_e', so the right side is never used
 1	Sources/KeyboardShortcutSettings.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
+1	Sources/Mobile/MobileHostIrxRuntime.swift	'weak' ownership of capture 'self' differs from implicitly-captured strong reference in outer scope [#ImplicitStrongCapture]
 1	Sources/NotificationsPage.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/Panels/BrowserDesignModeScreenshotEvaluator.swift	'weak' ownership of capture 'self' differs from implicitly-captured strong reference in outer scope [#ImplicitStrongCapture]
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'addCursorRect(_:cursor:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'addCursorRect(_:cursor:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'addTrackingArea' in a synchronous nonisolated context
+1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'addTrackingArea' in a synchronous nonisolated context [#ActorIsolatedCall]
 9	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'forwardMouseEvent' in a synchronous nonisolated context
+9	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'forwardMouseEvent' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'invalidateCursorRects(for:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'invalidateCursorRects(for:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'removeTrackingArea' in a synchronous nonisolated context
+1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'removeTrackingArea' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'resetCursorRects()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'resetCursorRects()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'setAccessibilityElement' in a synchronous nonisolated context
+1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'setAccessibilityElement' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'setFrameSize' in a synchronous nonisolated context
+1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'setFrameSize' in a synchronous nonisolated context [#ActorIsolatedCall]
 3	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'setIBeamCursor()' in a synchronous nonisolated context
+3	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'setIBeamCursor()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'updateTrackingAreas()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'updateTrackingAreas()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'viewDidMoveToWindow()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	call to main actor-isolated instance method 'viewDidMoveToWindow()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	main actor-isolated property 'alphaValue' can not be referenced from a nonisolated context
 2	Sources/Panels/BrowserOmnibarAppKitBridge.swift	main actor-isolated property 'bounds' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserOmnibarAppKitBridge.swift	main actor-isolated property 'isHidden' can not be referenced from a nonisolated context
@@ -160,62 +409,119 @@
 2	Sources/Panels/BrowserPanel.swift	main actor-isolated var 'NSApp' can not be referenced from a nonisolated context
 9	Sources/Panels/BrowserPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated initializer 'init(frame:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated initializer 'init(textCell:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated initializer 'init(textCell:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'addCursorRect(_:cursor:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'addCursorRect(_:cursor:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'addTrackingArea' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'addTrackingArea' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'applyHostedInspectorDividerWidth(_:to:minimumInspectorWidth:reason:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'applyHostedInspectorDividerWidth(_:to:minimumInspectorWidth:reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'applyHostedInspectorDockConfiguration(_:reason:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'applyHostedInspectorDockConfiguration(_:reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'cancelHostedWebKitPresentationRefresh()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'cancelHostedWebKitPresentationRefresh()' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'captureHostedInspectorPreferredWidthFromCurrentLayout(reason:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'captureHostedInspectorPreferredWidthFromCurrentLayout(reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'clearActiveDividerCursor(restoreArrow:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'clearActiveDividerCursor(restoreArrow:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 7	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'convert(_:from:)' in a synchronous nonisolated context
+7	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'convert(_:from:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 8	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'currentEditor()' in a synchronous nonisolated context
+8	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'currentEditor()' in a synchronous nonisolated context [#ActorIsolatedCall]
 5	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'debugLogHitTest(stage:point:passThrough:hitView:)' in a synchronous nonisolated context
+5	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'debugLogHitTest(stage:point:passThrough:hitView:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'debugLogHostedInspectorFrames(stage:point:hit:)' in a synchronous nonisolated context
+3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'debugLogHostedInspectorFrames(stage:point:hit:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 7	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'debugLogHostedInspectorLayoutIfNeeded(reason:)' in a synchronous nonisolated context
+7	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'debugLogHostedInspectorLayoutIfNeeded(reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'enforceAdaptiveBottomDockIfNeeded(reason:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'enforceAdaptiveBottomDockIfNeeded(reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'hasMarkedText()' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'hasMarkedText()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'hitTest' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'hitTest' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'hostedInspectorDividerCandidate()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'hostedInspectorDividerCandidate()' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'hostedInspectorDividerHit(at:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'hostedInspectorDividerHit(at:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'hostedInspectorDividerHitRect(for:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'hostedInspectorDividerHitRect(for:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'insertionIndex(for:in:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'insertionIndex(for:in:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'invalidateCursorRects(for:)' in a synchronous nonisolated context
+3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'invalidateCursorRects(for:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'isDescendant(of:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'isDescendant(of:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'isHostedInspectorSideDockActive()' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'isHostedInspectorSideDockActive()' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'keyDown(with:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'keyDown(with:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'layout()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'layout()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'layoutHostedInspectorSideDockIfNeeded(reason:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'layoutHostedInspectorSideDockIfNeeded(reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'makeFirstResponder' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'makeFirstResponder' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'markGeometryDirtyIfNeeded()' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'markGeometryDirtyIfNeeded()' in a synchronous nonisolated context [#ActorIsolatedCall]
 3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'mouseDown(with:)' in a synchronous nonisolated context
+3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'mouseDown(with:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'mouseDragged(with:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'mouseDragged(with:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'mouseUp(with:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'mouseUp(with:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'nativeHostedInspectorHit(at:hostedInspectorHit:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'nativeHostedInspectorHit(at:hostedInspectorHit:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 5	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'notifyGeometryChangedIfNeeded()' in a synchronous nonisolated context
+5	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'notifyGeometryChangedIfNeeded()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'notifyHostedWebKitHidden(reason:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'notifyHostedWebKitHidden(reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'performKeyEquivalent(with:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'performKeyEquivalent(with:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason:)' in a synchronous nonisolated context
+3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'recordPreferredHostedInspectorWidth(_:containerBounds:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'recordPreferredHostedInspectorWidth(_:containerBounds:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'removeTrackingArea' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'removeTrackingArea' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'resetCursorRects()' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'resetCursorRects()' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'scheduleHostedInspectorDividerReapply(reason:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'scheduleHostedInspectorDividerReapply(reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'scheduleHostedInspectorDockConfigurationSync(reason:)' in a synchronous nonisolated context
+3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'scheduleHostedInspectorDockConfigurationSync(reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'scheduleHostedInspectorSideDockPromotionIfNeeded()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'scheduleHostedInspectorSideDockPromotionIfNeeded()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'scheduleHostedWebKitPresentationRefresh(reason:forceLifecycleRefresh:normalizeHostedInspectorLayout:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'scheduleHostedWebKitPresentationRefresh(reason:forceLifecycleRefresh:normalizeHostedInspectorLayout:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'selectedRange()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'selectedRange()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'setFrameSize' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'setFrameSize' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'setSelectedRange' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'setSelectedRange' in a synchronous nonisolated context [#ActorIsolatedCall]
 2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'setSelection(anchor:extent:in:)' in a synchronous nonisolated context
+2	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'setSelection(anchor:extent:in:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'shouldPassThroughToExternalSplitDivider(at:hostedInspectorHit:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'shouldPassThroughToExternalSplitDivider(at:hostedInspectorHit:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'shouldPassThroughToSidebarResizer(at:hostedInspectorHit:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'shouldPassThroughToSidebarResizer(at:hostedInspectorHit:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 5	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'updateDividerCursor(at:hostedInspectorHit:)' in a synchronous nonisolated context
+5	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'updateDividerCursor(at:hostedInspectorHit:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'updateHostedInspectorDockControlAvailabilityIfNeeded(reason:)' in a synchronous nonisolated context
+3	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'updateHostedInspectorDockControlAvailabilityIfNeeded(reason:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'updateTrackingAreas()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'updateTrackingAreas()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'viewDidMoveToSuperview()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'viewDidMoveToSuperview()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'viewDidMoveToWindow()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated instance method 'viewDidMoveToWindow()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated static method 'sizeApproximatelyEqual(_:_:epsilon:)' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	call to main actor-isolated static method 'sizeApproximatelyEqual(_:_:epsilon:)' in a synchronous nonisolated context [#ActorIsolatedCall]
 5	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'bounds' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'cell' can not be mutated from a nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'drawsBackground' can not be mutated from a nonisolated context
@@ -237,10 +543,10 @@
 6	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'mouseSelectionState' can not be mutated from a nonisolated context
 2	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'mouseSelectionState' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'onDidMoveToWindow' can not be referenced from a nonisolated context
-1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'pendingHostedInspectorDockConfiguration' can not be mutated from a nonisolated context
-1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'pendingHostedInspectorDockConfiguration' can not be referenced from a nonisolated context
 2	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'onHandleKeyEvent' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'onPointerDown' can not be referenced from a nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'pendingHostedInspectorDockConfiguration' can not be mutated from a nonisolated context
+1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'pendingHostedInspectorDockConfiguration' can not be referenced from a nonisolated context
 5	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'shiftClickAnchor' can not be mutated from a nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'shiftClickAnchor' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPanelView.swift	main actor-isolated property 'string' can not be referenced from a nonisolated context
@@ -252,20 +558,30 @@
 1	Sources/Panels/BrowserPanelView.swift	main actor-isolated static property 'dragSelectionThreshold' can not be referenced from a nonisolated autoclosure
 2	Sources/Panels/BrowserPanelView.swift	main actor-isolated static property 'minimumHostedInspectorWidth' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPanelWindowPresence.swift	call to main actor-isolated instance method 'viewDidMoveToWindow()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPanelWindowPresence.swift	call to main actor-isolated instance method 'viewDidMoveToWindow()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPanelWindowPresence.swift	main actor-isolated property 'onLeaveWindow' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPanelWindowPresence.swift	main actor-isolated property 'window' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'layout()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'layout()' in a synchronous nonisolated context [#ActorIsolatedCall]
 4	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'markPortalGeometrySynchronizationNeeded()' in a synchronous nonisolated context
+4	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'markPortalGeometrySynchronizationNeeded()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'setFrameOrigin' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'setFrameSize' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'setFrameSize' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'synchronizePortalGeometryIfNeeded()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'synchronizePortalGeometryIfNeeded()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'viewDidMoveToSuperview()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'viewDidMoveToSuperview()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'viewDidMoveToWindow()' in a synchronous nonisolated context
+1	Sources/Panels/BrowserPortalAnchorView.swift	call to main actor-isolated instance method 'viewDidMoveToWindow()' in a synchronous nonisolated context [#ActorIsolatedCall]
 1	Sources/Panels/BrowserPortalAnchorView.swift	main actor-isolated property 'installationConstraints' can not be mutated from a nonisolated context
 2	Sources/Panels/BrowserPortalAnchorView.swift	main actor-isolated property 'installationConstraints' can not be referenced from a nonisolated context
 1	Sources/Panels/BrowserPortalAnchorView.swift	main actor-isolated property 'superview' can not be referenced from a nonisolated context
+1	Sources/Panels/BrowserRepl/WebKitBrowserReplDriver.swift	'weak' ownership of capture 'panel' differs from implicitly-captured strong reference in outer scope [#ImplicitStrongCapture]
 1	Sources/Panels/MarkdownPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Panels/ReactGrab.swift	consider using asynchronous alternative function
+2	Sources/RemoteTmuxWindowMirror+SizingTransaction.swift	'weak' ownership of capture 'self' differs from implicitly-captured strong reference in outer scope [#ImplicitStrongCapture]
 5	Sources/SessionIndexStore.swift	expression is 'async' but is not marked with 'await'
 1	Sources/SessionIndexStore.swift	instance method 'makeIterator' is unavailable from asynchronous contexts
 1	Sources/SessionIndexStore.swift	main actor-isolated static property 'headByteCap' can not be referenced from a nonisolated context
@@ -277,7 +593,10 @@
 1	Sources/SessionIndexTableController.swift	main actor-isolated property 'isApplyingRows' can not be referenced from a Sendable closure
 2	Sources/SessionIndexView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Settings/ConfigSettingsView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/Settings/ConfigSettingsView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
 17	Sources/TabManager.swift	result of call to 'closePanel(_:force:)' is unused
+17	Sources/TabManager.swift	result of call to 'closePanel(_:force:)' is unused [#NoUsage]
+1	Sources/TerminalController+ControlMobileHostContext.swift	conformance to 'Sendable' must occur in the same source file as class 'TerminalController'; use '@unchecked Sendable' for retroactive conformance; this will be an error in a future Swift language mode
 1	Sources/TerminalController.swift	'CGWindowListCreateImage' was deprecated in macOS 14.0: Please use ScreenCaptureKit instead.
 2	Sources/TerminalController.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
 1	Sources/TerminalController.swift	'observer' mutated after capture by sendable closure
@@ -291,11 +610,13 @@
 2	Sources/TerminalNotificationStore.swift	call to main actor-isolated instance method 'logAuthorization' in a synchronous nonisolated context
 1	Sources/TerminalNotificationStore.swift	call to main actor-isolated instance method 'refreshDockBadge()' in a synchronous nonisolated context
 2	Sources/TerminalNotificationStore.swift	capture of 'content' with non-sendable type 'UNMutableNotificationContent' in a '@Sendable' closure
+1	Sources/TerminalSurfaceRuntimeWiring.swift	conformance to 'Sendable' must occur in the same source file as class 'RendererRealizationController'; use '@unchecked Sendable' for retroactive conformance; this will be an error in a future Swift language mode
 1	Sources/Update/UpdateDriver.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'Sparkle'
 1	Sources/Update/UpdateDriver.swift	sendability of function types in instance method 'show(_:reply:)' does not match requirement in protocol 'SPUUserDriver'
 1	Sources/Update/UpdateDriver.swift	sendability of function types in instance method 'showReady(toInstallAndRelaunch:)' does not match requirement in protocol 'SPUUserDriver'
 1	Sources/Update/UpdateDriver.swift	sendability of function types in instance method 'showUpdateFound(with:state:reply:)' does not match requirement in protocol 'SPUUserDriver'
 2	Sources/Update/UpdateLogStore.swift	result of 'try?' is unused
+2	Sources/Update/UpdateLogStore.swift	result of 'try?' is unused [#NoUsage]
 1	Sources/Update/UpdateTestSupport.swift	'init(dictionary:)' is deprecated: Properties that depend on the system or application version are not supported when used with this initializer. The designated initializer is available in SUAppcastItem+Private.h. Please first explore other APIs or contact us to describe your use case.
 1	Sources/Workspace.swift	conformance of 'Workspace' to protocol 'BonsplitDelegate' crosses into main actor-isolated code and can cause data races
 1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:didChangeGeometry:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
@@ -312,6 +633,7 @@
 1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:shouldCloseTab:inPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
 1	Sources/Workspace.swift	switch must be exhaustive
 22	Sources/cmuxApp.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+18	Sources/cmuxApp.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
 1	cmuxTests/AccountSignInModelTests.swift	'addWorkspace(id:title:titleSource:workingDirectory:initialSurface:initialTerminalCommand:initialTerminalInput:initialTerminalStartupRestoreAgent:initialTerminalEnvironment:initialBrowserURL:initialBrowserOmnibarVisible:initialBrowserTransparentBackground:workspaceEnvironment:inheritWorkingDirectory:select:eagerLoadTerminal:placementOverride:autoWelcomeIfNeeded:autoRefreshMetadata:normalizeWorkspaceGroupsAfterInsert:applyCreationTitleAsCustomTitle:allowTextBoxFocusDefault:)' is deprecated: Use addWorkspaceIfActive(...) for lifecycle-safe creation [#DeprecatedDeclaration]
 1	cmuxTests/AgentChatSessionRegistryLifecycleTests.swift	using '_' to ignore the result of a Void-returning function is redundant
 1	cmuxTests/AgentChatTranscriptServiceLifetimeTests.swift	no calls to throwing functions occur within 'try' expression
