@@ -180,6 +180,7 @@ import { useComposerKeyboard } from "./composerFocus";
 import { type AutomationCompose } from "./automation";
 import { acpmuxPerf } from "./perf";
 import { type PerfSend } from "./perfReporter";
+import type { ReadInspectorHistory } from "./InspectorTiming";
 import { startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } from "./streamingRow";
@@ -524,6 +525,7 @@ import {
   pickOnlyNewChat,
 } from "./cloudRun";
 import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
+import { cloudStartOpenedSettled, cloudStartWaitsForFirstPage } from "./cloudStartOpened";
 import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
 import {
   lastNewChatPlace,
@@ -1338,6 +1340,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current ? directClient.current.perf(params) : Promise.reject(new Error(translate("error.notOpen"))),
     [],
   );
+  /// `_acpmux/history` through the client connected now (the Inspector's Timing tab, InspectorTiming.tsx).
+  const readInspectorHistory = useCallback<ReadInspectorHistory>(
+    (sessionId) =>
+      directClient.current
+        ? directClient.current.inspectorHistory(sessionId)
+        : Promise.reject(new Error(translate("error.notOpen"))),
+    [],
+  );
   // acpmux's verdict on this Mac's load and swap (host_overload.rs): the composer draws it only when over.
   const readOverload = useCallback(
     () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
@@ -1482,12 +1492,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [clientSnapshot, switchView, catalog, shownStarting, shownOffline],
   );
   // Unsettle (a settle toast's Undo, the home's Settled shelf): Unarchive by id (direct.ts
-  // `unsettle`); a refusal says so in a toast.
+  // `unsettle`); a refusal says so in a toast, in the pane's words (plainErrors.test.ts).
   const unsettleChat = useCallback(
     (entry: AcpmuxSessionEntry) => {
       const client = directClient.current;
       if (!client) return notices.failed(translate("error.notOpen"));
-      client.unsettle(entry.sessionId).catch((error: unknown) => notices.failed(errorMessage(error) || String(error)));
+      client
+        .unsettle(entry.sessionId)
+        .catch((error: unknown) => notices.failed(knownRefusalText(error) ?? translate("settle.unsettleFailed")));
     },
     [notices],
   );
@@ -4899,7 +4911,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// stalled: the card says so, and the start is still out.
   /// The chat view shows the start (CloudStartView: the sent prompt, its steps, a failure and Retry) in place
   /// of the new chat: one with no session, or an empty local chat the start replaces (`emptyLocalChat`).
-  const cloudStartShown = cloudStart !== undefined && (!snapshot.sessionId || emptyLocalChat);
+  /// An opened start (cloudStartOpened.ts) shows until the Cloud chat's first page is drawn: the pane never blanks between.
+  const cloudStartShown =
+    cloudStart !== undefined &&
+    (!snapshot.sessionId || emptyLocalChat || cloudStartWaitsForFirstPage(cloudStart, snapshot));
   /// The folder the shown start copies (none for a folderless one): the composer's folder chip names it (cmux#46023).
   const cloudStartFolderShown = cloudStartShown ? cloudStart?.cwd : undefined;
   const cloudStartPickShown = shownCloudStartPick(cloudStartShown, cloudStart, {
@@ -4934,7 +4949,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudStartQueued = useRef<{ key: string; texts: string[] } | undefined>(undefined);
   const queueCloudStartSend = (text: string): boolean => {
     const start = cloudStart;
-    if (!start || start.state !== "starting" || start.signingIn || !cloudStartGoes()) return false;
+    // An opened start took its queue with the chat: what is typed now stays in the composer for the chat.
+    if (!start || start.state !== "starting" || start.signingIn || start.opened || !cloudStartGoes()) return false;
     const before = cloudStartQueued.current?.key === start.key ? cloudStartQueued.current.texts : [];
     const texts = [...before, text];
     cloudStartQueued.current = { key: start.key, texts };
@@ -7279,6 +7295,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// refusal at once, a recovery (a daemon starting, restarting or handed off by an update) only
   /// once it has failed past its deadline. Until then the pane shows nothing; a connect clears it.
   const [hostErrorShown, setHostErrorShown] = useState(false);
+  // An opened Cloud start's card goes once the Cloud chat's first page is drawn, or says why the chat did not open
+  // (the host's error, the start's notice), its prompt kept: never a blank chat or one that loads forever.
+  const cloudStartOpenedNow = cloudStart?.opened === true;
+  useEffect(() => {
+    if (!cloudStartOpenedNow) return;
+    const view = {
+      sessionId: snapshot.sessionId,
+      rows: snapshot.rows,
+      hostError: hostErrorShown ? hostError : undefined,
+    };
+    setCloudStart((current) => cloudStartOpenedSettled(current, view));
+  }, [cloudStartOpenedNow, snapshot.sessionId, snapshot.rows, hostError, hostErrorShown]);
   /// A Retry the user asked for that waits on the attempt in flight.
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
@@ -11653,6 +11681,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setDisplayAnchor,
     closeInspector,
     sendPerf,
+    readInspectorHistory,
     setDock,
     dockFoot,
     paneToasts,
