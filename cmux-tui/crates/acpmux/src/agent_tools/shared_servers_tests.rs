@@ -198,7 +198,8 @@ fn leftover_claude_entry_respects_effective_scope_and_disabled_names() {
             "projects": {w.chat.to_str().unwrap(): {"disabledMcpServers": ["acpmux"]}},
         }),
     );
-    assert_eq!(read(), None);
+    assert_eq!(read().as_deref(), Some("acpmux"), "retain the disabled identity");
+    assert!(w.shared(&Share::All).is_empty(), "identity detection must not enable sharing");
     // Project .mcp.json also wins over user scope, in either direction.
     w.write(&config, json!({"mcpServers": {"acpmux": ours}}));
     w.write(&w.chat.join(".mcp.json"), json!({"mcpServers": {"acpmux": other}}));
@@ -211,10 +212,73 @@ fn leftover_claude_entry_respects_effective_scope_and_disabled_names() {
 }
 
 #[test]
-fn leftover_codex_entry_must_be_enabled() {
+fn leftover_codex_entry_preserves_disabled_identity() {
     let codex = "[mcp_servers.acpmux]\ncommand = \"acpmux\"\nargs = [\"acpmux-mcp\"]\n";
     assert_eq!(codex_leftover_in(codex).as_deref(), Some("acpmux"));
     let off = format!("{codex}enabled = false\n");
-    assert_eq!(codex_leftover_in(&off), None);
+    assert_eq!(codex_leftover_in(&off).as_deref(), Some("acpmux"));
+    assert!(
+        codex_with(
+            &off,
+            &Share::All,
+            &BTreeMap::new(),
+            Path::new("/work"),
+            &BTreeSet::new(),
+            |_| { panic!("a disabled server must not be shared") }
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        codex_leftover_in("[mcp_servers.acpmux]\ncommand = \"node\"\nenabled = false\n"),
+        None
+    );
     assert_eq!(codex_leftover_in("[mcp_servers.github]\ncommand = \"gh\"\n"), None);
+}
+
+#[test]
+fn leftover_claude_disabled_project_preserves_identity_and_precedence() {
+    let w = World::new();
+    let ours = json!({"command": "cmux", "args": ["acpmux-mcp"]});
+    let other = json!({"command": "node", "args": ["unrelated"]});
+    let config = w.top.join(".claude.json");
+    w.write(
+        &config,
+        json!({
+            "projects": {w.chat.to_str().unwrap(): {"disabledMcpjsonServers": ["acpmux"]}},
+            "mcpServers": {"acpmux": other},
+        }),
+    );
+    w.write(&w.chat.join(".mcp.json"), json!({"mcpServers": {"acpmux": ours}}));
+    assert_eq!(
+        claude_leftover_with(&w.claude, &BTreeMap::new(), &w.chat).as_deref(),
+        Some("acpmux")
+    );
+    w.write(
+        &config,
+        json!({
+            "projects": {w.chat.to_str().unwrap(): {"disabledMcpjsonServers": ["acpmux"]}},
+            "mcpServers": {"acpmux": ours},
+        }),
+    );
+    w.write(&w.chat.join(".mcp.json"), json!({"mcpServers": {"acpmux": other}}));
+    assert_eq!(claude_leftover_with(&w.claude, &BTreeMap::new(), &w.chat), None);
+}
+
+#[test]
+fn leftover_claude_disabled_identity_still_respects_managed_policy() {
+    let w = World::new();
+    w.write(
+        &w.top.join(".claude.json"),
+        json!({
+            "mcpServers": {"acpmux": {"command": "cmux", "args": ["acpmux-mcp"]}},
+            "projects": {w.chat.to_str().unwrap(): {"disabledMcpServers": ["acpmux"]}},
+        }),
+    );
+    w.write(
+        &w.top.join("managed-settings.json"),
+        json!({
+            "deniedMcpServers": [{"serverName": "acpmux"}],
+        }),
+    );
+    assert_eq!(claude_leftover_with(&w.claude, &BTreeMap::new(), &w.chat), None);
 }

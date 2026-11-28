@@ -148,6 +148,33 @@ pub fn claude_with(
     taken: &BTreeSet<String>,
     entry: impl Fn(&Spec) -> Option<Value>,
 ) -> Map<String, Value> {
+    let real = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+    claude_entries(claude, &real, false)
+        .into_iter()
+        .filter_map(|(name, server)| {
+            if taken.contains(&name) || !share.takes(&name) {
+                return None;
+            }
+            let line = project_mcp::stdio_line(&server)?;
+            let spec = spec_of(
+                &line[0],
+                &line[1..],
+                server.get("env").and_then(Value::as_object),
+                &real,
+                env,
+            )?;
+            Some((name, entry(&spec)?))
+        })
+        .collect()
+}
+
+/// Resolve precedence before applying sharing's disabled filter. Identity detection also
+/// needs disabled entries: changing their name would lose the harness's disabled setting.
+fn claude_entries(
+    claude: &project_mcp::Claude,
+    cwd: &Path,
+    include_disabled: bool,
+) -> Map<String, Value> {
     let mut out = Map::new();
     if claude.managed_mcp.exists() {
         return out;
@@ -179,8 +206,22 @@ pub fn claude_with(
         }
     }
     let folders: Vec<&Path> = real.ancestors().collect();
-    for (name, server, _) in project_mcp::started(&real, claude, &folders) {
-        candidates.push((name, server));
+    if include_disabled {
+        // Read declarations before disabled filtering, nearest folder first. An unrelated
+        // disabled declaration still shadows a lower-priority legacy cmux entry.
+        for folder in &folders {
+            if let Some(project) = project_mcp::read_json(&folder.join(".mcp.json")) {
+                for (name, server) in
+                    project.get("mcpServers").and_then(Value::as_object).into_iter().flatten()
+                {
+                    candidates.push((name.clone(), server.clone()));
+                }
+            }
+        }
+    } else {
+        for (name, server, _) in project_mcp::started(&real, claude, &folders) {
+            candidates.push((name, server));
+        }
     }
     for config in &configs {
         for (name, server) in
@@ -191,24 +232,17 @@ pub fn claude_with(
     }
     let mut seen = BTreeSet::new();
     for (name, server) in candidates {
-        if !seen.insert(name.clone()) || taken.contains(&name) || !share.takes(&name) {
+        if !seen.insert(name.clone()) {
             continue;
         }
-        if disabled.contains(&name) {
+        if !include_disabled && disabled.contains(&name) {
             continue;
         }
         let Some(line) = project_mcp::stdio_line(&server) else { continue };
         if !project_mcp::permitted(&managed, &name, &line) {
             continue;
         }
-        let Some(spec) =
-            spec_of(&line[0], &line[1..], server.get("env").and_then(Value::as_object), &real, env)
-        else {
-            continue;
-        };
-        if let Some(e) = entry(&spec) {
-            out.insert(name, e);
-        }
+        out.insert(name, server);
     }
     out
 }
@@ -303,21 +337,19 @@ pub fn claude_leftover(env: &BTreeMap<String, String>, cwd: &Path) -> Option<Str
     claude_leftover_with(&claude, env, cwd)
 }
 
-/// Resolve the same effective, enabled entry as sharing before recognizing a legacy server.
+/// Resolve the same effective entry as sharing, including disabled legacy servers.
 /// A lower-priority user entry must never replace an unrelated project or local server.
 fn claude_leftover_with(
     claude: &project_mcp::Claude,
-    env: &BTreeMap<String, String>,
+    _env: &BTreeMap<String, String>,
     cwd: &Path,
 ) -> Option<String> {
-    let entries = claude_with(claude, &Share::All, env, cwd, &BTreeSet::new(), |spec| {
-        Some(json!({"command": spec.command, "args": spec.args}))
-    });
+    let entries = claude_entries(claude, cwd, true);
     legacy_named(entries.iter().map(|(name, entry)| (name.as_str(), entry.clone())))
 }
 
 /// The legacy name under which the person's Codex `config.toml` still starts cmux's agent
-/// server, enabled: the chat's ACP entry takes that name, which Codex merges into theirs.
+/// server: the chat's ACP entry takes that name, preserving its enabled setting on merge.
 pub fn codex_leftover(env: &BTreeMap<String, String>) -> Option<String> {
     let dir = crate::harness_config::config_dir("CODEX_HOME", ".codex", &[env])?;
     codex_leftover_in(&std::fs::read_to_string(dir.join("config.toml")).ok()?)
@@ -329,9 +361,6 @@ pub fn codex_leftover_in(text: &str) -> Option<String> {
     let servers = table.get("mcp_servers")?.as_table()?;
     legacy_named(servers.iter().filter_map(|(name, server)| {
         let server = server.as_table()?;
-        if server.get("enabled").and_then(toml::Value::as_bool) == Some(false) {
-            return None;
-        }
         let entry = serde_json::to_value(server).ok()?;
         Some((name.as_str(), entry))
     }))
