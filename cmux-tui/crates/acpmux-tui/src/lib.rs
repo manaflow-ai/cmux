@@ -74,6 +74,8 @@ pub use menu::{Menu, MenuAction};
 #[cfg(all(test, unix))]
 mod answering_tests;
 pub(crate) mod directory;
+#[cfg(all(test, unix))]
+mod frame_work_tests;
 mod keymap;
 pub mod markdown;
 #[cfg(all(test, unix))]

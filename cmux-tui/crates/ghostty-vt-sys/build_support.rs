@@ -155,9 +155,57 @@ pub fn zig_compatible(actual: &str, required: &str) -> bool {
 }
 
 /// Where a host keeps zig `version` beside PATH: the fleet's Linux pool image
-/// installs every Zig it carries as `/opt/zig-<version>`.
+/// installs every Zig it carries as `/opt/zig-<version>`, and
+/// scripts/install-zig-ci.sh without sudo installs `zig-<arch>-<os>-<version>`
+/// under ~/.local/zig-ci (the dev Macs' copy) or /tmp/cmux-zig-ci (its default
+/// with no RUNNER_TEMP). A Mac whose PATH zig is Homebrew's older one (0.16
+/// while ghostty-next pins 0.17) found none of them and failed in `zig build`.
 pub fn installed_zig_paths(version: &str) -> Vec<String> {
-    vec![format!("/opt/zig-{version}/zig")]
+    local_zig_paths(
+        version,
+        std::env::var_os("HOME").as_deref(),
+        std::env::consts::ARCH,
+        std::env::consts::OS,
+    )
+}
+
+/// [`installed_zig_paths`] for a given HOME, arch and OS (`std::env::consts` names).
+pub fn local_zig_paths(
+    version: &str,
+    home: Option<&std::ffi::OsStr>,
+    arch: &str,
+    os: &str,
+) -> Vec<String> {
+    let exe = if os == "windows" { "zig.exe" } else { "zig" };
+    let name = format!("zig-{arch}-{os}-{version}");
+    let mut paths = vec![format!("/opt/zig-{version}/zig")];
+    if let Some(home) = home.filter(|h| !h.is_empty()) {
+        let dir = Path::new(home).join(".local/zig-ci").join(&name).join(exe);
+        paths.push(dir.display().to_string());
+    }
+    paths.push(format!("/tmp/cmux-zig-ci/{name}/{exe}"));
+    paths
+}
+
+/// The panic a build with no zig of the pinned series stops with, before `zig build`
+/// runs: the pin, each zig tried with its version, and how to get the pinned one.
+pub fn pin_unmet_message(required: &str, tried: &[(String, Option<String>)]) -> String {
+    let mut seen: Vec<&str> = Vec::new();
+    let mut lines = String::new();
+    for (zig, version) in tried {
+        if zig.is_empty() || seen.contains(&zig.as_str()) {
+            continue;
+        }
+        seen.push(zig);
+        let version = version.as_deref().unwrap_or("not found");
+        lines.push_str(&format!("\n  {zig}: {version}"));
+    }
+    format!(
+        "ghostty-next pins Zig {required} (build.zig.zon minimum_zig_version) and no zig of that series was found. \
+         Tried:{lines}\n\
+         Install it with `ZIG_FORCE_LOCAL_INSTALL=1 ZIG_INSTALL_ROOT=$HOME/.local/zig-ci GHOSTTY_ZIG_SOURCE=ghostty-next \
+         scripts/install-zig-ci.sh` from the cmux checkout, or point ZIG (or CMUX_ZIG) at a Zig {required}."
+    )
 }
 
 /// The zigs the build tries, in order: `explicit` (``zig_program``'s pick), PATH's

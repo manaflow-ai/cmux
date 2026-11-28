@@ -13,9 +13,17 @@ pub(crate) const MAX_CLIENT_CONTROL_SOCKETS: usize = 6;
 pub(crate) const MAX_DAEMON_PENDING_SOCKETS: usize = 2;
 pub(crate) const MAX_CIRCUIT_SOCKETS: usize = 4;
 pub(crate) const MAX_CIRCUIT_PENDING_SOCKETS: usize = 2;
-pub(crate) const MAX_PENDING_CIRCUITS_PER_SLOT: usize = 16;
-pub(crate) const MAX_CIRCUITS_PER_SLOT: usize = 32;
-pub(crate) const MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW: usize = 64;
+/// Per-slot circuit limits, sized for one slot that every other machine of the account dials. A slot is a
+/// machine's; each of the person's other live machines keeps up to two circuits to it for an hour (acpmux's kept
+/// `cheap` and `bulk` lanes, `Timings::kept_idle`), and a hedge opens one fresh circuit beside a silent one. The
+/// July limits (16 pending, 32 live, 64 a minute) fit a person's few devices; with 70+ fleet machines a slot ran
+/// out at 16 dialers and refused every new circuit `slot-circuit-capacity` (cmux-cp-2, 2026-11-28 00Z: 178
+/// refusals in an hour, 18-20 of its 73 peer links down each pass). These match the native relay's per-slot
+/// defaults (`crates/cmux-relay/src/config.rs`: 64 pending, 256 active) and still bound one slot's storage
+/// (one ledger value, a few hundred bytes an entry) and a runaway dialer (the allocation window).
+pub(crate) const MAX_PENDING_CIRCUITS_PER_SLOT: usize = 64;
+pub(crate) const MAX_CIRCUITS_PER_SLOT: usize = 256;
+pub(crate) const MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW: usize = 1024;
 pub(crate) const CIRCUIT_ALLOCATION_WINDOW_MS: u64 = 60_000;
 pub(crate) const ACTIVE_CIRCUIT_LEASE_MS: u64 = 15 * 60_000;
 pub(crate) const ACTIVE_CIRCUIT_RENEW_MS: u64 = 5 * 60_000;
