@@ -195,3 +195,12 @@ fn a_link_without_the_bound_waits_for_a_silent_peer() {
     assert!(viewer.poll_transmit(now).is_ok());
     assert!(viewer.is_established(), "the host side keeps its own grace");
 }
+
+#[test]
+fn a_viewer_link_outlasts_a_five_minute_drop() {
+    // The probe's drop-300s row: a 5 min full outage plus the time to hear the
+    // first probe reply after it must stay under the viewer's peer-lost bound.
+    let bound = cmux_rd_link::PEER_LOST_US;
+    assert!(bound > 300_000_000 + 30_000_000, "PEER_LOST_US {bound} ends a 5 min drop");
+    assert!(bound <= 600_000_000, "PEER_LOST_US {bound} keeps a dead host's link too long");
+}

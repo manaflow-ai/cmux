@@ -1255,6 +1255,13 @@ mod tests {
         assert!(viewer_silent_too_long(600_000_001));
     }
 
+    #[cfg(feature = "link")]
+    #[test]
+    fn host_grace_matches_the_viewer_links_peer_lost_bound() {
+        // Either side ending first loses the session, so the two bounds move together.
+        assert_eq!(REATTACH_GRACE_NS, cmux_rd_link::PEER_LOST_US * 1_000);
+    }
+
     #[test]
     fn the_ladder_runs_only_for_a_viewer_that_scales_a_smaller_picture() {
         let scaled = vec!["cursor".to_string(), "video.scaled".to_string()];

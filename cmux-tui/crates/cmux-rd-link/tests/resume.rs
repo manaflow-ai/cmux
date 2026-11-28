@@ -206,7 +206,7 @@ fn a_frame_after_idle_past_the_rekey_times_arrives_in_one_trip() {
 #[test]
 fn the_first_frame_after_the_host_wakes_arrives_in_one_trip() {
     let mut sim = Sim::established_on_lan();
-    // Under the viewer's 90 s peer-lost bound, so the session survives the sleep.
+    // Under the viewer's 10 min peer-lost bound, so the session survives the sleep.
     let latency = sim.sleep_and_wake(60_000, true);
     eprintln!("wake to first frame: {} ms", latency as f64 / 1_000.0);
     assert!(latency <= 2 * RELAY_US, "the first frame after a wake took {latency} us");
