@@ -264,7 +264,13 @@ def prebuild(args, part: str, out_root: Path) -> dict | None:
     out = out_root / f"{part}-build"
     out.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-    code, text = run_logged([*cargo_test(args, part), "--no-run"], cargo_env(args), TUI, out / "build.log",
+    # Two jobs: rustc's codegen units and the lib/test crates take jobserver tokens, so this bounds
+    # the build's peak under a pool slot's MemoryMax; with all cores the base-merged acpmux lib was
+    # SIGKILLed mid-build on both legs (run 46180367461). Fingerprints ignore the job count, so the
+    # timed run still finds this build fresh.
+    env = cargo_env(args)
+    env.setdefault("CARGO_BUILD_JOBS", str(args.build_jobs))
+    code, text = run_logged([*cargo_test(args, part), "--no-run"], env, TUI, out / "build.log",
                             args.build_timeout)
     log(f"{part} build: exit {code} in {time.monotonic() - started:.0f}s")
     if code == 0:
@@ -522,6 +528,7 @@ def main() -> int:
     ap.add_argument("--target-dir", default=os.environ.get("CARGO_TARGET_DIR"))
     ap.add_argument("--timeout", type=int, default=3600, help="seconds any one run may take")
     ap.add_argument("--build-timeout", type=int, default=3600, help="seconds a part's test build may take")
+    ap.add_argument("--build-jobs", type=int, default=2, help="cargo jobs a part's test build may use")
     args = ap.parse_intermixed_args()
     # acpmux refuses a state folder under a group- or world-writable one, and tempfile folders take the umask.
     os.umask(0o022)
