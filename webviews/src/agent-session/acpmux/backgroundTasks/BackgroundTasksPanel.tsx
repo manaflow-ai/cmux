@@ -227,47 +227,45 @@ export function BackgroundTasksPanel({
               data-rows={rowsLook}
               hidden={drill !== undefined}
             >
-              {groups.length === 0 ? (
-                // Nothing while the list loads, no loading words (Leo, 2026-11-27: "unnecesssary message").
-                !loading && <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
-              ) : (
-                sections.map((section) => (
-                  <Section
-                    key={section.id}
-                    id={section.id}
-                    count={section.groups.length + section.commands.length}
-                    openAt={focusedIn(section.commands, target)}
-                    onClear={
-                      section.id === "finished" && finished.length > 0 ? () => onClearFinished(finished) : undefined
-                    }
-                  >
-                    {section.commands.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        openAt={focusedIn([task], target)}
-                        now={now}
-                        onDrill={open}
-                        onStop={onStop}
-                        onOpenCommand={onOpenCommand}
-                      />
-                    ))}
-                    {section.groups.map((group, index) => (
-                      <GroupBlock
-                        key={group.id}
-                        group={group}
-                        look={look}
-                        now={now}
-                        startsOpen={section.id === "running" && index === 0}
-                        onDrill={open}
-                        onStop={onStop}
-                        onOpenSession={onOpenSession}
-                        onOpenCommand={onOpenCommand}
-                      />
-                    ))}
-                  </Section>
-                ))
-              )}
+              {groups.length === 0
+                ? // Nothing while the list loads, no loading words (Leo, 2026-11-27: "unnecesssary message").
+                  !loading && <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
+                : sections.map((section) => (
+                    <Section
+                      key={section.id}
+                      id={section.id}
+                      count={section.groups.length + section.commands.length}
+                      openAt={focusedIn(section.commands, target)}
+                      onClear={
+                        section.id === "finished" && finished.length > 0 ? () => onClearFinished(finished) : undefined
+                      }
+                    >
+                      {section.commands.map((task) => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          openAt={focusedIn([task], target)}
+                          now={now}
+                          onDrill={open}
+                          onStop={onStop}
+                          onOpenCommand={onOpenCommand}
+                        />
+                      ))}
+                      {section.groups.map((group, index) => (
+                        <GroupBlock
+                          key={group.id}
+                          group={group}
+                          look={look}
+                          now={now}
+                          startsOpen={section.id === "running" && index === 0}
+                          onDrill={open}
+                          onStop={onStop}
+                          onOpenSession={onOpenSession}
+                          onOpenCommand={onOpenCommand}
+                        />
+                      ))}
+                    </Section>
+                  ))}
             </div>
             {drill?.workflow && workflow && (
               // Workflow transcripts list no nested agents today (summary/workflowTranscript.ts reads
