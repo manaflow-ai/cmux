@@ -265,20 +265,47 @@ fn leftover_claude_disabled_project_preserves_identity_and_precedence() {
 }
 
 #[test]
-fn leftover_claude_disabled_identity_still_respects_managed_policy() {
+fn denied_legacy_identity_stays_denied_in_the_generated_direct_mcp_config() {
     let w = World::new();
-    w.write(
-        &w.top.join(".claude.json"),
-        json!({
-            "mcpServers": {"acpmux": {"command": "cmux", "args": ["acpmux-mcp"]}},
-            "projects": {w.chat.to_str().unwrap(): {"disabledMcpServers": ["acpmux"]}},
-        }),
-    );
+    let env = BTreeMap::from([(crate::agent_tools::SERVERS_ENV.to_owned(), "acpmux".to_owned())]);
     w.write(
         &w.top.join("managed-settings.json"),
-        json!({
-            "deniedMcpServers": [{"serverName": "acpmux"}],
-        }),
+        json!({"deniedMcpServers": [{"serverName": "acpmux"}]}),
     );
-    assert_eq!(claude_leftover_with(&w.claude, &BTreeMap::new(), &w.chat), None);
+    for disabled in [false, true] {
+        w.write(
+            &w.top.join(".claude.json"),
+            json!({
+                "mcpServers": {"acpmux": {"command": "cmux", "args": ["acpmux-mcp"]}},
+                "projects": {w.chat.to_str().unwrap(): {
+                    "disabledMcpServers": if disabled { vec!["acpmux"] } else { vec![] },
+                }},
+            }),
+        );
+        assert!(w.shared(&Share::All).is_empty(), "denied servers must never be shared");
+        let legacy = claude_leftover_with(&w.claude, &env, &w.chat);
+        assert_eq!(legacy.as_deref(), Some("acpmux"));
+        let tools = crate::agent_tools::AgentTools {
+            servers: vec![crate::agent_tools::McpServer {
+                name: crate::acpmux_mcp_names::SERVER_NAME.to_owned(),
+                command: "cmux".into(),
+                args: vec!["acpmux-mcp".into()],
+                env: vec![],
+            }],
+            ..Default::default()
+        }
+        .scoped(&env)
+        .folded();
+        // The direct-server launch applies the detector's identity before serializing.
+        let tools = match legacy {
+            Some(name) => tools.server_named(&name),
+            None => tools,
+        };
+        let config = tools.mcp_config().unwrap();
+        let servers = config["mcpServers"].as_object().unwrap();
+        assert_eq!(servers.keys().map(String::as_str).collect::<Vec<_>>(), ["acpmux"]);
+        let line = project_mcp::stdio_line(&servers["acpmux"]).unwrap();
+        let policies = project_mcp::managed_policies(&w.claude).unwrap();
+        assert!(!project_mcp::permitted(&policies, "acpmux", &line));
+    }
 }
