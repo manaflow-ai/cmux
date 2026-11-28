@@ -4,6 +4,11 @@ import { STATUS } from "../components/CloudEnvironmentsCard";
 /** Settings > Cloud > Default Image's value that sends no environment (the chat page's AUTO_ENVIRONMENT). */
 export const DEFAULT_IMAGE_AUTO = "auto";
 
+/** How long the menu waits before each read again when one failed or the list was not available yet (signed in a
+ * moment ago, the host still reading): the hq start-matrix-gui probe (run 46109146613) opened Settings right after
+ * sign-in and the menu kept only Auto for good, while the account had its environment. Mutable for tests. */
+export const defaultImageRetry = { delaysMs: [1_000, 2_000, 4_000, 8_000, 15_000] };
+
 export type DefaultImageOption = { value: string; label: string };
 
 /** The menu's items: Auto, then the account's Cloud environments; a picked environment the list does
