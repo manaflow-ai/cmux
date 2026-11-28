@@ -682,6 +682,44 @@ def still_red(ratchet_out: str, packages: list[str], libs: set[str] | None) -> t
     return [arg for crate in crates for arg in ("-p", crate)], any(crate in libs for crate in crates)
 
 
+def artifact_package(package_id: str) -> str:
+    """The package name in a cargo JSON `package_id`: `name 1.0 (path+file://...)` on older cargo,
+    `path+file:///.../dir#1.0` or `path+file:///.../dir#name@1.0` on newer."""
+    if not package_id.startswith(("path+", "registry+", "git+", "sparse+")):
+        return package_id.split(" ", 1)[0]
+    location, _, fragment = package_id.rpartition("#")
+    if "@" in fragment:
+        return fragment.split("@", 1)[0]
+    return location.rstrip("/").rsplit("/", 1)[-1]
+
+
+def head_features(clippy_json: Path, crates: list[str]) -> list[str] | None:
+    """`--no-default-features --features ...` that give each of `crates` the features cargo unified for it in the
+    head run, or None when the run names no artifact for one of them. Linting a crate alone resolves only its own
+    defaults: cmux#45686 (2026-11-28) linted acpmux with cmux-tui (hub-carrier) and cmux-tui-core (test-support),
+    then linted the base with `-p acpmux` alone, so the base counted fewer hits (indexing_slicing 788 vs the head's
+    870) and the hits a dependent's features compile read as the change's."""
+    found: dict[str, set[str]] = {}
+    try:
+        lines = clippy_json.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if '"compiler-artifact"' not in line:
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        name = artifact_package(str(message.get("package_id", "")))
+        if name in crates:
+            found.setdefault(name, set()).update(message.get("features") or [])
+    if set(crates) - set(found):
+        return None
+    wanted = sorted(f"{crate}/{feature}" for crate in crates for feature in found[crate])
+    return ["--no-default-features", *(["--features", ",".join(wanted)] if wanted else [])]
+
+
 def ratchet_targets(has_lib):
     """The panic ratchet's cargo targets: production code, plus examples so cargo unifies features as --all-targets did
     (see the module docstring); the ratchet skips example messages."""
@@ -756,11 +794,13 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
         base_command = command
         base_scope = scope
         red = still_red(untouched.stdout, packages, libs)
-        if red is not None:
+        # The narrowed lint keeps the head run's unified features, else it lints every selected package as before.
+        features = head_features(out, red[0][1::2]) if red is not None else None
+        if red is not None and features is not None:
             red_packages, red_has_lib = red
             targets = ratchet_targets(red_has_lib)
-            base_command = ["cargo", "clippy", "--locked", *red_packages, *targets, "--message-format=json", "--",
-                            *flags, *CAP_LINTS]
+            base_command = ["cargo", "clippy", "--locked", *red_packages, *features, *targets,
+                            "--message-format=json", "--", *flags, *CAP_LINTS]
             base_scope = ", ".join(red_packages[1::2])
             judge += ["--untouched-is-base", "--diff-base", compare]
         print(f"cmux-tui-clippy-changed: HEAD is over the baseline; panic ratchet on {base_scope} at the base {compare}",
