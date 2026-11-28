@@ -177,6 +177,7 @@ class Job:
     base_inputs: tuple[str, ...] = ()  # read at --base-rev
     product: bool = False              # the whole tree minus PRODUCT_EXCLUDES
     workflow: str = WORKFLOW           # the workflow file keyed whole (the one that builds it)
+    routed: str = ""                   # a ci/steps.toml step: every path at the rev its inputs route, plus `inputs`
 
 
 JOBS = {
@@ -196,6 +197,8 @@ JOBS = {
     "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (
         "LICENSE", "cmux-tui/build-support/notices", "cmux-tui/crates/ghostty-vt-sys/build.rs",
         "cmux-tui/rust-toolchain.toml", "scripts/verify-app-bundle-licenses.sh",
+        # Says why the compile runs on a Mac (the build fleet gave no verdict).
+        "scripts/ci/fleet_fallback.py",
     ), whole_tree=True),
     "cmux-tui-artifacts": Job(
         required=(),
@@ -228,6 +231,16 @@ JOBS = {
     # product closure and the arch. The fleet job pins its own Xcode (scripts/ci/xcode-pins.txt, in the
     # closure), so the runner's toolchain is not part of it.
     "nightly-pr-build": Job(("arch",), product=True, workflow=".github/workflows/nightly-pr-build.yml"),
+    # pr-pipeline.yml's ios fast verdict (scripts/ci/ios_fast_verdict.py): the kit target(s) the plan builds and
+    # tests on a Mac, 7,675 Mac min a day (11-27), 1,166 of them a head re-running after its own green. Its closure
+    # is the ios-kit step's routed inputs at the merge commit (ci/steps.toml: the iOS sources, the shared packages,
+    # the FFI's Rust crates, the Xcode pin), the same set that decides whether any iOS Mac job runs at all, plus the
+    # check's own files. `plan` is the plan's targets (a pass of one target is no verdict on another); `xcode_app`
+    # the repository's configured Xcode app for pull requests.
+    "ios-fast-verdict": Job((), ("plan", "xcode_app"), (
+        "scripts/ci/ios_fast_verdict.py", "scripts/ci/ios_fast_verdict.sh", "scripts/ci/ci_steps.py",
+        "ci/steps.toml", "ci/run",
+    ), routed="ios-kit", workflow=".github/workflows/pr-pipeline.yml"),
 }
 GRAPH = route.GRAPH
 
@@ -349,6 +362,42 @@ def product_inputs(root: str, rev: str) -> dict[str, str]:
     return found
 
 
+def routed_inputs(root: str, rev: str, spec: Job) -> dict[str, str]:
+    """`mode type oid` of every blob and gitlink at `rev` that the ci/steps.toml step `spec.routed` routes (its
+    input globs less its ignores, read at `rev`), plus `spec.inputs` ('-' when absent)."""
+    import ci_steps
+    try:
+        table = ci_steps.parse(ci_steps.tomllib.loads(git(root, "show", f"{rev}:ci/steps.toml")))
+    except (subprocess.CalledProcessError, ValueError) as error:
+        raise Unresolved(error.stderr.strip() or f"no ci/steps.toml at {rev}") from error
+    step = table.steps.get(spec.routed)
+    if step is None or not step.inputs:
+        raise Unresolved(f"ci/steps.toml at {rev} has no {spec.routed} step inputs")
+    listing = subprocess.run(["git", "-C", root, "ls-tree", "-r", "--full-tree", rev],
+                             capture_output=True, text=True, timeout=120)
+    if listing.returncode != 0:
+        raise Unresolved(listing.stderr.strip() or f"git ls-tree {rev} failed")
+    # ios_fast_verdict.routes_ios's rule (an input glob takes the path; the last ignore that matches decides), with
+    # each glob compiled once: the tree has tens of thousands of paths.
+    takes = [ci_steps.glob_pattern(glob) for glob in step.inputs]
+    ignores = [(ci_steps.glob_pattern(glob.lstrip("!")), glob.startswith("!")) for glob in reversed(step.ignore)]
+
+    def routed(path: str) -> bool:
+        if not any(pattern.match(path) for pattern in takes):
+            return False
+        return next((keep for pattern, keep in ignores if pattern.match(path)), True)
+
+    found: dict[str, str] = {}
+    for line in listing.stdout.splitlines():
+        meta, _, path = line.partition("\t")
+        if routed(path):
+            found[path] = meta
+    if not found:
+        raise Unresolved(f"the {spec.routed} step routes no path at {rev}")
+    found.update(object_ids(root, rev, [path for path in spec.inputs or () if path not in found]))
+    return dict(sorted(found.items()))
+
+
 def object_ids(root: str, rev: str, paths: list[str]) -> dict[str, str]:
     """`mode type oid` of each path at `rev` (submodule gitlinks included), or '-' when absent."""
     listing = subprocess.run(["git", "-C", root, "ls-tree", "--full-tree", rev, "--", *paths],
@@ -391,7 +440,9 @@ def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str |
         value: dict = {"version": VERSION, "job": job, "workflow": workflow,
                        "toolchain": {name: values[name] for name in spec.required + OPTIONAL if name in values},
                        "flags": {name: values[name] for name in spec.flags}}
-        if spec.product:
+        if spec.routed:
+            value["inputs"] = routed_inputs(root, commit, spec)
+        elif spec.product:
             value["inputs"] = product_inputs(root, commit)
             if job == "nightly-pr-build" and recipe_rev:
                 # The merge-ref driver is the recipe used by the workflow. The app and helper
@@ -424,9 +475,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list-inputs", action="store_true", help="print every keyed path on stderr")
     parser.add_argument("--mirror-plan", default="", help="write a non-enforcing candidate plan (empty disables)")
     args = parser.parse_args(argv)
-    if args.list_inputs and JOBS[args.job].product:
+    if args.list_inputs and (JOBS[args.job].product or JOBS[args.job].routed):
         try:
-            for path in product_inputs(args.root, args.rev):
+            spec = JOBS[args.job]
+            for path in (routed_inputs(args.root, args.rev, spec) if spec.routed else product_inputs(args.root, args.rev)):
                 print(f"input {path}", file=sys.stderr)
         except (Unresolved, subprocess.CalledProcessError) as why:
             print(f"::notice title=No input list for {args.job}::{why}", file=sys.stderr)
@@ -451,8 +503,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         present = sum(1 for meta in value["inputs"].values() if meta != "-")
         print(f"inputs {len(value['inputs'])} paths, {present} present", file=sys.stderr)
-        for path, meta in value["inputs"].items():
-            print(f"  {meta} {path}", file=sys.stderr)
+        if JOBS[args.job].routed:
+            print("  (--list-inputs lists them)", file=sys.stderr)
+        else:
+            for path, meta in value["inputs"].items():
+                print(f"  {meta} {path}", file=sys.stderr)
         for path, meta in value.get("base_inputs", {}).items():
             print(f"  base {meta} {path}", file=sys.stderr)
     print(f"workflow {value['workflow']} {JOBS[args.job].workflow}", file=sys.stderr)

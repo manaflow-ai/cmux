@@ -67,6 +67,15 @@ hub-carrier = ["dep:cmux-remote", "dep:cmux-remote-protocol", "dep:async-trait",
 # binary's allocator records every block and writes `ACPMUX_DHAT_OUT` when the daemon stops
 # (`heap_profile.rs`). Never in a shipped build: it slows every allocation.
 dhat-heap = ["dep:dhat"]
+# Bench only: mimalloc (the musl packages' allocator) in place of glibc's malloc on a gnu build, for
+# the allocator A/B of scripts/measure/infinite-items-linux.sh alloc_ab=1. Never in a shipped build.
+mimalloc-gnu = []
+# Bench only: mimalloc's v2 line in place of v3, on a gnu build, for the same A/B (v3 held about
+# 2.5x the live bytes at n=1,000 with the resident cap, job 5056393a; v2 was no better, eb7f270b).
+mimalloc-v2 = ["mimalloc/v2", "mimalloc-gnu"]
+# Bench only: musl's own malloc (mallocng) in place of mimalloc on a musl build, for the musl allocator A/B of
+# scripts/measure/alloc-musl-ab.sh. Never in a shipped build (RFD 0156: musl's malloc kept freed pages).
+musl-malloc = []
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.4"
@@ -83,7 +92,12 @@ cmux-tailnet = { workspace = true, optional = true }
 cmux-tailnet-join = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3"
+
 [dependencies]
+# What an upstream error says (529, 503, retry-after), shared with OptChat's Chief.
+cmux-upstream-error = { path = "../cmux-upstream-error" }
 cmux-transport-rewrite.workspace = true
 # Felt-latency metrics (`server/felt.rs`); portable, so every OS builds it.
 cmux-felt.workspace = true
@@ -98,6 +112,9 @@ cmux-cloud-start-core.workspace = true
 # The disk budget the evictor shares with the disk bar and the Cloud grow (`disk_evict.rs`).
 cmux-cloud-disk.workspace = true
 cmux-sync.workspace = true
+# A move's history pages: the zstd level per page, from the event-log curve and the copy's measured
+# link and compressor (`cmux_bytes::serial`, `cli/run/transfer_live.rs`).
+cmux-bytes.workspace = true
 cmux-team-messaging.workspace = true
 cmux-session-cloud.workspace = true
 # The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
@@ -121,6 +138,8 @@ imbl.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
+# The four words a person compares for a Mac key (`cli/consent_grant.rs`).
+cmux-server-core = { path = "../cmux-server-core" }
 cmux-json.workspace = true
 # Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads),
 # and one deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).
@@ -206,6 +225,7 @@ serde_json = { version = "1", features = ["raw_value"] }
 jsonschema.workspace = true
 sha1.workspace = true
 sha2.workspace = true
+ignore.workspace = true
 # Diffs of a proposed carried-memory change (src/agent_home.rs).
 diffy.workspace = true
 # P-256 signatures of the person's phones (src/hub/approvers.rs); ring is
@@ -217,6 +237,7 @@ thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite.workspace = true
 cmux-process.workspace = true
+cmux-tui-util = { workspace = true, features = ["tokio"] }
 cmux-pool-pod.workspace = true
 # Bounded waits (`hub/forward_wait.rs`): every waiting state declares its bound and recovery.
 cmux-bounded = { workspace = true, features = ["tokio"] }
@@ -282,9 +303,11 @@ url = { workspace = true, optional = true }
 # The change-only, path-following inotify watch (`quiet_dirs.rs`) of the harness, settings and
 # login-env watches; `notify` asks for every open. Already in the tree through `notify`, with its features.
 inotify = { version = "0.11", default-features = false }
-# The daemon's allocator on Linux (src/main.rs, acpmux-standalone): musl's malloc, the shipped
+# The daemon's allocator on musl Linux (src/main.rs, acpmux-standalone): musl's malloc, the shipped
 # static build's, never gave freed pages back, and a daemon up 12 h held 2.5 GB with a flat live
-# heap (RFD 0156). mimalloc returns them on its own.
+# heap (RFD 0156). mimalloc returns them on its own. gnu builds keep glibc's malloc (it held 70 MB
+# less than mimalloc v3 at n=1,000, cmux#57621) unless the bench feature `mimalloc-gnu` is on; the
+# dependency stays on every Linux target so that feature builds there.
 mimalloc = { version = "0.1", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
@@ -311,7 +334,6 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 cmux-auto-session = { workspace = true, features = ["test-support"] }
 # The simulated crash file system, for the journal store's crash tests.
 cmux-journal = { workspace = true, features = ["sim"] }
-cmux-server-core = { path = "../cmux-server-core" }
 rcgen = "0.14"
 # The protocol IR's compat gate (`protocol::tests::protocol_abi_breaks_have_rules`, RFD hq 0178).
 cmux-api-compat = { workspace = true }

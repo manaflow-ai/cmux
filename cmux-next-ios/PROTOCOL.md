@@ -175,7 +175,7 @@ Worker was deployed before its database migration; the message names it), `membe
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
 | `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation), then grants the caller `team_admin` so the web team settings treat them as its admin. If that grant fails, the team is deleted again and the route answers `502 team_create_failed`. `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. New clients list, create, rename and delete teams through the web team API (`/api/teams`, docs/team-settings-and-invites.md); this route stays for older builds. |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
-| `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
+| `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn, hopServers?}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
 | `GET /v1/me/devices` | → `{devices:[{deviceId,kind,name,teamId,createdAt,updatedAt,lastSeenAt,online,machineId,push}]}` (0.7.0): every Mac and phone the caller registered, in any team or personal space. `online` is live presence for Macs and `null` for phones; `push` is whether the phone has an APNs token |
 | `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
@@ -274,7 +274,7 @@ closed with 4001 `moved`.
     An offer with `mediaFor` (added 2026-10-19) opens a media session for
     the WireGuard link with that session id, not a link of its own ("Media
     session" below).
-  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?, relayedTls?, version?}`,
+  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?, relayedTls?, hop?, version?}`,
     `wg-resp` `{publicKey, endpoints, overlayIP, lanes?, relayed?, relayedTls?, version?}`.
     `relayed` (optional) lists which of the sender's endpoints are its TURN
     relayed addresses (the phone's; a Mac's only when its network blocks
@@ -292,11 +292,11 @@ closed with 4001 `moved`.
     path: no plain UDP and no TURN allocation, so the peer joins at once
     too); absent from older peers, which never join, and then neither
     does this side. A roam's endpoint announcement
-    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}`)
+    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?, hop?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
-  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}` (API
-    0.9.0; `mapped`, `mappedBy`: "Mapped endpoints" below): the same endpoint announcement a roaming side sends inside the
+  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?, hop?}` (API
+    0.9.0; `mapped`, `mappedBy`: "Mapped endpoints" below; `hop`: the hop/1 allocation, next paragraph): the same endpoint announcement a roaming side sends inside the
     tunnel (below), also sent through signaling, because the peer may not
     receive anything from the new address yet (a NAT that filters by
     address). The receiver applies the newer generation of either copy.
@@ -323,7 +323,21 @@ closed with 4001 `moved`.
   `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
   socket); `overlayIP` is the sender's IPv4 address inside the tunnel (the
   dialer uses `10.77.0.2`, the answerer `10.77.0.1`).
-- WireGuard paths, in order: plain UDP (direct, hole-punched), then TURN
+- An enabled UDP PoP adds `hopServers: [{kind:"hop",url:"hop://host:port",ticket}]` to
+  the authenticated ICE response. Older clients ignore this field. WebRTC receives
+  only standard ICE URLs. Each dial uses its own ticket for BIND, and repeats BIND
+  with the same ticket after a roam to keep its relayed port. If the PoP
+  refuses an expired ticket, the phone requests a new ticket from the authenticated
+  ICE service and announces the replacement port on the existing session. The phone lists the
+  BIND_OK address in `endpoints` and `relayed` and identifies it in `hop` on
+  `wg-init` and subsequent endpoint announcements. This optional field negotiates
+  the Mac leg independently of the WireGuard signaling version. An older Mac sends
+  plain WireGuard to the same port. A hop-aware Mac uses hop/1 there. Both legs
+  carry WireGuard ciphertext and submit control, input, bulk and media in classes
+  0, 2, 3 and 4. A producer can explicitly tag an encrypted state update for
+  latest-wins class 1. See [the hop/1 wire format](../docs/cmux-next/relay-pop-hop.md).
+- WireGuard paths, in order: plain UDP (direct, hole-punched), a proven hop/1
+  relay when configured (allocated concurrently with TURN), then TURN
   over UDP, then TURN over TLS on 443, then (0.17.0) cmux's WebSocket
   relay on the service's own host ("WebSocket relay"). When `/v1/ice` lists a TURN server
   the dialer allocates a TURN relay and adds the relayed address to its
@@ -479,7 +493,10 @@ is forwarded, and the service never answers it.
 ```
 
 - `transport`: `wireguard` or `webrtc`. `path`: `direct`, `turn`, `turn-tls`
-  (WireGuard over TURN on TCP/TLS) or `none` (no working route right now).
+  (WireGuard over TURN on TCP/TLS), `hop` (WireGuard over the hop/1 PoP), `https-relay` (WireGuard over cmux's WebSocket relay), or `none` (no working route right now).
+- `hop` is present only when `path` is `hop` and carries the selected hop/1 leg's
+  bounded counters. It has `srttMs` (at most 600000), `lossPermille` (at most 1000),
+  `resent` and `repaired` (at most 100000 each). `repaired` includes NACK and FEC repairs.
 - `reason`: `first` (once the link's first ping is answered, or 5 s after it
   came up), `periodic` (every 60 s while up), `path` (the path changed; at
   most one per 10 s, a change inside that only counts in `switches`), `end`
@@ -1196,6 +1213,33 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   JSON never starts with `0x00`, and the lengths say where the envelope ends
   among the frames and bound its inflate (hostd `link_deflate.rs`, phone
   `DeflatedMessage.swift`). An older Mac ignores the argument and sends text.
+
+  **acpmux compression (`zstd-stream-v1`, added 2026-11-24, backward compatible).**
+  A phone that also sends `"compressions":"zstd-stream-v1,deflate"` (a JSON array
+  of names reads the same) gets every message from a Mac that lists
+  `zstd-stream-v1` (Capabilities), any size, through one zstd stream kept for
+  the channel's life: level 3, a 1 MiB window (window log 20), no checksum, no
+  dictionary, flushed after each message. Each message is one envelope:
+  `0x01`, the text length (u32 big-endian), the zstd length (u32 big-endian),
+  then the flushed zstd bytes. JSON never starts with `0x01`. The envelopes
+  decode only in order, each after every earlier one on the channel; the
+  phone's decoder refuses a window over 1 MiB, a text over 64 MiB and any
+  envelope that does not decode to exactly its text length, and a refusal
+  loses the context, so the phone closes the channel and opens a new one
+  (hostd `link_zstd.rs`, codec cmux-mobile-link `zstd_stream.rs`, phone
+  cmux-mobile-link-ffi `ZstdStreamDecoder`). A Mac before it reads only
+  `compression` and sends deflate envelopes or text; a phone that sends no
+  `compressions` gets those as before. Chat events are mostly under deflate's
+  16 KiB floor and crossed as text; through the stream they cost about 15 % of
+  their raw bytes (real acpmux session events, 2026-11-24).
+
+  Keeping context across messages is WebSocket permessage-deflate's context
+  takeover: a message that repeats something sent earlier on the channel comes
+  out smaller, so its size can hint that it repeats earlier content. Only the
+  link's endpoints see the plaintext; an observer of the WireGuard tunnel sees
+  encrypted datagram sizes, which deflate already made content-dependent per
+  message, and the phone never sends attacker-chosen text into the Mac's
+  stream (it compresses only the Mac's messages to the phone). See SECURITY.md.
   The phone watches its chats in pages: `_acpmux/watch {limit: 100}` is the
   newest page, and the phone is ready with it; the rest comes from
   `_acpmux/sessions {limit, cursor}` after (`AcpmuxHub+SessionPages.swift`).
@@ -1583,6 +1627,17 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   the chosen probe's round trip) and `last_total_ms` (the newest sample's total) and without
   `phone` (2026-11-23). A phone that wants it (the DEBUG paint-latency overlay) reads one
   line after its report, for at most 2 s; one that does not closes, and the answer is dropped.
+- `try-pr` (`try-pr-v1`, 2026-11-23): cmux Dev's Try a pull request picker (Settings >
+  Developer, DEBUG builds). hostd (`try_pr.rs`) runs `cmux-next-ios/scripts/try.sh` from a
+  checkout on the Mac, found at `$CMUX_MOBILE_TRY_SH` or `~/.config/cmux/try.sh`, through the
+  person's login shell; with neither the capability is not listed. Arguments: `{"op":"list"}`
+  answers one frame, `try.sh list`'s JSON (`{"schema":"cmux.ios-try.list.v1","prs":[{"number",
+  "title", "author", "head", "updated_at", "draft", "build": "ahead"|"building"|"failed"|"cached"|"none"}],
+  "error"?}`); `{"op":"install","pr":"N"}` runs `try.sh N` (or joins the run for N; `busy` while
+  another PR installs), sends `{"line"}` frames as it prints and `{"done":true,"pr","exit"}`.
+  Installing replaces cmux Dev on the phones attached to the Mac, so the channel usually ends
+  with the app; the install runs on, and `{"op":"status"}` answers `{"run":{"pr","started_ms",
+  "lines","exit"?}|null}`, the last one. Phones only.
 - `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
   Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
   content-addressed blobs. No open args; machines need the View grant. Both ways the
@@ -1647,6 +1702,34 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   this Mac."; a missing or bad port: `bad_request`; an older Mac:
   `unknown_service`, and the phone keeps that tab mirrored. The phone never
   names a host.
+- `site-data` (2026-11-24, `site-data-handoff-v1`; hq RFD 0089 "Shared
+  sessions", RFD 0125 D7 and D8): `{"surface", "url", "trigger":
+  "open_on_iphone"}` (`surface`: the tab key `s<surface>`, or the number) hands the phone the Mac browser tab's cookies and local
+  storage for the tab's own site (registrable domain) only, so Open on iPhone
+  loads signed in. The phone opens it only from the person's Open on iPhone,
+  only when `version` lists `site-data-handoff-v1` (the Mac's switch is on;
+  off by default). hostd checks the tab is a browser tab `list-workspaces`
+  lists now (as a remote client, so incognito workspaces are hidden) on that
+  site, asks the app to read the store (`need_site_data`, below), refuses an
+  incognito tab or the Agents profile, keeps cookies whose Domain is the site
+  or below it and storage of origins on it, drops expired cookies and caps
+  every expiry at 24 hours from the hand-off (session cookies stay session
+  cookies). One data frame, then `eof`: `{"v":1, "site", "url",
+  "handed_at_ms", "cookies":[{"name", "value", "domain", "path",
+  "expires_ms"?, "secure", "http_only", "same_site"?}], "local_storage":
+  [{"origin", "items":[[key, value]]}]}`; the phone sets them in the tab's
+  data store before the first load. Nothing comes back to the Mac (v1).
+  Refusals: another trigger `no_person_action`; switch off `off`; not such a
+  tab, or it left the site, the store is incognito or the Agents profile:
+  `forbidden`; not an http(s) address: `bad_request`; over 300 cookies, 1,000
+  storage items or 2 MiB: `too_large`; the app did not answer in 5 s:
+  `unavailable`; a machine peer: `not_offered` (never a Mac or Cloud VM);
+  an older Mac: `unknown_service`, and the phone loads the tab without it.
+  App control lines: the app says `{"type":"site_data_handoff","enabled"}`
+  (the person's switch); hostd asks `{"type":"need_site_data","request",
+  "surface","site","url"}` and the app answers `{"type":"site_data",
+  "request","data":{"profile_id","agents_profile","incognito","cookies",
+  "local_storage"}}` or `{"type":"site_data_failed","request","reason"}`.
 - `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
   booted iOS simulator, streamed like a browser tab
   (verify/simulator-surface.md). With `cloud-desktop-v1`, `tab` may instead be
@@ -1726,11 +1809,14 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `phone-page-v1` | hostd `version` | (2026-11-24) The host routes agents' `browser.page.*` calls to a tab the phone shows itself (`phone-page`, the phone opens it; RFD 0089). |
 | `mailbox-send-v1` | hostd `version` | (2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link. |
 | `bundle-v1` | hostd `version` | (2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest. |
+| `zstd-stream-v1` | hostd `version` | (2026-11-24) An `acpmux` channel opened with `args.compressions` listing `zstd-stream-v1` carries every message through one zstd stream kept for the channel's life (`0x01` envelopes, PROTOCOL.md "acpmux compression"). |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
 | `cloud-desktop-v1` | hostd `version` | (2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`. |
 | `mac-display-v1` | hostd `version` | (2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on. |
+| `try-pr-v1` | hostd `version` | (2026-11-23) The host serves `try-pr`: cmux Dev's Try a pull request picker lists the open iPhone PRs and installs one on the phones attached to this Mac (`try.sh`); listed only when the Mac has `try.sh`. |
+| `site-data-handoff-v1` | hostd `version` | (2026-11-24) The host serves `site-data`: on Open on iPhone, the tab's cookies and local storage for its own site only (RFD 0089); listed only while the person turned it on on the Mac. |
 | `cloud-mobile-chat-v1` | cmux-tui daemon | On a `cloud-acpmux` carrier hostd requires the Cloud daemon's `identify` to list it before declaring it (phone prompt restrictions). |
 | `conversation-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: conversation tabs read as `conversation` with their record, not `browser`. |
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
@@ -1853,7 +1939,7 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
   background so an answer never waits on it.
 - WebRTC nominates the first working candidate pair (host, srflx and prflx
   at once; relay after 300 ms unless relay only). WireGuard tries direct
-  UDP, TURN over UDP and (only when UDP gets no TURN allocation) TURN over
+  UDP, an offered hop/1 PoP, TURN over UDP and (only when UDP gets no TURN allocation) TURN over
   TLS on 443.
 - A signaling socket lost after the answer does not fail a WebRTC dial or
   answer: ICE and DTLS finish without it. Lost before the answer, the dial
@@ -1927,7 +2013,7 @@ one redials.
 The phone's link line names the path: "WireGuard direct", "WireGuard relay
 (TURN)", "WireGuard relay (TURN over TLS)", "WireGuard relay (cmux, HTTPS)"
 (and the same for WebRTC's TURN). cmux-mobile-host reports the path as
-`direct`, `turn`, `turn-tls`, `https-relay` or `none` (`phone_up`, `phone_path`).
+`direct`, `turn`, `turn-tls`, `hop`, `https-relay` or `none` (`phone_up`, `phone_path`).
 
 ## Corporate networks
 
