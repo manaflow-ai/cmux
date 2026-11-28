@@ -110,6 +110,8 @@ mod send_status;
 mod settings_ask;
 #[path = "acpmux_mcp_start.rs"]
 mod start;
+#[path = "acpmux_mcp_tripwires.rs"]
+mod tripwires;
 #[path = "acpmux_mcp_watch.rs"]
 mod watch;
 #[path = "acpmux_mcp_who_else.rs"]
@@ -134,6 +136,7 @@ pub(crate) fn tools() -> Value {
         list.push(look::tool());
         list.extend(goal::tools());
         list.push(history::tool());
+        list.push(tripwires::tool());
         list.extend(watch::tools());
         list.extend(race::tools());
         list.push(send_status::tool());
@@ -463,6 +466,9 @@ fn served_with(
                 }
                 if name == settings_ask::NAME {
                     return settings_ask::call(&args);
+                }
+                if name == tripwires::NAME {
+                    return tripwires::call(&daemon, &session, &args).await;
                 }
                 if name == send_status::NAME {
                     return send_status::call(&daemon, &session, &args).await;

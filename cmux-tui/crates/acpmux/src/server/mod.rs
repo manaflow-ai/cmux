@@ -266,6 +266,7 @@ mod team_directory;
 mod team_settings;
 mod trigger_authority;
 mod trigger_chat;
+mod tripwires;
 pub(crate) mod trust_gate;
 mod wake_move;
 // What one change costs the watchers at 100, 1,000 and 3,000 sessions (manual).
@@ -2272,7 +2273,9 @@ pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub(crate) use chats::usage_upload_loop;
 pub use conn_auth::ConnAuth;
 use lane_parent::lane_parent;
+
 pub(crate) use outbound::is_cheap_read;
+
 pub use pairing::serve_connection_device;
 pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub use pending::{event_value, into_event_value};

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "tripwire.summary": {
+      "comment": "Agent pane: tripwire checks shown on a plan build and in the chat header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} من اختبارات tripwire؛ {unresolved} غير محلولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tripwire testova; {unresolved} neriješeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tripwire-tests; {unresolved} uløste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} Tripwire-Tests; {unresolved} offen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tripwires; {unresolved} unresolved"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tripwires; {unresolved} sin resolver"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tripwires ; {unresolved} non résolus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tripwire; {unresolved} irrisolti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tripwire {count} 件、未解決 {unresolved} 件"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tripwire {count}; មិនទាន់ដោះស្រាយ {unresolved}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "트립와이어 {count}개; 미해결 {unresolved}개"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tripwire-tester; {unresolved} uløste"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} testów tripwire; nierozwiązane: {unresolved}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tripwires; {unresolved} pendentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tripwire-тестов: {count}; не решено: {unresolved}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tripwire {count} รายการ; ยังไม่แก้ไข {unresolved} รายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tripwire; {unresolved} çözülmemiş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tripwire-тестів: {count}; не вирішено: {unresolved}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tripwire; {unresolved} chưa giải quyết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} 个 tripwire；{unresolved} 个未解决"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} 個 tripwire；{unresolved} 個未解決"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

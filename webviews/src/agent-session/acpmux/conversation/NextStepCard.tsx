@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect, useReducer } from "react";
 import { Icon } from "../icons/Icon";
+import { TripwireRecap } from "../tripwires/TripwireStatus";
 import { useT, type StringKey } from "../i18n";
 import { ArrowRight } from "./icons";
 import { focusRoute } from "../../../ui/focusRoute";
@@ -138,6 +139,7 @@ export const NextStepCard = memo(function NextStepCard({
     if (!pending || !registerKey) return;
     return registerKey(() => primary.current?.click());
   }, [pending, registerKey]);
+
   // A failed send gives the typed answer back with the keyboard, so Return retries it.
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -180,7 +182,14 @@ export const NextStepCard = memo(function NextStepCard({
     observer.observe(element);
     return () => observer.disconnect();
   }, [ask.question, ask.detail, whole, settled]);
-  const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
+  const recap =
+    ask.recap || ask.tripwires?.length ? (
+      <>
+        {ask.recap && <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p>}
+        {ask.tripwires && <TripwireRecap items={ask.tripwires} />}
+      </>
+    ) : null;
+
   // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
   if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
   if (settled) {

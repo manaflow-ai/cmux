@@ -5,6 +5,12 @@ use super::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
+    /// Bounded checks declared by an approved plan, kept apart from per-turn command evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tripwires: Option<TripwireState>,
+    /// Whether the plan-build child opted into the declaration tool before its first prompt.
+    #[serde(default)]
+    pub tripwire_enabled: bool,
     pub schema: String,
     pub id: String,
     pub name: String,

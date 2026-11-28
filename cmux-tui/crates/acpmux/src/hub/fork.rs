@@ -919,6 +919,8 @@ impl Hub {
         // Its parent's namespace while it works in the same folder (`session_manifest.rs`).
         let fork_manifest = crate::session_manifest::for_fork(parent_meta.manifest.as_ref(), &cwd);
         let mut meta = SessionMeta {
+            tripwires: None,
+            tripwire_enabled: false,
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,

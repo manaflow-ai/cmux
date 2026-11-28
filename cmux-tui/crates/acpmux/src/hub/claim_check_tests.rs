@@ -207,6 +207,17 @@ fn a_chain_with_a_hiding_step_backs_nothing() {
 }
 
 #[test]
+fn named_tripwire_matches_exact_path_and_reports_green_red_or_none() {
+    let green = turn(&[("g", "bun test tests/login.test.ts", 0)]);
+    assert_eq!(green.last_named_test("tests/login.test.ts").unwrap().ok, true);
+    assert!(green.last_named_test("tests/login.test").is_none());
+    let red = turn(&[("r", "bun test tests/login.test.ts", 1)]);
+    assert_eq!(red.last_named_test("tests/login.test.ts").unwrap().ok, false);
+    let none = turn(&[("x", "bun test tests/login.test.tsx", 0)]);
+    assert!(none.last_named_test("tests/login.test.ts").is_none());
+}
+
+#[test]
 fn a_failed_chain_does_not_say_which_step_failed() {
     let runs = turn(&[("c1", "cargo test && cargo build", 1)]);
     assert!(check("Tests pass and the build succeeds.", &runs).is_empty());
@@ -249,4 +260,19 @@ fn a_background_step_or_a_build_only_test_run_backs_nothing() {
         let runs = turn(&[("t1", command, 0)]);
         assert!(check("All tests pass.", &runs).iter().all(|c| c.verdict == "none"), "{command}");
     }
+}
+
+#[test]
+fn named_tripwire_requires_path_in_test_step() {
+    for command in [
+        "bun test tests/other.test.ts && cat tests/login.test.ts",
+        "cat tests/login.test.ts && bun test tests/other.test.ts",
+    ] {
+        let runs = turn(&[("run", command, 0)]);
+        assert!(runs.last_named_test("tests/login.test.ts").is_none(), "{command}");
+    }
+    let runs = turn(&[("run", "cd webviews && bun test tests/login.test.ts", 0)]);
+    assert!(runs.last_named_test("tests/login.test.ts").unwrap().ok);
+    let runs = turn(&[("run", "bun test tests/login.test.ts && false", 1)]);
+    assert!(runs.last_named_test("tests/login.test.ts").is_none());
 }

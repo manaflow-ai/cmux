@@ -148,6 +148,7 @@ async fn handle(
             effort: text("effort"),
             cwd: text("cwd").map(PathBuf::from),
             worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
+            tripwires: false,
             owner_authorized_race: false,
             race_id: None,
             fork: params.get("fork").and_then(Value::as_bool).unwrap_or(false),

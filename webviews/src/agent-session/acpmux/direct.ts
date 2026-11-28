@@ -12,6 +12,7 @@ import {
 import { pageAttention } from "./attention";
 import { pageScrollQuiet } from "./scrollQuiet";
 import { replyRowKey } from "./replyRowKey";
+import { readTripwires, newerTripwires, type TripwireState } from "./tripwires/state";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
@@ -1345,6 +1346,8 @@ function backgroundCallLabel(tool: AcpmuxActivity["tool"], command?: string, fal
 }
 
 export class AcpmuxDirectClient {
+  private tripwireTurns = new Map<string, TripwireState>();
+
   // A busy daemon may legitimately emit no frame for many seconds, so quiet alone never ends a
   // socket. Once a request has waited this long, and the daemon proved itself no sooner, the pane
   // asks the daemon one cheap question on it (`probeDaemon`): the daemon's own answer, even an
@@ -3454,6 +3457,7 @@ export class AcpmuxDirectClient {
     this.clearIndexedHistory();
     this.latestRecap = undefined;
     this.planBuilds.clear();
+    this.tripwireTurns.clear();
     this.memoryEarly.clear();
     this.presetApprovals.clear();
     this.surge = undefined;
@@ -10559,6 +10563,18 @@ export class AcpmuxDirectClient {
       if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === "race" && msg.parent === this.selectedSessionId && typeof msg.id === "string") {
         for (const listener of this.raceListeners) listener(msg as RaceRecord);
+      } else if (event.kind === "tripwires") {
+        const state = readTripwires(msg);
+        if (state) {
+          const latest = newerTripwires(readTripwires(this.summary?.tripwires), state);
+          if (state.turnId) {
+            const row = this.rows.get(`summary-${state.turnId}`);
+            const turnState = newerTripwires(this.tripwireTurns.get(state.turnId) ?? row?.tripwires, state);
+            if (row) this.rows.set(row.id, { ...row, version: (row.version ?? 0) + 1, tripwires: turnState });
+            else this.tripwireTurns.set(state.turnId, turnState);
+          }
+          this.summary = { ...this.summary, tripwires: latest };
+        }
       } else if (event.kind === "claim_checks") {
         this.markClaims(msg);
       } else if (event.kind === BOOKMARKS_KIND) {
@@ -11219,6 +11235,7 @@ export class AcpmuxDirectClient {
             at: event.at,
             kind: "turnSummary",
             ...(resultStartedAtMs !== undefined && { turnStartedAtMs: resultStartedAtMs }),
+            tripwires: (turnId ? this.tripwireTurns.get(turnId) : undefined) ?? this.rows.get(summaryId)?.tripwires,
             // A turn paged in from the transcript (`fetchNativeOlder`) is in no log: nothing forks or
             // edits through it, as acpmux forks only through a logged record (`fork_through.rs`).
             ...(event.seq >= 1 ? { seq: event.seq } : {}),
@@ -11237,7 +11254,10 @@ export class AcpmuxDirectClient {
             // "idk if it should be showing things like that").
             ...(msg.cancelForced === true ? { stopForced: true as const } : {}),
           });
-        if (event.kind === "turn_result") this.deferLateSteers(turnId, status);
+        if (event.kind === "turn_result") {
+          if (turnId) this.tripwireTurns.delete(turnId);
+          this.deferLateSteers(turnId, status);
+        }
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
@@ -12233,6 +12253,7 @@ export class AcpmuxDirectClient {
     const value: AcpmuxSnapshot["summary"] = summary
       ? {
           sessionId: summary.sessionId,
+          tripwires: readTripwires(summary.tripwires),
           cwd: summary.cwd,
           turnCount: summary.turnCount,
           usage: this.usage,

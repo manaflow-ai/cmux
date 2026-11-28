@@ -7,7 +7,7 @@
 /// The mux record kind acpmux writes on the parent chat's log.
 export const PLAN_BUILD_KIND = "plan_build";
 
-export type PlanBuildTarget = "worktree" | "compare";
+export type PlanBuildTarget = "worktree" | "compare" | "tripwires";
 
 /// Where a build's chat stands, from its sub-session records: running until a turn ends.
 export type PlanBuildState = "running" | "done" | "failed" | "cancelled";
@@ -66,7 +66,8 @@ export const planBuildRowId = (buildId: string) => `plan-build-${buildId}`;
 /// A `started` record's build, or undefined for a record the card cannot draw.
 export function planBuildStarted(msg: Record<string, unknown>): PlanBuild | undefined {
   const buildId = text(msg.buildId);
-  const target = msg.target === "compare" || msg.target === "worktree" ? msg.target : undefined;
+  const target =
+    msg.target === "compare" || msg.target === "worktree" || msg.target === "tripwires" ? msg.target : undefined;
   if (!buildId || !target || !Array.isArray(msg.builds)) return undefined;
   const builds: PlanBuildChild[] = [];
   for (const raw of msg.builds) {

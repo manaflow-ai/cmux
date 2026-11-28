@@ -218,6 +218,7 @@ mod live_models;
 mod live_name;
 mod locate;
 pub(crate) mod lock_bridge;
+
 mod log_deferral;
 mod log_load;
 #[cfg(test)]
@@ -494,6 +495,7 @@ mod transfer_watch;
 mod translator_queue_tests;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
+pub(crate) mod tripwires;
 mod trust_wait;
 mod turn_artifacts;
 mod turn_attestation;

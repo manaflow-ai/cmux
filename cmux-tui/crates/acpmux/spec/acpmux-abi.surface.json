@@ -29046,6 +29046,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/tripwire/declare": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/turn_attestation": {
       "/*untyped*": {
         "ty": "json",
@@ -41058,6 +41064,12 @@
       }
     },
     "response:_acpmux/transfer_write": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/tripwire/declare": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

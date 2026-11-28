@@ -248,6 +248,35 @@ pub struct LastReturn {
     pub turns: u64,
 }
 
+/// One bounded check declared by an approved plan.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TripwireItem {
+    pub name: String,
+    pub path: String,
+    pub verdict: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+/// The latest tripwire projection. `revision` makes replayed records safe for clients to fold.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TripwireState {
+    pub items: Vec<TripwireItem>,
+    pub revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+}
+
+impl Default for TripwireState {
+    fn default() -> Self {
+        Self { items: Vec::new(), revision: 0, turn_id: None }
+    }
+}
+
 /// The chat's current away recap (`hub/away_recap.rs`): the record that shows it, the facts it
 /// names, the turn count it covers and whether the person dismissed it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
