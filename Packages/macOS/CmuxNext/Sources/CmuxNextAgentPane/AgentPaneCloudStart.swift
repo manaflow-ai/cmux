@@ -491,10 +491,11 @@ extension AgentPaneModel {
         cloudSetUpWait?.cancel() // one wait per pane: a newer click replaces it
         let wait = Task { await onCloudSetUp(way, family, machine, environment) } // the model's own actor: it only awaits the App's wait
         cloudSetUpWait = wait
-        let completion = await wait.value
+        let result = await wait.value
         let current = cloudSetUpWait == wait
         if current { cloudSetUpWait = nil }
-        guard let completion, current, cloudSignInGeneration == generation else {
+        if current, let failed = Self.setUpFailure(result) { return failed }
+        guard case .success(let completion) = result, current, cloudSignInGeneration == generation else {
             return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
         }
         keepCloudSignInGrant(key, generation: generation, completion: completion)
@@ -545,20 +546,28 @@ extension AgentPaneModel {
     }
 
     /// The model picker's setup has its own bounded wait and keeps no click for a start.
-    private func setUpCloudFromPicker(_ run: @escaping @MainActor () async -> CloudSetup.SetupCompletion?) async -> [String: Any] {
+    private func setUpCloudFromPicker(_ run: @escaping @MainActor () async -> Result<CloudSetup.SetupCompletion, CloudSetup.SetUpEnd>) async -> [String: Any] {
         pickerSetUpWait?.cancel()
         let wait = Task { await run() }
         pickerSetUpWait = wait
         let deadline = DemandTimer(owner: "agent-pane-picker-cloud-set-up")
         deadline.schedule(after: Self.pickerSetUpLimit) { wait.cancel() }
-        let completion = await wait.value
+        let result = await wait.value
         deadline.cancel()
         let current = pickerSetUpWait == wait
         if current { pickerSetUpWait = nil }
-        guard current, !wait.isCancelled, completion != nil else {
+        if current, let failed = Self.setUpFailure(result) { return failed }
+        guard current, !wait.isCancelled, case .success = result else {
             return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
         }
         return AgentPaneReply.success(["ready": true])
+    }
+
+    /// A set up whose in-place sign-in failed (cmux#63349): `cloud_setup_failed` with acpmux's code, so the card
+    /// stops waiting, says why and offers Try again. Nil for any other end.
+    static func setUpFailure(_ result: Result<CloudSetup.SetupCompletion, CloudSetup.SetUpEnd>) -> [String: Any]? {
+        guard case .failure(.failed(let code)) = result else { return nil }
+        return AgentPaneReply.failure(code: "cloud_setup_failed", message: code)
     }
 
     /// How long the picker's set up waits for a connection: the Set up Cloud card's (cloudSetup.ts `CLOUD_SETUP_LIMIT_MS`).
