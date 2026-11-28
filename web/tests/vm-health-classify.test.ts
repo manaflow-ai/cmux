@@ -140,6 +140,27 @@ describe("hung VMs", () => {
     expect(report.hung[0]!.detail).toContain("not re-probed");
   });
 
+  test("marks only current hung probes as confirmed for this sweep", () => {
+    const report = classify({
+      vms: [vm("vm-current"), vm("vm-budget"), vm("vm-error")],
+      probes: [
+        { vmId: "vm-current", outcome: "hung", latencyMs: 10_000, detail: "timeout" },
+        { vmId: "vm-budget", outcome: "skipped_budget" },
+        { vmId: "vm-error", outcome: "error", latencyMs: 1, detail: "429" },
+      ],
+      previousHung: [
+        { vmId: "vm-budget", firstSeenHungAt: minutesAgo(30) },
+        { vmId: "vm-error", firstSeenHungAt: minutesAgo(30) },
+      ],
+    });
+
+    expect(report.hung.map((entry) => [entry.vmId, entry.confirmedThisSweep])).toEqual([
+      ["vm-budget", false],
+      ["vm-error", false],
+      ["vm-current", true],
+    ]);
+  });
+
   test("a healthy fleet needs no attention", () => {
     const report = classify({
       vms: [vm("vm-a"), vm("vm-p", { state: "paused" })],
