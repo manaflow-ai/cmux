@@ -14,7 +14,7 @@ import Testing
     static let texts = PairInviteService.CloudTexts(failed: { $0 }, unreachable: "unreachable", notMade: "not made")
 
     /// What the fake `cmux` was run with, and the lines it prints.
-    final class Child: @unchecked Sendable {
+    nonisolated final class Child: @unchecked Sendable {
         let lock = NSLock()
         var runs: [(arguments: [String], stdin: Data, environment: [String: String]?)] = []
         let output: [String]
