@@ -112,7 +112,7 @@ import {
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
-import { noteTranscriptMount } from "./flickerLog";
+import { noteFoldCopyOrphan, noteTranscriptMount } from "./flickerLog";
 import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { transcriptScrollPacer } from "./transcriptScrollPacer.experiment";
@@ -159,7 +159,7 @@ import {
   type FoldAnchor,
   notePlacement,
 } from "./conversation/foldAnchor";
-import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
+import { settleTurnFold, startTurnFold, sweepFoldCopies, watchTurnFold, type TurnFold } from "./conversation/turnFold";
 import { drawnOpenStateHolds, rowOpenState } from "./conversation/rowOpenState";
 import {
   captureTurnEnd,
@@ -2518,7 +2518,15 @@ function TranscriptView({
     // the last rows did not end with came now, with the prompt that opened it, so it enters on the
     // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
     const liveBefore = previous.at(-1)?.below ? rowFrameKey(previous.at(-1)!) : undefined;
-    for (let index = from; index < rows.length; index += 1) {
+    // A page of older history keeps every row already there as the same objects below it: those
+    // were all known last time, so only the changed span between the kept head and the kept tail
+    // is read. Walking every loaded row (a frame key and a drawn-key lookup each) on each page a
+    // fling brought cost O(loaded history) in the page's frame (Leo 2026-11-19: "we need to be able
+    // to have infinite chats, infinitely long chats").
+    let to = rows.length;
+    for (let kept = previous.length; to > from && kept > from && rows[to - 1] === previous[kept - 1]; kept -= 1)
+      to -= 1;
+    for (let index = from; index < to; index += 1) {
       const row = rows[index]!;
       const key = rowFrameKey(row);
       // A row that takes over a frame on screen (OrderedRows `adoptFrames`) is drawn all the same.
@@ -3130,6 +3138,16 @@ function TranscriptView({
         }
       }
       if (sameIds) return;
+      // A page of older history above (or rows inserted between): every previous row is still here,
+      // the same objects in its kept head and kept tail, so no id left. Without this a prepend built
+      // a set of every loaded row's id and swept the cache against it on each page of a fling.
+      let tailKept = 0;
+      while (
+        tailKept < previous.length - start &&
+        rows[rows.length - 1 - tailKept] === previous[previous.length - 1 - tailKept]
+      )
+        tailKept += 1;
+      if (start + tailKept >= previous.length) return;
     }
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
@@ -5754,6 +5772,17 @@ function TranscriptView({
     },
     [sessionId],
   );
+  // A fold copy no playing fold owns goes at the next commit (turnFold.ts `sweepFoldCopies`), and the
+  // flicker log records it: each fold takes its own copies out when it ends, so one found here is one
+  // a fold left behind. O(1) while the thread holds no copy (copies are recorded where they go in).
+  useLayoutEffect(() => {
+    const end = turnEnd.current;
+    const taken = sweepFoldCopies(
+      thread.current,
+      (copy) => (end?.done !== true && end?.copies.has(copy) === true) || foldGhosts.current.has(copy),
+    );
+    if (taken > 0) noteFoldCopyOrphan(taken, end === undefined ? "none" : end.done ? "settled" : "running");
+  });
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (it stores what this pass gave the room); its one setState call is guarded by the compare with noticeBase.
   useLayoutEffect(() => {

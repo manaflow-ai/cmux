@@ -8,15 +8,4 @@ public nonisolated enum CommandDigitsSetting: String, CaseIterable, Sendable {
     case tabs
 
     // `configPath` and `fallback` are generated from schemas/settings/source/sidebar.json.
-
-    /// A missing key is the default with no diagnostic; a bad value is the
-    /// default plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (CommandDigitsSetting, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let text = value.stringValue, let parsed = CommandDigitsSetting(rawValue: text) else {
-            let choices = allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "tabs.commandDigits", message: "expected one of " + choices))
-        }
-        return (parsed, nil)
-    }
 }

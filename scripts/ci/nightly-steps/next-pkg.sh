@@ -13,7 +13,7 @@
 # with no Installer identity (APPLE_CERTIFICATE_BASE64 holds only "Developer ID Application") builds nothing:
 # an unsigned package is refused by Gatekeeper on a double-click, worse than the DMG.
 #
-# Env: APPLE_CERTIFICATE_BASE64, APPLE_CERTIFICATE_PASSWORD (signing-keychain.sh); ASC_API_KEY_ID,
+# Env: APPLE_CERTIFICATE_BASE64, APPLE_CERTIFICATE_PASSWORD (signing-keychain.sh), or NEXT_PKG_KEYCHAIN_READY=1; ASC_API_KEY_ID,
 # ASC_API_ISSUER_ID, ASC_API_KEY_P8_BASE64 (notary-auth.sh); AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, R2_ENDPOINT,
 # NIGHTLY_NEXT_R2_BUCKET, NIGHTLY_NEXT_R2_PREFIX (upload); CHANNEL_DMG_PREFIX, NIGHTLY_VARIANT (the stable name).
 # Tools can be replaced for tests: HDIUTIL, SECURITY, DITTO, BUILD_PKG, KEYCHAIN_TOOL, UPLOAD, GUARD.
@@ -46,11 +46,15 @@ main() {
   }
   trap cleanup RETURN
 
-  if [ -z "${APPLE_CERTIFICATE_BASE64:-}" ] || [ -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]; then
-    say "no signing certificate in this job; no package"; return 0
+  # NEXT_PKG_KEYCHAIN_READY=1: the workflow's own step made build.keychain (signing-keychain.sh create) and its
+  # always() step deletes it, so this step never holds the certificate.
+  if [ "${NEXT_PKG_KEYCHAIN_READY:-}" != 1 ]; then
+    if [ -z "${APPLE_CERTIFICATE_BASE64:-}" ] || [ -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]; then
+      say "no signing certificate in this job; no package"; return 0
+    fi
+    "$KEYCHAIN_TOOL" create >/dev/null || { say "the signing keychain could not be made; no package"; return 0; }
+    keychain_made=1
   fi
-  "$KEYCHAIN_TOOL" create >/dev/null || { say "the signing keychain could not be made; no package"; return 0; }
-  keychain_made=1
   # productbuild signs with an installer identity, which `find-identity -p codesigning` never lists.
   local identity
   identity="$("$SECURITY" find-identity -v -p basic build.keychain 2>/dev/null \
