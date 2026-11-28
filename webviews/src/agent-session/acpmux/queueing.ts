@@ -3,7 +3,7 @@
 // and Codex's "Turn off queueing" (Leo, 2026-10-21), ⌘Return and Send steer too, so nothing new
 // waits; an agent that cannot steer still runs it after the turn, which is all it can do.
 //
-// A queued row's ⋯ menu turns it off (ComposerQueue.tsx) and back on; so does a right-click on the
+// A queued row's right-click menu turns it off (ComposerQueue.tsx) and back on; so does a right-click on the
 // composer's button row while it is off (composerChrome.tsx). It is the viewer's choice for every
 // chat in the app, kept in cmux-next.json as `agentPane.display.queueing` (Settings > Agent Chat >
 // Queue Prompts During a Turn), which the host sends with the chat's keys (chatDisplay.ts) and

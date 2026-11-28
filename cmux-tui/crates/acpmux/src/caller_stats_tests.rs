@@ -100,3 +100,48 @@ fn params_pick_the_window_and_top() {
     assert_eq!(report["callers"][0]["requests"], 1);
     assert_eq!(stats.report(&json!({}))["windowSecs"], 60);
 }
+
+/// `cargo test -p acpmux --release caller_stats_hasher_bench -- --ignored --nocapture`: the entry
+/// map's lookup cost per request, std `RandomState` (SipHash) against `FxHasher`, same keys.
+#[test]
+#[ignore = "bench"]
+fn caller_stats_hasher_bench() {
+    use std::hash::BuildHasher;
+    use std::time::Instant;
+
+    fn run<S: BuildHasher + Default>(callers: &[Caller], methods: &[String], n: usize) -> f64 {
+        let mut map: HashMap<(Caller, String), u64, S> = HashMap::default();
+        for c in callers {
+            for m in methods {
+                map.insert((c.clone(), m.clone()), 0);
+            }
+        }
+        let start = Instant::now();
+        let mut hit = 0u64;
+        for i in 0..n {
+            let key = (callers[i % callers.len()].clone(), methods[i % methods.len()].clone());
+            if let Some(v) = map.get_mut(&key) {
+                *v += 1;
+                hit += 1;
+            }
+        }
+        std::hint::black_box(hit);
+        start.elapsed().as_nanos() as f64 / n as f64
+    }
+    let scale: usize = std::env::var("BENCH_SCALE").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
+    let callers: Vec<Caller> = (0..16).map(|i| caller(&format!("client-{i}"), i)).collect();
+    let methods: Vec<String> = (0..16).map(|i| format!("_acpmux/method{i}")).collect();
+    let n = 2_000_000 * scale;
+    for (name, f) in [
+        (
+            "before_siphash",
+            run::<std::collections::hash_map::RandomState>
+                as fn(&[Caller], &[String], usize) -> f64,
+        ),
+        ("after_fxhash", run::<BuildHasherDefault<FxHasher>>),
+    ] {
+        let mut runs: Vec<f64> = (0..5).map(|_| f(&callers, &methods, n)).collect();
+        runs.sort_by(f64::total_cmp);
+        println!("{name}: p50 {:.1} ns/lookup min {:.1} max {:.1}", runs[2], runs[0], runs[4]);
+    }
+}

@@ -56,7 +56,7 @@ jobs:
     name: request cmux ios verify
     if: ${{ github.event_name == 'pull_request' && github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' && format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
     runs-on: cmux-linux
-    timeout-minutes: 5
+    timeout-minutes: 30
     permissions:
       actions: write
     concurrency:
@@ -69,17 +69,45 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
+          IOS_VERIFY_RESET_WAIT_S: '1500'
         run: |
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad head $SHA"; exit 1; }
+          err="$(mktemp)"
+          dispatch() {
+            gh workflow run cmux-next-ios-verify-auto.yml --repo "$REPO" --ref feat-cmux-next \
+              -f pr="$PR" -f sha="$SHA" 2>"$err" && return 0
+            cat "$err" >&2
+            return 1
+          }
+          # A refusal fails this job: a green request that started nothing leaves cmux/ios-fast
+          # waiting for a proof no run will post, with nothing red to rerun (#65473 at f875e016).
+          refused() {
+            echo "::error title=cmux ios verify (auto)::$1; rerun this job's failed jobs, or run \`cmux ios verify --pr $PR\`"
+            exit 1
+          }
           for try in 1 2 3; do
-            if gh workflow run cmux-next-ios-verify-auto.yml --repo "$REPO" --ref feat-cmux-next -f pr="$PR" -f sha="$SHA"; then
+            if dispatch; then
+              echo "### cmux ios verify requested for #$PR at ${SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            # A spent installation rate limit returns only at its reset: wait for it (bounded), once.
+            if grep -qi 'rate limit' "$err"; then
+              # The rate_limit endpoint costs no request against the limit it reports.
+              reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
+              [ "${reset:-0}" -gt 0 ] 2>/dev/null || refused "rate limit spent and its reset time unreadable"
+              wait_s=$(( reset - $(date +%s) + 5 ))
+              [ "$wait_s" -le "$IOS_VERIFY_RESET_WAIT_S" ] \
+                || refused "rate limit spent; it resets in ${wait_s}s, past the ${IOS_VERIFY_RESET_WAIT_S}s bound"
+              echo "Rate limit spent; waiting ${wait_s}s for its reset, then dispatching once more."
+              [ "$wait_s" -le 0 ] || sleep "$wait_s"
+              dispatch || refused "rate limit still refused after waiting ${wait_s}s for its reset"
               echo "### cmux ios verify requested for #$PR at ${SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             sleep $((try * 10))
           done
-          echo "::warning title=cmux ios verify (auto)::dispatch refused 3 times; run \`cmux ios verify --pr $PR\` by hand"
+          refused "dispatch refused 3 times: $(tail -n 1 "$err")"
 
   # -fleet: the gateway runner's hook takes only job ids ending in it.
   verify-fleet:
@@ -178,6 +206,10 @@ jobs:
           # worktree that shares it.
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=$auth" fetch -q --filter=blob:none origin "$SHA"
+          # The fleet Macs keep this checkout across jobs but empty $RUNNER_TEMP, so an earlier job's worktree is
+          # still registered with its folder gone, and `worktree add` refuses the path (exit 128; runs 46184455907,
+          # 46184441265 on 11-28). prune drops only registrations whose folder is missing.
+          git worktree prune
           git -c "http.https://github.com/.extraheader=$auth" worktree add -q --detach "$RUNNER_TEMP/ios-verify-head" "$SHA"
       - uses: ./.github/actions/fleet-client
         if: ${{ steps.proved.outputs.go == 'true' }}
@@ -214,7 +246,9 @@ jobs:
             --scripts-at "$RUNNER_TEMP/ios-verify-head" --out "$RUNNER_TEMP/ios-verify-record.json" || rc=$?
           # Exit 1 is a failing record, which is posted: the gate then says why. Anything else posted nothing.
           if [[ -s "$RUNNER_TEMP/ios-verify-record.json" ]]; then
-            python3 -I -c 'import json, sys; r = json.load(open(sys.argv[1])); print(f"### cmux ios verify #{r[\"pr\"]} at {r[\"head_sha\"][:12]}: {r[\"verdict\"]}")' \
+            # No backslash inside an f-string: the Macs' python3 is older than 3.12, where that is a SyntaxError
+            # (runs 46184439255, 46184226923 went red here after a record was written).
+            python3 -I -c 'import json, sys; r = json.load(open(sys.argv[1])); print("### cmux ios verify #%s at %s: %s" % (r["pr"], r["head_sha"][:12], r["verdict"]))' \
               "$RUNNER_TEMP/ios-verify-record.json" >> "$GITHUB_STEP_SUMMARY"
           fi
           [[ "$rc" -le 1 ]] || { echo "::error title=cmux ios verify (auto)::ios_verify.py exited $rc"; exit "$rc"; }

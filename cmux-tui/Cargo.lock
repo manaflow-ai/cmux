@@ -132,6 +132,7 @@ dependencies = [
  "reqwest",
  "ring",
  "rusqlite",
+ "rustc-hash 2.1.3",
  "rustls",
  "schemars 1.2.2",
  "security-framework",
@@ -1643,6 +1644,7 @@ dependencies = [
 name = "cmux-browser-rules"
 version = "0.1.0"
 dependencies = [
+ "cmux-url-input",
  "serde",
  "serde_json",
 ]
@@ -3945,6 +3947,7 @@ dependencies = [
  "cmux-action-catalog",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-agent-screen-detection",
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
@@ -3958,6 +3961,7 @@ dependencies = [
  "cmux-bytes",
  "cmux-cas",
  "cmux-chat-index",
+ "cmux-cloud",
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-config",
@@ -3965,6 +3969,7 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-cloud-handlers",
  "cmux-cloud-machine",
+ "cmux-cloud-phone-acp",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-composer-send",
@@ -4028,6 +4033,7 @@ dependencies = [
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vault-e2e",
+ "cmux-view-rows",
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",

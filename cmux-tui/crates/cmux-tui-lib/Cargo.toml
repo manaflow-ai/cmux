@@ -216,6 +216,14 @@ backtrace = "0.3"
 # (`cmux-browser-host`, `cmux-app-host` links beside bin/cmux; `main` in
 # src/main.rs): one copy of std, serde and QuickJS instead of three.
 cmux-browser-host = { path = "../cmux-browser-host" }
+# The agent screen-detection plugin and the Cloud app server run from it by
+# argv[0] too (`cmux-agent-screen-detection`, `cmux-cloud`; CMUX-570). Each
+# stays its own Cargo workspace with its own binary (npm packages, the Linux
+# tree, their own tests); only the cmux-next bundle links them.
+cmux-agent-screen-detection = { path = "../../bindings/examples/rust-agent-screen-detection" }
+cmux-cloud = { path = "../../../first-party-apps/cloud/server" }
+# The phone_chat link service (src/link/phone_chat.rs): the same adapter hostd serves.
+cmux-cloud-phone-acp.workspace = true
 # The app's acpmux is this binary (bin/acpmux aliases bin/cmux), so it carries acpmux's shipping
 # hub carrier here (scripts/ci/acpmux-build-features.sh); cmux-remote is below already.
 acpmux = { path = "../acpmux", default-features = false, features = ["hub-carrier"] }
@@ -303,6 +311,8 @@ cmux-build-identity.workspace = true
 # (cmux-tui-core server/identify_reply.rs).
 cmux-tui-core = { workspace = true, features = ["bundled-identify"] }
 cmux-build-space = { workspace = true, features = ["testing"] }
+# The TUI's list views are held to flat per-frame work in N (cmux-view-rows src/frame_work.rs).
+cmux-view-rows = { path = "../cmux-view-rows", features = ["frame-work"] }
 # cli/ext tests: the fake daemon renders a mount with the real QuickJS app host.
 cmux-app-host = { workspace = true, features = ["engine"] }
 # carrier/rd_link.rs tests: the rd host's own parser reads what the dial sends.

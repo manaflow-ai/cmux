@@ -208,9 +208,14 @@ test("the folder lists follow a recorded in-place change without walking the lis
   const renamed = one.slice();
   renamed[5] = counted(5, { title: "Renamed" });
   noteReplaced(one, renamed, [5]);
+  // One entry's fields read on each side of the change: what the folder lists read of a chat grew
+  // (placeFields' startedByPerson), so the bound is that, not a fixed count; a walk is 300 times it.
+  reads = 0;
+  folderFields(one[5]!);
+  const oneEntry = reads;
   reads = 0;
   expect(by.of(renamed)).toBe(one);
-  expect(reads).toBeLessThan(20);
+  expect(reads).toBeLessThanOrEqual(2 * oneEntry);
   const moved = renamed.slice();
   moved[6] = counted(6, { cwd: "/Users/me/code/elsewhere" });
   noteReplaced(renamed, moved, [6]);

@@ -431,11 +431,14 @@ final class SidebarRegionView: NSView {
         case .chip: .chip
         default: section.look == .builtIn ? .builtIn : .list
         }
-        // A pinned workspace's row leads with its pin, so a pinned row reads as pinned (Lawrence 2026-11-28: "i dont see
-        // pinned icon for pinned workspaces anymore"; #52050 had dropped it). Its close x and menu stay as on any row.
+        // Every pinned workspace row leads with its pin (#63247, #64286; earlier #42431, #49583, #56146): pinning showed
+        // no mark once #52050 turned this off, so a pinned row read as any other (Lawrence 2026-11-28: "i dont see pinned
+        // icon for pinned workspaces anymore"). Its close x and regular menu stay (#52050).
         var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
         info.leadingPin = !style.isIconOnly && style != .chip && section.id == SidebarLayoutDocument.pinnedSectionID
             && item.ref.kind == LayoutItemRef.workspaceKind
+        // A pinned row leads with its pin whatever its shown tab is (msg 40501): a tab's favicon is not the workspace's icon.
+        if info.leadingPin { info = info.droppingShownTabIcon() }
         if new || info != view.info || style != view.style { listWork.configured() }
         view.configure(info, style: style)
         listWork.laidOut()
