@@ -703,12 +703,16 @@ jobs:
       lane: internal-submission
       ipa_artifact_name: cmux-internal-submission-ipa-${{ github.run_id }}
       gate_ref: feat-cmux-next
-    # Only the App Store Connect key, for the gate's read-only `asc validate`
-    # (never `secrets: inherit`: the signing secrets stay with upload).
+    # The App Store Connect key, for the gate's read-only `asc validate`, and the routing App key, for its
+    # plan's owned-Mac picker (never `secrets: inherit`: the signing secrets stay with upload).
+    # Without the routing key the picker read the queue with the shared job token, whose hour was spent:
+    # run 46151995589's plan (2026-11-28 15:48Z) got HTTP 403 and kept blacksmith-6vcpu-macos-26
+    # (tests/test_ci_reusable_route_key_passed.py).
     secrets:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
   # The receipt ios-internal-submit.yml refuses to submit without: written only
   # when the gate judged this run's commit and IPA with no blocker.

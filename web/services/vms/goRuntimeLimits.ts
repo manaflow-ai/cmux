@@ -2,6 +2,7 @@ import { and, asc, inArray, or, sql, eq } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
+import { VM_ADDRESS_RELEASE_KEY } from "./addressRelease";
 import { GO_UNLIMITED_RUNTIME_METADATA_KEY } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseBudgetVm } from "./goPause";
 import { VmDatabaseError } from "./errors";
@@ -22,6 +23,8 @@ export function enforceGoRuntimeLimits() {
       try: () => cloudDb().select().from(cloudVms).where(and(
         inArray(cloudVms.billingPlanId, planBudgetsEnforced() ? ["go", "pro", "max"] : ["go"]),
         or(eq(cloudVms.status, "running"), sql`${cloudVms.providerMetadata}->'cmuxGoPauseIntent' is not null and ${cloudVms.providerMetadata}->'cmuxGoPauseIntent' <> 'null'::jsonb`),
+        // A parked machine has no provider machine to budget (addressRelease.ts).
+        sql`not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_ADDRESS_RELEASE_KEY}::text)`,
       )).orderBy(asc(cloudVms.updatedAt)),
       catch: (cause) => new VmDatabaseError({ operation: "go_runtime_candidates", cause }),
     });
