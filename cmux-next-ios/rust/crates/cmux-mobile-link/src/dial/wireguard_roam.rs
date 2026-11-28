@@ -1186,6 +1186,58 @@ impl Session {
         tracing::debug!(session = self.session_id, port, timings = %timeline.summary(), "WireGuard answer gathered");
     }
 
+    /// Relay first: the phone's tunnel started on `wg-resp` before its
+    /// STUN gather ended. Ask STUN again on the tunnel's socket, then
+    /// announce the endpoints as they stand (host, reflexive and the relay
+    /// allocations in so far), through signaling and inside the tunnel, as
+    /// [`Self::gather_after_answer`] does for the Mac. The relay allocations
+    /// still under way land on their own ([`Self::finish_allocations`]).
+    pub(super) fn gather_after_offer(self: &Arc<Self>, timeline: Timeline) {
+        let session = Arc::clone(self);
+        tokio::spawn(async move { session.trickle_offer(timeline).await });
+    }
+
+    async fn trickle_offer(self: &Arc<Self>, timeline: Timeline) {
+        let roams = self.roams.load(Ordering::Relaxed);
+        let (reflexive_tx, mut reflexive_rx) = mpsc::unbounded_channel();
+        let servers = self.stun_servers().await;
+        let asked = servers.len();
+        if asked > 0 && self.control.send(Control::Gather { stun: servers, reflexive: reflexive_tx }).is_err()
+        {
+            return;
+        }
+        let mut clock = StunClock::new(asked > 0, None);
+        let mut reflexive: Vec<SocketAddr> = Vec::new();
+        while reflexive.len() < asked {
+            let Some(address) = clock.next(reflexive_rx.recv()).await else { break };
+            if !reflexive.contains(&address) {
+                reflexive.push(address);
+            }
+            clock.answered();
+        }
+        if !reflexive.is_empty() {
+            timeline.mark("reflexive_learned");
+        }
+        diagnose_gather(&self.options, asked > 0 && reflexive.is_empty(), None, false);
+        let _one_at_a_time = self.roaming.lock().await;
+        if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
+            // A roam gathered on its own socket meanwhile.
+            return;
+        }
+        let mut endpoints = lock(&self.endpoints).clone();
+        for text in offered(reflexive.iter().copied(), &self.options) {
+            if !endpoints.contains(&text) {
+                endpoints.push(text);
+            }
+        }
+        let (relayed, relayed_tls) = lock(&self.relayed).clone();
+        if !endpoints.is_empty() {
+            self.announce(endpoints, relayed, relayed_tls);
+        }
+        timeline.mark("endpoints_trickled");
+        tracing::debug!(session = self.session_id, timings = %timeline.summary(), "WireGuard offer gathered");
+    }
+
     pub(super) fn finish_allocations(
         self: &Arc<Self>,
         mut pending: tokio::task::JoinSet<RelayAllocation>,

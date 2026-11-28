@@ -11,19 +11,21 @@
     "(the same picker, app_review_pick_simulator.py, with no simulator",
     "created); a family the image has and the list says it lacks, or the",
     "reverse, fails the report.",
-    "Only duo may be absent: the report requires iphone and ipad."
+    "Only duo may be absent: the report requires iphone and ipad.",
+    "Verified on Xcode 27.2 (27B48) in run 46051744367, attempt 4:",
+    "https://github.com/manaflow-ai/cmux/actions/runs/46051744367/attempts/4"
   ],
   "image": {
     "pool": "RUNNER_POOLS.macos_26 (ephemeral Blacksmith macOS 26)",
     "macos": "26",
-    "xcode": "26.6"
+    "xcode": "27.2"
   },
   "families": {
     "iphone": {"on_image": true},
     "ipad": {"on_image": true},
     "duo": {
       "on_image": false,
-      "reason": "the macOS 26 image's Xcode 26.6 has no iPhone Duo device type or runtime"
+      "reason": "the picker found no compatible iPhone Duo simulator on the macOS 26 image with Xcode 27.2"
     }
   }
 }
