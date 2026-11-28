@@ -29,6 +29,9 @@ struct Fake {
     turn_answer: RefCell<Option<(i64, String, String)>>,
     /// How many `cloud.machine.create` answers are lost (`timed_out`) after the machine was made.
     lost_creates: RefCell<usize>,
+    read_failures: RefCell<VecDeque<Failure>>,
+    pauses: RefCell<Vec<Duration>>,
+    read_latency: Duration,
 }
 
 impl Fake {
@@ -81,6 +84,12 @@ impl Cloud for Fake {
         self.calls.borrow_mut().push(op.to_owned());
         match op {
             "cloud.machine.get" => {
+                if !self.read_latency.is_zero() {
+                    tokio::time::sleep(self.read_latency).await;
+                }
+                if let Some(error) = self.read_failures.borrow_mut().pop_front() {
+                    return Err(error);
+                }
                 let status = self.status.borrow_mut().pop().unwrap_or("running");
                 let id = self.machines.borrow().values().next().unwrap()["id"].clone();
                 Ok(
@@ -139,7 +148,9 @@ impl Cloud for Fake {
         Ok(())
     }
 
-    async fn pause(&self, _duration: Duration) {}
+    async fn pause(&self, duration: Duration) {
+        self.pauses.borrow_mut().push(duration);
+    }
 }
 
 fn start(until_machine: bool) -> Start {
@@ -695,4 +706,62 @@ fn the_fallback_unit_reads_both_env_files_as_the_image_unit_does() {
     if let Ok(text) = std::fs::read_to_string(image) {
         assert_eq!(lines(&text), expected);
     }
+}
+
+#[tokio::test]
+async fn machine_reads_recover_without_recreating_the_machine() {
+    let fake = Fake::default();
+    fake.read_failures.borrow_mut().extend([
+        worker_error(
+            503,
+            Some(&json!({"code": "owner.unreachable",
+            "message": "owner reset", "retryable": true})),
+        ),
+        Failure::TimedOut("/v1/read".into()),
+        worker_error(429, Some(&json!({"retryable": true, "retryAfterSeconds": 12}))),
+    ]);
+    let answer = run(&fake, &start(true)).await.unwrap();
+    assert_eq!(answer["stage"], "machine");
+    assert_eq!(fake.count("cloud.machine.create"), 1);
+    assert_eq!(fake.count("cloud.machine.get"), 4);
+    assert_eq!(*fake.pauses.borrow(), [POLL, POLL, Duration::from_secs(12)]);
+}
+
+#[tokio::test]
+async fn machine_reads_return_terminal_refusals_immediately() {
+    for error in [
+        Failure::http(401, Some("auth.invalid".into()), None),
+        worker_error(503, Some(&json!({"code": "owner.unreachable", "retryable": false}))),
+    ] {
+        let fake = Fake::default();
+        fake.read_failures.borrow_mut().push_back(error.clone());
+        assert_eq!(run(&fake, &start(true)).await.unwrap_err(), error);
+        assert_eq!(fake.count("cloud.machine.get"), 1);
+        assert!(fake.pauses.borrow().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn machine_reads_exhaust_one_budget_and_preserve_the_last_refusal() {
+    let fake = Fake::default();
+    let error = worker_error(
+        503,
+        Some(&json!({"code": "owner.unreachable",
+        "message": "owner reset", "retryable": true})),
+    );
+    fake.read_failures.borrow_mut().extend(std::iter::repeat_n(error.clone(), 200));
+    assert_eq!(run(&fake, &start(true)).await.unwrap_err(), error);
+    assert_eq!(fake.count("cloud.machine.create"), 1);
+    assert!(fake.count("cloud.machine.get") <= 140);
+    assert!(fake.pauses.borrow().iter().sum::<Duration>() < MACHINE_WAIT);
+}
+
+#[tokio::test(start_paused = true)]
+async fn machine_reads_charge_request_latency_to_the_budget() {
+    let fake = Fake { read_latency: Duration::from_secs(60), ..Fake::default() };
+    let error = Failure::TimedOut("/v1/read".into());
+    fake.read_failures.borrow_mut().extend(std::iter::repeat_n(error.clone(), 200));
+    assert_eq!(run(&fake, &start(true)).await.unwrap_err(), error);
+    assert_eq!(fake.count("cloud.machine.get"), 7);
+    assert_eq!(fake.count("cloud.machine.create"), 1);
 }

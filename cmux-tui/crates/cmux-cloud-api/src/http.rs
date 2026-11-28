@@ -400,12 +400,20 @@ pub(crate) fn vm_error(status: u16, body: &[u8], header_code: Option<&str>) -> F
     }
 }
 
-/// The Worker's refusal: `{error: {code, message}}`.
+/// Worker and platform refusals: nested `{error: {...}}` or a flat error object.
 pub(crate) fn worker_error(status: u16, body: Option<&Value>) -> Failure {
-    let error = body.and_then(|b| b.get("error"));
+    let error = body.map(|b| b.get("error").filter(|e| e.is_object()).unwrap_or(b));
     let text =
         |name: &str| error.and_then(|e| e.get(name)).and_then(Value::as_str).map(str::to_owned);
-    Failure::http(status, text("code"), text("message"))
+    Failure::Http {
+        status,
+        code: text("code"),
+        message: text("message"),
+        action: text("action"),
+        trace_id: text("trace_id"),
+        retryable: error.and_then(|e| e.get("retryable")).and_then(Value::as_bool),
+        retry_after_s: error.and_then(|e| e.get("retryAfterSeconds")).and_then(Value::as_u64),
+    }
 }
 
 #[cfg(test)]

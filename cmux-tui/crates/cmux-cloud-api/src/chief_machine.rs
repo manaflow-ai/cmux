@@ -523,6 +523,27 @@ async fn create_once<C: Cloud>(
     }
 }
 
+/// A failed read is safe to repeat; the platform's refusal policy decides which ones.
+fn machine_read_retry(error: &Failure) -> Option<Duration> {
+    use cmux_cloud_machine::refusals::{self, Handling};
+    match error {
+        Failure::TimedOut(_) | Failure::Transport(_) => Some(POLL),
+        Failure::Http { status, code, retryable, retry_after_s, .. } => {
+            match refusals::handling(*status, code.as_deref(), *retryable) {
+                Handling::Retry => Some(POLL),
+                Handling::RetryAfter => Some(
+                    Duration::from_secs(
+                        retry_after_s.unwrap_or(refusals::DEFAULT_RETRY_AFTER_SECONDS),
+                    )
+                    .max(POLL),
+                ),
+                Handling::Final => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// The machine, made at `size` or found by its key, running with a host.
 async fn machine<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<Value, Failure> {
     let made = create(cloud, start, size).await?;
@@ -531,7 +552,22 @@ async fn machine<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<
     let mut waited = Duration::ZERO;
     let mut started = false;
     loop {
-        let got = cloud.read("cloud.machine.get", json!({ "machine": id })).await?;
+        let reading = tokio::time::Instant::now();
+        let got = cloud.read("cloud.machine.get", json!({ "machine": id })).await;
+        // Request latency is part of the budget, not just the pauses between reads.
+        waited += reading.elapsed();
+        let got = match got {
+            Ok(got) => got,
+            Err(error) => {
+                let Some(delay) = machine_read_retry(&error) else { return Err(error) };
+                if waited + delay >= MACHINE_WAIT {
+                    return Err(error);
+                }
+                cloud.pause(delay).await;
+                waited += delay;
+                continue;
+            }
+        };
         let row = got.get("machine").cloned().unwrap_or(got);
         let status = row.get("status").and_then(Value::as_str).unwrap_or_default();
         match status {
