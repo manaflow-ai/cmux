@@ -461,7 +461,7 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_ghostty_helper_takes_owned_macos_26_then_the_nightly_slot(self):
         # Leo: "bro WHAT THE FUCK IS THE POINT OF 15???????? WHY". The helper builds with
         # Zig 0.16.0 against the macOS 26 SDK, so it takes build-nightly-app's owned pools
-        # and falls back to the owned nightly slot: never macOS 15, never a hosted Mac, never Blacksmith.
+        # and falls back to the owned nightly slot (mac-nightly since #61222): never macOS 15, never a hosted Mac, never Blacksmith.
         def helper(**changes):
             return evaluate(parse_expression(
                 runs_on_text(DOC['jobs']['build-nightly-ghostty-cli-helper'], 'build-nightly-ghostty-cli-helper').removeprefix('${{').removesuffix('}}')),
@@ -478,14 +478,14 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(helper(), 'glaeda-side-std-xcode-26.6')
         # A retry or rescue re-run (a re-run of failed jobs keeps attempt 1's pick) leaves a busy mini for
         # the owned nightly slot; a dispatch, or a re-run that picked again, takes its own owned pick.
-        self.assertEqual(helper(**{'github.run_attempt': 2}), NIGHTLY_SLOT)
+        self.assertEqual(helper(**{'github.run_attempt': 2}), NIGHTLY_SLOT_UNIFIED)
         self.assertEqual(helper(**{'github.event_name': 'workflow_dispatch'}), 'glaeda-side-std-xcode-26.6')
         self.assertEqual(helper(**{'github.run_attempt': 2, 'needs.pick-nightly-build-runner.outputs.attempt': '2'}),
                          'glaeda-side-std-xcode-26.6')
         # The dedicated builder admits only build-nightly-app: the helper never takes it.
         self.assertEqual(helper(**{'needs.pick-nightly-build-runner.outputs.helper': 'glaeda-trusted-next-nightly',
                                    'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-trusted-next-nightly'}),
-                         NIGHTLY_SLOT)
+                         NIGHTLY_SLOT_UNIFIED)
         # While the app build holds the dedicated builder, the helper takes its own idle owned pick.
         self.assertEqual(helper(**{'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-trusted-next-nightly',
                                    'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-trusted-next-nightly'}),
@@ -501,14 +501,14 @@ class NightlyTrustedRouting(unittest.TestCase):
                         {'github.ref': 'refs/heads/main', 'vars.CI_SEED_TRUSTED_POOL': ''},
                         {'github.ref': 'refs/heads/other'}):
             with self.subTest(changes=changes):
-                self.assertEqual(helper(**changes), NIGHTLY_SLOT)
+                self.assertEqual(helper(**changes), NIGHTLY_SLOT_UNIFIED)
         # An unsigned resume reads the helper pick like a build.
         self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'glaeda-side-std-xcode-26.6')
         # The nightly-only reservation, when enabled, comes first on attempt 1 only.
         self.assertEqual(helper(**{'vars.CI_NIGHTLY_ONLY_RUNNER': NIGHTLY_ONLY,
                                    'needs.decide.outputs.track': 'nightly-next'}), NIGHTLY_ONLY)
         self.assertEqual(helper(**{'vars.CI_NIGHTLY_ONLY_RUNNER': NIGHTLY_ONLY, 'github.run_attempt': 2,
-                                   'needs.decide.outputs.track': 'nightly-next'}), NIGHTLY_SLOT)
+                                   'needs.decide.outputs.track': 'nightly-next'}), NIGHTLY_SLOT_UNIFIED)
         self.assertEqual(helper(**{'github.repository_owner': 'someone'}), 'macos-26')
         self.assertNotIn('macos-15', nightly_expand(WORKFLOW_FILE.read_text()))
 
