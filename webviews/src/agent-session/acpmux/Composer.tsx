@@ -56,7 +56,7 @@ import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, PlanIcon, LiveContextRing } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph, SendSlot, StopPulse } from "./composer/SendSlotGlyph";
-import { StopPresenceSlot, type StopPresence } from "./composer/turnPresence";
+import { type StopPresence } from "./composer/turnPresence";
 import { SendMenu } from "./composer/SendMenu";
 import { SIDE_COMMAND, sendChoiceForKey, sendMenuChoices, type SendChoice } from "./composer/sendMenuModel";
 import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
@@ -2618,7 +2618,7 @@ function ComposerFrame({
   // model's copy). A turn shorter than the dwell draws no Stop, a turn's end keeps it a moment, a
   // turn that starts again then pulses it, and no frame shows or hides it for less than the hold.
   // Only the drawing reads it; Esc, resume and the labels read `running`. The send slot owns it
-  // (StopPresenceSlot, below): its timer wakes draw the slot alone, never the whole composer, so a
+  // (SendSlot, below): its timer wakes draw the slot alone, never the whole composer, so a
   // turn's start and end draw the composer once each, as before the hysteresis (#51225).
   const hasDraft = Boolean(!facts.empty || attachments.length || pending.length);
   useEffect(() => onFilled?.(hasDraft), [hasDraft, onFilled]);
@@ -3465,13 +3465,9 @@ function ComposerFrame({
   // The slot's one reserved cell: Stop comes and goes in it without moving the row, and fades out
   // when it leaves with nothing in its place (composer/SendSlotGlyph.tsx SendSlot).
   const slot = (
-    <StopPresenceSlot running={running} scope={sessionId} sentAt={lastSent}>
-      {(stopPresence) => (
-        <SendSlot memory={morphMemory} scope={sessionId}>
-          {sendControlFor(stopPresence)}
-        </SendSlot>
-      )}
-    </StopPresenceSlot>
+    <SendSlot memory={morphMemory} scope={sessionId} running={running} sentAt={lastSent}>
+      {sendControlFor}
+    </SendSlot>
   );
   // The + menu's rows, the same array until what they list changes. ComposerFrame is left
   // uncompiled by the React Compiler, so an inline array was new on each keystroke and drew the menu again.

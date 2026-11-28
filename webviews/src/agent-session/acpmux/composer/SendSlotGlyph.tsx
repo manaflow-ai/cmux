@@ -23,6 +23,7 @@ import { RETURN_GLYPH_PATH } from "../composerPickerModel";
 import { reducedMotion } from "../threadMinimap/scrollMotion";
 import { sendStopMorph, type SendStopMorphArm } from "./sendStopMorph.experiment";
 import { stopPresence } from "./stopPresence.experiment";
+import { useStopPresence, type StopPresence } from "./turnPresence";
 import {
   MORPH_MS,
   morphFrom,
@@ -371,14 +372,23 @@ export function StopPulse({ pulses }: { pulses: number }) {
 /// that arrives in an empty slot fades in (sendSlotGlyphModel.ts morphFrom). Neither plays on a
 /// chat switch, within SETTLE_MS of one, under Reduce Motion or motion off, or on a hidden page.
 export function SendSlot({
-  children,
+  children: draw,
   memory,
   scope,
+  running = false,
+  sentAt,
 }: {
-  children: React.ReactNode;
+  /// The slot's control, drawn from Stop's presence (turnPresence.ts). The slot owns that hook, so its
+  /// timer wakes (a dwell's end, a linger's end) draw this slot alone, never the composer holding it:
+  /// drawing the composer again for each wake doubled its renders over a turn (#51225,
+  /// agent-pane-tool-call-renders.test.ts).
+  children: (presence: StopPresence) => React.ReactNode;
   memory?: SlotMemory | undefined;
   scope?: string | undefined;
+  running?: boolean;
+  sentAt?: (() => number) | undefined;
 }) {
+  const children = draw(useStopPresence(running, scope, sentAt));
   const empty = children === null || children === undefined || children === false;
   const [leaving, setLeaving] = useState<SlotGlyph | undefined>(undefined);
   const [wasEmpty, setWasEmpty] = useState(empty);

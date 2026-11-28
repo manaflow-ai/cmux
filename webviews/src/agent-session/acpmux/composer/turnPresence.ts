@@ -13,7 +13,7 @@
 //   counts a pulse (the page draws a short pulse in place of Stop going and coming back);
 // - every change of what is drawn stands at least HOLD_MS, shown or gone (a send excepted);
 // - the first state, and the state after a chat switch, draws at once.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { MOTION_MS } from "../../../motion/scale.generated";
 
 /// How long a turn runs before Stop shows (the motion scale's micro step).
@@ -123,23 +123,6 @@ export function useStopPresence(running: boolean, scope: string | undefined, sen
     // `tick`: a timer that fired a hair early schedules again.
   }, [wake, model, state.tick]);
   return { shown: model.shown, lingering: model.lingering, pulses: model.pulses };
-}
-
-/// The Stop presence drawn by `children` alone: the hook's timer wakes (a dwell's end, a linger's end)
-/// draw this slot, never the component that holds it. The composer is thousands of lines; drawing
-/// it again for each wake doubled its renders over a turn (agent-pane-tool-call-renders.test.ts).
-export function StopPresenceSlot({
-  running,
-  scope,
-  sentAt,
-  children,
-}: {
-  running: boolean;
-  scope: string | undefined;
-  sentAt?: (() => number) | undefined;
-  children: (presence: StopPresence) => ReactNode;
-}): ReactNode {
-  return children(useStopPresence(running, scope, sentAt));
 }
 
 /// A turn that starts this soon after the person's send is that send's turn.
