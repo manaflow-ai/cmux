@@ -270,13 +270,36 @@ export default componentEntry<Props>({
       },
     },
     "cloud-empty": entry(
-      "Cloud offers three sources even with no repositories or folders.",
+      "Cloud offers four sources even with no repositories or folders.",
       unavailable("not_configured"),
       cloud,
     ),
     "cloud-folder-empty": {
       ...entry("The Cloud folder step explains an empty list.", picker({ status: ready, repos }), cloud),
       play: step(/^Folder on a Cloud machine/),
+    },
+    "cloud-url-empty": {
+      ...entry(
+        "With Cloud picked, a pasted Git URL is cloned on the Cloud machine.",
+        picker({ status: ready, repos }),
+        cloud,
+      ),
+      play: gitURL(),
+    },
+    "cloud-url-github": {
+      ...entry(
+        "With Cloud picked, a GitHub URL becomes the chat's repository; the chip names it.",
+        picker({ status: ready, repos }),
+        cloud,
+      ),
+      play: async (ctx) => {
+        await gitURL("https://github.com/octocat/Hello-World")(ctx);
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-add-project-palette"));
+      },
+    },
+    "cloud-url-gitlab": {
+      ...entry("With Cloud picked, another host's URL is refused in words.", picker({ status: ready, repos }), cloud),
+      play: gitURL("https://gitlab.com/gitlab-org/gitlab-test", "Cloud starts in GitHub repositories only for now."),
     },
     "url-empty": {
       ...entry("Enter an HTTPS Git URL to clone on This Mac.", picker()),
