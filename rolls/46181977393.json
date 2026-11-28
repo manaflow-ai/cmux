@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46181977393",
+  "recorded_at": "2026-11-28T19:52:44Z",
+  "reason": "image inputs changed in c7ac637f20ca59ad36dce810da1d0f8b3121c8cb..1846d9cc5397c9636683e2a7a738ef13b57b254f; cmux-tui a962b61aca0b, the commit the Cloud machine channel serves (pinned d788eb8c134b)",
+  "dry_run": false,
+  "cmux_tui": "a962b61aca0bf73a177a9ef9263fb115b4c66ab9",
+  "fixes": [
+    {
+      "sha": "1846d9cc5397c9636683e2a7a738ef13b57b254f",
+      "mergedAt": "2026-11-28T19:35:24Z",
+      "subject": "acpmux: auto pick skips a host that refused a start; private a 775 chats folder (#65173)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T19:52:44Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
