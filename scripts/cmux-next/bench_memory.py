@@ -293,6 +293,43 @@ def process_table():
     return rows
 
 
+# Gates a measurement depends on, read from the app process itself (memory-agents-cron.py refuses rows taken with one
+# off): a default that lives in the code and in the docs can drift, and a number measured with the feature off must not
+# be recorded as the feature's number (memory-per-chat, 2026-11-28).
+APP_GATES = ("CMUX_NEXT_CHAT_RENDERER_RECYCLE",)
+
+
+def env_gates(ps_env_output: str, names=APP_GATES) -> dict | None:
+    """The gates' values in `ps -E -ww -o command=` output for one process (pure): {name: value or None (unset)}, or
+    None when the output holds no environment at all (another user's or a protected process: no HOME= word)."""
+    words = ps_env_output.split()
+    if not any(w.startswith("HOME=") for w in words):
+        return None
+    found = {}
+    for w in words:
+        name, sep, value = w.partition("=")
+        if sep and name in names:
+            found[name] = value  # the environment follows the command, so the last match is the env's own
+    return {name: found.get(name) for name in names}
+
+
+def app_gates(pid: int | None, launch_env: dict) -> dict:
+    """What the app process runs with for each of APP_GATES: read from its environment (`source: process`), else the
+    environment this run gave it plus launchd's (`open` merges `launchctl setenv` values in; `source: launch`)."""
+    if pid:
+        out = subprocess.run(["ps", "-E", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+        read = env_gates(out)
+        if read is not None:
+            return {"source": "process", "values": read}
+    values = {}
+    for name in APP_GATES:
+        value = launch_env.get(name)
+        if value is None and not _direct_launch:
+            value = subprocess.run(["launchctl", "getenv", name], capture_output=True, text=True).stdout.strip() or None
+        values[name] = value
+    return {"source": "launch", "values": values}
+
+
 def in_bundle(cmd: str, bundle: str) -> str | None:
     """`cmd` relative to the bundle, or None. The app runs from the real
     path (/private/tmp/...) while its daemons keep the path it handed them
@@ -2669,6 +2706,7 @@ def main():
         report["child_time_check"] = child_check
     if args.env:
         report["env"] = args.env
+    report["app_gates"] = app_gates(app_pid, dict(pair.split("=", 1) for pair in args.env))
     if args.relaunch_restored:
         report["relaunch"] = relaunch
     if gpu_no_app is not None:

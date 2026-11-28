@@ -3,8 +3,61 @@ use std::cell::{Cell, RefCell};
 use super::*;
 use crate::attachment::OutboundQueue;
 use crate::forward::{
-    CLOSE_OVERLOADED, MAX_OUTBOUND_QUEUE_BYTES, MAX_OUTBOUND_QUEUE_FRAMES, OutboundQueueError,
+    OutboundQueueError, CLOSE_OVERLOADED, MAX_OUTBOUND_QUEUE_BYTES, MAX_OUTBOUND_QUEUE_FRAMES,
 };
+
+fn joined(slot: &str, circuit: &CircuitId) -> CircuitAttachment {
+    let mut attachment = CircuitAttachment::pending(circuit.clone(), 1_000);
+    attachment.relay = Some(RelaySocketAttachment::circuit(
+        RelayRole::Client,
+        slot.into(),
+        circuit.clone(),
+        LaneToken("lane".into()),
+    ));
+    attachment.phase = CircuitPhase::Joined;
+    attachment
+}
+
+/// Openers that join and give up because their daemon never joined: every one of them now frees its
+/// pending place, so the slot admits the next circuit at once instead of refusing until the join
+/// deadlines pass. Counts reservations; no clock moves.
+#[test]
+fn openers_that_give_up_unjoined_free_their_pending_places() {
+    use crate::abuse::{CircuitLedger, MAX_PENDING_CIRCUITS_PER_SLOT};
+    let deadline_ms = 30_000;
+    let now_ms = 1;
+    let mut ledger = CircuitLedger::default();
+    let mut released = 0;
+    for n in 0..MAX_PENDING_CIRCUITS_PER_SLOT {
+        let circuit = CircuitId(format!("{n:064x}"));
+        assert!(ledger.reserve(circuit.0.clone(), deadline_ms, now_ms));
+        let closing = joined("slot", &circuit);
+        if let Some((slot, lease)) = unjoined_lease_to_release(&closing, false) {
+            assert_eq!(slot, "slot");
+            assert_eq!(lease, circuit);
+            assert!(ledger.release(&lease.0));
+            released += 1;
+        }
+    }
+    assert_eq!(released, MAX_PENDING_CIRCUITS_PER_SLOT);
+    assert_eq!(ledger.pending_count(now_ms), 0);
+    assert!(ledger.reserve(format!("{:064x}", u64::MAX), deadline_ms, now_ms));
+}
+
+#[test]
+fn unjoined_release_skips_ready_pending_and_a_joined_peer() {
+    let circuit = CircuitId("ab".repeat(32));
+    let mut ready = joined("slot", &circuit);
+    ready.phase = CircuitPhase::Ready;
+    assert_eq!(unjoined_lease_to_release(&ready, false), None);
+    let pending = CircuitAttachment::pending(circuit.clone(), 1_000);
+    assert_eq!(unjoined_lease_to_release(&pending, false), None);
+    assert_eq!(unjoined_lease_to_release(&joined("slot", &circuit), true), None);
+    assert_eq!(
+        unjoined_lease_to_release(&joined("slot", &circuit), false),
+        Some(("slot".to_string(), circuit))
+    );
+}
 
 #[test]
 fn active_release_record_survives_hibernation_and_retry() {

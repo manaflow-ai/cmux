@@ -231,10 +231,16 @@ fn the_running_session_hosts_identify_replaces_the_bakes_daemon_block() {
     let start = s.start(0);
     assert_eq!(start[0].params["daemon"]["version"], "0.1.0+aaaaaaaaaaaa");
     s.answered(&start[0], &ok(), 0, 0.5);
-    s.activity_stream(true, 1_000);
-    s.line(&acp(0, None), 2_000);
-    let r = s.fire(20_000);
-    s.answered(&r[0], &ok(), 20_000, 0.5);
+    // The stream going live and acpmux's count each go at once (the report that ends blind).
+    for req in s.activity_stream(true, 1_000) {
+        s.answered(&req, &ok(), 1_000, 0.5);
+    }
+    for req in s.line(&acp(0, None), 2_000).0 {
+        s.answered(&req, &ok(), 2_000, 0.5);
+    }
+    for req in s.fire(20_000) {
+        s.answered(&req, &ok(), 20_000, 0.5);
+    }
 
     // The same block (or the same one with activity capabilities) changes nothing.
     assert!(s.daemon_identified(&baked, 30_000).is_empty());
@@ -279,6 +285,35 @@ fn the_report_carries_the_updaters_block_and_goes_when_its_outcome_changes() {
     assert_eq!(r[0].params["updater"], current);
 }
 
+/// cmux-platform census 2026-11-28 13:35Z: `blind_report` was 0.050 of the hour's running
+/// minutes, `no_stream` on 275 of its 470 machines. A start's first report goes before the
+/// stream connects, so the report that turns `activity` on, and the one that turns
+/// `activity-turns` on, each go at once rather than after the 10 s floor; a later change
+/// that gains no sight still waits for it.
+#[test]
+fn the_report_that_ends_blind_goes_past_the_floor() {
+    let mut s = session();
+    let has = |r: &OpRequest, cap: &str| {
+        r.params["daemon"]["capabilities"].as_array().unwrap().iter().any(|c| c == cap)
+    };
+    for req in s.start(0) {
+        s.answered(&req, &ok(), 0, 0.5);
+    }
+    let r = s.activity_stream(true, 2_000);
+    assert_eq!(r.len(), 1, "the stream going live is reported at once, not at 10 s");
+    assert!(has(&r[0], ACTIVITY_CAPABILITY));
+    s.answered(&r[0], &ok(), 2_000, 0.5);
+
+    let r = s.line(&acp_from("/a.sock", 0), 3_000).0;
+    assert_eq!(r.len(), 1, "acpmux's count becoming known is reported at once");
+    assert!(has(&r[0], ACTIVITY_TURNS_CAPABILITY));
+    s.answered(&r[0], &ok(), 3_000, 0.5);
+
+    let r = s.line(&acp_from("/a.sock", 1), 4_000).0;
+    assert!(r.is_empty(), "a count change that gains no sight keeps the floor");
+    assert_eq!(s.fire(13_000).len(), 1, "and goes at the floor");
+}
+
 fn acp_from(daemon: &str, turns: u64) -> String {
     json!({"acp_activity": {"turns": turns, "daemon": daemon}}).to_string()
 }
@@ -289,7 +324,7 @@ fn acp_from(daemon: &str, turns: u64) -> String {
 #[test]
 fn activity_turn_end_needs_every_daemons_promise() {
     use super::super::wire::{
-        ACTIVITY_CAPABILITY, ACTIVITY_TURN_END_CAPABILITY, ACTIVITY_TURNS_CAPABILITY,
+        ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY, ACTIVITY_TURN_END_CAPABILITY,
     };
     let new = |daemon: &str, turns: u64| {
         json!({"acp_activity": {"turns": turns, "daemon": daemon, "turn_end": 1}}).to_string()
