@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 import importlib.util
 import os
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,7 +30,7 @@ class PhoneDefaultSpeedTest(unittest.TestCase):
             output = Path(tmp)
             child_file = output / "child"
             program = ("import os,subprocess,sys,time; from pathlib import Path; "
-                       "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
+                       "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'], start_new_session=True); "
                        f"Path({str(child_file)!r}).write_text(str(p.pid)+' '+str(os.getpgrp())); "
                        "time.sleep(30)")
             with self.assertRaisesRegex(RuntimeError, "unexpected exit 124"):

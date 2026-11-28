@@ -2121,9 +2121,10 @@ jobs:
     # cut the same way: the feat-cmux-next channel stayed at 7d439038
     # (cmuxterm-hq#20161). 90 holds a cold compile; cargo test has its own bound
     # below, so a cut test step still leaves time to save what it compiled.
-    # The narrow default-grid cache seed has a separate 30-minute ceiling;
+    # The narrow default-grid cache seed has a separate 44-minute ceiling
+    # (10 setup + 3 parallel tool setup + 30 detector + 1 orchestration);
     # preserve the original room for publishing the compiled target afterward.
-    timeout-minutes: 120
+    timeout-minutes: 134
     # A feat-cmux-next push saves this job's cargo build to the CI cache bucket for ci/steps.toml's
     # cmux-next-daemon-tests and agent-pane-real-acpmux steps (scripts/ci/cmux-tui-test-target.sh); only
     # next-cache-writer holds the write credentials, and its deployment branches are feat-cmux-next only.
@@ -2408,7 +2409,7 @@ jobs:
       # fingerprints in the same existing target archive; it never rebaselines.
       - name: Seed and check default-grid instruction detector
         if: ${{ !cancelled() && runner.os == 'Linux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' }}
-        timeout-minutes: 30
+        timeout-minutes: 44
         env:
           CI_STEP_RESULTS: "off"
         run: python3 ci/run run --job linux --only phone-default-speed-icount

@@ -59,7 +59,8 @@ The Rust wrapper's dev optimization is part of the instruction baseline.
 
 The explicit developer study uses a fresh target, records wall/user/system CPU,
 then runs a warm build, both repeated checks, excess-work and no-op mutations,
-and a restored-source check. Invoke `scripts/bench/phone-default-speed/study.py`
+and an unchanged-original check. Mutations use a separate example and leave the
+production source intact. Invoke `scripts/bench/phone-default-speed/study.py`
 through `cmux-ci test`, with `/tmp/phone-default-speed-receipt` as the artifact.
 It records a candidate baseline only in study mode, never in the gating path.
 Cold/warm costs and the actual baseline receipt must be added before merging.

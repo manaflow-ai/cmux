@@ -58,6 +58,14 @@ class NightlyGateTest(unittest.TestCase):
         cls.callees = pr_router.load_manifest()
         cls.affected = ("cheap", head_tier.LAND_AFFECTED_REASON + ": the full tier runs once an hour")
 
+    def test_default_speed_seed_budget_includes_tool_setup(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text())
+        job = workflow["jobs"]["cmux-next-daemon-tests"]
+        seed = next(s for s in job["steps"] if s.get("name") == "Seed and check default-grid instruction detector")
+        need = ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + ci_steps.load().steps["phone-default-speed-icount"].timeout
+        self.assertGreaterEqual(seed["timeout-minutes"] * 60, need)
+        self.assertGreaterEqual(job["timeout-minutes"], 90 + seed["timeout-minutes"])
+
     def landing(self, files, decided=None):
         event = {"action": "synchronize", "pull_request": {
             "draft": False, "labels": [{"name": "ready-to-land"}],

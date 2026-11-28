@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import resource
+import select
 import signal
 import subprocess
 import time
@@ -21,13 +22,19 @@ CARGO = ["cargo", "build", "--locked", "--profile", "dev", "-p", "ghostty-vt",
 
 def stop_tree(pid):
     """Stop only this child tree; retain the CI step's group for outer cancellation."""
-    stopped = []
+    stopped = {}
     def visit(child):
+        if child in stopped:
+            return
         try:
-            os.kill(child, signal.SIGSTOP)
+            descriptor = os.pidfd_open(child)
         except ProcessLookupError:
             return
-        stopped.append(child)
+        stopped[child] = descriptor
+        try:
+            signal.pidfd_send_signal(descriptor, signal.SIGSTOP)
+        except ProcessLookupError:
+            return
         # A stopped process cannot spawn more children while we enumerate every thread.
         for task in (Path("/proc") / str(child) / "task").glob("*/children"):
             try:
@@ -36,12 +43,29 @@ def stop_tree(pid):
                 continue
             for descendant in children:
                 visit(int(descendant))
-    visit(pid)
-    for child in reversed(stopped):
-        try:
-            os.kill(child, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+    try:
+        visit(pid)
+        pending = select.poll()
+        for descriptor in reversed(list(stopped.values())):
+            pending.register(descriptor, select.POLLIN)
+            try:
+                signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        # SIGKILL delivery is asynchronous. Wait for kernel exit notifications,
+        # including non-child descendants, without mistaking a reused PID for ours.
+        remaining = set(stopped.values())
+        deadline = time.monotonic() + 5
+        while remaining:
+            milliseconds = max(0, int((deadline - time.monotonic()) * 1000))
+            if not milliseconds:
+                raise RuntimeError("owned process tree did not exit within 5 seconds")
+            for descriptor, _events in pending.poll(milliseconds):
+                pending.unregister(descriptor)
+                remaining.remove(descriptor)
+    finally:
+        for descriptor in stopped.values():
+            os.close(descriptor)
 
 
 def run(name, command, output, env, timeout=180, expected=0):
@@ -102,10 +126,14 @@ def main():
     # merely because a new CI_TOOLS directory was allocated.
     env.pop("ZIG", None)
     env.pop("CMUX_ZIG", None)
+    cargo_command = list(CARGO)
     if args.study:
         # Cold-study CPU includes rustc itself rather than an external compiler cache daemon.
         env.pop("RUSTC_WRAPPER", None)
         env.pop("RUSTC_WORKSPACE_WRAPPER", None)
+        # ci/run can install a cargo shim that re-exports sccache unconditionally.
+        cargo_command[0] = subprocess.check_output(["rustup", "which", "cargo"],
+            cwd=ROOT / "cmux-tui", env=env, text=True).strip()
         target = ROOT / ".build" / f"phone-default-speed-study-{os.getpid()}"
         target.mkdir(parents=True, exist_ok=False)
         env["CARGO_TARGET_DIR"] = str(target)
@@ -118,10 +146,10 @@ def main():
         "ghostty": subprocess.check_output(["git", "rev-parse", "HEAD:ghostty-next"], cwd=ROOT, text=True).strip(),
         "target": str(target), "profile": "dev", "cpu": "baseline", "study": args.study,
     }, indent=2) + "\n")
-    first = run("cold-build" if args.study else "setup-build", CARGO, output, env, timeout=1800 if args.study else 900)
+    first = run("cold-build" if args.study else "setup-build", cargo_command, output, env, timeout=1800 if args.study else 900)
     print(f"initial native artifact fresh: {'Fresh ghostty-vt-sys v' in first}", flush=True)
-    fresh(run("warm-build", CARGO, output, env, timeout=60))
-    run("unit-tests", ["cargo", "test", "--locked", "-p", "ghostty-vt", "--features", "phone-speed",
+    fresh(run("warm-build", cargo_command, output, env, timeout=60))
+    run("unit-tests", [cargo_command[0], "test", "--locked", "-p", "ghostty-vt", "--features", "phone-speed",
                        "--example", "phone_default_speed"], output, env, timeout=120)
     if args.study:
         # Rebaselining is explicit developer study, never the gating path.
@@ -135,7 +163,7 @@ def main():
         mutation_source = SOURCE.with_name("phone_default_speed_mutation.rs")
         if mutation_source.exists():
             raise RuntimeError(f"refusing to overwrite {mutation_source}")
-        mutation_cargo = [arg.replace("phone_default_speed", "phone_default_speed_mutation") for arg in CARGO]
+        mutation_cargo = [arg.replace("phone_default_speed", "phone_default_speed_mutation") for arg in cargo_command]
         mutation_binary = binary.with_name("phone_default_speed_mutation")
         try:
             marker = "let runs = frame.runs();"
@@ -153,7 +181,7 @@ def main():
                 assert "assertion" in failed, "no-op mutation failed without final-frame validation"
         finally:
             mutation_source.unlink(missing_ok=True)
-        fresh(run("restored-build", CARGO, output, env))
+        fresh(run("restored-build", cargo_command, output, env))
         run("restored-check", [str(binary), "check"], output, env)
     print(f"PASS: workspace native reuse and instruction gate; receipts {output}")
 
