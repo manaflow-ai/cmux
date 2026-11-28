@@ -113,7 +113,8 @@ pub fn apply(state: State, event: Event, cx: &Context) -> Outcome {
             next.write_failed = false;
         }
         Event::Back if state.shows && state.step.index() > 0 => {
-            next.step = STEPS.get(state.step.index().saturating_sub(1)).copied().unwrap_or(state.step);
+            next.step =
+                STEPS.get(state.step.index().saturating_sub(1)).copied().unwrap_or(state.step);
             next.write_failed = false;
         }
         Event::Finish if state.shows => {

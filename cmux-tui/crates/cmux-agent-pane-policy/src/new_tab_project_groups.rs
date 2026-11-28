@@ -72,7 +72,7 @@ pub fn freeze(rows: &mut [Value], current: Option<&str>) {
     let mut by_name: HashMap<String, Option<Value>> = HashMap::new();
     let mut checkouts = HashMap::new();
     for row in rows.iter() {
-        let repo = &field(row, "repo");
+        let repo = field(row, "repo");
         if !repo.is_object() {
             continue;
         }
@@ -133,7 +133,7 @@ pub fn freeze(rows: &mut [Value], current: Option<&str>) {
     let guessed: HashSet<String> = rows
         .iter()
         .filter_map(|row| {
-            let root = text(&field(row, "repo"), "root");
+            let root = text(field(row, "repo"), "root");
             root.starts_with(GUESSED).then(|| root.to_owned())
         })
         .collect();
@@ -142,12 +142,12 @@ pub fn freeze(rows: &mut [Value], current: Option<&str>) {
     let mut seeds = HashMap::new();
     for (index, row) in rows.iter().enumerate() {
         let cwd = text(row, "cwd");
-        let group = &field(row, "displayGroup");
+        let group = field(row, "displayGroup");
         let group_key = if group.is_object() {
             seeds.entry(text(group, "key").to_owned()).or_insert_with(|| group.clone());
             text(group, "key").to_owned()
         } else if field(row, "repo").is_object() {
-            key(&field(row, "repo"))
+            key(field(row, "repo"))
         } else {
             let named = format!("{GUESSED}{}", text(row, "label").to_lowercase());
             if guessed.contains(&named) { named } else { cwd.to_owned() }
@@ -165,7 +165,8 @@ pub fn freeze(rows: &mut [Value], current: Option<&str>) {
             .iter()
             .copied()
             .find(|&i| text(row(rows, i), "cwd") == text(field(row(rows, i), "repo"), "root"));
-        let selected = members.iter().copied().find(|&i| Some(text(row(rows, i), "cwd")) == current);
+        let selected =
+            members.iter().copied().find(|&i| Some(text(row(rows, i), "cwd")) == current);
         let selected_root = selected.map(|i| text(field(row(rows, i), "repo"), "root"));
         let selected_main = members.iter().copied().find(|&i| {
             Some(text(row(rows, i), "cwd")) == selected_root
@@ -184,9 +185,9 @@ pub fn freeze(rows: &mut [Value], current: Option<&str>) {
             })
         });
         // A removed lead is replaced in its existing group slot; additions never steal it.
-        for (field, fallback) in [("lead", lead), ("mainLead", main_lead)] {
-            if !members.iter().any(|&i| text(row(rows, i), "cwd") == text(&group, field)) {
-                set(&mut group, field, self::field(row(rows, fallback), "cwd").clone());
+        for (name, fallback) in [("lead", lead), ("mainLead", main_lead)] {
+            if !members.iter().any(|&i| text(row(rows, i), "cwd") == text(&group, name)) {
+                set(&mut group, name, field(row(rows, fallback), "cwd").clone());
             }
         }
         for index in members {

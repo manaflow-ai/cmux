@@ -48,7 +48,8 @@ pub fn stun_request(txid: [u8; 12]) -> [u8; 20] {
 /// XOR-MAPPED-ADDRESS wins over MAPPED-ADDRESS when both are present.
 #[must_use]
 pub fn stun_mapped(buf: &[u8], txid: [u8; 12]) -> Option<SocketAddr> {
-    if be_u16(buf, 0)? != 0x0101 || be_u32(buf, 4)? != STUN_MAGIC || bytes_at::<12>(buf, 8)? != txid {
+    if be_u16(buf, 0)? != 0x0101 || be_u32(buf, 4)? != STUN_MAGIC || bytes_at::<12>(buf, 8)? != txid
+    {
         return None;
     }
     let key: [u8; 16] = bytes_at(buf, 4)?;

@@ -291,7 +291,10 @@ impl Hub {
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         let peer = crate::peer::Peer::new(name, url, None, None, tx);
         peer.seed_send_attach(true);
-        self.peers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(name.to_owned(), peer.clone());
+        self.peers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(name.to_owned(), peer.clone());
         self.apply_peer_notice(name, peer.generation, PeerNotice::sessions_from_values(rows));
         self.apply_peer_notice(name, peer.generation, PeerNotice::Disconnected("down".into()));
         peer

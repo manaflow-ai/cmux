@@ -181,7 +181,8 @@ pub fn moving(
     let unpinned_at = clamp(index.saturating_sub(rest_pinned.len() as i64), rest_unpinned.len());
     let mut result = Vec::with_capacity(order.len());
     // `clamp` keeps both cuts inside their halves, so neither split falls back.
-    let (pinned_head, pinned_tail) = rest_pinned.split_at_checked(pinned_at).unwrap_or((&rest_pinned, &[]));
+    let (pinned_head, pinned_tail) =
+        rest_pinned.split_at_checked(pinned_at).unwrap_or((&rest_pinned, &[]));
     let (unpinned_head, unpinned_tail) =
         rest_unpinned.split_at_checked(unpinned_at).unwrap_or((&rest_unpinned, &[]));
     result.extend_from_slice(pinned_head);

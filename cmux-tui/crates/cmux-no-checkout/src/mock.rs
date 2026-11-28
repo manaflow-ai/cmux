@@ -211,12 +211,18 @@ fn route(
     match (method, path) {
         ("GET", "") => ok(&json!({"default_branch": "main"})),
         ("GET", p) if p.starts_with("/branches/") => {
-            let Some(commit) = state.refs.get(p.strip_prefix("/branches/").unwrap_or_default()) else { return missing() };
+            let Some(commit) = state.refs.get(p.strip_prefix("/branches/").unwrap_or_default())
+            else {
+                return missing();
+            };
             let tree = &state.commits[commit].0;
             ok(&json!({"commit": {"sha": commit, "commit": {"tree": {"sha": tree}}}}))
         }
         ("GET", p) if p.starts_with("/git/trees/") => {
-            let Some(tree) = state.trees.get(p.strip_prefix("/git/trees/").unwrap_or_default()) else { return missing() };
+            let Some(tree) = state.trees.get(p.strip_prefix("/git/trees/").unwrap_or_default())
+            else {
+                return missing();
+            };
             let entries: Vec<Value> = tree
                 .iter()
                 .map(|(path, (blob, mode))| {

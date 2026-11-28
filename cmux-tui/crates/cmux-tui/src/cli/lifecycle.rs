@@ -303,8 +303,10 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             let message = crate::localization::catalog().local_server.starting;
             // Still retryable for a program that can wait longer.
             let mut details = json!({"reason":"starting"});
-            if let Some(restore) = identity.get("restore") {
-                details["restore"] = restore.clone();
+            if let Some(restore) = identity.get("restore")
+                && let Some(object) = details.as_object_mut()
+            {
+                object.insert("restore".to_owned(), restore.clone());
             }
             let error = json!({"code":"server.unavailable","message":message,"details":details,"retryable":true});
             return super::wire::print_local_error(&error, global.output, 3);

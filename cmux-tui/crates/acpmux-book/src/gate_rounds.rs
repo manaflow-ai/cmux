@@ -24,7 +24,10 @@ pub fn p95(samples: &[u128]) -> u128 {
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
     // Never past the end: the rank is at most len, minus one.
-    sorted.get(((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1)).copied().unwrap_or_default()
+    sorted
+        .get(((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1))
+        .copied()
+        .unwrap_or_default()
 }
 
 /// The lowest round p95. Panics on no rounds or an empty round, as [`p95`] does.

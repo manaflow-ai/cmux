@@ -93,7 +93,12 @@ fn round4(value: f64) -> f64 {
 /// The median of a non-empty list of ratios.
 fn median(sorted: &[f64]) -> f64 {
     let middle = sorted.len() / 2;
-    if sorted.len() % 2 == 1 { sorted[middle] } else { (sorted[middle - 1] + sorted[middle]) / 2.0 }
+    let at = |index: usize| sorted.get(index).copied().unwrap_or_default();
+    if sorted.len() % 2 == 1 {
+        at(middle)
+    } else {
+        (at(middle.saturating_sub(1)) + at(middle)) / 2.0
+    }
 }
 
 /// The report: the app's `handover` (`app_pid`, `daemon_pids`, `chats[{tab, machine, pid,
@@ -116,17 +121,21 @@ pub(super) fn report(
     let bytes_of: BTreeMap<u32, Option<u64>> =
         by_pid.keys().map(|pid| (*pid, footprint(*pid))).collect();
     let tabs_of = |pid: u32| -> Vec<&str> {
-        let mut tabs: Vec<&str> =
-            by_pid[&pid].iter().filter_map(|chat| chat["tab"].as_str()).collect();
+        let mut tabs: Vec<&str> = by_pid
+            .get(&pid)
+            .into_iter()
+            .flatten()
+            .filter_map(|chat| chat["tab"].as_str())
+            .collect();
         tabs.sort_unstable();
         tabs
     };
-    let alone = |pid: u32| by_pid[&pid].len() == 1;
+    let alone = |pid: u32| by_pid.get(&pid).is_some_and(|chats| chats.len() == 1);
 
     // The empty chat's page.
     let empty_chat = |chat: &Value| -> Option<(u32, Option<u64>)> {
         let pid = pid_of(&chat["pid"])?;
-        Some((pid, bytes_of[&pid]))
+        Some((pid, bytes_of.get(&pid).copied().flatten()))
     };
     let named_tab = empty["tab"].as_str();
     let (baseline, empty_json) = if let Some(bytes) = empty["bytes"].as_u64() {
@@ -159,7 +168,8 @@ pub(super) fn report(
             _ => (None, json!({"source": null, "reason": "no_empty_chat"})),
         }
     };
-    let empty_pid = empty_json["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok());
+    let empty_pid =
+        empty_json.get("pid").and_then(Value::as_u64).and_then(|pid| u32::try_from(pid).ok());
     let ratio_of = |bytes: Option<u64>| -> Value {
         match (bytes, baseline) {
             (Some(bytes), Some(base)) if base > 0 => json!(round4(bytes as f64 / base as f64)),
@@ -177,7 +187,7 @@ pub(super) fn report(
                     "ratio": null, "frozen": chat["frozen"],
                 });
             };
-            let bytes = bytes_of[&pid];
+            let bytes = bytes_of.get(&pid).copied().flatten();
             let shared_with: Vec<&str> =
                 tabs_of(pid).into_iter().filter(|tab| Some(*tab) != chat["tab"].as_str()).collect();
             json!({
@@ -190,7 +200,7 @@ pub(super) fn report(
 
     let processes: Vec<Value> = by_pid
         .keys()
-        .map(|pid| json!({"pid": pid, "footprint_bytes": bytes_of[pid], "tabs": tabs_of(*pid)}))
+        .map(|pid| json!({"pid": pid, "footprint_bytes": bytes_of.get(pid).copied().flatten(), "tabs": tabs_of(*pid)}))
         .collect();
     let web_total: u64 = bytes_of.values().flatten().sum();
     let shared_processes = by_pid.keys().filter(|pid| !alone(**pid)).count();
@@ -202,7 +212,7 @@ pub(super) fn report(
         .filter(|(pid, tabs)| {
             Some(**pid) != empty_pid && tabs.iter().any(|chat| chat["new_tab"] != true)
         })
-        .filter_map(|(pid, _)| match (bytes_of[pid], baseline) {
+        .filter_map(|(pid, _)| match (bytes_of.get(pid).copied().flatten(), baseline) {
             (Some(bytes), Some(base)) if base > 0 => Some(bytes as f64 / base as f64),
             _ => None,
         })
@@ -263,8 +273,8 @@ pub(super) fn human(report: &Value, messages: &ChatMemoryMessages) -> String {
         fill(
             messages.app,
             &[
-                ("pid", number(&report["app"]["pid"])),
-                ("size", megabytes(&report["app"]["footprint_bytes"]))
+                ("pid", number(report.pointer("/app/pid").unwrap_or(&Value::Null))),
+                ("size", megabytes(report.pointer("/app/footprint_bytes").unwrap_or(&Value::Null)))
             ],
         )
     );
