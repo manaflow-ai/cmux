@@ -51,6 +51,8 @@ public protocol PageChromiumHosting: AnyObject {
 }
 
 extension PageChromiumPage {
+    /// A host that says nothing draws in its own window: its pane shows a move in one frame.
+    public var drawsInOwnWindow: Bool { true }
     /// No clip: the page shows as a plain rectangle.
     public var windowClip: CGPath? { nil }
     /// No docked DevTools: the page has its whole view.
@@ -80,6 +82,9 @@ extension PageChromiumHosting {
 public protocol PageChromiumPage: AnyObject {
     /// The view to place where the page shows (Chromium's view tracks it).
     var contentView: NSView { get }
+    /// Whether the page's pixels come from Chromium's child window now, not from a layer in ``contentView``'s tree.
+    /// A layer-hosted page (fork API 26) is cut by its pane's moving clip like any layer, so its pane rides a zoom.
+    var drawsInOwnWindow: Bool { get }
     /// Receives the page's raw DevTools protocol events and its load and crash events. Set it
     /// before the first ``devTools(_:params:)`` call.
     var onEvent: ((PageChromiumEvent) -> Void)? { get set }

@@ -26,6 +26,9 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     var contentView: NSView { tab.contentView }
 
+    /// In the window's own layer tree while the tab's page is layer hosted and attached (`CEFTab.drawsPageInLayerTree`).
+    var drawsInOwnWindow: Bool { !tab.drawsPageInLayerTree }
+
     /// The tab's holes for native UI (`CEFTab.occlusionRects`, `contentView` coordinates).
     var occlusionRects: [CGRect] {
         get { tab.occlusionRects }
