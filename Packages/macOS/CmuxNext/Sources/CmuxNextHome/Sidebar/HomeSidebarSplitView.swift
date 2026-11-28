@@ -145,7 +145,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         // The slide places both columns itself each frame (a resize mid-slide keeps its place too).
         if slide != nil { return placeSlideFrame() }
         // The page may have moved under or out from under the traffic lights (the window's sidebar).
-        list.updateWindowControlsAvoidance()
+        list.updateWindowControlsAvoidance(layingOutNow: false)
         if foldLoneConversation() { return }
         // A divider drag places the list itself (it can be 0 wide until the drag ends).
         guard dragStart == nil else { return }

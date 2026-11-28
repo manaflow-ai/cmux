@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// A view in the window's top row that keeps its leading controls clear of the traffic lights
 /// and the titlebar accessory (``TitlebarAccessoryHosting``) where they lie over it: Home's list
@@ -34,20 +35,46 @@ public final class WindowControlsAvoiders {
     /// Open ``batching(in:_:)`` calls on this window, and whether an update was asked inside them.
     private var batchDepth = 0
     private var batchedUpdate = false
+    /// Ends a batch left open (``endBatchesLeftOpen(in:)``), from the first batch on.
+    private var leftOpenWatch: MainRunLoopObserver?
 
     /// Runs `body`; the updates asked for in it (``update(in:)``, ``WindowControlsAvoiders/refresh(in:)``) run once,
     /// at its end: a layout frame that moves many panes, each of which asks, re-checks every view once, not once per
     /// pane. Nested calls end at the outermost one.
     public func batching<T>(in window: NSWindow, _ body: () -> T) -> T {
+        if leftOpenWatch == nil { watchForBatchesLeftOpen(in: window) }
         batchDepth += 1
         defer {
-            batchDepth -= 1
+            // Never below 0: a reset (``endBatchesLeftOpen(in:)``) inside the body ended this batch already.
+            batchDepth = max(0, batchDepth - 1)
             if batchDepth == 0, batchedUpdate {
                 batchedUpdate = false
                 update(in: window)
             }
         }
         return body()
+    }
+
+    /// An Objective-C exception that AppKit catches in a layout pass or a frame change (a layout loop it stops) skips
+    /// the Swift `defer` that ends ``batching(in:_:)``: the depth stayed above 0 and every later update waited for an
+    /// end that never came, so Home's header and chat column stopped re-checking for the life of the window. When the
+    /// main run loop goes to sleep, in any of its common modes (the app's event loop, a live resize's or a menu's
+    /// tracking loop), no pass or frame change is under way unless it ran a nested run loop: a batch still open there
+    /// was left open, and ends. (One under a nested loop ends early; its views re-read the lights in their own layout.)
+    private func watchForBatchesLeftOpen(in window: NSWindow) {
+        leftOpenWatch = MainRunLoopObserver(activities: .beforeWaiting) { [weak self, weak window] _ in
+            guard let self, let window else { return }
+            self.endBatchesLeftOpen(in: window)
+        }
+    }
+
+    /// Ends the batches still open on `window` and runs the update asked in them.
+    private func endBatchesLeftOpen(in window: NSWindow) {
+        guard batchDepth > 0 else { return }
+        batchDepth = 0
+        guard batchedUpdate else { return }
+        batchedUpdate = false
+        update(in: window)
     }
 
     /// Each view still in `window` re-checks its clearance. A hidden one (a workspace not shown)
@@ -83,6 +110,21 @@ public final class WindowControlsAvoiders {
     /// Joins `view` to its window's avoiders, when the window keeps them.
     public static func join(_ view: any WindowControlsAvoiding & NSView) {
         (view.window as? any WindowControlsAvoidanceHosting)?.windowControlsAvoiders.add(view)
+    }
+}
+
+extension NSView {
+    /// A view above this one, up to its window's content view, still waits for its layout. An avoider asked to re-check
+    /// then only marks itself: that layout places it once, at its final frame (laid out at once, it laid out at its old
+    /// frame first). With none, as at the end of the window's layout pass, a mark alone waits for the next pass.
+    public var anAncestorAwaitsLayout: Bool {
+        var view = superview
+        while let ancestor = view {
+            if ancestor.needsLayout { return true }
+            if ancestor === window?.contentView { return false }
+            view = ancestor.superview
+        }
+        return false
     }
 }
 
