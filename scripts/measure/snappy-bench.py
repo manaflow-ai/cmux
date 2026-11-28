@@ -77,6 +77,10 @@ def rows_of(sends, switches, transitions=()):
     """The snappy-bench/v1 rows of a set of sends (the probe's results, or the perf watch's send spans)."""
     ok = [s for s in sends if not s.get("error")]
     paint = [s.get("userPaintMs") for s in ok]
+    # Frames the sent row missed: vsyncs after the Enter whose frame did not hold it (the probe's rAF log). Raw ms
+    # carries the key's phase in the frame (0 to 16.7 ms at 60 Hz, below 0 when the frame's main work starts late), so
+    # a send that paints in the next frame can read 16 ms; a missed frame is the snappy failure.
+    missed = [s.get("framesMissed") for s in ok if isinstance(s.get("framesMissed"), (int, float))]
     token = [s.get("firstTokenMs") for s in ok]
     shifts = [s.get("shifts") for s in ok if isinstance(s.get("shifts"), (int, float))]
     same = [bool(s.get("sameFrame")) for s in ok if s.get("reservedPaintMs") is not None or "sameFrame" in s]
@@ -86,6 +90,9 @@ def rows_of(sends, switches, transitions=()):
         "failed_sends": len(sends) - len(ok),
         "send_paint_p50_ms": pct(paint, 0.5),
         "send_paint_p95_ms": pct(paint, 0.95),
+        "send_frames_missed_p50": pct(missed, 0.5),
+        "send_frames_missed_p95": pct(missed, 0.95),
+        "late_sends": sum(1 for m in missed if m > 0) if missed else None,
         "reserved_same_frame_share": round(sum(same) / len(same), 3) if same else None,
         "shifts_per_send_mean": round(sum(shifts) / len(shifts), 3) if shifts else None,
         "shifts_per_send_max": max(shifts) if shifts else None,
@@ -108,6 +115,9 @@ def cron_rows(reports):
     for report in reports:
         r, base = report["rows"], f"chat_snappy.{report['duress'].replace('-', '_')}."
         row(base + "send_paint", r["send_paint_p50_ms"], r["send_paint_p95_ms"], "ms", FRAME_MS, 4.0)
+        if r.get("late_sends") is not None:
+            row(base + "send_frames_missed", r["send_frames_missed_p50"], r["send_frames_missed_p95"], "frames", 0, 0.5)
+            row(base + "late_sends", r["late_sends"], r["late_sends"], "sends", 0, 0.5)
         split = None if r["reserved_same_frame_share"] is None else round((1 - r["reserved_same_frame_share"]) * r["sends"])
         row(base + "reserved_late_sends", split, split, "sends", 0, 0.5)
         row(base + "shifts_per_send", r["shifts_per_send_mean"], r["shifts_per_send_max"], "shifts", 0, 0.5)

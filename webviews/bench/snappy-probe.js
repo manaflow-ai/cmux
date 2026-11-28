@@ -66,9 +66,13 @@
     run.frames += 1;
     if (run.keydown !== undefined) {
       const row = sentRow(run.marker);
+      // The frames after the Enter until the sent row's: each one's vsync time and how late its rAF ran.
+      if (run.user === undefined && run.keyAt !== undefined && run.rafs.length < 6)
+        run.rafs.push([time - run.keydown, performance.now() - run.keydown, Boolean(row)]);
       if (row) {
         if (run.user === undefined) {
           run.user = time;
+          run.missed = Math.max(0, run.rafs.filter((f) => !f[2]).length);
           row.setAttribute("elementtiming", `snappy-${run.marker}`);
         }
         const later = after(row);
@@ -91,8 +95,39 @@
   const onKey = (event) => {
     if (!run || run.keydown !== undefined || event.key !== "Enter" || event.shiftKey) return;
     run.keydown = event.timeStamp;
+    run.keyAt = performance.now();
     run.rows = document.querySelectorAll(ROW).length;
+    // When the sent row enters the DOM (the commit), apart from the frame that paints it.
+    const mo = new MutationObserver(() => {
+      if (run.rowAt === undefined && sentRow(run.marker)) {
+        run.rowAt = performance.now();
+        mo.disconnect();
+      }
+    });
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+    run.stopRowWatch = () => mo.disconnect();
+    queueMicrotask(() => {
+      if (run.rowAt === undefined && sentRow(run.marker)) run.rowAt = performance.now();
+    });
+    setTimeout(() => {
+      run.taskEnd = performance.now();
+    }, 0);
   };
+  // Event Timing (Chromium): the Enter's input delay, handler time and next-paint time; long animation frames.
+  let eventEntries = [];
+  if (PerformanceObserver.supportedEntryTypes?.includes("event")) {
+    new PerformanceObserver((list) => {
+      eventEntries.push(...list.getEntries().filter((e) => e.name === "keydown" || e.name === "keypress"));
+      if (eventEntries.length > 64) eventEntries = eventEntries.slice(-32);
+    }).observe({ type: "event", durationThreshold: 16, buffered: true });
+  }
+  let loafEntries = [];
+  if (PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame")) {
+    new PerformanceObserver((list) => {
+      loafEntries.push(...list.getEntries());
+      if (loafEntries.length > 64) loafEntries = loafEntries.slice(-32);
+    }).observe({ type: "long-animation-frame", buffered: true });
+  }
   window.addEventListener("keydown", onKey, true);
   let elementEntries = [];
   if (PerformanceObserver.supportedEntryTypes?.includes("element")) {
@@ -101,11 +136,20 @@
       buffered: true,
     });
   }
+  const eventOf = (k) => {
+    const e = eventEntries.find((x) => x.name === "keydown" && Math.abs(x.startTime - k) < 1);
+    if (!e) return { eventMs: null };
+    return {
+      eventMs: r1(e.duration),
+      inputDelayMs: r1(e.processingStart - e.startTime),
+      handlerMs: r1(e.processingEnd - e.processingStart),
+    };
+  };
   const r1 = (v) => (v === undefined || v === null ? null : Math.round(v * 10) / 10);
   window.__snappyProbe = {
     arm(marker) {
       if (run?.stop) run.stop();
-      run = { marker, frames: 0, shifts: [], done: false };
+      run = { marker, frames: 0, shifts: [], rafs: [], done: false };
       run.stop = shiftObserver((entry) => {
         if (run.keydown === undefined || entry.hadRecentInput || !(entry.value > 0)) return;
         run.shifts.push({ value: entry.value, what: describe(entry.sources?.[0]?.node), at: entry.startTime });
@@ -126,6 +170,7 @@
       if (!run) return { error: "not armed" };
       run.done = true;
       run.stop();
+      run.stopRowWatch?.();
       const k = run.keydown;
       if (k === undefined) return { error: "no Enter keydown seen", frames: run.frames };
       const element = elementEntries.find((e) => e.identifier === `snappy-${run.marker}`);
@@ -145,6 +190,28 @@
         ),
         rows: run.rows,
         frames: run.frames,
+        // Where a late send's time went, all ms from the keydown's timeStamp: the handler's start (input delay),
+        // the row in the DOM (commit), the task's end, and the frames until the row's (vsync, rAF ran, row there).
+        keyHandledMs: r1(run.keyAt !== undefined ? run.keyAt - k : undefined),
+        rowCommitMs: r1(run.rowAt !== undefined ? run.rowAt - k : undefined),
+        taskEndMs: r1(run.taskEnd !== undefined ? run.taskEnd - k : undefined),
+        framesMissed: run.missed ?? null,
+        rafs: run.rafs.map((f) => [r1(f[0]), r1(f[1]), f[2]]),
+        ...eventOf(k),
+        loaf: loafEntries
+          .filter((e) => e.startTime + e.duration > k - 50 && e.startTime < (run.user ?? k) + 20)
+          .map((e) => ({
+            at: r1(e.startTime - k),
+            ms: r1(e.duration),
+            blocking: r1(e.blockingDuration),
+            render: r1(e.renderStart ? e.renderStart - e.startTime : undefined),
+            scripts: (e.scripts || [])
+              .slice(0, 3)
+              .map(
+                (x) =>
+                  `${x.invokerType}:${x.invoker}:${Math.round(x.duration)}:${(x.sourceURL || "").split("/").pop()}:${x.sourceFunctionName || ""}`,
+              ),
+          })),
       };
       elementEntries = elementEntries.filter((e) => e !== element);
       return out;
