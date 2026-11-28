@@ -20,6 +20,7 @@ import { PlayTriangle } from "./conversation/icons";
 import { QUEUED_TILES_SHOWN, type QueuedTile, type QueuedVideo, queuedTiles } from "./queuedImagesModel";
 import { RemoveGlyph } from "./composer/RemoveGlyph";
 import { useVideoLengthFit } from "./composer/videoLengthFit";
+import { markCrop } from "./composer/thumbCrop";
 import { signed } from "../../ui/Typography";
 
 /// How many times a failed read is tried again, and the first wait (it doubles each time).
@@ -204,7 +205,10 @@ function QueuedImage({
             src={src}
             alt=""
             decoding="async"
-            onLoad={() => setDrawn({ src, ok: true })}
+            onLoad={(event) => {
+              markCrop(event.currentTarget);
+              setDrawn({ src, ok: true });
+            }}
             onError={() => setDrawn({ src, ok: false })}
           />
         ) : (
