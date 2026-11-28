@@ -323,6 +323,74 @@ alone. The container recipe has no identity step: `docker build` mounts
 `/etc/hostname` and `/etc/hosts` from the daemon and the runtime names each
 container, so the hostname there is the runtime's.
 
+## DNS fallback (`cmux-dns`)
+
+Freestyle only. A machine with any TLS rule (every cmux machine: the
+model-plane and CodeRouter edge rules) resolves through the platform's
+forwarding resolver, `10.32.0.28`: the guest agent writes
+`/etc/resolv.conf` (`nameserver 10.32.0.28`) and
+`/etc/systemd/resolved.conf.d/61-freestyle-tls.conf`, and the platform
+answers every port-53 packet the guest sends, whatever address it names
+(a query to `8.8.8.8` comes back from the same forwarder). The forwarder
+answers the names TLS rules steer with the edge address and forwards the
+rest. It intermittently answers SERVFAIL (about 300 ms, then cached for a
+second or two) or nothing at all, for every name, on every machine at the
+same moment ([#26640](https://github.com/manaflow-ai/cmux/issues/26640));
+measured 2026-10-28, roughly 2% of queries over a few minutes. Pointing
+resolv.conf elsewhere does not help, and the agent rewrites it on every TLS
+rule change and on resume anyway.
+
+`cmux-dns serve` (`cmux-dns.service`, a `DynamicUser` with only
+`CAP_NET_BIND_SERVICE`) listens on `127.0.0.2:53`, UDP and TCP, and per
+query:
+
+1. asks the platform's resolvers (two tries: the first two, IPv4 first, or a
+   lone one twice; 1 s each), so steered names keep resolving to the edge and
+   NXDOMAIN stays the platform's. When the platform names the edge resolver's
+   IPv4 address (`10.32.0.28`), the second try goes to the same resolver's
+   IPv6 listener (`2602:f470:1::28`, given 2 s for its ~1.5 s latency), a
+   third try returns to IPv4 for a machine without an IPv6 route, and
+   whichever address answered last is asked first next time. A 2026-11-20
+   sweep found machines whose IPv4 port 53 went unanswered, to the edge and
+   to every other IPv4 resolver, over UDP and TCP, while the IPv6 listener
+   answered every name, steered ones included;
+2. on SERVFAIL, REFUSED or silence, answers with the platform's last good
+   answer for that exact question, at most a day old. The cache starts over
+   whenever resolv.conf is written (a TLS rule, a resume, a clone's first
+   boot), so a stale answer never outlives a steering change;
+3. while the provider's `/run/freestyle/tls-dns-servers` marker is nonempty,
+   returns SERVFAIL on a cache miss. The provider exports resolver IPs but no
+   steered-name list to the guest, so a public answer could bypass a required
+   TLS route or credential injection, even with full public egress. This
+   conservatively covers all names until the platform answers again;
+4. when TLS steering is inactive, asks DNS-over-HTTPS at `1.1.1.1` then `8.8.8.8`, addressed by IP
+   on 443, which the interception does not touch, and accepts only NOERROR:
+   a public NXDOMAIN for a name only the platform knows comes back as
+   SERVFAIL, never as a missing name. A machine whose network policy blocks
+   those addresses gets SERVFAIL from this step, as it would without the stub.
+
+Each exchange runs under a wall-clock deadline and the whole chain fits in
+3.5 s, under the stub's 4 s libc timeout. Replies for another question are
+dropped; UDP replies over the client's size (512, or its EDNS size up to
+1232) go out truncated so the client retries over TCP.
+
+`cmux-dns guard` (`cmux-dns-guard.path` on `PathChanged=/etc/resolv.conf`,
+plus once at boot) rewrites a resolv.conf the platform wrote to
+`nameserver 127.0.0.2` followed by two of the platform's resolvers (IPv4
+first; the edge's IPv4 address and its IPv6 listener when the platform names
+the edge), keeps its `search` line and options other than `timeout`/`attempts`
+(set to `timeout:4 attempts:1`; the stub retries itself), and records every
+resolver on a `# cmux-dns upstream` line the stub reads. A stopped stub
+therefore costs one refused packet before libc asks the platform directly.
+Between a platform rewrite and the guard (under a second) the machine
+resolves the old way. The bake installs it after the prompt sync; systemd
+waits for `READY=1` after both listeners bind, then checks that the stub itself
+answers (`cmux-dns probe`; a libc lookup would pass
+through the fallback resolvers), every later bake step resolves through it,
+and `verify-devbox-image.ts` checks the same contract. The container recipe
+has none: Docker owns its resolv.conf. Machines baked before it keep
+resolving straight through the platform.
+
 ## Terminal capabilities (`cmux-terminfo.src`)
 
 Daemon-spawned shells get the TERM the Mac exports (`xterm-256color`, or
@@ -367,14 +435,38 @@ supervisor and waits for a driver install.
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
 
+The supervisor sets the daemon's `oom_score_adj` to -800, so under memory
+pressure the kernel kills user workloads before the daemon (not -1000, and
+not the -900 the Freestyle guest agent and dbus use). The score is inherited
+across fork, so on every tick the supervisor resets any other process
+carrying -800 (terminal hosts, shells and what they started) to 0; a newly
+spawned process holds the protection for at most one tick.
+
 The bake also fully allocates a 1 GiB ext4 image at
 `/var/lib/cmux/cmux-tui-state.ext4` and mounts it at the daemon's
 `~/.local/state/cmux-tui` directory before the daemon starts. This gives the
 SQLite registry and journal a reserved filesystem even when general-purpose
 files fill the root filesystem. When the state filesystem falls below its
 headroom threshold, the helper doubles the image online up to 8 GiB, provided
-the root filesystem keeps its safety reserve; a failed or unsafe growth leaves
-the daemon deferred rather than starting against a full database filesystem.
+the root filesystem keeps its safety reserve. A failed or unsafe growth is
+logged and the daemon keeps starting on the room the state filesystem still
+has. Startup is deferred only when the state filesystem has less than 16 MiB
+free, or when its free space cannot be read as a plain count (unreadable or
+malformed `df` output), because there is then no proof of working room. A
+deferred daemon leaves the machine unreachable ("connection refused"), so the
+supervisor retries `ensure` on every tick and starts the daemon as soon as
+the free space reads as a plain count of at least 16 MiB. Room for a
+registry VACUUM above that floor is also best effort (see the helper).
+`ensure` also bind-mounts `.cmux-remote` from that filesystem over
+`~/.local/state/cmux/remote`, once the daemon is stopped. The daemon writes its
+lifecycle records there on every start and exits when it cannot, so on the root
+filesystem a full disk would stop it however much room the state filesystem has.
+The bind is lost on reboot and returns at the next `ensure`, which also applies
+the supervisor's reboot recovery and clone identity reset to the reserved copy,
+since those boot steps run first and only see the path underneath.
+Bake parking unmounts it and wipes the reserved copy with the rest of the state.
+`ensure` also creates the daemon's private `/tmp/cmux-*-<uid>` directories, since
+boot empties `/tmp` and only root can still allocate there on a full disk.
 The image consumes space from the existing root disk; it does not change the
 Freestyle VM size or the image ladder. The bake writes a reservation marker
 only after the image is fully created and seeded. The boot supervisor reads
@@ -383,6 +475,21 @@ resume before starting cmux-tui. If any of those checks fail, startup is
 deferred instead of falling back to the root filesystem. Older images without
 the marker continue using their existing state layout until they are replaced
 or upgraded with `bun scripts/upgrade-fleet-cmux-tui.ts`.
+
+The state-mount helper and the daemon have separate source pins. The image's
+`repoCommit` and `devboxSource` describe the bake inputs; `cmuxTuiCommit`
+identifies the downloaded daemon. A bake containing a helper fix does not
+necessarily contain a daemon fix from the same checkout.
+
+When shipping both, first publish a cmux-tui artifact containing the daemon
+fix, then pin `CMUX_VM_CMUX_TUI_MANIFEST_URL` to that commit's manifest for
+the bake and promotion below. Verify every promoted default's `cmuxTuiCommit`
+matches that commit. Upgrade existing machines with
+`bun scripts/upgrade-fleet-cmux-tui.ts --commit <published-commit> --vm <canary-id>`,
+then `--vms-file <inventory-file>` after checking the canary, as described in
+`docs/cloud-guest-upgrades.md`. Without `--commit`, the upgrade uses the
+default images' daemon, which can still predate the fix. Installing the helper
+alone does not deliver a daemon-side fix.
 
 ## Sizes: one bake, one snapshot per size
 
