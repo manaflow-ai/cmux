@@ -11,7 +11,9 @@ final class FileExplorerWorkspaceObservation {
     private var catalogObserver: NSObjectProtocol?
     private var directoryObserver: NSObjectProtocol?
     private var bindingChangesTask: Task<Void, Never>?
+    private var mirrorChangesTask: Task<Void, Never>?
 
+    /// Subscribes to every owner of the workspace's root and publishes changed roots through `apply`.
     init(workspace: Workspace, resolver: FileExplorerWorkspaceRootResolver,
          apply: @escaping (FileExplorerWorkspaceRoot) -> Void) {
         self.workspace = workspace
@@ -49,6 +51,13 @@ final class FileExplorerWorkspaceObservation {
                 self.refresh()
             }
         }
+        mirrorChangesTask = Task { @MainActor [weak self, weak workspace] in
+            guard let workspace else { return }
+            for await _ in workspace.remoteTmuxMirrorState.changes() {
+                guard let self, self.workspace === workspace else { return }
+                self.refresh()
+            }
+        }
     }
 
     func refresh(force: Bool = false) {
@@ -59,9 +68,12 @@ final class FileExplorerWorkspaceObservation {
         apply(root)
     }
 
+    /// Ends every subscription and releases the workspace.
     func stop() {
         bindingChangesTask?.cancel()
         bindingChangesTask = nil
+        mirrorChangesTask?.cancel()
+        mirrorChangesTask = nil
         if let directoryObserver {
             NotificationCenter.default.removeObserver(directoryObserver)
             self.directoryObserver = nil
@@ -75,6 +87,7 @@ final class FileExplorerWorkspaceObservation {
 
     deinit {
         bindingChangesTask?.cancel()
+        mirrorChangesTask?.cancel()
         if let directoryObserver { NotificationCenter.default.removeObserver(directoryObserver) }
         if let catalogObserver { NotificationCenter.default.removeObserver(catalogObserver) }
     }
