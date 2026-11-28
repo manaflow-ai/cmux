@@ -647,9 +647,14 @@ final class AppReviewGateUITests: XCTestCase {
         if safari.state != .notRunning { safari.terminate() }
         app.launch()
         if signedIn && setupComplete {
-            // The first mock run may still ask for a team.
+            // The first mock run may still ask for a team. The wait ends at whichever shows first, the
+            // picker or the shell's tab bar: a plain 3 s wait for the picker ran out on every launch that
+            // had none, and the dead-control walk relaunches once per control (49 launches in iPad
+            // Settings alone, 3.8 s each of a 13.5 s step; run 46071435553).
             let choose = app.scrollViews["setup.teams.choose"]
-            if choose.waitForExistence(timeout: 3), app.buttons["Manaflow"].exists { app.buttons["Manaflow"].tap() }
+            if waitForAny([choose, app.tabBars.firstMatch], timeout: 3), choose.exists, app.buttons["Manaflow"].exists {
+                app.buttons["Manaflow"].tap()
+            }
         }
         capture("launch-\(signedIn ? "signed-in" : "signed-out")", app)
         return app
