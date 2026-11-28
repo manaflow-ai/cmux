@@ -370,7 +370,7 @@ pub fn machine_link_item(
     use MachineLink::*;
     let kind = StatusKind::MachineLink;
     let (level, words, action) = match link {
-        Connected | Paused => return None,
+        Connected | Paused | Idle => return None,
         _ if removed => (StatusLevel::Attention, "removed".to_owned(), None),
         Connecting | Reconnecting | Degraded | Restarting => return None,
         Offline => {
@@ -380,9 +380,7 @@ pub fn machine_link_item(
             };
             (StatusLevel::Attention, words, offline_action(reason))
         }
-        AuthFailed => {
-            (StatusLevel::Problem, "authFailed".to_owned(), Some(StatusAction::SignIn))
-        }
+        AuthFailed => (StatusLevel::Problem, "authFailed".to_owned(), Some(StatusAction::SignIn)),
         UpdateRequired => {
             (StatusLevel::Problem, "updateRequired".to_owned(), Some(StatusAction::Update))
         }

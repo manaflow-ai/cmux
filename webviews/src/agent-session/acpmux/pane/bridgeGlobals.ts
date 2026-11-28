@@ -44,8 +44,6 @@ declare global {
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
       applySidebarPreviewVariant?(variant: unknown): void;
       /// Claude Code desktop's in-session status (the live plan card) on or off: the
-      /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
-      applySessionStatus?(on: boolean): void;
       /// Settings > Advanced > Experiments: every `experiments.*` switch as one object
       /// (`{"glassToolbarGroups": true}`), each off by default (experiments/switches.ts).
       applyExperiments?(value: unknown): void;
@@ -85,6 +83,11 @@ declare global {
       /// skipped past `until` (ms since 1970): the swap showed the chat without it, so it would jump.
       togglePlace?(): TogglePlace;
       placeToggle?(at: number | null, until?: number): boolean;
+      /// The composer's draft for a swap to the terminal, taken once pasted, and a terminal's draft put in an empty
+      /// composer (toggleDraft.ts); a write past `until` does nothing.
+      toggleDraft?(): string | null;
+      takeToggleDraft?(text: string, until?: number): boolean;
+      putToggleDraft?(text: string, until?: number): boolean;
       /// A dictation change from the host (CmuxNextAgentPane AgentPaneDictation), spliced at the prompt's cursor.
       dictation?(update: DictationUpdate): void;
       /// A design mode highlight from a browser pane (CmuxNextAgentPane AgentPaneDesignSelection):

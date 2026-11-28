@@ -129,6 +129,13 @@ impl PathWatch {
         self.unanswered_since.get_or_insert(now);
     }
 
+    /// How long since the first send on the path that nothing authenticated
+    /// came back after: `None` while every send is answered.
+    #[must_use]
+    pub fn quiet_for(&self, now: Instant) -> Option<Duration> {
+        self.unanswered_since.map(|since| now.saturating_duration_since(since))
+    }
+
     /// An authenticated datagram arrived on the path: it is not silent.
     pub fn heard(&mut self) {
         self.unanswered_since = None;
@@ -139,6 +146,25 @@ impl PathWatch {
     /// the path says it may work again (a dead path's peer reached us on
     /// it), so it need not wait out the interval to prove it.
     pub fn probe_now(&mut self, now: Instant) {
+        self.probe.due_now(now);
+    }
+
+    /// [`Self::probe_now`], also when a probe is outstanding: one sent at
+    /// least `min_age` ago is given up (reported neither answered nor lost;
+    /// a late answer to it is ignored), so the new one goes at the next step
+    /// instead of after the old one's timeout. For a path the peer just
+    /// reached us on while it was dead or never answered: the outstanding
+    /// probe went out while the path was black-holed, and waiting out its
+    /// 1 s timeout is what kept a session on the relay after the direct path
+    /// opened (RFD 0142 R1). `min_age` bounds it to one probe per that long
+    /// however many datagrams arrive.
+    pub fn probe_now_fresh(&mut self, now: Instant, min_age: Duration) {
+        if let Some((_, sent)) = self.probe.outstanding
+            && now.saturating_duration_since(sent) >= min_age
+        {
+            self.probe.outstanding = None;
+            self.flagged_probe = None;
+        }
         self.probe.due_now(now);
     }
 

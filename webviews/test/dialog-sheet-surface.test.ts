@@ -23,7 +23,6 @@ const SHEETS: Record<string, string> = {
   "acpmux-pdf-viewer": "agent-session/acpmux/composer/attachmentIntake.tsx",
   "acpmux-paste-view": "agent-session/acpmux/composer/ContentChip.tsx",
   "activity-viewer-dialog": "agent-activity/viewer.tsx",
-  "machines-dialog": "pages/machines/MachinesSection.tsx",
   "cloud-environment-sheet": "pages/cloud/EnvironmentSheet.tsx",
   "cloud-create-sheet": "pages/cloud/CreateSheet.tsx",
   "lg-form": "pages/home-channels/FormDialog.tsx",
@@ -83,7 +82,6 @@ test("every decision and form dialog draws on the sheet glass that floats over t
 const HOST_ENTRIES = [
   "agent-session/acpmux/dev.tsx",
   "agent-activity/main.tsx",
-  "pages/machines/main.tsx",
   "pages/cloud/main.tsx",
   "pages/home-channels/main.tsx",
 ];

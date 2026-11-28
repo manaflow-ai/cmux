@@ -340,6 +340,13 @@ class Scope(unittest.TestCase):
                                     f"cmux-tui-spec.yml's acpmux tests job misses acpmux's tests/{name}.rs, which "
                                     f"holds a test a plain run starts: add `--test {name}` to its suites")
             self.assertIn("v2_gate_home", found)
+            # tests/transfer_cli is the session-move matrix (moving chats between machines, their histories, the
+            # pausing; cmuxterm-hq session-move-matrix-probe.yml runs it every 3 h) and no pull request job ran it:
+            # cmux#56653 sent a new hidden first-turn block the test agents did not strip, merged green, and every
+            # matrix cell went red on the next scheduled run (fixed by cmux#60997).
+            self.assertIn("transfer_cli", named["--test"],
+                          "cmux-tui-spec.yml's acpmux tests job misses acpmux's tests/transfer_cli.rs, the session "
+                          "move matrix: add `--test transfer_cli` to its suites")
 
     def test_a_file_of_ignored_gates_starts_no_test(self):
         gate = '#[test]\n#[ignore = "release gate"]\nfn a() {}\n'
@@ -391,6 +398,15 @@ class BaseLogSave(unittest.TestCase):
                       steps["Save the base's last test log"])
         self.assertIn('"${TESTED_SHA:-$GITHUB_SHA}" > "$dir/sha"', steps["Save this push's test log for pull requests"])
         self.assertIn("TESTED_SHA: ${{ inputs.sha }}", steps["Save this push's test log for pull requests"])
+        # R2, not the GitHub cache: that store is over its 10 GB cap and evicted the log before any pull request read
+        # it (saved by job 139493249959, missed by job 139543032876), so every base red read as the change's own.
+        # The batch passes the R2 write secrets through workflow_call.
+        restore = self.steps(text, "Restore the base's last test log")["Restore the base's last test log"]
+        for body in (restore, steps["Save the base's last test log"]):
+            self.assertIn("backend: r2\n", body)
+        self.assertIn("secrets.CI_CACHE_R2_ACCESS_KEY_ID", steps["Save the base's last test log"])
+        self.assertRegex(batch, r"uses: \./\.github/workflows/cmux-tui-spec\.yml\n(?:    .*\n)*?    secrets:\n"
+                                r"      CI_CACHE_R2_ACCESS_KEY_ID: ")
 
 
 class Cli(unittest.TestCase):

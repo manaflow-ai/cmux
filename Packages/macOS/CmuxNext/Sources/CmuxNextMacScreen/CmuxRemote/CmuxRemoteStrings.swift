@@ -46,25 +46,30 @@ enum CmuxRemoteStrings {
                 String(format: String(localized: "remote.confirm.access.body", defaultValue: "An agent asked to set %1$@ to %2$@.", table: "CmuxRemote", bundle: .localizedModule), device, level))
     }
 
-    /// The status dialog's lines: the host, the grants, each worker.
+    /// The status dialog's lines: the host, the grants, each worker (Rust picks them: remote.statusLines).
     static func statusLines(_ status: CmuxNextDaemon.JSONValue) -> [String] {
-        let state = status["state"]?.stringValue ?? "off"
-        let host = status["host"]
-        let permissions = host?["permissions"]
         let granted = String(localized: "remote.status.granted", defaultValue: "Allowed", table: "CmuxRemote", bundle: .localizedModule)
         let missing = String(localized: "remote.status.missing", defaultValue: "Not allowed", table: "CmuxRemote", bundle: .localizedModule)
-        let mark: (CmuxNextDaemon.JSONValue?) -> String = { $0?.boolValue == true ? granted : missing }
-        var lines = [String(format: String(localized: "remote.status.host", defaultValue: "Host: %@", table: "CmuxRemote", bundle: .localizedModule), state)]
-        if let permissions {
-            lines.append(String(format: String(localized: "remote.status.accessibility", defaultValue: "Accessibility: %@", table: "CmuxRemote", bundle: .localizedModule),
-                                mark(permissions["accessibility"])))
-            lines.append(String(format: String(localized: "remote.status.screenRecording", defaultValue: "Screen Recording: %@", table: "CmuxRemote", bundle: .localizedModule),
-                                mark(permissions["screen_recording"])))
+        let rows = RdUI.call("remote.statusLines", encoding: ["status": status]) as? [[String: Any]] ?? []
+        return rows.compactMap { row in
+            guard let format = (row["key"] as? String).flatMap(statusFormat) else { return nil }
+            return String(format: format, (row["granted"] as? Bool).map { $0 ? granted : missing } ?? row["value"] as? String ?? "")
         }
-        for (key, title) in [("computer-use", String(localized: "remote.status.computerUse", defaultValue: "Computer Use: %@", table: "CmuxRemote", bundle: .localizedModule)),
-                             ("screen-sharing", String(localized: "remote.status.screenSharing", defaultValue: "Screen Sharing: %@", table: "CmuxRemote", bundle: .localizedModule))] {
-            if let worker = host?["workers"]?[key]?["state"]?.stringValue { lines.append(String(format: title, worker)) }
+    }
+
+    /// A status line's localized format, by Rust's key.
+    private static func statusFormat(_ key: String) -> String? {
+        switch key {
+        case "remote.status.host": String(localized: "remote.status.host", defaultValue: "Host: %@", table: "CmuxRemote", bundle: .localizedModule)
+        case "remote.status.accessibility":
+            String(localized: "remote.status.accessibility", defaultValue: "Accessibility: %@", table: "CmuxRemote", bundle: .localizedModule)
+        case "remote.status.screenRecording":
+            String(localized: "remote.status.screenRecording", defaultValue: "Screen Recording: %@", table: "CmuxRemote", bundle: .localizedModule)
+        case "remote.status.computerUse":
+            String(localized: "remote.status.computerUse", defaultValue: "Computer Use: %@", table: "CmuxRemote", bundle: .localizedModule)
+        case "remote.status.screenSharing":
+            String(localized: "remote.status.screenSharing", defaultValue: "Screen Sharing: %@", table: "CmuxRemote", bundle: .localizedModule)
+        default: nil
         }
-        return lines
     }
 }

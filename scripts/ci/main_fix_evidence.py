@@ -56,6 +56,72 @@ class Refused(RuntimeError):
     """Evidence is insufficient to merge."""
 
 
+class Unread(Refused):
+    """A read that never happened: the request passed its deadline, its answer was over the size cap, or `gh` itself
+    failed. It is not a verdict on anything -- nothing was compared -- so a caller that judges a red must retry rather
+    than record a refusal. A Refused, so gh-merge-green keeps refusing to merge on one (`not green:`, exit 1); callers
+    that can tell them apart catch Unread first (scripts/ci/base_red_excuse.py's UnreadRead, exit 3, which land-judge
+    reads as "not judged, a retry" instead of red_not_excused)."""
+
+
+class RequestFailed(Unread):
+    """A failed gh command, with its stderr available separately from the command description."""
+
+    def __init__(self, args: list[str], stderr: str):
+        self.stderr = stderr
+        super().__init__(f"GitHub evidence request failed: {read_name(args)}: {stderr}")
+
+
+class BrokerRefused(Refused):
+    """A read the lane-gh broker refused for its shape: a GraphQL root field or field outside the broker's allowlist
+    (cmuxterm-hq tools/lane-gh-broker/parts/44-calls-graphql.py GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS). The broker
+    refuses the same query on every call, so it is neither a verdict on a red nor a retry: it is this tool's bug, and
+    the fix is the query, never the allowlist (that is security). Before this it was an Unread, which base_red_excuse.py
+    exits 3 on and land-judge reads as a rate limit: hq#30852 was refused "quota: not judged, retry after 02:24Z
+    (reset)" twice on 2026-11-27 over SUITE_CHECKS_QUERY's root `nodes`, and every retry after the reset was refused
+    the same way. A Refused, so gh-merge-green keeps refusing to merge on one; base_red_excuse.py catches it first
+    (BrokerRefusedRead, exit 4: a tool error that names the fix)."""
+
+
+# The broker's guard refusal as lane-gh prints it ("gh: lane-gh call graphql OWNER/REPO: refused: graphql: root field
+# nodes is refused ..."). Every `graphql:` refusal of graphql_check is about the query's shape (a root field, a field,
+# a fragment, a missing repo), never a quota, so none is cleared by a retry. A broker quota or latch refusal does not
+# read "refused: graphql: " and stays an Unread.
+BROKER_REFUSED = re.compile(r"\blane-gh call graphql \S+: refused: graphql: [^\n]*")
+BROKER_REFUSED_LEAD = "the lane-gh broker refuses this query on every call (no retry clears it): "
+BROKER_REFUSED_FIX = ("fix the query, not the broker: read it under an allowed root field (repository naming the "
+                      "call's repo, search type: ISSUE, rateLimit) and allowed fields (cmuxterm-hq "
+                      "tools/lane-gh-broker/graphql-allowlist.json), or with a REST GET; the allowlist is security "
+                      "and is never widened for this")
+
+
+def broker_refusal(stderr: str) -> str | None:
+    """The broker's guard refusal in gh's STDERR (BROKER_REFUSED), or None when it holds none."""
+    found = BROKER_REFUSED.search(stderr or "")
+    return found.group(0).strip() if found else None
+
+
+def read_name(args: list[str]) -> str:
+    """The read, short enough to print in a refusal. `gh api <route>` is that route; anything else is its words,
+    capped at 200 characters -- `run view <run> --repo R --job <job> --log`, which is the read most likely to be
+    the slow one. A GraphQL body is compressed to its operation name: `-f query=...` is thousands of characters and
+    every caller sends the same handful of queries, so the name alone identifies it.
+    Without this a timeout said only "GitHub evidence request exceeded 90 seconds", so which of the ~60 reads
+    base_red_excuse makes had spent the 90 s was a guess (leo-workspace#9276, #9153, #8643, 2026-11-24)."""
+    if len(args) >= 2 and args[0] == "api" and args[1] != "graphql" and not args[1].startswith("-"):
+        return f"gh api {args[1][:200]}"
+    kept = []
+    for word in args:
+        if word in ("-f", "--field", "-F", "--raw-field"):
+            continue  # the flag itself says nothing; its value is kept below
+        if word.startswith("query="):
+            found = re.search(r"\b(?:query|mutation)\s+(\w+)", word)
+            kept.append(f"query={found.group(1)}" if found else "query=...")
+            continue
+        kept.append(word)
+    return ("gh " + " ".join(kept))[:200]
+
+
 class GitHub:
     def run(self, args: list[str], *, repo: str | None = None) -> str:
         # Disk and memory are bounded per command; neither logs nor receipts are
@@ -68,13 +134,17 @@ class GitHub:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-                raise Refused("GitHub evidence request exceeded 90 seconds") from None
+                raise Unread(f"GitHub evidence request exceeded 90 seconds: {read_name(args)}") from None
             if output.tell() > MAX_OUTPUT or errors.tell() > MAX_OUTPUT:
-                raise Refused(f"GitHub evidence exceeds the {MAX_OUTPUT // (1024 * 1024)} MiB limit")
+                raise Unread(f"GitHub evidence exceeds the {MAX_OUTPUT // (1024 * 1024)} MiB limit: "
+                             f"{read_name(args)}")
             output.seek(0)
             errors.seek(0)
             if process.returncode:
-                raise Refused("GitHub evidence request failed: " + errors.read(2000).decode(errors="replace"))
+                said = errors.read(2000).decode(errors="replace")
+                if (refused := broker_refusal(said)) is not None:
+                    raise BrokerRefused(f"{BROKER_REFUSED_LEAD}{read_name(args)}: {refused}; {BROKER_REFUSED_FIX}")
+                raise RequestFailed(args, said)
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = gh_pages.PER_PAGE):
@@ -84,7 +154,7 @@ class GitHub:
         try:
             return gh_pages.pages(lambda url: json.loads(self.run(["api", url])), route, per_page=per_page)
         except gh_pages.PageCapError as error:
-            raise Refused(str(error)) from None
+            raise Unread(str(error)) from None
 
     def log(self, repo: str, job: dict) -> str:
         return self.run(["run", "view", str(job["run_id"]), "--repo", repo,

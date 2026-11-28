@@ -11,8 +11,13 @@
 //! Now every bound is here, and there is no other way in:
 //! - [`admit`] waits at most [`ADMISSION_BOUND`] for the lock. Past that the prompt goes on
 //!   without it: the order yields, the prompt is never stranded.
-//! - A holder keeps the lock at most [`ADMISSION_BOUND`] (its lease): a timer lets it go and logs
-//!   the step it was in, so the daemon log names the await that held it.
+//! - A holder keeps the lock at most [`ADMISSION_BOUND`] of the runtime's time (its lease): a
+//!   timer lets it go and logs the step it was in, so the daemon log names the await that held
+//!   it. The lease is charged in [`LEASE_TICK`]s, and a tick that wakes late is charged only its
+//!   own length: time the runtime gave no task is starvation, and starved is slow, never dead
+//!   (RFD 0124). A wall-clock lease let 346 of 388 holders go in the setup step on Leo's Mac at
+//!   load 187 on 15 cores (2026-11-27), each still alive, so the order it keeps broke exactly when
+//!   the chat was busiest. [`LEASE_WALL_CAP`] bounds a holder on a host starved for good.
 //! - A prompt someone waits on that has no answer [`ANSWER_BOUND`] after it came (`Hub::
 //!   run_prompt_joined`) is put in the queue durably (its `queued` record) and accepted as
 //!   queued; it then runs from the queue as a restored prompt does (`queue.rs`
@@ -35,17 +40,41 @@ use crate::rpc::RpcError;
 
 /// How long a prompt waits for admission, and how long it may hold it.
 pub(crate) const ADMISSION_BOUND: Duration = Duration::from_secs(3);
+/// The lease's step: each one charges at most its own length (plus [`LEASE_TICK_SLACK`]) whatever
+/// the wall clock moved while the runtime ran nothing.
+pub(crate) const LEASE_TICK: Duration = Duration::from_millis(250);
+/// A timer's ordinary lateness, charged with its tick.
+const LEASE_TICK_SLACK: Duration = Duration::from_millis(50);
+/// However starved the runtime, a holder keeps the lock no longer than this wall time.
+pub(crate) const LEASE_WALL_CAP: Duration = Duration::from_secs(30);
 /// How long after it came a prompt someone waits on goes without an answer before it is queued.
+// timeout: past it the prompt is queued and answered, not dropped.
 pub(crate) const ANSWER_BOUND: Duration = Duration::from_secs(5);
 /// How long a prompt someone waits on waits in `queue_slot` for a turn lock held with no turn
 /// shown (or a restore) before it joins the queue, which answers it (#55502's bound).
+// timeout: past it the prompt joins the queue, which answers it (#55502).
 pub(crate) const TURN_LOCK_WAIT: Duration = Duration::from_secs(2);
+
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Stage {
+    Setup(&'static str),
+    DirectDispatch,
+}
+
+impl Stage {
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::Setup(name) => name,
+            Self::DirectDispatch => "direct dispatch",
+        }
+    }
+}
 
 /// One prompt's admission: the lock while it holds it, the step it is in, and whether it reached
 /// a step it must finish (then it is never deferred).
 pub struct Admission {
     guard: StdMutex<Option<OwnedMutexGuard<()>>>,
-    stage: StdMutex<&'static str>,
+    stage: StdMutex<Stage>,
     committed: AtomicBool,
     acquired: AtomicBool,
     came: Instant,
@@ -63,12 +92,16 @@ impl std::fmt::Debug for Admission {
 impl Admission {
     /// A prompt's admission as it comes, before it waits for the lock ([`Self::acquire`]).
     pub(crate) fn new(session: &Session) -> Arc<Self> {
+        Self::arrived(session, Instant::now())
+    }
+
+    fn arrived(session: &Session, came: Instant) -> Arc<Self> {
         Arc::new(Self {
             guard: StdMutex::new(None),
-            stage: StdMutex::new("admission"),
+            stage: StdMutex::new(Stage::Setup("admission")),
             committed: AtomicBool::new(false),
             acquired: AtomicBool::new(false),
-            came: Instant::now(),
+            came,
             listened: AtomicBool::new(false),
             session: session.id.clone(),
         })
@@ -92,22 +125,18 @@ impl Admission {
             return;
         }
         let lock = session.prompt_admission.clone().lock_owned();
-        let Ok(guard) = tokio::time::timeout(ADMISSION_BOUND, lock).await else {
+        let due = self.answer_due().min(Instant::now() + ADMISSION_BOUND);
+        let Ok(guard) = tokio::time::timeout_at(due, lock).await else {
             tracing::warn!(session = %session.id, "prompt admission wait lapsed: the prompt goes on unordered");
             return;
         };
         *self.guard.lock().unwrap_or_else(|e| e.into_inner()) = Some(guard);
         self.enter("setup");
-        let lease = Arc::downgrade(self);
-        scope.spawn_named("prompt-admission-lease", async move {
-            tokio::time::sleep(ADMISSION_BOUND).await;
-            let Some(admission) = lease.upgrade() else { return };
-            let lapsed = admission.guard.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if lapsed.is_some() {
-                let stage = admission.stage_now();
-                tracing::warn!(session = %admission.session, stage, "prompt admission lease lapsed: let go");
-            }
-        });
+        scope.spawn_named("prompt-admission-lease", lease(Arc::downgrade(self), Instant::now()));
+    }
+
+    fn held(&self) -> bool {
+        self.guard.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
     /// Lets the lock go: the prompt was accepted, or it left.
@@ -117,11 +146,16 @@ impl Admission {
 
     /// The step it is in now, named when its lease lapses.
     pub(crate) fn enter(&self, stage: &'static str) {
-        *self.stage.lock().unwrap_or_else(|e| e.into_inner()) = stage;
+        *self.stage.lock().unwrap_or_else(|e| e.into_inner()) = Stage::Setup(stage);
+    }
+
+    /// This setup owns the next turn until it starts or hands its place to the queue.
+    pub(super) fn claimed_direct_turn(&self) {
+        *self.stage.lock().unwrap_or_else(|e| e.into_inner()) = Stage::DirectDispatch;
     }
 
     /// The step it is in.
-    pub(crate) fn stage_now(&self) -> &'static str {
+    pub(super) fn stage_now(&self) -> Stage {
         *self.stage.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -151,10 +185,42 @@ impl Admission {
     }
 }
 
+/// A holder's lease: lets its lock go once it held it [`ADMISSION_BOUND`] of the runtime's time
+/// (or [`LEASE_WALL_CAP`] of the wall's). Ends at once when the holder let go or left.
+async fn lease(lease: std::sync::Weak<Admission>, start: Instant) {
+    let (mut last, mut charged) = (start, Duration::ZERO);
+    loop {
+        tokio::time::sleep(LEASE_TICK).await;
+        let now = Instant::now();
+        charged += (now - last).min(LEASE_TICK + LEASE_TICK_SLACK);
+        last = now;
+        let Some(admission) = lease.upgrade() else { return };
+        if !admission.held() {
+            return;
+        }
+        let wall = now - start;
+        if charged < ADMISSION_BOUND && wall < LEASE_WALL_CAP {
+            continue;
+        }
+        let lapsed = admission.guard.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if lapsed.is_some() {
+            let stage = admission.stage_now().name();
+            let (held_ms, wall_ms) = (charged.as_millis() as u64, wall.as_millis() as u64);
+            let starved_ms = wall_ms.saturating_sub(held_ms);
+            tracing::warn!(session = %admission.session, stage, held_ms, wall_ms, starved_ms, "prompt admission lease lapsed: let go");
+        }
+        return;
+    }
+}
+
 /// Takes `session`'s prompt admission for a prompt that came now ([`Admission::acquire`]). The
 /// only way a prompt takes it.
-pub(crate) async fn admit(session: &Arc<Session>, scope: &cmux_scope::Scope) -> Arc<Admission> {
-    let admission = Admission::new(session);
+pub(crate) async fn admit(
+    session: &Arc<Session>,
+    scope: &cmux_scope::Scope,
+    came: Instant,
+) -> Arc<Admission> {
+    let admission = Admission::arrived(session, came);
     admission.acquire(session, scope).await;
     admission
 }
@@ -179,6 +245,7 @@ pub(super) struct Deferral {
 }
 
 /// How a prompt with no answer by its due time ends.
+#[allow(clippy::large_enum_variant)] // one per unanswered prompt, matched at once; boxing buys nothing
 pub(super) enum Unanswered {
     /// Queued durably; its run from the queue answers it.
     Defer(Deferral),
@@ -207,6 +274,21 @@ impl Unanswered {
         }
         if let Some(guard) = &opts.race_guard {
             return Some(Self::Guarded(guard.clone()));
+        }
+        // Queue replay carries the durable prompt fields. A live routing or reply contract
+        // must be handled on the original request, or refused while it is still retryable.
+        if opts.interrupt
+            || opts.interrupt_turn.is_some()
+            || opts.steer_now
+            || opts.send_now
+            || opts.thread.is_some()
+            || opts.reply_reader.is_some()
+            || opts.wake_or_fail
+            || opts.inbox
+                && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
+                    .is_some()
+        {
+            return Some(Self::Busy);
         }
         let prompt_id =
             opts.prompt_id.get_or_insert_with(|| uuid::Uuid::now_v7().to_string()).clone();
@@ -254,14 +336,14 @@ impl Hub {
     }
 
     /// Puts a prompt that got no answer in time into the queue, durably, and accepts it as queued.
-    /// Its own setup was dropped before any step it must finish; the queue runs it as a restored
-    /// prompt (`start_restored`), and this returns that run's answer.
-    pub(super) async fn defer_unanswered(
+    /// Keep any provisional turn up to the journal write, then release it before acceptance.
+    pub(super) fn queue_unanswered(
         self: &Arc<Self>,
         session: &Arc<Session>,
         d: Deferral,
-        stage: &'static str,
-    ) -> Result<Value, RpcError> {
+        stage: Stage,
+        release_claim: impl FnOnce(),
+    ) -> Result<super::PromptOutcome, RpcError> {
         let text = super::session::prompt_text(&d.blocks);
         let replaced = std::sync::OnceLock::new();
         let slot = Slot {
@@ -290,45 +372,55 @@ impl Hub {
         if let Some(refused) = self.takes_no_prompt(session, &slot) {
             return Err(refused);
         }
-        // Never awaited: a config writer cannot hold the answer up. Its defaults otherwise.
-        let limits = match self.config.try_read() {
-            Ok(cfg) => QueueLimits::of(&cfg),
-            Err(_) => QueueLimits::defaults(),
+        // At the answer deadline, respect the configured limits and any hold a restored
+        // runner could skip. A retry can use normal admission once configuration is available.
+        let limits = {
+            let cfg = self.config.try_read().map_err(|_| super::auto_resume::retry_turn::busy())?;
+            if super::person_hold::holds(&slot)
+                && super::person_hold::hold_ms(&cfg, &session.meta().name).is_some()
+            {
+                return Err(super::auto_resume::retry_turn::busy());
+            }
+            QueueLimits::of(&cfg)
         };
         let turn_id = uuid::Uuid::now_v7().to_string();
-        // A restore must not start between our check and the queued journal entry.
-        // Its writer can still be finishing the last page after releasing its lease.
-        let admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
-        if session.restoring.load(Ordering::SeqCst)
-            || session.restore_token.load(Ordering::SeqCst) != 0
-        {
-            return Err(restore_deadline());
-        }
-        // Counted as `queue_slot` counts a prompt that queues, before it goes in.
-        session.queued.fetch_add(1, Ordering::SeqCst);
+        let claimed = matches!(stage, Stage::DirectDispatch);
+        let (outcome, position) = {
+            // A restore must not start between our check and the queued journal entry.
+            // Its writer can still be finishing the last page after releasing its lease.
+            let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+            if session.restoring.load(Ordering::SeqCst)
+                || session.restore_token.load(Ordering::SeqCst) != 0
+            {
+                return Err(restore_deadline());
+            }
+            // Counted as `queue_slot` counts a prompt that queues, before it goes in.
+            session.queued.fetch_add(1, Ordering::SeqCst);
+            self.enqueue_admitted(session, &slot, &turn_id, limits, claimed, |row, _| {
+                let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
+                row.restored = true;
+                row.resume = true;
+                session
+                    .restored
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((row.prompt_id.clone(), row.turn_id.clone()));
+                outcome
+            })?
+        };
         // The queue's own from now on, as `restore_queues` makes a prompt it read back: the
         // queue runs it, and a resend of its id waits on its ledger entry.
-        let (outcome, position) = self.enqueue(session, &slot, &turn_id, limits, |row, _| {
-            let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
-            row.restored = true;
-            row.resume = true;
-            session
-                .restored
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push((row.prompt_id.clone(), row.turn_id.clone()));
-            outcome
-        })?;
-        drop(admit);
-        let mut answer = outcome.subscribe();
+        let stage = stage.name();
+        release_claim();
         tracing::warn!(session = %session.id, prompt = %d.prompt_id, stage, position, "prompt unanswered in time: queued");
         let accepted = json!({"sessionId": session.id, "promptId": d.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position, "deferred": true});
         if let Some(f) = d.on_accepted.lock().unwrap_or_else(|e| e.into_inner()).take() {
             f(accepted);
         }
-        self.start_restored(session);
-        let dropped = || RpcError::internal("the queued run of this prompt was dropped");
-        let settled = answer.wait_for(Option::is_some).await.map_err(|_| dropped())?.clone();
-        settled.unwrap_or_else(|| Err(dropped()))
+        Ok(outcome)
     }
 }
+
+#[cfg(test)]
+#[path = "prompt_admission_tests.rs"]
+mod tests;

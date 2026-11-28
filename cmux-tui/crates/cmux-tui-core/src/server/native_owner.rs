@@ -30,6 +30,8 @@ const COMMANDS: &[&str] = &[
     // The owner's refreshed model credential: owner-Cloud only in its handler.
     "agent-session-credentials",
     "agent-session-trust",
+    "agent-session-login",
+    "agent-session-login-settings",
     "agent-session-attach",
     "agent-session-events",
     "agent-session-prompt",
@@ -149,9 +151,22 @@ const CAPABILITIES: &[&str] = &[
     conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
     "machine-identity-v1",
     SCREEN_DEVICE_IDENTITY_CAPABILITY,
+    AGENT_PRESENCE_REPLAY_CAPABILITY,
     AGENT_SESSION_ATTACH_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_LOGIN_SETTINGS_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY,
+    agent_session_attach::agent_session_start::AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    agent_session_attach::agent_session_start::AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
+    agent_session_attach::agent_session_start::AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
+    agent_session_attach::agent_session_start::AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY,
+    agent_session_attach::agent_session_start::CREDENTIAL_REATTACH_CAPABILITY,
+    agent_session_attach::agent_session_start::BOUND_CREDENTIALS_CAPABILITY,
+    agent_session_attach::CREDENTIAL_WITHDRAWAL_CAPABILITY,
+    agent_session_attach::agent_session_start::CLAUDE_MACHINE_LOGIN_CAPABILITY,
+    agent_session_attach::agent_session_start::CLAUDE_TEAM_ROUTE_CAPABILITY,
     // A start with no folder (`agent-session-start`, already admitted): the machine makes
     // `~/chats/<id>`. Without it here the app refuses a no-folder start before sending it.
     AGENT_SESSION_START_NO_CWD_CAPABILITY,
@@ -191,12 +206,14 @@ const CAPABILITIES: &[&str] = &[
     crate::fs_ops::FS_CAPABILITY,
     crate::fs_ops::FS_SYMLINK_CAPABILITY,
     crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY,
+    crate::fs_ops::FS_WRITE_ZSTD_CAPABILITY,
     crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY,
     crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY,
     crate::git_seed::GIT_SEED_CAPABILITY,
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
     crate::git_seed::GIT_SEED_CARRY_CAPABILITY,
+    crate::git_seed::GIT_SEED_BORROW_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
     // A projected folder on the owner's own machine: its stream dial passes
     // `fs_wire::remote_dial_admits` for the owner's Native dial only.
@@ -308,11 +325,13 @@ struct ClientInfo {
 fn handshake(mux: &Arc<Mux>, client: u64, command: &str, fields: Value) -> anyhow::Result<Value> {
     if command == "identify" {
         let params: Identify = serde_json::from_value(fields)?;
-        let mut identity = cmd_server::identify(mux, params.machine_metadata, params.revisions)?;
+        let mut identity =
+            identify_reply::identify(mux, params.machine_metadata, params.revisions)?;
         identity["capabilities"] = json!(
             identify_capabilities(mux)
                 .into_iter()
-                .filter(|cap| CAPABILITIES.contains(cap))
+                .filter(|cap| CAPABILITIES.contains(cap)
+                    || mux.endpoint_start_harnesses().contains(cap))
                 .collect::<Vec<_>>()
         );
         return Ok(identity);

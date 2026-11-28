@@ -77,3 +77,66 @@ fn whiteouts_read_as_the_overlay_writes_them_nul_ended() {
     let layer = Layer::collect(state.path()).unwrap();
     assert_eq!(layer.whiteouts, ["src/m01.rs", "src/m02.rs"]);
 }
+
+#[test]
+fn dependency_and_build_folders_stay_on_the_machine_as_counts() {
+    let state = tempfile::tempdir().unwrap();
+    let upper = state.path().join("upper");
+    fs::create_dir_all(upper.join("app/node_modules/left-pad/lib")).unwrap();
+    fs::write(upper.join("app/node_modules/left-pad/lib/index.js"), b"module.exports=1").unwrap();
+    fs::write(upper.join("app/node_modules/left-pad/package.json"), b"{}").unwrap();
+    fs::create_dir_all(upper.join("app/src/__pycache__")).unwrap();
+    fs::write(upper.join("app/src/__pycache__/m.pyc"), b"pyc").unwrap();
+    fs::write(upper.join("app/src/m.py"), b"print(1)").unwrap();
+    // Cargo's target marks itself with CACHEDIR.TAG, whatever its name.
+    fs::create_dir_all(upper.join("app/out/debug")).unwrap();
+    fs::write(
+        upper.join("app/out/CACHEDIR.TAG"),
+        b"Signature: 8a477f597d28d172789f06886806bc55\n# cargo\n",
+    )
+    .unwrap();
+    fs::write(upper.join("app/out/debug/app"), vec![0u8; 1000]).unwrap();
+    // A folder named like a build output that git tracks is listed: .gitignore decides it.
+    fs::create_dir_all(upper.join("app/build")).unwrap();
+    fs::write(upper.join("app/build/rules.mk"), b"all:").unwrap();
+
+    let (layer, pruned) = Layer::collect_pruned(state.path()).unwrap();
+    let listed: Vec<&str> = layer.upper.iter().map(|entry| entry.path.as_str()).collect();
+    assert_eq!(listed, ["app", "app/build", "app/build/rules.mk", "app/src", "app/src/m.py"]);
+    assert_eq!(
+        pruned,
+        [
+            Pruned { path: "app/node_modules".into(), files: 2, bytes: 18 },
+            Pruned { path: "app/out".into(), files: 2, bytes: 1052 },
+            Pruned { path: "app/src/__pycache__".into(), files: 1, bytes: 3 },
+        ]
+    );
+    let wire = Layer::encode_pruned(&pruned).unwrap();
+    assert_eq!(Layer::decode_pruned(&wire).unwrap(), pruned);
+    // Unpruned, everything is listed as before.
+    assert_eq!(Layer::collect(state.path()).unwrap().upper.len(), 16);
+}
+
+#[test]
+fn a_pruned_list_with_a_path_out_of_the_folder_is_refused() {
+    let pruned = vec![Pruned { path: "../etc".into(), files: 1, bytes: 1 }];
+    assert!(Layer::decode_pruned(&Layer::encode_pruned(&pruned).unwrap()).is_err());
+}
+
+#[test]
+fn a_cachedir_tag_that_is_a_pipe_or_a_link_is_not_read() {
+    let state = tempfile::tempdir().unwrap();
+    let upper = state.path().join("upper");
+    fs::create_dir_all(upper.join("piped")).unwrap();
+    let fifo = std::ffi::CString::new(upper.join("piped/CACHEDIR.TAG").to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0);
+    fs::create_dir_all(upper.join("linked")).unwrap();
+    fs::write(state.path().join("tag"), b"Signature: 8a477f597d28d172789f06886806bc55").unwrap();
+    std::os::unix::fs::symlink(state.path().join("tag"), upper.join("linked/CACHEDIR.TAG"))
+        .unwrap();
+    let (layer, pruned) = Layer::collect_pruned(state.path()).unwrap();
+    assert!(pruned.is_empty(), "{pruned:?}");
+    // Both folders and the link are listed; a pipe is never a listing entry.
+    let listed: Vec<&str> = layer.upper.iter().map(|entry| entry.path.as_str()).collect();
+    assert_eq!(listed, ["linked", "linked/CACHEDIR.TAG", "piped"]);
+}

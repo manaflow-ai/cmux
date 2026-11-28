@@ -60,7 +60,8 @@
 //! Writes `duress-bench.json` (schema `acpmux.duress-bench.v1`) and `duress-bench.md` to
 //! `$FAST_CHECKS_OUT` (else a scratch folder it prints) and prints the table. No gate yet.
 //! Refuses to run unless `ACPMUX_DURESS=1`, and on any host whose name contains `cosmic-gray`.
-//! Linux only. Each leg prints `DURESS-SUMMARY <line>`, and the daemon's own log (kept in the
+//! Linux and macOS; on macOS the `disk`, `bigchat`, `all`, `host150` and `starved` legs refuse
+//! (they need tmpfs, prlimit or cgroups) and `os` in the report says which. Each leg prints `DURESS-SUMMARY <line>`, and the daemon's own log (kept in the
 //! scratch folder, off the home) is searched for ENOSPC, panics and socket loss
 //! (`daemonLogFindings`; the disk leg also reads `home/daemon.log` a CLI-started daemon wrote).
 //!
@@ -76,20 +77,30 @@
 //! fork storm at about 40 processes a second) and `peerscale` (the baseline at 1, 10, 20 and 40
 //! peers) and `peerburst` (40 ready peer links cut in one instant; the row's `peerBurst` counts
 //! the redials in the first 250 ms and second and how long until every link is open again) are
-//! named on purpose, never by default; `ACPMUX_DURESS_PEERS` sets the other legs' peer
+//! named on purpose, never by default, and so is `rfd0050` (RFD 0050 rule 7's drill: 90% of the
+//! cores busy, the host's RAM held to 90% used, the mesh hub and the relay listing answering after
+//! 100 s; rows `ls`, `send`, `send-far` and `daemon status`, `support/duress_rfd0050.rs`);
+//! `ACPMUX_DURESS_PEERS` sets the other legs' peer
 //! count (default 2). Every leg's row also carries the presence gap, link drops, peer links,
 //! frames on the wire, peer notice gauges, spawns per second and a tool call's cost
 //! (`support/duress_host150.rs`).
 //!
 //! (`ACPMUX_DURESS_LEGS=relay,bigchat` works too; libtest takes `legs=...` as a name filter that
 //! matches nothing, so `duress_bench` must be named with it.)
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // host150, peerscale and the measures every leg's row gains (presence gap, links, notices, spawns).
 #[path = "support/duress_host150.rs"]
 mod host150;
+// RFD 0050 rule 7's drill: 90% CPU and RAM, the broker answering in 100 s.
+#[path = "support/duress_rfd0050.rs"]
+mod rfd0050;
+// The host readers (load, processes, memory, CPU ticks) on Linux and macOS.
+#[path = "support/duress_host_os.rs"]
+mod host_os;
+use host_os::{harness_in, hostname, load1, proc_count, procs};
 // The prompts go to tests/fake_agent.py; the knobs and the output folder hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_DURESS",
@@ -115,6 +126,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     // The fleet's output directory, not a credential.
     "FAST_CHECKS_OUT",
     "ACPMUX_DURESS_BIG_RECORDS",
+    // The bigchat leg's parts left out, to find which one slows the daemon (`bigchat_off`).
+    "ACPMUX_DURESS_BIGCHAT_OFF",
     // How `systemd-run --user` reaches the user's manager, for the bigchat leg's memory ceiling.
     "XDG_RUNTIME_DIR",
     "DBUS_SESSION_BUS_ADDRESS",
@@ -179,6 +192,13 @@ const UNSETTLED: usize = 300;
 /// The memory ceiling of the `bigchat` leg's daemon (`systemd-run --user -p MemoryHigh=`).
 const MEMORY_HIGH: &str = "768M";
 
+/// Whether the bigchat leg runs without `part` (`ACPMUX_DURESS_BIGCHAT_OFF`, a comma list of
+/// `fork`, `resend`, `watch+team`, `outbox`, `gauges`, `readers`, `memoryhigh`, `cpu`): the
+/// leg with one part off at a time says which part slows the daemon.
+fn bigchat_off(part: &str) -> bool {
+    std::env::var("ACPMUX_DURESS_BIGCHAT_OFF").is_ok_and(|v| v.split(',').any(|p| p.trim() == part))
+}
+
 fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default)
 }
@@ -213,7 +233,14 @@ impl Knobs {
             .or_else(|| std::env::var("ACPMUX_DURESS_LEGS").ok())
             .filter(|v| !v.trim().is_empty())
             .map(|v| v.split(',').map(|l| l.trim().to_owned()).filter(|l| !l.is_empty()).collect())
-            .unwrap_or_else(|| ALL_LEGS.iter().map(|l| (*l).to_owned()).collect::<Vec<_>>());
+            .unwrap_or_else(|| {
+                // Off Linux the default skips the legs that need it (`host_os::LINUX_ONLY_LEGS`).
+                ALL_LEGS
+                    .iter()
+                    .filter(|l| host_os::refuses(l).is_none())
+                    .map(|l| (*l).to_owned())
+                    .collect::<Vec<_>>()
+            });
         let legs = host150::expand(legs);
         for leg in &legs {
             assert!(
@@ -221,6 +248,9 @@ impl Knobs {
                 "unknown leg {leg:?}; legs: {ALL_LEGS:?} and {:?}",
                 host150::EXTRA_LEGS
             );
+            if let Some(why) = host_os::refuses(leg) {
+                panic!("{why}");
+            }
         }
         let window = Duration::from_secs(env_or("ACPMUX_DURESS_SECS", 90u64).max(5));
         let cap = Duration::from_secs(env_or("ACPMUX_DURESS_CAP_SECS", 120u64))
@@ -252,6 +282,8 @@ struct Stress {
     bigchat: bool,
     /// Leo's laptop: load 10 x cores, memory and swap pressure, 40 peers, a fork storm.
     host150: bool,
+    /// RFD 0050 rule 7: 90% CPU and RAM held, the broker answering in 100 s (`rfd0050`).
+    rfd0050: bool,
 }
 
 impl Stress {
@@ -279,6 +311,7 @@ impl Stress {
                 s = Stress { cpu: true, fork: true, disk: true, hubslow: true, peercut: true, ..s }
             }
             "host150" => s.host150 = true,
+            rfd0050::LEG => s.rfd0050 = true,
             // peerscaleN: the baseline at N peers (`host150::peers_for`).
             l if l.starts_with("peerscale") => {}
             // starved: the daemon pinned with its load, capped and far (`host150::starved`).
@@ -294,45 +327,14 @@ impl Stress {
 // ---------------------------------------------------------------------------------------------
 // The host's own state.
 
-fn hostname() -> String {
-    std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
-}
-
 fn cores() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get())
-}
-
-fn load1() -> Option<f64> {
-    std::fs::read_to_string("/proc/loadavg").ok()?.split_whitespace().next()?.parse().ok()
 }
 
 fn psi_cpu_some_avg10() -> Option<f64> {
     let text = std::fs::read_to_string("/proc/pressure/cpu").ok()?;
     let some = text.lines().find(|l| l.starts_with("some"))?;
     some.split_whitespace().find_map(|f| f.strip_prefix("avg10=")).and_then(|v| v.parse().ok())
-}
-
-/// Every process's pid, and its `/proc/PID/stat` fields from the state on.
-fn procs() -> Vec<(i32, Vec<String>)> {
-    let Ok(dir) = std::fs::read_dir("/proc") else { return vec![] };
-    dir.flatten()
-        .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
-        .filter_map(|pid| {
-            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-            let rest = stat.rsplit_once(')')?.1;
-            Some((pid, rest.split_whitespace().map(str::to_owned).collect()))
-        })
-        .collect()
-}
-
-fn proc_count() -> usize {
-    std::fs::read_dir("/proc")
-        .map(|d| {
-            d.flatten()
-                .filter(|e| e.file_name().to_str().is_some_and(|n| n.parse::<u32>().is_ok()))
-                .count()
-        })
-        .unwrap_or(0)
 }
 
 /// Live (not zombie) processes in process group `pgid`. Fields from the state: 0 state, 2 pgrp.
@@ -468,7 +470,8 @@ fn cpu_script(count: usize) -> String {
 fn fork_script() -> String {
     format!(
         "i=0; while [ $i -lt {SLEEPERS} ]; do /bin/sleep 100000 & i=$((i+1)); done; \
-         for j in 1 2 3 4; do ( while :; do /bin/true; done ) & done; wait"
+         for j in 1 2 3 4; do ( while :; do {t}; done ) & done; wait",
+        t = host_os::TRUE_BIN
     )
 }
 
@@ -514,7 +517,11 @@ fn statvfs(path: &Path) -> Option<(u64, u64)> {
     // SAFETY: a zeroed statvfs is a valid out parameter; `c` is a valid C string.
     let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
     (unsafe { libc::statvfs(c.as_ptr(), &mut s) } == 0)
-        .then(|| (s.f_blocks * s.f_frsize, s.f_bavail * s.f_frsize))
+        // fsblkcnt_t is 32 bits on macOS, 64 on Linux; `u64::from` widens either.
+        .then(|| {
+            let frsize = u64::from(s.f_frsize);
+            (u64::from(s.f_blocks) * frsize, u64::from(s.f_bavail) * frsize)
+        })
 }
 
 /// Fills the filesystem at `filler`'s folder until under 1% of it is free: the bytes written.
@@ -539,6 +546,12 @@ fn fill(filler: &Path) -> Result<u64, String> {
     Ok(written)
 }
 
+#[cfg(not(target_os = "linux"))]
+fn set_fsize(_pid: u32, _limit: u64) -> Result<(), String> {
+    Err("prlimit is Linux only".into())
+}
+
+#[cfg(target_os = "linux")]
 fn set_fsize(pid: u32, limit: u64) -> Result<(), String> {
     let mut old: libc::rlimit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: reading this process's... the target's limits into `old`.
@@ -557,8 +570,12 @@ fn set_fsize(pid: u32, limit: u64) -> Result<(), String> {
 // The stub mesh hub.
 
 const HUB_OK: u8 = 0;
+/// The `rfd0050` leg's far send: a machine no peer is configured for, so it goes to the broker.
+const RFD0050_FAR: &str = "duress-far-host/duress-far";
 const HUB_503: u8 = 1;
 const HUB_SLOW: u8 = 2;
+/// Answers every request, after [`rfd0050::BROKER_SECS`].
+const HUB_LATE: u8 = 3;
 
 struct StubHub {
     port: u16,
@@ -648,10 +665,14 @@ fn serve_hub(
         let bare = path.split('?').next().unwrap_or("");
         let answered = match held {
             HUB_SLOW => "held",
+            HUB_LATE => "late",
             HUB_503 => "503",
             _ => "200",
         };
         *paths.lock().unwrap().entry(format!("{verb} {bare} {answered}")).or_default() += 1;
+        if held == HUB_LATE {
+            std::thread::sleep(Duration::from_secs(rfd0050::BROKER_SECS));
+        }
         let answer = match held {
             HUB_SLOW => {
                 std::thread::sleep(HUB_HOLD);
@@ -801,6 +822,18 @@ impl Daemon {
         // The daemon logs to its stdout (`log_sink.rs`): both go to a file in the scratch folder,
         // off the home, so a full home (the disk leg) still leaves its log readable.
         let stdout = stderr.try_clone().unwrap();
+        // A `dhat-heap` build's heap by allocation site (`heap_profile.rs`), written when the
+        // daemon stops, into `ACPMUX_DURESS_DHAT_DIR` (one file per daemon started).
+        if let Some(dir) = std::env::var_os("ACPMUX_DURESS_DHAT_DIR") {
+            static N: AtomicU64 = AtomicU64::new(0);
+            let _ = std::fs::create_dir_all(&dir);
+            let file = PathBuf::from(dir).join(format!(
+                "dhat-{}-{}.json",
+                std::process::id(),
+                N.fetch_add(1, Ordering::SeqCst)
+            ));
+            cmd.env(acpmux::heap_profile::OUT_ENV, file);
+        }
         cmd.args(["daemon", "run", "--log", "info,acpmux::hub::desktop_bridge=debug"])
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
@@ -883,7 +916,9 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         // SAFETY: the pid is this bench's own child, not yet reaped.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        if self.child.wait_timeout(Duration::from_secs(20)).ok().flatten().is_none() {
+        // A heap profile is written on the way out, which takes longer than a plain stop.
+        let stop = if std::env::var_os("ACPMUX_DURESS_DHAT_DIR").is_some() { 600 } else { 20 };
+        if self.child.wait_timeout(Duration::from_secs(stop)).ok().flatten().is_none() {
             let _ = self.child.kill();
             let _ = self.child.wait_timeout(Duration::from_secs(5));
         }
@@ -1345,16 +1380,6 @@ fn poll_liveness(cli: &Cli, tracked: &Tracked, until: Instant, out: &Mutex<Liven
     }
 }
 
-/// The pid of a stand-in harness working in `cwd`.
-fn harness_in(cwd: &Path) -> Option<i32> {
-    let want = std::fs::canonicalize(cwd).ok()?;
-    procs().into_iter().map(|(pid, _)| pid).find(|pid| {
-        let cmd = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
-        String::from_utf8_lossy(&cmd).contains("fake_agent.py")
-            && std::fs::read_link(format!("/proc/{pid}/cwd")).is_ok_and(|c| c == want)
-    })
-}
-
 // ---------------------------------------------------------------------------------------------
 // One leg.
 
@@ -1406,9 +1431,11 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     });
     // The relay legs: the send relay's listing (`sendRelay.lsArgv`), which plain `acpmux ls`
     // runs (`cli/send_relay.rs` `relay_ls`), is a stub that sleeps or fails.
-    if stress.relay > 0 {
+    if stress.relay > 0 || stress.rfd0050 {
         let script = scratch.join("relay-ls.sh");
-        let body = if stress.relay == 1 {
+        let body = if stress.rfd0050 {
+            rfd0050::relay_ls_body()
+        } else if stress.relay == 1 {
             format!("#!/bin/sh\nsleep {RELAY_SLEEP_SECS}\necho '{{\"sessions\":[]}}'\n")
         } else {
             "#!/bin/sh\necho 'relay: listing failed' >&2\nexit 1\n".to_owned()
@@ -1417,10 +1444,12 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))
             .unwrap();
         config["sendRelay"] =
-            json!({"argv": ["/bin/true"], "lsArgv": [script.display().to_string()]});
+            json!({"argv": [host_os::TRUE_BIN], "lsArgv": [script.display().to_string()]});
         stress_json_early.insert(
             "relayLs".into(),
-            json!(if stress.relay == 1 {
+            json!(if stress.rfd0050 {
+                format!("sleeps {}s", rfd0050::BROKER_SECS)
+            } else if stress.relay == 1 {
                 format!("sleeps {RELAY_SLEEP_SECS}s")
             } else {
                 "exits 1".into()
@@ -1460,7 +1489,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     let host150_high = host150::host150_memory_high();
-    let memory_high = if stress.bigchat || stress.host150 {
+    let memory_high = if (stress.bigchat && !bigchat_off("memoryhigh")) || stress.host150 {
         let high = if stress.host150 { host150_high.as_str() } else { MEMORY_HIGH };
         match memory_ceiling_works() {
             Ok(()) => {
@@ -1613,13 +1642,75 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let watchdog = Watchdog::arm(k.cap + host150::extra_cap(name));
     let mut stressors: Vec<Stressor> = vec![];
     let mut stress_json = std::mem::take(&mut stress_json_early);
-    if stress.cpu {
+    if stress.bigchat
+        && let Ok(off) = std::env::var("ACPMUX_DURESS_BIGCHAT_OFF")
+    {
+        stress_json.insert("bigchatOff".into(), json!(off));
+    }
+    if stress.cpu && !(stress.bigchat && bigchat_off("cpu")) {
         let count = k.cpu_x * cores();
         match Stressor::spawn("cpu", &cpu_script(count), k.cap) {
             Ok(s) => stressors.push(s),
             Err(e) => notes.push(format!("cpu: spawn failed: {e}")),
         }
         stress_json.insert("cpuLoops".into(), json!(count));
+    }
+    // RFD 0050 rule 7: 90% of the cores busy, the host's RAM held to 90% used, the broker late.
+    let mut rfd_cpu0 = None;
+    if stress.rfd0050 {
+        let cap = k.cap + host150::extra_cap(name);
+        let loops = rfd0050::cpu_loops(cores());
+        match Stressor::spawn("rfd0050-cpu", &cpu_script(loops), cap) {
+            Ok(s) => stressors.push(s),
+            Err(e) => notes.push(format!("rfd0050 cpu: spawn failed: {e}")),
+        }
+        stress_json.insert("cpuLoops".into(), json!(loops));
+        stress_json.insert("memUsedPctBefore".into(), json!(rfd0050::mem_used_pct()));
+        match rfd0050::hog_bytes() {
+            Some(0) | None => notes.push("rfd0050 ram: no hog (already at 90% used)".into()),
+            Some(bytes) => match Stressor::spawn("rfd0050-ram", &rfd0050::hog_script(bytes), cap) {
+                Ok(s) => {
+                    stressors.push(s);
+                    stress_json.insert("ramHogMiB".into(), json!(bytes >> 20));
+                }
+                Err(e) => notes.push(format!("rfd0050 ram: spawn failed: {e}")),
+            },
+        }
+        hub.set(HUB_LATE);
+        stress_json.insert("brokerAnswersAfterSecs".into(), json!(rfd0050::BROKER_SECS));
+        // The hog touches its pages in 64 MiB steps: give it time to hold them.
+        let by = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < by
+            && rfd0050::mem_used_pct().is_some_and(|p| p < 88.0)
+            && stress_json.contains_key("ramHogMiB")
+        {
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        // macOS pages a hog out to swap as it fills (swapped pages are not "used"), so one hog
+        // sized at the start held 80% (Mac round 4c, run 46096844314): top it up, re-sized
+        // each time, until 88% or the rounds run out.
+        let mut top_ups = 0u64;
+        while top_ups < rfd0050::TOP_UPS
+            && stress_json.contains_key("ramHogMiB")
+            && rfd0050::mem_used_pct().is_some_and(|p| p < 88.0)
+        {
+            let Some(bytes) = rfd0050::hog_bytes().filter(|b| *b >= 64 << 20) else { break };
+            match Stressor::spawn("rfd0050-ram-top-up", &rfd0050::hog_script(bytes), cap) {
+                Ok(s) => stressors.push(s),
+                Err(e) => {
+                    notes.push(format!("rfd0050 ram top-up: spawn failed: {e}"));
+                    break;
+                }
+            }
+            top_ups += 1;
+            let by = Instant::now() + Duration::from_secs(20);
+            while Instant::now() < by && rfd0050::mem_used_pct().is_some_and(|p| p < 88.0) {
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+        stress_json.insert("ramHogTopUps".into(), json!(top_ups));
+        stress_json.insert("memUsedPctAtClock".into(), json!(rfd0050::mem_used_pct()));
+        rfd_cpu0 = rfd0050::cpu_jiffies();
     }
     if stress.fork {
         match Stressor::spawn("fork", &fork_script(), k.cap) {
@@ -1661,7 +1752,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     // Give the load a moment to build before the kills and the clock.
-    if stress.cpu || stress.fork {
+    if stress.cpu || stress.fork || stress.rfd0050 {
         std::thread::sleep(Duration::from_secs(3));
     }
     // host150's stressors and its wait for the load; peerscale's quiet span.
@@ -1718,7 +1809,8 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         external: external_key.clone(),
         killed_at,
     };
-    let until = killed_at + k.window;
+    let until =
+        killed_at + if stress.rfd0050 { k.window.max(rfd0050::WINDOW_MIN) } else { k.window };
     // Peers down on purpose: every one in peercut, the held one (peer00) in bigchat.
     let peer_names: Vec<String> = (0..peer_count).map(|p| format!("peer{p:02}")).collect();
     let cut_peers: BTreeSet<String> = if stress.peercut {
@@ -1740,7 +1832,11 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let mut readers: Vec<Rpc> = vec![];
     let mut drivers = vec![];
     if stress.bigchat {
-        let (held, failed) = slow_readers(&daemon.socket, &big);
+        let (held, failed) = if bigchat_off("readers") {
+            (vec![], BTreeMap::new())
+        } else {
+            slow_readers(&daemon.socket, &big)
+        };
         stress_json.insert("slowReaders".into(), json!({"attached": held.len(), "failed": failed}));
         readers = held;
         // The first peer (`peers` names it `peer00`) held down.
@@ -1801,7 +1897,18 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     ]
     .into_iter()
     .chain(
-        stress.bigchat.then_some([("status", "cli"), ("status", "socket")]).into_iter().flatten(),
+        (stress.bigchat || stress.rfd0050)
+            .then_some([("status", "cli"), ("status", "socket")])
+            .into_iter()
+            .flatten(),
+    )
+    // RFD 0050: a send the daemon hands to the late broker, beside the local one.
+    .chain(
+        stress
+            .rfd0050
+            .then_some([("send-far", "cli"), ("send-far", "socket")])
+            .into_iter()
+            .flatten(),
     )
     .chain(
         (!peer_targets.is_empty())
@@ -1843,10 +1950,13 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             let entry = samples.entry(key).or_default();
             if via == "cli" {
                 let r = match op {
-                    "true" => run_plain("/bin/true", &[]),
+                    "true" => run_plain(host_os::TRUE_BIN, &[]),
                     "version" => cli.run(&["--version"]),
                     "ls" => cli.run(&["--json", "ls"]),
-                    "status" => cli.run(&["--json", "status"]),
+                    "status" => cli.run(&["--json", "daemon", "status"]),
+                    "send-far" => {
+                        cli.run(&["send", "--no-wait", RFD0050_FAR, &format!("duress {round}")])
+                    }
                     "send" => cli.run(&["send", "--no-wait", send_to, &format!("duress {round}")]),
                     "send-peer" => cli.run(&[
                         "send",
@@ -1868,6 +1978,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
                 let outcome = match op {
                     "register" => register_outcome(&r.code),
                     "send" if far_target.is_some() => send_outcome(&r),
+                    "send-far" => send_outcome(&r),
                     _ => r.code.clone(),
                 };
                 if op == "ls"
@@ -1881,6 +1992,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             } else {
                 let (op, send_to) = match (op, peer_to) {
                     ("send-peer", Some(t)) => ("send", t.as_str()),
+                    ("send-far", _) => ("send", RFD0050_FAR),
                     _ => (op, send_to),
                 };
                 let (took, outcome, listed) = socket_op(
@@ -1906,6 +2018,13 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     let _ = poller.join();
+    if stress.rfd0050 {
+        stress_json.insert(
+            "cpuBusyPct".into(),
+            json!(rfd0050::busy_pct(rfd_cpu0, rfd0050::cpu_jiffies())),
+        );
+        stress_json.insert("memUsedPctAtEnd".into(), json!(rfd0050::mem_used_pct()));
+    }
     let measures = host150::close(
         window_open,
         &extras,
@@ -1974,6 +2093,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         if stress.disk && home_log.exists() { log_findings(&home_log) } else { vec![] };
     drop(rpc);
     drop(daemon);
+    let heap = heap_sites();
     for p in &proxies {
         p.cut(false);
     }
@@ -1987,7 +2107,8 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     }
 
     let l = liveness.lock().unwrap();
-    let window_s = k.window.as_secs();
+    // The window the leg held, not the knob: `rfd0050` holds at least its `WINDOW_MIN`.
+    let window_s = until.saturating_duration_since(killed_at).as_secs();
     let gone = |g: Option<f64>, tracked: bool| -> Value {
         match (tracked, g) {
             (false, _) => json!("not tracked"),
@@ -2046,7 +2167,72 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let _ = external.kill();
     let _ = external.wait();
     drop(scratch_dir);
+    if let Some(h) = heap {
+        row["heap"] = h;
+    }
     LegOut { row, removal_errors }
+}
+
+/// The newest dhat profile in `ACPMUX_DURESS_DHAT_DIR` (a `dhat-heap` build), by site: the
+/// bytes each held at the heap's peak, grouped by its first three frames in acpmux's own source.
+fn heap_sites() -> Option<Value> {
+    let dir = std::env::var_os("ACPMUX_DURESS_DHAT_DIR")?;
+    let newest = std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("dhat-"))
+        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())?
+        .path();
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(&newest).ok()?).ok()?;
+    let ftbl: Vec<&str> =
+        doc["ftbl"].as_array()?.iter().map(|f| f.as_str().unwrap_or("")).collect();
+    let mut sites: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
+    let mut peak = 0u64;
+    for pp in doc["pps"].as_array()? {
+        let frames: Vec<&str> = pp["fs"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|i| ftbl.get(i.as_u64()? as usize).copied()).collect())
+            .unwrap_or_default();
+        let own: Vec<String> = frames
+            .iter()
+            .filter(|f| {
+                f.contains("acpmux/src/")
+                    && !f.contains("src/main.rs")
+                    && !f.contains("heap_profile")
+            })
+            .take(3)
+            .map(|f| {
+                let f = f.split_once(": ").map_or(*f, |(_, r)| r);
+                let (name, file) = f.rsplit_once(" (").unwrap_or((f, ""));
+                let name = name.split("::h").next().unwrap_or(name);
+                let name: Vec<&str> =
+                    name.split('<').next().unwrap_or(name).rsplit("::").take(2).collect();
+                let file = file.trim_end_matches(')').rsplit("acpmux/src/").next().unwrap_or(file);
+                format!("{} ({file})", name.into_iter().rev().collect::<Vec<_>>().join("::"))
+            })
+            .collect();
+        let key = if own.is_empty() { "[outside acpmux]".to_owned() } else { own.join(" < ") };
+        let gb = pp["gb"].as_u64().unwrap_or(0);
+        let e = sites.entry(key).or_default();
+        e.0 += gb;
+        e.1 += pp["eb"].as_u64().unwrap_or(0);
+        e.2 += pp["gbk"].as_u64().unwrap_or(0);
+        peak += gb;
+    }
+    let mut rows: Vec<_> = sites.into_iter().collect();
+    rows.sort_by_key(|(_, (gb, _, _))| std::cmp::Reverse(*gb));
+    for (site, (gb, eb, blocks)) in rows.iter().take(40) {
+        eprintln!(
+            "DURESS-HEAP peak {:>8} KiB end {:>8} KiB blocks {blocks:>8} {site}",
+            gb >> 10,
+            eb >> 10
+        );
+    }
+    Some(json!({
+        "profile": newest.display().to_string(),
+        "peakBytes": peak,
+        "byPeak": rows.iter().take(40).map(|(s, (gb, eb, n))| json!({"site": s, "peakBytes": gb, "endBytes": eb, "peakBlocks": n})).collect::<Vec<_>>(),
+    }))
 }
 
 /// The binary under test, copied once into a folder this run owns. On a shared runner another
@@ -2159,6 +2345,9 @@ fn bigchat_drivers(
     let mut threads = vec![];
     let spawn = |name: &str, f: Box<dyn FnOnce() -> Value + Send>| {
         let name = name.to_owned();
+        if bigchat_off(&name) {
+            return std::thread::spawn(move || (name, json!("off")));
+        }
         std::thread::spawn(move || (name, f()))
     };
     let (sock, b, c) = (socket.to_owned(), big.to_vec(), cwd.display().to_string());
@@ -2255,8 +2444,21 @@ fn bigchat_drivers(
         Box::new(move || {
             let (mut rpc, mut s) = (None, Samples::default());
             let (mut last, mut max_ms, mut max_dropped) = (Value::Null, 0f64, 0u64);
+            // What every connection's outbound queue held together, at its most, and the
+            // status's queues row then (`server/queue_gauge.rs`).
+            let (mut held_max, mut conns_max, mut queues_at_max) = (0u64, 0u64, Value::Null);
             while Instant::now() < until {
                 if let Some(v) = timed_call(&mut rpc, &sock, &mut s, "_acpmux/status", json!({})) {
+                    let queues = &v["gauges"]["queues"];
+                    let held = queues["heldBytes"].as_u64().unwrap_or(0);
+                    conns_max = conns_max.max(queues["connections"].as_u64().unwrap_or(0));
+                    if held >= held_max {
+                        held_max = held;
+                        queues_at_max = queues.clone();
+                        if let Some(rows) = queues_at_max.get_mut("largest") {
+                            *rows = json!(rows.as_array().map_or(0, Vec::len));
+                        }
+                    }
                     let fanout = v["gauges"]["recordWrites"]["fanout"].clone();
                     max_ms = max_ms.max(fanout["maxMs"].as_f64().unwrap_or(0.0));
                     max_dropped = max_dropped.max(fanout["dropped"].as_u64().unwrap_or(0));
@@ -2267,7 +2469,8 @@ fn bigchat_drivers(
                 std::thread::sleep(Duration::from_secs(2));
             }
             json!({"status": s.json(), "fanoutLast": last, "fanoutMaxMs": max_ms,
-                   "fanoutDroppedMax": max_dropped})
+                   "fanoutDroppedMax": max_dropped, "queuesHeldMaxBytes": held_max,
+                   "queuesConnectionsMax": conns_max, "queuesAtMax": queues_at_max})
         }),
     ));
     threads
@@ -2562,7 +2765,7 @@ fn markdown(report: &Value) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "manual: loads the host for minutes; ACPMUX_DURESS=1 on a fleet Linux host"]
+#[ignore = "manual: loads the host for minutes; ACPMUX_DURESS=1 on a fleet Linux host or Mac"]
 async fn duress_bench() {
     let host = hostname();
     if host.to_ascii_lowercase().contains("cosmic-gray") {
@@ -2593,6 +2796,7 @@ async fn duress_bench() {
     let report = json!({
         "schema": "acpmux.duress-bench.v1",
         "host": host,
+        "os": std::env::consts::OS,
         "cores": cores(),
         "commit": commit(),
         "knobs": {"legs": k.legs, "windowSecs": k.window.as_secs(), "capSecs": k.cap.as_secs(),

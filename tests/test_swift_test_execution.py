@@ -12,12 +12,12 @@ GUARD = ROOT / "scripts" / "ci" / "require_swift_test_execution.py"
 
 
 class SwiftTestExecutionTests(unittest.TestCase):
-    def run_guard(self, output: str, mode: str = "--log") -> subprocess.CompletedProcess[str]:
+    def run_guard(self, output: str, mode: str = "--log", *arguments: str) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             log = pathlib.Path(directory) / "swift.txt"
             log.write_text(output, encoding="utf-8")
             return subprocess.run(
-                [sys.executable, str(GUARD), mode, str(log)],
+                [sys.executable, str(GUARD), mode, str(log), *arguments],
                 text=True, capture_output=True, check=False,
             )
 
@@ -116,6 +116,14 @@ class SwiftTestExecutionTests(unittest.TestCase):
             with self.subTest(output=output):
                 result = self.run_guard(output, "--list-filters")
                 self.assertNotEqual(result.returncode, 0)
+
+    def test_discovery_validates_every_requested_filter(self) -> None:
+        discovery = "FirstTests.Suite/testOne()\nSecondTests.Other/testTwo()\n"
+        matching = self.run_guard(discovery, "--list-filters", "--require-filter", "Suite", "--require-filter", r"^SecondTests\.Other/")
+        self.assertEqual(matching.returncode, 0, matching.stderr)
+        missing = self.run_guard(discovery, "--list-filters", "--require-filter", "Suite", "--require-filter", "MissingTests")
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("no discovered test matches", missing.stderr)
 
 
 if __name__ == "__main__":

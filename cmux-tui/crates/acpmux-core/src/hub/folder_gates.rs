@@ -145,9 +145,16 @@ fn folders_serving_release_gates() {
     let small = best_p95(&small_window);
     let god = best_p95(&god_window);
     let all_god = all_p95(&god_window);
+    // Each row is written before it is judged, and every judgement waits for the last row, so one
+    // red row neither hides its own numbers nor the next row's ("the gate did not report a measure").
     gate("v2.pr05f.serving_window", small, god, all_god);
-    assert!(god <= small.saturating_mul(12) / 10, "window ratio {god}/{small}");
-    assert!(all_god <= small.saturating_mul(2), "window pooled ratio {all_god}/{small}");
+    let mut failures = Vec::new();
+    if god > small.saturating_mul(12) / 10 {
+        failures.push(format!("window ratio {god}/{small}"));
+    }
+    if all_god > small.saturating_mul(2) {
+        failures.push(format!("window pooled ratio {all_god}/{small}"));
+    }
 
     let small_page = deep_request(5, 0);
     let god_page = deep_request(2_000, 999);
@@ -171,6 +178,14 @@ fn folders_serving_release_gates() {
     let god = best_p95(&god_rounds);
     let all_god = all_p95(&god_rounds);
     gate("v2.pr05f.serving_page", small, god, all_god);
-    assert!(god <= small.saturating_mul(12) / 10, "page ratio {god}/{small}");
-    assert!(all_god <= small.saturating_mul(2), "page pooled ratio {all_god}/{small}");
+    if god > small.saturating_mul(12) / 10 {
+        failures.push(format!("page ratio {god}/{small}"));
+    }
+    if all_god > small.saturating_mul(2) {
+        failures.push(format!("page pooled ratio {all_god}/{small}"));
+    }
+    assert!(
+        failures.is_empty(),
+        "PR5f serving gate failures (all rows were emitted): {failures:?}"
+    );
 }

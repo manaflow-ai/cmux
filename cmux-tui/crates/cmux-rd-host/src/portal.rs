@@ -869,6 +869,8 @@ impl PortalCapture {
     /// Starts the screen cast and its PipeWire stream; returns once the first picture's format
     /// is known. On GNOME (mutter's ScreenCast on the session bus) mutter casts directly, with
     /// no dialog; elsewhere the portal handshake runs (blocking while a consent dialog is up).
+    /// A mutter that will not cast (remote access inhibited, a refused call, no PipeWire node)
+    /// falls back to the portal, as every share went before mutter was tried.
     pub fn start(opts: PortalOpts) -> Res<Self> {
         let PortalOpts { token_dir, on_state, format_timeout } = opts;
         let mut on_state: Box<dyn FnMut(PortalState) + Send> = on_state.unwrap_or_else(|| {
@@ -878,21 +880,41 @@ impl PortalCapture {
         let conn = zbus::blocking::Connection::session()
             .map_err(|e| PortalError::Unavailable(e.to_string()))?;
         let mutter = crate::mutter::MutterPresence::on(&conn);
-        if crate::capture_backend::WaylandCapture::choose(mutter.screen_cast)
-            == crate::capture_backend::WaylandCapture::Mutter
-        {
+        let use_mutter = crate::capture_backend::WaylandCapture::choose(mutter.screen_cast)
+            == crate::capture_backend::WaylandCapture::Mutter;
+        if use_mutter {
             on_state(PortalState::CreatingSession);
-            let session = crate::mutter::MutterSession::start(conn, mutter, format_timeout)?;
-            // Dropping `session` on a failure here stops it.
-            let stream = PwStream::start(None, session.node_id, format_timeout)?;
-            on_state(PortalState::Streaming { width: stream.width, height: stream.height });
-            return Ok(Self {
-                width: stream.width,
-                height: stream.height,
-                stream,
-                source: Source::Mutter(session),
-            });
         }
+        let me = crate::capture_backend::mutter_else_portal(
+            use_mutter.then_some(|| Self::start_mutter(mutter, format_timeout)),
+            || Self::start_portal(conn, token_dir, &mut *on_state, format_timeout),
+        )?;
+        on_state(PortalState::Streaming { width: me.width, height: me.height });
+        Ok(me)
+    }
+
+    /// mutter's own screen cast and its stream, on a connection of its own whose calls are
+    /// bounded (mutter.rs `CALL_TIMEOUT`).
+    fn start_mutter(mutter: crate::mutter::MutterPresence, format_timeout: Duration) -> Res<Self> {
+        let conn = crate::mutter::connection()?;
+        let session = crate::mutter::MutterSession::start(conn, mutter, format_timeout)?;
+        // Dropping `session` on a failure here stops it.
+        let stream = PwStream::start(None, session.node_id, format_timeout)?;
+        Ok(Self {
+            width: stream.width,
+            height: stream.height,
+            stream,
+            source: Source::Mutter(session),
+        })
+    }
+
+    /// The xdg-desktop-portal handshake (its saved grant, or its dialog) and its stream.
+    fn start_portal(
+        conn: zbus::blocking::Connection,
+        token_dir: Option<PathBuf>,
+        on_state: &mut (dyn FnMut(PortalState) + Send),
+        format_timeout: Duration,
+    ) -> Res<Self> {
         let mut portal = ZbusPortal::on(conn)?;
         let stores = match token_dir {
             Some(dir) => Some(TokenStores::in_dir(&dir)),
@@ -911,7 +933,6 @@ impl PortalCapture {
                 return Err(e);
             }
         };
-        on_state(PortalState::Streaming { width: stream.width, height: stream.height });
         let source = Source::Portal { portal, started };
         Ok(Self { width: stream.width, height: stream.height, stream, source })
     }
@@ -1017,6 +1038,7 @@ pub fn open_desktop(
         preset: &cfg.preset,
         profile: &cfg.profile,
         openh264_lib: cfg.openh264_lib.as_deref(),
+        sharp_text: cfg.sharp_text,
     })?;
     let frames = PortalFrames {
         frames: cap.frames(),
@@ -1127,6 +1149,10 @@ impl crate::desktop::FrameSource for PortalFrames {
 
     fn encoder_name(&self) -> String {
         self.enc.name()
+    }
+
+    fn constrained_baseline(&self) -> bool {
+        self.enc.constrained_baseline()
     }
 
     fn idr_cause(&self) -> Option<&'static str> {

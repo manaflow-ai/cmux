@@ -125,10 +125,16 @@ pub(super) fn account_alias_help_note(args: &[String]) -> Option<String> {
         .take_while(|word| *word != "--")
         .any(|word| matches!(word.as_str(), "-h" | "--help"))
         .then(|| {
-            if crate::localization::catalog().is_japanese() {
-                format!("`cmux {first}` は `cmux vm {verb}` と同じです。\n\n")
+            let japanese = crate::localization::catalog().is_japanese();
+            let device = match (first.as_str(), japanese) {
+                ("login", true) => "cmux アプリが応答しない時（または `--device`）は、リンクでサインインして CMUX_TOKEN を出力します（`cmux login --device --help`）。\n",
+                ("login", false) => "With no cmux app answering (or with `--device`), it signs in by link and prints a CMUX_TOKEN (`cmux login --device --help`).\n",
+                _ => "",
+            };
+            if japanese {
+                format!("`cmux {first}` は `cmux vm {verb}` と同じです。\n{device}\n")
             } else {
-                format!("`cmux {first}` is `cmux vm {verb}`.\n\n")
+                format!("`cmux {first}` is `cmux vm {verb}`.\n{device}\n")
             }
         })
 }

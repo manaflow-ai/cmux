@@ -112,7 +112,6 @@ export default componentEntry<Props>({
       import("../../../ui/glass/glass.css"),
       import("../styles.css"),
       import("../conversation/conversation.css"),
-      import("../keys.css"),
     ]),
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 260,

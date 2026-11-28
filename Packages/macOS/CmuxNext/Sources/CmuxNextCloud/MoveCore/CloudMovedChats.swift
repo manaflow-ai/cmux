@@ -1,4 +1,7 @@
+public import CmuxNextDaemon
 public import Foundation
+import CmuxNextWakeups
+import Observation
 
 /// The chats Move to Cloud (``CloudMove``) moved from this Mac, by their tab record on the machine (its `registry:`
 /// host and the chat's session): where each came from, so Bring Back Local merges into the same folder and its menu
@@ -113,4 +116,93 @@ public final class CloudMovedChats {
     }
 
     public func forget(host: String, session: String) { ask("forget", host: host, session: session) }
+}
+
+/// The chats moving to another machine now (Move to Cloud, Move to Another Machine, Bring Back Local), for the
+/// sidebar: the chat's row goes to the machine the moment the move starts, says the step and fills its bar as
+/// ``CloudMoveProgress`` goes, and leaves when the chat's own row is there (Leo, 2026-11-19: a visible move
+/// between machines). Every entrypoint of a move shows it (a sidebar drop, Move to…, the palette, the CLI).
+/// Keyed by the chat's tab id. Rust decides each move's next state (`moves::chat_moves`, op
+/// `cloud_move_chat_move`); here the app keeps the map, hooks the run's progress and waits for a landed row's
+/// workspace to leave.
+@MainActor
+@Observable
+public final class ChatMoves {
+    /// One chat's move (`moves::chat_moves::Move`).
+    public struct Move: Codable, Equatable, Sendable {
+        /// The workspace row the chat moves out of.
+        public var workspace: String?
+        /// The chat is that workspace's only tab: the row itself travels. Else it stays and only shows the move.
+        public var travels = false
+        /// The machine it moves to (a daemon's machine id), once known.
+        public var machine: String?
+        /// The step and about how long is left.
+        public var line: String?
+        /// How far the move is, 0...1, never lower than it showed; nil until the first line.
+        public var fraction: Double?
+        /// The move is done and the row waits on its machine for the workspace it left to close.
+        public var landed = false
+
+        public init(workspace: String? = nil, travels: Bool = false, machine: String? = nil) {
+            (self.workspace, self.travels, self.machine) = (workspace, travels, machine)
+        }
+    }
+
+    /// What happened to a move (`moves::chat_moves::Event`).
+    private struct Event: Encodable {
+        var kind: String
+        var workspace: String?, travels: Bool?, machine: String?, line: String?, fraction: Double?
+    }
+
+    /// The longest a moved row waits on its machine for the workspace it left to close.
+    public static let landing: Duration = .seconds(10)
+
+    public private(set) var all: [String: Move] = [:]
+    /// The store each move's chat moves out of, for ``landed(tab:)``.
+    @ObservationIgnored private var stores: [String: DaemonStore] = [:]
+    /// Each landed move's wait for its workspace to leave.
+    @ObservationIgnored private var landings: [String: Task<Void, Never>] = [:]
+
+    public init() {}
+
+    /// A move of tab `tab` starts (or its sidebar drop already started it: what that knew stays).
+    public func begin(tab: String, workspace: String?, travels: Bool, machine: String?, store: DaemonStore? = nil) {
+        if let store { stores[tab] = store }
+        apply(tab, Event(kind: "begin", workspace: workspace, travels: travels, machine: machine))
+    }
+
+    /// The move of `tab` goes to `machine` (Move to Cloud picks or makes one after it starts).
+    public func reach(tab: String, machine: String) { apply(tab, Event(kind: "reach", machine: machine)) }
+
+    /// The move of `tab` shows `line`, `fraction` of the way.
+    public func show(tab: String, line: String, fraction: Double?) { apply(tab, Event(kind: "show", line: line, fraction: fraction)) }
+
+    /// The move of `tab` is done: a travelled row stays on its machine until the store it moved out of no longer
+    /// lists the workspace it left (the chat's own row is there by then), at most ``landing``, so it never slides
+    /// back first.
+    public func landed(tab: String) {
+        apply(tab, Event(kind: "landed"))
+        guard let move = all[tab], move.landed, let workspace = move.workspace, let store = stores[tab] else { return }
+        let deadline = ObservationDeadline(owner: "chat-move-landing")
+        // task-owner: this landing's wait, kept in `landings` and cancelled when the move goes; it ends when the workspace leaves or at `landing`
+        landings[tab] = Task { @MainActor [weak self] in
+            await deadline.until({ store.workspace(id: workspace) == nil }, limit: Self.landing)
+            if self?.all[tab]?.landed == true { self?.apply(tab, Event(kind: "left")) }
+        }
+    }
+
+    /// The move's run of `tab` ended, done or not. A landed row stays until its workspace leaves.
+    public func end(tab: String) { apply(tab, Event(kind: "end")) }
+
+    private func apply(_ tab: String, _ event: Event) {
+        struct Request: Encodable { var prior: Move?, event: Event }
+        struct Reply: Decodable { var next: Move? }
+        let prior = all[tab]
+        guard prior != nil || event.kind == "begin" else { return }
+        let next = CloudMoveCore().call("chat_move", Request(prior: prior, event: event), as: Reply.self)?.next
+        if next != prior { all[tab] = next }
+        guard next == nil else { return }
+        stores[tab] = nil
+        landings.removeValue(forKey: tab)?.cancel()
+    }
 }

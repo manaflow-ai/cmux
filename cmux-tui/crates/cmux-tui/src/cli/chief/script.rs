@@ -89,8 +89,10 @@ impl TargetArgs {
                 let token = match &self.token_file {
                     Some(path) => std::fs::read_to_string(path)
                         .map_err(|e| format!("{}: {e}", path.display()))?,
-                    None => std::env::var("CMUX_CLOUD_ACCESS_TOKEN")
-                        .map_err(|_| text().token_missing.to_owned())?,
+                    None => {
+                        crate::cli::api_tokens::env_credential(|key: &str| std::env::var(key).ok())
+                            .ok_or_else(|| text().token_missing.to_owned())?
+                    }
                 };
                 let token = token.trim().to_owned();
                 if token.is_empty() {

@@ -20,7 +20,7 @@ import { receiveTransitionSlot } from "../../../slots/receiveTransition";
 import { InboxNoticeCard } from "../conversation/InboxNoticeCard";
 import { type InboxMessage } from "../conversation/inboxNotice";
 import { PendingSteer } from "../conversation/PendingSteer";
-import { DeliveryFailure } from "../conversation/PromptDelivery";
+import { DeliveryFailure, resendsItself } from "../conversation/PromptDelivery";
 import { SentFromLine } from "../conversation/SentFromLine";
 import { ReceivedResult } from "../offer/SuggestedTasks";
 import { callNative } from "../callNative";
@@ -28,9 +28,13 @@ import { type RowProps } from "./rowProps";
 import { editQueued, openOfferChat, openSenderChat, replyToMessage, sendSteerNow } from "./rowActions";
 
 /// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
-/// Keeps one footer mounted through waiting, accepted delivery and the authoritative read event.
+/// Keeps one footer mounted through waiting, accepted delivery and the authoritative read event. A
+/// prompt on its way or going again by itself takes the same row (PendingSteer.tsx): one pending look.
 const steerControls = (row: AcpmuxRow) =>
-  row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()));
+  row.steer === "waiting" ||
+  (row.steer === "landed" && Boolean(row.text?.trim())) ||
+  row.delivery?.state === "sending" ||
+  resendsItself(row.delivery);
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 export const MessageRow = memo(
@@ -114,8 +118,10 @@ export const MessageRow = memo(
               )
             }
             githubRepository={githubRepository}
+            // Where it was sent from opens with the message, so the shut line stays one row
+            // (rowMetric.ts; Leo, 2026-11-17: "these are too big").
+            provenance={row.sentFrom && <SentFromLine from={row.sentFrom} />}
           />
-          {row.sentFrom && <SentFromLine from={row.sentFrom} />}
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;

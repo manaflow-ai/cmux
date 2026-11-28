@@ -14,13 +14,12 @@ pub const SETTING_ATTEMPTS: &str = "agents.autoRetry.attempts";
 /// (`capacity_failover.rs`); 0 never switches.
 pub const SETTING_CAPACITY_FALLBACK: &str = "agents.autoRetry.capacityFallbackAfter";
 
-/// [`SETTING_CAPACITY_FALLBACK`]'s default: the first capacity failure's continuation already
-/// runs on the smaller model. Measured by the 529-storm chaos test (cmux#54913: 24 chats, a 90 s
-/// storm): at 3 no chat failed over before the storm ended (the third attempt waits
-/// 10 + 60 + 300 s) and 1995 s were lost against base's 1841 s; at 1 every chat that hit it
-/// failed over (14 of 14), all came back to their model, and 1324 s were lost (-28%), none after
-/// the storm.
-pub const DEFAULT_CAPACITY_FALLBACK_AFTER: usize = 1;
+/// [`SETTING_CAPACITY_FALLBACK`]'s default: off. A chat keeps the model it was started on unless
+/// its person chooses another (cmux#57784: chats started on Opus 5.5 were left on Sonnet 5.5 when
+/// the gateway's own 503s cut every turn, so none ended well to put Opus back). Switching is
+/// opt-in: the 529-storm chaos test (cmux#54913) measured 1 as the best value for those who want
+/// it (14 of 14 chats failed over and came back, -28% time lost against no switch).
+pub const DEFAULT_CAPACITY_FALLBACK_AFTER: usize = 0;
 
 /// The capacity failover's attempt in force: `configured` (config.json's
 /// `capacityFallbackAfter`) when set, else the settings file's, else the default. Held to

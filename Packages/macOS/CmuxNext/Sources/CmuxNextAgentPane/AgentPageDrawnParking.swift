@@ -1,9 +1,9 @@
 public import AppKit
 import CmuxNextDesignTokens
-import CmuxNextPages
+public import CmuxNextPages
 import CmuxNextWakeups
 
-/// A chat in Chromium that a pane stops showing (a switch to another tab) waits drawn, off screen in its window,
+/// A chat (or any ``DrawnParkable`` page: an internal page such as Settings or Markdown) in Chromium that a pane stops showing (a switch to another tab) waits drawn, off screen in its window,
 /// instead of hidden in its pane, so the switch back shows its last laid-out frame at once.
 ///
 /// Leo, 2026-11-15: "there is layout shift here... why..." Hidden in its pane, the chat's Chromium page was told
@@ -43,11 +43,11 @@ public final class AgentPageDrawnParking: NSView {
     }
 
     private final class Entry {
-        weak var view: AgentPaneView?
+        weak var view: (any DrawnParkable)?
         let timer = DemandTimer(owner: "AgentPageDrawnParking.keep")
         var hidden = false
         var cover: NSImage?
-        init(_ view: AgentPaneView) { self.view = view }
+        init(_ view: any DrawnParkable) { self.view = view }
     }
 
     /// Where the chats wait, far outside the window content.
@@ -55,7 +55,7 @@ public final class AgentPageDrawnParking: NSView {
     /// Oldest first.
     private var entries: [Entry] = []
     /// Tests drive the picture without a page engine.
-    var snapshotOverride: (@MainActor (AgentPaneView) async -> NSImage?)?
+    var snapshotOverride: (@MainActor (any DrawnParkable) async -> NSImage?)?
 
     private init() {
         super.init(frame: .zero)
@@ -87,15 +87,14 @@ public final class AgentPageDrawnParking: NSView {
 
     /// Whether `view` is one to keep drawn: a chat (no New Tab page) in Chromium that drew, shown in a window, with
     /// no crash notice and no dictation running.
-    static func keeps(_ view: AgentPaneView) -> Bool {
-        view.pageDrawsOverCovers && view.page?.showsChromium == true && view.model.hasPainted && view.model.newTab == nil
-            && view.window?.contentView != nil && !view.isHiddenOrHasHiddenAncestor && !view.showsCrashNotice
-            && view.dictation.phase.isStartable && !LowPowerMode.system.isEnabled
+    static func keeps(_ view: any DrawnParkable) -> Bool {
+        view.window?.contentView != nil && !view.isHiddenOrHasHiddenAncestor && !LowPowerMode.system.isEnabled
+            && view.keepsDrawnNow
     }
 
     /// Parks `view` (its pane stops showing it) drawn, at its size, in its window's keeper; false when it is not one
     /// to keep (``keeps(_:)``), and the pane hides it as before.
-    public static func park(_ view: AgentPaneView) -> Bool {
+    public static func park(_ view: any DrawnParkable) -> Bool {
         guard keeps(view), let content = view.window?.contentView else { return false }
         let keeper = of(view.window) ?? {
             let made = AgentPageDrawnParking()
@@ -106,7 +105,15 @@ public final class AgentPageDrawnParking: NSView {
         return true
     }
 
-    private func park(_ view: AgentPaneView, in content: NSView) {
+    /// ``park(_:)`` for any pane content: false when it is not a ``DrawnParkable``.
+    public static func park(content view: NSView) -> Bool { (view as? any DrawnParkable).map(park) ?? false }
+
+    /// ``install(_:in:at:fills:cover:)`` for any pane content: false when it is not a ``DrawnParkable`` or did not wait here.
+    public static func install(content view: NSView, in host: NSView, at frame: NSRect, fills: Bool, cover: any AgentPaneMoveCoverHost) -> Bool {
+        (view as? any DrawnParkable).map { install($0, in: host, at: frame, fills: fills, cover: cover) } ?? false
+    }
+
+    private func park(_ view: any DrawnParkable, in content: NSView) {
         prune()
         let size = view.frame.size
         // Far outside the content, in this keeper's coordinates (it sits at the content's origin).
@@ -117,7 +124,7 @@ public final class AgentPageDrawnParking: NSView {
         // One reparent inside the window: the page keeps its window and its frame.
         parking.addSubview(view)
         view.frame = CGRect(origin: .zero, size: size)
-        view.wentAwayDrawn()
+        view.parkedAway()
         let entry = Entry(view)
         entries.append(entry)
         entry.timer.schedule(after: Self.keepFor) { @MainActor [weak self, weak entry] in
@@ -130,16 +137,16 @@ public final class AgentPageDrawnParking: NSView {
 
     /// A pane shows `view` again: it leaves its keeper, and the pane moves it in. Its page follows it into the pane at
     /// the next layout, at the size it waited at.
-    public static func takeBack(_ view: AgentPaneView) -> Return {
+    public static func takeBack(_ view: any DrawnParkable) -> Return {
         guard let keeper = holding(view) else { return .none }
         return keeper.takeBack(view)
     }
 
-    private func takeBack(_ view: AgentPaneView) -> Return {
+    private func takeBack(_ view: any DrawnParkable) -> Return {
         let entry = entries.firstIndex { $0.view === view }.map { entries.remove(at: $0) }
         entry?.timer.cancel()
-        view.cameBackDrawn()
-        view.placeMovedChromiumPage()
+        view.parkedBack()
+        view.placeAfterDrawnPark()
         guard entry?.hidden ?? view.isHidden else { return .drawn }
         return .hidden(cover: entry?.cover)
     }
@@ -147,7 +154,7 @@ public final class AgentPageDrawnParking: NSView {
     /// ``takeBack(_:)`` into `host` (a pane's content area, `cover` the pane that draws covers) at `frame`, the frame it
     /// shows at (the size it waited at): drawn, it shows in this layout's frame with nothing to lay out again; gone
     /// hidden, its last frame stands under it until it drew again. False when it did not wait here.
-    public static func install(_ view: AgentPaneView, in host: NSView, at frame: NSRect, fills: Bool, cover: any AgentPaneMoveCoverHost) -> Bool {
+    public static func install(_ view: any DrawnParkable, in host: NSView, at frame: NSRect, fills: Bool, cover: any AgentPaneMoveCoverHost) -> Bool {
         let back = takeBack(view)
         if case .none = back { return false }
         host.addSubview(view)
@@ -155,14 +162,15 @@ public final class AgentPageDrawnParking: NSView {
         if view.frame != frame { view.frame = frame }
         if case .hidden(let picture?) = back {
             cover.showLaunchImage(picture, limit: .seconds(3))
-            view.standOverPicture()
-            cover.onLaunchImageCleared = { [weak view] in view?.pictureBelowWent() }
-            view.redraw.afterNextFrame { [weak cover] in
+            view.standOverDrawnPicture()
+            cover.onLaunchImageCleared = { [weak view] in view?.drawnPictureWent() }
+            view.afterDrawnFrame { [weak cover] in
                 guard let cover, let image = cover.launchImageView else { return }
                 cover.clearLaunchImage(ifShowing: image)
             }
         }
         view.isHidden = false
+        view.shownAfterDrawnPark()
         return true
     }
 
@@ -186,7 +194,7 @@ public final class AgentPageDrawnParking: NSView {
             guard let view else { return }
             // The saved-frame picture (#43281): a Chromium page's clear areas over the color under the page; nil when
             // no picture can stand in for it.
-            let image: NSImage? = if let snapshot { await snapshot(view) } else { await view.pageImage() }
+            let image: NSImage? = if let snapshot { await snapshot(view) } else { await view.drawnPicture() }
             guard let self, let entry, entry.hidden, entry.view === view, view.superview === parking, !view.isHidden else { return }
             entry.timer.cancel()
             entry.cover = image
@@ -207,9 +215,24 @@ public final class AgentPageDrawnParking: NSView {
     }
 }
 
-extension AgentPaneView {
+extension AgentPaneView: DrawnParkable {
     /// In a window, not hidden, and not waiting drawn off screen (``AgentPageDrawnParking``): what a person can see.
     public var isShownToPerson: Bool { window != nil && !isHiddenOrHasHiddenAncestor && page?.isDrawnAway != true }
+
+    /// A chat (no New Tab page) in Chromium that drew, with no crash notice and no dictation running.
+    public var keepsDrawnNow: Bool {
+        pageDrawsOverCovers && page?.showsChromium == true && model.hasPainted && model.newTab == nil
+            && !showsCrashNotice && dictation.phase.isStartable
+    }
+
+    public func parkedAway() { wentAwayDrawn() }
+    public func parkedBack() { cameBackDrawn() }
+    public func placeAfterDrawnPark() { placeMovedChromiumPage() }
+    public func shownAfterDrawnPark() {}
+    public func drawnPicture() async -> NSImage? { await pageImage() }
+    public func standOverDrawnPicture() { standOverPicture() }
+    public func drawnPictureWent() { pictureBelowWent() }
+    public func afterDrawnFrame(_ run: @escaping @MainActor () -> Void) { redraw.afterNextFrame(run) }
 
     /// Its pane stopped showing it and it waits drawn (``AgentPageDrawnParking``): what hiding it ends, ends.
     func wentAwayDrawn() {

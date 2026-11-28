@@ -565,3 +565,42 @@ fn a_customize_section_save_redraws_each_time() {
     let ms = ten_saves_redraw_the_open_view("cmux.section/1");
     eprintln!("section save to scene ms: {ms:?}");
 }
+
+/// Scene state (`cmux.state`) survives a hot reload: the restarted host is
+/// sent the values the old one kept as `init.state`, and an over-cap object
+/// (the VM is untrusted, so the supervisor checks again) is refused with a
+/// warn line while the last kept values stay.
+#[test]
+fn a_save_hands_the_kept_scene_state_to_the_restarted_host() {
+    let f = fixture();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    f.mount(
+        "m1",
+        "local/spy",
+        "cmux.section/1",
+        json!({ "keep": { "scroll": 120, "open": ["row-2"] } }),
+    );
+    let many: serde_json::Map<String, Value> =
+        (0..300).map(|i| (format!("k{i}"), json!(1))).collect();
+    f.mount("m2", "local/spy", "cmux.section/1", json!({ "keep": Value::Object(many) }));
+    let messages = |f: &Fixture| -> Vec<String> {
+        f.supervisor.logs(CLIENT, "local/spy", false)["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|l| l["message"].as_str().map(String::from))
+            .collect()
+    };
+    assert!(messages(&f).iter().any(|m| m.contains("256 key cap")), "{:?}", messages(&f));
+    save_spy_version(&f.state, "1.0.1");
+    f.supervisor.reload_local_apps(&prints);
+    f.wait("the remount's scene", |e| {
+        e["event"] == "apps-scene" && e["mount_id"] == "m1" && e["ops"][0]["op"] == "create"
+    });
+    let lines = messages(&f);
+    let line =
+        lines.iter().find(|m| m.starts_with("init-state ")).unwrap_or_else(|| panic!("{lines:?}"));
+    let kept: Value = serde_json::from_str(line.trim_start_matches("init-state ")).unwrap();
+    assert_eq!(kept, json!({ "scroll": 120, "open": ["row-2"] }), "{line}");
+}

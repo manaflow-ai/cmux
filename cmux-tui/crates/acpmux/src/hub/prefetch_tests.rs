@@ -137,16 +137,36 @@ fn counts_rereads_of_prefetched_files() {
     t.observe(&read);
     // Codex's shell read by a relative name.
     t.observe(&json!({"sessionUpdate": "tool_call", "toolCallId": "s1", "kind": "execute", "rawInput": {"command": ["bash", "-lc", "sed -n 1,3p b.md"]}}));
-    // An edit is not a read; another file is not prefetched.
+    // An edit is not a read, but it is a hit; another file is not prefetched.
     t.observe(&json!({"sessionUpdate": "tool_call", "toolCallId": "e1", "kind": "edit", "rawInput": {"file_path": canon("c.md")}}));
     t.observe(&json!({"sessionUpdate": "tool_call", "toolCallId": "r2", "kind": "read", "rawInput": {"file_path": "/elsewhere/z.md"}}));
     let c = t.counters();
     assert_eq!(c["harnessMagic.prefetch.files"], 3);
     assert_eq!(c["harnessMagic.prefetch.rereadAnyway"], 2);
     assert_eq!(c["harnessMagic.prefetch.neverRead"], 1);
+    assert_eq!(c["harnessMagic.prefetch.hits"], 3);
     assert_eq!(c["harnessMagic.prefetch.tokens"], p.tokens);
     // 3 * 0.239 - 2 < 0: nothing saved.
     assert_eq!(c["harnessMagic.prefetch.estRequestsSaved"], 0.0);
     let untouched = PrefetchTurn::new("t2", &p).counters();
+    assert_eq!(untouched["harnessMagic.prefetch.hits"], 0);
     assert_eq!(untouched["harnessMagic.prefetch.estRequestsSaved"], 0.72);
+}
+
+#[test]
+fn an_edit_of_a_prefetched_file_is_a_hit_once() {
+    let d = dir();
+    std::fs::write(d.path().join("a.md"), lines(3)).unwrap();
+    std::fs::write(d.path().join("b.md"), lines(3)).unwrap();
+    let p = plan("read a.md and b.md", d.path(), None, true).unwrap();
+    let canon = |n: &str| std::fs::canonicalize(d.path().join(n)).unwrap().display().to_string();
+    let mut t = PrefetchTurn::new("t1", &p);
+    // Codex's apply_patch names its file in locations; a read then an edit of it is one hit.
+    t.observe(&json!({"sessionUpdate": "tool_call", "toolCallId": "r1", "kind": "read", "rawInput": {"file_path": canon("a.md")}}));
+    t.observe(&json!({"sessionUpdate": "tool_call", "toolCallId": "p1", "kind": "edit", "title": "apply_patch", "locations": [{"path": canon("a.md")}]}));
+    t.observe(&json!({"sessionUpdate": "tool_call", "toolCallId": "w1", "title": "Write a.md", "rawInput": {"file_path": canon("a.md")}}));
+    let c = t.counters();
+    assert_eq!(c["harnessMagic.prefetch.hits"], 1);
+    assert_eq!(c["harnessMagic.prefetch.rereadAnyway"], 1);
+    assert_eq!(c["harnessMagic.prefetch.neverRead"], 1);
 }

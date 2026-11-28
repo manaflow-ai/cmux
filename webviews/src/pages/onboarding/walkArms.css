@@ -422,15 +422,9 @@
   background: var(--ds-color-success);
   box-shadow: inset 0 0 0 3px var(--ds-color-surface);
 }
+/* The step's shortcut (ui/KeyHint, plain glyphs) a fixed step after its title. */
 .onb-walk-key {
-  padding: 0 var(--ds-space-1);
-  border-radius: var(--ds-radius-sm);
-  background: var(--ds-surface-inset);
-  color: var(--page-text-2);
-  font: inherit;
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  font-weight: var(--weight-regular);
+  margin-inline-start: var(--ds-space-1);
 }
 
 /* The footer with a persistent Undo / Redo pair, leading. */
