@@ -124,10 +124,11 @@ if (GOD_TURNS !== undefined && (!Number.isInteger(GOD_TURNS) || GOD_TURNS < 10))
 /// `TAIL=1` opens the live page at the last checkpoint (`tailStart`) and plays only its records live.
 const TAIL = process.env.TAIL === "1";
 const godOf = () => godLog("god", GOD_TURNS === undefined ? {} : { turns: GOD_TURNS });
-/// `SMALL=mix` (with PAIRED=1): the small page plays the god session's own mix at the long log's length (600 turns,
-/// each rare kind at the god rate: a subagent chain, an image Read, the four MB outputs), named `long`, so the
-/// god / small ratio compares length alone and not also the kinds only the god session has.
-const SMALL_MIX = process.env.SMALL === "mix";
+/// With PAIRED=1 the small page plays the god session's own mix at the long log's length (600 turns, each rare kind
+/// at the god rate: subagent chains, image Reads, the four MB outputs), named `long`, so the god / small ratio
+/// compares length alone and not also the kinds only the god session has (those kinds alone cost the god page about
+/// 6 MB of extra optimized code, a fixed offset). `SMALL=long` plays the plain long log instead, as before.
+const SMALL_MIX = process.env.SMALL !== "long";
 const mixSmall = (): ReplayLog => {
   const god = 7000;
   const turns = TURNS;
