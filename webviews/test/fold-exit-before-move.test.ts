@@ -246,7 +246,9 @@ test("the since line moves no row: it fades in place on the compositor, never an
     /\.cv-since__line \{\s*transition:\s*opacity var\(--agent-motion-calm\) var\(--agent-ease-out\);/,
   );
   const since = css.slice(css.indexOf(".cv-since {"), css.indexOf(".acpmux-over-top"));
-  expect(since).not.toMatch(/transition:[^;]*\b(?:height|margin|padding|block-size)\b/);
+  // Only the block axis moves a row: the Worked for line's inline room at its end (#61543) eases with
+  // "New" and moves no row.
+  expect(since).not.toMatch(/transition:[^;]*\b(?:height|margin|padding(?!-inline)|block-size)\b/);
   expect(since).toMatch(/\.cv-since__menu \{\s*position: absolute;/);
 });
 test("the gallery's arms: none plays no lead, quick a whole quick step, shipped the 40 ms lead", () => {
