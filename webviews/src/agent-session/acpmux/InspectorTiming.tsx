@@ -10,6 +10,8 @@ import { useT } from "./i18n";
 import { clockTime } from "./inspectorModel";
 import { spanTime } from "./conversation/turnWaterfallModel";
 import "./InspectorTiming.css";
+import { Button } from "../../ui/Button";
+import { Tooltip } from "../../ui/Tooltip";
 
 export type InspectorTurn = {
   seq: number;
@@ -77,9 +79,9 @@ export function InspectorTiming({ sessionId, read }: { sessionId: string; read: 
     <div className="acpmux-timing-host">
       <div className="acpmux-inspector-tools">
         <span className="acpmux-inspector-count">{t("inspector.recordedOnly")}</span>
-        <button type="button" onClick={() => setReads((n) => n + 1)}>
+        <Button bare type="button" onClick={() => setReads((n) => n + 1)}>
           {t("git.refresh")}
-        </button>
+        </Button>
       </div>
       {error ? (
         <p role="alert" className="acpmux-timing-note">
@@ -147,9 +149,9 @@ export function SessionTiming({
               <details>
                 <summary>
                   <span className="acpmux-timing-prompt">{turn.prompt || t("inspector.session")}</span>
-                  <span className="acpmux-timing-total" title={t("inspector.toFirstOutput")}>
-                    {time(toFirstOutputMs(turn))}
-                  </span>
+                  <Tooltip label={t("inspector.toFirstOutput")}>
+                    <span className="acpmux-timing-total">{time(toFirstOutputMs(turn))}</span>
+                  </Tooltip>
                   <span className="acpmux-timing-total">{time(turn.wallMs)}</span>
                 </summary>
                 <dl className="acpmux-inspector-state">
@@ -173,19 +175,18 @@ export function SessionTiming({
                   </div>
                 </dl>
               </details>
-              <div className="acpmux-timing-track" title={`${clockTime(turn.startedAt)} · ${time(turn.wallMs)}`}>
-                {turn.wallMs != null && (
-                  <span className="acpmux-timing-bar" style={place(turn.startedAt, turn.wallMs)} />
-                )}
-              </div>
+              <Tooltip label={`${clockTime(turn.startedAt)} · ${time(turn.wallMs)}`}>
+                <div className="acpmux-timing-track">
+                  {turn.wallMs != null && (
+                    <span className="acpmux-timing-bar" style={place(turn.startedAt, turn.wallMs)} />
+                  )}
+                </div>
+              </Tooltip>
               <div className="acpmux-timing-track is-phases">
                 {phases.map((phase) => (
-                  <span
-                    key={phase.kind}
-                    className={`acpmux-timing-bar is-${phase.kind}`}
-                    style={place(phase.at, phase.ms)}
-                    title={`${phaseLabel(turn, phase.kind)} · ${time(phase.ms)}`}
-                  />
+                  <Tooltip key={phase.kind} label={`${phaseLabel(turn, phase.kind)} · ${time(phase.ms)}`}>
+                    <span className={`acpmux-timing-bar is-${phase.kind}`} style={place(phase.at, phase.ms)} />
+                  </Tooltip>
                 ))}
               </div>
             </li>
