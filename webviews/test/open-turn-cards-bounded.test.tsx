@@ -239,6 +239,17 @@ async function streamedRows(count: number): Promise<AcpmuxRow[]> {
     }
     for (let index = 0; index < 20; index += 1) await tick();
     flush();
+    // DIAG (removed before landing)
+    {
+      const kinds: Record<string, number> = {};
+      for (const row of rows) kinds[row.kind] = (kinds[row.kind] ?? 0) + 1;
+      const tools = rows.filter((row) => (row.items ?? []).some((item) => item.tool));
+      console.log(`DIAG count=${count} kinds=${JSON.stringify(kinds)} toolRows=${tools.length}`);
+      console.log(
+        `DIAG first40=${JSON.stringify(rows.slice(0, 40).map((row) => [row.id, row.kind, (row.items ?? []).map((item) => item.tool?.title ?? item.kind)]))}`,
+      );
+      console.log(`DIAG last=${JSON.stringify(rows.slice(-3)).slice(0, 3000)}`);
+    }
     return rows;
   } finally {
     client.close?.();

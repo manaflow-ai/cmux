@@ -157,10 +157,12 @@ test("a gallery-only design mock takes no allowlist slot, and a live file that l
     );
     writeFileSync(join(root, "sidebar/ProjectCapsDesigns.tsx"), 'import "./ProjectCapsDesigns.css";\n');
     writeFileSync(join(root, "sidebar/ProjectCaps.gallery.tsx"), 'import { A } from "./ProjectCapsDesigns";\n');
-    const clean = checkOneMaterial(root, { pin: 0, pending: {} });
-    expect(clean.errors).toEqual([]);
+    // The checker's own PENDING map names files of the real tree, not of this one.
+    const errors = () =>
+      checkOneMaterial(root, { pin: 0, pending: {} }).errors.filter((line) => !line.includes(" PENDING: "));
+    expect(errors()).toEqual([]);
     writeFileSync(join(root, "sidebar/Sidebar.tsx"), 'import { A } from "./ProjectCapsDesigns";\n');
-    expect(checkOneMaterial(root, { pin: 0, pending: {} }).errors).toEqual([
+    expect(errors()).toEqual([
       "sidebar/Sidebar.tsx: [mock] loads sidebar/ProjectCapsDesigns.css, a gallery-only design mock (DESIGN_MOCK_CSS): a live surface now draws it, so its rules take the one-material check",
     ]);
   } finally {

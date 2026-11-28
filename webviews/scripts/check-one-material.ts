@@ -80,6 +80,8 @@ export const DESIGN_MOCK_CSS: Record<string, string> = {
   "sidebar/ProjectCapsDesigns.css":
     "the project caps design mocks (ProjectCapsDesigns.tsx), rendered only by the ProjectCaps*.gallery.tsx states; " +
     "the live sidebar draws none of its rules",
+  "sidebar/SidebarEdgeFadeDesigns.css":
+    "the sidebar edge fade design mocks (SidebarEdgeFadeDesigns.tsx), rendered only by SidebarEdgeFade.gallery.tsx",
 };
 
 /** Every script under `dir`, galleries and tests too (the import scan reads who loads a mock). */
