@@ -67,8 +67,19 @@ impl Daemon {
     pub(super) fn call(
         &mut self,
         cmd: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, CallError> {
+        self.call_with_send_guard(cmd, params, timeout, ())
+    }
+
+    /// Hold a local guard through the write and release it before waiting for the reply.
+    pub(super) fn call_with_send_guard(
+        &mut self,
+        cmd: &str,
         mut params: Value,
         timeout: Duration,
+        send_guard: impl Sized,
     ) -> Result<Value, CallError> {
         let lost = |e: std::io::Error| lost_to(cmd, &e, timeout);
         let id = self.next_id;
@@ -81,6 +92,7 @@ impl Daemon {
         stream.set_read_timeout(Some(timeout)).map_err(lost)?;
         stream.set_write_timeout(Some(timeout)).map_err(lost)?;
         stream.write_all(line.as_bytes()).map_err(lost)?;
+        drop(send_guard);
         loop {
             let mut answer = String::new();
             if self.reader.read_line(&mut answer).map_err(lost)? == 0 {

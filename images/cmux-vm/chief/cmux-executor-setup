@@ -1,0 +1,159 @@
+#!/usr/bin/python3 -I
+"""cmux-executor-setup: after `executor serve` starts (cmux-executor.service ExecStartPost), as the work user.
+
+1. Waits for Executor's own files: server.json (its URL) and keys.json (the key it made on this machine's first
+   start; nothing in the image carries one).
+2. Writes the Chief's MCP record for it, every start (a rotated key reaches the Chief on the next start):
+   <store>/servers/executor.json (scope allChiefs, HTTP at <url>/mcp) and <store>/secrets/executor.json
+   ({"headers": {"Authorization": "Bearer <key>"}}, 0600 in a 0700 folder). The store is $CMUX_MCP_HOME, else
+   $ACPMUX_HOME/mcp (cmux-mcp-connect shared.rs `dir`).
+3. Deploys the first-party GitHub app from /usr/local/share/cmux-chief/executor/github when its source changed
+   (a new image) or it is missing. Its tools appear once the person connects a GitHub account through the form
+   `executor.appAccounts.userConnect` returns.
+Prints one `cmux-executor-setup ...` line per step; exits 1 on the first failure.
+"""
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+
+HOME = os.environ.get("HOME", "/home/cmux")
+EXECUTOR = os.environ.get("CMUX_EXECUTOR_BIN", "/opt/cmux/current/bin/executor")
+CLI = os.path.join(HOME, ".executor", "v2", "cli")
+APP_SRC = os.environ.get("CMUX_EXECUTOR_GITHUB_APP", "/usr/local/share/cmux-chief/executor/github")
+APP_MARK = os.path.join(CLI, "cmux-github-app.sha256")
+NAME = "executor"
+
+
+def say(*words):
+    print("cmux-executor-setup", *words, flush=True)
+
+
+def store_dir():
+    explicit = os.environ.get("CMUX_MCP_HOME", "").strip()
+    if explicit:
+        return explicit
+    return os.path.join(os.environ.get("ACPMUX_HOME", os.path.join(HOME, ".acpmux")), "mcp")
+
+
+def wait_for_files(deadline_s=120):
+    end = time.monotonic() + deadline_s
+    while True:
+        try:
+            with open(os.path.join(CLI, "server.json")) as f:
+                url = json.load(f)["url"]
+            with open(os.path.join(CLI, "keys.json")) as f:
+                key = json.load(f)["apiKey"]
+            if url and key:
+                return url.rstrip("/"), key
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        if time.monotonic() > end:
+            raise SystemExit(f"cmux-executor-setup no-server: {CLI}/server.json and keys.json absent after {deadline_s} s")
+        time.sleep(0.5)
+
+
+def write_private(path, data, mode):
+    tmp = f"{path}.tmp{os.getpid()}"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps(data, indent=2) + "\n")
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def register(url, key):
+    store = store_dir()
+    servers = os.path.join(store, "servers")
+    secrets = os.path.join(store, "secrets")
+    os.makedirs(servers, mode=0o755, exist_ok=True)
+    os.makedirs(secrets, mode=0o700, exist_ok=True)
+    os.chmod(secrets, 0o700)
+    record_path = os.path.join(servers, f"{NAME}.json")
+    try:
+        with open(record_path) as f:
+            record = json.load(f)
+    except (OSError, ValueError):
+        record = {}
+    endpoint = f"{url}/mcp"
+    transport = {"type": "http", "url": endpoint}
+    if record.get("transport") != transport:
+        # A new or moved server: drop the cached tool list so the hub connects and lists it again.
+        record = {
+            "name": NAME,
+            "transport": transport,
+            "publisher": "local",
+            "verified": False,
+            "added_ms": int(time.time() * 1000),
+            "added_by": "cmux-executor-setup",
+            "scope": "allChiefs",
+            "tools": [],
+            "prompts": [],
+            "protocol": "",
+            "capabilities": None,
+            "state": "",
+        }
+    record["secret_names"] = ["Authorization"]
+    write_private(record_path, record, 0o644)
+    write_private(os.path.join(secrets, f"{NAME}.json"), {"headers": {"Authorization": f"Bearer {key}"}, "env": {}}, 0o600)
+    say("registered", endpoint, "in", store)
+
+
+def executor(*args, timeout=300):
+    done = subprocess.run([EXECUTOR, *args], capture_output=True, text=True, timeout=timeout)
+    if done.returncode != 0:
+        tail = (done.stderr.strip() or done.stdout.strip())[-400:]
+        raise SystemExit(f"cmux-executor-setup executor-{args[0]}-{args[1] if len(args) > 1 else ''}-failed: {tail}")
+    return json.loads(done.stdout) if done.stdout.strip().startswith(("{", "[")) else done.stdout
+
+
+def source_digest():
+    h = hashlib.sha256()
+    for name in sorted(os.listdir(APP_SRC)):
+        h.update(name.encode() + b"\0")
+        with open(os.path.join(APP_SRC, name), "rb") as f:
+            h.update(f.read() + b"\0")
+    return h.hexdigest()
+
+
+def deploy_github_app():
+    if not os.path.isdir(APP_SRC):
+        say("github-app-absent", APP_SRC)
+        return
+    digest = source_digest()
+    apps = executor("apps", "list", timeout=60)
+    app = next((a for a in apps if isinstance(a, dict) and a.get("slug") == "github"), None)
+    try:
+        with open(APP_MARK) as f:
+            deployed = f.read().strip()
+    except OSError:
+        deployed = ""
+    if app and app.get("activeDeployment") and deployed == digest:
+        say("github-app-current", app["id"])
+        return
+    t0 = time.monotonic()
+    if app is None:
+        app = executor("apps", "create", "--name", "GitHub", "--files", APP_SRC)
+        commit = executor("apps", "source", "--app", app["id"], timeout=60)["revision"]["commit"]
+        executor("apps", "deploy", "--app", app["id"], "--commit", commit)
+    else:
+        executor("apps", "deploy", "--app", app["id"], "--files", APP_SRC, "--message", f"cmux image app {digest[:12]}")
+    with open(APP_MARK, "w") as f:
+        f.write(digest + "\n")
+    say("github-app-deployed", app["id"], f"{time.monotonic() - t0:.1f}s")
+
+
+def main():
+    url, key = wait_for_files()
+    register(url, key)
+    deploy_github_app()
+    say("ok")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except subprocess.TimeoutExpired as e:
+        sys.exit(f"cmux-executor-setup timeout: {e.cmd[1:3]}")
