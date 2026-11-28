@@ -8,7 +8,17 @@ Launches the tagged DEBUG app (scratch config), shows the Updated card (`debug.u
 once if this launch does not show it), then moves the sidebar's right edge through fixed widths in 20 pt legs. After
 each leg it prints one UCD-STEP line: the sidebar width (`debug.windows`), the card's page frame and height
 (`debug.update_surfaces state`) right after the leg and 0.6 s later; `settle_dh` is how far the card's height still
-moved after the edge stopped (a spring). The card's native glass is not in the debug socket's reply: the video shows it.
+moved after the edge stopped, and `swing` the most its page frame's height strayed from where it settled while sampled
+at about 60 Hz over those 0.6 s (a spring that stretches the card shows there).
+
+The glass as numbers (36e2b4a4 showed none in either arm, on a light window whose first-run sheet, a Documents prompt and
+a Safari menu covered it, and its base already held the frost fix #60682): the run is dark (`-AppleInterfaceStyle Dark`
+and a dark app theme) over a striped panel just behind the window (`debug.capture_backdrop`), in a scratch HOME (no
+protected-folder prompt) with onboarding skipped and closed, on the main window found by its number (#65211). After each
+leg a `debug.window_snapshot` (the backdrop composited behind the window, no Screen Recording grant) is measured over the
+card and over a strip of sidebar of the same size just above it (`pointer-probe stats`): `card_std` is the spread of
+the card's luminance, low where a frost blurs the stripes; `glass` is the build's own report (`updatedGlass`, DEBUG
+builds from this change on; `unreported` before it).
 
 The edge: a real press, drag and release along each leg (pointer-probe.swift `drag`) when this session may post events
 and the first leg moves the sidebar; else CuaDriver's `move_cursor` (desktop scope, foreground delivery, through the
@@ -97,7 +107,12 @@ def landed(target, tolerance=2.0):
 APP = o.app.rstrip("/")
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     BIN = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
-cfg = os.path.join(tempfile.mkdtemp(prefix=f"ucd-{o.tag}-"), "cmux.json")
+scratch = tempfile.mkdtemp(prefix=f"ucd-{o.tag}-")
+cfg = os.path.join(scratch, "cmux.json")
+# A scratch HOME: the real one's protected folders (Documents) asked for access over the window in 36e2b4a4.
+HOME = os.path.join(scratch, "home")
+for sub in ("Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs", "tmp"):
+    os.makedirs(os.path.join(HOME, sub), exist_ok=True)
 with open(cfg, "w") as f:
     f.write("{}\n")
 if os.path.exists(SOCK):
@@ -108,17 +123,33 @@ os.makedirs(o.out, exist_ok=True)
 def launch():
     if os.path.exists(SOCK):
         os.unlink(SOCK)
-    proc = subprocess.Popen([BIN], env={
-        "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-        "PATH": "/usr/bin:/bin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": cfg,
-        "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, FRAME))},
+    proc = subprocess.Popen([BIN, "--skip-onboarding", "-AppleInterfaceStyle", "Dark"], env={
+        "HOME": HOME, "CFFIXED_USER_HOME": HOME, "USER": os.environ.get("USER", ""),
+        "TMPDIR": os.path.join(HOME, "tmp") + "/", "PATH": "/usr/bin:/bin", "CMUX_NEXT_SOCKET_MODE": "automation",
+        "CMUX_NEXT_CONFIG_FILE": cfg, "CMUX_NEXT_SKIP_ONBOARDING": "1",
+        "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, FRAME))}, cwd=HOME,
         stdout=open(os.path.join(o.out, "app.log"), "a"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     wait(lambda: os.path.exists(SOCK) and "error" not in (rpc("debug.focus") or {"error": 1}), 180)
     if not (rpc("debug.focus") or {}).get("windows"):
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     wait(lambda: (rpc("debug.focus") or {}).get("windows"), 60)
     time.sleep(2)
+    rpc("debug.onboarding", {"action": "close"})  # a backstop to --skip-onboarding: the walk is on the main window
+    rpc("settings.set", {"path": "appearance.appTheme", "value": "GitHub Dark Default"})
     return proc
+
+
+def main_window(proc):
+    """The main window's number and its on-screen top-left frame (#65211: the CG list may put another window first)."""
+    listing = [w for w in (rpc("debug.window_list") or {}).get("windows") or [] if w.get("visible", True)]
+    main = next((w for w in listing if w.get("kind") == "main"), None)
+    if main is None:
+        return None, None, listing
+    for line in probe("windows", proc.pid).splitlines():
+        fields = line.split()
+        if len(fields) >= 5 and fields[0].isdigit() and int(fields[0]) == int(main.get("id") or -1):
+            return main, tuple(float(v) for v in fields[1:5]), listing
+    return main, None, listing
 
 
 def quit_app(proc):
@@ -150,11 +181,40 @@ try:
     targets = [300, 420, 180, 420, 260]
     print(f"UCD-START {o.arm} width={width()} card={card()}", flush=True)
 
-    windows = probe("windows", app.pid).splitlines()
-    import re
-    nums = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", windows[0])] if windows else []
-    wx, wy = (nums[1], nums[2]) if len(nums) >= 3 else (FRAME[0], FRAME[1])
-    edge_y = FRAME[3] / 2  # window-local from the top: the sidebar's middle, over its edge
+    rpc("debug.onboarding", {"action": "close"})
+    wait(lambda: all(w.get("kind") == "main" for w in (rpc("debug.window_list") or {}).get("windows") or []
+                     if w.get("visible", True)), 10)
+    main, frame, listing = main_window(app)
+    print(f"UCD-WINDOWS {o.arm} " + " ".join(f"{w.get('id')}:{w.get('kind')}" for w in listing), flush=True)
+    if main is None or frame is None:
+        raise SystemExit(f"UCD-FAIL {o.arm} no main window on screen ({listing})")
+    wx, wy, ww, wh = frame
+    backdrop = rpc("debug.capture_backdrop", {"kind": "main", "pattern": "stripes"})
+    print(f"UCD-BACKDROP {o.arm} {backdrop}", flush=True)
+    print(f"UCD-FRONT {o.arm} {probe('activate', app.pid)}", flush=True)
+    time.sleep(0.5)
+    edge_y = wh / 2  # window-local from the top: the sidebar's middle, over its edge
+    shots = os.path.join(o.out, "shots")
+    os.makedirs(shots, exist_ok=True)
+
+    def glass_stats(name):
+        """The card and a same-size strip of sidebar just above it, in a snapshot of the window over the stripes."""
+        state = rpc("debug.update_surfaces", {"action": "state"}) or {}
+        fr = state.get("updatedFrame")
+        path = os.path.join(shots, f"{name}.png")
+        shot = rpc("debug.window_snapshot", {"kind": "main", "path": path}, timeout=40) or {}
+        if not fr or "error" in shot or not os.path.exists(path):
+            return {"glass": state.get("updatedGlass", "unreported"), "shot": None}
+        x, y, w, h = fr
+        inset = 4  # off the card's rounded edge
+        card_l = probe("stats", path, x + inset, y + inset, w - 2 * inset, h - 2 * inset, ww).split()
+        ref_l = probe("stats", path, x + inset, max(0, y - h - 8), w - 2 * inset, h - 2 * inset, ww).split()
+        pick = lambda v, i: float(v[i]) if len(v) == 2 else None  # noqa: E731
+        return {"glass": state.get("updatedGlass", "unreported"), "card_l": pick(card_l, 0), "card_std": pick(card_l, 1),
+                "ref_l": pick(ref_l, 0), "ref_std": pick(ref_l, 1), "shot": os.path.relpath(path, o.out)}
+
+    rest = glass_stats("rest")
+    print("UCD-REST " + o.arm + " " + " ".join(f"{k}={v}" for k, v in rest.items()), flush=True)
 
     # One `cua-driver mcp` session warps the cursor and records (the `cua-driver call` CLI finds no daemon under the
     # step's HOME: tab_switch_capture.driver_env).
@@ -242,11 +302,17 @@ try:
                     misses.append(at)
                     print(f"UCD-FAIL {o.arm} leg to {at}: cursor at {cursor}", flush=True)
             shown, frame, height = card()
-            time.sleep(0.6)
+            heights, end = [], time.monotonic() + 0.6
+            while time.monotonic() < end:  # bounded: 0.6 s of the page frame at about 60 Hz
+                f = card()[1]
+                if f:
+                    heights.append(f[3])
+                time.sleep(1 / 60)
             _, settled_frame, settled_height = card()
+            swing = round(max((abs(v - settled_frame[3]) for v in heights), default=0), 1) if settled_frame else None
             row = {"arm": o.arm, "target": target, "edge": round(at, 1), "sidebar_width": width(), "card": shown,
                    "frame": frame, "height": height, "settled_frame": settled_frame, "settle_dh": round(settled_height - height, 1),
-                   "cursor_ok": ok, "glass": "unreported"}
+                   "swing": swing, "cursor_ok": ok, **glass_stats(f"w{int(at)}-{len(rows)}")}
             rows.append(row)
             print("UCD-STEP " + " ".join(f"{k}={v}" for k, v in row.items()), flush=True)
     with open(os.path.join(o.out, "steps.json"), "w") as f:

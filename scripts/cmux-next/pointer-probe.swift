@@ -11,6 +11,9 @@
 //   pointer-probe click X Y    post a left press and release there
 //   pointer-probe cursor       print the cursor on screen now: iBeam, arrow, or other:<hot spot> <size>
 //   pointer-probe screen       print the main screen's height in points
+//   pointer-probe activate PID bring that app's windows to the front (no Automation grant)
+//   pointer-probe stats PNG X Y W H POINTS   mean and spread of luminance (0-255) in a rect of PNG, in points from the
+//                              top left of an image POINTS wide (a window snapshot at its backing scale)
 import AppKit
 
 _ = NSApplication.shared
@@ -105,7 +108,43 @@ case "cursor":
     print(same(cursor, .iBeam) ? "iBeam" : same(cursor, .arrow) ? "arrow" : "other:\(cursor.hotSpot) \(cursor.image.size)")
 case "screen":
     print(NSScreen.screens.first?.frame.height ?? 0)
+case "activate":
+    guard args.count >= 3, let pid = Int32(args[2]), let app = NSRunningApplication(processIdentifier: pid) else {
+        FileHandle.standardError.write("usage: pointer-probe activate PID\n".data(using: .utf8)!)
+        exit(2)
+    }
+    print(app.activate(options: [.activateAllWindows]))
+case "stats":
+    guard args.count >= 8, let image = NSImage(contentsOfFile: args[2]),
+          let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+          let x = Double(args[3]), let y = Double(args[4]), let w = Double(args[5]), let h = Double(args[6]),
+          let points = Double(args[7]), points > 0 else {
+        FileHandle.standardError.write("usage: pointer-probe stats PNG X Y W H POINTS\n".data(using: .utf8)!)
+        exit(2)
+    }
+    let scale = Double(cg.width) / points
+    let rect = CGRect(x: x * scale, y: y * scale, width: w * scale, height: h * scale).integral
+        .intersection(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+    guard rect.width >= 1, rect.height >= 1, let crop = cg.cropping(to: rect) else { print("none"); break }
+    let cw = crop.width, ch = crop.height
+    var pixels = [UInt8](repeating: 0, count: cw * ch * 4)
+    let drew: Bool = pixels.withUnsafeMutableBytes { raw in
+        guard let context = CGContext(data: raw.baseAddress, width: cw, height: ch, bitsPerComponent: 8, bytesPerRow: cw * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: cw, height: ch))
+        return true
+    }
+    guard drew else { print("none"); break }
+    var sum = 0.0, squares = 0.0
+    for i in stride(from: 0, to: pixels.count, by: 4) {
+        let l = 0.2126 * Double(pixels[i]) + 0.7152 * Double(pixels[i + 1]) + 0.0722 * Double(pixels[i + 2])
+        sum += l
+        squares += l * l
+    }
+    let n = Double(cw * ch), mean = sum / n
+    print(String(format: "%.1f %.1f", mean, max(0, squares / n - mean * mean).squareRoot()))
 default:
-    FileHandle.standardError.write("usage: pointer-probe move|click X Y | cursor | screen\n".data(using: .utf8)!)
+    FileHandle.standardError.write("usage: pointer-probe move|click X Y | cursor | screen | activate PID | stats PNG X Y W H POINTS\n".data(using: .utf8)!)
     exit(2)
 }

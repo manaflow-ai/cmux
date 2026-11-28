@@ -254,7 +254,10 @@ extension SidebarViewComponents {
          "updatedCard": String(updatedCardView.card != nil),
          "updatedPage": String(updatedCardView.island != nil),
          "updatedHeight": String(Double(updatedCardView.height)),
-         "updatedCloseShown": String(updatedCardView.closeShown)]
+         "updatedCloseShown": String(updatedCardView.closeShown),
+         // The native frost under the card's page (Leo 2026-11-27: "there's a glass back that shouldnt be there"):
+         // true while it shows, so a proof reads the glass as a value, not off a video.
+         "updatedGlass": String(!updatedCardView.glass.isHiddenOrHasHiddenAncestor)]
     }
 
     /// Proofs (`debug.update_surfaces`): the Updated card's x while the card shows.
