@@ -172,26 +172,22 @@ extension HomeService {
     /// Chief's `chief.list` entry, a Chief of this Mac its registry name from `home-inbox`; nil
     /// for a conversation that is no Chief's own (a group, a DM with a person) or a Chief with no name.
     func chiefRecord(of conversation: ConversationID) -> String? {
-        if let cloud = directory.chiefs.first(where: { $0.mainConversation == conversation.rawValue }),
-           let name = HomeChiefNames.trimmed(cloud.name) { return name }
-        return HomeChiefNames.localRecord(of: conversation, in: homeInbox.rows)
+        HomeChiefNameCache.record(of: conversation, rows: homeInbox.rows, cloud: directory.chiefs)
     }
 
     /// Each Chief's one name by its conversation, for the list's tiles (``chiefName(of:)``).
     var chiefNames: [ConversationID: String] {
-        var records = HomeChiefNames.localRecords(homeInbox.rows)
-        for chief in directory.chiefs {
-            guard let conversation = chief.mainConversation, let name = HomeChiefNames.trimmed(chief.name) else { continue }
-            records[ConversationID(conversation)] = name
-        }
-        return chiefRenames.all(records)
+        chiefNameCache.names(
+            rows: homeInbox.rows, rowsRevision: homeInbox.revision, cloud: directory.chiefs, renames: chiefRenames)
     }
 
     /// The name `conversation`'s Chief shows everywhere: the list's tile, the chat header, the
     /// settings card, the tab strip, banners and Send Message… (its record's, or a rename being
     /// saved); nil when it is no Chief's, and the conversation's title shows.
     func chiefName(of conversation: ConversationID) -> String? {
-        chiefRenames.name(of: conversation, record: chiefRecord(of: conversation))
+        chiefNameCache.name(
+            of: conversation,
+            rows: homeInbox.rows, rowsRevision: homeInbox.revision, cloud: directory.chiefs, renames: chiefRenames)
     }
 
     /// Renames conversation `conversation` from its header card. A Chief's own conversation renames
