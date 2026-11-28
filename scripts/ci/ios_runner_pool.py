@@ -487,9 +487,11 @@ def live_owned_pool(pools: Sequence[str], runners: Sequence[Mapping[str, Any]] |
     A label routes while one online runner carries it (pr_runner_pool.routing_slots). `runner: owned`
     reads no queue, so without this a pin whose every carrier is offline queues its jobs until a
     lander cancels them (hosted#1034: 46 minutes on glaeda-std-xcode-27.2, 0 of 4 online). An
-    unreadable or empty listing keeps the first pool: the listing failing is not the pool failing.
+    unread listing (None: no route token, or the call failed) keeps the first pool: the listing
+    failing is not the pool failing. An empty listing is an answer: no runner carries the pin, so
+    the pick refuses as it does when every carrier is offline.
     """
-    if not runners:
+    if runners is None:
         return pools[0]
     registered = {pool: 0 for pool in pools}
     for pool in pools:
