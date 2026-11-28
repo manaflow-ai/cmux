@@ -41,6 +41,9 @@ concurrency:
 
 jobs:
   resolve:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: resolve the merge commit
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -93,6 +96,9 @@ jobs:
       statuses: read
 
   ios-fast-status:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: ios fast verdict status
     needs: [resolve, pipeline]
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}
