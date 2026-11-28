@@ -470,7 +470,8 @@ fn cpu_script(count: usize) -> String {
 fn fork_script() -> String {
     format!(
         "i=0; while [ $i -lt {SLEEPERS} ]; do /bin/sleep 100000 & i=$((i+1)); done; \
-         for j in 1 2 3 4; do ( while :; do /bin/true; done ) & done; wait"
+         for j in 1 2 3 4; do ( while :; do {t}; done ) & done; wait",
+        t = host_os::TRUE_BIN
     )
 }
 
@@ -1443,7 +1444,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))
             .unwrap();
         config["sendRelay"] =
-            json!({"argv": ["/bin/true"], "lsArgv": [script.display().to_string()]});
+            json!({"argv": [host_os::TRUE_BIN], "lsArgv": [script.display().to_string()]});
         stress_json_early.insert(
             "relayLs".into(),
             json!(if stress.rfd0050 {
@@ -1926,7 +1927,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             let entry = samples.entry(key).or_default();
             if via == "cli" {
                 let r = match op {
-                    "true" => run_plain("/bin/true", &[]),
+                    "true" => run_plain(host_os::TRUE_BIN, &[]),
                     "version" => cli.run(&["--version"]),
                     "ls" => cli.run(&["--json", "ls"]),
                     "status" => cli.run(&["--json", "daemon", "status"]),
