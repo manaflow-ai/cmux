@@ -107,6 +107,8 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 mod apps;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
+#[cfg(unix)]
+mod extension_updates;
 pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
 pub use conversation_scheduled::start_scheduled_sender;
 #[cfg(unix)]

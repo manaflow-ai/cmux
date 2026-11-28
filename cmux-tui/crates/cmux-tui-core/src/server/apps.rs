@@ -294,6 +294,8 @@ fn reply(
 /// waiting for the first `apps-*` command. Never on the startup path.
 pub fn start_apps_when_ready(mux: &Arc<Mux>) {
     if crate::apps::advertised().is_some() {
+        // Off by default (`updates.checkExtensions`); the thread reads it.
+        super::extension_updates::start(mux);
         let mux = mux.clone();
         let _ = spawn_off_startup(move || {
             mux.control_clients.apps.get_or_init(&mux);
