@@ -19,6 +19,8 @@ mod headless;
 #[cfg(test)]
 mod kinds_tests;
 mod pack;
+#[cfg(test)]
+mod pack_tests;
 mod publish;
 #[cfg(test)]
 mod publish_tests;
@@ -57,6 +59,20 @@ impl Field for Value {
     }
 }
 
+/// `ext pack --json`'s failure.
+fn pack_error_json(error: &pack::PackError) -> Value {
+    match error {
+        pack::PackError::Invalid(message) => json!({ "ok": false, "error": message }),
+        pack::PackError::Mismatch { expected, packed } => {
+            let mut body = packed.to_json();
+            body["ok"] = json!(false);
+            body["expected"] = json!(expected);
+            body["error"] = json!(error.text());
+            body
+        }
+    }
+}
+
 /// Exit codes of `ext dev` (`--once` is what an agent's loop reads).
 pub(super) mod exit {
     pub const OK: i32 = 0;
@@ -75,6 +91,8 @@ pub(super) mod exit {
     pub const FETCH_FAILED: i32 = 7;
     /// `ext share`: the folder cannot be shared yet.
     pub const NOT_SHAREABLE: i32 = 8;
+    /// `ext pack --expect`: the folder packs to another sha256.
+    pub const NOT_REPRODUCED: i32 = 9;
     pub const INTERRUPTED: i32 = 130;
 }
 
@@ -93,9 +111,12 @@ cmux ext: make a cmux extension and watch it change as you work.
                                repository, a picture) and the steps: push, a release, the
                                registry PR; writes nothing to the network; exit 1 when
                                something is left to do
-  cmux ext pack [DIR] [--out DIR] [--json]
+  cmux ext pack [DIR] [--out DIR] [--expect SHA256 | --entry FILE] [--json]
                                the release assets: cmux-extension.tar.gz (the manifest and the
-                               files it names) and cmux-app.v2.json in DIR/release; prints the sha256
+                               files it names) and cmux-app.v2.json in DIR/release; prints the sha256,
+                               the same for the same files; --expect exits 9 unless it is SHA256
+                               (rebuild a published release from its commit and compare);
+                               --entry checks against a registry entry cmux signed
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
   cmux ext dev --once --headless --json
@@ -421,7 +442,8 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             Ok(Request::Design { files, widget, system })
         }
         "pack" => {
-            let mut options = pack::PackOptions { dir: PathBuf::from("."), out: None };
+            let mut options =
+                pack::PackOptions { dir: PathBuf::from("."), out: None, expect: None, entry: None };
             let mut dir = None;
             let mut words = rest.iter();
             while let Some(word) = words.next() {
@@ -429,6 +451,18 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     "--out" => {
                         let out = words.next().ok_or_else(|| usage("--out needs a folder"))?;
                         options.out = Some(PathBuf::from(out));
+                    }
+                    "--expect" => {
+                        let hash = words.next().ok_or_else(|| usage("--expect needs a sha256"))?;
+                        let hex = hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit());
+                        if !hex {
+                            return Err(usage("--expect takes the 64 hex digits of a sha256"));
+                        }
+                        options.expect = Some(hash.to_ascii_lowercase());
+                    }
+                    "--entry" => {
+                        let file = words.next().ok_or_else(|| usage("--entry needs a file"))?;
+                        options.entry = Some(PathBuf::from(file));
                     }
                     flag if flag.starts_with('-') => {
                         return Err(usage(&format!("unknown option {flag}")));
@@ -762,6 +796,7 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
         Request::Pack(mut options) => {
             options.dir = absolute(options.dir);
             options.out = options.out.map(absolute);
+            options.entry = options.entry.map(absolute);
             match pack::pack(&options) {
                 Ok(packed) => {
                     if json_out {
@@ -771,9 +806,16 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                     }
                     exit::OK
                 }
-                Err(message) => {
-                    eprintln!("cmux: {message}");
-                    exit::MANIFEST_INVALID
+                Err(error) => {
+                    if json_out {
+                        println!("{}", pack_error_json(&error));
+                    } else {
+                        eprintln!("cmux: {}", error.text());
+                    }
+                    match error {
+                        pack::PackError::Invalid(_) => exit::MANIFEST_INVALID,
+                        pack::PackError::Mismatch { .. } => exit::NOT_REPRODUCED,
+                    }
                 }
             }
         }

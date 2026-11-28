@@ -507,7 +507,19 @@ pub type Listed<'a> = dyn Fn(&Path) -> Option<Vec<PathBuf>> + 'a;
 /// makes reads and lists only the folders that changed, not every app's
 /// manifest and script (one save among 200 apps read 200 scripts).
 pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -> Catalog {
-    let read = |dir: &Path, kind: DirKind| reuse(dir).unwrap_or_else(|| package(dir, kind));
+    // The signed revocation list beside the local folder (`<state>/apps`),
+    // read once a pass; a revoked build is refused here, after `reuse`, so a
+    // list that arrives revokes a folder no save touched.
+    let revoked = sources.local.as_deref().and_then(Path::parent).and_then(|apps| {
+        super::registry_trust::Revocations::load(apps, &super::registry_trust::trusted_keys())
+    });
+    let read = |dir: &Path, kind: DirKind| {
+        let read = reuse(dir).unwrap_or_else(|| package(dir, kind))?;
+        match &revoked {
+            Some(list) => list.check(dir).map(|()| read),
+            None => Ok(read),
+        }
+    };
     let mut catalog = Catalog::default();
     let mut dirs: Vec<(PathBuf, DirKind)> = Vec::new();
     dirs.extend(sources.first_party.iter().map(|d| (d.clone(), DirKind::FirstParty)));

@@ -104,6 +104,8 @@ mod pane_flow;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]
+pub mod registry_trust;
+#[cfg(unix)]
 mod relay;
 #[cfg(unix)]
 mod rollback;
