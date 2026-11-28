@@ -110,3 +110,53 @@ async fn a_closed_chat_is_not_resident_and_no_cap_counts_it() {
     assert!(running.resident && running.busy);
     hub.shutdown_all().await;
 }
+
+/// A restart restores metadata before attaching the surviving host's child link. A host
+/// snapshot must reach both row rendering and daemon totals even for an idle saved status.
+#[tokio::test]
+async fn residency_counts_a_detached_host_until_it_exits_but_never_a_closed_chat() {
+    let (hub, session) = chat().await;
+    hub.set_status(&session, NotWaiting::Idle);
+    assert!(session.child.lock().await.is_none(), "no adopted child link");
+    let now = Instant::now();
+    hub.residency_hosts.lock().unwrap().read(now, || Some([session.id.clone()].into()));
+    let row = hub.session_summary(&session);
+    assert_eq!(row["residency"]["resident"], true);
+    assert_eq!(row["residency"]["busy"], false);
+    let totals = hub.residency_status(&[session.clone()]);
+    assert_eq!(totals["resident"], 1);
+    assert_eq!(totals["countsForCap"], 1);
+    assert_eq!(totals["busy"], 0);
+
+    hub.set_status(&session, NotWaiting::Closed);
+    assert_eq!(hub.session_summary(&session)["residency"]["resident"], false);
+    assert_eq!(hub.residency_status(&[session.clone()])["countsForCap"], 0);
+    hub.set_status(&session, NotWaiting::Idle);
+    // Simulate the next read after the detached host exited, without sleeping or changing env.
+    hub.residency_hosts.lock().unwrap().read_at = None;
+    hub.residency_hosts.lock().unwrap().read(Instant::now(), || Some(HashSet::new()));
+    assert_eq!(hub.session_summary(&session)["residency"]["resident"], false);
+    assert_eq!(hub.residency_status(&[session.clone()])["resident"], 0);
+    hub.shutdown_all().await;
+}
+
+#[test]
+fn residency_shares_one_host_scan_under_duress_and_retains_evidence_on_read_failure() {
+    let mut snapshot = HostSnapshot::default();
+    let now = Instant::now();
+    let reads = std::cell::Cell::new(0);
+    let hosts: HashSet<String> = (0..10_000).map(|i| format!("chat-{i}")).collect();
+    for i in 0..10_000 {
+        let live = snapshot.read(now, || {
+            reads.set(reads.get() + 1);
+            Some(hosts.clone())
+        });
+        assert!(live.contains(&format!("chat-{i}")));
+    }
+    assert_eq!(reads.get(), 1, "10,000 rows share a single directory read");
+    let held = snapshot.read(now + Duration::from_secs(1), || None);
+    assert_eq!(held.len(), 10_000, "a failed read proves no host gone");
+    let live = snapshot.read(now + Duration::from_secs(2), || Some(HashSet::new()));
+    assert!(live.is_empty(), "a successful read clears exited hosts");
+    assert_eq!(held.len(), 10_000, "a totals pass keeps its immutable snapshot");
+}
