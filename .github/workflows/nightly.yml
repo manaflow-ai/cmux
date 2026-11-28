@@ -2999,12 +2999,20 @@ jobs:
     # helpers and sidecar. It runs even when signing failed after the app
     # was signed (for example a queued helper), because the notarization
     # continuation publishes only variants whose verify job passed.
-    needs: [decide, build-nightly-app, build-sign-notarize-nightly, pick-classic-sign-runner]
-    if: always() && needs.build-sign-notarize-nightly.result != 'skipped' && needs.build-sign-notarize-nightly.result != 'cancelled'
+    # Queued beside the signing job, not after it: needing build-sign-notarize-nightly put verify in the
+    # Blacksmith macOS queue only when signing ended, and its pickup (8-10 min in runs 46092619778 and
+    # 46095010445) was longer than the job and than the signing it waited for. It now spends that
+    # pickup while signing runs and waits in "Wait for the signed app" for the signed-app upload
+    # (scripts/ci/wait_for_run_artifact.py); signing that ends without the upload fails it there.
+    needs: [decide, build-nightly-app, prepare-nightly-variant, pick-classic-sign-runner]
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'"
     permissions:
       contents: read
+      # The run's artifact and job lists, read by "Wait for the signed app".
+      actions: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 30
+    # 30 min for the checks, plus the wait for signing to upload the app.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -3034,6 +3042,16 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      - name: Wait for the signed app
+        timeout-minutes: 90
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/ci/wait_for_run_artifact.py
+          --name "cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}"
+          --job "build-sign-notarize-nightly (${{ matrix.variant }})"
+          --deadline 5100
 
       - name: Download signed app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -3095,6 +3113,18 @@ jobs:
       # The inline path notarized and stapled the final DMG in the signing job
       # with its launch smokes deferred. Smoke the app inside that exact DMG
       # and record what was tested; publish-nightly publishes only these bytes.
+      # The signing job uploads it at its end, after the signed app this job started from.
+      - name: Wait for the final DMG
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.should_publish != 'true'
+        timeout-minutes: 90
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/ci/wait_for_run_artifact.py
+          --name "cmux-nightly-variant-${{ matrix.variant }}"
+          --job "build-sign-notarize-nightly (${{ matrix.variant }})"
+          --deadline 5100
+
       - name: Download final DMG
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.should_publish != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
