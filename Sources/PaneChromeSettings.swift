@@ -1,3 +1,5 @@
+import Bonsplit
+import CmuxSettings
 import Foundation
 
 enum PaneChromeSettings {
@@ -29,5 +31,17 @@ enum PaneChromeSettings {
     private static func normalizedColorHex(_ rawValue: String?) -> String? {
         guard let rawValue else { return nil }
         return WorkspaceTabColorSettings.normalizedHex(rawValue)
+    }
+}
+
+extension SurfaceTabBarLayoutSettings.WidthMode {
+    /// The Bonsplit appearance value for this width mode. Changes to the
+    /// layout settings post ``PaneChromeSettings/didChangeNotification``, which
+    /// makes every workspace and Dock reapply its Bonsplit appearance.
+    var bonsplitTabWidthMode: BonsplitConfiguration.Appearance.TabWidthMode {
+        switch self {
+        case .fixed: .fixed
+        case .fill: .fill
+        }
     }
 }

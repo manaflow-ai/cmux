@@ -959,7 +959,8 @@ enum CmuxEmbeddedConfigSchema {
     "surfaceTabBar": {
       "x-cmux-scopes": ["global"],
       "title": "surfaceTabBar",
-      "description": "Surface tab bar typography settings from Settings > Terminal.",
+      "description": "Surface tab bar typography and layout settings.",
+      "descriptionKey": "schemaDescriptions.surfaceTabBar.description",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -969,6 +970,29 @@ enum CmuxEmbeddedConfigSchema {
           "maximum": 14.0,
           "default": 11.0,
           "description": "Default surface tab bar font size in points. The legacy Ghostty key surface-tab-bar-font-size remains a fallback alias."
+        },
+        "widthMode": {
+          "type": "string",
+          "enum": ["fixed", "fill"],
+          "default": "fixed",
+          "description": "How surface tabs share a pane's tab bar. \"fixed\" keeps each tab at its own width up to maxTabWidth; \"fill\" stretches the tabs so they split the bar evenly, and a single tab spans it. Both scroll when the tabs do not fit.",
+          "descriptionKey": "schemaDescriptions.surfaceTabBar.widthMode"
+        },
+        "maxTabWidth": {
+          "type": "number",
+          "minimum": 100.0,
+          "maximum": 600.0,
+          "default": 220.0,
+          "description": "Largest width of one surface tab in points when widthMode is \"fixed\". Longer titles are truncated.",
+          "descriptionKey": "schemaDescriptions.surfaceTabBar.maxTabWidth"
+        },
+        "height": {
+          "type": "number",
+          "minimum": 24.0,
+          "maximum": 48.0,
+          "default": 28.0,
+          "description": "Surface tab bar height in points. The default matches the window titlebar.",
+          "descriptionKey": "schemaDescriptions.surfaceTabBar.height"
         }
       }
     },
