@@ -47,6 +47,12 @@
 //! policy (asked for, a preset's or profile's, inherited, a lockdown), and a
 //! live chat narrowed to it has its agent stopped (`policy_refused`).
 //!
+//! Antigravity (`agy acp`) asks in its `default` mode on this Mac
+//! (`web_modes::LOCAL_ASKING_MODES`): a chat here with a narrower policy runs
+//! there, and is logged `policy_unenforced` with the gap that its own
+//! `permission.allow` rules (settings.json, a project's `.agents/`) can skip
+//! the asks. The Web still starts no Antigravity chat (no `ASKING_MODES` row).
+//!
 //! OpenCode is asked to ask instead (`opencode_ask.rs`): its agent starts
 //! with `OPENCODE_CONFIG_CONTENT` whose `permission` is `{"*": "ask"}`, merged
 //! into the config the profile or the environment already passes, so every
@@ -229,11 +235,16 @@ impl Hub {
         let offered = super::start_mode::offered_ids(&meta);
         let current = crate::web_modes::mode_of(&meta);
         let wanted = policy_mode(policy, &family, &offered);
-        if wanted.is_some() && wanted == current {
+        // A family that asks only on this Mac (`web_modes::LOCAL_ASKING_MODES`) is logged in its
+        // asking mode too: its own settings can still skip the asks (module docs).
+        let gap = crate::web_modes::local_asking_gap(&family);
+        if wanted.is_some() && wanted == current && gap.is_none() {
             return;
         }
         let reason = if family == "opencode" {
             crate::web_modes::OPENCODE_REFUSAL
+        } else if let Some(gap) = gap.filter(|_| wanted.is_some() && wanted == current) {
+            gap
         } else {
             crate::web_modes::NO_ASKING_MODE
         };
@@ -276,6 +287,10 @@ impl Hub {
         let asks = super::start_mode::asks(&current, &family);
         let narrower = wanted == "read-only" && policy == PermissionPolicy::DenyAll;
         if current == wanted || (asks && !narrower) {
+            // A family that asks only on this Mac logs its gap here too (`note_unenforced_policy`).
+            if crate::web_modes::local_asking_gap(&family).is_some() {
+                self.note_unenforced_policy(session, &*self.config.read().await);
+            }
             return;
         }
         // Under the spawn lock: a start in flight (`ensure_child`) either ends first and its

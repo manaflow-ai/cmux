@@ -61,6 +61,9 @@ fn home(name: &str, extra: Value) -> PathBuf {
             // The same agent, which says it asks before every tool call (the fake's default,
             // `agentCapabilities._meta.acpmux.asksBeforeTools`).
             "asker": {"argv": ["python3", FAKE_AGENT]},
+            // Antigravity's modes (`agy acp`), started in `auto` by its own settings.
+            "agy": {"argv": ["python3", FAKE_AGENT], "family": "antigravity", "env": {
+                "FAKE_ASK_CLAIM": "0", "FAKE_PLAN_MODE": "antigravity", "FAKE_NEW_MODE": "auto"}},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -674,6 +677,36 @@ async fn a_chat_with_a_narrower_policy_starts_in_the_mode_that_keeps_it() {
         assert_eq!(mode, "normal", "{policy}");
         assert!(app.unenforced(&id).await.is_empty(), "asker, {policy}");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An Antigravity chat with a policy narrower than approve-all starts (it was refused with
+/// `policy_unenforceable`) and runs in agy's `default`, which asks before edits and commands, out
+/// of the `auto` its own settings started it in. It is logged `policy_unenforced`: agy's own
+/// allow rules can still skip the asks (`web_modes::LOCAL_ASKING_MODES`).
+#[tokio::test]
+async fn an_antigravity_chat_with_a_narrower_policy_runs_in_its_default_mode() {
+    let dir = home("policy-agy", json!({}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    for policy in ["ask", "approve-reads", "approve-edits", "deny-all"] {
+        let (id, mode) = app.chat_with_policy(&dir, "agy", policy).await;
+        assert_eq!(mode, "default", "{policy}");
+        let logged = app.unenforced(&id).await;
+        assert_eq!(logged.len(), 1, "{policy}: {logged:?}");
+        let reason = logged[0]["msg"]["reason"].as_str().unwrap_or_default();
+        assert!(reason.contains("Antigravity"), "{policy}: {logged:?}");
+    }
+    let (id, _) = app.chat_with_policy(&dir, "agy", "approve-all").await;
+    assert!(app.unenforced(&id).await.is_empty());
+    // A live chat the person put in `default`, narrowed later: it stays there, and the gap is
+    // logged as at a start.
+    let r = app.call("session/set_mode", json!({"sessionId": id, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&id).await, "default");
+    assert_eq!(app.unenforced(&id).await.len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

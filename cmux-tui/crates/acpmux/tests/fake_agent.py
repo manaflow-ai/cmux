@@ -2728,6 +2728,11 @@ def main():
             # FAKE_PLAN_MODE=claude: Claude's asking modes, "default" and a "plan" that asks.
             if os.environ.get("FAKE_PLAN_MODE") == "claude":
                 result["modes"] = {"currentModeId": "default", "availableModes": [{"id": "default", "name": "Default"}, {"id": "plan", "name": "Plan"}]}
+            # FAKE_PLAN_MODE=antigravity: `agy acp` 1.5.15's modes; "default" asks before edits
+            # and commands, "accept-edits" and "auto" act without asking.
+            if os.environ.get("FAKE_PLAN_MODE") == "antigravity":
+                result["modes"] = {"currentModeId": "default", "availableModes": [
+                    {"id": m, "name": m} for m in ["default", "accept-edits", "auto", "plan"]]}
             # FAKE_FULL_ACCESS=1: a harness that also offers a full-access mode.
             if os.environ.get("FAKE_FULL_ACCESS") == "1" and "modes" in result:
                 result["modes"]["availableModes"].append({"id": "full-access", "name": "Full access"})

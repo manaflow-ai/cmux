@@ -384,6 +384,7 @@ pub(crate) fn full_access_mode(available: &[String]) -> Option<String> {
 pub(super) fn asking_mode(family: &str, available: &[String]) -> Option<String> {
     let row = crate::web_modes::ASKING_MODES
         .iter()
+        .chain(crate::web_modes::LOCAL_ASKING_MODES)
         .find(|(f, _)| *f == family)
         .map(|(_, modes)| *modes)
         .unwrap_or(&[]);
@@ -455,6 +456,7 @@ fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
     }
     let reviewed = crate::web_modes::ASKING_MODES
         .iter()
+        .chain(crate::web_modes::LOCAL_ASKING_MODES)
         .find(|(f, _)| *f == family)
         .is_some_and(|(_, modes)| modes.contains(&mode));
     if reviewed || asking.iter().any(|m| m == mode) || NARROW_MODES.contains(&mode) {
