@@ -196,6 +196,7 @@ public struct WorkspacesList: View {
     }
 
     public var body: some View {
+        let _ = LaunchMarks.shared.mark("list_body")
         groupDialogs(page)
     }
 

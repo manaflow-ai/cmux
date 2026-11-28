@@ -32,6 +32,35 @@ struct CmuxMobileApp: App {
     @State private var liveCode: LiveCodeRedraw
     #endif
 
+    #if DEBUG
+    @MainActor private static func startLaunchProfile() {
+        guard let profile = LaunchProfile.shared else { return }
+        profile.start()
+        LaunchMarks.shared.onMark = { name in
+            // To the terminal's first echo: launch and the first attach (row tap to echo) in one profile.
+            guard name == "terminal_echo_presented" else { return }
+            LaunchMarks.shared.onMark = nil
+            var at: [String: Double] = [:]
+            for mark in LaunchMarks.shared.marks where at[mark.name] == nil { at[mark.name] = mark.ms }
+            let now = Date().timeIntervalSince(LaunchMarks.processStart) * 1000
+            let steps = ["app_init", "did_finish_launching", "root_body", "list_body", "list_apply_done", "first_frame", "first_idle"]
+            var windows: [(name: String, from: Double, to: Double)] = []
+            for (from, to) in zip(steps, steps.dropFirst()) {
+                if let a = at[from], let b = at[to], b > a { windows.append((from + ">" + to, a, b)) }
+            }
+            if let a = at["list_body"], let b = at["first_frame"] { windows.append(("list_body>first_frame", a, b)) }
+            let attach = ["workspace_row_tap", "terminal_ready", "terminal_first_row_frame"]
+            for (from, to) in zip(attach, attach.dropFirst()) {
+                if let a = at[from], let b = at[to], b > a { windows.append((from + ">" + to, a, b)) }
+            }
+            if let a = at["terminal_key_sent"], let b = at["terminal_echo_presented"], b > a { windows.append(("terminal_key_sent>terminal_echo_presented", a, b)) }
+            profile.finish(nowMs: now, windows: windows) { text in
+                Task { @MainActor in LaunchMarksBoard.shared?.profile = text }
+            }
+        }
+    }
+    #endif
+
     init() {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
         LaunchMarks.shared.mark("app_init")
@@ -39,6 +68,8 @@ struct CmuxMobileApp: App {
         HangWatch.start()
         LaunchMarks.shared.mark("init_hang_watch")
         #if DEBUG
+        // `CMUX_MOBILE_LAUNCH_PROFILE=1`: the main thread's stacks to the terminal's first echo, by launch and attach step (LaunchTTIUITests).
+        Self.startLaunchProfile()
         // Offline duress (`CmuxMobileDuress` = a `cmux-duress gen` folder; unset: nothing runs). First,
         // so the list rig reads the folder's workspace count (cmux-next-ios/design/duress-sim.md).
         MobileDuress.startIfRequested()
