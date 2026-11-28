@@ -37,18 +37,42 @@ extension CEFPaneHost {
         // An agent-driven tab's address loads in `attach`, after its guard is set (`takeInitialURLString`).
         let url = tab.takeInitialURLString()
         blank.handBrowserOver()
-        // Frozen through DevTools as soon as it existed (`CEFTab.freezeNeverShownPage`), thawed the same way.
-        CEFPageFreeze.devTools.thaw(browser, runtime: runtime)
-        // Chromium's active tab already (the window's only one): its activation is this host's own.
+        // Activated as `joinSparePage` does: a never-shown placeholder may still count hidden in Chromium.
+        _ = shim.tabActivate(browser)
         lastActivated = browser
         runtime.register(tab, browser: browser)
         // No browser left, so this only leaves the host (`CEFTab.close`).
         blank.close()
-        if !url.isEmpty { shim.loadURL(browser, url) }
+        // Frozen through DevTools as soon as it existed (`CEFTab.freezeNeverShownPage`). The address loads only
+        // after Chromium answered the thaw: a load sent beside it ran in the still-frozen page and the New Tab
+        // page stayed blank on the second Command-T (CMUX-1004). One DevTools round trip, still no `tab_add`.
+        let thaw = runtime.startDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "active"]) { true }
+        // task-owner: the page's own open; ends with the thaw's answer or its timeout.
+        Task { @MainActor [weak self, weak tab] in
+            _ = try? await thaw()
+            guard let self, let tab, tab.browserID == browser, !tab.isClosed else { return }
+            if !url.isEmpty { self.runtime.shim?.loadURL(browser, url) }
+            self.reloadIfNeverCommitted(tab, browser: browser, url: url)
+        }
         // Never inside Chromium's creation stack (this may run inside OnAfterCreated, `windowCreated`).
         endOfTurn { [weak self] in self?.adoptParkedTabs() }
         return browser
     }
+
+    /// The adopted placeholder never committed its first navigation (CMUX-1004): the page loads its address once
+    /// more after `adoptedCommitBudget`, so the worst case is a slow open, never an empty tab.
+    func reloadIfNeverCommitted(_ tab: CEFTab, browser: Int32, url: String) {
+        guard !url.isEmpty else { return }
+        // task-owner: one bounded check of the page's own open.
+        Task { @MainActor [weak self, weak tab] in
+            try? await Task.sleep(for: Self.adoptedCommitBudget)
+            guard let self, let tab, tab.browserID == browser, !tab.isClosed, tab.committedURL == nil else { return }
+            CEFPageFreeze.devTools.thaw(browser, runtime: self.runtime)
+            self.runtime.shim?.loadURL(browser, url)
+        }
+    }
+
+    static let adoptedCommitBudget: Duration = .milliseconds(1500)
 
     /// `tab` takes the spare page when one is ready and the tab may (`CEFSpareWindow.takePage`):
     /// the page moves into this window unless it is in it already (a pane that took the spare
