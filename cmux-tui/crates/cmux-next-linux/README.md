@@ -20,7 +20,7 @@ target/debug/cmux-next-linux --dry-run   # print the commands and URL only
 - It is **not** the production bridge. The daemon runs as a development launch
   (`--dev --allow-dev-origin <pane origin>`), and trust prompts are the dev host's stubs, so it
   does not have production permission parity. Use it on your own machine.
-- The crate has its own `[workspace]` (excluded from `cmux-tui`'s) because it links GTK. Without
+- The crate has its own `[workspace]` (like cmux-rd-host and coord-sim, so `cmux-tui`'s builds never see it) because it links GTK. Without
   the default `window` feature it builds without GTK and prints the URL instead
   (`cargo test --no-default-features` covers the launch plan).
 

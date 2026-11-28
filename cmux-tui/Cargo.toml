@@ -419,7 +419,6 @@ exclude = [
     "vendor/crossterm",
     "vendor/smoltcp",
     "crates/cmux-rd-host",
-  "crates/cmux-next-linux",
     "crates/cmux-codecs",
     "crates/acpmux-hot/guest",
 ]
