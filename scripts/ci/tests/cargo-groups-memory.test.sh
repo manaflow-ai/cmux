@@ -159,6 +159,20 @@ peak=$(awk '/^start (acpmux|cmux_tui_core)$/{n++; if(n>m)m=n} /^end (acpmux|cmux
 peak=$(awk '/^start/{n++; if(n>m)m=n} /^end/{n--} END{print m}' "$conc")
 ((peak == 2)) || { cat "$conc"; echo "FAIL: $peak crates at once, want a giant and serde together"; exit 1; }
 (($(grep -c '^inner$' "$conc") == 3)) || { cat "$conc"; echo "FAIL: the caller's RUSTC_WRAPPER did not run for every crate"; exit 1; }
+# Each giant prints its rustc's peak RSS; other crates print nothing.
+grep -qE '^cargo groups: acpmux rustc peak RSS [0-9]+ MiB, [0-9]+ s \(exit 0\)$' <<<"$out" &&
+  grep -qE '^cargo groups: cmux_tui_core rustc peak RSS [0-9]+ MiB' <<<"$out" && ! grep -q 'serde rustc peak' <<<"$out" ||
+  { echo "$out"; echo "FAIL: no peak RSS line per giant"; exit 1; }
+# A giant the kernel SIGKILLs still dies by SIGKILL through the wrapper (cargo's "signal: 9" is what OOM_RERUN_ALONE
+# matches), and a failing one keeps its exit code.
+printf '#!/bin/sh\nkill -9 $$\n' > "$tmp/bin/killed-rustc"; printf '#!/bin/sh\nexit 3\n' > "$tmp/bin/failed-rustc"
+chmod +x "$tmp/bin/killed-rustc" "$tmp/bin/failed-rustc"
+lockenv=(env CARGO_GROUPS_GIANTS=acpmux CARGO_GROUPS_GIANT_LOCK="$tmp/lock" CARGO_GROUPS_INNER_WRAPPER=)
+sig=$("${lockenv[@]}" python3 -c 'import subprocess, sys; print(subprocess.call(sys.argv[1:], stderr=subprocess.DEVNULL))' \
+  bash "$(dirname "$script")/cargo-giant-lock.sh" killed-rustc --crate-name acpmux)
+[[ "$sig" == -9 ]] || { echo "FAIL: a SIGKILLed giant ended $sig through the wrapper, want -9 (killed by signal 9)"; exit 1; }
+"${lockenv[@]}" bash "$(dirname "$script")/cargo-giant-lock.sh" failed-rustc --crate-name acpmux 2>/dev/null && rc=0 || rc=$?
+((rc == 3)) || { echo "FAIL: a failing giant exited $rc through the wrapper, want 3"; exit 1; }
 # Memory to spare, or a fat-LTO leg (CARGO_GROUPS_HEAVY): no lock.
 echo $((64 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"
 out=$(FAKE_NPROC=16 bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo \"w=\${RUSTC_WRAPPER:-}\"" 2>&1)
