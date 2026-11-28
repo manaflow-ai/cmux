@@ -476,6 +476,15 @@ def look_reason(env) -> str:
     return reason or "the look made no record"
 
 
+def settled_success(status: dict | None) -> bool:
+    """Whether cmux/ui-proof already reads success at this head (the router's UI-free success, a `Visual: none`
+    bypass, or a passing record). A look that could not run answers a question a success has closed: it must not
+    turn that success into failure (cmux#64036: router success 04:43Z, then "no fleet Mac took the look" 07:45Z,
+    "queue was full" 08:03Z, "pictures came without a receipt" 09:49Z; the newest status won and refused the merge).
+    A pending or absent status is not settled: the look failure still bounds a real UI PR's unanswered look."""
+    return bool(status and status.get("state") == "success")
+
+
 def kept_look_failure(status: dict | None) -> tuple[str, str] | None:
     """A look failure already posted at this head (STATUS: the combined status' cmux/ui-proof entry), which a gate
     rerun with no record keeps: a body edit must not turn it back into a pending nothing will answer."""
@@ -519,12 +528,16 @@ SWEEP_QUERY = """query($owner: String!, $name: String!, $after: String) {
 }"""
 
 
-def open_prs(repo: str, token: str) -> list[dict]:
-    """The 1000 most recently updated open PRs into feat-cmux-next. Oldest first (GitHub's default) read 1000 of
-    4912 open on 2026-11-28 and never reached a PR opened that week: cmux#62379 sat pending 12 h past its look."""
+# Pages of 100 the sweep reads. feat-cmux-next holds thousands of open PRs (4859 on 2026-11-28); a 10-page cap in
+# oldest-first order read only the first 1000, so no newer PR's pending was ever swept. Newest-updated first, every
+# page: a PR whose pending is fresh is updated recently, and the cap only bounds a runaway cursor.
+SWEEP_MAX_PAGES = 100
+
+
+def open_prs(repo: str, token: str, max_pages: int = SWEEP_MAX_PAGES) -> list[dict]:
     owner, name = repo.split("/", 1)
     nodes, after = [], None
-    for _ in range(10):
+    for _ in range(max_pages):
         got = api("graphql", token, "POST", {"query": SWEEP_QUERY,
                                              "variables": {"owner": owner, "name": name, "after": after}})
         if got.get("errors"):
@@ -534,6 +547,9 @@ def open_prs(repo: str, token: str) -> list[dict]:
         if not page["pageInfo"]["hasNextPage"]:
             break
         after = page["pageInfo"]["endCursor"]
+    else:
+        print(f"cmux/ui-proof sweep: page cap {max_pages} reached; the least recently updated PRs were not read",
+              file=sys.stderr)
     return nodes
 
 
@@ -718,6 +734,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "look-failed":
         state, desc = look_failed(args.reason, args.pr, args.again)
         tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
+        for token in tokens:
+            try:
+                current = current_status(repo, sha, token)
+            except Exception:  # noqa: BLE001 - an unread status posts the failure: the bound stays
+                continue
+            if settled_success(current):
+                print(f"{STATUS_CONTEXT}: already success at {sha[:12]} ({current.get('description')}); "
+                      f"the look's failure ({desc}) is not posted")
+                return 0
+            break
         ok = post_status(state, desc, os.environ.get("REPO", ""), os.environ.get("SHA", ""), tokens,
                          os.environ.get("RUN_URL", ""))
         print(f"{STATUS_CONTEXT}: {state}: {desc}" + ("" if ok else " (NOT posted)"))
