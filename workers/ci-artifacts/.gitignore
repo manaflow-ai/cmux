@@ -3,3 +3,4 @@ node_modules/
 .test-dist/
 .dev.vars
 wrangler.canary.runtime.json
+.test-dist-r2-credentials/

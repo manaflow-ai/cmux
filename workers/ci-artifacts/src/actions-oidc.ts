@@ -9,7 +9,7 @@ const EVENTS = new Set(["pull_request", "merge_group", "workflow_dispatch"]);
 const MAX_TOKEN_LENGTH = 16 * 1024;
 const JWKS_LOAD_TIMEOUT_MS = 5_000;
 
-type JsonObject = Record<string, unknown>;
+export type JsonObject = Record<string, unknown>;
 export type ActionsIdentity = { runId: string; runAttempt: string; eventName: string };
 
 type KeyCache = { expiresAt: number; keys: Map<string, CryptoKey> };
@@ -89,15 +89,62 @@ async function signingKey(kid: string, fetcher: typeof fetch, signal?: AbortSign
   return key;
 }
 
-function decimal(value: unknown): string {
+export function decimal(value: unknown): string {
   const text = String(value ?? "");
   if (!/^[1-9][0-9]{0,19}$/.test(text)) throw new Error("invalid OIDC run identity");
   return text;
 }
 
-function audienceIncludes(value: unknown): boolean {
-  if (value === ACTIONS_OIDC_AUDIENCE) return true;
-  return Array.isArray(value) && value.includes(ACTIONS_OIDC_AUDIENCE);
+function audienceIncludes(value: unknown, audience: string): boolean {
+  if (value === audience) return true;
+  return Array.isArray(value) && value.includes(audience);
+}
+
+function base64urlBytes(segment: string): Uint8Array {
+  const raw = atob(segment.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - segment.length % 4) % 4));
+  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+}
+
+// Signature, issuer, audience and lifetime of a GitHub Actions OIDC token.
+// Callers check the repository and workflow claims they trust.
+export async function verifyActionsToken(
+  token: string,
+  audience: string,
+  fetcher: typeof fetch = fetch,
+  now: number = Date.now(),
+  signal?: AbortSignal,
+): Promise<JsonObject> {
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token) || token.length > MAX_TOKEN_LENGTH) {
+    throw new Error("missing Actions identity");
+  }
+  const [encodedHeader, encodedPayload, encodedSignature] = token.split(".");
+  const header = decode(encodedHeader);
+  const claims = decode(encodedPayload);
+  if (header.alg !== "RS256" || header.typ !== "JWT" || typeof header.kid !== "string") {
+    throw new Error("invalid OIDC header");
+  }
+
+  const key = await signingKey(header.kid, fetcher, signal);
+  const signed = new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`);
+  if (!await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, base64urlBytes(encodedSignature), signed)) {
+    throw new Error("invalid OIDC signature");
+  }
+
+  const seconds = Math.floor(now / 1000);
+  if (claims.iss !== ISSUER || !audienceIncludes(claims.aud, audience)
+      || typeof claims.exp !== "number" || claims.exp <= seconds - 30
+      || typeof claims.nbf !== "number" || claims.nbf > seconds + 30
+      || typeof claims.iat !== "number" || claims.iat > seconds + 30 || claims.iat < seconds - 600) {
+    throw new Error("untrusted Actions identity");
+  }
+  return claims;
+}
+
+export function bearerToken(request: Request): string {
+  const authorization = request.headers.get("Authorization") || "";
+  const match = /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.exec(authorization);
+  if (!match || match[1].length > MAX_TOKEN_LENGTH) throw new Error("missing Actions identity");
+  return match[1];
 }
 
 export async function authenticateActionsRequest(
@@ -106,34 +153,11 @@ export async function authenticateActionsRequest(
   now: number = Date.now(),
   signal?: AbortSignal,
 ): Promise<ActionsIdentity> {
-  const authorization = request.headers.get("Authorization") || "";
-  const match = /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.exec(authorization);
-  if (!match || match[1].length > MAX_TOKEN_LENGTH) throw new Error("missing Actions identity");
-
-  const [encodedHeader, encodedPayload, encodedSignature] = match[1].split(".");
-  const header = decode(encodedHeader);
-  const claims = decode(encodedPayload);
-  if (header.alg !== "RS256" || header.typ !== "JWT" || typeof header.kid !== "string") {
-    throw new Error("invalid OIDC header");
-  }
-
-  const key = await signingKey(header.kid, fetcher, signal);
-  const signatureRaw = atob(encodedSignature.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - encodedSignature.length % 4) % 4));
-  const signature = Uint8Array.from(signatureRaw, (character) => character.charCodeAt(0));
-  const signed = new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`);
-  if (!await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, signed)) {
-    throw new Error("invalid OIDC signature");
-  }
-
-  const seconds = Math.floor(now / 1000);
-  if (claims.iss !== ISSUER || !audienceIncludes(claims.aud)
-      || claims.repository !== REPOSITORY || String(claims.repository_id ?? "") !== REPOSITORY_ID
+  const claims = await verifyActionsToken(bearerToken(request), ACTIONS_OIDC_AUDIENCE, fetcher, now, signal);
+  if (claims.repository !== REPOSITORY || String(claims.repository_id ?? "") !== REPOSITORY_ID
       || String(claims.repository_owner_id ?? "") !== OWNER_ID || claims.repository_visibility !== "public"
       || typeof claims.workflow_ref !== "string" || !claims.workflow_ref.startsWith(WORKFLOW_PREFIX)
-      || typeof claims.event_name !== "string" || !EVENTS.has(claims.event_name)
-      || typeof claims.exp !== "number" || claims.exp <= seconds - 30
-      || typeof claims.nbf !== "number" || claims.nbf > seconds + 30
-      || typeof claims.iat !== "number" || claims.iat > seconds + 30 || claims.iat < seconds - 600) {
+      || typeof claims.event_name !== "string" || !EVENTS.has(claims.event_name)) {
     throw new Error("untrusted Actions identity");
   }
   return {
