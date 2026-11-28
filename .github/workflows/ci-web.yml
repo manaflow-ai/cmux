@@ -291,10 +291,39 @@ jobs:
           CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CI_REACT_APPS_FLEET: ${{ vars.CI_REACT_APPS_FLEET || '1' }}
           CI_REACT_APPS_FLEET_AUDIT: ${{ vars.CI_REACT_APPS_FLEET_AUDIT || '16' }}
+          # A post-merge batch tick (inputs.sha, no probe `only`) runs the files its pass ledger cannot carry
+          # (scripts/ci/webviews_batch_select.py) on the shards they need. 0 runs every file on all 12 again.
+          BATCH_SHA: ${{ inputs.sha }}
+          BATCH_ONLY: ${{ inputs.only }}
+          CI_WEBVIEWS_BATCH_SELECT: ${{ vars.CI_WEBVIEWS_BATCH_SELECT || '1' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           picked=""
           class_file="$RUNNER_TEMP/webviews-durations/pr-shard-class"
           rm -f "$class_file"
+          # The post-merge batch: every tick ran every file on 12 shards to their deadline (tick 46081509797: 12 x
+          # 37 min, about 5.3k runner-min a day). A file runs again only when its newest recorded verdict is red, it
+          # is always-run, or the change since its last pass reaches it (webviews_affected.py's selection from that
+          # commit: a build, lockfile, config or harness input runs everything); every file once a day. Any failure
+          # here leaves no list, and every file runs on every shard as before.
+          batch_files="$RUNNER_TEMP/webviews-durations/batch-files"
+          rm -f "$batch_files"
+          if [ -n "$BATCH_SHA" ] && [ -z "$BATCH_ONLY" ] && [ "$CI_WEBVIEWS_BATCH_SELECT" != 0 ]; then
+            history="$RUNNER_TEMP/webviews-batch-history.json"
+            count_file="$RUNNER_TEMP/webviews-batch-count"
+            if timeout 90 python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch feat-cmux-next &&
+              shas="$(python3 -c 'import json,sys; print(" ".join(sorted({r["sha"] for r in json.load(open(sys.argv[1])).get("runs", []) if isinstance(r, dict) and isinstance(r.get("sha"), str)})))' "$history")" &&
+              { [ -z "$shas" ] || timeout 120 git fetch --quiet --no-tags --depth=1 --filter=blob:none origin $shas || timeout 120 git fetch --quiet --no-tags --depth=1 --filter=blob:none origin $shas; } &&
+              timeout 150 python3 scripts/ci/webviews_batch_select.py "$history" --out "$batch_files.tmp" --count-out "$count_file" \
+                --durations "$CMUX_WEB_TEST_DURATIONS" --shards "$REACT_APPS_SHARDS" --summary "$GITHUB_STEP_SUMMARY" &&
+              [ -f "$batch_files.tmp" ]; then
+              mv "$batch_files.tmp" "$batch_files"
+              picked="$(python3 scripts/ci/webviews_pr_shards.py --all --count "$(cat "$count_file")" --class-out "$class_file")"
+            else
+              rm -f "$batch_files.tmp" "$batch_files"
+              echo "batch selection: every file runs (no ledger, a fetch or the selection failed, or the daily full run)"
+            fi
+          fi
           # A full-ci (land-tier) head into feat-cmux-next picks too: its post-merge batch runs every shard and
           # reverts a red. 30 days to 11-25: react-apps-check had 9 real catches in 148 runs; the batch keeps the
           # whole matrix after merge, so the land tier's 8-shard run bought no catch the pick and the batch missed.
@@ -375,6 +404,7 @@ jobs:
             ${{ runner.temp }}/webviews-durations/held-reds
             ${{ runner.temp }}/webviews-durations/pr-shard-files
             ${{ runner.temp }}/webviews-durations/pr-shard-direct.json
+            ${{ runner.temp }}/webviews-durations/batch-files
           if-no-files-found: error
           # A same-run handoff: the cache keeps the manifest between runs.
           retention-days: 1
@@ -1937,6 +1967,19 @@ jobs:
               fi
               exit 0
             fi
+          fi
+          # A post-merge batch tick runs the files web-subarea-scope's ledger could not carry (webviews_batch_select.py,
+          # split over the matrix it sized for them). No list (a probe, a failure, the daily full run) runs every file.
+          # An empty list leaves no file to run: shard 1's checks above were its run.
+          batch_files="$RUNNER_TEMP/webviews-durations/batch-files"
+          if [ -z "$BASE_REF" ] && [ -f "$batch_files" ]; then
+            if [ ! -s "$batch_files" ]; then
+              printf '{}\n' > "$CMUX_WEB_TEST_RESULTS"
+              echo "batch tick: every file's last pass holds (webviews_batch_select.py); no test file runs"
+              exit 0
+            fi
+            export CMUX_WEB_TEST_FILES_FROM="$batch_files"
+            echo "batch tick: shard ${{ matrix.shard }} of ${{ matrix.shard_count }} runs its share of $(grep -c . "$batch_files") selected test files"
           fi
           # A pull request's passes, as they come, for its next head (Upload the files that passed): the merge commit
           # they passed at, then the files. The files that passed at the previous head and that the change since

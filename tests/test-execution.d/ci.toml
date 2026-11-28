@@ -1351,6 +1351,11 @@ lane = "manual"
 reason = "Pins scripts/ci/web_tests_affected.py's selection for the web-tests-affected step on pull requests; run python3 tests/test_ci_web_tests_affected.py yourself after changing it (about 10 s, no build)."
 
 [[test]]
+path = "tests/test_ci_webviews_batch_select.py"
+lane = "manual"
+reason = "Pins scripts/ci/webviews_batch_select.py, the post-merge batch tick's react-apps-check file and shard selection; run python3 tests/test_ci_webviews_batch_select.py yourself after changing it (under 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_webviews_affected.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
