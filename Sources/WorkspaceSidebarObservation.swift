@@ -13,6 +13,48 @@ private struct SidebarPanelObservationState: Equatable {
     }
 }
 
+extension Publisher where Failure == Never, Output: Sendable {
+    /// The values of a main-thread publisher as an async sequence for a
+    /// `@MainActor` consumer.
+    ///
+    /// `.values` is not safe here: `AsyncPublisher`'s nonisolated `next()`
+    /// requests demand on the generic executor and cancels on whichever
+    /// thread ends the task, while the main thread delivers values. Main-only
+    /// operators such as `coalesceLatest` then race on their stored state
+    /// (CMUXTERM-MACOS-3ZZH). This bridge subscribes with unlimited demand on
+    /// the calling (main) thread, keeps only the newest undelivered value, and
+    /// cancels the subscription on the main queue, so the upstream sees one
+    /// thread for its whole lifetime.
+    ///
+    /// Call from the main thread.
+    func sidebarMainThreadValues() -> AsyncStream<Output> {
+        dispatchPrecondition(condition: .onQueue(.main))
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let subscription = MainThreadSubscription(
+                sink(receiveValue: { value in continuation.yield(value) })
+            )
+            continuation.onTermination = { _ in
+                DispatchQueue.main.async { subscription.cancel() }
+            }
+        }
+    }
+}
+
+/// Owns a Combine subscription that is created and cancelled on the main thread.
+private final class MainThreadSubscription: @unchecked Sendable {
+    private var cancellable: AnyCancellable?
+
+    init(_ cancellable: AnyCancellable) {
+        self.cancellable = cancellable
+    }
+
+    func cancel() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        cancellable?.cancel()
+        cancellable = nil
+    }
+}
+
 extension View {
     /// Observes row-affecting workspace publishers above the lazy-list boundary.
     ///
@@ -34,7 +76,7 @@ extension View {
                 for (id, workspace) in zip(ids, workspaces) {
                     let cloudChanges = workspace.cloudBindingState.changes()
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
-                        .values
+                        .sidebarMainThreadValues()
                     let debouncedChanges = workspace.sidebarObservationPublisher
                         // DispatchQueue.main, not RunLoop.main: the RunLoop
                         // scheduler delivers only in the DEFAULT runloop mode,
