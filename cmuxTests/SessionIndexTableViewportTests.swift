@@ -379,6 +379,91 @@ struct SessionIndexTableViewportTests {
         #expect(!presenter.isPopoverShown)
     }
 
+    /// A live session update reconfigures the section cell in place without
+    /// moving its Show more button, so SwiftUI never re-reports the button
+    /// frame. The section popover must still open from the kept anchor.
+    @MainActor
+    @Test
+    func showMorePopoverOpensAfterInPlaceSectionContentUpdate() async throws {
+        let presenter = SessionIndexTablePopoverPresenter()
+        let controller = SessionIndexTableController(popoverPresenter: presenter)
+        let container = controller.makeContainerView()
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 400)
+
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            presenter.dismiss()
+            window.orderOut(nil)
+        }
+        window.makeKeyAndOrderFront(nil)
+
+        let entries = (0..<8).map(Self.makeEntry)
+        let section = IndexSection(
+            key: .agent(.claude),
+            title: "Claude Code",
+            icon: .agent(.claude),
+            entries: entries
+        )
+        #expect(section.shouldOfferShowMore(rowLimit: 5))
+        var updatedEntries = entries
+        updatedEntries[0] = Self.makeEntry(index: 100)
+        let updatedSection = IndexSection(
+            key: section.key,
+            title: section.title,
+            icon: section.icon,
+            entries: updatedEntries
+        )
+        let identity = SessionIndexTablePopoverIdentity.section(section.key)
+        let gapActions = SectionGapActions(
+            currentDraggedKey: { nil },
+            moveSection: { _, _ in },
+            clearDraggedKey: {}
+        )
+        func rows(_ row: SessionIndexTableRow) -> [SessionIndexTableRow] {
+            [
+                .gap(beforeKey: section.key, isValidDrop: true, actions: gapActions),
+                row,
+                .gap(beforeKey: nil, isValidDrop: true, actions: gapActions),
+            ]
+        }
+        let environment = SessionIndexTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100
+        )
+        func render() async {
+            await flushStagedTableMutations()
+            window.displayIfNeeded()
+            container.layoutSubtreeIfNeeded()
+            await flushStagedTableMutations()
+        }
+
+        controller.apply(rows: rows(Self.makeSectionRow(section: section)), environment: environment)
+        await render()
+        let cell = try #require(container.tableView.view(
+            atColumn: 0,
+            row: 1,
+            makeIfNecessary: false
+        ) as? SessionIndexTableCellView)
+        #expect(cell.popoverAnchorRect(for: identity) != nil)
+
+        controller.apply(rows: rows(Self.makeSectionRow(section: updatedSection)), environment: environment)
+        await render()
+
+        controller.apply(
+            rows: rows(Self.makeSectionRow(section: updatedSection, popoverIdentity: identity)),
+            environment: environment
+        )
+        await render()
+
+        #expect(presenter.isPopoverShown)
+    }
+
     @MainActor
     @Test
     func transcriptPopoverStoresTheClickedSessionRowAnchor() async throws {
