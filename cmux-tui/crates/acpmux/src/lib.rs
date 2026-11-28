@@ -215,6 +215,8 @@ pub mod idempotency;
 mod job;
 mod joined_model_plane;
 pub mod terminal_autocompact;
+#[cfg(test)]
+mod unbuffered_json_reads_tests;
 pub mod working_set;
 /// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
 #[cfg(unix)]
