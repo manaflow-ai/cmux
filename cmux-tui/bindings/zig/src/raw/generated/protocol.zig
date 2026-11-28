@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0a87f87c04ba4020da21634a928be5f8706f9762ad10f0dc140e770aa1e53e0b";
+pub const ir_sha256 = "4cb138e8f4b32b725cc71866a1ee18f77aabcf48b854d179addfe7dc3e576761";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -928,6 +928,19 @@ pub const ExportLayoutResult = struct {
 pub const ExportedPane = struct {
     pane: Id,
     surfaces: []const Id,
+};
+
+pub const FloatingPane = struct {
+    /// The height, 0 to 1.
+    h: f64,
+    /// floating-panes-v1: the pane, still a leaf of the screen's layout; x, y, w and h are its frame as fractions of the screen's pane area.
+    pane: Id,
+    /// The width, 0 to 1.
+    w: f64,
+    /// The left edge, 0 to 1.
+    x: f64,
+    /// The top edge, 0 to 1.
+    y: f64,
 };
 
 pub const FocusDirectionResult = struct {
@@ -2106,7 +2119,7 @@ pub const Screen = struct {
     /// The screen's layout columns.
     columns: ?[]const LayoutColumnNode = null,
     /// floating-panes-v1: panes above the tiled layout, back to front.
-    floating: ?JsonValue = null,
+    floating: ?[]const FloatingPane = null,
     /// The screen group the screen is in.
     group: wire.Field([]const u8) = .absent,
     /// split-divider-visibility-v1: splits whose divider is hidden.

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0a87f87c04ba4020da21634a928be5f8706f9762ad10f0dc140e770aa1e53e0b";
+inline constexpr std::string_view kProtocolIrSha256 = "4cb138e8f4b32b725cc71866a1ee18f77aabcf48b854d179addfe7dc3e576761";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -80,6 +80,7 @@ enum class DetachReason;
 struct EmptyResult;
 struct ExportLayoutResult;
 struct ExportedPane;
+struct FloatingPane;
 struct FocusDirectionResult;
 enum class FrontendFocusTarget;
 struct FrontendJournalEvent;
@@ -3194,6 +3195,15 @@ struct FloatPaneRequest {
     friend bool operator==(const FloatPaneRequest&, const FloatPaneRequest&) = default;
 };
 
+struct FloatingPane {
+    double h{};
+    Id pane{};
+    double w{};
+    double x{};
+    double y{};
+    friend bool operator==(const FloatingPane&, const FloatingPane&) = default;
+};
+
 struct FlushLaunchSnapshotRequest {
     friend bool operator==(const FlushLaunchSnapshotRequest&, const FlushLaunchSnapshotRequest&) = default;
 };
@@ -5332,7 +5342,7 @@ struct Screen {
     Id active_pane{};
     Field<std::string> color{};
     std::optional<std::vector<LayoutColumnNode>> columns{};
-    std::optional<JsonValue> floating{};
+    std::optional<std::vector<FloatingPane>> floating{};
     Field<std::string> group{};
     std::optional<std::vector<Id>> hidden_dividers{};
     Field<std::string> icon{};
@@ -7423,6 +7433,12 @@ template <>
 struct Codec<ExportedPane> {
     static Result<Json> encode(const ExportedPane& value);
     static Result<ExportedPane> decode(const Json& value);
+};
+
+template <>
+struct Codec<FloatingPane> {
+    static Result<Json> encode(const FloatingPane& value);
+    static Result<FloatingPane> decode(const Json& value);
 };
 
 template <>
