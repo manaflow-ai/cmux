@@ -1,7 +1,7 @@
 //! Exercise explicit machine routes through a local client and the normal server dispatch.
 
 use super::super::cancel_prompt_tests::{Client, until};
-use super::super::vm_host;
+use super::super::methods::vm_host;
 use crate::hub::Hub;
 use crate::peer::test_dial;
 use crate::rpc::{Message, method};

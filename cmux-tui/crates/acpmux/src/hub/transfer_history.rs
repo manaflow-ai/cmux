@@ -145,8 +145,8 @@ impl Drop for PrepackDone<'_> {
 /// The chat folder's note that its history through a seq has not arrived.
 const PENDING_FILE: &str = "transfer-history-pending.json";
 
-/// The muted notice kind a chat client draws as one line (`server/host_notice.rs`).
-const HOST_NOTICE: &str = crate::server::host_notice::KIND;
+/// The muted notice kind a chat client draws as one line (`server/methods/host_notice.rs`).
+const HOST_NOTICE: &str = crate::server::methods::host_notice::KIND;
 
 /// The line a moved chat shows while its earlier history is on its way.
 pub(in crate::hub) const ARRIVING: &str =

@@ -181,6 +181,14 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (method::MUX_CALLERS, Run(json!({}))),
         (method::MUX_FELT_SNAPSHOT, Run(json!({}))),
+        (method::MUX_WATCHDOG_HOLD, Run(json!({}))),
+        (
+            method::MUX_BG_REARM,
+            Any(
+                json!({"version": 1, "sessionId": "$S", "waits": []}),
+                "the session move requires the person's connection; this harness has no person proof",
+            ),
+        ),
         (method::MUX_HEAP_PROFILE, Run(json!({}))),
         (method::MUX_PERF, Run(json!({"op": "snapshot"}))),
         (method::SESSION_SIGNATURE, Run(json!({"sessionIds": ["$S"]}))),
@@ -273,6 +281,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_SCHEMA, Run(json!({}))),
         (method::MUX_PROTOCOL, Run(json!({}))),
         (method::MUX_HISTORY, Run(json!({"sessionId": "$S", "limit": 5}))),
+        (method::MUX_LAST, Run(json!({"sessionId": "$S", "count": 1}))),
+        (method::MUX_SESSION_RESOURCES, Run(json!({"sessionId": "$S"}))),
         (method::MUX_SESSION_SEARCH, Run(json!({"sessionId": "$S", "query": "echo"}))),
         // This connection is `Origin::Local`, so the brief folds the chat's own log.
         (method::MUX_REVIEW_BRIEF, Run(json!({"sessionId": "$S"}))),
@@ -369,6 +379,19 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         // its hermetic scratch home (`support/daemon_env.rs`), never the person's.
         (method::MUX_PROJECT_NEW, Run(json!({"name": "lso-project"}))),
         (method::MUX_AGENT_LOGIN_START, Skip("starts a real claude or codex sign-in")),
+        (method::MUX_AGENT_LOGIN_RECOVER_START, Skip("starts a real Claude recovery sign-in")),
+        (
+            method::MUX_AGENT_LOGIN_RECOVER_FINISH,
+            Any(
+                json!({"recoverySession": "$S", "loginId": "lso-none"}),
+                "no real recovery sign-in has started, so no pending login can finish",
+            ),
+        ),
+        (
+            method::MUX_AGENT_LOGIN_STATUS,
+            Skip("runs the installed Claude CLI against the real machine login"),
+        ),
+        (method::MUX_AGENT_LOGIN_LOGOUT, Skip("signs out the real machine's Claude login")),
         (
             method::MUX_AGENT_LOGIN_FINISH,
             Any(
@@ -446,10 +469,34 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Run(json!({"provider": "anthropic", "secret": "not-an-anthropic-key"})),
         ),
         (method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Run(json!({"secret": "keychain:lso-token"}))),
-        (method::MUX_CONNECTIONS_REMOVE, Run(json!({"id": "anthropic-key"}))),
+        (
+            method::MUX_CONNECTIONS_REMOVE,
+            Run(json!({"id": "lso-no-connection", "instance": "lso-no-instance"})),
+        ),
         (method::MUX_CONNECTIONS_CHATGPT_BEGIN, Run(json!({"id": "lso-no-connection"}))),
         (method::MUX_CONNECTIONS_CHATGPT_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
         (method::MUX_CONNECTIONS_CHATGPT_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN, Run(json!({"id": "lso-no-connection"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
+        (
+            method::MUX_CONNECTIONS_SECRET_STORE,
+            Skip("writes to the real login Keychain, outside the scratch configuration"),
+        ),
+        (
+            method::MUX_CONNECTIONS_SECRET_DELETE,
+            Skip("deletes from the real login Keychain, outside the scratch configuration"),
+        ),
+        (
+            method::MUX_CONNECTIONS_SUBSCRIPTION_BEGIN,
+            Skip("starts a real provider device-login request"),
+        ),
+        (method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
+        (method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
+        (
+            method::MUX_CONNECTIONS_GROK_HOOK,
+            Any(json!({}), "the retired Grok hook explicitly returns method not found"),
+        ),
         (
             method::MUX_CONNECTIONS_CHATGPT_IMPORT,
             Any(
@@ -596,6 +643,18 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
         ),
         (method::MUX_TEAM_NAVIGATOR, Any(json!({}), "team messaging is off without a mesh relay")),
+        (
+            method::MUX_TEAM_CUSTOMIZATION,
+            Any(json!({}), "team messaging is off before reading customization"),
+        ),
+        (
+            method::MUX_TEAM_CUSTOMIZE,
+            Any(json!({}), "team messaging is off before writing settings"),
+        ),
+        (
+            method::MUX_TEAM_HANDOFF,
+            Any(json!({}), "team messaging is off before resolving or binding a handoff"),
+        ),
         (
             method::MUX_TEAM_PICK,
             Any(json!({"query": "test"}), "team messaging is off without a mesh relay"),
