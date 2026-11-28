@@ -34,6 +34,13 @@ extension LiveCoordinator: TryPullRequestService {
         return list
     }
 
+    public func tryInstallStatus(macID: String) async throws -> TryInstallStatus? {
+        let channel = try await tryPullRequestChannel(macID, args: ["op": "status"])
+        defer { Task { await channel.close(code: "eof", reason: "") } }
+        guard let frame = try await channel.receive() else { throw Self.refusal(channel, "status") }
+        return TryInstallStatus.decode(frame)
+    }
+
     public func installPullRequest(macID: String, number: Int) -> AsyncThrowingStream<TryInstallEvent, any Error> {
         AsyncThrowingStream { continuation in
             let task = Task { @MainActor in
