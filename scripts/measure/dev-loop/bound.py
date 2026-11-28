@@ -107,7 +107,23 @@ def judge(loop: dict) -> dict:
         "target": loop.get("target"),
         "graph": graph,
         **({"crates_p50_s": crates} if (crates := crate_p50s(loop)) else {}),
+        **({"swap_parts_p50_ms": parts} if (parts := swap_part_p50s(loop)) else {}),
+        **({"first_exec": loop["first_exec"]} if loop.get("first_exec") else {}),
     }
+
+
+def swap_part_p50s(loop: dict) -> dict:
+    """The swap stage split by the swapper's own marks (detail.rounds[].swap.trace, seconds), p50 ms per part, plus
+    the swapped binary's p50 size: the swap's floor runs a build already started once, the real one a new file."""
+    seen: dict[str, list[float]] = {}
+    for r in (loop.get("detail") or {}).get("rounds") or []:
+        swap = r.get("swap") or {}
+        for k, v in (swap.get("trace") or {}).items():
+            if isinstance(v, (int, float)):
+                seen.setdefault(k, []).append(float(v) * 1000)
+        if isinstance(swap.get("cmux-tui_bytes"), int):
+            seen.setdefault("binary_bytes", []).append(float(swap["cmux-tui_bytes"]))
+    return {k: round(statistics.median(v), 1) for k, v in seen.items()}
 
 
 def crate_p50s(loop: dict) -> dict:

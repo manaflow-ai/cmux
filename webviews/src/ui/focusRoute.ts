@@ -130,11 +130,6 @@ export function lastFocusRoute(withinMs: number, at: number = now()): FocusRoute
   return last && at - last.at <= withinMs ? last : undefined;
 }
 
-/** The route's recent moves, oldest first (the page's debug read). */
-export function recentFocusRoutes(): readonly FocusRouteRecord[] {
-  return recent;
-}
-
 /** Notes typing the route did not see (tests; a host-sent key): into `element`, at `at`. */
 export function noteTypingForFocusRoute(element: Element | null, at: number = now()): void {
   typedInto = element;

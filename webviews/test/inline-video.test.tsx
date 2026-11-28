@@ -6,16 +6,15 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { MediaPlayer } from "../src/agent-session/acpmux/chips/ReplyMedia";
-import {
-  formatDuration,
-  isRemoteMedia,
-  mediaKind,
-  mediaOpenRequest,
-} from "../src/agent-session/acpmux/chips/replyMediaModel";
-import { MEDIA_PREVIEW_DWELL } from "../src/ui/hoverIntent";
-import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { MediaPlayer } = await importWithDom(() => import("../src/agent-session/acpmux/chips/ReplyMedia"));
+const { formatDuration, isRemoteMedia, mediaKind, mediaOpenRequest } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chips/replyMediaModel"),
+);
+const { MEDIA_PREVIEW_DWELL } = await importWithDom(() => import("../src/ui/hoverIntent"));
+const { setChipHost } = await importWithDom(() => import("../src/agent-session/acpmux/chips/host"));
 
 describe("which sources are video", () => {
   const cases: Array<[source: string, kind: ReturnType<typeof mediaKind>]> = [

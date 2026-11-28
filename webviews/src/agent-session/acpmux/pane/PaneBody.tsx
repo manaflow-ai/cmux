@@ -37,6 +37,7 @@ import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
 import { cloudAgentPick } from "../cloudAgentPick";
+import { cloudLastPick } from "../cloudLastPick";
 import { jumpSide } from "../jumpPlace";
 import type { ComposerPlace } from "../composerPlace.experiment";
 import { StyleSwitch } from "../newtab/StyleSwitch";
@@ -53,6 +54,7 @@ import { translate, type Translate } from "../i18n";
 import { LINK_DOWN_SAID_MS } from "../afterDelay";
 import { PeerCopyBanner } from "../PeerCopyBanner";
 import type { ExportOutcome } from "../Inspector";
+import type { ReadInspectorHistory } from "../InspectorTiming";
 import { Inspector } from "../lazyScreens";
 import { SummaryButton } from "../summary/SummaryButton";
 import { chatProcessesHere } from "../processTerminal";
@@ -102,6 +104,7 @@ import { sandboxRetryable, type SandboxTab, type RunModeRows, type SandboxRun } 
 import { SandboxRunView } from "../lazyScreens";
 import { PaneFeatureTips } from "../featureTips";
 import { callNative } from "../callNative";
+import { pullRequestActionPrompt } from "../header/pullRequestActionPrompt";
 import type { EvacuateState } from "../place/placeModel";
 import type { EvacuateActions } from "../place/usePlace";
 import { openOfferChat } from "../rows/rowActions";
@@ -429,6 +432,8 @@ export type PaneBodyDeps = NewTabShown &
     setDisplayAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     closeInspector: () => void;
     sendPerf: PerfSend;
+    /// `_acpmux/history` through the client connected now (the Inspector's Timing tab).
+    readInspectorHistory: ReadInspectorHistory;
     setDock: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     paneToasts: NoticeQueue;
     /// The chat list's place and Evacuate calls (place/usePlace.ts).
@@ -712,6 +717,7 @@ export function drawPaneBody({
   setDisplayAnchor,
   closeInspector,
   sendPerf,
+  readInspectorHistory,
   setDock,
   paneToasts,
   chatListPlace,
@@ -1022,7 +1028,7 @@ export function drawPaneBody({
                               // Cloud start mode is left out, so the machine starts Claude.
                               // The agent picked for the machine (cloudAgentPick.ts), as the chips show it.
                               ...(() => {
-                                const machine = cloudAgentPick();
+                                const machine = cloudAgentPick() ?? cloudLastPick();
                                 const agent = machine?.harness ?? harness;
                                 return cloudSendAgent(
                                   snapshot.catalog.find((entry) => entry.id === agent)?.family,
@@ -1441,6 +1447,22 @@ export function drawPaneBody({
                               })
                           : undefined
                       }
+                      // Fix checks and Address review: Rust reads the displayed chat's PR, then the prompt goes to that chat.
+                      onPullRequestAction={
+                        localCwd && snapshot.sessionId
+                          ? async (pr, action, signal) => {
+                              const client = directClient.current;
+                              const sessionId = snapshot.sessionId;
+                              if (!client || !sessionId) throw new Error(translate("error.notOpen"));
+                              return pullRequestActionPrompt(client, sessionId, pr, action, signal, {
+                                currentClient: () => directClient.current,
+                                send: (params) => callNative("chat.send", { ...params }),
+                                error: () => new Error(translate("header.prActionFailed")),
+                              });
+                            }
+                          : undefined
+                      }
+                      pullRequestScope={snapshot.sessionId}
                       // A merge asks the header again, so the chip shows the pull request merged.
                       onMergePullRequest={
                         localCwd
@@ -1709,6 +1731,7 @@ export function drawPaneBody({
                     onClose={closeInspector}
                     onExport={saveLogNatively}
                     perf={sendPerf}
+                    readHistory={readInspectorHistory}
                   />
                 )}
               </div>

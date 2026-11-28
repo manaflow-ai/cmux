@@ -120,6 +120,10 @@ impl PendingReleases {
     /// A daemon line: true when it answers one of hostd's releases (then it
     /// is not the phone's to read).
     pub fn answer(&self, line: &[u8]) -> bool {
+        // No release in flight (nearly always): no scan of the line at all.
+        if self.ids.lock().unwrap_or_else(PoisonError::into_inner).is_empty() {
+            return false;
+        }
         let text = String::from_utf8_lossy(line);
         if !text.contains(RELEASE_ID_PREFIX) {
             return false;
