@@ -24,10 +24,11 @@ import CmuxMobileLinkFFI
         #"{"sessionId":"\#(id)","name":"\#(name)","harness":"codex","cwd":"/tmp/w","status":"idle"}"#
     }
 
-    /// The attach result for turns `turns`, newest first as the Mac sends a first screenful.
+    /// The attach result for turns `turns`, newest first as the Mac sends a first screenful: it
+    /// reads to the log's end (`pageThrough`, a current Mac), so no forward read is needed.
     static func page(turns: Range<Int>, hasMore: Bool) -> String {
         let records = turns.flatMap(Chat.turnRecords).joined(separator: ",")
-        return #"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":\#(hasMore),"lastSeq":\#(turns.upperBound * 5),"events":[\#(records)]}"#
+        return #"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":\#(hasMore),"lastSeq":\#(turns.upperBound * 5),"pageThrough":\#(turns.upperBound * 5),"events":[\#(records)]}"#
     }
 
     /// A Mac over turns `0..<total`: an attach after a seq reads to the end, `_acpmux/events`
