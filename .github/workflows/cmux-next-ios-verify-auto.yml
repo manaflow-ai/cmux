@@ -124,10 +124,14 @@ jobs:
         if: ${{ steps.resolve.outputs.go == 'true' }}
         with:
           ref: ${{ github.sha }}
-          # ios_verify.py diffs merge-base...head (git diff --name-only reads trees, not blobs).
-          fetch-depth: 0
-          filter: blob:none
           persist-credentials: false
+      # ios_verify.py diffs merge-base...head (git diff --name-only reads trees, not blobs), so it needs
+      # feat-cmux-next's history: that branch's alone, without blobs. checkout's fetch-depth 0 fetched every
+      # branch and tag (44,922 refs) and took 3.5 of the job's 5.3 minutes (job 141049085298, 2026-11-28: the
+      # pool's git mirror timed out at 120 s on that many refs, then the plain fetch took 81 s more).
+      - name: Fetch feat-cmux-next's history without blobs
+        if: ${{ steps.resolve.outputs.go == 'true' }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - name: Mint the CI pool's tokens
         if: ${{ steps.resolve.outputs.go == 'true' }}
         continue-on-error: true

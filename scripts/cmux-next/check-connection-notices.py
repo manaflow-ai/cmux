@@ -141,6 +141,9 @@ PERSON_ACTIONS = re.compile(
     # (`<ConnectButton onConnect={...} />`). A bare `<MarkButton />` is no action by its name alone: one declared
     # or imported here counts only when it acts itself (drawn_actions).
     r"|<[A-Z]\w*Button\b[^>]*?\bon[A-Z]\w*\s*="
+    # A web form the unit draws with its own submit handler: its submit button (Try again in a sign-in form's
+    # footer, ChatGPTDeviceForm) is the person's action for the failure drawn above it.
+    r"|<form\b[^>]*?\bonSubmit\s*="
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
@@ -186,7 +189,6 @@ class Hit:
     index: int = 0  # the hit's line within its unit's lines
     hops: int = 0  # how many providers it came through
     origin: str = ""  # the file the words are in (the provider's, for a hit passed on)
-    helpers: int = 0  # how many helper functions (not label tables) passed it on
 
 
 @dataclass
@@ -200,7 +202,6 @@ class Unit:
     gated: bool = False
     acted: bool = False
     literal_grace: list[str] = field(default_factory=list)
-    declared: list[str] = field(default_factory=list)  # a Swift unit's declarations, as written (`Outer.Failure`)
 
     @property
     def id(self) -> str:
@@ -331,7 +332,11 @@ def units_of(path: str, source: str) -> list[tuple[str, int, int]]:
         m = top.match(line)
         if m:
             name = next(g for g in m.groups() if g)
-            starts.append((i, name.split(".")[0] if path.endswith(".swift") else name))
+            if path.endswith(".swift"):
+                # `extension Credentials.Failure` is the Failure type, not Credentials: its words answer something
+                # the person did (ERROR_TYPE), so it keeps its own name instead of merging into its outer type.
+                name = name if ERROR_TYPE.search(name) else name.split(".")[0]
+            starts.append((i, name))
     spans = []
     for n, (i, name) in enumerate(starts):
         end = starts[n + 1][0] - 1 if n + 1 < len(starts) else len(lines) - 1
@@ -422,11 +427,6 @@ def scan(tree: Tree) -> list[Unit]:
         for name, first, last in units_of(path, source):
             uid = f"{path}::{name}"
             unit = units.setdefault(uid, Unit(path, name, surface))
-            if path.endswith(".swift") and name != "<file>":
-                # `extension CloudAgentCredentials.Failure {` declares the words of a nested failure type: the
-                # unit is named for its outer type, so keep what each declaration extends to judge it an outcome.
-                m = SWIFT_TOP.match(lines[first])
-                unit.declared.append(m.group(1) if m else name)
             body = lines[first:last + 1]
             base = len(unit.lines)
             unit.lines.extend(body)
@@ -451,7 +451,6 @@ def scan(tree: Tree) -> list[Unit]:
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
     drawn_actions(units, imports)
-    spinner_answers(units, imports)
     swift_drawn_actions(units)
     propagate(units, imports)
     attribute_presenters(units, presenter_imports, opaque_modules, unresolved_exports)
@@ -459,15 +458,7 @@ def scan(tree: Tree) -> list[Unit]:
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
-    return [u for u in units.values() if u.hits and not outcome_unit(u)]
-
-
-def outcome_unit(unit: Unit) -> bool:
-    """An Error/Failure type's words (or an outcome function's): the answer to something the person did. A Swift
-    unit counts when every declaration in it is such a type, nested ones included (`extension X.Failure`)."""
-    if ERROR_TYPE.search(unit.name) or OUTCOME_UNIT.search(unit.name):
-        return True
-    return bool(unit.declared) and all(ERROR_TYPE.search(name.rsplit(".", 1)[-1]) for name in unit.declared)
+    return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name) and not OUTCOME_UNIT.search(u.name)]
 
 
 # A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
@@ -504,47 +495,6 @@ def drawn_actions(units: dict[str, Unit], imports: dict[str, list[tuple[str, str
                 moved = True
         if not moved:
             break
-
-
-# A row's spinner and its label ("Connecting…") while a `loading` prop is set: the caller that passes `loading=` is the
-# one whose connect or check it answers.
-SPINNER = re.compile(r"<Spinner\b")
-LOADING_PROP = re.compile(r"\bloading\s*=")
-
-
-def spinner_answers(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
-    """A web component that says a connection state beside a `<Spinner>` while its caller's `loading` holds
-    (`ModelRow` in ModelConnectionRow.tsx, cmux#54956) answers that caller's own connect: when every caller seen to
-    pass it `loading=` carries the person's action (the Connect button the spinner answers), so does the component.
-    No caller seen passing `loading=`, or one without an action, and it is judged on its own."""
-    stems: dict[str, str] = {}
-    for unit in units.values():
-        if unit.path.endswith(".tsx"):
-            stems.setdefault(unit.path[:-len(".tsx")], unit.path)
-    for unit in units.values():
-        if (unit.acted or not unit.hits or not unit.path.endswith(".tsx") or not re.match(r"[A-Z]", unit.name)
-                or not SPINNER.search("\n".join(unit.lines))):
-            continue
-        tag = re.compile(rf"<{re.escape(unit.name)}\b")
-        callers = []
-        for other in units.values():
-            if other is unit or other.name == "<file>":
-                continue
-            if other.path != unit.path and not any(
-                    local == unit.name and stems.get(target) == unit.path for local, target in imports.get(other.path, [])):
-                continue
-            for i, line in enumerate(other.lines):
-                if not tag.search(line):
-                    continue
-                props = []
-                for rest in other.lines[i:i + 20]:
-                    props.append(rest)
-                    if re.search(r"/?>\s*$", rest) and not rest.rstrip().endswith("=>"):
-                        break
-                if LOADING_PROP.search("\n".join(props)):
-                    callers.append(other)
-        if callers and all(c.acted for c in callers):
-            unit.acted = True
 
 
 # A Swift view composed into the unit (`RetryButton(action: retry)`, `ConnectButton { … }`): a component named for its
@@ -601,14 +551,12 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
     for _round in range(4):
         moved = False
         for unit in list(units.values()):
-            if not unit.hits or unit.ok or not is_provider(unit) or outcome_unit(unit):
-                continue  # an outcome helper's words (`deviceFailureText`) stay an outcome wherever drawn
+            if not unit.hits or unit.ok or not is_provider(unit):
+                continue
             members = {member_at(unit, h.index) for h in unit.hits}
             # A label table or strings type passes its words on through two hops; a helper function through one,
-            # so a call chain (a host bridge's error key) does not spread to every caller. A helper that reads a
-            # label table (`cloudPickerReason` -> `reasonLabels`) still passes the table's words to its caller.
-            helper = None in members
-            if min(h.hops for h in unit.hits) >= 2 or (helper and min(h.helpers for h in unit.hits) >= 1):
+            # so a call chain (a host bridge's error key) does not spread to every caller.
+            if min(h.hops for h in unit.hits) >= (1 if None in members else 2):
                 continue
             name = re.escape(unit.name)
             if None in members:
@@ -662,8 +610,7 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 continue
             for other, i, said in consumers:
                 hops = min(h.hops for h in unit.hits) + 1
-                other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin,
-                                      said.helpers + (1 if helper else 0)))
+                other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin))
             unit.hits = []
             moved = True
         if not moved:

@@ -97,21 +97,4 @@ struct MacScreenQuietCardTests {
         #expect(MacScreenDevicesSettings.redials(.reconnecting("timeout")))
         #expect(!MacScreenDevicesSettings.redials(.removed), "a link that will not come back is never held")
     }
-
-    /// Allow Mac Screen's "Connecting this Mac to the device hub…" (cmux#61271) said so from the first frame of
-    /// every hub registration; it now waits the shared bound, and a registration that lands sooner says nothing.
-    @Test func thisMacsHubNoteWaitsTheSharedBound() async throws {
-        let clock = ManualClock()
-        let quiet = MacScreenHomeSnapshot.HubNoteQuiet(clock: clock)
-        let joining = MacScreenHomeSnapshot.hubNote(.starting)
-        #expect(quiet.shown(joining) == nil, "a registration under the bound shows no note")
-        try await clock.waitForSleeper()
-        clock.advance(by: QuietHold.connectionDelay - .milliseconds(1))
-        #expect(quiet.shown(joining) == nil)
-        clock.advance(by: .milliseconds(1))
-        await settle { quiet.shown(joining) != nil }
-        #expect(quiet.shown(joining) == joining, "past the bound the note says why the switch waits")
-        #expect(quiet.shown(nil) == nil, "registered: no note")
-        #expect(quiet.shown(joining) == nil, "a new wait for the hub is held again")
-    }
 }

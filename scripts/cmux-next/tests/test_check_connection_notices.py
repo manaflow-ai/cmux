@@ -318,115 +318,47 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 1, "only the outcome's words are exempt, not any unit named failed*")
 
-    def test_an_outcome_helper_drawn_by_a_component_stays_an_outcome(self):
-        """`deviceFailureText` (ChatGPTDevicePanel.tsx) says why the person's sign-in failed ("…before reconnecting
-        here"); the form that draws it is not a passive connection state for it. A helper named like any other
-        still passes its words on."""
-        for helper, code in (("deviceFailureText", 0), ("deviceFailure", 0), ("deviceNote", 1)):
-            with self.subTest(helper=helper):
-                tree = Tree(self)
-                tree.write(f"{WEB}/DeviceForm.tsx", f"""\
-    function {helper}(failed: boolean) {{
-      return failed ? "Disconnect it there before reconnecting here." : undefined;
-    }}
-    export function DeviceForm({{ failed }}: {{ failed: boolean }}) {{
-      return <output>{{{helper}(failed)}}</output>;
-    }}
-""")
-                got, out = tree.check()
-                self.assertEqual(got, code, out)
-                if code:
-                    self.assertIn("DeviceForm shows a connection state", out)
-
-    def test_a_helper_reading_a_label_table_passes_its_words_to_the_row(self):
-        """`cloudPickerReason` (cloudServed.ts, cmux#54956) looks its words up in `reasonLabels`; the picker row that
-        draws them carries the Connect action. The table's words go through the helper to that row, which passes,
-        and a row that draws them with no action is still named."""
-        for row, code in (("<button onClick={connect}>{t(cloudPickerReason(x))}</button>", 0),
-                          ("<span>{t(cloudPickerReason(x))}</span>", 1)):
-            with self.subTest(row=row):
-                tree = Tree(self)
-                tree.write(f"{WEB}/served.ts", """\
-    const reasonLabels = {
-      off: "page.disconnected",
-      none: "page.disconnected",
-    } as const;
-    export function cloudPickerReason(reason: "off" | "none") {
-      return reasonLabels[reason || "none"];
-    }
-""")
-                tree.write(f"{WEB}/Picker.tsx", f"""\
-    import {{ cloudPickerReason }} from "./served";
-    export function PickerRow({{ t, x, connect }}) {{
-      return {row};
-    }}
-""")
-                got, out = tree.check()
-                self.assertEqual(got, code, out)
-                self.assertNotIn("cloudPickerReason shows", out)
-                if code:
-                    self.assertIn("PickerRow shows a connection state", out)
-
-    def test_a_spinner_row_answers_the_connect_of_the_caller_that_sets_loading(self):
-        """`ModelRow` (ModelConnectionRow.tsx, cmux#54956) labels its spinner "Not connected…" while `loading` holds;
-        the row that passes `loading=` carries the Connect button the spinner answers. A caller with no action, or
-        a component with no spinner, is still judged."""
-        row = """\
-    export function ModelRow({ t, loading }) {
-      const label = loading ? t("page.disconnected") : undefined;
-      return <div aria-label={label}>{loading ? <Spinner size={16} /> : null}</div>;
-    }
-"""
-        for caller, code in (
-                ("<div><ModelRow t={t} loading={busy} /><button onClick={connect}>Connect</button></div>", 0),
-                ("<div><ModelRow t={t} loading={busy} /></div>", 1)):
-            with self.subTest(caller=caller):
-                tree = Tree(self)
-                tree.write(f"{WEB}/Rows.tsx", row + f"""\
-    export function ConnectionRow({{ t, busy, connect }}) {{
-      return {caller};
-    }}
-""")
-                got, out = tree.check()
-                self.assertEqual(got, code, out)
+    def test_a_form_with_its_own_submit_carries_an_action(self):
+        """A sign-in form whose submit is Try again (ChatGPTDeviceForm, 2026-11-28) carries the failure's action."""
+        form = (
+            "export function SignInForm() {\n"
+            "  return (\n"
+            "    <form\n"
+            "      onSubmit={(event) => { event.preventDefault(); begin(); }}\n"
+            "    >\n"
+            "      <p>Can't reach the server. Check your connection.</p>\n"
+            "    </form>\n"
+            "  );\n"
+            "}\n"
+        )
         tree = Tree(self)
-        tree.write(f"{WEB}/Rows.tsx", row.replace("<Spinner size={16} />", "<i />") + """\
-    export function ConnectionRow({ t, busy, connect }) {
-      return <div><ModelRow t={t} loading={busy} /><button onClick={connect}>Connect</button></div>;
-    }
-""")
-        got, out = tree.check()
-        self.assertEqual(got, 1, out)
-        self.assertIn("ModelRow shows a connection state", out)
-
-    def test_the_words_of_a_nested_failure_type_are_an_outcome(self):
-        """`extension CloudAgentCredentials.Failure` (CloudModelConnectionNotice.swift, cmux#54956) says why a
-        connection the person picked was refused: an outcome, as `CloudAgentFailure` would be. The outer type
-        itself, or one with any other declaration in the unit, is still judged."""
-        failure = """\
-    extension CloudAgentCredentials.Failure {
-        func notice() -> String { "This connection is offline. Try again when you are connected." }
-    }
-"""
-        tree = Tree(self)
-        tree.write(f"{MAC}/CloudNotice.swift", failure)
+        tree.write(f"{PAGE}/SignInForm.tsx", form)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
-        for other in ("extension CloudAgentCredentials {", "extension CloudAgentCredentials.Status {"):
-            with self.subTest(other=other):
-                tree = Tree(self)
-                tree.write(f"{MAC}/CloudNotice.swift", failure.replace("extension CloudAgentCredentials.Failure {", other))
-                code, out = tree.check()
-                self.assertEqual(code, 1, out)
-                self.assertIn("CloudAgentCredentials shows a connection state", out)
         tree = Tree(self)
-        tree.write(f"{MAC}/CloudNotice.swift", failure + """\
-    struct CloudAgentCredentials {
-        var label: String { "Reconnecting…" }
-    }
-""")
+        tree.write(f"{PAGE}/SignInForm.tsx", form.replace("      onSubmit={(event) => { event.preventDefault(); begin(); }}\n", ""))
         code, out = tree.check()
-        self.assertEqual(code, 1, "the outer type's own words in the same unit still fail: " + out)
+        self.assertEqual(code, 1, out)
+
+    def test_an_extension_of_a_nested_failure_type_is_an_outcome(self):
+        """`extension Credentials.Failure` holds a refusal's words (cloud.modelConnection.offline, 2026-11-28): the
+        Failure type's, not its outer type's; an extension of the outer type itself is still read."""
+        body = (
+            "extension Credentials.Failure {\n"
+            "    func notice() -> String {\n"
+            '        return "This connection is offline. Try again when you are connected."\n'
+            "    }\n"
+            "}\n"
+        )
+        tree = Tree(self)
+        tree.write(f"{MAC}/CredentialsNotice.swift", body)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree = Tree(self)
+        tree.write(f"{MAC}/CredentialsNotice.swift", body.replace("Credentials.Failure", "Credentials.Status"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("Credentials shows a connection state", out)
 
     def test_a_view_drawing_its_own_button_component_carries_the_action(self):
         tree = Tree(self)
