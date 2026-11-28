@@ -139,8 +139,11 @@ public struct TabStripMetrics: Equatable, Sendable {
 
     /// Title room a crowded tab keeps beyond ``faviconCloseWidth``: about four characters of its title,
     /// faded, at rest (Lawrence msg 19596: 26 tabs showed "…" alone, "not very helpful"). The default
-    /// minimum tab width is the sum (`MetricTunables.tabMinInactiveWidth`).
-    public static let crowdedTitleRoom: CGFloat = 24
+    /// minimum tab width is the sum (`MetricTunables.tabMinInactiveWidth`). 32, not 24 (Leo 2026-11-27, ask ask-3729c9c563:
+    /// "why dont your tabs have any names/letters showing up?"): the x (hover) and a status mark (a working agent) each
+    /// take the trailing slot, which left 18 pt of a 24 pt room, under the 3-character floor that hides a sliver
+    /// (`TabCell.layoutTitle`), so a busy or hovered tab at the minimum never showed its title.
+    public static let crowdedTitleRoom: CGFloat = 32
 
     /// The default narrowest inactive tab: the favicon, the close button and ``crowdedTitleRoom``.
     public var crowdedMinimumWidth: CGFloat { faviconCloseWidth + Self.crowdedTitleRoom }
