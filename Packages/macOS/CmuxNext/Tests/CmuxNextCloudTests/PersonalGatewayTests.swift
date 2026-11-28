@@ -78,16 +78,45 @@ struct PersonalGatewayTests {
         #expect(gateway.state == .starting)
     }
 
-    /// A route that does use it: the start still waits for the gateway, up to its deadline.
+    /// A route that may use it (nothing else read as serving the chat): the start still waits for the gateway, up to its deadline.
     @Test func aStartOnTheMacsGatewayStillWaitsForIt() async throws {
         let clock = ManualClock()
         let children = Children([[]])
         let gateway = make(children, clock: clock)
         gateway.start()
-        let beside = gateway.onlineBeside(within: .seconds(10)) { .gateway(family: "claude") }
+        let beside = gateway.onlineBeside(within: .seconds(10)) { .fallback }
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(10))
         #expect(await beside.value == false)
+    }
+
+    /// The team's gateway read online and serving while this Mac's is still starting, or running but dialing again: another
+    /// gateway serves the turn, so the start waits for none (the production probe's first start after sign-in sat out the
+    /// whole 10 s deadline, run 45965760313). Bounded in real time, so a start that waits again fails here, not hangs.
+    @Test(arguments: [nil, #"{"event":"offline","reason":"disconnected"}"#])
+    func aStartTheTeamsOnlineGatewayServesWaitsForNoneWhileThisOneIsNotOnline(line: String?) async throws {
+        let clock = ManualClock()
+        let children = Children([line.map { [$0] } ?? []]) // never comes online
+        let gateway = make(children, clock: clock)
+        gateway.start()
+        let expected: PersonalGateway.State = line == nil ? .starting : .offline("disconnected")
+        for _ in 0..<1000 where gateway.state != expected { await Task.yield() }
+        try #require(gateway.state == expected)
+        let beside = gateway.onlineBeside(within: .seconds(10)) { .gateway(family: "claude") }
+        #expect(await answer(beside) == true) // no deadline advanced: answered at once
+        #expect(gateway.state == expected) // left as it was, not restarted
+    }
+
+    /// `beside`'s answer, or nil when it gave none within `bound` of real time: a test whose start should answer at once
+    /// fails on nil rather than hanging on a ManualClock deadline nothing advances.
+    private func answer(_ beside: CloudStartBeside<Bool>, within bound: Duration = .seconds(5)) async -> Bool? {
+        let (first, send) = AsyncStream.makeStream(of: Bool?.self)
+        // task-owner: test: the start's answer; left behind only when it misses the bound (the test then fails).
+        Task { send.yield(await beside.value) }
+        // task-owner: test: the bound; ends the race with nil.
+        Task { try? await Task.sleep(for: bound); send.yield(nil) }
+        for await answer in first { send.finish(); return answer }
+        return nil
     }
 
     /// Which routes reach this Mac's gateway: only the connection's credential and the organization's key do not.
