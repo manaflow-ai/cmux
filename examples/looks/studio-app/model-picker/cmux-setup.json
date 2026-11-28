@@ -1,0 +1,13 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/studio-app-model-picker",
+  "name": "Model and reasoning picker",
+  "description": "Choose a model, its reasoning effort and the available service tier from the composer.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "screenshots": [
+    "screenshots/source.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {}
+}

@@ -134,6 +134,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
+import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoInstall, execConformanceCase, execConformanceOn, execConformanceProbe, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
@@ -3848,7 +3849,7 @@ export const JOURNEY_STUB_SCRIPT = {
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
   // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker,
   // and the reserved home chat's read (journeyReadTurnScript).
-  turns: [countingTurnScript(), feltTurnScript(), journeyReadTurnScript()],
+  turns: [countingTurnScript(), feltTurnScript(), journeyReadTurnScript(), journeyTextTurnScript()],
 };
 
 /**
@@ -3872,6 +3873,25 @@ export function journeyReadTurnScript(): { match: string; steps: Array<Record<st
 
 /** The reserved home chat's prompt: the person's words, then the file the stub's turn reads (journeyReadTurnScript). */
 export const journeyReadPrompt = (prompt: string, file: string) => `${prompt} [journey-read ${file}]`;
+
+/**
+ * The reserved home chat's stub turn for Codex: a text reply with no tool call. Codex offers no file-read tool (its
+ * tools are exec_command, write_stdin, view_image and the like), so the Read of journeyReadTurnScript came back
+ * "unsupported call: Read" and the reply repeated an empty result (prod run 46090508199: "The tool printed ."). Its
+ * only way to read a file is a shell call, which policy `ask` holds for the person. The reply still carries the
+ * nonce, so it proves the turn went to the stub; the step "model stub on the machine" proves Codex's shell round trip.
+ */
+export function journeyTextTurnScript(): { match: string; steps: Array<Record<string, unknown>> } {
+  return { match: "\\[journey-text\\]", steps: [{ text: journeyTextReply("{{nonce}}") }] };
+}
+
+/** The reply journeyTextTurnScript plays for `nonce`. */
+export function journeyTextReply(nonce: string): string {
+  return `Stub reply ${nonce}. No tool: Codex reads a file only by shell, which policy ask holds for the person.`;
+}
+
+/** The reserved home chat's prompt for Codex: the person's words, then the marker of journeyTextTurnScript. */
+export const journeyTextPrompt = (prompt: string) => `${prompt} [journey-text]`;
 
 /**
  * The guest command that writes `<cwd>/.journey-<nonce>.txt` holding `<nonce>-tool` in the chat's own folder (`cwd`,
@@ -6342,6 +6362,41 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: null, detail };
         });
       }
+      // The exec router's identical-result rule on prod (cloud-journey-exec-conformance.ts): `acpmux exec-router
+      // conformance` on this machine with the sign-in's Cloud credentials and AutoCloud on, each case's routed side on a
+      // run VM it forks. Leo, 2026-11-26: "100% identical on prod". Opt-in: CMUX_JOURNEY_EXEC_CONFORMANCE=1.
+      if (execConformanceOn(process.env.CMUX_JOURNEY_EXEC_CONFORMANCE)) {
+        await J.step(EXEC_CONFORMANCE_STEP, async () => {
+          const probe = await exec(execConformanceProbe(), 60_000);
+          const facts = probe.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ");
+          console.log(`[exec-conformance] ${facts}`);
+          const cases = parseCaseNames(`${probe.stdout}\n${probe.stderr}`);
+          if (!cases.length) {
+            // An acpmux without the suite: the image predates f7a86e4a (#58823), the commit that added it.
+            throw new Error(`this image's acpmux has no exec-router conformance (predates f7a86e4a): ${facts} ${probe.stdout.slice(-300)} ${probe.stderr.slice(-200)}`);
+          }
+          if (cases.includes(EXEC_CONFORMANCE_CARGO_CASE) && /cargo=none/.test(probe.stdout)) {
+            const c = await exec(execConformanceCargoInstall(), 300_000);
+            console.log(`[exec-conformance] ${c.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ")} ${c.code ? c.stderr.slice(-200) : ""}`);
+          }
+          const rows: ReturnType<typeof parseRows> = [];
+          for (const name of cases) {
+            // A token fresh for each case (it lives 600 s; the fork backend reads it once per run).
+            if (api.remint) { api.expiresAt = 0; await api.fresh(); }
+            if (api.bearer) J.secrets.push(api.bearer);
+            const r = await exec(execConformanceCase(name, { api: api.origin, token: api.bearer, team: api.team, machine: created.id }, `/tmp/cmux-exec-conformance-${process.pid}`), 300_000);
+            const got = parseRows(r.stdout);
+            for (const row of got) console.log(`[exec-conformance] ${rowText(row)} ${JSON.stringify(row)}`);
+            if (!got.length) console.log(`[exec-conformance] ${name}: no row (exit ${r.code}) ${r.stdout.slice(-400)} ${r.stderr.slice(-400)}`);
+            rows.push(...got);
+          }
+          const v = verdict(cases, rows);
+          console.log(`[exec-conformance] summary: ${v.line}`);
+          console.log(`[exec-conformance] ${EXEC_CONFORMANCE_CARGO_CASE}: ${v.cargo}`);
+          if (!v.ok) throw new Error(v.line);
+          return { value: { total: v.total, identical: v.identical, onRunVm: v.onRunVm }, detail: `${v.line}; ${v.cargo}` };
+        });
+      }
       // A person's own create that no spare serves: the create above asks the chat start size and claims a ready spare,
       // so without this cell no run shows that a cold create boots at the size it asked for (cmux-platform#1513: every
       // image create asks the VM API for the size it was admitted at). One machine at COLD_CREATE_SIZE, its size read on
@@ -6894,7 +6949,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // The stub's turn reads a file in the chat's own folder (journeyReadTurnScript): the chat runs under policy
           // `ask`, where a shell call waits for the person.
           let sendText = prompt;
-          if (modelStub || gatewayStub) {
+          // Codex has no file-read tool, and policy ask holds its shell calls: its stub turn is text only.
+          const textTurn = agent === "codex";
+          if ((modelStub || gatewayStub) && textTurn) {
+            sendText = journeyTextPrompt(prompt);
+            J.skip("stub file in the chat's folder", "Codex has no file-read tool; its stub turn is text only (journeyTextTurnScript)");
+          } else if (modelStub || gatewayStub) {
             sendText = await J.step("stub file in the chat's folder", async () => {
               const info = await exec(`${GUEST}"$c" acp session info ${shq(session)} --fields cwd 2>&1`, 45_000);
               const cwd = /^(?:cwd\t)?(\/\S*)$/m.exec(info.stdout)?.[1] ?? "";
@@ -6913,7 +6973,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           });
           await J.step("reply", async () => {
             const last = await awaitReply();
-            if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
+            if ((modelStub || gatewayStub) && textTurn && !last.includes(journeyTextReply(nonce))) {
+              throw new Error(`the reply is not the stub's text turn for ${nonce}: ${last.slice(-200)}; ${await stubBypassFacts()}`);
+            }
+            if ((modelStub || gatewayStub) && !textTurn && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
               throw new Error(`the reply does not carry the stub's read of ${nonce}-tool: ${last.slice(-200)}; ${await stubBypassFacts()}`);
             }
             return { value: last, detail: last.slice(0, 280) };

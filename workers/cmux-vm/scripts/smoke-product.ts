@@ -57,6 +57,16 @@ const oidcToken = async (): Promise<string> => {
 const runId = process.env["GITHUB_RUN_ID"] === undefined ? `local-${Date.now()}` : `${process.env["GITHUB_RUN_ID"]}-${process.env["GITHUB_RUN_ATTEMPT"] ?? "1"}`;
 const STEP_TIMEOUT_MS = 120_000;
 const BOOT_TIMEOUT_MS = 300_000;
+/**
+ * How long a create answered 429 QuotaExceeded is tried again. The team's 2-VM count can still hold a VM the list no
+ * longer shows (a delete still stopping it): cmux run 45715187381 listed no leftover, then its create answered
+ * "This team already has its limit of 2 VMs" (retryAfterSeconds 60), and image-roll-settle read that red as the
+ * image's and rolled back a good roll. That happened on every roll for three days (2026-11-23 to 11-26). The quota is
+ * the smoke team's, not the image's, so the smoke waits it out. A dead job's retained slot is reclaimed by the
+ * principal's own next create once it is older than the 15-minute run cap plus the send grace (vms.ts
+ * reclaimStaleCiCreations), so each try here is also the create that reclaims it. 10 minutes, inside the job's 25.
+ */
+const QUOTA_WAIT_MS = 600_000;
 
 const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
   const response = await fetch(new URL(path, origin), {
@@ -99,16 +109,19 @@ try {
   // A run cancelled before its cleanup leaves its VM behind: paused by the run cap and deleted upstream, but its row
   // still counts against the 2-VM quota until deleted here. The principal sees only its own VMs and the job's
   // concurrency group runs one smoke at a time, so every VM listed is a leftover; deleting a gone one forgets it.
-  const leftovers = await call("GET", "/v1/vms");
-  expectStatus("list own VMs", leftovers.status, 200, leftovers.body);
-  const listed = field(leftovers.body, "items");
-  for (const item of Array.isArray(listed) ? listed : []) {
-    const leftover = field(item, "id");
-    if (typeof leftover !== "string") continue;
-    const removed = await call("DELETE", `/v1/vms/${leftover}`);
-    if (removed.status !== 204 && removed.status !== 404) throw new Error(`could not delete leftover ${leftover}: ${removed.status} ${JSON.stringify(removed.body)}`);
-    console.log(`ok  deleted leftover ${leftover} (${removed.status})`);
-  }
+  const deleteLeftovers = async () => {
+    const leftovers = await call("GET", "/v1/vms");
+    expectStatus("list own VMs", leftovers.status, 200, leftovers.body);
+    const listed = field(leftovers.body, "items");
+    for (const item of Array.isArray(listed) ? listed : []) {
+      const leftover = field(item, "id");
+      if (typeof leftover !== "string") continue;
+      const removed = await call("DELETE", `/v1/vms/${leftover}`);
+      if (removed.status !== 204 && removed.status !== 404) throw new Error(`could not delete leftover ${leftover}: ${removed.status} ${JSON.stringify(removed.body)}`);
+      console.log(`ok  deleted leftover ${leftover} (${removed.status})`);
+    }
+  };
+  await deleteLeftovers();
 
   let image = { id: imageId, revision: imageRevision };
   if (image.id === "") {
@@ -125,14 +138,29 @@ try {
 
   // The body cmux-platform's driver sends: labels, the approved image, and no idleTimeoutSeconds or autoDeleteSeconds.
   const name = `smoke-product-${runId}`.slice(0, 63);
-  createKey = `smoke-product-${runId}`;
-  const created = await retryWhileQueueFull(() => call(
-    "POST",
-    "/v1/vms",
-    { displayName: name, labels: { role: "cloud", cmux_next_team: "cmux-vm-product-smoke", purpose: "smoke" }, image },
-    { "idempotency-key": createKey },
-  ));
-  if (created.status === 429 || created.status === 201) createKey = null;
+  const create = async (attempt: number) => {
+    // A 429 made nothing, so each try takes its own key: the first try's answer is never replayed.
+    createKey = attempt === 1 ? `smoke-product-${runId}` : `smoke-product-${runId}-q${attempt}`;
+    const answer = await retryWhileQueueFull(() => call(
+      "POST",
+      "/v1/vms",
+      { displayName: name, labels: { role: "cloud", cmux_next_team: "cmux-vm-product-smoke", purpose: "smoke" }, image },
+      { "idempotency-key": createKey },
+    ));
+    if (answer.status === 429 || answer.status === 201) createKey = null;
+    return answer;
+  };
+  const quotaUntil = Date.now() + QUOTA_WAIT_MS;
+  let created = await create(1);
+  for (let attempt = 2; created.status === 429 && field(created.body, "_tag") === "QuotaExceeded"; attempt++) {
+    const after = field(created.body, "retryAfterSeconds");
+    const waitMs = Math.min(Math.max(typeof after === "number" && after > 0 ? after * 1000 : 30_000, 5_000), 90_000);
+    if (Date.now() + waitMs > quotaUntil) break;
+    console.log(`    create answered 429 QuotaExceeded (${JSON.stringify(field(created.body, "message"))}); the quota is the smoke team's, trying again in ${waitMs / 1000} s`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    await deleteLeftovers();
+    created = await create(attempt);
+  }
   // Record any VM id before judging the status, so the cleanup below deletes a VM a failed create still made.
   const id = field(created.body, "id");
   if (typeof id === "string" && /^vm_[0-9a-z]{26}$/.test(id)) vmId = id;
