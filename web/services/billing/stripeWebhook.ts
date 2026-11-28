@@ -28,6 +28,8 @@ import {
 import { isStripeBillingConfigured, stripe } from "./stripe";
 import { personalProWelcomeOwnsDelivery } from "./personalProWelcome";
 import { isPersonalPlanId } from "./pro";
+import { CLOUD_INTRO_CHECKOUT_PURPOSE } from "./cloudIntro";
+import { fulfillCloudIntroCheckout as fulfillCloudIntroCheckoutDefault } from "./cloudIntroFulfillment";
 import { AccountDeletionUserMutationInProgressError } from "../account/deletionLock";
 import { STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX } from "./stripeWebhookErrors";
 import {
@@ -50,6 +52,8 @@ type StripeWebhookDependencies = {
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
   revokeCoderouterTeamRouteTokens: typeof revokeRouteTokensForTeamDefault;
   captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
+  /** Fulfills a cmux Cloud $1 pass checkout; see cloudIntroFulfillment.ts. */
+  fulfillCloudIntroCheckout?: (checkoutSessionId: string) => ReturnType<typeof fulfillCloudIntroCheckoutDefault>;
   defer: (task: () => Promise<void>) => void;
 };
 
@@ -285,6 +289,9 @@ async function processCheckoutCompleted(
   session: Stripe.Checkout.Session,
   dependencies: StripeWebhookDependencies,
 ): Promise<StripeEventOutcome> {
+  if (session.metadata?.purpose === CLOUD_INTRO_CHECKOUT_PURPOSE) {
+    return await processCloudIntroCheckout(event, session, dependencies);
+  }
   // Preserve an explicit foreign marker from the signed event payload.
   // Stripe's retrieve response is authoritative for expanded fields, but
   // a test or a delayed provider read must not turn an explicitly foreign
@@ -328,6 +335,22 @@ async function processCheckoutCompleted(
     processed: event.type,
     analytics: () => dependencies.captureStripeBillingEvent(event, subject),
   };
+}
+
+/**
+ * A $1 pass checkout is a one-time payment that never touches the
+ * subscription tables. With the pass's flag off it is skipped and grants
+ * nothing.
+ */
+async function processCloudIntroCheckout(
+  event: Stripe.Event,
+  session: Stripe.Checkout.Session,
+  dependencies: StripeWebhookDependencies,
+): Promise<StripeEventOutcome> {
+  if (session.metadata?.app !== "cmux") return { skipped: "foreign_checkout" };
+  const fulfill = dependencies.fulfillCloudIntroCheckout ?? ((id: string) => fulfillCloudIntroCheckoutDefault(id));
+  const result = await fulfill(session.id);
+  return result.status === "skipped" ? { skipped: result.reason } : { processed: event.type };
 }
 
 // Personal Pro checkouts use the founders-welcome endpoint's canonical

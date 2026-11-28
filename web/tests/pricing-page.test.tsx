@@ -115,6 +115,24 @@ mock.module("../db/client", () => ({
 const { default: PricingPage } = await import("../app/[locale]/(landing)/pricing/page");
 
 describe("localized pricing page", () => {
+  test("shows the $1 pass only where its checkout is on", async () => {
+    const previous = process.env.CMUX_CLOUD_INTRO;
+    try {
+      delete process.env.CMUX_CLOUD_INTRO;
+      const off = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+      expect(off).not.toContain("data-cloud-intro");
+      expect(off).not.toContain("plan=intro");
+      process.env.CMUX_CLOUD_INTRO = "1";
+      const on = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+      expect(on.match(/data-cloud-intro="a"/g)).toHaveLength(1);
+      expect(on).toContain('data-testid="cloud-intro-form"');
+      expect(on.indexOf("data-cloud-intro")).toBeLessThan(on.indexOf("Get Pro"));
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_INTRO;
+      else process.env.CMUX_CLOUD_INTRO = previous;
+    }
+  });
+
   test("hides Go when the Go rollout is disabled", async () => {
     const previous = process.env.CMUX_TEST_GO_PLAN_DISABLED;
     process.env.CMUX_TEST_GO_PLAN_DISABLED = "1";
