@@ -13,7 +13,15 @@ autotests = false
 workspace = true
 
 [features]
-default = []
+# `tui`: the interactive terminal UI a person runs in a terminal (src/app.rs,
+# src/ui: the ratatui front end). On by default, so `cargo build -p cmux-tui` and
+# every downloadable cmux-tui (npm, PyPI, files.cmux.com) keep it. Built without
+# it (`--no-default-features`, CMUX-570) cmux-tui is everything the app and its
+# agents run (the daemon, the hosts, acpmux, the CLI); its TUI entries (bare
+# `cmux`, `cmux attach`, `cmux tui`) hand off to a downloaded cmux-tui
+# (src/tui_handoff.rs).
+default = ["tui"]
+tui = []
 iroh-transport = ["cmux-remote/iroh-transport"]
 # Windows only (cx-w0uha): build cmux-tui.exe as a thin launcher that loads
 # the whole program from cmux_tui.dll beside it. The DLL is the library

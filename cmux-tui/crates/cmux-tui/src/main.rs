@@ -5,6 +5,12 @@
 //! exposes the JSON control socket so external frontends can attach.
 //! `cmux-tui attach` connects the same TUI to an existing (usually
 //! headless) session over that socket, which is how detach/reattach works.
+// Without the `tui` feature (the app's bundled bin/cmux, CMUX-570) nothing
+// reaches the terminal UI (src/app.rs, src/ui): run_main hands interactive
+// starts to a downloaded cmux-tui (tui_handoff.rs) and run_tui_once refuses, so
+// the front end and what only it uses are unused there and the link drops them.
+// Every lint still runs on the default (`tui`) build.
+#![cfg_attr(not(feature = "tui"), allow(dead_code, unused_imports, unused_variables))]
 
 use cmux_json::JsonSet as _;
 
@@ -162,6 +168,7 @@ mod startup_env;
 mod test_exec;
 #[cfg(test)]
 mod test_wait;
+mod tui_handoff;
 mod ui;
 mod update_notice;
 mod usage_patterns_cli;
@@ -2268,11 +2275,37 @@ fn run_main() {
     // the foreground headless owner, on the one Args/run_server path: no second server launcher.
     cli::rewrite_deprecated_server_lifecycle(&mut raw_args);
     rewrite_server_start(&mut raw_args);
+    // `cmux tui install|path`, and `cmux tui [ARGS]`: the terminal UI as bare
+    // `cmux [ARGS]` runs it (tui_handoff.rs).
+    if raw_args.first().map(String::as_str) == Some("tui") {
+        match tui_handoff::parse(&raw_args[1..]) {
+            Ok(tui_handoff::TuiCommand::Install { manifest_url, force }) => {
+                client_log::exit(tui_handoff::install(&manifest_url, force));
+            }
+            Ok(tui_handoff::TuiCommand::Path) => client_log::exit(tui_handoff::print_path()),
+            Ok(tui_handoff::TuiCommand::Run(rest)) => raw_args = rest,
+            Err(error) => {
+                eprintln!("cmux: {error}");
+                client_log::exit(2);
+            }
+        }
+    }
     if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
         client_log::exit(cli::run(&raw_args, &usage()));
     }
+    // Built without the terminal UI (the app's bundled bin/cmux, CMUX-570): an
+    // interactive start (bare `cmux`, `cmux attach`, `cmux tui`) runs the
+    // downloaded cmux-tui with the same words; a headless owner runs here.
+    #[cfg(not(feature = "tui"))]
+    let handoff_args = raw_args.clone();
     let args = parse_args(raw_args);
+    #[cfg(not(feature = "tui"))]
+    if !args.headless {
+        discard_provider_secret_environment();
+        let words = handoff_args.into_iter().map(OsString::from).collect::<Vec<_>>();
+        client_log::exit(tui_handoff::run_downloaded(&words));
+    }
     cmux_tui_core::startup_timings::process_mark("process.args");
     #[cfg(unix)]
     let provider_token = CapturedProviderToken::capture();
@@ -3791,23 +3824,31 @@ fn run_tui_once(
     host_color_override: Option<cmux_tui_core::DefaultColors>,
     session_reconnector: Option<app::SessionReconnector>,
 ) -> anyhow::Result<app::RunOutcome> {
-    crossterm::terminal::enable_raw_mode()?;
-    let FrontendSessionPreparation { session, colors } =
-        prepare_frontend_session(session, config.terminal_defaults, || {
-            host_color_override.unwrap_or_else(host_colors::probe_default_colors)
-        });
-    crossterm::terminal::disable_raw_mode()?;
-    app::run_with_machine_updates(app::RunRequest {
-        session,
-        session_label,
-        default_colors: colors,
-        surface_only,
-        owner_mux,
-        machine_ui,
-        machine_controller,
-        startup_config: config,
-        session_reconnector,
-    })
+    // Without the terminal UI run_main handed every interactive start off first.
+    #[cfg(not(feature = "tui"))]
+    {
+        anyhow::bail!("{}", tui_handoff::missing_message())
+    }
+    #[cfg(feature = "tui")]
+    {
+        crossterm::terminal::enable_raw_mode()?;
+        let FrontendSessionPreparation { session, colors } =
+            prepare_frontend_session(session, config.terminal_defaults, || {
+                host_color_override.unwrap_or_else(host_colors::probe_default_colors)
+            });
+        crossterm::terminal::disable_raw_mode()?;
+        app::run_with_machine_updates(app::RunRequest {
+            session,
+            session_label,
+            default_colors: colors,
+            surface_only,
+            owner_mux,
+            machine_ui,
+            machine_controller,
+            startup_config: config,
+            session_reconnector,
+        })
+    }
 }
 
 fn usage_exit(msg: &str) -> ! {
