@@ -398,13 +398,13 @@ try {
             params?: Record<string, unknown>;
           };
           if (message.id === undefined) return;
-          ws.send(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              id: message.id,
-              result: answer(ws, message.method, message.params ?? {}),
-            }),
-          );
+          const result = answer(ws, message.method, message.params ?? {});
+          if (process.env.BENCH_LOG_ASKS) {
+            const p = message.params ?? {};
+            const n = (result as { events?: unknown[] } | null)?.events?.length;
+            console.log(`ASK ${Date.now()} ${message.method} ${String(p.sessionId ?? "").slice(-6)} pi=${p.promptIndex === true} before=${p.beforeSeq ?? "-"} n=${n ?? "-"}`);
+          }
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
         },
       },
     });
