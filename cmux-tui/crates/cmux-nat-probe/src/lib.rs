@@ -16,6 +16,23 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 /// RFC 5389's magic cookie.
 pub const STUN_MAGIC: u32 = 0x2112_A442;
 
+/// The `N` bytes of `buf` at `at`, or None when `buf` is too short.
+fn bytes_at<const N: usize>(buf: &[u8], at: usize) -> Option<[u8; N]> {
+    buf.get(at..at.checked_add(N)?)?.try_into().ok()
+}
+
+fn be_u16(buf: &[u8], at: usize) -> Option<u16> {
+    bytes_at(buf, at).map(u16::from_be_bytes)
+}
+
+fn be_u32(buf: &[u8], at: usize) -> Option<u32> {
+    bytes_at(buf, at).map(u32::from_be_bytes)
+}
+
+fn be_u64(buf: &[u8], at: usize) -> Option<u64> {
+    bytes_at(buf, at).map(u64::from_be_bytes)
+}
+
 /// A STUN Binding request with the given transaction id.
 #[must_use]
 pub fn stun_request(txid: [u8; 12]) -> [u8; 20] {
@@ -31,51 +48,47 @@ pub fn stun_request(txid: [u8; 12]) -> [u8; 20] {
 /// XOR-MAPPED-ADDRESS wins over MAPPED-ADDRESS when both are present.
 #[must_use]
 pub fn stun_mapped(buf: &[u8], txid: [u8; 12]) -> Option<SocketAddr> {
-    if buf.len() < 20 || u16::from_be_bytes([buf[0], buf[1]]) != 0x0101 {
+    if be_u16(buf, 0)? != 0x0101 || be_u32(buf, 4)? != STUN_MAGIC || bytes_at::<12>(buf, 8)? != txid {
         return None;
     }
-    if u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]) != STUN_MAGIC || buf[8..20] != txid {
-        return None;
-    }
-    let len = usize::from(u16::from_be_bytes([buf[2], buf[3]]));
-    let body = buf.get(20..20 + len)?;
+    let key: [u8; 16] = bytes_at(buf, 4)?;
+    let len = usize::from(be_u16(buf, 2)?);
+    let body = buf.get(20..20usize.checked_add(len)?)?;
     let mut plain = None;
-    let mut i = 0;
-    while i + 4 <= body.len() {
-        let kind = u16::from_be_bytes([body[i], body[i + 1]]);
-        let alen = usize::from(u16::from_be_bytes([body[i + 2], body[i + 3]]));
-        let value = body.get(i + 4..i + 4 + alen)?;
+    let mut rest = body;
+    while let (Some(kind), Some(alen)) = (be_u16(rest, 0), be_u16(rest, 2)) {
+        let alen = usize::from(alen);
+        let value = rest.get(4..4usize.checked_add(alen)?)?;
         match kind {
-            0x0020 => return decode_addr(value, Some(&buf[4..20])),
+            0x0020 => return decode_addr(value, Some(&key)),
             0x0001 => plain = decode_addr(value, None),
             _ => {}
         }
-        i += 4 + alen.div_ceil(4) * 4;
+        let step = alen.div_ceil(4).checked_mul(4)?.checked_add(4)?;
+        let Some(next) = rest.get(step..) else { break };
+        rest = next;
     }
     plain
 }
 
-fn decode_addr(value: &[u8], xor: Option<&[u8]>) -> Option<SocketAddr> {
-    if value.len() < 8 {
-        return None;
-    }
-    let mut port = u16::from_be_bytes([value[2], value[3]]);
-    let key = xor.unwrap_or(&[0u8; 16]);
+fn decode_addr(value: &[u8], xor: Option<&[u8; 16]>) -> Option<SocketAddr> {
+    let key = xor.copied().unwrap_or([0u8; 16]);
+    let mut port = be_u16(value, 2)?;
     if xor.is_some() {
-        port ^= u16::from_be_bytes([key[0], key[1]]);
+        port ^= be_u16(&key, 0)?;
     }
-    match value[1] {
+    match *value.get(1)? {
         0x01 => {
-            let mut ip = [0u8; 4];
-            for (k, b) in ip.iter_mut().enumerate() {
-                *b = value[4 + k] ^ key[k];
+            let mut ip: [u8; 4] = bytes_at(value, 4)?;
+            for (b, k) in ip.iter_mut().zip(key) {
+                *b ^= k;
             }
             Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip)), port))
         }
-        0x02 if value.len() >= 20 => {
-            let mut ip = [0u8; 16];
-            for (k, b) in ip.iter_mut().enumerate() {
-                *b = value[4 + k] ^ key[k];
+        0x02 => {
+            let mut ip: [u8; 16] = bytes_at(value, 4)?;
+            for (b, k) in ip.iter_mut().zip(key) {
+                *b ^= k;
             }
             Some(SocketAddr::new(IpAddr::V6(Ipv6Addr::from(ip)), port))
         }
@@ -125,25 +138,20 @@ impl Packet {
     /// A packet of this session, or None (a stray datagram, another run's token).
     #[must_use]
     pub fn decode(buf: &[u8], token: u64) -> Option<Self> {
-        if buf.len() != PACKET_LEN || buf[0..4] != PROBE_MAGIC {
+        if buf.len() != PACKET_LEN || bytes_at::<4>(buf, 0)? != PROBE_MAGIC {
             return None;
         }
-        let kind = match buf[4] & 0x7f {
-            1 => Kind::Punch { heard: buf[4] & 0x80 != 0 },
+        let k = *buf.get(4)?;
+        let kind = match k & 0x7f {
+            1 => Kind::Punch { heard: k & 0x80 != 0 },
             2 => Kind::Ping,
             3 => Kind::Pong,
             _ => return None,
         };
-        let got = u64::from_be_bytes(buf[5..13].try_into().ok()?);
-        if got != token {
+        if be_u64(buf, 5)? != token {
             return None;
         }
-        Some(Self {
-            kind,
-            token,
-            seq: u32::from_be_bytes(buf[13..17].try_into().ok()?),
-            sent_us: u64::from_be_bytes(buf[17..25].try_into().ok()?),
-        })
+        Some(Self { kind, token, seq: be_u32(buf, 13)?, sent_us: be_u64(buf, 17)? })
     }
 }
 
@@ -156,7 +164,7 @@ pub fn quantile(samples: &[f64], q: f64) -> Option<f64> {
     let mut v = samples.to_vec();
     v.sort_by(f64::total_cmp);
     let rank = (q * v.len() as f64).ceil().max(1.0) as usize;
-    Some(v[rank.min(v.len()) - 1])
+    v.get(rank.min(v.len()).saturating_sub(1)).copied()
 }
 
 /// Whether an address is worth offering as a candidate: not loopback, not unspecified, not
@@ -168,7 +176,7 @@ pub fn usable_candidate(addr: &SocketAddr) -> bool {
         return false;
     }
     match ip {
-        IpAddr::V6(v6) => (v6.segments()[0] & 0xffc0) != 0xfe80,
+        IpAddr::V6(v6) => !v6.is_unicast_link_local(),
         IpAddr::V4(_) => true,
     }
 }
