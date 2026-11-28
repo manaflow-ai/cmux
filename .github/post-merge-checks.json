@@ -270,6 +270,10 @@
       "kind": "publish",
       "why": "a probe of a published NIGHTLY: reads the Auto/Cloud MVP back in the app on the build fleet"
     },
+    "chat-move-nightly-readback.yml": {
+      "kind": "publish",
+      "why": "a probe of a published NIGHTLY: moves a chat Local/Cloud/AutoCloud by the CLI on the build fleet and times it"
+    },
     "cmux-next-web-perf.yml": {
       "kind": "publish",
       "why": "a manual measurement entry point; the push on its own path only registers it for dispatch"

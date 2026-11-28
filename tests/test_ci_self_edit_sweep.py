@@ -125,9 +125,9 @@ class TheGatedJourneys(unittest.TestCase):
                     needs = job.get("needs")
                     self.assertIn("self-edit", [needs] if isinstance(needs, str) else needs)
                     cond = job.get("if", "")
-                    # The gate's answer comes first; the job's own conditions (a scope hit, the event) follow.
-                    self.assertTrue(cond.startswith("${{ !cancelled() && needs.self-edit.outputs.run != 'false' && "),
-                                    cond)
+                    # The gate's answer is ANDed in ahead of the job's own conditions (a scope hit, the event);
+                    # a heavy-at-land event filter may wrap it (migrate-journey-pr.yml, #64396).
+                    self.assertIn("!cancelled() && needs.self-edit.outputs.run != 'false' && ", cond)
 
     def test_the_gate_workflow_is_call_only_and_reads_the_switch(self) -> None:
         doc = yaml.safe_load((WORKFLOWS / "self-edit-sweep.yml").read_text())
