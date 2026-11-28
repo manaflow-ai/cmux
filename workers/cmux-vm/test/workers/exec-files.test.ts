@@ -151,6 +151,21 @@ describe("execVm", () => {
     expect(body).toEqual({ exitCode: 4, stdout: "", stderr: "late" });
   });
 
+  it("waits out a provider overload: nine failed polls in a row, then the stored answer", async () => {
+    // Rebake 45960390204 (2026-11-27): Freestyle answered 503 to every poll for 9 min while the command ran on.
+    // Five failed polls in a row lost the command; failures now back off until none answered for the outage window.
+    const t = await harness();
+    const { vmId } = t.addVm(TENANT_A);
+    const key = await t.addKey(TENANT_A, ["vm:exec"]);
+    const id = t.upstream.longExec("overloaded", () => Response.json({ statusCode: 0, stdout: "ran\n", stderr: "" }), 0);
+    t.upstream.backgroundAnswers(id, ...Array.from({ length: 9 }, () => () => new Response("busy", { status: 503 })));
+
+    const body: unknown = await (await exec(t, key, vmId, { command: "overloaded", timeoutMs: 200_000 })).json();
+
+    expect(body).toEqual({ exitCode: 0, stdout: "ran\n", stderr: "" });
+    expect(t.upstream.callsTo("POST", /exec-await$/)).toHaveLength(1);
+  });
+
   it("answers a background exec's stored refusal as the provider's status", async () => {
     const t = await harness();
     const { vmId } = t.addVm(TENANT_A);
