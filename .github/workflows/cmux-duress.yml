@@ -55,6 +55,9 @@ env:
 jobs:
   duress:
     name: cmux-duress tests, bench and scenarios
+    # A feat-cmux-next push saves the cargo build to R2; only next-cache-writer holds the write credentials, and its
+    # deployment branches are feat-cmux-next only (tests/test_ci_pull_request_caches_are_read_only.py).
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # A cold build of cmux-duress with ghostty-vt and cmux-agent-cli-render, debug and release, plus the bench
     # and the scenarios; a warm cache leaves most of this unused.
@@ -64,6 +67,7 @@ jobs:
       # The previous feat-cmux-next push's scenario lines (one run list, one artifact download).
       actions: read
     env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       GHOSTTY_ZIG_SOURCE: ghostty-next
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -112,25 +116,19 @@ jobs:
         if: steps.crate.outputs.have == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
-      # The cargo cache setup of cmux-tui.yml's test job, under its own key (this job builds one package, debug
-      # and release, not the workspace). Saved only from a feat-cmux-next push; every run restores it.
-      # Keyed on the toolchain and the UTC day, not cmux-tui/Cargo.lock (24 changes in the 24 h to 2026-11-28
-      # 02:30Z, each one a new entry in the 10 GB GitHub cache that evicts the rest): one save a day.
-      - name: Day of the target-dir cache
-        id: rust-day
-        if: steps.crate.outputs.have == 'true'
-        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo build
-        if: steps.crate.outputs.have == 'true'
+      # cmux-duress's own target dir (one package, debug and release, not the workspace).
+      # In R2 (.github/actions/cargo-build-r2), not the 10 GB GitHub cache: that store churned ~10 GB/h on 2026-11-28
+      # and kept nothing unread past ~35 min, so this entry was evicted before most runs read it. Keyed on the
+      # toolchain and every Cargo.lock; a miss restores the newest entry, and a failed restore is a cold build.
+      - name: Restore the cargo build from R2
         id: cargo-cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: steps.crate.outputs.have == 'true'
+        continue-on-error: true
+        timeout-minutes: 6
+        uses: ./.github/actions/cargo-build-r2
         with:
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
-          add-rust-environment-hash-key: false
-          cache-bin: false
-          workspaces: cmux-tui -> target
-          shared-key: cmux-duress-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          mode: restore
+          name: cmux-duress-linux
 
       - name: Report cargo cache hit
         if: steps.crate.outputs.have == 'true'
@@ -159,6 +157,21 @@ jobs:
             echo
             cat "$RUNNER_TEMP/duress-bench.md"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Only a feat-cmux-next push writes it; the next-cache-writer environment holds the R2 credentials.
+      - name: Save the cargo build to R2
+        if: ${{ !cancelled() && steps.crate.outputs.have == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        timeout-minutes: 8
+        uses: ./.github/actions/cargo-build-r2
+        with:
+          mode: save
+          name: cmux-duress-linux
+          restored: ${{ steps.cargo-cache.outputs.cache-hit }}
+          registry-restored: ${{ steps.cargo-cache.outputs.registry-hit }}
+          access-key-id: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          account-id: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID }}
 
       - name: Build the cmux-duress binary
         if: steps.crate.outputs.have == 'true'
