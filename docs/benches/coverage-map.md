@@ -119,6 +119,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `launch-premain` | launch | n/a | no |
 | `launch-reboot` | launch | n/a | no |
 | `local-chat` | agent chat | one chat | no |
+| `localization-discovery` | localization | checkout source | no |
 | `mcp-fanout` | agents | N chats | no |
 | `mobile-flows` | iOS | per flow | no |
 | `newtab` | tabs | idle and loaded | no |
@@ -126,6 +127,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `pane-compile` | agent pane web | n/a | no |
 | `pane-resize-drag` | agent chat web | 200-2,000 turns | no |
 | `persona-walk` | first run | fresh install | no |
+| `phone-speed` | iOS | 100 and 10,000 terminal lines | yes (`phone-speed-icount`) |
 | `post-update` | update | n/a | no |
 | `projection-scale` | cloud | N files | no |
 | `projection-way-back` | cloud | N files | no |
@@ -185,6 +187,7 @@ whether it fails on a number.
 | `LayoutDragBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LayoutDragBench.swift` | `CMUX_DRAG_BENCH` | no |
 | `LinkSmoothnessBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LinkSmoothnessBenchTests.swift` | none | yes |
 | `MainTaskRecordBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/MainTaskRecordBench.swift` | `CMUX_MAIN_TASK_RECORD_BENCH` | no |
+| `MachineWorkspaceResourceLookupBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MachineWorkspaceResourceLookupBenchTests.swift` | none | yes |
 | `MobileBenchFlowsUITests` | `cmux-next-ios/UITests/MobileBenchFlowsUITests.swift` | `mobile-flows` harness | no |
 | `OmnibarOpenTabsPerKeyBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OmnibarOpenTabsPerKeyTests.swift` | `CMUX_OMNIBAR_TABS_BENCH` | no |
 | `OmniboxPhaseABenchmarkTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/OmniboxPhaseABenchmarkTests.swift` | none | p99 under 8-10 ms |
