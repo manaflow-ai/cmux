@@ -66,7 +66,8 @@ jobs:
   phones:
     name: The last 3 TestFlight phone builds
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # resolve may wait up to 20 min for the token quota to reset (RESET_WAIT_MAX_S in mobile_old_phones.py).
+    timeout-minutes: 30
     permissions:
       contents: read
       actions: read
@@ -81,12 +82,22 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      # The repo token's hourly quota is shared by every workflow and runs out (46116606886, 46125947911):
+      # resolve then answers with the last list it read, carried here between runs. The cmux-linux cache is per
+      # host (46137212890 saved its list on one host; 46141489174, on another, found nothing), so without one it waits for the reset.
+      - name: The last phone list read
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .old-phones-list
+          key: mobile-old-phones-list-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: mobile-old-phones-list-
       - id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
           API: ${{ inputs.api || 'both' }}
         run: |
-          python3 -I scripts/ci/mobile_old_phones.py resolve --repo "$GITHUB_REPOSITORY" --count 3 > phones.txt
+          python3 -I scripts/ci/mobile_old_phones.py resolve --repo "$GITHUB_REPOSITORY" --count 3 \
+            --cache .old-phones-list/phones.txt > phones.txt
           cat phones.txt
           for i in 1 2 3; do echo "sha$i=$(awk -v n="$i" 'NR==n {print $1}' phones.txt)" >> "$GITHUB_OUTPUT"; done
           echo "list=$(awk '{print $1 ":" $3}' phones.txt | paste -sd' ' -)" >> "$GITHUB_OUTPUT"
@@ -94,6 +105,12 @@ jobs:
             staging|prod) echo "apis=[\"$API\"]" >> "$GITHUB_OUTPUT" ;;
             *) echo 'apis=["staging","prod"]' >> "$GITHUB_OUTPUT" ;;
           esac
+      - name: Keep this phone list for the next run
+        if: ${{ steps.resolve.outputs.fresh == 'true' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .old-phones-list
+          key: mobile-old-phones-list-${{ github.run_id }}-${{ github.run_attempt }}
 
   dial:
     name: Shipped iPhones vs ${{ matrix.api }} API

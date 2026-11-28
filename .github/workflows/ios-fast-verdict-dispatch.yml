@@ -1,4 +1,7 @@
 name: ios fast verdict dispatch
+# One title per PR and head: the parallel-run detector keys a dispatch run by its title, so a recovery sweep over many
+# PRs reads as distinct targets, while the same PR dispatched again still groups.
+run-name: ios fast verdict dispatch PR ${{ inputs.pr }} at ${{ inputs.sha }}
 
 # The supported recovery for a `cmux/ios-fast` pending whose answering run died (the class: a status left pending
 # forever when its publisher crashed). pr-router.yml's route posts the pending and its ios-fast-status job answers

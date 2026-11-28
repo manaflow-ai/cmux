@@ -31,7 +31,7 @@ import {
   rememberResolvedDefault,
   resolvedModel,
 } from "./defaultChoice";
-import { loadLastChips, rememberLastChips } from "./chipMemory";
+import { type ChipPlace, lastChipsKey, loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
 import { useComposerContribution } from "./composer/extensionCommands";
 import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
@@ -959,7 +959,17 @@ export function ComposerPickers({
   const effortChoice = efforts.find((choice) => choice.id === effortValue);
   const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
   // Another chat's chips are no guess for an opened chat that ran before (opensListed).
-  const lastChips = awaiting && chipHarness && !opensListed ? loadLastChips()[chipHarness] : undefined;
+  // This Mac's chats and Cloud's keep their own (chipMemory.ts): a new chat starting on a Cloud
+  // machine draws what Cloud chats last showed, never this Mac's. A chat on another Mac keeps none.
+  const chipPlace: ChipPlace | undefined = onCloud
+    ? "cloud"
+    : snapshot.origin === "remote" || snapshot.origin === "peer" || summary?.peer || summary?.host
+      ? undefined
+      : "local";
+  const lastChips =
+    awaiting && chipHarness && !opensListed && chipPlace
+      ? loadLastChips()[lastChipsKey(chipHarness, chipPlace)]
+      : undefined;
   // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
   // level acpmux starts it on (`_acpmux/harnesses` start).
   // An opened chat that ran before names the level its listed row reports, never a start level.
@@ -1273,9 +1283,9 @@ export function ComposerPickers({
     };
   });
   useEffect(() => {
-    if (!awaiting && chipHarness && summary?.sessionId && effortShown)
-      rememberLastChips(chipHarness, { effort: effortShown });
-  }, [awaiting, chipHarness, summary?.sessionId, effortShown]);
+    if (!awaiting && chipHarness && chipPlace && summary?.sessionId && effortShown)
+      rememberLastChips(chipHarness, { effort: effortShown }, chipPlace);
+  }, [awaiting, chipHarness, chipPlace, summary?.sessionId, effortShown]);
   // The controls row's short forms (composerRowFit.ts): the model's name without its vendor
   // ("Opus 5.5": the catalog's short name, else the name less its harness's vendor word), its
   // family for a narrow row ("Opus"), and the effort level's short name ("Med").
