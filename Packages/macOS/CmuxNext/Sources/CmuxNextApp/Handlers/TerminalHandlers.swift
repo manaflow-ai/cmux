@@ -20,8 +20,8 @@ enum TerminalHandlers {
         TerminalHandlers.bindFind(into: registry, context: ctx)
         TerminalHandlers.bindInput(into: registry, context: ctx)
         bindKeep(registry, ctx)
-        bindPinTail(registry, ctx)
-        bindNotifyWhenDone(registry, ctx)
+        bindDaemonToggle(registry, ctx, "terminal.pinTail", .terminalTailPin, "set-terminal-tail-pin") { _ = try await $0.setTerminalTailPin(.surface($1), pinned: $2) }
+        bindDaemonToggle(registry, ctx, "terminal.notifyWhenDone", .terminalNotifyWhenDone, "set-terminal-notify-when-done") { _ = try await $0.setTerminalNotifyWhenDone(.surface($1), on: $2) }
         bindCopyMode(registry, ctx)
         TextBoxHandlers.bind(into: registry, context: ctx)
         bindComments(into: registry, context: ctx)
@@ -132,32 +132,15 @@ enum TerminalHandlers {
         })
     }
 
-    /// Show Last Line in Sidebar, `terminal pin-tail on|off`: the tab's terminal's last output line
-    /// under its workspace in the sidebar (`terminal-tail-pin-v1`); off clears it.
-    private static func bindPinTail(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bindEffect("terminal.pinTail", unavailable: ctx.needs(DaemonCapability.terminalTailPin.rawValue), effect: { invocation in
+    /// An `on|off` hold on the tab's terminal that only the daemon keeps and acts on: Show Last Line in Sidebar (`terminal pin-tail`, `terminal-tail-pin-v1`, the line under its workspace) and Notify When Command Finishes (`terminal notify-when-done`, `terminal-notify-when-done-v1`, one notification when its next shell command finishes).
+    private static func bindDaemonToggle(_ registry: ActionRegistry, _ ctx: AppActionContext, _ id: ActionID, _ capability: DaemonCapability, _ command: String, _ set: @escaping @MainActor (DaemonConnection, SurfaceID, Bool) async throws -> Void) {
+        registry.bindEffect(id, unavailable: ctx.needs(capability.rawValue), effect: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return .done }
             guard tab.kind == .pty else { return .refused(RefusalStrings.notATerminal) }
             guard let connection = ctx.connection() else { return .done }
-            let pinned = invocation["on"]?.boolValue ?? true, surface = tab.surface
-            // action-wait-allow: the pin lives only in the daemon's terminal, which draws the line; the app keeps no copy to show first
-            return .waiting(.daemonEcho) {
-                do { _ = try await connection.setTerminalTailPin(.surface(surface), pinned: pinned); return nil } catch { return ActionWorkFailure("set-terminal-tail-pin", error) }
-            }
-        })
-    }
-
-    /// Notify When Command Finishes, `terminal notify-when-done on|off`: one notification when the tab's
-    /// terminal's next shell command finishes (`terminal-notify-when-done-v1`); off disarms it.
-    private static func bindNotifyWhenDone(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bindEffect("terminal.notifyWhenDone", unavailable: ctx.needs(DaemonCapability.terminalNotifyWhenDone.rawValue), effect: { invocation in
-            guard let (tab, _) = ctx.daemonTab(invocation) else { return .done }
-            guard tab.kind == .pty else { return .refused(RefusalStrings.notATerminal) }
-            guard let connection = ctx.connection() else { return .done }
-            let on = invocation["on"]?.boolValue ?? true, surface = tab.surface
-            // action-wait-allow: the watch lives only in the daemon's terminal, which posts the notification; the app keeps no copy
-            return .waiting(.daemonEcho) {
-                do { _ = try await connection.setTerminalNotifyWhenDone(.surface(surface), on: on); return nil } catch { return ActionWorkFailure("set-terminal-notify-when-done", error) }
+            // action-wait-allow: the hold lives only in the daemon's terminal, which draws the line or posts the notification; the app keeps no copy
+            return .waiting(.daemonEcho) { [on = invocation["on"]?.boolValue ?? true, surface = tab.surface] in
+                do { try await set(connection, surface, on); return nil } catch { return ActionWorkFailure(command, error) }
             }
         })
     }

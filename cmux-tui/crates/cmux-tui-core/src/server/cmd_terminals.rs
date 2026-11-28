@@ -279,13 +279,21 @@ pub(super) fn set_terminal_tail_pin(
     Ok(json!({ "terminal": terminal.as_str(), "pinned": pinned }))
 }
 
-/// `set-terminal-notify-when-done`: arms or disarms the one-shot watch that
-/// posts one notification when the terminal's next shell command finishes.
-pub(super) fn set_terminal_notify_when_done(
-    mux: &Arc<Mux>,
+/// `set-terminal-notify-when-done`: arm (`on: true`) or disarm one terminal's
+/// one-shot command-finish watch (`terminal-notify-when-done-v1`), named by
+/// exactly one of a PTY `surface` or a public `terminal` (`term_`) id.
+#[derive(serde::Deserialize)]
+pub(super) struct NotifyWhenDone {
+    #[serde(default)]
     surface: Option<SurfaceId>,
+    #[serde(default)]
     terminal: Option<String>,
     on: bool,
+}
+
+pub(super) fn set_terminal_notify_when_done(
+    mux: &Arc<Mux>,
+    NotifyWhenDone { surface, terminal, on }: NotifyWhenDone,
 ) -> anyhow::Result<Value> {
     let surface = match (surface, terminal) {
         (Some(surface), None) => surface,

@@ -103,7 +103,7 @@ impl Command {
             Self::SetTerminalIdlePolicy { .. } => "set-terminal-idle-policy",
             Self::SetTerminalKeep { .. } => "set-terminal-keep",
             Self::SetTerminalTailPin { .. } => "set-terminal-tail-pin",
-            Self::SetTerminalNotifyWhenDone { .. } => "set-terminal-notify-when-done",
+            Self::SetTerminalNotifyWhenDone(_) => "set-terminal-notify-when-done",
             Self::TerminalResumeCommand { .. } => "terminal-resume-command",
             Self::TerminalLastCommand { .. } => "terminal-last-command",
             Self::TerminalCommandContext { .. } => "terminal-command-context",
