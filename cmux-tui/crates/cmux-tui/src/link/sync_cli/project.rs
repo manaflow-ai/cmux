@@ -32,6 +32,7 @@
 //!     cmux link project pins --socket S --at REMOTE FOLDER
 //!     cmux link project enable | disable | status
 //!     cmux link project sync-back off | on | status FOLDER   (RFD 0211, [`super::sync_back`])
+//!     cmux link project read-only on | off | status FOLDER   (RFD 0211: mounts with no upper layer)
 
 use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Write as _};
@@ -194,7 +195,7 @@ const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--na
                      REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
                      archived|deleted] | detach --socket S --at REMOTE [--name NAME] [--chat ID] FOLDER | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
                      REMOTE FOLDER PATH | pins --socket S --at REMOTE FOLDER | enable | disable | status | \
-                     moves on|off | sync-back off|on|status FOLDER";
+                     moves on|off | sync-back off|on|status FOLDER | read-only on|off|status FOLDER";
 
 /// `cmux link project ...`: one JSON line on stdout, exit 0 on success.
 pub(crate) fn run(args: &[String]) -> i32 {
@@ -215,6 +216,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         },
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("sync-back") => super::sync_back::command(args.get(1..).unwrap_or_default()),
+        Some("read-only") => super::sync_back::read_only_command(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
         Some("detach") => super::project_back::detach_command(args.get(1..).unwrap_or_default()),
@@ -1051,6 +1053,13 @@ fn ask(
         // The folder on this Mac: the machine names it in its mount table, for the agent.
         object.insert("from".into(), json!(from));
     }
+    // RFD 0211: a read-only folder (policy or this Mac's list) mounts with no upper layer.
+    let read_only = SERVED_FOLDER
+        .get()
+        .is_some_and(|from| super::sync_back::read_only(Path::new(from)).is_some());
+    if let (true, Some(object)) = (read_only, line.as_object_mut()) {
+        object.insert("read_only".into(), json!(true));
+    }
     if let (Some(revision), Some(object)) = (revision, line.as_object_mut()) {
         // The listing is in the store: the machine fetches it from there by this reference.
         object.insert("revision".into(), revision.clone());
@@ -1079,7 +1088,28 @@ fn ask(
     reader.get_ref().set_write_timeout(Some(cmux_projection::link::MAC_IDLE))?;
     let answer: Value = serde_json::from_str(answer.trim())
         .with_context(|| format!("the machine answered {answer:?}"))?;
+    read_only_kept(read_only, &answer)?;
     Ok((reader, answer))
+}
+
+/// The error code when a read-only folder's machine mounted it writable (a daemon older than
+/// RFD 0211's `"read_only"` serve field ignores it).
+pub(crate) const READ_ONLY_UNSUPPORTED: &str = "projection.read_only_unsupported";
+
+/// `Err` when `read_only` was asked and the machine's mount answer does not say it is: the server
+/// stops serving rather than feed a writable mount of a folder that must stay read-only.
+pub(crate) fn read_only_kept(read_only: bool, answer: &Value) -> anyhow::Result<()> {
+    let mounted = answer.get("ok").and_then(Value::as_bool) == Some(true);
+    if read_only
+        && mounted
+        && answer.pointer("/data/read_only").and_then(Value::as_bool) != Some(true)
+    {
+        bail!(
+            "{READ_ONLY_UNSUPPORTED}: the machine mounted this read-only folder writable; update its \
+             cmux before projecting it"
+        );
+    }
+    Ok(())
 }
 
 /// The folder as the copy lists it ([`local::listed`], no cap), with every file's size and

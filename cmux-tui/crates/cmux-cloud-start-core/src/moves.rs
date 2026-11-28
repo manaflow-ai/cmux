@@ -21,5 +21,6 @@ pub mod progress;
 pub mod seed;
 pub mod session_transfer;
 pub mod settle;
+pub mod sync_back;
 pub mod targets;
 pub mod wait;

@@ -44,12 +44,12 @@ struct CloudBringBack {
     typealias Failure = CloudMove.Failure
     let services: AppServices
 
-    /// The tab and chat menus' rows to hide: Bring Back Local unless the chat runs on a machine
-    /// that a move from this Mac put it on.
+    /// The tab and chat menus' rows to hide: Bring Back Local unless a move from this Mac put the chat on its machine
+    /// and its folder here takes changes back (RFD 0211: ``CloudMovedChats/syncBackOff(_:)``; Move to Another Machine stays).
     static func hiddenMenuItems(_ record: AgentSessionRef?, movedChats: CloudMovedChats?) -> Set<ActionID> {
         guard let record, record.host.hasPrefix(MachineRegistry.registryHostPrefix), let session = record.session,
-              movedChats?.entry(host: record.host, session: session) != nil else { return [action, toMachine] }
-        return []
+              let movedChats, let entry = movedChats.entry(host: record.host, session: session) else { return [action, toMachine] }
+        return movedChats.syncBackOff(entry.localRoot) ? [action] : []
     }
 
     /// Starts bringing back the invocation's machine chat tab. Throws, before anything moves,

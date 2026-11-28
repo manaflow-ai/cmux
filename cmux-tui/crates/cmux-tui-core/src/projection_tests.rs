@@ -562,6 +562,7 @@ fn detach_draining_a_write_does_not_seal_a_replacement() {
         Arc::new(Projected {
             link: Arc::new(cmux_projection::link::Link::default()),
             digest: AtomicU64::new(0),
+            read_only: false,
             at: at.clone(),
             mounted: Mutex::new(None),
             overlay: Arc::new(
@@ -659,6 +660,7 @@ fn detach_times_out_without_unmounting_or_losing_an_admitted_copy_up() {
     let projected = Arc::new(Projected {
         link: Arc::new(cmux_projection::link::Link::default()),
         digest: AtomicU64::new(0),
+        read_only: false,
         at: at.clone(),
         mounted: Mutex::new(None),
         overlay: Arc::new(
@@ -757,6 +759,7 @@ fn an_extend_finishing_after_detach_does_not_refresh_the_removed_or_replacement_
             Arc::new(Projected {
                 link: Arc::new(cmux_projection::link::Link::default()),
                 digest: AtomicU64::new(0),
+                read_only: false,
                 at: at.clone(),
                 mounted: Mutex::new(None),
                 overlay: Arc::new(
@@ -1032,6 +1035,7 @@ fn pin_unpin_and_pins_answer_the_mounted_overlay_and_its_status() {
     let projected = Arc::new(Projected {
         link,
         digest: AtomicU64::new(0),
+        read_only: false,
         at: home.path().join("at"),
         mounted: Mutex::new(None),
         overlay: Arc::new(overlay),
@@ -1200,4 +1204,18 @@ fn the_bulk_copy_runs_unless_turned_off_and_its_log_line_says_why_it_ended() {
     report.full = false;
     report.away = true;
     assert!(super::bulk_copy_line(&report, took).starts_with("stopped: the Mac went away"));
+}
+
+/// RFD 0211: a Mac asks for a read-only projection with `"read_only": true`; a Mac that says
+/// nothing mounts with an upper layer, as before.
+#[test]
+fn a_serve_line_asks_for_read_only_and_defaults_to_writable() {
+    let asked: ServeLine = serde_json::from_value(json!({
+        "cmd": SERVE, "name": "n", "at": "/w", "read_only": true,
+    }))
+    .unwrap();
+    assert!(asked.read_only);
+    let plain: ServeLine =
+        serde_json::from_value(json!({"cmd": SERVE, "name": "n", "at": "/w"})).unwrap();
+    assert!(!plain.read_only);
 }

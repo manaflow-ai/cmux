@@ -200,6 +200,11 @@ struct ServeLine {
     /// ([`fsname_for`]), so the agent's `this_folder` tool can say which Mac folder it mirrors.
     #[serde(default)]
     from: Option<String>,
+    /// RFD 0211, read-only projection: mount with no upper layer, so every write in the folder
+    /// answers `EROFS` and nothing the machine does is there to come back. The answer says
+    /// `"read_only": true` once it is; a machine that answers without it ignored this field.
+    #[serde(default)]
+    read_only: bool,
 }
 
 /// A revision in the person's store, and the read grant to fetch it with.
@@ -419,6 +424,8 @@ struct Projected {
     /// extend, the full manifest's.
     digest: AtomicU64,
     at: PathBuf,
+    /// Mounted with no upper layer ([`ServeLine::read_only`]).
+    read_only: bool,
     /// What the mount serves: its pins are read and changed here.
     #[cfg(target_os = "linux")]
     overlay: Arc<cmux_projection::overlay::Overlay>,
@@ -1376,11 +1383,13 @@ fn attach(
     }
     let existing = existing.filter(|projected| projected.at == at);
     if let Some(projected) = existing.filter(|projected| {
-        encoded.is_empty() || projected.digest.load(Ordering::Relaxed) == digest
+        (encoded.is_empty() || projected.digest.load(Ordering::Relaxed) == digest)
+            && projected.read_only == line.read_only
     }) {
         attached_in(&state, &at);
         drop(table);
-        return Ok((projected.clone(), with_pins(json!({"at": at, "attached": true}), &projected)));
+        let data = json!({"at": at, "attached": true, "read_only": projected.read_only});
+        return Ok((projected.clone(), with_pins(data, &projected)));
     }
     drop(table);
     let mut from_store = None;
@@ -1413,6 +1422,7 @@ fn attach(
         "bytes": bytes,
         "mount_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         "revision_ms": from_store,
+        "read_only": projected.read_only,
     });
     Ok((projected.clone(), with_pins(data, &projected)))
 }
@@ -1630,15 +1640,21 @@ fn mount(
     let replay = std::env::var_os("CMUX_PROJECTION_REPLAY").is_none_or(|value| value != "0");
     let overlay = if replay { overlay.with_replay("start") } else { overlay };
     let overlay = Arc::new(overlay);
-    let named =
-        cmux_projection::mount::Options { fsname: Some(fsname_for(from)), ..Default::default() };
+    let read_only = line.read_only;
+    let named = cmux_projection::mount::Options {
+        read_only,
+        fsname: Some(fsname_for(from)),
+        ..Default::default()
+    };
     let mounted = match cmux_projection::mount::mount_with(overlay.clone(), at, named) {
         Ok(mounted) => Ok(mounted),
         // The Mac folder's name in the mount table is a label only: a mount that refuses it
         // mounts as before, under the plain name.
         Err(error) if from.is_some() => {
             eprintln!("cmux-tui: projection {name}: mounting with its Mac folder named: {error:#}");
-            cmux_projection::mount::mount(overlay.clone(), at)
+            // Still read-only when asked: the label is what goes, never the guard.
+            let plain = cmux_projection::mount::Options { read_only, ..Default::default() };
+            cmux_projection::mount::mount_with(overlay.clone(), at, plain)
         }
         Err(error) => Err(error),
     }
@@ -1687,6 +1703,7 @@ fn mount(
         link,
         digest: AtomicU64::new(digest),
         at: at.to_path_buf(),
+        read_only,
         overlay: overlay.clone(),
         ext: Mutex::new(None),
         barrier: Mutex::new(None),
