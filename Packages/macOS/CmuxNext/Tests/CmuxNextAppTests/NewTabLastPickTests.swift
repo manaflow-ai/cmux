@@ -44,10 +44,41 @@ struct NewTabLastPickTests {
         ])
     }
 
-    /// Cloud keeps its own pick (agent, model, level), apart from This Mac's (model-picker-local-cloud-state):
-    /// a Cloud pick never changes This Mac's last agent or picks, a pick on This Mac never changes Cloud's,
-    /// both outlive a relaunch, and `newTab.cloudPick` answers Cloud's for a chat page with no New Tab context.
-    @Test func cloudKeepsItsOwnPickApartFromThisMacs() async throws {
+    /// Cloud keeps its own last pick, apart from this Mac's (Austin, 2026-11-27: "We should store a state for
+    /// the local models and a different state for the cloud+autocloud"): a pick sent with `place: "cloud"`
+    /// changes neither this Mac's last agent nor its picks, outlives a relaunch, and rides in `lastPicks.cloud`.
+    @Test func aCloudPickIsKeptApartFromThisMacsPick() async throws {
+        let suite = "NewTabLastPickTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let memory = NewTabChoiceMemory(defaults: defaults)
+        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        model.onRememberNewTab = { memory.remember($0) }
+        _ = await Self.remember(model, ["agent": "claude", "model": "claude-opus-5-5", "folder": "/work/a"])
+        _ = await Self.remember(model, ["agent": "codex", "model": "gpt-6-astra", "place": "cloud"])
+        // A Cloud pick naming no model keeps Cloud's model on that agent.
+        _ = await Self.remember(model, ["agent": "codex", "place": "cloud"])
+
+        let relaunched = NewTabChoiceMemory(defaults: defaults)
+        #expect(relaunched.agent == "claude")
+        #expect(relaunched.picks?.global == .init(harness: "claude", model: "claude-opus-5-5"))
+        #expect(relaunched.picks?.folders == [.init(folder: "/work/a", harness: "claude", model: "claude-opus-5-5")])
+        #expect(relaunched.picks?.cloud == .init(harness: "codex", model: "gpt-6-astra"))
+        let page = AgentPaneNewTab(kind: .agent, lastAgent: relaunched.agent, lastPicks: relaunched.picks)
+        let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any])
+        let picks = try #require(json["lastPicks"] as? [String: Any])
+        #expect(picks["cloud"] as? [String: String] == ["harness": "codex", "model": "gpt-6-astra"])
+
+        // A picks blob kept before Cloud had its own decodes with none.
+        let old = #"{"global":{"harness":"claude","model":"default"},"folders":[]}"#
+        let decoded = try JSONDecoder().decode(AgentPaneLastPicks.self, from: Data(old.utf8))
+        #expect(decoded.cloud == nil)
+    }
+
+    /// Cloud's pick carries its level (model-picker-local-cloud-state): a level comes back with its model,
+    /// a model pick on the same agent keeps it, another agent drops it, and `newTab.cloudPick` answers the
+    /// whole pick for a chat page with no New Tab context. This Mac's pick carries none.
+    @Test func cloudsPickKeepsItsLevelAndAnswersAChatPage() async throws {
         let suite = "NewTabLastPickTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -56,39 +87,22 @@ struct NewTabLastPickTests {
         model.onRememberNewTab = { memory.remember($0) }
         model.cloudAgentPick = { memory.cloudAgent }
         model.cloudPick = { nil }
-        _ = await Self.remember(model, ["agent": "claude", "model": "claude-opus-5-5", "folder": "/work/a"])
-        _ = await Self.remember(model, ["side": "cloud", "agent": "codex", "model": "gpt-6.1-sol", "effort": "high"])
-        // This Mac's pick is as it was.
-        #expect(memory.agent == "claude")
+        _ = await Self.remember(model, ["agent": "claude", "model": "claude-opus-5-5", "effort": "low"])
+        _ = await Self.remember(model, ["agent": "codex", "model": "gpt-6.1-sol", "effort": "high", "place": "cloud"])
         #expect(memory.picks?.global == .init(harness: "claude", model: "claude-opus-5-5"))
         #expect(memory.cloudAgent == .init(harness: "codex", model: "gpt-6.1-sol", effort: "high"))
-        // A later pick on This Mac leaves Cloud's.
-        _ = await Self.remember(model, ["agent": "claude", "model": "claude-sonnet-5"])
-        #expect(memory.cloudAgent == .init(harness: "codex", model: "gpt-6.1-sol", effort: "high"))
-        // A Cloud pick with no agent is no pick.
-        _ = await Self.remember(model, ["side": "cloud", "model": "gpt-6"])
-        #expect(memory.cloudAgent?.model == "gpt-6.1-sol")
-
-        let relaunched = NewTabChoiceMemory(defaults: defaults)
-        #expect(relaunched.picks?.global == .init(harness: "claude", model: "claude-sonnet-5"))
-        #expect(relaunched.cloudAgent == .init(harness: "codex", model: "gpt-6.1-sol", effort: "high"))
-        let page = AgentPaneNewTab(kind: .agent, lastAgent: relaunched.agent, lastPicks: relaunched.picks)
-        let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any])
-        let picks = try #require(json["lastPicks"] as? [String: Any])
-        #expect(picks["cloud"] as? [String: String] == ["harness": "codex", "model": "gpt-6.1-sol", "effort": "high"])
+        // A model pick on the same agent keeps the level.
+        _ = await Self.remember(model, ["agent": "codex", "model": "gpt-6.2-sol", "place": "cloud"])
+        #expect(memory.cloudAgent == .init(harness: "codex", model: "gpt-6.2-sol", effort: "high"))
 
         let reply = await model.respond(to: AgentPaneRequest(body: ["method": "newTab.cloudPick", "params": [String: Any]()]))
         let value = try #require(reply["value"] as? [String: Any])
-        let agent = try #require(value["cloudAgent"] as? [String: String])
-        #expect(agent == ["harness": "codex", "model": "gpt-6.1-sol", "effort": "high"])
-    }
+        #expect(value["cloudAgent"] as? [String: String] == ["harness": "codex", "model": "gpt-6.2-sol", "effort": "high"])
 
-    /// An older blob with no Cloud pick still reads, with none.
-    @Test func anOlderPicksBlobReadsWithNoCloudPick() throws {
-        let old = #"{"global":{"harness":"claude","model":"claude-opus-5-5"},"folders":[]}"#
-        let picks = try JSONDecoder().decode(AgentPaneLastPicks.self, from: Data(old.utf8))
-        #expect(picks.global == .init(harness: "claude", model: "claude-opus-5-5"))
-        #expect(picks.cloud == nil)
+        // Another agent names its own level or none.
+        _ = await Self.remember(model, ["agent": "claude", "model": "claude-sonnet-5-5", "place": "cloud"])
+        #expect(memory.cloudAgent == .init(harness: "claude", model: "claude-sonnet-5-5"))
+        #expect(memory.picks?.global == .init(harness: "claude", model: "claude-opus-5-5"))
     }
 
     /// Every harness pick is the next New Tab's: one on the agent's own default model and one that

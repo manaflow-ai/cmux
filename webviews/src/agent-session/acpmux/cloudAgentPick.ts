@@ -3,11 +3,12 @@
 // this Mac's: it starts no chat here (a `chat.new` on this Mac would fail for an agent only the machine
 // carries) and never becomes this Mac's remembered pick (lastPick.ts, acpmux's saved defaults).
 //
-// Cloud keeps its own pick, apart from This Mac's (model-picker-local-cloud-state): This Mac's side is
-// this Mac's acpmux (its saved defaults, which every pick in a local chat writes) and lastPick.ts; the
-// Cloud side is the pick here, which the app keeps across launches (`newTab.remember` `side: "cloud"`,
-// the New Tab context's `lastPicks.cloud`, `newTab.cloudPick`'s `cloudAgent`). Switching Runs On
-// between This Mac and Cloud shows each side's own pick again; neither ever writes the other's.
+// Cloud keeps its own pick, apart from This Mac's: This Mac's side is this Mac's acpmux (its saved
+// defaults, which every pick in a local chat writes) and lastPick.ts; the Cloud side is the pick held
+// here, remembered as Cloud's last pick (cloudLastPick.ts, cmux#63577, which the app keeps across launches:
+// `newTab.remember` `place: "cloud"`, `lastPicks.cloud`, and `newTab.cloudPick`'s `cloudAgent` for a chat
+// page). Switching Runs On between This Mac and Cloud shows each side's own pick again; neither ever writes
+// the other's.
 //
 // One source of truth for the chips and the send: the chips draw `cloudPickShown` and publish what they
 // drew (`publishCloudAgentShown`); both Cloud sends (the chat composer, the New Tab page) send
@@ -20,7 +21,7 @@
 import { useSyncExternalStore } from "react";
 import { CLOUD_DEFAULT_AGENT, cloudStartAgent } from "./harnessModes";
 import { isDefaultChoice } from "./defaultChoice";
-import { postNative } from "./native";
+import { clearCloudLastPick, cloudLastPick, rememberCloudPick, useCloudLastPick } from "./cloudLastPick";
 
 /// `effort`: the level picked for it (cmux#59716), which the Cloud send carries; it stays with the
 /// agent across a model pick, and a pick of another agent drops it.
@@ -29,78 +30,23 @@ export type CloudAgentPick = { harness: string; model?: string; effort?: string;
 let held: CloudAgentPick | undefined;
 /// What the chips last drew for the Cloud start (`publishCloudAgentShown`).
 let shown: CloudAgentPick | undefined;
-/// The app's copy of Cloud's remembered pick, as the New Tab context or `newTab.cloudPick` named it.
-let appCopy: CloudAgentPick | undefined;
-/// This page remembered a pick itself: an older app copy (a context made before it) no longer seeds.
-let pickedHere = false;
 const listeners = new Set<() => void>();
-
-const STORAGE_KEY = "cmux.acpmux.cloudAgentPick.v1";
 
 function emit() {
   for (const listener of listeners) listener();
 }
 
-/// A pick the app can keep (AgentPaneRequest+Decoding `newTab.remember`): a harness of at most 128
-/// characters, a model of at most 256 and a level of at most 128.
-function valid(value: unknown): CloudAgentPick | undefined {
-  const pick = value as Partial<CloudAgentPick> | null | undefined;
-  if (typeof pick?.harness !== "string" || !pick.harness || pick.harness.length > 128) return undefined;
-  const model = typeof pick.model === "string" && pick.model && pick.model.length <= 256 ? pick.model : undefined;
-  const effort =
-    typeof pick.effort === "string" && pick.effort && pick.effort.length <= 128 && pick.effort !== "default"
-      ? pick.effort
-      : undefined;
-  return { harness: pick.harness, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
-}
-
-function readStored(): CloudAgentPick | undefined {
-  try {
-    return valid(JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "null"));
-  } catch {
-    return undefined;
-  }
-}
-
-/// Cloud's remembered pick: this run's copy, else the app's (kept across launches).
+/// Cloud's remembered pick (cloudLastPick.ts): the next Cloud page's, kept for the run and by the app.
 export function rememberedCloudAgentPick(): CloudAgentPick | undefined {
-  return readStored() ?? appCopy;
+  return cloudLastPick();
 }
 
-/// The person picked `pick` for Cloud: kept for this run and sent to the app, which keeps it across
-/// launches. Never This Mac's pick.
 function remember(pick: CloudAgentPick): void {
-  const kept = valid(pick);
-  if (!kept) return;
-  pickedHere = true;
-  try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(kept));
-  } catch {
-    // A full or blocked store: the app's copy still names it on the next page.
-  }
-  const params = {
-    side: "cloud",
-    agent: kept.harness,
-    ...(kept.model ? { model: kept.model } : {}),
-    ...(kept.effort ? { effort: kept.effort } : {}),
-  };
-  // No page host (a test, a page still loading): this run's copy alone keeps it.
-  if (typeof window === "undefined") return;
-  const direct = window.cmuxAcpmuxActions?.["newTab.remember"];
-  try {
-    void (direct ? direct(params) : postNative("newTab.remember", params)).catch(() => undefined);
-  } catch {
-    // No bridge to the app: this run's copy still names it.
-  }
-}
-
-/// The app's copy (the New Tab context's `lastPicks.cloud`, `newTab.cloudPick`'s `cloudAgent`). A pick
-/// this page made since wins; the copy is read when this run has none of its own.
-export function seedCloudAgentPick(value: unknown): void {
-  const pick = valid(value);
-  if (!pick || pickedHere) return;
-  appCopy = pick;
-  emit();
+  rememberCloudPick({
+    harness: pick.harness,
+    ...(pick.model ? { model: pick.model } : {}),
+    ...(pick.effort ? { effort: pick.effort } : {}),
+  });
 }
 
 /** Holds `pick` for the next Cloud start, and remembers it as Cloud's pick; a later pick replaces it. A
@@ -167,13 +113,7 @@ export function clearCloudAgentPick(): void {
 export function forgetCloudAgentPicksForTests(): void {
   held = undefined;
   shown = undefined;
-  appCopy = undefined;
-  pickedHere = false;
-  try {
-    globalThis.localStorage?.removeItem(STORAGE_KEY);
-  } catch {
-    // No store.
-  }
+  clearCloudLastPick();
   emit();
 }
 
@@ -221,10 +161,6 @@ export function cloudStartPick(
   return shown ?? cloudPickShown(local);
 }
 
-function snapshotKey(): string {
-  return JSON.stringify([held ?? null, rememberedCloudAgentPick() ?? null]);
-}
-
 /** The held pick, drawn again when it changes. */
 export function useCloudAgentPick(): CloudAgentPick | undefined {
   return useSyncExternalStore(
@@ -234,20 +170,12 @@ export function useCloudAgentPick(): CloudAgentPick | undefined {
   );
 }
 
-/** The pick the chips start from (held, else remembered), drawn again when either changes. */
+/** The pick the chips start from (held on this page, else Cloud's remembered one), drawn again when
+ * either changes. */
 export function useCloudAgentPicked(): CloudAgentPick | undefined {
-  const key = useSyncExternalStore(subscribe, snapshotKey, snapshotKey);
-  return pickedFromKey(key);
-}
-
-let lastKey = "";
-let lastPicked: CloudAgentPick | undefined;
-function pickedFromKey(key: string): CloudAgentPick | undefined {
-  if (key === lastKey) return lastPicked;
-  lastKey = key;
-  const [h, r] = JSON.parse(key) as [CloudAgentPick | null, CloudAgentPick | null];
-  lastPicked = h ?? r ?? undefined;
-  return lastPicked;
+  const heldNow = useCloudAgentPick();
+  const remembered = useCloudLastPick();
+  return heldNow ?? remembered;
 }
 
 function subscribe(listener: () => void) {

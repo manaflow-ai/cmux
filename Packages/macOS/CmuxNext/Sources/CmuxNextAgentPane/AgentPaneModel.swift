@@ -110,7 +110,7 @@ public final class AgentPaneModel {
     /// Cloud's last pick as the app keeps it (``NewTabChoiceMemory/cloudStartedProject``, the same defaults).
     @ObservationIgnored public var cloudPick: @MainActor () -> String? = { NewTabChoiceMemory().cloudStartedProject }
     /// Cloud's own agent pick as the app keeps it (``NewTabChoiceMemory/cloudAgent``, the same defaults).
-    @ObservationIgnored public var cloudAgentPick: @MainActor () -> AgentPaneLastPicks.CloudPick? = { NewTabChoiceMemory().cloudAgent }
+    @ObservationIgnored public var cloudAgentPick: @MainActor () -> AgentPaneLastPicks.Pick? = { NewTabChoiceMemory().cloudAgent }
     /// The new tab page's style switch picked a template.
     @ObservationIgnored public var onEditNewTab: ((AgentPaneNewTabEdit) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
@@ -523,12 +523,12 @@ public final class AgentPaneModel {
 
     /// `newTab.cloudPick`'s answer: Cloud's last folder (`cloudStarted`) and its own agent pick (`cloudAgent`:
     /// harness, model, effort), each when there is one.
-    nonisolated static func cloudPickReply(folder: String?, agent: AgentPaneLastPicks.CloudPick?) -> [String: Any] {
+    nonisolated static func cloudPickReply(folder: String?, agent: AgentPaneLastPicks.Pick?) -> [String: Any] {
         var reply: [String: Any] = [:]
         if let folder { reply["cloudStarted"] = folder }
         if let agent {
             var pick: [String: Any] = ["harness": agent.harness]
-            if let model = agent.model { pick["model"] = model }
+            if agent.model != AgentPaneLastPicks.defaultModel { pick["model"] = agent.model }
             if let effort = agent.effort { pick["effort"] = effort }
             reply["cloudAgent"] = pick
         }

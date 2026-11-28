@@ -101,7 +101,13 @@ import {
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import { clearCloudModePick, cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
-import { cloudAgentPick, cloudStartPick, dropCloudAgentPickForAdoption, holdCloudAgentPick } from "./cloudAgentPick";
+import {
+  cloudAgentPick,
+  cloudStartPick,
+  dropCloudAgentPickForAdoption,
+  holdCloudAgentPick,
+  rememberedCloudAgentPick,
+} from "./cloudAgentPick";
 import { HELD_EFFORT_ID } from "./heldOptions";
 import {
   askAppCloudPick,
@@ -5068,7 +5074,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const client = directClient.current;
         const { intent, model } = harnessSwitch.view();
         const summary = snapshotRef.current?.summary;
-        const cloudPick = cloudAgentPick();
+        const cloudPick = cloudAgentPick() ?? rememberedCloudAgentPick();
         return {
           harness: cloudPick?.harness ?? intent?.harness ?? summary?.harness,
           revision: [

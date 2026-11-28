@@ -1,4 +1,4 @@
-import { seedCloudAgentPick } from "../cloudAgentPick";
+import { seedCloudLastPick } from "../cloudLastPick";
 import { isTemporaryFolder } from "../sessionList";
 
 // The project of the chat the person last picked and started (Leo 2026-10-21: "we dont wanna have
@@ -148,7 +148,7 @@ export function askAppCloudPick(
   void post("newTab.cloudPick", {})
     .then((reply) => {
       // Cloud's own agent pick (cloudAgentPick.ts), kept apart from This Mac's.
-      seedCloudAgentPick((reply as { cloudAgent?: unknown } | undefined)?.cloudAgent);
+      seedCloudLastPick((reply as { cloudAgent?: unknown } | undefined)?.cloudAgent);
       const picked = (reply as { cloudStarted?: unknown } | undefined)?.cloudStarted;
       if (typeof picked !== "string" || appCloudPick !== undefined || !isCloudPick(picked)) return;
       cloudPickChoices(picked);

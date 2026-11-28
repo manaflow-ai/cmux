@@ -222,9 +222,9 @@ async function redraw(snapshot: Snapshot) {
 /// A new page of this launch: nothing held on it, Cloud's remembered pick kept (this run's store).
 async function newPage() {
   const picks = await import("../src/agent-session/acpmux/cloudAgentPick");
-  const stored = dom.window.localStorage.getItem("cmux.acpmux.cloudAgentPick.v1");
+  const stored = dom.window.localStorage.getItem("cmux.acpmux.cloudLastPick");
   picks.forgetCloudAgentPicksForTests();
-  if (stored) dom.window.localStorage.setItem("cmux.acpmux.cloudAgentPick.v1", stored);
+  if (stored) dom.window.localStorage.setItem("cmux.acpmux.cloudLastPick", stored);
 }
 
 // Edge case 1: switching the reasoning level switched the model.
@@ -331,17 +331,18 @@ test("switching This Mac and Cloud shows each side's own pick again, both ways, 
 
 test("the app's copy of Cloud's pick seeds a page of a new launch; a pick made here wins over it", async () => {
   const picks = await import("../src/agent-session/acpmux/cloudAgentPick");
-  picks.seedCloudAgentPick({ harness: "codex", model: "gpt-6.1-sol", effort: "low" });
+  const { seedCloudLastPick } = await import("../src/agent-session/acpmux/cloudLastPick");
+  seedCloudLastPick({ harness: "codex", model: "gpt-6.1-sol", effort: "low" });
   await render(await newTab(true, "claude"));
   expect(chipFace()).toContain("GPT-6.1 Sol");
   expect(chipFace()).toContain("Low");
   await pickLevel("High");
-  picks.seedCloudAgentPick({ harness: "claude", model: "claude-opus-5-5" });
+  seedCloudLastPick({ harness: "claude", model: "claude-opus-5-5" });
   expect(picks.rememberedCloudAgentPick()).toMatchObject({ harness: "codex", effort: "high" });
   // Sent to the app as Cloud's own pick, never as This Mac's.
   const remembered = calls.filter((call) => call.method === "newTab.remember");
   expect(remembered.length).toBeGreaterThan(0);
-  expect(remembered.every((call) => call.params.side === "cloud")).toBe(true);
+  expect(remembered.every((call) => call.params.place === "cloud")).toBe(true);
 });
 
 // Edge case 4: the picker and what the send uses disagreed.
