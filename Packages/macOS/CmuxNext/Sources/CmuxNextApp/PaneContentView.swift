@@ -186,7 +186,12 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0, rowNeed = rowContent?.tabRowNeedWidth(room: room) ?? 0, tools = toolbarWidth(shown: shown, sharing: rowTools > 0)
         // The strip shows at every tab count (#34327); a chat alone in its pane hides its tab only with tabs.hideLoneChatTab on.
         stripView.isHidden = shown <= 0 || rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hidesLoneTab
-        let (slot, accessoryRoom) = TabRowAccessoryFit.fit(base: shown <= 0 ? 0 : toolbar?.view.stripSlot(tools + rowNeed, in: bounds.width, of: stripView.model, recording: !held && hostsContent && paintHold.kept == nil, sharer: onTop && !isBandActive ? content as? PaneTabRowSharing : nil) ?? tools + rowNeed,
+        let kept = shown <= 0 ? 0 : toolbar?.view.stripSlot(tools + rowNeed, in: bounds.width, of: stripView.model, recording: !held && hostsContent && paintHold.kept == nil, sharer: onTop && !isBandActive ? content as? PaneTabRowSharing : nil) ?? tools + rowNeed
+        // Room kept for another tab's buttons (PaneTrailingSlots) holds the strip still only while the tabs fit beside it: tabs
+        // squeezed or scrolling take it back, else the row showed blank space past the + beside faded, cut-off tabs (Lawrence and Leo
+        // 2026-11-28: "so much dead space on the right", "the container is too small for the tabs").
+        let base = shown <= 0 ? 0 : TabRowSlotFit.base(kept: kept, own: tools + rowNeed, width: bounds.width, tabs: stripView.isHidden ? 0 : stripView.naturalWidth)
+        let (slot, accessoryRoom) = TabRowAccessoryFit.fit(base: base,
                                                            accessory: rowTools - rowNeed, width: bounds.width, tabs: stripView.isHidden ? 0 : stripView.naturalWidth) // the summary: only what the tabs leave at full width (#53314)
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - slot, height: shown)

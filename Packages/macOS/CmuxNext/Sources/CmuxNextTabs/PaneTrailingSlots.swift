@@ -76,3 +76,13 @@ public struct TabRowAccessoryFit {
         return (base + min(max(0, accessory), room), room)
     }
 }
+
+/// Whether a pane's strip keeps room for another tab's trailing need (``PaneTrailingSlots``): only while its tabs still have
+/// their full width beside it. A crowded row gives the room back to the tabs (Lawrence and Leo 2026-11-28: blank space past the +
+/// beside tabs that faded and scrolled).
+public enum TabRowSlotFit {
+    /// `kept`: the slot with other tabs' needs; `own`: the selected tab's own need; `tabs`: the tabs' full width.
+    public static func base(kept: CGFloat, own: CGFloat, width: CGFloat, tabs: CGFloat) -> CGFloat {
+        kept > own && tabs > width - kept ? own : kept
+    }
+}
