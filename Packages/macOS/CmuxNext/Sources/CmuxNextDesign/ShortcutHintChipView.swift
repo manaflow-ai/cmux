@@ -103,6 +103,7 @@ public final class ShortcutHintChipView: NSView {
                 fill.isHidden = false
                 fill.frame = bounds
                 fill.layer?.cornerRadius = radius
+                // glass-opaque-allow: Reduce Transparency uses the opaque theme surface.
                 fill.layer?.backgroundColor = Palette.popupSurface.cgColor
                 fill.layer?.borderColor = Palette.separator.cgColor
                 fill.layer?.borderWidth = Metrics.lineWidth(1 / max(window?.backingScaleFactor ?? 2, 1))
