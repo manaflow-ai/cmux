@@ -128,10 +128,10 @@ async function newTab(startsOnCloud: boolean, harness: string): Promise<Snapshot
 }
 
 const calls: Call[] = [];
-async function render(snapshot: Snapshot) {
+async function render(snapshot: Snapshot, chat = false) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-  const { NewTabComposerChips } = await import("../src/agent-session/acpmux/App");
+  const { NewTabComposerChips, ChatComposerChips } = await import("../src/agent-session/acpmux/App");
   (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = new Proxy(
     {},
     {
@@ -145,7 +145,7 @@ async function render(snapshot: Snapshot) {
   await act(async () =>
     root!.render(
       <QueryClientProvider client={new QueryClient()}>
-        <NewTabComposerChips snapshot={snapshot} cwd={FOLDER} />
+        {chat ? <ChatComposerChips snapshot={snapshot} /> : <NewTabComposerChips snapshot={snapshot} cwd={FOLDER} />}
       </QueryClientProvider>,
     ),
   );
@@ -169,6 +169,8 @@ async function forgetPicks() {
   const picks = (await import("../src/agent-session/acpmux/cloudAgentPick")) as Record<string, unknown>;
   const forget = (picks.forgetCloudAgentPicksForTests ?? picks.clearCloudAgentPick) as () => void;
   forget();
+  const chips = (await import("../src/agent-session/acpmux/chipMemory")) as Record<string, unknown>;
+  (chips.forgetLevelPicksForTests as (() => void) | undefined)?.();
 }
 
 const chatCalls = () => calls.filter((call) => call.method.startsWith("chat."));
@@ -217,14 +219,14 @@ async function pickLevel(level: string) {
 }
 
 /// The chips gone and drawn again with `snapshot` (Runs On switched, the page shown again).
-async function redraw(snapshot: Snapshot) {
+async function redraw(snapshot: Snapshot, chat = false) {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
   doc()
     .body.querySelectorAll(".ui-popup")
     .forEach((node) => node.remove());
-  await render(snapshot);
+  await render(snapshot, chat);
 }
 
 /// A new page of this launch: nothing held on it, Cloud's remembered pick kept (this run's store).
@@ -387,4 +389,98 @@ test("Auto picked shows Cloud's pick and holds picks for Cloud, starting nothing
   await pickLevel("Low");
   expect(cloudAgentPick()).toEqual({ harness: "codex", model: "gpt-6.1-sol", effort: "low" });
   expect(chatCalls()).toEqual([]);
+});
+
+// The saved picks, byte for byte: This Mac's (lastPick, its level in lastChips) and Cloud's (cloudLastPick,
+// its level in lastChips), and every copy sent to the app (`newTab.remember`). Read straight from storage,
+// so the before run (a base without Cloud's own pick) reads the same keys.
+const savedPicks = () =>
+  JSON.stringify({
+    thisMac: dom.window.localStorage.getItem("cmux.acpmux.lastPick"),
+    cloud: dom.window.localStorage.getItem("cmux.acpmux.cloudLastPick"),
+    levels: dom.window.localStorage.getItem("cmux.acpmux.lastChips"),
+    app: calls.filter((call) => call.method === "newTab.remember").map((call) => call.params),
+  });
+
+// Leo 2026-11-28 (ask-ae2ecfa8ef): "Backend option lists must not overwrite them." The person's clicks are
+// the only writers: Runs On flips, a Cloud start, the started chat's option list and the flip back write
+// nothing. Before (f272c2f9): the Cloud chat's reported level (Medium, the backend's own) replaced the
+// kept Cloud level the person never picked there, and the step "backend option list" failed.
+test("transition: picks on This Mac and Cloud stay byte-identical through flip, Cloud start, option list, flip back", async () => {
+  calls.length = 0;
+  const { cloudStartPick } = await import("../src/agent-session/acpmux/cloudAgentPick");
+  const local = await newTab(false, "claude");
+  const localPicked = { ...local, summary: { ...local.summary!, model: "claude-opus-5-5" } as Summary };
+  const cloud = { ...localPicked, startsOnCloud: true } as Snapshot;
+  // The person's clicks: Cloud on Codex GPT-6.1 Sol at Low, then This Mac on Sonnet 5.5 at High.
+  await render(cloud);
+  await pickModel("Codex", "GPT-6.1 Sol");
+  await pickLevel("Low");
+  await closeMenu();
+  await redraw(localPicked);
+  await pickModel("Claude Code", "Sonnet 5.5");
+  await pickLevel("High");
+  await closeMenu();
+  const picked = savedPicks();
+  const steps: [string, () => Promise<void>][] = [
+    ["flip to Cloud", () => redraw(cloud)],
+    [
+      "start a Cloud session",
+      async () => {
+        const start = cloudStartPick({ harness: "claude", model: "claude-sonnet-5-5", family: "claude" });
+        expect(start).toMatchObject({ harness: "codex", model: "gpt-6.1-sol", effort: "low" });
+        await redraw(
+          {
+            ...cloud,
+            startsOnCloud: undefined,
+            sessionId: "cloud-1",
+            summary: {
+              sessionId: "cloud-1",
+              harness: "codex",
+              model: "gpt-6.1-sol",
+              turnCount: 1,
+              hostKind: "cloud",
+              cwd: FOLDER,
+            } as Summary,
+          } as Snapshot,
+          true,
+        );
+      },
+    ],
+    [
+      "backend option list arrives",
+      () =>
+        render(
+          {
+            ...cloud,
+            startsOnCloud: undefined,
+            sessionId: "cloud-1",
+            summary: {
+              sessionId: "cloud-1",
+              harness: "codex",
+              model: "gpt-6.1-sol",
+              turnCount: 1,
+              hostKind: "cloud",
+              cwd: FOLDER,
+              configOptions: [
+                {
+                  id: "reasoning_effort",
+                  name: "Effort",
+                  category: "thought_level",
+                  currentValue: "medium",
+                  options: [{ value: "low" }, { value: "medium" }, { value: "high" }],
+                },
+              ],
+            } as Summary,
+          } as Snapshot,
+          true,
+        ),
+    ],
+    ["flip back to This Mac", () => redraw(localPicked)],
+  ];
+  for (const [step, run] of steps) {
+    await run();
+    expect(savedPicks(), step).toBe(picked);
+  }
+  expect(chipFace()).toContain("Sonnet 5.5");
 });
