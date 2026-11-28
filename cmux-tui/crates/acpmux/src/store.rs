@@ -266,6 +266,26 @@ pub trait Store: Send + Sync {
     ) -> Result<()> {
         self.scan(id, after, visit)
     }
+    /// `scan` as lines: each record past `after` as its log line, without its newline, until
+    /// `visit` returns false. A file store hands over the bytes it read, unparsed, so a reader
+    /// that copies most lines as they are (a pack's lines, `hub/transfer_history.rs`
+    /// `emit_lines`) parses only those it changes; a line may then be one `scan` would skip (a
+    /// torn line, a `seq` at or before `after` it could not read without parsing), and the
+    /// reader decides on it as `scan` does. A store that holds parsed records serializes each.
+    fn scan_raw(&self, id: &str, after: u64, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+        let mut failed = None;
+        self.scan(id, after, &mut |rec| match serde_json::to_vec(&rec) {
+            Ok(line) => visit(&line),
+            Err(e) => {
+                failed = Some(e);
+                false
+            }
+        })?;
+        match failed {
+            Some(e) => Err(e.into()),
+            None => Ok(()),
+        }
+    }
     /// `scan`, but a record that cannot be read (a torn or malformed line) is an error instead of
     /// being skipped: a reader that must see every record (the full-access bound's readback of a
     /// left host, #23322) learns that it did not. A memory store holds only whole records.
@@ -1475,6 +1495,10 @@ impl Store for LocalStore {
         self.scan_lines(id, after, false, Some(may_match), visit)
     }
 
+    fn scan_raw(&self, id: &str, after: u64, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+        self.log_lines(id, after, false, &mut |line, _| Ok(visit(line)))
+    }
+
     fn scan_strict(
         &self,
         id: &str,
@@ -2168,6 +2192,31 @@ impl LocalStore {
         may_match: Option<&dyn Fn(&[u8]) -> bool>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        self.log_lines(id, after, strict, &mut |line, path| {
+            if may_match.is_some_and(|may_match| !may_match(line)) {
+                return Ok(true);
+            }
+            let rec = match parse_record(line) {
+                Ok(rec) => rec,
+                Err(e) if strict => {
+                    anyhow::bail!("{}: a record could not be read: {e}", path.display())
+                }
+                Err(_) => return Ok(true),
+            };
+            Ok(rec.seq <= after || visit(rec))
+        })
+    }
+
+    /// The log's lines past `after`, as they are on the disk (no newline, no blank line, none
+    /// whose leading `seq` is at or before `after`), in order, until `visit` says stop. Each
+    /// comes with the segment it was read from.
+    fn log_lines(
+        &self,
+        id: &str,
+        after: u64,
+        strict: bool,
+        visit: &mut dyn FnMut(&[u8], &Path) -> Result<bool>,
+    ) -> Result<()> {
         // A strict read learns that the log's segments could not be listed (`segments` lists
         // none then).
         if strict {
@@ -2205,17 +2254,8 @@ impl LocalStore {
                 if record_seq(&line).is_some_and(|seq| seq <= after) {
                     continue;
                 }
-                if may_match.is_some_and(|may_match| !may_match(&line)) {
-                    continue;
-                }
-                let rec = match parse_record(&line) {
-                    Ok(rec) => rec,
-                    Err(e) if strict => {
-                        anyhow::bail!("{}: a record could not be read: {e}", path.display())
-                    }
-                    Err(_) => continue,
-                };
-                if rec.seq > after && !visit(rec) {
+                let text = line.strip_suffix(b"\n").unwrap_or(&line);
+                if !visit(text, path)? {
                     return Ok(());
                 }
             }

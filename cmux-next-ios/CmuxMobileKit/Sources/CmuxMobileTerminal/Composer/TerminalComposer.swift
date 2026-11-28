@@ -435,36 +435,29 @@ struct TerminalComposer: View {
         }
     }
 
-    static func loadWithInactivityDeadline<T: Sendable>(
+    /// `clock` is the one the idle window is measured on; tests pass one they advance.
+    static func loadWithInactivityDeadline<T: Sendable, C: Clock<Duration>>(
         _ operation: (@escaping @Sendable (Result<T?, Error>) -> Void) -> Progress,
         inactivityDeadline: Duration = .seconds(30),
         progressPoll: Duration = .milliseconds(250),
-        nextPoll: (@Sendable () async throws -> Void)? = nil
+        clock: C = ContinuousClock()
     ) async throws -> T {
         try Task.checkCancellation()
         let race = PhotoLoadRace<T?>()
         let progress = operation { [weak race] result in _ = race?.finish(result) }
-        // The window is a count of polls that saw no advance, so a test drives it with `nextPoll`
-        // instead of racing the wall clock (a loaded simulator once stalled a 30 ms step past a
-        // 150 ms window). A late poll only lengthens the window, never cuts a load short.
-        let quietPolls = max(1, Int((inactivityDeadline / progressPoll).rounded(.up)))
-        let wait = nextPoll ?? { try await Task.sleep(for: progressPoll) }
         let monitor = Task {
             var lastFraction = progress.fractionCompleted
-            var quiet = 0
+            var lastAdvance = clock.now
             while !Task.isCancelled {
-                do { try await wait() }
+                do { try await clock.sleep(for: progressPoll) }
                 catch { return }
                 let fraction = progress.fractionCompleted
                 if fraction > lastFraction {
                     lastFraction = fraction
-                    quiet = 0
-                } else {
-                    quiet += 1
-                    if quiet >= quietPolls {
-                        if race.finish(.failure(PhotoLoadError.deadline)) { progress.cancel() }
-                        return
-                    }
+                    lastAdvance = clock.now
+                } else if lastAdvance.duration(to: clock.now) >= inactivityDeadline {
+                    if race.finish(.failure(PhotoLoadError.deadline)) { progress.cancel() }
+                    return
                 }
             }
         }
