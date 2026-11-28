@@ -349,7 +349,7 @@ class WorkflowTest(unittest.TestCase):
         jobs = wf["jobs"]
         self.assertEqual(jobs["find"]["permissions"], {"contents": "read"})
         self.assertNotIn("environment", jobs["find"])
-        self.assertIn("vars.FIXIT_HANDOFF != '0'", jobs["find"]["if"])
+        self.assertIn("(vars.FIXIT_HANDOFF || '1') != '0'", jobs["find"]["if"])
         self.assertEqual(jobs["land"]["environment"], "ci-routing-agent")
         self.assertIn("GLAEDA_ROUTE_APP_KEY", json.dumps(jobs["land"]))
         self.assertIn("feat-cmux-next", jobs["land"]["if"])
@@ -359,14 +359,14 @@ class WorkflowTest(unittest.TestCase):
             jobs = self.load(name)["jobs"]
             dispatch = jobs["fixit-handoff"]
             self.assertEqual(dispatch["permissions"], {"actions": "write"})
-            self.assertIn("vars.FIXIT_HANDOFF != '0'", dispatch["if"])
+            self.assertIn("(vars.FIXIT_HANDOFF || '1') != '0'", dispatch["if"])
             self.assertIn(fh.WORKFLOW, json.dumps(dispatch["steps"]))
             for job in check_jobs:
                 self.assertIn("fixit_nofix", jobs[job]["outputs"])
             self.assertEqual(jobs["check-nightly-webviews"]["permissions"], {"contents": "read"})
         post = self.load("cmux-next-post-merge.yml")["jobs"]["fixit-handoff"]
         self.assertEqual(post["permissions"], {"actions": "write"})
-        self.assertIn("vars.FIXIT_HANDOFF != '0'", post["if"])
+        self.assertIn("(vars.FIXIT_HANDOFF || '1') != '0'", post["if"])
         web = self.load("ci-web.yml")
         self.assertIn("fixit_nofix", (web.get("on") or web[True])["workflow_call"]["outputs"])
         for job in ("web-typecheck", "webviews-typecheck"):

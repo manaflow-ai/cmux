@@ -141,7 +141,7 @@ fn dispatch_command(
             device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
         }
         Command::Identify { machine_metadata, revisions, .. } => {
-            cmd_server::identify(mux, machine_metadata, revisions)
+            identify_reply::identify(mux, machine_metadata, revisions)
         }
         Command::ShutdownDaemon {
             pid,
@@ -698,6 +698,9 @@ fn dispatch_command(
         Command::AckTabNotifications { surface } => cmd_tabs::ack_tab_notifications(mux, surface),
         Command::ListNotifications { limit, stats } => {
             cmd_frontend::list_notifications(mux, limit, stats)
+        }
+        Command::RecordNotificationDelivery { notification, desktop, reason } => {
+            cmd_frontend::record_notification_delivery(mux, notification, desktop, reason)
         }
         Command::SetTabPinned { surface, pinned } => {
             cmd_tabs::set_tab_pinned(mux, actor, surface, pinned)

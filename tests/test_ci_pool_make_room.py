@@ -29,7 +29,7 @@ WORKFLOW = ROOT / ".github/workflows/cmux-tui-build-package.yml"
 
 
 class PoolMakeRoom(unittest.TestCase):
-    def run_script(self, need: int, hook: str | None, exit_code: int = 0) -> tuple[subprocess.CompletedProcess, Path]:
+    def run_script(self, need: int, hook: str | None, exit_code: int = 0, room: bool = False) -> tuple[subprocess.CompletedProcess, Path]:
         tmp = Path(tempfile.mkdtemp())
         record = tmp / "record"
         env = dict(os.environ)
@@ -42,6 +42,7 @@ class PoolMakeRoom(unittest.TestCase):
                 "#!/bin/bash\n"
                 f'{{ echo "phase=$1"; env | grep -E "^CMUX_DISK_" | sort; }} > "{record}"\n'
                 f"exit {exit_code}\n"
+                + ("# knows the room phase: CMUX_DISK_NEED_BYTES\n" if room else "")
             )
             fake.chmod(0o755)
             env["CMUX_POOL_DISK_FLOOR_HOOK"] = str(fake)
@@ -61,6 +62,17 @@ class PoolMakeRoom(unittest.TestCase):
         self.assertIn("CMUX_DISK_FLOOR_CHILD=1", got)
         self.assertIn("CMUX_DISK_FLOOR_LOCK_WAIT=5", got)
         self.assertIn("still under the step's need", proc.stdout)
+
+    def test_a_hook_with_the_room_phase_gets_the_need_and_keeps_its_own_floor(self) -> None:
+        need = 1 << 62
+        proc, record = self.run_script(need, "hook", room=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        got = record.read_text()
+        self.assertIn("phase=room", got)
+        self.assertIn(f"CMUX_DISK_NEED_BYTES={need}", got)
+        self.assertIn("CMUX_DISK_FLOOR_LOCK_WAIT=5", got)
+        for name in ("CMUX_DISK_FLOOR_BYTES", "CMUX_DISK_RESERVE_BYTES", "CMUX_DISK_JOB_BYTES", "CMUX_DISK_FLOOR_CHILD"):
+            self.assertNotIn(name, got)
 
     def test_enough_free_does_nothing(self) -> None:
         proc, record = self.run_script(1, "hook")

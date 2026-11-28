@@ -1,0 +1,61 @@
+{
+  "about": "paired-macs.sqlite3 at user_version 11 (owner_key scopes, customizations, instance tags, Tailscale grants with an origin, connection_method and direct_addresses; no route tombstones yet). Seeded into a fresh paired-macs.sqlite3 (each `sql` statement, then PRAGMA user_version), opened through MobilePairedMacStore, and read with loadAll(): `macs` is what it must return, newest last_seen_at first. `newer_build_sql`, run on top, stands in for a build after this one (a new column, table and route kind): the same Macs must still read, and this build's next route write keeps the route it cannot read. Test: MobilePairedMacPersistedFormatTests (pairedMacStoreFixturesLoad).",
+  "user_version": 11,
+  "sql": [
+    "CREATE TABLE paired_macs (mac_device_id TEXT NOT NULL, owner_key TEXT NOT NULL, display_name TEXT, stack_user_id TEXT, team_id TEXT, created_at REAL NOT NULL, last_seen_at REAL NOT NULL, is_active INTEGER NOT NULL DEFAULT 0, custom_name TEXT, custom_color TEXT, custom_icon TEXT, instance_tag TEXT, connection_method TEXT, direct_addresses TEXT, PRIMARY KEY (mac_device_id, owner_key))",
+    "CREATE TABLE mac_routes (id INTEGER PRIMARY KEY AUTOINCREMENT, mac_device_id TEXT NOT NULL, owner_key TEXT NOT NULL, route_id TEXT NOT NULL, kind TEXT NOT NULL, endpoint_json TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 0, FOREIGN KEY (mac_device_id, owner_key) REFERENCES paired_macs(mac_device_id, owner_key) ON DELETE CASCADE)",
+    "CREATE INDEX idx_macs_stack_user ON paired_macs(stack_user_id)",
+    "CREATE INDEX idx_macs_team ON paired_macs(stack_user_id, team_id)",
+    "CREATE INDEX idx_routes_device ON mac_routes(mac_device_id, owner_key)",
+    "CREATE TABLE legacy_tailscale_route_grants (id INTEGER PRIMARY KEY AUTOINCREMENT, mac_device_id TEXT NOT NULL, owner_key TEXT NOT NULL, endpoint_json TEXT NOT NULL, origin TEXT NOT NULL DEFAULT 'migration', UNIQUE (mac_device_id, owner_key, endpoint_json), FOREIGN KEY (mac_device_id, owner_key) REFERENCES paired_macs(mac_device_id, owner_key) ON DELETE CASCADE)",
+    "CREATE INDEX idx_legacy_tailscale_grants_device ON legacy_tailscale_route_grants(mac_device_id, owner_key)",
+    "INSERT INTO paired_macs (mac_device_id, owner_key, display_name, stack_user_id, team_id, created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon, instance_tag, connection_method, direct_addresses) VALUES ('a1b2c3d4-0000-4000-8000-000000000001', 'alice' || char(31) || 'team-a' || char(31) || 'internal', 'Studio', 'alice', 'team-a', 1764201600.0, 1764288000.5, 1, 'Build box', '#FF9500', 'hammer', 'internal', 'tailscale', '[{\"address\":\"192.168.1.20\",\"port\":8443,\"enabled\":true}]')",
+    "INSERT INTO paired_macs (mac_device_id, owner_key, display_name, stack_user_id, team_id, created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon, instance_tag, connection_method, direct_addresses) VALUES ('mac-anon', char(31) || char(31), NULL, NULL, NULL, 1764100000.0, 1764100000.0, 0, NULL, NULL, NULL, NULL, NULL, NULL)",
+    "INSERT INTO mac_routes (mac_device_id, owner_key, route_id, kind, endpoint_json, priority) VALUES ('a1b2c3d4-0000-4000-8000-000000000001', 'alice' || char(31) || 'team-a' || char(31) || 'internal', 'direct', 'tailscale', '{\"id\":\"direct\",\"kind\":\"tailscale\",\"endpoint\":{\"type\":\"host_port\",\"host\":\"100.64.0.1\",\"port\":8443},\"priority\":0}', 0)",
+    "INSERT INTO mac_routes (mac_device_id, owner_key, route_id, kind, endpoint_json, priority) VALUES ('a1b2c3d4-0000-4000-8000-000000000001', 'alice' || char(31) || 'team-a' || char(31) || 'internal', 'old', 'tailscale', '{\"id\":\"old\",\"kind\":\"tailscale\",\"endpoint\":{\"type\":\"host_port\",\"host\":\"100.64.0.2\",\"port\":8443},\"priority\":1}', 1)",
+    "INSERT INTO mac_routes (mac_device_id, owner_key, route_id, kind, endpoint_json, priority) VALUES ('mac-anon', char(31) || char(31), 'lan', 'tailscale', '{\"id\":\"lan\",\"kind\":\"tailscale\",\"endpoint\":{\"type\":\"host_port\",\"host\":\"10.0.0.5\",\"port\":9000},\"priority\":0}', 0)",
+    "INSERT INTO legacy_tailscale_route_grants (mac_device_id, owner_key, endpoint_json, origin) VALUES ('a1b2c3d4-0000-4000-8000-000000000001', 'alice' || char(31) || 'team-a' || char(31) || 'internal', '{\"id\":\"direct\",\"kind\":\"tailscale\",\"endpoint\":{\"type\":\"host_port\",\"host\":\"100.64.0.1\",\"port\":8443},\"priority\":0}', 'user')"
+  ],
+  "newer_build_sql": [],
+  "macs": [
+    {
+      "macDeviceID": "a1b2c3d4-0000-4000-8000-000000000001",
+      "displayName": "Studio",
+      "stackUserID": "alice",
+      "teamID": "team-a",
+      "instanceTag": "internal",
+      "customName": "Build box",
+      "customColor": "#FF9500",
+      "customIcon": "hammer",
+      "isActive": true,
+      "createdAt": 1764201600.0,
+      "lastSeenAt": 1764288000.5,
+      "connectionMethod": "tailscale",
+      "directAddresses": "[{\"address\":\"192.168.1.20\",\"port\":8443,\"enabled\":true}]",
+      "routeIDs": [
+        "direct",
+        "old"
+      ],
+      "legacyTailscaleRoutes": 1
+    },
+    {
+      "macDeviceID": "mac-anon",
+      "displayName": null,
+      "stackUserID": null,
+      "teamID": null,
+      "instanceTag": null,
+      "customName": null,
+      "customColor": null,
+      "customIcon": null,
+      "isActive": false,
+      "createdAt": 1764100000.0,
+      "lastSeenAt": 1764100000.0,
+      "connectionMethod": null,
+      "directAddresses": null,
+      "routeIDs": [
+        "lan"
+      ],
+      "legacyTailscaleRoutes": 0
+    }
+  ]
+}

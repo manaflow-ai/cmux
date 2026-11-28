@@ -583,6 +583,7 @@ Ops no app may call:
 - `client.metadata.update`
 - `client.sizing.release`
 - `client.sizing.set`
+- `cloud.artifacts.read`
 - `cloud.billing.checkout`
 - `cloud.environment.boot`
 - `cloud.environment.build`
@@ -633,6 +634,7 @@ Ops no app may call:
 - `cloud.snapshot.delete`
 - `cloud.snapshot.restore`
 - `cloud.surge.create`
+- `cloud.vm.agent_key_create`
 - `cloud.vm.domains`
 - `cloud.vm.firewall_create`
 - `cloud.vm.firewall_delete`
@@ -736,6 +738,7 @@ Ops no app may call:
 - `sidebar_view.attach`
 - `sso.connection.activate`
 - `sso.connection.create`
+- `sso.connection.create_saml`
 - `sso.connection.disable`
 - `sso.connection.list`
 - `sso.connection.set_secret`

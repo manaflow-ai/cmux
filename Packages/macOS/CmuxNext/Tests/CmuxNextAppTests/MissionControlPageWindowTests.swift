@@ -58,11 +58,15 @@ import Testing
         #expect(page.collectionBehavior.contains(.transient))
         #expect(!page.collectionBehavior.contains(.managed))
         #expect(page.collectionBehavior.contains(.fullScreenAuxiliary))
-        // The fork re-adds a page window on every reattach: nothing changes the second time.
+        // The fork re-adds a page window on every reattach: nothing changes the second time. Compared with the
+        // behavior after the first attach, not a literal set: AppKit adds behaviors of its own to a child window
+        // (macOS 26 adds `.ignoresCycle`), so a literal `[.transient, .fullScreenAuxiliary]` was red on every Mac.
+        let attached = page.collectionBehavior
         page.orderOut(nil)
         window.removeChildWindow(page)
         window.addChildWindow(page, ordered: .above)
-        #expect(page.collectionBehavior == [.transient, .fullScreenAuxiliary])
+        #expect(page.collectionBehavior == attached)
+        #expect(page.collectionBehavior.intersection([.managed, .transient, .stationary]) == .transient)
         page.close()
         window.close()
     }

@@ -452,4 +452,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Let acpmux pick", "acpmux session place coord --on auto --reason \"laptop asleep\""),
         ],
     ),
+    (
+        "session place-set",
+        &[
+            ("Run an existing chat in the cloud", "acpmux session place-set coord --mode cloud"),
+            (
+                "Move it to one of your machines",
+                "acpmux session place-set coord --mode machine --machine studio --yes",
+            ),
+            ("Move it back where it was", "acpmux session place-set coord --undo"),
+        ],
+    ),
 ];

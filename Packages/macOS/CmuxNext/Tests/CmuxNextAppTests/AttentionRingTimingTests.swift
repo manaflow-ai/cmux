@@ -19,7 +19,7 @@ import Testing
 struct AttentionRingTimingTests {
     /// Workspace `a`: one quiet terminal (with `hiddenUnread`, a second tab behind it, unread: its blue dot shows on the
     /// strip, no ring). Workspace `b`: one pane, its tab holding an unread notification (with `bRings` false, none yet).
-    private static func tree(hiddenUnread: Bool = false, bRings: Bool = true) -> DaemonTree {
+    static func tree(hiddenUnread: Bool = false, bRings: Bool = true) -> DaemonTree {
         let marker = TabNotification(notification: NotificationID(rawValue: 11), unread: true, level: .info, source: "terminal")
         let hidden = TabSnapshot(surface: SurfaceID(rawValue: 3), title: "~", notification: TabNotification(notification: NotificationID(rawValue: 12), unread: true, level: .info, source: "terminal"))
         let quiet = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")] + (hiddenUnread ? [hidden] : []))
@@ -37,7 +37,7 @@ struct AttentionRingTimingTests {
         return tree
     }
 
-    private struct Fixture {
+    struct Fixture {
         let services: AppServices
         let controller: WindowController
         let window: NSWindow
@@ -54,7 +54,7 @@ struct AttentionRingTimingTests {
     }
 
     /// One window listing `a` and `b`, showing `a` with its window key. `active`: whether cmux is active.
-    private static func open(active: Bool, hiddenUnread: Bool = false, bRings: Bool = true) async throws -> Fixture {
+    static func open(active: Bool, hiddenUnread: Bool = false, bRings: Bool = true) async throws -> Fixture {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { nil }, appActiveSource: { active },
                                    heldKeyReplay: { event, _, _ in NSApp?.sendEvent(event) })

@@ -691,6 +691,9 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         super.layout()
         ResizeStepTimes.recordLive("root_super_layout", since: superStart)
         Self.layoutPasses &+= 1
+        // A window edge drag runs in AppKit's tracking loop, which the app's event monitor does not see:
+        // each live-resize pass notes the drag, so low background work waits until it ends.
+        if window?.inLiveResize == true { Interactivity.note(.drag) }
         let fitStart = ResizeStepTimes.startIfLive(live)
         fitScreensToBounds()
         ResizeStepTimes.recordLive("root_fit_screens", since: fitStart)

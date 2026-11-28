@@ -183,7 +183,8 @@ pub(super) fn draw_new_session(
     } else {
         agent
     };
-    let policy_hint = match POLICIES[form.policy] {
+    let policy = POLICIES.get(form.policy).copied().unwrap_or("deny-all");
+    let policy_hint = match policy {
         "ask" => "you approve each tool call",
         "approve-reads" => "reads auto, writes ask",
         "approve-edits" => "reads and edits auto, shell asks",
@@ -203,7 +204,9 @@ pub(super) fn draw_new_session(
                 },
             ),
         ];
-        out[0].0 = out[0].0.trim_end().to_owned();
+        if let Some(first) = out.first_mut() {
+            first.0 = first.0.trim_end().to_owned();
+        }
         if !hint.is_empty() {
             out.push((format!("  {hint}"), c.prompt().fg(c.status_dim_fg)));
         }
@@ -214,12 +217,12 @@ pub(super) fn draw_new_session(
         (agent_line, ""),
         (form.name.text(), if form.name.is_empty() { "blank = automatic" } else { "" }),
         (form.cwd.text(), ""),
-        (format!("◀ {} ▶", POLICIES[form.policy]), policy_hint),
+        (format!("◀ {policy} ▶"), policy_hint),
         (form.prompt.text(), if form.prompt.is_empty() { "optional" } else { "" }),
     ];
     let mut header = vec![vec![]];
-    for (i, (v, hint)) in values.iter().enumerate() {
-        let (l, ls) = label(i, names[i]);
+    for (i, (name, (v, hint))) in names.iter().zip(values.iter()).enumerate() {
+        let (l, ls) = label(i, name);
         let mut line = vec![(l, ls)];
         line.extend(val(i, v, hint).into_iter().skip(1));
         header.push(line);
@@ -270,7 +273,9 @@ pub(super) fn draw_picker(f: &mut ratatui::Frame, area: Rect, p: &mut Picker, ap
         .visible
         .iter()
         .map(|&ri| {
-            let row = &p.rows[ri];
+            let Some(row) = p.rows.get(ri) else {
+                return DialogRow { spans: vec![], selectable: false, note: None };
+            };
             if row.header {
                 DialogRow {
                     spans: vec![(format!(" {}", row.label), c.prompt_title())],
