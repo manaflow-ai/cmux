@@ -748,6 +748,7 @@ jobs:
         env:
           CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
           KIT_SIM_PART: mac
+          KIT_SIM_PREBUILT: ${{ steps.sim-pack.outcome }}
         run: bash ../../scripts/ci/ios-kit-sim-mac-test.sh
 
       # verdict: pass, fail (the pool ran the tests and some failed) or none (no verdict: submit, queue, phone or
@@ -830,6 +831,7 @@ jobs:
           REASON: ${{ steps.sim-linux.outputs.reason }}
           CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
           KIT_SIM_PART: fallback
+          KIT_SIM_PREBUILT: ${{ steps.sim-pack.outcome }}
         run: |
           echo "::notice title=Mac fallback::iOS simulator tests on this Mac: $REASON"
           bash ../../scripts/ci/ios-kit-sim-mac-test.sh
@@ -873,6 +875,7 @@ jobs:
           CMUX_MOBILE_KIT_TEST_TARGETS: CmuxMobileInstantPerfTests
           TEST_RUNNER_CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/ios-simulator.jsonl
           UDID: ${{ steps.ios-sim.outputs.udid || steps.ios-sim-fallback.outputs.udid }}
+          KIT_SIM_PREBUILT: ${{ steps.sim-pack.outcome }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/instant-perf"
@@ -896,8 +899,18 @@ jobs:
             echo "::error::no available iOS 26 iPhone simulator on this runner" >&2
             exit 1
           fi
-          xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$UDID,arch=arm64" \
-            -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO -quiet \
+          # The build/test split (scripts/ci/ios-kit-sim-mac-test.sh): with the pool build's products in this
+          # DerivedData, run the bench from them (test-without-building) instead of rebuilding the bench's own
+          # target graph (197 s of the step on base run 46148625284). Without them (no pool build, or it failed on a
+          # neighbour's compile error) the bench builds only its own target, as CMUX_MOBILE_KIT_TEST_TARGETS says.
+          derived="${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}"
+          action=test
+          if [[ "$KIT_SIM_PREBUILT" == success ]] && compgen -G "$derived/Build/Products/*.xctestrun" >/dev/null; then
+            action=test-without-building
+          fi
+          echo "bench: xcodebuild $action"
+          xcodebuild "$action" -scheme CmuxMobileKit-Package -destination "id=$UDID,arch=arm64" \
+            -enableCodeCoverage NO -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -quiet \
             -only-testing:CmuxMobileInstantPerfTests \
             -resultBundlePath "$RUNNER_TEMP/instant-perf-ios.xcresult" && status=0 || status=$?
           out="$RUNNER_TEMP/instant-perf/ios-simulator.jsonl"

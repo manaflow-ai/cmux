@@ -44,8 +44,22 @@ if [[ ${#filters[@]} -eq 0 ]]; then
   exit 0
 fi
 echo "simulator test filter: ${filters[*]}"
-xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
-  -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO -quiet \
+# Xcode's build/test split: the job's "Build the iOS simulator tests for the pool" step (KIT_SIM_PREBUILT=success)
+# already ran `xcodebuild build-for-testing` of this scheme into this DerivedData, so run its .xctestrun with
+# `test-without-building` instead of a second build. A plain `xcodebuild test` rebuilt it for the concrete
+# destination: base run 46148625284 (11-28 13:21Z) spent 209 s in build-for-testing, then 478 s in this step, whose
+# tests alone run 200 to 260 s (ios_fast_verdict.sh), and 197 s in the bench step for about a minute of tests.
+# Leo, 2026-11-27 (ask-3ff6f851cf): "potentially the build/test dichotomy that xcode sometimes have too...".
+# No products (the build fleet's artifact went to the pool instead, or the build failed): build and test as before.
+derived="${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}"
+action=test
+if [[ "${KIT_SIM_PREBUILT:-}" == success ]] && compgen -G "$derived/Build/Products/*.xctestrun" >/dev/null; then
+  action=test-without-building
+fi
+echo "simulator tests: xcodebuild $action (KIT_SIM_PREBUILT=${KIT_SIM_PREBUILT:-unset})"
+started=$SECONDS
+xcodebuild "$action" -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
+  -enableCodeCoverage NO -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -quiet \
   -test-timeouts-enabled YES -default-test-execution-time-allowance 120 -maximum-test-execution-time-allowance 300 \
   "${filters[@]}" \
   -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" &
@@ -60,6 +74,8 @@ xcb=$!
 watchdog=$!
 wait "$xcb" && status=0 || status=$?
 kill "$watchdog" 2>/dev/null || true
+echo "xcodebuild $action: $(( SECONDS - started )) s (exit $status)"
+echo "### iOS simulator tests on this Mac: xcodebuild $action, $(( SECONDS - started )) s" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 # -quiet drops Swift Testing's output: report from the result bundle (counts,
 # suites that did not pass, #23829's banner suite, and every failure).
 xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/ios-sim.xcresult" --compact 2>/dev/null |
