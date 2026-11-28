@@ -154,10 +154,10 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
+  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
-  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
@@ -166,11 +166,10 @@ import {
   RETRY_FIRST_MS,
 } from "../hostRetry";
 import {
-  acpmuxSendsReady,
   heldStartStop,
-  paneSends,
   sendsHeldForHost,
   untilHostAnswers,
+  acpmuxSendsReady,
   pageClientLink,
   paneSends,
 } from "../sendWhenReady";
@@ -2106,6 +2105,7 @@ export function paneSnapshotEffect({
           harness,
           cwd,
           peer,
+          cloudRegistryId,
           deferred,
           noProject,
           model,
@@ -2230,6 +2230,8 @@ export function paneSnapshotEffect({
             noProject === true,
             peer && model ? String(model) : undefined,
             newTabRetainsDraft.current,
+            false,
+            typeof cloudRegistryId === "string" ? cloudRegistryId : undefined,
           );
           await persistSession(started);
           return started;

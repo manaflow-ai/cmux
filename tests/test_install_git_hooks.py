@@ -2874,6 +2874,52 @@ class ChildPathStubNamesTests(unittest.TestCase):
         self.assertIn(os.path.join(self.resolver["NOT_LISTED"], "probe"), stderr.getvalue())
         self.assertIn(os.strerror(errno.EACCES), stderr.getvalue())
 
+    def test_the_same_tools_reuse_one_directory_and_make_no_new_paths(self):
+        """macOS fseventsd keeps every path it has seen until reboot; a new directory of a link per PATH
+        name each commit was one of the busiest makers of new paths on cosmic-gray (2026-11-24)."""
+        entry = self.path_dir("bin", "probe", "other")
+        first = self.child_path(entry)
+        inode = os.lstat(first / self.resolver["NOT_LISTED"] / "probe").st_ino
+        made = []
+        real_symlink = os.symlink
+
+        def count(target, path, *args, **kwargs):
+            made.append(path)
+            return real_symlink(target, path, *args, **kwargs)
+
+        with mock.patch.object(os, "symlink", count):
+            second = self.child_path(entry)
+        self.assertEqual(second, first)
+        self.assertEqual(made, [], "a reused directory makes no link")
+        self.assertEqual(os.lstat(second / self.resolver["NOT_LISTED"] / "probe").st_ino, inode)
+        self.assertEqual(sorted(os.listdir(self.temp)), [first.name])
+        self.assertEqual(os.lstat(first).st_mode & 0o777, 0o700)
+        self.assertEqual(self.stub_kind(first, "probe"), "not-listed")
+
+    def test_a_new_tool_on_path_gets_a_new_directory(self):
+        entry = self.path_dir("bin", "probe")
+        first = self.child_path(entry)
+        (Path(entry) / "added").write_text("#!/bin/sh\nexit 0\n")
+        (Path(entry) / "added").chmod(0o755)
+        second = self.child_path(entry)
+        self.assertNotEqual(second, first)
+        self.assertEqual(self.stub_kind(second, "added"), "not-listed")
+
+    def test_a_tampered_directory_is_made_again_never_reused(self):
+        entry = self.path_dir("bin", "probe")
+        first = self.child_path(entry)
+        planted = first / "planted"
+        planted.symlink_to("/bin/sh")
+        stub = first / ".stub" / "not-listed"
+        again = self.child_path(entry)
+        self.assertEqual(again, first)
+        self.assertFalse(os.path.lexists(planted))
+        stub.chmod(0o755)
+        stub.write_text("#!/bin/sh\nexec /bin/sh\n")
+        again = self.child_path(entry)
+        self.assertIn("exit 127", (again / ".stub" / "not-listed").read_text())
+        self.assertEqual(sorted(os.listdir(self.temp)), [first.name])
+
 # Detector: every command the pre-commit hook runs is a shell builtin, a function
 # the hook defines, or a tool the hook's one resolver (resolve_tool) returned.
 # A bash tokenizer over simple commands, pipelines, lists, compound commands,

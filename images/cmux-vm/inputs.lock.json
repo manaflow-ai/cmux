@@ -647,27 +647,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "f47cc565fce537479bbd7dcbad106b6d808d2df0",
-      "url": "https://files.cmux.com/cmux-tui/f47cc565fce537479bbd7dcbad106b6d808d2df0/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "11fa28e6f2681ac42660c9525127671d503d05a4f087e9b30899ee07aa67fe9c",
-      "size": 177433504,
+      "version": "589544f1e56b6a59d1cae2f6364f0a9524b4ffda",
+      "url": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "2a3fca13f68ef03e562ccc51ed6b59867cc7d19811fc4549f5f931a75a48e382",
+      "size": 221633264,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/f47cc565fce537479bbd7dcbad106b6d808d2df0/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45977281891; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/ (the Cloud machine build, write-once; sha256 of the bytes; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "f47cc565fce537479bbd7dcbad106b6d808d2df0",
-      "url": "https://files.cmux.com/cmux-tui/f47cc565fce537479bbd7dcbad106b6d808d2df0/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "9d8a055bdb9254b127ecaa3aafb91c43595f4c1507fc1b1bb5117e9b04899025",
-      "size": 2577248,
+      "version": "589544f1e56b6a59d1cae2f6364f0a9524b4ffda",
+      "url": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "bbe957f7e46f849c5819c9abf16e8460a03e0d352f5b17a254583926ca69312d",
+      "size": 16233400,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/f47cc565fce537479bbd7dcbad106b6d808d2df0/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45977281891; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/589544f1e56b6a59d1cae2f6364f0a9524b4ffda/machine/ (the Cloud machine build, write-once; sha256 of the bytes; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "optchat-chief",
@@ -840,6 +840,19 @@
       "expect": "sccache 0.20.0",
       "notices": ["sccache-v0.20.0-x86_64-unknown-linux-musl/LICENSE"],
       "source": "mozilla/sccache release v0.20.0 (2026-11-23, Apache-2.0). The compiler cache a person's machines share through an object store (RFD 0068, what to build next item 6). Installed only: the image sets no RUSTC_WRAPPER; a machine gets the cache's environment from the platform, and only when the cache is configured. sha256 and size from the release's .sha256 file and asset digest; the archive holds LICENSE, README.md and the static musl binary."
+    },
+    {
+      "name": "executor",
+      "version": "2.0.0-beta.79",
+      "url": "https://github.com/UsefulSoftwareCo/executor/releases/download/executor@2.0.0-beta.79/executor-2.0.0-beta.79-linux-x64.tgz",
+      "sha256": "5c0fba1e77db7866b4dcb5addf80f9227c8f917f21c74141d2f9f61176ca9efe",
+      "size": 137375154,
+      "format": "tar.gz",
+      "bin": { "executor": "package/executor" },
+      "versionArgs": ["--version"],
+      "expect": "v2.0.0-beta.79",
+      "notices": ["package/LICENSE"],
+      "source": "UsefulSoftwareCo/executor release executor@2.0.0-beta.79 (MIT). Executor for the Cloud Chief (RFD 0111 step 4): cmux-executor.service runs `executor serve` on 127.0.0.1:4312 as the work user, and cmux-executor-setup hands the key Executor makes on the machine's first start to the Chief's MCP store and deploys the first-party GitHub app (images/cmux-vm/chief). The archive is package/: the executor binary (143 MB), runtime/ (221 MB, the app runtime it reads beside itself), apps/, packages/, licenses/ (third-party notices); 379 MB unpacked. sha256 and size measured on the downloaded asset 2026-11-28; the staging journey executor-journey.yml runs the same release."
     },
     {
       "name": "cmux-cua",

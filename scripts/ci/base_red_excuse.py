@@ -543,6 +543,50 @@ CONDITIONAL_ROUTE = re.compile(r"repos/[^/]+/[^/]+/(?:actions/runs(?:/\d+(?:/att
 HTTP_STATUS = re.compile(r"HTTP/[0-9.]+ ([0-9]{3})")
 CONDITIONAL_SECONDS = 90  # main_fix_evidence.GitHub.run's bound
 
+# A read that never happened is asked once more within this run before the judgement gives up on it (exit 3, which
+# land-judge parks as "quota: not judged" and then judges again from the start). Twice, the agent hosts' gh says when
+# to: a budget refusal names its reset ("retry after 84s, resets at 10:33:06Z", the lane-gh broker's words), and a
+# read that passed its 90 s deadline (main_fix_evidence.GitHub.run) is asked again at once, since the next try is as
+# likely to answer as a whole judgement started later. cmux#58620 at a4b7e501 (2026-11-27 08:00-10:00Z) was parked as
+# quota five times between red_not_excused verdicts, each a fresh judgement of about 190 reads that a read past its
+# deadline or a broker holding the shared login for a minute had stopped. Bounded so the judgement stays inside
+# land-judge's CLASSIFIER_S (600 s): a reset further off than READ_RETRY_MAX_WAIT_SECONDS is not waited for here, and
+# the waits of one run, a timed-out read counting its full deadline, add up to at most READ_RETRY_BUDGET_SECONDS. A
+# hint read (NO_READ_RETRY: the suite checks) is never asked again: its caller reads the same answer over REST.
+READ_RETRY_MAX_WAIT_SECONDS = 90
+READ_RETRY_BUDGET_SECONDS = 180
+READ_RETRY_SLACK_SECONDS = 2
+READ_RETRY_AFTER = re.compile(r"\bretry after (\d{1,5})s\b")
+READ_TIMED_OUT = "GitHub evidence request exceeded 90 seconds"
+READ_RETRY_SPENT: list[float] = [0.0]  # the waits of reads outside a judgement (a judgement keeps its own)
+NO_READ_RETRY: contextvars.ContextVar = contextvars.ContextVar("no_read_retry", default=False)
+sleep = time.sleep  # the wait before a read is asked again; tests replace it
+
+
+def read_retry_wait(refusal: str) -> tuple[float, float] | None:
+    """(seconds to wait, seconds charged to READ_RETRY_BUDGET_SECONDS) before a read that never happened, whose
+    refusal is REFUSAL, is asked once more; None when it is not asked again (no reset named, one too far off, or the
+    budget spent)."""
+    if NO_READ_RETRY.get():
+        return None
+    if refusal.startswith(READ_TIMED_OUT):
+        wait, cost = 0.0, float(CONDITIONAL_SECONDS)
+    else:
+        named = [int(seconds) for seconds in READ_RETRY_AFTER.findall(refusal)]
+        if not named or max(named) > READ_RETRY_MAX_WAIT_SECONDS:
+            return None
+        wait = float(max(named) + READ_RETRY_SLACK_SECONDS)
+        cost = wait
+    if read_retry_spent()[0] + cost > READ_RETRY_BUDGET_SECONDS:
+        return None
+    return wait, cost
+
+
+def read_retry_spent() -> list[float]:
+    """The waits charged so far: this judgement's (JUDGEMENT_READS), else this process's."""
+    memo = JUDGEMENT_READS.get()
+    return READ_RETRY_SPENT if memo is None else memo.setdefault(("read retry spent",), [0.0])
+
 
 def etags_root() -> Path | None:
     """The folder BASE_RED_EXCUSE_ETAGS names (absolute), or None: every read is plain."""
@@ -621,7 +665,23 @@ class GitHub(_evidence.GitHub):
         """gh ARGS (a read): conditional first when the caller named an ETag folder (etags_root), else plain."""
         root = etags_root()
         said = conditional_read(args, root) if root is not None else None
-        return said if said is not None else _evidence.GitHub.run(self, args, repo=repo)
+        if said is not None:
+            return said
+        try:
+            return _evidence.GitHub.run(self, args, repo=repo)
+        except Refused as error:
+            # A read that never happened (Unread), not a shape the broker refuses: once more, at the reset its
+            # refusal names or at once after a timeout (read_retry_wait); a second failure is the judgement's.
+            if not isinstance(error, unread_classes()) or isinstance(error, broker_refused_classes()):
+                raise
+            planned = read_retry_wait(str(error))
+            if planned is None:
+                raise
+            wait, cost = planned
+            read_retry_spent()[0] += cost
+            if wait > 0:
+                sleep(wait)
+            return _evidence.GitHub.run(self, args, repo=repo)
 
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
@@ -640,14 +700,8 @@ class GitHub(_evidence.GitHub):
             return test_reds.plain(kept.replace("\ufeff", ""))
         try:
             return test_reds.plain(self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", ""))
-        except Refused as error:
-            said = str(error)
-            # main_fix_evidence names the read before gh's stderr (`...failed: gh api ROUTE: unknown flag...`, from
-            # its read_name); the refusal is gh's stderr after that name, as escape_flag_unknown reads it.
-            named = f"{REQUEST_FAILED}{_evidence.read_name(['api', ESCAPE_FLAG, route])}: " \
-                if hasattr(_evidence, "read_name") else REQUEST_FAILED
-            stderr = said[len(named):] if said.startswith(named) else said[len(REQUEST_FAILED):]
-            if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(stderr)):
+        except _evidence.RequestFailed as error:
+            if not escape_flag_unknown(error.stderr):
                 raise
         return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
@@ -1235,6 +1289,7 @@ BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
 BASE_CHECK_FOR = {
     ("feat-cmux-next", "pr-router.yml", "pr pipeline / linux"): ("cmux-next-base-linux.yml", "base linux"),
     ("feat-cmux-next", "pr-router.yml", "pr pipeline / web-browser"): ("cmux-next-base-linux.yml", "base web-browser"),
+    ("feat-cmux-next", "pr-router.yml", "pr web pipeline / web-browser"): ("cmux-next-base-linux.yml", "base web-browser"),
 }
 # The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
 # which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
@@ -1275,6 +1330,35 @@ STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || github.base_ref
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
+# A step that finds its machine unfit says so in a live annotation tagged `[cmux-ci machine: KIND]` (select-ci-xcode.sh's
+# xcode-pin-missing, apt-ensure.sh's apt-provision): the host lacks what the job pins, so the red is the machine's,
+# never the PR's. cmux#62929's 'cmux-next Release compile (Xcode 26)' (run 46070277122, 2026-11-27) went to
+# aws-m4pro-7-glaeda-6, which has Xcode 26.3 and 26.6 but not the pinned 27.2; its log did not map one to one onto its
+# steps, so it was refused own_red ("does not map one to one") and the land stopped. Read before any step mapping, only
+# on a `##[error]` line (the runner's echo of a script shows `::error::`, never `##[error]`), and refused in
+# merge_hold's setup words, which glaeda-gh reruns once per (head, run). BASE_RED_EXCUSE_MACHINE_TAG=0 turns it off.
+MACHINE_TAG = "[cmux-ci machine: "
+MACHINE_KIND = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\]")
+MACHINE_TAG_ENV = "BASE_RED_EXCUSE_MACHINE_TAG"
+
+
+def machine_fault(log: str | None) -> tuple[str, str] | None:
+    """(KIND, its line) of the first `##[error]` line of LOG tagged `[cmux-ci machine: KIND]` (MACHINE_TAG), else None;
+    None too when MACHINE_TAG_ENV is "0". Linear in LOG: each tag is found once, its line read once."""
+    if not log or os.environ.get(MACHINE_TAG_ENV, "1").strip() == "0":
+        return None
+    at = log.find(MACHINE_TAG)
+    while at >= 0:
+        start = log.rfind("\n", 0, at) + 1
+        end = log.find("\n", at)
+        end = len(log) if end < 0 else end
+        error = log.find("##[error]", start, at)
+        kind = MACHINE_KIND.match(log, at + len(MACHINE_TAG), end)
+        if error >= 0 and kind is not None:
+            return kind[0][:-1], log[error + len("##[error]"):end].strip()
+        at = log.find(MACHINE_TAG, end)
+    return None
+
 VERDICTS = frozenset({"success", "failure"})
 # How far back the base lookup reads. A feat-cmux-next push skips swift-test, so its base verdict comes
 # from the tip Swift suite (main's cmux-next-tip-swift-suite-dispatch.yml, about one run an hour), and
@@ -4954,12 +5038,32 @@ NODE_ID = re.compile(r"[A-Za-z0-9_=+/-]{1,200}")
 
 
 class SuiteChecks:
-    """The conclusions of each check suite's check runs of a name, every attempt, read in batches over GraphQL."""
+    """The conclusions of each check suite's check runs of a name, every attempt, read in batches over GraphQL.
+
+    A hint: a suite it cannot tell is None, and every caller then reads that run's job list over REST (may_hold), as
+    it did before suites were read at all. So a GraphQL read of it that never happened (a timeout, a spent or held
+    login) leaves its suites unknown and the judgement goes on, and no later batch of this judgement asks GraphQL
+    again (unread). On a lane VM every GraphQL read goes through the lane-gh broker on the shared login while the
+    REST job lists go on the read-pool App: on 2026-11-27 the broker answered "GitHub's secondary rate limit holds
+    login until 10:32Z ... retry after 84s" to the by-commit read for "cmux-next checks (god files, concurrency, crash
+    safety, l10n)", and the whole judgement of cmux#58620 exited 3 ("quota: not judged") while all 168 of its REST
+    reads had answered. Only a shape the broker refuses (BrokerRefusedRead, a tool error naming the fix) still stops
+    it, as before."""
 
     def __init__(self, github, repo: str = ""):
         self.github, self.repo = github, repo
         self.known: dict[tuple[str, str], frozenset[str] | None] = {}
         self.rooted = False  # `nodes` was refused: suites are read by commit (SUITE_COMMITS_QUERY)
+        self.unread: str | None = None  # why a read of this judgement never happened: none is asked again
+
+    def ask(self, args: list[str]):
+        """One GraphQL read of suites, parsed. Never asked again at a reset or after a timeout (NO_READ_RETRY): a
+        suite left unknown costs one REST job list on the App, not a minute's wait on the login."""
+        token = NO_READ_RETRY.set(True)
+        try:
+            return json.loads(self.github.run(args, repo=self.repo))
+        finally:
+            NO_READ_RETRY.reset(token)
 
     def conclusions(self, runs: list[dict], index: int, name: str) -> frozenset[str] | None:
         """The conclusions ('' for one not finished) of every check run named NAME in RUNS[INDEX]'s check suite, or
@@ -4980,14 +5084,15 @@ class SuiteChecks:
 
     def read(self, suites: dict[str, str], name: str) -> None:
         self.known.update(((suite, name), None) for suite in suites)
+        if self.unread is not None:
+            return  # a read of this judgement never happened: these are read over REST (the class docs)
         if not self.rooted:
             # Suite IDs name no repository: gh must use their repository even in a judge started from another
             # checkout. On cmuxterm-hq#22832 the unscoped read spent the jobs budget on twelve empty base runs.
             query = SUITE_CHECKS_QUERY.format(ids=", ".join(json.dumps(suite) for suite in suites))
             try:
-                found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
-                                                   repo=self.repo))
-            except (Refused, UnreadRead, BrokerRefusedRead) as why:
+                found = self.ask(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"])
+            except (Refused, UnreadRead, RateLimitedRead, BrokerRefusedRead) as why:
                 # The broker's refusal reaches here as a read that never happened (main_fix_evidence's Unread, a
                 # failed `gh`), which rate_limit_aware raises as UnreadRead: catching only Refused let it out, so
                 # every lane-VM judgement with a red exited 3, "not judged", and land-judge parked it as quota
@@ -4996,8 +5101,11 @@ class SuiteChecks:
                 # for `nodes` the same fallback, never exit 4; any other refused shape is still exit 4, a tool error.
                 if NODES_REFUSED in str(why):
                     self.rooted = True
-                elif isinstance(why, (UnreadRead, BrokerRefusedRead)):
-                    raise  # a timeout or another failed read: not judged, a retry (exit 3); a refused shape: exit 4
+                elif isinstance(why, BrokerRefusedRead):
+                    raise  # a refused shape: exit 4, a tool error naming the fix
+                elif isinstance(why, (UnreadRead, RateLimitedRead)):
+                    self.unread = str(why)
+                    return  # a read that never happened: these suites, and every later one, are read over REST
                 else:
                     return  # read over REST instead, as before
             except ValueError:
@@ -5020,8 +5128,11 @@ class SuiteChecks:
         try:
             # Scoped to the repo twice: the owner and name variables (the broker's call repo, lane_gh_vm.graphql_repo)
             # and GH_REPO, so a judge started from another checkout never reads another repo's suites (hq#22832).
-            found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
-                                                "-f", f"name={repo}", "-f", f"check={name}"], repo=self.repo))
+            found = self.ask(["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
+                              "-f", f"name={repo}", "-f", f"check={name}"])
+        except (UnreadRead, RateLimitedRead) as why:
+            self.unread = str(why)
+            return  # a read that never happened: read over REST (the class docs), never the judgement's exit 3
         except (Refused, ValueError):
             return
         data = found.get("data") if isinstance(found, dict) and not found.get("errors") else None
@@ -6198,8 +6309,12 @@ GUARD_WORKFLOWS = {
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
+        "app-store-shelf-pr": _PRODUCT,
         "ios-placeholder-bounds": "reads the iOS app's Swift sources and placeholders.json: a red is the change's "
                                   "own unbound placeholder, never a guard's",
+        "spec-checks": "checks cmux-tui's spec and bindings against the server and client sources; a red the base "
+                       "shares is already only a warning in the job (spec_checks.py run --base), so a red is the "
+                       "change's own",
         "pr-red-checks": _PUBLISH,
         "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
         "security-holes": "judges the workflow holes and secrets the change's own diff adds against the base's "
@@ -6329,10 +6444,12 @@ PACKAGE_JOBS = {
                   # cmux-mobile-link-ffi depends on cmux-terminal-projection (#42219)
                   "cmux-tui/crates/cmux-terminal-projection/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
+                  # The mobile dependency graph reaches the hop relay (#54363) and vault sealing (#56920).
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
-                  # cmux-window-rules' tab group tests include_str! the shared vectors (#57843)
-                  "schemas/tab-group-rules/",
+                  # cmux-window-rules tests include both sets of shared vectors (#57843, #57997).
+                  "schemas/tab-group-rules/", "schemas/tab-layout-rules/",
                   # a crate the kit's manifests reach since #58214 (cmux-vnc's vnc_* JSON ops)
                   "cmux-tui/crates/cmux-vnc/",
                   # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
@@ -6376,7 +6493,10 @@ PACKAGE_JOBS = {
                   # cmux-mobile-link-ffi reaches cmux-local-url, cmux-mobile-host reaches cmux-phone-page; the
                   # window rules' tab layout tests and cmux-region-pick's tests include_str! these two (2026-11-27)
                   "cmux-tui/crates/cmux-local-url/", "cmux-tui/crates/cmux-phone-page/",
-                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts")
+                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts",
+                  # cmux-mobile-link reaches cmux-hop-relay (#54363); cmux-mobile-link-ffi reaches cmux-vault-e2e
+                  # (#56920)
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/")
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
@@ -7939,8 +8059,18 @@ def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
 # whose failure cannot be read is refused.
 WS_CHECK = "ws-check"
 WS_CHECK_REPOS = {"teamleaderleo/leo-workspace": "manaflow-ai/cmuxterm-hq"}  # repo: the repo its runs are in
-WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most main commits get none)
-WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have tested (one local merge-tree each)
+# Both windows must hold every main merge that lands while one ws-check run is out. leo-workspace main takes up to
+# WS_CHECK_PEAK_MERGES merges in one run (55 min; 2026-11-21..23, the same figure as the leo-workspace timer's
+# tools/ws_check_timer.py MAIN_PEAK_MERGES, whose MAIN_HISTORY window of 80 is why main~N tips get their verdict at
+# all). At 30 and 20, 2026-11-27: main's newest finished verdict was 43 commits back (f5310494's, 09:55Z, while
+# 30 commits landed in 46 min), so lw#12062 at 0d6d738f was refused "none of the 30 newest main commits has a ws-check
+# verdict to compare with", and its own run, which tested main 25+ commits back, "tested another base or head" (the
+# 20-commit tree window). Every leo-workspace PR with a ws-check red was refused the same way, red_not_excused.
+# The commit list is one call either way (a page of up to 100); each commit past the first readable verdict costs
+# nothing, since the walk stops there.
+WS_CHECK_PEAK_MERGES = 66
+WS_CHECK_COMMITS = 100  # base commits read for a verdict, newest first (most main commits get none)
+WS_CHECK_TESTED_TIPS = 70  # base commits whose squash tree a run may have tested (one local merge-tree each)
 # leo-workspace tools/ws-check describes a failure "N of M steps failed: STEP", cut to 139 characters. It may lead with
 # "base red (main SHA8 fails it too) " (main's own run fails those steps) and end the step with a hint ("STEP; lints
 # before the next push: ..."); ws_check_names_step reads the step text.
@@ -7956,7 +8086,15 @@ WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\
 # steps" and no per-test comparison ran: lw#12133 at fb44c444 ("4 failed after discounting 24 on main 33ce8b65:
 # test_review_pool_routing.py") and lw#12080 stopped red_not_excused on 2026-11-26. Read, its units are judged per
 # test against main like any other ws-check red: a unit that passes on main stays the head's red.
-WS_CHECK_LONG_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8}): (.*)", re.S)
+# Since lw#12687 (2026-11-27) both discounted forms also count the run's flakes apart (units that failed, passed on main
+# and passed again on the PR's tree: never the PR's, never main's): "... (+K base red discounted, F flaky, main SHA8)" and
+# "N failed after discounting K on main SHA8, F flaky: UNIT". Unread, lw#12864 at 19dbd9c7 ("1 failed after discounting
+# 9 on main 67c96e79, 7 flaky: test_timing_asserts.py") was refused "names no failed steps". A flake is a FAILED label
+# the log keeps as the head's, so the counts split the log's labels as own + discounted + flaky, and the first unit is
+# any of the head's (the flakes, which ws-check leaves out of its own, are not marked in the log this reads).
+WS_CHECK_LONG_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8})(?:, (\d+) flaky)?: (.*)",
+                                       re.S)
+WS_CHECK_FLAKY_MARKER = re.compile(r" \(\+\d+ base red discounted, (\d+) flaky, main [0-9a-f]{8}\)")
 # leo-workspace tools/ws-check publish_failed ends a main commit's red status with its failed set, " [fails N: HASHES]"
 # (5 base64url characters a label), cutting the text before it so the whole stays at 139. It is no part of the step a
 # description names, so it is dropped before the description is read. 2026-11-27: every red main status carried it
@@ -8014,22 +8152,22 @@ def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[st
         # at e9da65f7, "1 failed after discounting 7 on main 99f45fab: test_text_io_encoding.py" over a log whose
         # pass saw 6 of 8 fail on main, was refused "does not match run 45922084826's WS_CHECK_RESULT".
         found = ws_check_own_base(lines, at, failed)
-        if found is None or not found["head_only"] or not named[4]:
+        if found is None or not found["head_only"] or not named[5]:
             return False
-        own, discounted = int(named[1]), int(named[2])
+        own, discounted, flaky = int(named[1]), int(named[2]), int(named[4] or 0)
         firsts = []
         for label in sorted(found["head_only"]):
             step, bracket, unit = label.partition(" [")
             firsts.append(unit.removesuffix("]") if bracket else step)
         if named[3] != found["main"][:8] or own < 1 or discounted < len(found["on_main"]):
             return False
-        if own + discounted != len(found["on_main"]) + len(found["head_only"]):
+        if own + discounted + flaky != len(found["on_main"]) + len(found["head_only"]):
             return False
         def names(first: str) -> bool:
             # the unit, maybe cut at the status's room, or the unit with more after it (more units, a lane run's tag:
             # cmux#58085's "test_b.py, test_c.py" and "test_b.py cmux-cp-1; log x")
-            return first.startswith(named[4]) or named[4].startswith((first + ", ", first + " "))
-        if discounted == len(found["on_main"]):
+            return first.startswith(named[5]) or named[5].startswith((first + ", ", first + " "))
+        if discounted == len(found["on_main"]) and not flaky:
             return names(firsts[0])
         return any(names(first) for first in firsts)
     count, total, described = int(named[1]), int(named[2]), named[5]
@@ -8041,13 +8179,17 @@ def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[st
     if found is None or not found[0]:
         return False
     own, discounted, main = found
-    if count != len({label.split(" [", 1)[0] for label in own}):
+    flaky = WS_CHECK_FLAKY_MARKER.search(described) if not named[3] else None
+    own_steps = len({label.split(" [", 1)[0] for label in own})
+    # a flake is one of this log's head-only labels that ws-check counts apart: its step may be one the status leaves out
+    if count != own_steps and not (flaky and 1 <= count < own_steps):
         return False
-    marker = f" (+{discounted} base red discounted, main {main[:8]})"
+    flakes = f", {flaky[1]} flaky" if flaky else ""
+    marker = f" (+{discounted} base red discounted{flakes}, main {main[:8]})"
     if named[3]:  # lw#9754's shape: the marker before the unit
         return (int(named[3]), named[4]) == (discounted, main[:8]) and ws_check_names_step(described, own[0])
-    # The marker after the unit, both cut together at 139 characters.
-    return (own[0] + marker).startswith(described)
+    # The marker after the unit, both cut together at 139 characters; with flakes, the unit is any of the head's.
+    return any((label + marker).startswith(described) for label in (own if flaky else own[:1]))
 
 
 def ws_check_names_step(described: str, step: str) -> bool:
@@ -9826,6 +9968,10 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     names = job_step_names(repo, job, github, run_reads)
     if refused_at_setup(job, head_log):
         raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+    if (fault := machine_fault(head_log)) is not None:
+        kind, said = fault
+        raise Refused(f"'{name}' was refused at setup by its runner (job {job.get('id')}: a machine fault, "
+                      f"[cmux-ci machine: {kind}]: {said[:300]}); it gets re-run, never excused")
     if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
         raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
