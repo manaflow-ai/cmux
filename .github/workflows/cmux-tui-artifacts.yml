@@ -215,6 +215,11 @@ jobs:
       key: cmux-tui-artifacts
       hold_minutes: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES || '60') }}
       no_coalesce: ${{ format('{0}', vars.NEXT_TUI_ARTIFACTS_COALESCE) == '0' }}
+      # Failed runs a window retries (RFD 0200 tier 3; default 3, as before). 11-27 21:49Z..11-28 05:37Z the
+      # feat-cmux-next pushes built 22 first-attempt trees in about 8 windows, nearly every one red on the same
+      # darwin/musl link failure, each about 100 runner-min: a retry of an unchanged red is a rebuild, not a fix.
+      # '1' holds after one retry (about 2k runner-min a day less), '0' after the window's run (about 4.4k).
+      retries: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_RETRIES || '3') }}
       # The gate decides whether the window's tree builds at all, so it takes the preflight's pool (below), not the
       # shared cmux-linux: on 2026-11-25 04:26Z this gate queued 44 min behind PR CI, the queued-run supersede then
       # cancelled the run, and that window published no tree, so the nightly-next tick refused every newer commit.
@@ -245,6 +250,7 @@ jobs:
       runner: ${{ github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || '' }}
       window: ${{ needs.coalesce.outputs.window }}
       round: ${{ needs.coalesce.outputs.round }}
+      retries: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_RETRIES || '3') }}
 
   # A superseded lane-branch push stops here, before it takes a preflight-sized runner.
   # On 2026-11-18 at 06:35Z 418 runs of this workflow sat queued, the oldest since
