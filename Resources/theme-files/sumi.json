@@ -10,7 +10,8 @@
   "appearance.theme": "Kanagawa Lotus",
   "colors": {
     "background": "#f4eee1",
-    "foreground": "#1f1c18",
+    // Ink near black: the chat's tool rows mix it 58% over the paper; #1f1c18 read 4.01:1 there (golden-look-contrast).
+    "foreground": "#0c0a08",
     "cursor": "#b8322a",
     "selection": "#6b5a48",
     "accent": "#b8322a",

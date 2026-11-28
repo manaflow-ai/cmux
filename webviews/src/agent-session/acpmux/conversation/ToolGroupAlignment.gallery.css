@@ -16,12 +16,15 @@
 .tool-group-align-gallery[data-mode="light"] {
   --cv-page: #f4f5f7;
   --cv-text: #22252b;
+  /* The tool rows mix their ink from --cv-fg: without it the scheme's own (#aaaaaa in dark) drew on this page. */
+  --cv-fg: #22252b;
   --cv-text-muted: #626a76;
   --cv-tool-strong: #30343b;
 }
 .tool-group-align-gallery[data-mode="dark"] {
   --cv-page: #17181d;
   --cv-text: #f4f5f7;
+  --cv-fg: #f4f5f7;
 }
 .tool-group-align-gallery__header {
   display: flex;

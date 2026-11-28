@@ -41,10 +41,12 @@ await requireBrowserLane("guest-page-first-frame-browser.test.ts", async () => {
     await vite?.close();
   });
 
-  // A dropped connection fails the transcript chunk's request (#38101 F1): the page says so, and
-  // Retry recovers in a real browser, whether it may fetch the module again or has to reload; a
-  // reload keeps the guest's unsent draft.
-  test("a transcript chunk whose request fails: Retry recovers and the chat draws", async () => {
+  // A dropped connection fails the transcript chunk's request (#38101 F1). Since #51599 the page
+  // asks nothing (no Retry: Leo, 2026-11-22, "vacuous decisions like that should be just done"): it
+  // tries again on its own, reloads once when the browser keeps the failed import, says one quiet
+  // line once the failure has lasted, and draws the chat as soon as the chunk loads. A reload keeps
+  // the guest's unsent draft.
+  test("a transcript chunk whose request fails: the page retries on its own and the chat draws", async () => {
     const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 2 });
     await page.addInitScript((share) => {
       sessionStorage.setItem(`cmux.guest.${share}.joined`, "g1");
@@ -52,24 +54,34 @@ await requireBrowserLane("guest-page-first-frame-browser.test.ts", async () => {
       sessionStorage.setItem(`cmux.guest.${share}.role`, "talk");
     }, SHARE);
     let online = false;
-    await page.route(/\/GuestTranscript\.tsx(\?|$)/, (request) => (online ? request.continue() : request.abort()));
+    // The first failure waits until the draft is typed, so the page's own reload comes after it.
+    let typed!: () => void;
+    const draftTyped = new Promise<void>((resolve) => (typed = resolve));
+    await page.route(/\/GuestTranscript\.tsx(\?|$)/, async (request) => {
+      if (online) return request.continue();
+      await draftTyped;
+      await request.abort();
+    });
     const frames = joinFrames(workingRecords());
     await page.routeWebSocket(`**/v1/chat-shares/${SHARE}/guest`, (socket) => {
       for (const frame of frames) socket.send(JSON.stringify(frame));
     });
     await page.goto(`${origin}/i/${SHARE}`);
-    const retry = page.locator(".guest-live__transcript [role=alert] button");
     const draft = page.locator(".guest-live__dock textarea");
-    await retry.waitFor();
-    // The composer works while the chat cannot load; what the guest types survives a reload.
+    // The composer works while the chat cannot load; what the guest types survives the reload.
     await draft.fill("Can you run it on the CI image too?");
-    // Still offline: Retry fails too and reloads the page, which keeps the draft.
-    await Promise.all([page.waitForEvent("load"), retry.click()]);
-    await retry.waitFor();
+    const reloaded = page.waitForEvent("load");
+    typed();
+    await reloaded;
     expect(await draft.inputValue()).toBe("Can you run it on the CI image too?");
+    // Still offline after the one reload: the page keeps trying and, once that has lasted, says so
+    // in one line with nothing to press.
+    const notice = page.locator(".guest-live__transcript .guest-live__notice");
+    await notice.waitFor({ timeout: 60_000 });
+    expect(await page.locator(".guest-live__transcript button").count()).toBe(0);
     online = true;
-    await retry.click();
-    await page.locator(".guest-live__transcript [data-row-id]").first().waitFor();
+    await page.locator(".guest-live__transcript [data-row-id]").first().waitFor({ timeout: 60_000 });
+    expect(await notice.count()).toBe(0);
     expect(await page.locator(".guest-live__transcript [role=alert]").count()).toBe(0);
     expect(await draft.inputValue()).toBe("Can you run it on the CI image too?");
     await page.close();
