@@ -12,6 +12,7 @@ import unittest
 import unittest.mock
 from argparse import Namespace
 from unittest import mock
+import io
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -163,6 +164,32 @@ class WebTickTest(unittest.TestCase):
                 unittest.mock.patch("sys.stdout"):
             self.assertEqual(pmb.cmd_tick(args), 0)
         self.assertFalse([call for call in calls if "cmux-next-web.yml" in call[1]])
+
+    def test_a_tick_that_cannot_reach_github_goes_red(self) -> None:
+        # 2026-11-27 23:55Z on: every tick's reads were rate limited on every token, each run ended green with
+        # "::warning::tick skipped", and no batch ran for over 2 h. An error that dispatched nothing is red now;
+        # a tick with nothing to do (a batch already in flight) stays green.
+        def limited(path, method="GET", fields=None, **_):
+            raise RuntimeError(f"gh api {method} {path}: API rate limit exceeded for installation ID 175618676. (HTTP 403)")
+
+        args = Namespace(repo="o/r", branch="feat-cmux-next", window_minutes="120", dry_run=False)
+        out = io.StringIO()
+        with unittest.mock.patch.object(pmb, "gh_api", limited), unittest.mock.patch("sys.stdout", out):
+            self.assertEqual(pmb.cmd_tick(args), 1)
+        self.assertIn("::error::tick dispatched nothing", out.getvalue())
+
+        dispatched = []
+
+        def covered(path, method="GET", fields=None, **_):
+            if method == "POST":
+                dispatched.append(path)
+            return {"sha": "a" * 40} if path.endswith("/commits/feat-cmux-next") else None
+
+        with unittest.mock.patch.object(pmb, "gh_api", covered), \
+                unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: [run(1, "b" * 40, "2026-11-21T11:00:00Z", status="in_progress")]), \
+                unittest.mock.patch("sys.stdout"):
+            self.assertEqual(pmb.cmd_tick(args), 0)
+        self.assertFalse([p for p in dispatched if pmb.WORKFLOW in p])
 
 
 class PlanAndJudgeTest(unittest.TestCase):
