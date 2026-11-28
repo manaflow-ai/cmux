@@ -106,6 +106,8 @@ test("Invite on someone with access says so, or changes their role", () => {
     inviteUrl: null,
     guestsNow: 0,
     requests: [],
+    teams: [],
+    teamShares: [],
   };
   expect(inviteStep(view, " Ana@Example.com", "view")).toEqual({ kind: "already", account: "ana@example.com" });
   expect(inviteStep(view, "ana@example.com", "talk")).toEqual({ kind: "role", account: "ana@example.com" });
