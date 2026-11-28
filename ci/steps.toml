@@ -4706,6 +4706,7 @@ esac
 job = "linux"
 land_gate = true
 timeout = 1800
+# `alone`, as the canary: a 30 min bound in a shared wave would set every wave's length (test_the_job_timeout_covers_setup_and_every_wave).
 alone = true
 title = "Swift test targets compile (build fleet)"
 about = "the build fleet's test-target compile (swift build --build-tests) of the macOS packages and CmuxNext test targets the change reaches (compile_test_plan.py, fleet_compile_result.py --phase test-compile), red only when the base compiles them"
