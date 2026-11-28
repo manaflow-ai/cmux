@@ -484,3 +484,6 @@ fn write_token_file(path: &std::path::Path, token: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod seeded_tests;

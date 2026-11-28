@@ -86,3 +86,7 @@ pub(super) async fn session(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "socket_seeded_tests.rs"]
+mod seeded_tests;
