@@ -265,3 +265,59 @@ fn credential_backoff_doubles_from_1s_to_a_60s_cap() {
     backoff.reset();
     assert_eq!(backoff.next(1.0), FIRST_CREDENTIAL_BACKOFF);
 }
+
+#[test]
+fn a_busy_relay_is_waited_out_by_its_retry_after_with_jitter_on_top() {
+    let told = Some(Duration::from_secs(5));
+    for unit in [0.0, 0.25, 0.5, 0.999] {
+        let mut retry = Retry::new();
+        let wait = retry.wait(Ended::Busy { retry_after: told }, unit);
+        assert!(wait >= Duration::from_secs(5), "never under Retry-After: {wait:?} at {unit}");
+        assert!(wait <= Duration::from_millis(7_500), "jitter is half again at most: {wait:?}");
+    }
+    // A Retry-After past the cap is waited out for the cap.
+    let mut retry = Retry::new();
+    let wait = retry.wait(Ended::Busy { retry_after: Some(Duration::from_secs(3600)) }, 0.0);
+    assert_eq!(wait, MAX_BUSY_BACKOFF);
+}
+
+#[test]
+fn a_busy_relay_with_no_retry_after_backs_off_doubling_to_a_minute_never_near_zero() {
+    let mut retry = Retry::new();
+    let mut waits = Vec::new();
+    for _ in 0..10 {
+        waits.push(retry.wait(Ended::Busy { retry_after: None }, 0.0));
+    }
+    // Even the luckiest draw waits half the ceiling: 0.5 s, 1, 2, 4 ... capped at 30 s.
+    assert_eq!(waits[0], FIRST_BUSY_BACKOFF / 2);
+    assert_eq!(waits[1], FIRST_BUSY_BACKOFF);
+    assert!(waits.windows(2).all(|w| w[1] >= w[0]), "{waits:?}");
+    assert_eq!(*waits.last().unwrap(), MAX_BUSY_BACKOFF / 2);
+    let mut top = Retry::new();
+    for _ in 0..10 {
+        assert!(top.wait(Ended::Busy { retry_after: None }, 0.999) <= MAX_BUSY_BACKOFF);
+    }
+    // A ready registration starts over.
+    retry.ready();
+    assert_eq!(retry.wait(Ended::Busy { retry_after: None }, 0.0), FIRST_BUSY_BACKOFF / 2);
+}
+
+/// The before and after number: asks to a relay that stays full for 60 s, at a middle draw.
+#[test]
+fn a_full_relay_is_asked_a_handful_of_times_a_minute_not_dozens() {
+    fn asks(mut wait: impl FnMut() -> Duration) -> u32 {
+        let (mut at, mut n) = (Duration::ZERO, 0);
+        while at < Duration::from_secs(60) {
+            n += 1;
+            at += wait() + Duration::from_millis(5);
+        }
+        n
+    }
+    let mut before = Retry::new();
+    let before = asks(|| before.wait(Ended::Relay, 0.5));
+    let mut after = Retry::new();
+    let after = asks(|| after.wait(Ended::Busy { retry_after: Some(Duration::from_secs(1)) }, 0.5));
+    eprintln!("relay-503 asks in 60 s at a middle draw: before {before}, after {after}");
+    assert!(after < before, "before {before}, after {after}");
+    assert!(after <= 50, "{after}");
+}

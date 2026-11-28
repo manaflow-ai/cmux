@@ -1330,9 +1330,39 @@ async fn collect_once(
                 .unwrap_or_default(),
         };
     }
+    if !prompt.resend
+        && steered.turn().is_none()
+        && let Some(why) = ran_no_turn(&result, activity, &reply)
+    {
+        return Err(crate::cli::errors::AppError::new(
+            crate::cli::errors::Code::Runtime,
+            "no_turn",
+            format!("the daemon answered the prompt without running a turn: {why}"),
+        )
+        .with_session(id)
+        .into());
+    }
     let stop_reason =
         result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
     Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
+}
+
+/// Why a `--wait` answer ran no turn, or `None` when it did: the answer names no turn id, the
+/// agent sent nothing while it waited, and no reply came. Such an answer (a delivery to the
+/// inbox, a withdrawn queue entry, a bridge reply nobody answered) used to read as an empty
+/// `end_turn`, so `send --wait --quiet` printed nothing and exited 0 (the offload probe's
+/// return leg, 2026-11-28 12:55Z). The words name the answer, so a caller sees which path took it.
+fn ran_no_turn(result: &Value, activity: bool, reply: &str) -> Option<String> {
+    if activity || !reply.is_empty() || result.pointer("/_meta/acpmux/turnId").is_some() {
+        return None;
+    }
+    let mut shown = result.to_string();
+    if shown.len() > 300 {
+        let cut = (0..=300).rev().find(|&i| shown.is_char_boundary(i)).unwrap_or(0);
+        shown.truncate(cut);
+        shown.push('…');
+    }
+    Some(format!("no turn id, no agent output; its answer: {shown}"))
 }
 
 /// The end of the turn a steer went into, once `end_wait` is armed; never before.
@@ -1454,6 +1484,25 @@ fn reply_of_turn(events: &[Value], turn: &str) -> Option<String> {
 
 /// The last `count` assistant replies of a session, oldest first (`cli/last_reply.rs`).
 pub(crate) use super::last_reply::last_replies;
+
+#[cfg(test)]
+mod no_turn_tests {
+    use super::ran_no_turn;
+    use serde_json::json;
+
+    #[test]
+    fn an_answer_without_a_turn_or_output_is_named_not_an_empty_success() {
+        let inbox = json!({"stopReason": null, "_meta": {"acpmux": {"delivered": "inbox"}}});
+        let why = ran_no_turn(&inbox, false, "").expect("no turn ran");
+        assert!(why.contains("delivered"), "{why}");
+        let ran = json!({"stopReason": "end_turn", "_meta": {"acpmux": {"turnId": "t1"}}});
+        assert_eq!(ran_no_turn(&ran, false, ""), None, "a turn that said nothing is still a turn");
+        assert_eq!(ran_no_turn(&inbox, true, ""), None, "the agent streamed while it waited");
+        assert_eq!(ran_no_turn(&json!({}), false, "hi"), None, "a reply came");
+        let long = json!({"x": "y".repeat(1000)});
+        assert!(ran_no_turn(&long, false, "").unwrap().len() < 400);
+    }
+}
 
 #[cfg(test)]
 mod prompt_tests {

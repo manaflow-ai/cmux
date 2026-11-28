@@ -219,6 +219,31 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["fork"], tip)
         self.assertTrue(any("behind" in note for note in planned["notes"]), planned["notes"])
 
+    def test_an_app_newer_than_the_change_s_fork_is_noted(self):
+        # cmux#64758: a look of a PR forked before the nightly overlaid its older web bundle on the newer app and
+        # drew a blank New Tab with no note saying the app was ahead of the change's fork.
+        head = self.fx.change({"webviews/src/app.tsx": "export const title = 'Home 4'\n"})
+        app = self.advance_base({"webviews/src/newtab.tsx": "export const newTab = 2\n", "docs/notes.md": "x\n"})
+        planned = self.plan(head, base=app)
+        self.assertEqual(planned["fork"], self.fx.base)
+        self.assertEqual(planned["base"], app)
+        ahead = [note for note in planned["notes"] if "ahead of the change's fork" in note]
+        self.assertEqual(len(ahead), 1, planned["notes"])
+        self.assertIn("1 commits ahead", ahead[0])
+        self.assertIn("(1 of them in webviews/)", ahead[0])
+
+    def test_an_app_that_already_has_the_head_has_no_gap_note(self):
+        # A merged PR looked at on a nightly that ships it: "the app already contains" it, not "ahead of its fork".
+        head = self.fx.change({"webviews/src/app.tsx": "export const title = 'Home 6'\n"})
+        app = self.fx.commit({"docs/notes.md": "later\n"}, "after the change", parent=head)
+        planned = self.plan(head, base=app)
+        self.assertFalse([note for note in planned["notes"] if "ahead of the change's fork" in note],
+                         planned["notes"])
+
+    def test_an_app_at_the_change_s_fork_has_no_gap_note(self):
+        planned = self.plan(self.fx.change({"webviews/src/app.tsx": "export const title = 'Home 5'\n"}))
+        self.assertFalse([note for note in planned["notes"] if "ahead" in note or "behind" in note], planned["notes"])
+
     def test_the_change_s_own_swift_still_needs_a_build_after_drift(self):
         tip = self.advance_base({"docs/notes.md": "drift\n"})
         head = self.fx.commit({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
@@ -1877,6 +1902,9 @@ class LookKitErrorTest(unittest.TestCase):
             def socket(self):
                 return "/tmp/look-test.sock"
 
+            def remember(self, **fields):
+                pass
+
             def stop(self):
                 return []
 
@@ -1890,7 +1918,10 @@ class LookKitErrorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
             receipt = {"errors": [], "app": {}}
-            with unittest.mock.patch.object(hv, "load_kit", return_value=object()), \
+            with unittest.mock.patch.object(hv, "prepare_kit_home",
+                                            return_value=({}, unittest.mock.Mock(notes={}))), \
+                    unittest.mock.patch.object(hv, "kit_launch_args", return_value=[]), \
+                    unittest.mock.patch.object(hv, "load_kit", return_value=unittest.mock.Mock(__file__="/kit/nightly_steps.py")), \
                     unittest.mock.patch.object(hv, "load_steps", return_value=[]), \
                     unittest.mock.patch.object(hv, "steps_engine", return_value="webkit"), \
                     unittest.mock.patch.object(hv, "Shooter", side_effect=shooter), \
@@ -1906,6 +1937,117 @@ class LookKitErrorTest(unittest.TestCase):
             written = json.loads((out / "receipt.json").read_text())
         self.assertIn("RuntimeError: window 7; CuaDriver: daemon is not running", written["errors"])
 
+
+
+class IsolatedHarnessTest(unittest.TestCase):
+    def test_watched_copy_restores_preparation_from_its_saved_kit(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "capture/keychain").mkdir(parents=True)
+            (root / "capture/keychain/state.json").write_text("{}")
+            prepared = SimpleNamespace(notes={}, home=None, keychain=None)
+            prepared.finish = lambda: prepared.notes.update(keychain_restored=True)
+            keychain = object()
+            kit = SimpleNamespace(Prepared=lambda: prepared, rig_keychain=lambda *a: keychain)
+            side = SimpleNamespace(dir=lambda: root, exists=lambda: True,
+                                   state=lambda: {"capture_kit": "/kit"}, run=unittest.mock.Mock(),
+                                   remember=unittest.mock.Mock())
+            with unittest.mock.patch.object(hv, "load_kit", return_value=kit):
+                self.assertEqual(hv.Side.stop(side), [])
+            self.assertEqual(prepared.home, str(root / "capture/home"))
+            self.assertIs(prepared.keychain, keychain)
+            side.remember.assert_any_call(capture_kit=None)
+
+            prepared.finish = lambda: prepared.notes.update(keychain_restored=False)
+            side.remember.reset_mock()
+            with unittest.mock.patch.object(hv, "load_kit", return_value=kit):
+                self.assertIn("keychain was not restored", hv.Side.stop(side)[0])
+            self.assertNotIn(unittest.mock.call(capture_kit=None), side.remember.call_args_list)
+
+    def test_failed_stop_does_not_remove_the_copy_or_its_cleanup_state(self):
+        from types import SimpleNamespace
+        side = unittest.mock.Mock()
+        side.stop.return_value = ["capture keychain was not restored"]
+        with unittest.mock.patch.object(hv, "Side", return_value=side):
+            self.assertEqual(hv.command_stop(SimpleNamespace(side="copy", remove=True)), hv.EXIT_FAILED)
+        side.run.assert_not_called()
+
+    def test_runner_receives_the_apps_environment_and_preparation(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            prepared = object()
+            env = {"HOME": str(out / "home"), "CFFIXED_USER_HOME": str(out / "home")}
+            seen = {}
+            class Runner:
+                def __init__(self, *args):
+                    pass
+                def __call__(self, process, sock, actual_env, app, output, report):
+                    seen.update(env=actual_env, prepared=self.prepared)
+                    (output / "result.json").write_text('{"steps": []}')
+            kit = SimpleNamespace(Steps=Runner, RESULT="result.json", __file__=str(out / "nightly_steps.py"))
+            hv.run_kit_steps(kit, [], 123, "/tmp/copy.sock", out / "copy.app", out,
+                             env=env, prepared=prepared)
+            self.assertEqual(seen["env"], env)
+            self.assertIs(seen["prepared"], prepared)
+
+    def test_fake_harness_needs_a_kit_instead_of_silently_using_a_real_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "steps.json"
+            state.write_text(json.dumps({"fakeHarness": True, "steps": [{"shot": "chat"}]}))
+            with self.assertRaisesRegex(hv.Usage, "fakeHarness.*kit"):
+                hv.load_steps(str(state), None)
+
+
+    def test_preparation_keeps_profiles_and_trust_inside_the_copy(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / "steps.json"
+            state.write_text(json.dumps({"fakeHarness": {"id": "claude"}, "steps": []}))
+            side = SimpleNamespace(dir=lambda: root, app=lambda: root / "copy.app",
+                                   env=lambda: {"CMUX_NEXT_CONFIG_FILE": str(root / "config.json")})
+            spec = {"id": "claude"}
+            fake = SimpleNamespace(normalize=lambda value: spec, AGENT_PATH="tests/fake_agent.py", SIBLINGS=("data.json",))
+            prepared = SimpleNamespace(notes={"fake_harness": {"id": "claude"}}, finish=unittest.mock.Mock())
+            def prepare(env, bundle, capture, **kw):
+                self.assertEqual(kw["account_home"], env["HOME"])
+                self.assertEqual(env["CFFIXED_USER_HOME"], env["HOME"])
+                self.assertNotIn("ACPMUX_HOME", env)
+                self.assertNotIn("ACPMUX_SOCKET", env)
+                self.assertNotIn("XDG_CONFIG_HOME", env)
+                self.assertTrue(Path(env["HOME"]).is_relative_to(capture))
+                files = kw["fake_dir"]
+                self.assertEqual((files / "fake_agent.py").read_text(), "agent at head\n")
+                self.assertEqual((files / "data.json").read_text(), "data at head\n")
+                self.assertEqual(json.loads((files / "fake_harness.json").read_text()), spec)
+                config = capture / "settings.json"
+                config.write_text('{"agents": {"trust": {"autoTrust": true}}}')
+                env["CMUX_NEXT_CONFIG_FILE"] = str(config)
+                return prepared
+            kit = SimpleNamespace(__file__=str(root / "kit/nightly_steps.py"), _load=lambda *a: fake,
+                                  prepare_home=prepare, acpmux_home=lambda env, app: (env["HOME"] + "/.acpmux", False),
+                                  acpmux_socket=lambda env, app: env["ACPMUX_HOME"] + "/socket")
+            def git(repo, *args, **kw):
+                self.assertTrue(args[-1].startswith("exact-head:"))
+                return "blob" if args[0] == "cat-file" else ("data at head" if args[-1].endswith("data.json") else "agent at head")
+            with unittest.mock.patch.object(hv, "git", side_effect=git), unittest.mock.patch.dict(os.environ, {
+                    "ACPMUX_HOME": "/account/daemon", "ACPMUX_SOCKET": "/account/socket", "XDG_CONFIG_HOME": "/account/config"}):
+                env, actual = hv.prepare_kit_home(kit, str(state), root, "exact-head", side, "webkit")
+            self.assertIs(actual, prepared)
+            self.assertEqual(json.loads((root / "config.json").read_text())["agents"]["trust"]["autoTrust"], True)
+            self.assertEqual(env["ACPMUX_SOCKET"], env["HOME"] + "/.acpmux/socket")
+            args = hv.kit_launch_args(env)
+            self.assertIn("HOME=" + env["HOME"], args)
+            self.assertIn("CFFIXED_USER_HOME=" + env["HOME"], args)
+            self.assertIn("ACPMUX_SOCKET=" + env["ACPMUX_SOCKET"], args)
+            prepared.finish.assert_not_called()
+            with unittest.mock.patch.object(hv, "git", side_effect=git), \
+                    unittest.mock.patch.object(hv.shutil, "copyfile", side_effect=OSError("config unavailable")):
+                with self.assertRaisesRegex(OSError, "config unavailable"):
+                    hv.prepare_kit_home(kit, str(state), root, "exact-head", side, "webkit")
+            prepared.finish.assert_called_once()
 
 
 class LaunchBound(unittest.TestCase):
@@ -1924,6 +2066,77 @@ class LaunchBound(unittest.TestCase):
         self.assertGreaterEqual(len(launches), 2)
         for call in launches:
             self.assertIn("timeout=launch_seconds()", call)
+
+
+class LaunchFailureTest(unittest.TestCase):
+    """A copy whose control socket never answers says why: whether it still runs, and its own output's end
+    (cmuxterm-hq docs/handbook/failure-drops-its-reason.md: the look said only "nothing within 120 s")."""
+
+    def test_a_dead_copy_names_its_end_and_its_output_redacted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            err = Path(tmp) / "app.stderr.log"
+            err.write_text("".join(f"line {i}\n" for i in range(200))
+                           + "dyld: Library not loaded: @rpath/Foo.framework\n"
+                           + "auth token=abcdefgh12345678 bearer: ZZZZZZZZZZZZZZ\n")
+            dead = subprocess.Popen([sys.executable, "-c", "pass"])
+            dead.wait()
+            said = hv.launch_failure(dead.pid, [str(Path(tmp) / "app.stdout.log"), str(err)])
+        self.assertIn("app launch: running False", said)
+        self.assertIn("dyld: Library not loaded", said)
+        self.assertIn("app.stderr.log (last 80 lines)", said)
+        self.assertNotIn("line 100\n", said)
+        self.assertNotIn("abcdefgh12345678", said)
+        self.assertNotIn("ZZZZZZZZZZZZZZ", said)
+
+    def test_a_dead_copys_crash_line_comes_first_past_a_long_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            err = Path(tmp) / "app.stderr.log"
+            err.write_text("cmux: open-file limit 256 -> 61440\n"
+                           "cmux: ignored inherited " + " ".join(f"CMUX_CI_{i}" for i in range(400)) + "\n"
+                           "CmuxNextHostedChief/HostedChiefRules.swift:15: Fatal error: home rules op chiefs_tab: "
+                           "unknownOp\n")
+            dead = subprocess.Popen([sys.executable, "-c", "pass"])
+            dead.wait()
+            said = hv.launch_failure(dead.pid, [str(err)])
+        head = said[:300]
+        self.assertTrue(head.startswith("app launch: running False\ncrash: "), head)
+        self.assertIn("Fatal error: home rules op chiefs_tab: unknownOp", head)
+
+    def test_no_crash_line_adds_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            err = Path(tmp) / "app.stderr.log"
+            err.write_text("just slow\n")
+            said = hv.launch_failure(os.getpid(), [str(err)])
+        self.assertNotIn("crash:", said)
+
+    def test_a_live_copy_with_no_output_says_so(self):
+        said = hv.launch_failure(os.getpid(), [])
+        self.assertEqual(said, "app launch: running True\nno output from the copy")
+
+    def test_the_socket_wait_raises_the_why_and_the_receipt_keeps_it(self):
+        side = unittest.mock.Mock()
+        side.logs.return_value = []
+        with unittest.mock.patch.object(hv, "LAUNCH_SECONDS", 0.01), \
+                unittest.mock.patch.object(hv, "control_socket", return_value=None):
+            with self.assertRaises(hv.LookError) as caught:
+                hv.copy_socket(side, os.getpid(), None)
+        text = str(caught.exception)
+        self.assertIn("the copy's control socket: nothing within", text)
+        self.assertIn("app launch: running True", text)
+        long = hv.LookError(text + "x" * 5000)
+        self.assertGreater(hv.error_chars(long), 500)
+        self.assertEqual(hv.error_chars(hv.LookError("other")), 500)
+
+    def test_both_launch_sites_use_the_socket_wait_that_says_why(self):
+        source = ENGINE.read_text()
+        self.assertEqual(source.count("copy_socket(side, pid, named)"), 2)
+        self.assertNotIn('until("the copy\'s control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))\n'
+                         '        until(', source)
+
+    def test_side_instance_keeps_the_copys_output(self):
+        script = (ENGINE.parent / "side-instance.sh").read_text()
+        self.assertIn('--stdout "$dir/app.stdout.log" --stderr "$dir/app.stderr.log"', script)
+        self.assertIn("\n  logs)\n", script)
 
 
 if __name__ == "__main__":
