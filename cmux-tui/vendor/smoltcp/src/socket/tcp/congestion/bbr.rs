@@ -235,7 +235,11 @@ impl Controller for Bbr {
             let startup_cap = self.bdp().map_or(cap, |bdp| {
                 (bdp.saturating_mul(STARTUP_GAIN_MILLI) / 1000).max(self.floor())
             });
-            self.cwnd = self.cwnd.saturating_add(len).min(startup_cap.max(self.cwnd)).min(cap);
+            self.cwnd = self
+                .cwnd
+                .saturating_add(len)
+                .min(startup_cap.max(self.cwnd))
+                .min(cap);
             return;
         }
         let target = self

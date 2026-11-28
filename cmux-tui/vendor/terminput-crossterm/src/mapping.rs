@@ -21,10 +21,9 @@ pub fn to_terminput(value: crossterm::event::Event) -> Result<Event, Unsupported
             Event::Mouse(to_terminput_mouse(mouse_event))
         }
         crossterm::event::Event::Paste(value) => Event::Paste(value),
-        crossterm::event::Event::Resize(cols, rows) => Event::Resize {
-            cols: cols as u32,
-            rows: rows as u32,
-        },
+        crossterm::event::Event::Resize(cols, rows) => {
+            Event::Resize { cols: cols as u32, rows: rows as u32 }
+        }
     })
 }
 
@@ -39,10 +38,8 @@ pub fn to_crossterm(value: Event) -> Result<crossterm::event::Event, Unsupported
         }
         Event::Paste(value) => crossterm::event::Event::Paste(value),
         Event::Resize { cols, rows } => crossterm::event::Event::Resize(
-            cols.try_into()
-                .map_err(|e| UnsupportedEvent(format!("{e:?}")))?,
-            rows.try_into()
-                .map_err(|e| UnsupportedEvent(format!("{e:?}")))?,
+            cols.try_into().map_err(|e| UnsupportedEvent(format!("{e:?}")))?,
+            rows.try_into().map_err(|e| UnsupportedEvent(format!("{e:?}")))?,
         ),
     })
 }
