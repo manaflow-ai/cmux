@@ -5,9 +5,12 @@
 
 use super::*;
 
-/// What `acpmux send --from AGENT` sends: another agent's message, steering by default.
+/// What `acpmux send --from AGENT` sends when it waits for the reply: another agent's message,
+/// steering by default. Its caller reads the reply (`readsReply`), so its request answers with
+/// the notice's turn rather than once delivered (#62138, `hub/inbox_admit.rs`).
 fn from_agent(id: &str, prompt_id: &str, agent: &str, text: &str, mux: Value) -> Value {
-    let mut meta = json!({"promptId": prompt_id, "fromAgent": agent, "steer": true});
+    let mut meta =
+        json!({"promptId": prompt_id, "fromAgent": agent, "steer": true, "readsReply": true});
     for (k, v) in mux.as_object().cloned().unwrap_or_default() {
         meta[k] = v;
     }

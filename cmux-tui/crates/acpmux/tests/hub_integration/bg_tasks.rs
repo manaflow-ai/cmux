@@ -779,6 +779,25 @@ async fn a_task_end_the_turn_never_read_comes_after_it() {
 }
 
 /// Waits up to 20 s for `done`.
+/// DEBUG (brr): every record kind and text head of chat `id`.
+fn dump(hub: &Hub, id: &str) -> String {
+    let events = hub.events(id, 0, 10_000).unwrap();
+    events
+        .iter()
+        .map(|e| {
+            let t = e.msg["text"].as_str().unwrap_or("");
+            format!(
+                "{}/{}:{}|{}",
+                e.dir,
+                e.kind,
+                t.chars().take(90).collect::<String>(),
+                e.msg.get("surgeHeld").map(|v| v.to_string()).unwrap_or_default()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 async fn until_true(what: &str, done: impl Fn() -> bool) {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     while !done() {
@@ -837,10 +856,15 @@ async fn a_task_end_is_sent_once_across_a_restart() {
     })
     .await;
     let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
-    until_true("the end that came while no daemon ran was never sent", || {
-        ends(&hub, &id).len() == 2
-    })
-    .await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while ends(&hub, &id).len() != 2 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the end that came while no daemon ran was never sent:\n{}",
+            dump(&hub, &id)
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     tokio::time::sleep(Duration::from_millis(500)).await;
     let ends = ends(&hub, &id);
     assert_eq!(ends.len(), 2, "{ends:?}");
@@ -880,6 +904,19 @@ async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
     // of them in its inbox (`hub/inbox_surge.rs`) instead of running a turn each: an end has
     // reached its chat when a turn or a held inbox message names its task.
     let notified: Vec<&String> = ids.iter().step_by(2).collect();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let seen = reached(&r.hub, &id);
+        if notified.iter().all(|t| seen.iter().any(|text| text.contains(t.as_str()))) {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            let missing: Vec<_> =
+                notified.iter().filter(|t| !seen.iter().any(|x| x.contains(t.as_str()))).collect();
+            panic!("DEBUG missing {missing:?}\n{}", dump(&r.hub, &id));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     r.until("not every notify task's end reached its chat", || {
         let seen = reached(&r.hub, &id);
         notified.iter().all(|t| seen.iter().any(|text| text.contains(t.as_str())))
