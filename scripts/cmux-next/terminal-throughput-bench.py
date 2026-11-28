@@ -19,18 +19,27 @@ the row is the median.
 
 Rows (report.json `rows`, perf-cron.py kind budgets; reporting only, perf-cron.py judges no terminal.throughput row):
   terminal.throughput.next_mb_s, terminal.throughput.ghostty_mb_s (MB/s), terminal.throughput.ratio (x, NEXT/Ghostty).
-  With --payload sgr the same three rows are named terminal.throughput_sgr.*.
+  With --payload sgr the same three rows are named terminal.throughput_sgr.*; with --payload redraw,
+  terminal.throughput_redraw.*, plus terminal.throughput_redraw.next_fps and .ghostty_fps (frames/s).
 Prints TERMINAL-THROUGHPUT lines. Exits 1 when a terminal gave no timed burst (the report says why in `missing`).
 
   terminal-throughput-bench.py (--app "<cmux DEV tag.app>" | --installed APP) --out DIR [--json FILE] [--mb 200] [--runs 3]
       [--warmup-mb 16] [--timeout 240] [--ghostty-app PATH] [--no-ghostty] [--breakdown] [--trace]
-      [--payload mixed|sgr]
+      [--payload mixed|sgr|redraw]
 
 --payload sgr: every printable character carries its own 256-color SGR change (ESC[38;5;Nm), the escape-heavy output
 that per-run renderers fall over on (termbench's color arm). The default mixed payload has SGR runs per word, so a
 style change per cell is never measured there. Escape bytes count as payload bytes, so read the ratio, not the MB/s,
 against the mixed arm: a lower sgr ratio says NEXT's extra parses (host, daemon, app) or the attach hop handle
 escape-dense bytes worse than Ghostty does.
+
+--payload redraw: a full-grid animation, not a stream: each frame homes the cursor and rewrites every cell of a
+REDRAW_COLS x REDRAW_ROWS region with a background color (a fire simulation of the DOOM-fire kind, so neighboring
+frames differ in most cells), and nothing scrolls. Agent TUIs redraw like this; a regression in redraw cost, the
+attach hop or the per-cell state update can hide under the mixed arm's MB/s. Frames/s = bytes/s over the frame's
+bytes, so it is frames the terminal took off the PTY per second, not frames drawn (both terminals draw at most once
+per display refresh); read it next to Ghostty's on the same Mac, with the host and commit the report carries. Rows
+terminal.throughput_redraw.* (MB/s and ratio as above) and .next_fps/.ghostty_fps.
 
 --installed APP (scripts/measure/terminal-throughput-quick.sh): NEXT is a side instance of an installed app (the
 NIGHTLY), not a tagged DEV build: side-instance.sh makes a copy of APP with its own bundle id, socket, daemon and state
@@ -455,8 +464,71 @@ def sgr_payload_block(seed=571, size=1 << 20):
     return b"".join(out)
 
 
-PAYLOADS = {"mixed": payload_block, "sgr": sgr_payload_block}
-ROW_PREFIX = {"mixed": "terminal.throughput", "sgr": "terminal.throughput_sgr"}
+REDRAW_COLS, REDRAW_ROWS = 80, 24  # inside every bench grid (NEXT's default tab and Ghostty at NEXT's grid)
+FIRE_PALETTE = (16, 52, 88, 124, 160, 196, 202, 208, 214, 220, 226, 227, 228, 229, 230, 231)  # black to white, 256-color
+
+
+def redraw_frames(seed=571, frames=8, cols=REDRAW_COLS, rows=REDRAW_ROWS):
+    """`frames` whole frames of a fire animation (pure). Each frame: cursor home, then every row addressed (CUP) and
+    every cell written as a background color and a space, a color change only where the cell's color differs from the
+    one to its left; the bottom row is the hottest and heat rises with random decay and drift, as DOOM-fire does."""
+    rng = random.Random(seed)
+    top = len(FIRE_PALETTE) - 1
+    heat = [[0] * cols for _ in range(rows)]
+    heat[-1] = [top] * cols
+    out = []
+    for _ in range(frames):
+        for y in reversed(range(rows - 1)):  # bottom up, so heat rises through the grid within a frame
+            src = heat[y + 1]
+            for x in range(cols):
+                decay = rng.randrange(3)
+                heat[y][min(cols - 1, max(0, x - decay + 1))] = max(0, src[x] - (decay & 1))
+        parts = ["\x1b[H"]
+        for y in range(rows):
+            parts.append(f"\x1b[{y + 1};1H")
+            last = None
+            for v in heat[y]:
+                if v != last:
+                    parts.append(f"\x1b[48;5;{FIRE_PALETTE[v]}m")
+                    last = v
+                parts.append(" ")
+        parts.append("\x1b[0m")
+        out.append("".join(parts).encode())
+    return out
+
+
+def redraw_payload_block(seed=571, size=1 << 20):
+    """About `size` bytes of whole redraw frames, the same every run (pure)."""
+    out, total = [], 0
+    frames = redraw_frames(seed, frames=64)
+    while total < size:
+        for f in frames:
+            out.append(f)
+            total += len(f)
+            if total >= size:
+                break
+    return b"".join(out)
+
+
+def mean_frame_bytes(seed=571):
+    """The redraw payload's bytes per frame (pure): frames/s = payload bytes/s over this."""
+    frames = redraw_frames(seed, frames=64)
+    return sum(map(len, frames)) / len(frames)
+
+
+PAYLOADS = {"mixed": payload_block, "sgr": sgr_payload_block, "redraw": redraw_payload_block}
+ROW_PREFIX = {"mixed": "terminal.throughput", "sgr": "terminal.throughput_sgr", "redraw": "terminal.throughput_redraw"}
+
+
+def fps_rows(next_mb_s, ghostty_mb_s, frame_bytes, prefix="terminal.throughput_redraw"):
+    """The redraw arm's frames-per-second rows (pure): each terminal's MB/s over the frame's bytes."""
+    rows = []
+    for name, v in ((f"{prefix}.next_fps", next_mb_s), (f"{prefix}.ghostty_fps", ghostty_mb_s)):
+        if v is not None and frame_bytes:
+            fps = round(v * MB / frame_bytes, 1)
+            rows.append({"name": name, "p50": fps, "p95": fps, "unit": "frames/s", "budget": None,
+                         "floor": round(0.1 * fps, 1)})
+    return rows
 
 
 def write_payload(path, mb, kind="mixed"):
@@ -820,7 +892,8 @@ def main(argv=None):
                              "per thread, its states, system calls and bytes over the burst (TERMINAL-THROUGHPUT-TRACE)")
     parser.add_argument("--payload", choices=sorted(PAYLOADS), default="mixed",
                         help="mixed (default): lines, wraps, SGR runs per word, UTF-8; sgr: an SGR color change on "
-                             "every character (rows terminal.throughput_sgr.*)")
+                             "every character (rows terminal.throughput_sgr.*); redraw: whole-grid frames, every cell "
+                             "rewritten, nothing scrolls (rows terminal.throughput_redraw.*, plus frames/s)")
     parser.add_argument("--interrupt-runs", type=int, default=3,
                         help="after NEXT's bursts, this many ^C-under-a-flood runs (TERMINAL-THROUGHPUT-INTERRUPT); 0 skips")
     parser.add_argument("--interrupt-flood-s", type=float, default=2.0, help="seconds of flood before each ^C")
@@ -890,6 +963,10 @@ def main(argv=None):
                 report["missing"].append({"name": f"{prefix}.{label}_mb_s",
                                              "reason": report[label].get("error") or "no timed burst"})
         report["rows"] = report_rows(next_mb_s, ghostty_mb_s, report["next"].get("interrupts"), prefix, pairs)
+        if opts.payload == "redraw":
+            report["frame_bytes"] = round(mean_frame_bytes(), 1)
+            report["frame_grid"] = [REDRAW_COLS, REDRAW_ROWS]
+            report["rows"] += fps_rows(next_mb_s, ghostty_mb_s, report["frame_bytes"], prefix)
         if opts.interrupt_runs > 0 and not any(r["name"].startswith("terminal.interrupt.") for r in report["rows"]):
             report["missing"].append({"name": "terminal.interrupt.key_to_signal_ms",
                                       "reason": report["next"].get("error") or "no ^C run gave a result"})
@@ -902,7 +979,10 @@ def main(argv=None):
                                                                           if r["name"].endswith(".ratio")), None),
                                                            "pair_spread_pct": (pairs or {}).get("spread_pct"),
                                                            "host": report["host"], "payload_mb": opts.mb,
-                                                           "payload": opts.payload}), flush=True)
+                                                           "payload": opts.payload,
+                                                           "fps": {r["name"].rsplit(".", 1)[1]: r["p50"]
+                                                                   for r in report["rows"] if r["unit"] == "frames/s"}
+                                                           or None}), flush=True)
         if opts.json:
             with open(opts.json, "w") as f:
                 json.dump(report, f, indent=1)

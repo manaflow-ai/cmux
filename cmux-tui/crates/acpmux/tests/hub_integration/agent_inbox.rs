@@ -5,9 +5,13 @@
 
 use super::*;
 
-/// What `acpmux send --from AGENT` sends: another agent's message, steering by default.
+/// What `acpmux send --from AGENT` sends when it waits for the reply: another agent's message,
+/// steering by default. These tests read the turn that carried a message from its send's answer, so
+/// the sender reads the reply (`readsReply`): a send that reads none is answered once delivered
+/// (#62138), with no turn yet.
 fn from_agent(id: &str, prompt_id: &str, agent: &str, text: &str, mux: Value) -> Value {
-    let mut meta = json!({"promptId": prompt_id, "fromAgent": agent, "steer": true});
+    let mut meta =
+        json!({"promptId": prompt_id, "fromAgent": agent, "steer": true, "readsReply": true});
     for (k, v) in mux.as_object().cloned().unwrap_or_default() {
         meta[k] = v;
     }

@@ -183,6 +183,7 @@ the user from VNC_USERNAME and the password from VNC_PASSWORD_FILE (a 0600 file 
 Mac) and never from argv. Without them it is skipped and the table says so.
 """
 import argparse
+import bisect
 import contextlib
 import errno
 import ipaddress
@@ -249,6 +250,24 @@ def marker_refresh(line):
             except ValueError:
                 pass
     return out
+
+
+COMMIT_JOIN_US = 100_000  # a press's commit is the first one within 100 ms of its inject (rd.sh's)
+
+
+def marker_commits(log):
+    """The commit times (µs, CLOCK_MONOTONIC: the protocol clock) the marker app logged with
+    --verbose (`commit COUNTER T_US`), in order; [] without the log or the lines."""
+    out = []
+    try:
+        with open(log, errors="replace") as lf:
+            for line in lf:
+                parts = line.split()
+                if len(parts) == 3 and parts[0] == "commit" and parts[2].isdigit():
+                    out.append(int(parts[2]))
+    except OSError:
+        return []
+    return sorted(out)
 
 
 def wait_marker(proc, log, seconds=10.0, step=0.05):
@@ -397,6 +416,11 @@ LEDGER_SCHEMA = "cmux.rd-stage-ledger/1"
 BUDGET_ROWS = (
     ("Input", 3, "viewer key down -> host inject", ("up", "inject")),
     ("Screen", 12, "inject -> ScreenCaptureKit display time", ("draw",)),
+    # Screen's parts (budget None: inside Screen's), from the marker app's `commit N T_US` line
+    # (--verbose): its own draw, and the window server's wait for the vsync it composites at.
+    (" Draw", None, "inject -> marker app committed its draw", ("commit",)),
+    (" Composite", None, "draw committed -> display time (the vsync it was composited for)",
+     ("composite",)),
     # Below zero when the encoder starts before the host's own glass shows the frame: Screen ends
     # at the vsync ScreenCaptureKit composited the frame for, usually still ahead when it arrives.
     ("Capture", 8, "display time -> encode start", ("sck", "gate")),
@@ -428,6 +452,9 @@ LEDGER_ROWS = {
 }
 WHY_LEDGER = "needs the per-frame stage ledger (cmux.rd-stage-ledger/1), not in this build"
 WHY_CMUX = {
+    " Draw": "no marker commit line within 100 ms of the inject (the marker app ran without "
+             "--verbose, an older marker binary, or --source synthetic, which has no marker app)",
+    " Composite": "no marker commit line and display time (shown_us) for the same press",
     " Readback": "the host timing log has no capture_start_us (a Linux host with ss-capture's field "
                  "has it; a Mac host captures before the gate, so Capture holds no readback)",
     " Gate wait": "the host timing log has no frame-ready time (arrived_us or damage_us)",
@@ -622,7 +649,7 @@ def cmux_cells(rows, ledgers, presented, synthetic=False, summaries=None, presen
             why = (WHY_SYNTHETIC_PRESENT if synthetic and row == "Present"
                    else WHY_CMUX.get(row, WHY_LEDGER))
             cells[row] = null(why)
-    for row in (" Frame lead", " Gate wait", " Readback"):
+    for row in (" Draw", " Composite", " Frame lead", " Gate wait", " Readback"):
         if "null" in cells[row] and cells[row]["null"].startswith("no samples"):
             cells[row] = null(WHY_CMUX[row])
     return cells
@@ -1382,7 +1409,10 @@ VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
 # timing and loss variables, checked here and again by the rig. Both are cmux-rd-host's
 # measurement switches (mac/capture.rs): the ScreenCaptureKit surface-pool depth, and the raise of
 # the captured display to its fastest refresh for the serve process.
-HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]"}
+# The third is cmux-encode's (videotoolbox.rs power_efficiency): VideoToolbox's
+# MaximizePowerEfficiency hint, 1 on, 0 off (unset: the shipping default).
+HOST_ENV = {"CMUX_RD_SCK_QUEUE_DEPTH": r"[3-8]", "CMUX_RD_MAC_MAX_REFRESH": r"[01]",
+            "CMUX_RD_VT_POWER_EFFICIENT": r"[01]"}
 
 
 def checked_env(items):
@@ -1543,6 +1573,9 @@ def cmd_rig(args):
                     stdout=log, stderr=log)
                 log.close()
                 reply["pid"] = procs["clip_echo"].pid
+            elif cmd == "commits":
+                # The marker app's `commit N T_US` lines (--verbose) since its last start.
+                reply["commits"] = marker_commits(os.path.join(state, "marker.log"))
             elif cmd == "timing":
                 lines = []
                 if os.path.exists(timing):
@@ -1762,7 +1795,7 @@ def redact_vnc(text):
     return re.sub(r"(vnc://[^:/@\s]*:)[^@\s]*@", r"\1***@", text or "")
 
 
-def screen_sharing_window(windows, host, exclude=()):
+def screen_sharing_window(windows, host, exclude=(), launched=()):
     """The Screen Sharing.app window showing HOST in WINDOWS (SS_WINDOWS_SWIFT's list, front to
     back): its {pid, window, title}, the frontmost normal-layer window owned by Screen Sharing
     whose title names HOST, skipping ids in EXCLUDE (there before). None when none names HOST:
@@ -1771,8 +1804,12 @@ def screen_sharing_window(windows, host, exclude=()):
             and w.get("layer") == 0 and w.get("window") and w["window"] not in exclude
             and (w.get("w") or 0) >= 200 and (w.get("h") or 0) >= 200]
     named = [w for w in ours if host and host in (w.get("title") or "")]
-    pick = (named or [None])[0]
-    return {k: pick[k] for k in ("pid", "window", "title")} if pick else None
+    if named:
+        return {**{k: named[0][k] for k in ("pid", "window", "title")}, "matched": "title"}
+    fresh = [w for w in ours if w.get("pid") in set(launched or ())]
+    if len(fresh) == 1 and not any(w.get("title") for w in ours):
+        return {**{k: fresh[0][k] for k in ("pid", "window", "title")}, "matched": "launched pid"}
+    return None
 
 
 def screen_sharing_pids():
@@ -1851,7 +1888,8 @@ def cmd_apple(args):
             deadline, win, windows = time.time() + args.wait, None, []
             while True:
                 windows = list_windows(state)
-                win = screen_sharing_window(windows, args.host, exclude=old)
+                win = screen_sharing_window(windows, args.host, exclude=old,
+                                            launched=screen_sharing_pids() - ran)
                 if win or time.time() >= deadline:
                     break
                 time.sleep(1)  # bounded wait (--wait) for the window to connect
@@ -3037,7 +3075,10 @@ class Orchestrator:
         cross-host spans stay right)."""
         frames = {}
         injects = []
+        commits = sorted(x["commit_us"] for x in timing if "commit_us" in x)
         for line in timing:
+            if "commit_us" in line:
+                continue
             if "inject_us" in line:
                 injects.append(line)
             elif "release_us" in line:
@@ -3066,10 +3107,18 @@ class Orchestrator:
             ready = arrived if arrived is not None else f.get("damage_us")
             # ss-capture's Linux field: when the encode thread began the capture (the readback).
             start = f.get("capture_start_us")
+            # The marker's draw for this press: its first commit after the inject (rd.sh's join).
+            k = bisect.bisect_left(commits, inj["inject_us"])
+            commit = (commits[k] if k < len(commits)
+                      and commits[k] - inj["inject_us"] <= COMMIT_JOIN_US else None)
             rows.append({
                 "up": ms(v(inj["recv_us"]) - sent),
                 "inject": ms(inj["inject_us"] - inj["recv_us"]),
                 "draw": ms(shown - inj["inject_us"]) if shown else None,
+                "commit": ms(commit - inj["inject_us"]) if commit is not None else None,
+                # Below zero when the frame shown was composited before the commit (it holds
+                # an earlier draw): counted, not hidden.
+                "composite": ms(shown - commit) if shown and commit is not None else None,
                 "sck": ms(arrived - shown) if shown and arrived else None,
                 "lead": ms(shown - arrived) if shown and arrived else None,
                 "gate": ms(f.get("encode_start_us", f["release_us"]) - arrived) if arrived else None,
@@ -3135,6 +3184,18 @@ class Orchestrator:
         time.sleep(0.5)
         return origin
 
+    def host_commits(self):
+        """The marker app's commit times of the last attempt, as timing lines ({"commit_us"}),
+        or [] (synthetic, or a rig from before the `commits` command)."""
+        if self.synthetic:
+            return []
+        try:
+            reply = self.rig({"cmd": "commits"}, timeout=60)
+        except Exception as e:  # an older rig: no Screen split, the rest of the trial stands
+            print(f"marker commits unavailable: {e}", file=sys.stderr)
+            return []
+        return [{"commit_us": t} for t in reply.get("commits") or []]
+
     def host_timing(self):
         """The host's CMUX_RD_TIMING_LOG lines of the last attempt (then cleared)."""
         if not self.synthetic:
@@ -3174,9 +3235,16 @@ class Orchestrator:
         # The first session after the rig starts can miss every key (the marker window is
         # not key yet), so warm-up attempts are logged but not counted.
         for n in range(1 - self.a.warmup, self.a.trials + 1):
-            origin = self.marker([])
+            # --verbose: the marker logs when it committed each draw, for Screen's split.
+            origin = self.marker(["--verbose"])
             rec = self.cmux_attempt(origin, "key")
-            timing = self.host_timing()
+            timing = self.host_timing() + self.host_commits()
+            keep = getattr(self.a, "keep_timing", None)
+            if keep:
+                # Every frame line of the attempt as the host logged it (idr_reason,
+                # target_kbps, its times), for per-frame analysis beyond the breakdown's join.
+                with open(keep, "a") as f:
+                    f.write(json.dumps({"trial": n, "warmup": n < 1, "lines": timing}) + "\n")
             if n < 1:
                 rec.pop("sample_times", None)
                 self.log(dict(rec, warmup=True))
@@ -3825,7 +3893,7 @@ class Orchestrator:
         if rows:
             summ["cmux_breakdown"] = stage_table(
                 "cmux key-to-frame breakdown (ms, viewer clock; p50 / p95 / mean over samples)", rows,
-                ["up", "inject", "draw", "sck", "gate", "encode", "send", "first_packet", "down",
+                ["up", "inject", "draw", "commit", "composite", "sck", "gate", "encode", "send", "first_packet", "down",
                  "decode", "total"])
         if self.ff_rows:
             summ["cmux_first_frame_breakdown"] = stage_table(
@@ -3930,6 +3998,9 @@ def build_parser():
                    help="drop PCT %% of the host's video and parity datagrams (CMUX_RD_TEST_LOSS_PCT "
                         "on its `cmux-rd serve`): a loss leg with no dummynet hold and no sudo. Each "
                         "row records host_test_loss_pct")
+    r.add_argument("--keep-timing", metavar="PATH",
+                   help="append each key attempt's host CMUX_RD_TIMING_LOG lines to PATH, one JSON "
+                        "line per attempt ({trial, warmup, lines})")
     r.add_argument("--host-env", action="append", metavar="NAME=VALUE",
                    help="an environment variable on the host's `cmux-rd serve`, repeatable; only "
                         + ", ".join(sorted(HOST_ENV)) + ". Each row records host_env")
