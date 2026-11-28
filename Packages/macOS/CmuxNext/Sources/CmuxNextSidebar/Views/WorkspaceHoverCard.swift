@@ -567,7 +567,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         activityRow.alignment = .firstBaseline
         factsStack.orientation = .vertical
         factsStack.alignment = .leading
-        factsStack.spacing = Metrics.space2
+        // Each fact is a two-line item (a host and its detail): space3 between them reads them as separate items.
+        factsStack.spacing = Metrics.space3
 
         customError.maximumNumberOfLines = 3
         customError.isHidden = true
@@ -600,6 +601,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         // Show details reads as the list's last row, on the rows' spacing.
         stack.setCustomSpacing(Metrics.space1, after: tabList)
         stack.setCustomSpacing(Metrics.space1, after: titleRow)
+        // The details below Hide details sit a little apart from it, as a section under its heading.
+        stack.setCustomSpacing(Metrics.space3, after: detailsToggle)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
         let widthLimit = content.widthAnchor.constraint(lessThanOrEqualToConstant: Self.cardWidth)

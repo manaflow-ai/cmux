@@ -439,9 +439,30 @@ final class HoverCardPanel: NSPanel {
         // An animated refit leaves the window where it is: the morph sets the one frame its first frame shows. A
         // window set to the rest frame first laid the card and its glass out at a size never shown, then the morph
         // set it back (the press of Show or Hide details was a late frame, Lawrence 2026-11-18).
+        let before = restCardFrame
+        let beforePlacement = restingPlacement
         place(appliesFrame: previous == nil)
+        keepTopEdge(of: before, placement: beforePlacement)
         // The same morph a retarget to another size runs: the card grows or folds about the fixed corner.
         if let previous, !morph(from: previous, folds: true) { applyRestFrame() }
+    }
+
+    /// A refit of the same card (Show details / Hide details) keeps the edge the card hangs from where it was: the
+    /// card grows or folds below it. Placed afresh, a card that grew near the window's bottom was clamped up a point or
+    /// two and its whole content jumped (Lawrence 2026-11-23). Only when the card still ends inside the window and the screen.
+    private func keepTopEdge(of before: CGRect, placement beforePlacement: HoverCardPlacement) {
+        guard before.height > 0, restingPlacement == beforePlacement, restingPlacement != .above else { return }
+        let rest = restCardFrame
+        guard abs(rest.maxY - before.maxY) > 0.01, abs(rest.maxY - before.maxY) <= Self.travel else { return }
+        let y = before.maxY - rest.height
+        if let screen = parentWindowRef?.screen ?? NSScreen.main {
+            let room = HoverCardEscapeGeometry.room(visible: screen.visibleFrame, window: parentWindowRef?.frame, margin: Metrics.space2)
+            // The room keeps `space2` off the window's and the screen's bottom: a refit may spend that margin (the
+            // card still ends inside the window), never more.
+            guard y >= room.minY - Metrics.space2 else { return }
+        }
+        restCardFrame.origin.y = y
+        escapeGeometry = escapeGeometry?.movingCard(toY: y)
     }
 
     /// Lays the card out for its anchor and size. `appliesFrame` false: the rest frame is worked out
