@@ -72,6 +72,7 @@ dependencies = [
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-rollout",
  "cmux-scope",
  "cmux-sdk",
  "cmux-server",
@@ -3074,6 +3075,15 @@ name = "cmux-repro"
 version = "0.1.0"
 dependencies = [
  "cmux-process",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-rollout"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
