@@ -221,6 +221,12 @@ pub struct SessionMeta {
     /// Ephemeral so this does not change the stored session format.
     #[serde(skip)]
     pub title_thin: bool,
+    /// How this daemon run's `session/new` got its agent: `warm` (it took a pooled agent),
+    /// `cold` (a pooled shape that found none ready) or `unshaped` (a start the pool never
+    /// serves). The create's answer carries it (`startPool`), so a Cloud start's `session_new`
+    /// phase says whether it paid the agent boot (goal `cloud-instant-start`). Never stored.
+    #[serde(skip)]
+    pub start_pool: Option<&'static str>,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
