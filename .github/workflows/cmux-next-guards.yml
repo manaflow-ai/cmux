@@ -129,6 +129,8 @@ jobs:
     if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
+    env:
+      GH_HTTP_DEADLINE_S: "120"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     continue-on-error: true
     permissions:
       actions: read
@@ -2316,6 +2318,14 @@ jobs:
         id: tt-swift-test-coverage-tests
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-test-coverage-tests ')) }}
         run: python3 -I tests/test_swift_test_coverage.py
+
+      # A Swift file under CmuxNext/Sources that builds a Cloud HTTP or WebSocket request and is not in
+      # scripts/cmux-next/swift-cloud-http-allow.txt fails, and so does a listed file that no longer builds one:
+      # the Mac app's Cloud calls go through the Rust app server (cmuxterm-hq goals/cloud-client-swift-to-rust.md).
+      - name: No new Swift Cloud networking in CmuxNext (swift-cloud-http.py --check)
+        id: tt-swift-cloud-http
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-cloud-http ')) }}
+        run: python3 -I scripts/cmux-next/swift-cloud-http.py --check
 
       - name: The Swift Cloud networking count's own tests (swift-cloud-http.py)
         id: tt-swift-cloud-http-tests

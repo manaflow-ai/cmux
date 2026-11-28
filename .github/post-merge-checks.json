@@ -264,55 +264,55 @@
     },
     "bench-baselines-nightly.yml": {
       "kind": "publish",
-      "why": "records the bench baselines a pull request fetches for its areas (R2), from the base"
-    },
-    "chat-move-nightly-readback.yml": {
-      "kind": "publish",
-      "why": "a probe of the published NIGHTLY: moves a chat every Local/Cloud/Auto direction in the app; push only on its own file"
+      "why": "records the bench baselines from the base and uploads them to R2; a measurement, not a verdict on a change"
     },
     "cloud-mvp-nightly-readback.yml": {
       "kind": "publish",
-      "why": "a probe of the published NIGHTLY: reads the Auto/Cloud MVP back in the app; push only on its own file"
+      "why": "a probe of a published NIGHTLY: reads the Auto/Cloud MVP back in the app on the build fleet"
+    },
+    "chat-move-nightly-readback.yml": {
+      "kind": "publish",
+      "why": "a probe of a published NIGHTLY: moves a chat Local/Cloud/AutoCloud by the CLI on the build fleet and times it"
     },
     "cmux-next-web-perf.yml": {
-      "kind": "check",
-      "why": "manual performance runs; the push on its own file only checks the workflow starts, there is no pull request baseline yet"
+      "kind": "publish",
+      "why": "a manual measurement entry point; the push on its own path only registers it for dispatch"
     },
     "cmux-tui-clippy-seed.yml": {
       "kind": "publish",
-      "why": "publishes the base's clippy target seed the fleet's cold clippy-changed steps restore"
+      "why": "publishes the base's cmux-tui clippy target as the seed for cold clippy-changed runs"
     },
     "cmux-vmd-host-artifacts.yml": {
       "kind": "publish",
-      "why": "publishes the cmux-vmd host artifacts a new microVM host installs at boot"
+      "why": "publishes the microVM host bundle (cmux-vmd, Firecracker, kernel, rootfs) to R2 from the base"
     },
     "ios-fast-verdict-dispatch.yml": {
       "kind": "publish",
-      "why": "a bot that dispatches the iOS fast verdict for a pull request head; push only on its own file"
+      "why": "a recovery bot that re-answers a stale cmux/ios-fast pending; the push only registers it for dispatch"
     },
     "ios-fast-verdict-seed.yml": {
       "kind": "publish",
-      "why": "publishes the R2 seed the hosted-Mac iOS fast verdict restores, from the base"
+      "why": "publishes the warm DerivedData seed for the iOS fast verdict from the base"
     },
     "leo-session-archive-bucket.yml": {
       "kind": "publish",
-      "why": "provisions Leo's session archive bucket and sealed credential; push only on its own files"
+      "why": "provisions the session archive R2 bucket and its sealed controller credential"
     },
     "mobile-old-phones.yml": {
       "kind": "publish",
-      "why": "a probe of shipped iPhone builds against the deployed mobile API"
+      "why": "a probe of the deployed mobile API with the last shipped TestFlight phones"
     },
     "repo-archive-store.yml": {
       "kind": "publish",
-      "why": "provisions the repo archive store bucket and its sealed credentials; push only on its own files"
+      "why": "provisions the repo archive store R2 bucket and refreshes it from the base"
     },
     "vault-edge-e2e.yml": {
       "kind": "publish",
-      "why": "a probe of vault edge grants on a real Cloud VM against the deployed backend; push only on its own file"
+      "why": "an end-to-end probe of live vault edge grants on a real Cloud VM; the push only registers it for dispatch"
     },
     "web-bundle-matrix.yml": {
       "kind": "check",
-      "why": "every way the cmux-next web bundles can break, on each base push; a red shows on base and names its owner"
+      "why": "catches breaks that only the merged base shows: two pull requests each green alone whose union breaks the web bundles"
     }
   }
 }
