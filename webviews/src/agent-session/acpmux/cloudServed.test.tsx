@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
-import { cloudPickerReason, cloudPickerState, readCloudServed, useCloudServed, type CloudServed } from "./cloudServed";
+import { CLOUD_REASON_LABELS, cloudPickerReason, cloudPickerState, readCloudServed, useCloudServed, type CloudServed } from "./cloudServed";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -61,12 +61,12 @@ test("only recognized reasons for locked families are read", () => {
     reasons: { claude: "off", codex: "signedOut", gemini: "none" },
   });
   expect(served).toEqual({ ...reply(families), reasons: { claude: "off" } });
-  expect(cloudPickerReason(served, "claude:work")).toBe("picker.cloud.connectionOff");
+  expect(CLOUD_REASON_LABELS[cloudPickerReason(served, "claude:work")]).toBe("picker.cloud.connectionOff");
   const cloudOff = readCloudServed({ ...reply(families), reasons: { claude: "cloudOff" } });
   expect(cloudOff?.reasons?.claude).toBe("cloudOff");
-  expect(cloudPickerReason(cloudOff, "claude")).toBe("picker.cloud.connectionOff");
+  expect(CLOUD_REASON_LABELS[cloudPickerReason(cloudOff, "claude")]).toBe("picker.cloud.connectionOff");
   expect(readCloudServed({ ...reply(families), reasons: { claude: "unknown" } })).toEqual(reply(families));
-  expect(cloudPickerReason(readCloudServed(reply(families)), "claude")).toBe("composer.envNotConnected");
+  expect(CLOUD_REASON_LABELS[cloudPickerReason(readCloudServed(reply(families)), "claude")]).toBe("composer.envNotConnected");
 });
 
 test("the read runs while Cloud is picked, again on refresh (the picker opens), and drops a stale answer", async () => {
