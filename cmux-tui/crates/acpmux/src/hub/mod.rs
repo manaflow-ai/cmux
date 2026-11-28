@@ -501,8 +501,8 @@ mod update_cost_bench;
 mod update_repeats;
 mod usage_answer;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
-mod speculative;
 mod sidecars;
+mod speculative;
 mod usage_share;
 mod usage_view;
 pub(crate) mod usage_warnings;
