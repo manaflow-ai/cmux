@@ -528,9 +528,10 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     /// (`WindowPlacement.containedOnTestScreen`), and is kept as given with no display (`constrainsToScreen`).
     /// The traffic-light avoiders re-check once, after the layout the change causes (a live resize's step lays out in here,
     /// not in ``layoutIfNeeded()``): asked at the main pane card's move, Home's chat column laid out at its old frame first.
-    /// A live resize's step: its main-thread time, the avoiders' re-check included (`debug.layout_counters` `resize_steps`,
-    /// DEBUG and bench builds).
+    /// A live resize's step starts here, before its layout (``ResizeStepStart``: the CEF pump's due work, when on). Its
+    /// main-thread time, the avoiders' re-check included (`debug.layout_counters` `resize_steps`, DEBUG and bench builds).
     override func setFrame(_ frameRect: NSRect, display flag: Bool) { // perf-hot: 16ms window-resize-step
+        ResizeStepStart.begin(if: inLiveResize)
         let start = inLiveResize ? ResizeStepTimes.start() : nil
         windowControlsAvoiders.batching(in: self) { super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
         if let start { ResizeStepTimes.live.record("set_frame", since: start) }
