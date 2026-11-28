@@ -433,6 +433,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_NAVIGATOR, Request),
         untyped(method::MUX_TEAM_PICK, Request),
         untyped(method::MUX_TEAM_SESSION_INFO, Request),
+        untyped(method::MUX_TEAM_CUSTOMIZATION, Request),
+        untyped(method::MUX_TEAM_CUSTOMIZE, Request),
+        untyped(method::MUX_TEAM_HANDOFF, Request),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_LAST, Request),
         untyped(method::MUX_SESSION_SEARCH, Request),
@@ -834,7 +837,8 @@ pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
     if !meta.is_object() {
         *meta = json!({});
     }
-    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    let Some(meta) = meta.as_object_mut() else { return };
+    let mux = meta.entry("acpmux").or_insert_with(|| json!({}));
     if !mux.is_object() {
         *mux = json!({});
     }

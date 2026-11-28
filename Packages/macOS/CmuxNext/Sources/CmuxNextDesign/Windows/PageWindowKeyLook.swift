@@ -73,11 +73,12 @@ enum PageWindowKeyLook {
     typealias Getter = @convention(c) (NSWindow, Selector) -> Bool
 
     /// The class an app declared: past the subclass Key-Value Observing makes for an observed window
-    /// (`NSKVONotifying_...`), which Swift's `type(of:)` returns.
+    /// (`NSKVONotifying_...`), which Swift's `type(of:)` returns. KVO makes one such subclass per class,
+    /// so one step up reaches the declared one.
     private static func declared(_ windowClass: NSWindow.Type) -> NSWindow.Type {
-        var current: AnyClass = windowClass
-        while NSStringFromClass(current).hasPrefix("NSKVONotifying_"), let superclass = class_getSuperclass(current) { current = superclass }
-        return (current as? NSWindow.Type) ?? windowClass
+        guard NSStringFromClass(windowClass).hasPrefix("NSKVONotifying_"),
+              let superclass = class_getSuperclass(windowClass) as? NSWindow.Type else { return windowClass }
+        return superclass
     }
 
     /// `CefNSWindow`: a Chromium page window.

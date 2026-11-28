@@ -58,9 +58,9 @@ async fn serve_at(params: Value, app: &AppLease, api: &str, gh: &str) -> Result<
     if plan.author != Author::Any {
         match run_gh(&plan, gh).await {
             Gh::Ran(answer) => return Ok(done(&plan, Source::Keyring, answer, started)),
-            Gh::Failed(e) => return Err(logged(&plan, "keyring", Err(e))),
+            Gh::Failed(e) => return Err(logged(&plan, "keyring", e)),
             Gh::Unusable if plan.author == Author::PersonOnly => {
-                return Err(logged(&plan, "none", Err(person_only())));
+                return Err(logged(&plan, "none", person_only()));
             }
             Gh::Unusable => {}
         }
@@ -75,27 +75,23 @@ async fn serve_at(params: Value, app: &AppLease, api: &str, gh: &str) -> Result<
             }
             // Asked already (above) for the person's own words.
             Some(Err(mint_error)) if plan.author != Author::Any => {
-                return Err(logged(&plan, "app", Err(mint_error)));
+                return Err(logged(&plan, "app", mint_error));
             }
             None if plan.author != Author::Any => {
-                return Err(logged(&plan, "none", Err(crate::github_app_token::not_connected())));
+                return Err(logged(&plan, "none", crate::github_app_token::not_connected()));
             }
             // The App cannot cover it: the person's own gh, if it works; else the App's reason.
             Some(Err(mint_error)) => match run_gh(&plan, gh).await {
                 Gh::Ran(answer) => (Source::Keyring, answer),
-                Gh::Unusable => return Err(logged(&plan, "app", Err(mint_error))),
-                Gh::Failed(e) => return Err(logged(&plan, "keyring", Err(e))),
+                Gh::Unusable => return Err(logged(&plan, "app", mint_error)),
+                Gh::Failed(e) => return Err(logged(&plan, "keyring", e)),
             },
             None => match run_gh(&plan, gh).await {
                 Gh::Ran(answer) => (Source::Keyring, answer),
                 Gh::Unusable => {
-                    return Err(logged(
-                        &plan,
-                        "none",
-                        Err(crate::github_app_token::not_connected()),
-                    ));
+                    return Err(logged(&plan, "none", crate::github_app_token::not_connected()));
                 }
-                Gh::Failed(e) => return Err(logged(&plan, "keyring", Err(e))),
+                Gh::Failed(e) => return Err(logged(&plan, "keyring", e)),
             },
         };
     Ok(done(&plan, source, answer, started))
@@ -118,8 +114,7 @@ fn person_only() -> RpcError {
 }
 
 /// Logs a call that got no answer (no title, body or token), and passes its error on.
-fn logged(plan: &Plan, source: &str, e: Result<(), RpcError>) -> RpcError {
-    let e = e.unwrap_err();
+fn logged(plan: &Plan, source: &str, e: RpcError) -> RpcError {
     tracing::info!(op = plan.op, repo = %plan.repo, scope = plan.scope.name(), source,
         code = e.code, "github rest: no answer");
     e

@@ -431,26 +431,41 @@ public final class CloudPlaceFlows {
     /// One Cloud wire frame for Rust's AutoSize feed (`cloud_autosize_frame`), which keeps every chat's AutoSize rows by
     /// machine record; a row added bumps ``autoSizeRevision``.
     public func autoSize(frame: Data, team: String?) {
-        // main-actor-ok: one ephemeral wire frame of a few hundred bytes, per AutoSize notice.
-        guard let object = try? JSONSerialization.jsonObject(with: frame) else { return }
+        guard let request = Self.autoSizeRequest(frame: frame, team: team),
+              let reply = core("cloud_autosize_frame", request), Self.autoSizeAdded(reply) else { return }
+        autoSizeRevision &+= 1
+    }
+
+    /// `cloud_autosize_frame`'s ask: one ephemeral wire frame of a few hundred bytes and the team; nil for a frame that is no JSON.
+    nonisolated static func autoSizeRequest(frame: Data, team: String?) -> Data? {
+        guard let object = try? JSONSerialization.jsonObject(with: frame) else { return nil }
         var ask: [String: Any] = ["frame": object]
         if let team { ask["team"] = team }
-        guard JSONSerialization.isValidJSONObject(ask), let request = try? JSONSerialization.data(withJSONObject: ask),
-              let reply = core("cloud_autosize_frame", request),
-              // main-actor-ok: Rust's `{added, machine?}`.
-              let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
-              answer["added"] as? Bool == true else { return }
-        autoSizeRevision &+= 1
+        guard JSONSerialization.isValidJSONObject(ask) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: ask)
+    }
+
+    /// Whether Rust's `{added, machine?}` added a row.
+    nonisolated static func autoSizeAdded(_ reply: Data) -> Bool {
+        (try? JSONSerialization.jsonObject(with: reply) as? [String: Any])?["added"] as? Bool == true
     }
 
     /// The AutoSize rows of `machine` (`cloud_autosize_chat`, ``autosize_row::Row`` each, oldest first); nil for none.
     func autoSizeRows(machine: String) -> [Any]? {
         _ = autoSizeRevision // observed: a new row re-reads the header
-        // main-actor-ok: one machine id; Rust answers at most 50 small rows.
-        guard let request = try? JSONSerialization.data(withJSONObject: ["machine": machine]),
-              let reply = core("cloud_autosize_chat", request),
-              let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
-              let rows = answer["rows"] as? [Any], !rows.isEmpty else { return nil }
+        guard let request = Self.autoSizeRowsRequest(machine: machine),
+              let reply = core("cloud_autosize_chat", request) else { return nil }
+        return Self.autoSizeRowsAnswer(reply)
+    }
+
+    /// `cloud_autosize_chat`'s ask: one machine id.
+    nonisolated static func autoSizeRowsRequest(machine: String) -> Data? {
+        try? JSONSerialization.data(withJSONObject: ["machine": machine])
+    }
+
+    /// The `rows` of Rust's `cloud_autosize_chat` answer (at most 50 small rows); nil for none.
+    nonisolated static func autoSizeRowsAnswer(_ reply: Data) -> [Any]? {
+        guard let rows = (try? JSONSerialization.jsonObject(with: reply) as? [String: Any])?["rows"] as? [Any], !rows.isEmpty else { return nil }
         return rows
     }
 

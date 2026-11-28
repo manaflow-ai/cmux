@@ -4,8 +4,9 @@
 //! them, and an unreadable catalog fails closed.
 
 use std::collections::BTreeMap;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+
+mod exe;
 
 use optchat_chief::cmux_env::REMOTE_APP_KEY;
 use optchat_chief::session_dir::{cmux_tool_denials, cmux_tool_names};
@@ -73,14 +74,13 @@ struct FakeCli {
 impl FakeCli {
     fn new() -> FakeCli {
         let dir = tempfile::tempdir().unwrap();
-        let script = dir.path().join("cmux");
-        std::fs::write(
-            &script,
+        // Written by `cp`, never by an fd of this process: a test thread forking
+        // while it wrote would make the first run fail with ETXTBSY (exe/mod.rs).
+        exe::write_executable(
+            &dir.path().join("cmux"),
             "#!/bin/sh\nd=$(dirname \"$0\")\nif [ -f \"$d/answer.err\" ]; then cat \"$d/answer.err\" >&2; exit 1; fi\n\
              [ -f \"$d/answer.note\" ] && cat \"$d/answer.note\" >&2\ncat \"$d/answer.json\"\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         FakeCli { dir }
     }
 

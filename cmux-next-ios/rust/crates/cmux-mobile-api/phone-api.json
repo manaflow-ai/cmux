@@ -11545,6 +11545,7 @@
         "chunkDeltas": true,
         "class": true,
         "cliHost": true,
+        "cloudRegistryId": true,
         "compression": true,
         "context": true,
         "createKey": true,
@@ -17343,6 +17344,38 @@
       ],
       "type": "object"
     },
+    "daemon.FloatingPane": {
+      "additionalProperties": false,
+      "properties": {
+        "h": {
+          "format": "float64",
+          "type": "number"
+        },
+        "pane": {
+          "$ref": "#/types/daemon.Id"
+        },
+        "w": {
+          "format": "float64",
+          "type": "number"
+        },
+        "x": {
+          "format": "float64",
+          "type": "number"
+        },
+        "y": {
+          "format": "float64",
+          "type": "number"
+        }
+      },
+      "required": [
+        "h",
+        "pane",
+        "w",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
     "daemon.FocusDirectionResult": {
       "additionalProperties": false,
       "properties": {
@@ -19576,7 +19609,10 @@
           "x-since": 12
         },
         "floating": {
-          "$ref": "#/types/daemon.JsonValue",
+          "items": {
+            "$ref": "#/types/daemon.FloatingPane"
+          },
+          "type": "array",
           "x-since": 12
         },
         "group": {
