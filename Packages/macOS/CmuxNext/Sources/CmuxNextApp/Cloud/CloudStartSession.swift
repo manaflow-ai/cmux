@@ -414,13 +414,11 @@ struct CloudStartSession {
             return try await body()
         } catch let ended {
             guard made, CloudMoveCLI.StartChatPlan.strands(ended), account == services.cloud.account else { throw ended }
-            let failure = ended as? ActionFailure
             do { try await delete() } catch {
-                let kept = CloudStartSessionStrings.newMachineKept(name, id: id)
+                let kept = CloudStartSessionStrings.newMachineKept(name, id: id), failure = ended as? ActionFailure
                 throw ActionFailure(message: (failure?.message ?? CloudStrings.errorText(ended)) + " " + kept, isNotFound: failure?.isNotFound ?? false, isQuiet: failure?.isQuiet ?? false)
             }
-            guard let failure, let deleted = CloudStartSessionStrings.newMachineDeleted(name, id: id, after: failure.message) else { throw ended }
-            throw ActionFailure(message: deleted, isNotFound: failure.isNotFound, isQuiet: failure.isQuiet)
+            throw (ended as? ActionFailure).flatMap { f in CloudStartSessionStrings.newMachineDeleted(name, id: id, after: f.message).map { ActionFailure(message: $0, isNotFound: f.isNotFound, isQuiet: f.isQuiet) as Error } } ?? ended
         }
     }
 
