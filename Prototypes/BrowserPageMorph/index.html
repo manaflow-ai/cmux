@@ -1,0 +1,213 @@
+<!doctype html>
+<!--
+  Browser page morph prototype (Leo 2026-11-22). Ten live tabs (iframes, like
+  CEF tabs kept alive) in one pane; switching tabs swaps which one shows. Each
+  variant adds only an overlay on top of the incoming page, which is shown on
+  the very first frame; any input cancels the overlay. Keys: 0-9 switch tab,
+  [ and ] go back/forward through the switch history, v cycles the variant.
+  URL params: variant=none|crossfade|veil|chrome|veil+chrome|slide, slow=N
+  (multiply durations, for clips only).
+-->
+<html><head><meta charset="utf-8"><title>Browser page morph</title>
+<style>
+  html,body{margin:0;height:100%;background:#202124;font:13px system-ui,-apple-system,sans-serif;overflow:hidden}
+  #chrome{height:74px;display:flex;flex-direction:column;color:#fff;background:#2b2b2b}
+  #tabs{display:flex;gap:2px;padding:6px 8px 0;height:32px}
+  .tab{flex:1;min-width:0;padding:7px 10px;border-radius:8px 8px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#0002;cursor:pointer}
+  .tab.on{background:#0004;font-weight:600}
+  #url{margin:4px 8px 6px;padding:6px 12px;border-radius:14px;background:#0003}
+  #pane{position:absolute;top:74px;left:0;right:0;bottom:28px;overflow:hidden;background:#fff}
+  #pane iframe{position:absolute;inset:0;width:100%;height:100%;border:0;visibility:hidden}
+  #veil{position:absolute;inset:0;pointer-events:none;opacity:0;z-index:5}
+  #hud{position:absolute;left:0;right:0;bottom:0;height:28px;line-height:28px;padding:0 10px;color:#ccc;background:#111;font:12px ui-monospace,Menlo,monospace;display:flex;gap:14px}
+  #hud button{font:inherit;background:#333;color:#ddd;border:0;border-radius:4px;padding:0 8px;cursor:pointer}
+  #hud button.on{background:#2563eb;color:#fff}
+</style></head>
+<body>
+<div id="chrome"><div id="tabs"></div><div id="url"></div></div>
+<div id="pane"><div id="veil"></div></div>
+<div id="hud"><span id="variants"></span><span id="stat"></span></div>
+<script type="module">
+import { PAGES } from "./pages/catalog.js";
+
+const params = new URLSearchParams(location.search);
+const SLOW = Number(params.get("slow") || 1);
+const VARIANTS = ["none", "crossfade", "veil", "chrome", "veil+chrome", "slide"];
+let variant = params.get("variant") || "veil+chrome";
+
+// Durations (ms). Short on purpose: the page under the overlay is already the new one.
+const D = { crossfade: 120, veil: 150, chrome: 180, slide: 140 };
+
+const pane = document.getElementById("pane"), veil = document.getElementById("veil");
+const chrome = document.getElementById("chrome"), tabsEl = document.getElementById("tabs"), urlEl = document.getElementById("url");
+const frames = PAGES.map(p => {
+  const f = document.createElement("iframe");
+  f.src = `pages/page.html?id=${p.id}`; f.title = p.title;
+  pane.insertBefore(f, veil);
+  return f;
+});
+const tabs = PAGES.map((p, i) => {
+  const t = document.createElement("div"); t.className = "tab"; t.textContent = `${i} ${p.title}`;
+  t.onclick = () => switchTo(i, "click"); tabsEl.append(t); return t;
+});
+
+// The colour the host would know per tab: theme-color meta, else the document
+// background (what CEFTab.pageBackdropARGB samples). Read once per document.
+const colour = new Map();
+function sample(i) {
+  const d = frames[i].contentDocument;
+  if (!d || !d.body || !d.body.dataset.ready) return null;
+  const meta = d.querySelector('meta[name="theme-color"]');
+  const bg = getComputedStyle(d.body).backgroundColor;
+  const c = { bg: parseRGB(bg), theme: meta ? parseRGB(hexToRgb(meta.content)) : parseRGB(bg) };
+  colour.set(i, c); return c;
+}
+function hexToRgb(h) { const n = parseInt(h.slice(1), 16); return `rgb(${n >> 16},${(n >> 8) & 255},${n & 255})`; }
+function parseRGB(s) { const m = s.match(/\d+(\.\d+)?/g).map(Number); return m.slice(0, 3); }
+function css(c) { return `rgb(${c[0]},${c[1]},${c[2]})`; }
+function lum(c) { const l = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]; }
+// Perceived lightness (CIE L*/100) so a white->near-black jump is ~1.0.
+function L(c) { const y = lum(c); return (y <= 216 / 24389 ? y * 24389 / 27 : 116 * Math.cbrt(y) - 16) / 100; }
+
+let current = -1, history = [], hpos = -1;
+let running = null; // { anims:[], cleanup(), t0, kind }
+
+function cancelOverlay(reason) {
+  if (!running) return;
+  const r = running; running = null;
+  for (const a of r.anims) a.cancel();
+  r.cleanup();
+  if (reason) { const at = +(performance.now() - r.t0).toFixed(1); log.cancels.push({ reason, at }); if (r.rec) r.rec.cancelledAt = at; }
+}
+// Any input cancels a running overlay at once (capture phase, top window and every tab).
+function listenForInput(w) {
+  for (const type of ["pointerdown", "wheel", "keydown"]) w.addEventListener(type, e => {
+    if (w === window && type === "keydown" && isSwitchKey(e.key)) return; // a switch replaces the overlay itself
+    cancelOverlay(type);
+  }, { capture: true, passive: true });
+}
+listenForInput(window);
+
+function switchTo(i, how, dir = 0) {
+  if (i === current || i < 0 || i >= PAGES.length) return;
+  const t0 = performance.now();
+  cancelOverlay(null);
+  const from = current;
+  const cf = from >= 0 ? (colour.get(from) || sample(from)) : null;
+  const ct = colour.get(i) || sample(i);
+  // 1. The new page shows on this very frame, never later.
+  frames[i].style.visibility = "visible";
+  frames[i].style.zIndex = 1;
+  if (from >= 0) { frames[from].style.zIndex = 0; }
+  tabs.forEach((t, k) => t.classList.toggle("on", k === i));
+  urlEl.textContent = `${PAGES[i].site}/${PAGES[i].title}`;
+  current = i;
+  if (how !== "history") { history = history.slice(0, hpos + 1); history.push(i); hpos = history.length - 1; }
+
+  // 2. Overlay, by variant.
+  const anims = []; let cleanup = () => {};
+  const hideFrom = () => { if (from >= 0 && from !== current) { frames[from].style.visibility = "hidden"; frames[from].style.opacity = ""; frames[from].style.transform = ""; frames[from].style.zIndex = 0; } };
+  const dL = cf && ct ? Math.abs(L(cf.bg) - L(ct.bg)) : 0;
+  const v = variant;
+  if (from < 0 || v === "none") {
+    hideFrom();
+  } else if (v === "crossfade" || (v === "slide")) {
+    // The outgoing page acts as its own snapshot, on top, fading (and sliding) away.
+    frames[from].style.zIndex = 2;
+    const kf = v === "crossfade"
+      ? [{ opacity: 1 }, { opacity: 0 }]
+      : [{ opacity: 1, transform: "translateX(0)" }, { opacity: 0, transform: `translateX(${dir >= 0 ? -30 : 30}%)` }];
+    anims.push(frames[from].animate(kf, { duration: D[v] * SLOW, easing: "cubic-bezier(.2,0,0,1)" }));
+    cleanup = hideFrom;
+  } else {
+    hideFrom();
+    if ((v === "veil" || v === "veil+chrome") && dL > 0.2) {
+      // A flat wash of the outgoing page's colour over the new page, starting
+      // partly transparent so the new content reads at once, fading out.
+      const a0 = Math.min(0.7, dL * 0.75);
+      veil.style.background = css(cf.bg);
+      anims.push(veil.animate([{ opacity: a0 }, { opacity: 0 }], { duration: D.veil * SLOW, easing: "cubic-bezier(.2,0,0,1)" }));
+    }
+    cleanup = () => { veil.style.opacity = 0; };
+  }
+  // Chrome (tab strip + URL bar) takes the page's theme colour; it morphs when the variant asks for it.
+  const target = ct ? css(ct.theme) : "#2b2b2b";
+  if ((v === "chrome" || v === "veil+chrome") && cf) {
+    anims.push(chrome.animate([{ backgroundColor: css(cf.theme) }, { backgroundColor: target }], { duration: D.chrome * SLOW, easing: "cubic-bezier(.2,0,0,1)" }));
+  }
+  chrome.style.backgroundColor = target;
+  chrome.style.color = ct && L(ct.theme) > 0.6 ? "#111" : "#fff";
+
+  const r = { anims, cleanup, t0, kind: v };
+  if (anims.length) {
+    running = r;
+    Promise.all(anims.map(a => a.finished)).then(() => { if (running === r) { running = null; cleanup(); } }, () => {});
+  }
+  measure(r, from, i, dL, how, performance.now() - t0);
+}
+
+// ---- measurement: rAF timeline per switch ----
+const log = { switches: [], cancels: [] };
+window.__morph = { log, switchTo: (i, dir) => switchTo(i, "api", dir), setVariant: v => { variant = v; paintHud(); }, ready: () => frames.every((f, i) => sample(i)), cancel: () => cancelOverlay("api") };
+function incomingVisible(r, from) {
+  if (!running || running !== r) return 1;
+  if (r.kind === "crossfade") return 1 - Number(getComputedStyle(frames[from]).opacity);
+  if (r.kind === "slide") {
+    const op = Number(getComputedStyle(frames[from]).opacity);
+    const tx = Math.abs(new DOMMatrix(getComputedStyle(frames[from]).transform).m41) / pane.clientWidth;
+    return 1 - op * (1 - tx);
+  }
+  if (r.kind === "veil" || r.kind === "veil+chrome") return 1 - Number(getComputedStyle(veil).opacity);
+  return 1;
+}
+function measure(r, from, to, dL, how, handlerMs) {
+  const rec = { from, to, dL: +dL.toFixed(2), how, variant: r.kind, handlerMs: +handlerMs.toFixed(2), frames: [] };
+  r.rec = rec;
+  log.switches.push(rec);
+  const end = r.t0 + 400 * SLOW;
+  const step = ts => {
+    const now = performance.now();
+    rec.frames.push([+(now - r.t0).toFixed(2), +incomingVisible(r, from).toFixed(3)]);
+    if (now < end) requestAnimationFrame(step); else finish(rec);
+  };
+  requestAnimationFrame(step);
+}
+function finish(rec) {
+  const f = rec.frames;
+  rec.firstFrameMs = f[0][0];
+  rec.t50 = (f.find(x => x[1] >= 0.5) || [NaN])[0];
+  rec.t90 = (f.find(x => x[1] >= 0.9) || [NaN])[0];
+  rec.t100 = (f.find(x => x[1] >= 0.999) || [NaN])[0];
+  const gaps = f.slice(1).map((x, k) => x[0] - f[k][0]);
+  // Frames missed against the display's own interval (measured at load), not an assumed 60 Hz.
+  const fi = window.__frameMs || 1000 / 60;
+  rec.frameMs = +fi.toFixed(2);
+  rec.maxGapMs = +Math.max(...gaps).toFixed(2);
+  rec.dropped = gaps.filter(g => g > 1.5 * fi).reduce((n, g) => n + Math.round(g / fi) - 1, 0);
+  delete rec.frames;
+  document.getElementById("stat").textContent = `last: ${rec.from}->${rec.to} dL=${rec.dL} first=${rec.firstFrameMs}ms t50=${rec.t50} t90=${rec.t90} dropped=${rec.dropped}`;
+}
+
+// ---- keys and HUD ----
+function isSwitchKey(k) { return /^[0-9]$/.test(k) || k === "[" || k === "]"; }
+addEventListener("keydown", e => {
+  if (/^[0-9]$/.test(e.key)) switchTo(Number(e.key), "key", Number(e.key) - current);
+  else if (e.key === "[" && hpos > 0) { hpos--; switchTo(history[hpos], "history", -1); }
+  else if (e.key === "]" && hpos < history.length - 1) { hpos++; switchTo(history[hpos], "history", 1); }
+  else if (e.key === "v") { variant = VARIANTS[(VARIANTS.indexOf(variant) + 1) % VARIANTS.length]; paintHud(); }
+});
+function paintHud() {
+  const el = document.getElementById("variants"); el.innerHTML = "";
+  for (const v of VARIANTS) { const b = document.createElement("button"); b.textContent = v; b.className = v === variant ? "on" : ""; b.onclick = () => { variant = v; paintHud(); }; el.append(b); }
+}
+paintHud();
+// Display frame interval: median rAF gap over 60 idle frames.
+{ const ts = []; const tick = t => { ts.push(t); if (ts.length < 61) requestAnimationFrame(tick); else { const g = ts.slice(1).map((x, k) => x - ts[k]).sort((a, b) => a - b); window.__frameMs = g[30]; } }; requestAnimationFrame(tick); }
+Promise.all(frames.map(f => new Promise(res => f.addEventListener("load", res, { once: true })))).then(async () => {
+  frames.forEach(f => listenForInput(f.contentWindow));
+  for (let k = 0; k < 50 && !window.__morph.ready(); k++) await new Promise(r => setTimeout(r, 20));
+  switchTo(0, "init");
+  document.body.dataset.ready = "1";
+});
+</script>
+</body></html>

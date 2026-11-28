@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- One simulated web page; ?id=N picks its look from catalog.js. -->
+<html><head><meta charset="utf-8"><title>page</title>
+<style>
+  html,body{margin:0;height:100%;font:15px/1.5 -apple-system,system-ui,sans-serif}
+  .bar{height:56px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid #8883}
+  .logo{width:28px;height:28px;border-radius:50%;background:currentColor;opacity:.8}
+  main{padding:20px 28px;max-width:860px}
+  h1{font-size:24px;margin:8px 0 12px}
+  .line{height:12px;border-radius:6px;background:currentColor;opacity:.18;margin:10px 0}
+  .card{border:1px solid #8884;border-radius:8px;padding:14px;margin:14px 0}
+  .img{margin:40px auto;width:70%;height:70vh;border-radius:4px}
+  .mono{font-family:ui-monospace,Menlo,monospace}
+  .hero{font-size:44px;font-weight:700;padding:80px 40px}
+</style></head>
+<body><script type="module">
+import { PAGES } from "./catalog.js";
+const p = PAGES[Number(new URLSearchParams(location.search).get("id") || 0)];
+document.title = p.title;
+document.documentElement.style.colorScheme = p.scheme;
+if (p.theme) { const m = document.createElement("meta"); m.name = "theme-color"; m.content = p.theme; document.head.append(m); }
+document.body.style.background = p.bg; document.body.style.color = p.fg;
+const lines = n => Array.from({length:n},(_,i)=>`<div class="line" style="width:${55+((i*37+p.id*13)%45)}%"></div>`).join("");
+let html = "";
+if (p.kind.startsWith("image")) html = `<div class="img" style="background:${p.kind==="image-light"?"linear-gradient(#fff,#f3f3f3)":"radial-gradient(circle at 40% 35%,#3a3850,#1d1c26 70%)"}"></div>`;
+else if (p.kind === "hero") html = `<div class="hero">${p.title}<br><span style="font-size:18px;font-weight:400">${lines(3)}</span></div>`;
+else if (p.kind === "mono") html = `<main class="mono">$ cargo run<br>${Array.from({length:24},(_,i)=>`  Compiling crate-${i} v0.${i}.0`).join("<br>")}</main>`;
+else html = `<div class="bar" style="background:${p.theme||p.bg}"><div class="logo"></div><b>${p.site}</b></div><main><h1>${p.title}</h1>${Array.from({length:5},()=>`<div class="card">${lines(4)}</div>`).join("")}</main>`;
+document.body.innerHTML = html;
+document.body.dataset.ready = "1";
+</script></body></html>
