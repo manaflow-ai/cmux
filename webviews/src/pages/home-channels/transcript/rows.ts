@@ -371,33 +371,6 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
   return rows;
 }
 
-/** A row's height before it is measured (its gap included): the window lays out from these. */
-export function estimateRow(row: TranscriptRow): number {
-  switch (row.kind) {
-    case "older":
-      return 28;
-    case "separator":
-      return row.gap + 32;
-    case "name":
-      return row.gap + 15;
-    case "label":
-      return row.gap + 15;
-    case "unsent":
-      return row.gap + 16;
-    case "receipt":
-      return 16;
-    case "typing":
-      return row.gap + 35;
-    case "bubble": {
-      const part = row.parts[0];
-      if (part?.type === "attachment") return row.gap + 160 * Math.min(row.parts.length, 2);
-      const text = part && "text" in part ? part.text : "";
-      const lines = text.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 48)), 0);
-      return row.gap + 16 + 18 * Math.min(lines, 400);
-    }
-  }
-}
-
 /** The participant ids the typing row names, as the a11y line reads them. */
 export function typingNames(participants: readonly string[], people: ReadonlyMap<string, HomeParticipant>): string[] {
   return participants.map((id) => people.get(id)?.name ?? id);

@@ -763,7 +763,12 @@ async fn stream_prompt_once(
     )
     .await?;
     let c = client.clone();
-    let params = prompt.params(id, text, steer, None);
+    let mut params = prompt.params(id, text, steer, None);
+    // It waits for the reply and prints it, as `collect_once` does: an inbox message's request
+    // waits for the notice's answer only for such a caller (`hub/inbox.rs`).
+    if let Some(mux) = params.pointer_mut("/_meta/acpmux") {
+        mux.set(READS_REPLY_META, json!(true));
+    }
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;

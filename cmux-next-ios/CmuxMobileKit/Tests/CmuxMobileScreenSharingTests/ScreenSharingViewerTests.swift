@@ -316,9 +316,9 @@ import Testing
         samples.sort()
         let p50 = samples[samples.count / 2], p95 = samples[samples.count - 1]
         print("conn-quiet drop_to_reattach_ms p50=\(Int(p50)) p95=\(Int(p95)) n=\(samples.count)")
-        // The regression this guards is the old fixed 1 s wait on every drop. The typical drop
-        // must reattach in under 250 ms; the slowest of 8 only under that 1 s, because on a loaded
-        // shared simulator one wall-clock sample reached 330-470 ms with no 1 s wait in the path.
+        // The median holds the 250 ms bar; the slowest sample only has to beat base's 1 s wait.
+        // Wall-clock on a shared CI runner: one scheduler stall put the slowest of 8 at 330 ms
+        // (cmux#58715, run 46049178719, twice) while the reattach path itself did not change.
         #expect(p50 < 250)
         #expect(p95 < 1000)
     }
