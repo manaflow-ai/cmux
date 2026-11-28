@@ -61,13 +61,15 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
   mobile: () =>
     import("./MobileCard").then(({ MobileCard }) => () => <MobileCard />),
   devices: () =>
-    import("./DevicesCard").then(({ DevicesCard }) => () => <DevicesCard />),
+    import("./DevicesCard").then(({ DevicesCard }) => (focus) => <DevicesCard focus={focus} />),
   chiefPet: () =>
     import("./ChiefPetCard").then(({ ChiefPetCard }) => (focus) => <ChiefPetCard focus={focus} />),
   density: () =>
     import("./DensityCard").then(({ DensityCard }) => (focus) => <DensityCard focus={focus} />),
   textSize: () =>
     import("./TextSizeCard").then(({ TextSizeCard }) => () => <TextSizeCard />),
+  replayIntro: () =>
+    import("./ReplayIntroCard").then(({ ReplayIntroCard }) => () => <ReplayIntroCard />),
   importSuggestions: () =>
     import("./ImportSuggestionsCard").then(({ ImportSuggestionsCard }) => () => <ImportSuggestionsCard />),
   channels: () =>
@@ -84,8 +86,12 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./ServerCard").then(({ ServerCard }) => () => <ServerCard />),
   cloudEnvironments: () =>
     import("./CloudEnvironmentsCard").then(({ CloudEnvironmentsCard }) => () => <CloudEnvironmentsCard />),
+  cloudCompute: () =>
+    import("./CloudComputeCard").then(({ CloudComputeCard }) => () => <CloudComputeCard />),
   cloudModels: () =>
-    import("./CloudModelsCard").then(({ CloudModelsCard }) => (focus) => <CloudModelsCard focus={focus} />),
+    import("./ModelsCard").then(({ CloudModelsCard }) => (focus, _workspace, reveal) => (
+      <CloudModelsCard focus={focus} reveal={reveal} />
+    )),
   sharedLinks: () =>
     import("./SharedLinksCard").then(({ SharedLinksCard }) => (_focus, _workspace, reveal) => (
       <SharedLinksCard reveal={reveal} />
@@ -105,6 +111,10 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
           </>
         ),
     ),
+  looksGallery: () =>
+    import("./LooksGalleryCard").then(({ LooksGalleryCard }) => (_focus, _workspace, reveal) => (
+      <LooksGalleryCard reveal={reveal} />
+    )),
   customizeProgress: () =>
     import("./CustomizeProgressCard").then(({ CustomizeProgressCard }) => () => <CustomizeProgressCard />),
   customizeChecklist: () =>
@@ -115,6 +125,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./McpServersCard").then(({ McpServersCard }) => () => <McpServersCard />),
   integrationsHub: () =>
     import("./IntegrationsHubCard").then(({ IntegrationsHubCard }) => () => <IntegrationsHubCard />),
+  developerTokens: () =>
+    import("./DeveloperTokensCard").then(({ DeveloperTokensCard }) => () => <DeveloperTokensCard />),
   automationsCloud: () =>
     import("./AutomationsCard").then(({ AutomationsCard }) => () => <AutomationsCard />),
   tailnet: () =>

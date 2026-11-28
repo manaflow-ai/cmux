@@ -13,11 +13,14 @@ import {
   useRef,
   useState,
   type ComponentType,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
+import { ChevronDown } from "../changeIcons";
+import { HEADER_TOGGLE_ATTRIBUTE, HEADER_TOGGLES_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
 import { WrapButton } from "./BlockParts";
@@ -25,8 +28,13 @@ import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
 import { useMoreBelowOn } from "./moreBelow";
 import { EditDiffLoading } from "./EditDiffLoading";
+import { EDIT_DIFF_VARS } from "./editDiffBox";
 import { useDiffPainted } from "./editDiffLoadingModel";
 import { loadEditDiffHunks } from "./editDiffModel";
+import { useFold } from "./fold";
+import { Button } from "../../../ui/Button";
+import { Tooltip } from "../../../ui/Tooltip";
+import { foldPlays } from "./transcriptView";
 const EditDiffHunks = lazy(() => loadEditDiffHunks().then((module) => ({ default: module.EditDiffHunks })));
 
 /// Bumps each time Find in Chat's current match is in `file` (its text, or the call that made it),
@@ -64,6 +72,14 @@ type EditDiffProps = {
   whole?: boolean;
   /** More corner actions after Wrap and copy (the edited-files card's Open in Changes). */
   actions?: ReactNode;
+  /** The name its header shows, when not the file's own (the edited-files card's repo-relative path). */
+  label?: string;
+  /** Drawn inside a card of its own (the edited-files card): no ring, corner, fill or margin, so
+   *  the header and diff sit directly on that card instead of in a second box (conversation.css). */
+  flat?: boolean;
+  /** Its name is a toggle that folds the file to its header (the edited-files card, where every file is
+   *  drawn whole): a click on the name or the header's bare space, never on its buttons. */
+  collapsible?: boolean;
 };
 
 export function EditDiff(props: EditDiffProps) {
@@ -76,6 +92,9 @@ export function EditDiffFrame({
   reveal = 0,
   whole = false,
   actions,
+  label,
+  flat = false,
+  collapsible = false,
   hunks: Hunks,
 }: EditDiffProps & {
   hunks: ComponentType<{ file: TurnFile; patches: string[]; wrap: boolean }>;
@@ -83,10 +102,34 @@ export function EditDiffFrame({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const patches = useMemo(() => file.edits.map((edit) => editPatch(file, edit)), [file]);
-  const name = file.path.split("/").pop() || file.path;
+  const name = label || file.path.split("/").pop() || file.path;
   const kind = fileBlockKind(file.path);
   const [wrap] = useBlockWrap(kind);
   const found = useFindInFile(file);
+  const [collapsed, setCollapsed] = useState(false);
+  // Find in Chat's match in a folded file opens it, as it opens a cut preview: before paint, as the
+  // transcript's other disclosures open for Find.
+  useLayoutEffect(() => {
+    if (found) setCollapsed(false);
+  }, [found]);
+  const card = useRef<HTMLDivElement>(null);
+  /// Folds or opens the file. Folded from its name while the name is stuck over the file's lines (the
+  /// edited-files card's stack), the stack first scrolls back by how far the name had slid down, so the
+  /// folded name stays where the reader clicked it instead of leaving the view with the lines.
+  const toggleFold = () => {
+    const node = card.current;
+    const name = node?.firstElementChild;
+    if (node && name && !collapsed) {
+      const slid = name.getBoundingClientRect().top - node.getBoundingClientRect().top;
+      const scroller = slid > 0.5 ? scrollerOf(node) : undefined;
+      if (scroller) scroller.scrollTop -= slid;
+    }
+    setCollapsed((was) => !was);
+  };
+  const folded = collapsible && collapsed;
+  // A file folds with the transcript's fold (fold.ts), as the card that holds it opens: its lines' height
+  // and opacity on the shared token, the chevron turning with them (EditedFilesCard.css).
+  const { present: drawn, ref: foldRef } = useFold(!folded, foldPlays);
   const preview = usePreview(
     whole
       ? 0
@@ -97,43 +140,102 @@ export function EditDiffFrame({
   const hunks = useRef<HTMLDivElement>(null);
   const painted = useDiffPainted(hunks);
   useMoreBelowOn(body, painted);
+  // The lines: in the box the fold sizes (`.cv-fold`) when the file folds, bare when it never does.
+  const lines = (
+    <>
+      {/* The placeholder holds the body's height until Pierre has drawn every edit: the renderer's
+            chunk resolves first, then each host fills a frame or more later, so a Suspense fallback
+            alone left an empty body for a frame. Both share one grid cell, the lines hidden. */}
+      <div className="cv-edit-diff__stack" data-painted={painted || undefined}>
+        <div ref={hunks} className="cv-edit-diff__hunks">
+          <Suspense fallback={null}>
+            <Hunks file={file} patches={patches} wrap={wrap} />
+          </Suspense>
+        </div>
+        {painted ? null : <EditDiffLoading file={file} wrap={wrap} />}
+      </div>
+    </>
+  );
+  const copyLabel = copied ? t("code.copied") : t("code.copyDiff");
+  const nameLabel = (
+    <span
+      className="cv-edit-diff__name"
+      data-path={file.path}
+      // tooltip-allow: a long path is cut to the header; its whole path is the tooltip
+      title={label}
+    >
+      {name}
+    </span>
+  );
   return (
-    <div className="cv-edit-diff" data-wrap={wrap}>
-      <div className="cv-edit-diff__header">
-        <span className="cv-edit-diff__name" data-path={file.path}>
-          {name}
-        </span>
+    <div
+      ref={card}
+      className="cv-edit-diff"
+      data-wrap={wrap}
+      data-flat={flat || undefined}
+      data-collapsed={folded || undefined}
+      style={EDIT_DIFF_VARS as CSSProperties}
+    >
+      {/* The header's bare space shares its name's toggle (headerToggle.ts); its buttons keep their own clicks. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+      <div
+        className="cv-edit-diff__header"
+        {...(collapsible ? { [HEADER_TOGGLE_ATTRIBUTE]: "" } : {})}
+        onClick={collapsible ? (event) => headerToggleClick(toggleFold)(event) : undefined}
+      >
+        {collapsible ? (
+          <Button
+            bare
+            type="button"
+            className="cv-edit-diff__toggle"
+            aria-expanded={!collapsed}
+            {...{ [HEADER_TOGGLES_ATTRIBUTE]: "" }}
+          >
+            <ChevronDown className="cv-edit-diff__chevron" width={12} height={12} />
+            {nameLabel}
+          </Button>
+        ) : (
+          nameLabel
+        )}
         <span className="cv-edit-diff__add">+{file.additions}</span>
         <span className="cv-edit-diff__del">-{file.deletions}</span>
         <WrapButton kind={kind} className={`${cornerAction()} cv-edit-diff__wrap`} />
-        <button
-          type="button"
-          className={`${cornerAction()} cv-edit-diff__copy`}
-          aria-label={copied ? t("code.copied") : t("code.copyDiff")}
-          onClick={() =>
-            void copyTextResult(patches.join("")).then(
-              (accepted) => setCopied(accepted),
-              () => setCopied(false),
-            )
-          }
-        >
-          <Copy />
-        </button>
+        <Tooltip label={copyLabel}>
+          <button
+            type="button"
+            className={`${cornerAction()} cv-edit-diff__copy`}
+            aria-label={copyLabel}
+            onClick={() =>
+              void copyTextResult(patches.join("")).then(
+                (accepted) => setCopied(accepted),
+                () => setCopied(false),
+              )
+            }
+          >
+            <Copy />
+          </button>
+        </Tooltip>
         {actions}
       </div>
-      <div ref={body} className="cv-edit-diff__body" data-preview={preview.attribute}>
-        {/* The placeholder holds the body's height until Pierre has drawn every edit: the renderer's
-            chunk resolves first, then each host fills a frame or more later, so a Suspense fallback
-            alone left an empty body for a frame. Both share one grid cell, the lines hidden. */}
-        <div className="cv-edit-diff__stack" data-painted={painted || undefined}>
-          <div ref={hunks} className="cv-edit-diff__hunks">
-            <Suspense fallback={null}>
-              <Hunks file={file} patches={patches} wrap={wrap} />
-            </Suspense>
+      <div ref={body} className="cv-edit-diff__body" data-preview={preview.attribute} hidden={!drawn}>
+        {collapsible ? (
+          <div ref={foldRef} className="cv-fold">
+            {lines}
           </div>
-          {painted ? null : <EditDiffLoading file={file} wrap={wrap} />}
-        </div>
+        ) : (
+          lines
+        )}
       </div>
     </div>
   );
+}
+
+/// The nearest ancestor of `node` that scrolls: the one its sticky name sticks in.
+function scrollerOf(node: HTMLElement): HTMLElement | undefined {
+  const view = node.ownerDocument.defaultView;
+  for (let at = node.parentElement; at; at = at.parentElement) {
+    const overflow = view?.getComputedStyle(at).overflowY ?? "";
+    if (overflow === "auto" || overflow === "scroll") return at;
+  }
+  return undefined;
 }

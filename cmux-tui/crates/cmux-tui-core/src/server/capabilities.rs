@@ -64,6 +64,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SHARE_EVENTS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY);
+        // Advertised like login-machine; the handler refuses anything but the owner's Cloud machine.
+        capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
         capabilities.push(agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY);
         capabilities.push(agent_session_attach::member::AGENT_SESSION_QUEUE_DECISION_CAPABILITY);
@@ -90,6 +92,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_FOLDERS_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
+        capabilities.push(agent_session_attach::agent_session_start::CLAUDE_TEAM_ROUTE_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
         // The start takes `permission_mode` wherever it is served; only a start on the caller's
         // own Cloud VM acts on it (agent_session_start.rs `start_policy`).
@@ -106,10 +109,21 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
         // The owner's model credential with the start and its refresh (agent_session_start.rs).
         capabilities.push(AGENT_SESSION_START_CREDENTIALS_CAPABILITY);
+        capabilities
+            .push(agent_session_attach::agent_session_start::CLAUDE_MACHINE_LOGIN_CAPABILITY);
+        capabilities
+            .push(agent_session_attach::agent_session_start::CREDENTIAL_REATTACH_CAPABILITY);
+        capabilities.push(agent_session_attach::agent_session_start::BOUND_CREDENTIALS_CAPABILITY);
+        capabilities.push(agent_session_attach::CREDENTIAL_WITHDRAWAL_CAPABILITY);
         // A Codex credential's provider reaches app-server (acpmux agent_credentials.rs, cmux#45774).
         capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
+        capabilities.extend_from_slice(mux.endpoint_start_harnesses());
         // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
         capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
+        // With no folder, the chat's own `~/chats/<id>` (agent_session_prewarm.rs).
+        if agent_session_attach::chat_folder_prewarm_on() {
+            capabilities.push(AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY);
+        }
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -121,13 +135,16 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_CREDENTIALS_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_SHARES_CAPABILITY);
         capabilities.extend_from_slice(agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES);
         capabilities.push(agent_transfer::AGENT_TRANSFER_HISTORY_LATER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {
         capabilities.push(agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY);
+        capabilities.push(agent_transfer::chat_folders::CHAT_FOLDER_CAPABILITY);
     }
     if mux.terminal_reaper_advertised() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
@@ -153,7 +170,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
 /// platform. The ones that depend on what the daemon installs at startup
 /// (cloud transport, WebSocket listener, search index, agent sessions, the
 /// reaper, build identity, a Chief) are [`identify_capabilities`]'s alone.
-fn always_identified() -> Vec<&'static str> {
+pub(super) fn always_identified() -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push("machine-identity-v1");
     // Receipts can outlive the acpmux configuration that prepared them.
@@ -237,12 +254,14 @@ pub fn build_capabilities() -> Vec<&'static str> {
         *capability != crate::fs_ops::FS_CAPABILITY
             && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_ZSTD_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
             && *capability != crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_HOLD_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CARRY_CAPABILITY
+            && *capability != crate::git_seed::GIT_SEED_BORROW_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != crate::projection::PROJECTION_CAPABILITY
             && *capability != crate::projection::PROJECTION_EXTEND_CAPABILITY
@@ -320,6 +339,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_RESUME_BOUNDED_CAPABILITY,
         ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         ATTACH_OUTPUT_COALESCE_CAPABILITY,
+        ATTACH_FRAMES_CAPABILITY,
         AGENT_CLI_HYBRID_CAPABILITY,
         AGENT_CLI_HYBRID_LEAN_CAPABILITY,
         TERMINAL_SHELL_LINES_CAPABILITY,
@@ -360,6 +380,7 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_METADATA_CAPABILITY,
         AGENT_PRESENCE_CAPABILITY,
         WORKSPACE_PIN_CAPABILITY,
+        WORKSPACE_KEEP_AWAKE_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_MARK_UNREAD_CAPABILITY,
         TAB_ATTENTION_CAPABILITY,
@@ -410,6 +431,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY,
         SCREEN_DEVICE_IDENTITY_CAPABILITY,
+        AGENT_PRESENCE_REPLAY_CAPABILITY,
         TREE_SELECTION_DELTAS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
@@ -443,6 +465,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
         SCREEN_TERMINAL_ENV_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
+        LAUNCH_SNAPSHOT_FLUSH_CAPABILITY,
         LIST_WORKSPACES_KNOWN_CAPABILITY,
         LIST_WORKSPACES_LIMIT_CAPABILITY,
         LIST_WORKSPACES_PAGE_CAPABILITY,
@@ -475,11 +498,13 @@ pub(super) fn advertised_capabilities(
         crate::state::stash_store::CAPABILITY,
         crate::state::stash_store::WORKSPACES_CAPABILITY,
         crate::state::classic_import_router::CAPABILITY,
+        crate::state::classic_import_router::PROBE_CAPABILITY,
         crate::state::conductor_import_router::CAPABILITY,
         crate::resource_router::palette_rank::CAPABILITY,
         crate::resource_router::browser_import::CAPABILITY,
         crate::resource_router::palette_rank::BATCH_CAPABILITY,
         crate::resource_router::theme_scheme::CAPABILITY,
+        crate::resource_router::theme_scheme::SLOTS_CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
@@ -558,3 +583,7 @@ pub(super) fn advertised_capabilities(
 #[cfg(test)]
 #[path = "capabilities_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "gui_capabilities_tests.rs"]
+mod gui_capabilities_tests;

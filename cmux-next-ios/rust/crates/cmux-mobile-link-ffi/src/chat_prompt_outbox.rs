@@ -16,7 +16,8 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use cmux_composer_send::chat::{
-    Attachment, CancelStep, EditStep, PromptDone, PromptLook, PromptOutbox, PromptOutcome, UploadState,
+    Attachment, CancelStep, DEFAULT_HOLD, EditStep, PendingSend, PromptDone, PromptLook, PromptOutbox,
+    PromptOutcome, Refusal, ResendState, UploadState, is_transient_refusal,
 };
 
 /// How a prompt ended.
@@ -109,6 +110,46 @@ pub enum ChatPromptLook {
     Failed,
 }
 
+/// A prompt still on its way, as the chat draws its row, with the actions it has: Stop (its
+/// text back in the composer to edit and send again) and Delete always, Send now when offered.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ChatPendingSend {
+    pub prompt_id: String,
+    pub text: String,
+    /// Its attachments' upload ids.
+    pub upload_ids: Vec<String>,
+    pub look: ChatPromptLook,
+    /// Until it goes again after a "not now", when it waits on one.
+    pub retry_in_ms: Option<u64>,
+    /// The chat shows its row (attachments, waiting, or being stopped).
+    pub shown: bool,
+    /// Send now is offered (link up, unwritten, waiting).
+    pub can_send_now: bool,
+    /// Stopped after it may have reached the Mac: the Mac's removal is awaited.
+    pub stopping: bool,
+}
+
+fn chat_look(look: PromptLook) -> ChatPromptLook {
+    match look {
+        PromptLook::Sent => ChatPromptLook::Sent,
+        PromptLook::Retrying => ChatPromptLook::Retrying,
+        PromptLook::Failed => ChatPromptLook::Failed,
+    }
+}
+
+fn pending_send(p: PendingSend) -> ChatPendingSend {
+    ChatPendingSend {
+        prompt_id: p.id,
+        text: p.text,
+        upload_ids: p.attachments,
+        look: chat_look(p.look),
+        retry_in_ms: p.retry_in.map(ms_duration),
+        shown: p.shown,
+        can_send_now: p.can_send_now,
+        stopping: p.stopping,
+    }
+}
+
 /// An unwritten prompt handed to the chat's next source, with its tap.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ChatPromptTaken {
@@ -130,6 +171,23 @@ impl Inner {
     fn ms(&self, at: Instant) -> u64 {
         u64::try_from(at.saturating_duration_since(self.origin).as_millis()).unwrap_or(u64::MAX)
     }
+}
+
+/// What to do after the Mac answered a prompt with an error.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum ChatRefusal {
+    /// The Mac said "not now" (starting, busy, restarting, ...): the prompt goes again after
+    /// `retry_in_ms` (attempt `attempt` of the retries) and keeps looking sent or retrying.
+    Retry { attempt: u32, retry_in_ms: u64 },
+    /// A real refusal: the prompt is given back; its error text is the Mac's own.
+    Final { done: ChatPromptDone },
+}
+
+/// The quiet window a chat's outbox starts with, in milliseconds: how long a prompt may go with
+/// no progress at all before it comes back (one place for every source's default).
+#[uniffi::export]
+pub fn chat_prompt_default_hold_ms() -> u64 {
+    ms_duration(DEFAULT_HOLD)
 }
 
 #[derive(uniffi::Object)]
@@ -183,7 +241,7 @@ fn ms_duration(left: Duration) -> u64 {
 
 #[uniffi::export]
 impl ChatPromptOutbox {
-    /// `hold_ms`: how long a prompt waits for the link before it comes back. `seed`: the retry
+    /// `hold_ms`: how long a prompt may go with no progress (see `progressed`) before it comes back. `seed`: the retry
     /// jitter's (any value; a random one per source).
     #[uniffi::constructor]
     pub fn new(hold_ms: u64, seed: u64) -> Self {
@@ -219,7 +277,28 @@ impl ChatPromptOutbox {
     ) -> bool {
         let mut inner = self.inner();
         let (tapped, now) = (inner.at(tapped_ms), inner.at(now_ms));
-        inner.outbox.push(prompt_id, text, upload_ids, resend, tapped, now)
+        if upload_ids.is_empty() {
+            // On the phone this is the prepared payload, handed off after all uploads or the
+            // preceding prompt completed. The tap still orders it among the other prompts.
+            inner.outbox.push_prepared(prompt_id, text, resend, tapped, now)
+        } else {
+            inner.outbox.push(prompt_id, text, upload_ids, resend, tapped, now)
+        }
+    }
+
+    /// The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
+    /// taken): prompts waiting their turn keep going; the hold bounds a stall, not a send.
+    pub fn progressed(&self, now_ms: u64) {
+        let mut inner = self.inner();
+        let now = inner.at(now_ms);
+        inner.outbox.progressed(now);
+    }
+
+    /// The upload `upload_id` took a chunk at `now_ms`: its prompt keeps going.
+    pub fn upload_progressed(&self, upload_id: String, now_ms: u64) {
+        let mut inner = self.inner();
+        let now = inner.at(now_ms);
+        inner.outbox.upload_progressed(&upload_id, now);
     }
 
     /// The upload `upload_id` ended on the Mac at `mac_path`. Unknown ids are ignored.
@@ -279,6 +358,51 @@ impl ChatPromptOutbox {
     /// The Mac refused it.
     pub fn refused(&self, prompt_id: String) -> Option<ChatPromptDone> {
         self.inner().outbox.refused(&prompt_id).map(done)
+    }
+
+    /// The Mac answered it with an error (`origin`, `code`, `reason`: `error.data`'s). A "not now"
+    /// (Rust tells: starting, busy, restarting, timed out, native origin ...) is retried after a
+    /// backoff of 1 s doubling to 30 s and is not final; only a real refusal gives the prompt
+    /// back. `None` when the prompt is not here.
+    pub fn refusal(
+        &self,
+        prompt_id: String,
+        origin: Option<String>,
+        code: Option<String>,
+        reason: Option<String>,
+        now_ms: u64,
+    ) -> Option<ChatRefusal> {
+        let mut inner = self.inner();
+        let now = inner.at(now_ms);
+        let transient = is_transient_refusal(origin.as_deref(), code.as_deref(), reason.as_deref());
+        Some(match inner.outbox.refusal(&prompt_id, transient, now)? {
+            Refusal::Retry { attempt, retry_in } => {
+                ChatRefusal::Retry { attempt, retry_in_ms: ms_duration(retry_in) }
+            }
+            Refusal::Final(d) => ChatRefusal::Final { done: done(d) },
+        })
+    }
+
+    /// The Mac's `_cmux/prompt_resend` notice for this prompt: `state` is `sent`, `accepted`,
+    /// `retrying` (with `retry_in_ms`) or `refused`. A refusal gives the prompt back (`Some`); the
+    /// others only change its look. An unknown state is ignored.
+    pub fn resend_notice(
+        &self,
+        prompt_id: String,
+        state: String,
+        retry_in_ms: Option<u64>,
+        now_ms: u64,
+    ) -> Option<ChatPromptDone> {
+        let mut inner = self.inner();
+        let now = inner.at(now_ms);
+        let state = ResendState::parse(&state, retry_in_ms)?;
+        inner.outbox.resend_notice(&prompt_id, state, now).map(done)
+    }
+
+    /// How long until the prompt goes again after a "not now", or none.
+    pub fn retry_in_ms(&self, prompt_id: String, now_ms: u64) -> Option<u64> {
+        let inner = self.inner();
+        inner.outbox.retry_in(&prompt_id, inner.at(now_ms)).map(ms_duration)
     }
 
     /// The person cancels it, at any point.
@@ -347,11 +471,14 @@ impl ChatPromptOutbox {
     /// How `prompt_id` looks at `now_ms`.
     pub fn look(&self, prompt_id: String, now_ms: u64) -> ChatPromptLook {
         let inner = self.inner();
-        match inner.outbox.look(&prompt_id, inner.at(now_ms)) {
-            PromptLook::Sent => ChatPromptLook::Sent,
-            PromptLook::Retrying => ChatPromptLook::Retrying,
-            PromptLook::Failed => ChatPromptLook::Failed,
-        }
+        chat_look(inner.outbox.look(&prompt_id, inner.at(now_ms)))
+    }
+
+    /// Every prompt still on its way at `now_ms`, in tap order, with the actions each has: the
+    /// chat's pending rows (no pending send is ever without an exit).
+    pub fn pending_sends(&self, now_ms: u64) -> Vec<ChatPendingSend> {
+        let inner = self.inner();
+        inner.outbox.pending(inner.at(now_ms)).into_iter().map(pending_send).collect()
     }
 
     /// Its attachments and their uploads' ends, or none.
@@ -506,5 +633,52 @@ mod tests {
         assert_eq!(outbox.next_request(2).unwrap().attachments.len(), 1, "x kept its upload");
         assert_eq!(outbox.remove_answered("a".into(), false).unwrap().outcome, ChatPromptOutcome::MaybeSent);
         assert!(!outbox.retry_now("a2".into(), 3), "a2 is being written");
+    }
+
+    #[test]
+    fn a_not_now_refusal_retries_and_a_real_one_gives_the_prompt_back() {
+        assert_eq!(chat_prompt_default_hold_ms(), 30_000);
+        let outbox = ChatPromptOutbox::new(chat_prompt_default_hold_ms(), 1);
+        outbox.set_link(true, 1_000);
+        assert!(outbox.push("a".into(), "hi".into(), vec![], false, 1_000, 1_000));
+        outbox.next_request(1_000).unwrap();
+        outbox.wrote("a".into());
+        let busy =
+            outbox.refusal("a".into(), None, Some("-32000".into()), Some("hub.starting".into()), 2_000);
+        assert_eq!(busy, Some(ChatRefusal::Retry { attempt: 1, retry_in_ms: 1_000 }));
+        assert_eq!(outbox.look("a".into(), 2_000), ChatPromptLook::Retrying);
+        assert_eq!(outbox.retry_in_ms("a".into(), 2_400), Some(600));
+        assert_eq!(outbox.next_request(2_999), None);
+        assert!(outbox.next_request(3_000).unwrap().resend);
+        outbox.wrote("a".into());
+        let native =
+            outbox.refusal("a".into(), Some("native".into()), Some("timed_out".into()), None, 40_000);
+        assert_eq!(
+            native,
+            Some(ChatRefusal::Retry { attempt: 2, retry_in_ms: 2_000 }),
+            "past 10 s, not given back"
+        );
+        let real = outbox.refusal("a".into(), None, None, Some("remote.full_access_required".into()), 42_000);
+        let Some(ChatRefusal::Final { done }) = real else { panic!("a real refusal is final: {real:?}") };
+        assert_eq!(done.outcome, ChatPromptOutcome::Refused);
+        assert_eq!(done.text, "hi");
+        assert_eq!(outbox.refusal("a".into(), None, None, None, 43_000), None);
+    }
+
+    #[test]
+    fn the_macs_resend_notices_change_the_look_and_a_refusal_ends_it() {
+        let outbox = ChatPromptOutbox::new(30_000, 1);
+        outbox.set_link(true, 1_000);
+        outbox.push("a".into(), "hi".into(), vec![], false, 1_000, 1_000);
+        outbox.next_request(1_000).unwrap();
+        outbox.wrote("a".into());
+        assert_eq!(outbox.resend_notice("a".into(), "retrying".into(), Some(4_000), 2_000), None);
+        assert_eq!(outbox.look("a".into(), 2_000), ChatPromptLook::Retrying);
+        assert_eq!(outbox.retry_in_ms("a".into(), 2_000), Some(4_000));
+        assert_eq!(outbox.resend_notice("a".into(), "accepted".into(), None, 3_000), None);
+        assert_eq!(outbox.look("a".into(), 3_000), ChatPromptLook::Sent);
+        assert_eq!(outbox.resend_notice("a".into(), "weird".into(), None, 3_000), None);
+        let refused = outbox.resend_notice("a".into(), "refused".into(), None, 4_000).unwrap();
+        assert_eq!(refused.outcome, ChatPromptOutcome::Refused);
     }
 }

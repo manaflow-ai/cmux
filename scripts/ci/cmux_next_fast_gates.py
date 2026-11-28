@@ -39,6 +39,10 @@ The gates, each the same invocation as its push-time job:
   protocol skew   scripts/ci/protocol_skew_check.py --base BASE --head MERGE: the merge's chat page, relay and
                   decoders against the base's and the shipped nightly's, both directions; fails on a refusal
                   that would stop a chat from opening (cmux#46563) and on a new decoder that refuses unknown fields
+  entry logs      scripts/ci/entry_logs.py check --base BASE --head MERGE: a frozen append-only log
+                  (ENTRY_LOGS) grows only as one new file per entry in its directory, so two PRs never conflict on it
+  settings catalog keys  scripts/ci/settings_catalog_keys.py --root MERGE --base-rev BASE: a settings schema text key
+                  missing from the catalog fails only when BASE does not already miss it (a base red is a note)
 
 The panic ratchet is the workflow's own job (panic-ratchet: it needs Rust and a cmux-tui build, so it is
 not a gate here). cmux-tui-spec.yml's clippy job judges a pull request's Rust against the
@@ -82,6 +86,18 @@ DEEPEN_STEPS = (32, 200, 1000, 5000)
 # the tip spent 835 s in one --deepen=1000 with blob:none (every commit's trees came along) and the job then sat to
 # its cancel (8 such jobs at 25 min, 74% of the Merge step's 7,237 runner minutes a day; run 45236775245).
 DEEPEN_FILTER = "--filter=tree:0"
+# GitHub's pack-objects can abort a tree:0 deepen ("BUG: builtin/pack-objects.c: should_include_obj should only be
+# called on existing objects", signal 6): on 2026-11-25 it failed #52583's fast gates on two runs in a row (jobs
+# 138890366419, 138894346038). The same deepen with blob:none brings more trees but gets through, so it is the
+# fallback for that one failure.
+DEEPEN_FALLBACK_FILTER = "--filter=blob:none"
+# That abort is this runner's own git, not GitHub's: no "remote:" prefix, and on 2026-11-27 it ended "fatal: could not
+# finish pack-objects to repack local links" (#61818, job 140700979838, git 2.56.1 on an fsr- VM). A filtered fetch
+# into a partial clone runs `index-pack --promisor`, which repacks every object the new pack links to that is here
+# but not in a promisor pack; objects borrowed from an alternate store (the VM's git mirror) count, and pack-objects
+# aborts on them. Both filters take that path, so blob:none failed the same way 3 s later. Without the alternate for
+# that one fetch nothing borrowed is linked; the alternate goes back right after (the gates read through it).
+LOCAL_REPACK_ABORT = "repack local links"
 
 
 def log(message: str) -> None:
@@ -218,20 +234,98 @@ def deep_enough(repo: Path, head: str, base: str) -> bool:
     return not cuts.intersection(git(repo, "rev-list", head, base, *behind).stdout.split())
 
 
+def fetch_once(repo: Path, remote: str, filt: str, how: str, wants: list[str]) -> subprocess.CompletedProcess:
+    return git(repo, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", filt, "--refmap=", how, remote, *wants, check=False)
+
+
+def fetch_without_alternates(repo: Path, remote: str, filt: str, how: str, wants: list[str]) -> subprocess.CompletedProcess | None:
+    """The same fetch with the alternate store set aside, so `index-pack --promisor` finds no borrowed object to
+    repack (LOCAL_REPACK_ABORT); None when this checkout borrows no store."""
+    alternates = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path",
+                          "objects/info/alternates").stdout.strip())
+    if not alternates.is_file() or not alternates.read_text().strip():
+        return None
+    aside = alternates.with_name(alternates.name + ".fast-gates")
+    alternates.replace(aside)
+    try:
+        return fetch_once(repo, remote, filt, how, wants)
+    finally:
+        aside.replace(alternates)
+
+
+def deepen_fetch(repo: Path, remote: str, how: str, wants: list[str]) -> None:
+    """One deepen fetch, commits only. When pack-objects aborts on it: this runner's local-links repack
+    (LOCAL_REPACK_ABORT) gets the same fetch without the alternate store; any other abort the same fetch with
+    blob:none."""
+    result = fetch_once(repo, remote, DEEPEN_FILTER, how, wants)
+    if result.returncode == 0:
+        return
+    if "pack-objects" not in result.stderr:
+        raise SystemExit(f"fast-gates: git fetch {DEEPEN_FILTER} {how} failed: {result.stderr.strip()}")
+    if LOCAL_REPACK_ABORT in result.stderr:
+        log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in this runner's local-links repack; again without the alternate store")
+        retried = fetch_without_alternates(repo, remote, DEEPEN_FILTER, how, wants)
+        if retried is not None:
+            if retried.returncode == 0:
+                return
+            raise SystemExit(f"fast-gates: git fetch {DEEPEN_FILTER} {how} without the alternate store failed: "
+                             f"{retried.stderr.strip()}")
+    log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in pack-objects; again with {DEEPEN_FALLBACK_FILTER}")
+    result = fetch_once(repo, remote, DEEPEN_FALLBACK_FILTER, how, wants)
+    if result.returncode == 0:
+        return
+    if LOCAL_REPACK_ABORT in result.stderr:
+        retried = fetch_without_alternates(repo, remote, DEEPEN_FALLBACK_FILTER, how, wants)
+        if retried is not None and retried.returncode == 0:
+            return
+        if retried is not None:
+            result = retried
+    raise SystemExit(f"fast-gates: git fetch {DEEPEN_FALLBACK_FILTER} {how} failed: {result.stderr.strip()}")
+
+
+def unshallow_from_alternates(repo: Path, head: str, base: str) -> bool:
+    """Drop the shallow cut when the borrowed object stores already hold every commit both sides reach.
+
+    A cmux-runner-pool VM checks out at depth 2 with the pool's full git mirror as its alternate
+    (cmux-next-fast-gates.yml's pool checkout), so the history a deepen would fetch is already on disk: the
+    deepens to GitHub were ~2.8 min of this step on the NOW verdict wall's heads (2026-11-25). Without the cut,
+    one local walk of both sides proves no commit is missing; a commit newer than the mirror's last sync whose
+    parent it lacks fails that walk, and the cut goes back for the deepen fetches."""
+    alternates = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path",
+                          "objects/info/alternates").stdout.strip())
+    if not alternates.exists() or not alternates.read_text().strip():
+        return False
+    shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
+    if not shallow.exists():
+        return True
+    cut = shallow.read_bytes()
+    shallow.unlink()
+    started = time.monotonic()
+    if git(repo, "rev-list", "--quiet", head, base, check=False).returncode == 0:
+        log(f"fast-gates: the alternate object store holds the whole history; unshallowed locally in "
+            f"{time.monotonic() - started:.1f}s")
+        return True
+    shallow.write_bytes(cut)
+    log("fast-gates: the alternate object store lacks some history; deepening from the remote")
+    return False
+
+
 def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> None:
     """Deepen a shallow checkout until `deep_enough`; a full clone is left alone (a depth flag there would make
     every worktree sharing it shallow: tests/test_ci_no_shallow_dev_fetch.py)."""
     if git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() != "true":
         return
+    if unshallow_from_alternates(repo, head, base):
+        return
     for depth in DEEPEN_STEPS:
         if deep_enough(repo, head, base):
             return
         started = time.monotonic()
-        git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, f"--deepen={depth}", remote, *wants)
+        deepen_fetch(repo, remote, f"--deepen={depth}", wants)
         log(f"fast-gates: deepened by {depth} in {time.monotonic() - started:.1f}s")
     if not deep_enough(repo, head, base):
         started = time.monotonic()
-        git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, "--unshallow", remote, *wants)
+        deepen_fetch(repo, remote, "--unshallow", wants)
         log(f"fast-gates: unshallowed in {time.monotonic() - started:.1f}s")
 
 
@@ -240,9 +334,9 @@ def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
     true merge base."""
     refspecs = [f"+refs/pull/{pr}/head:{HEAD_REF}", f"+refs/heads/{BRANCH}:{BASE_REF}"]
     if git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() != "true":
-        git(repo, "fetch", "--no-tags", "--quiet", remote, *refspecs)
+        git(repo, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", remote, *refspecs)
         return
-    git(repo, "fetch", "--no-tags", "--quiet", f"--depth={FETCH_DEPTH}", remote, *refspecs)
+    git(repo, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", f"--depth={FETCH_DEPTH}", remote, *refspecs)
     deepen(repo, remote, refspecs, HEAD_REF, base)
 
 
@@ -298,8 +392,11 @@ def prepare(args: argparse.Namespace) -> int:
         # The checkout holds the merge and its two parents only (fetch-depth 2): the PR's own commits need their
         # parents, or the per-commit gates read a cut commit as adding the whole tree.
         deepen(repo, args.remote, [head, base], head, base)
-    write_outputs(args.output, {"merge": merge, "web": "true" if web_needed(repo, base, merge) else "false",
-                                "checks": "true" if checks_needed(repo, args.event, base, merge) else "false",
+    # The PR tier (PR_TIER_DEFERRED) leaves the bun-installing gates to the push tier: no bun, no web install.
+    pr_tier = getattr(args, "tier", "full") == "pr"
+    write_outputs(args.output, {"merge": merge,
+                                "web": "true" if not pr_tier and web_needed(repo, base, merge) else "false",
+                                "checks": "true" if not pr_tier and checks_needed(repo, args.event, base, merge) else "false",
                                 "ratchet": "true" if ratchet else "false"})
     return 0
 
@@ -319,34 +416,91 @@ def export_tree(repo: Path, ref: str, into: Path) -> None:
 RATCHET_INPUTS = (*RATCHET_PATHS, "scripts/ci/crash_ratchet_compare.py")
 
 
+def inputs_changed(repo: Path, base: str, merge: str, roots: tuple[str, ...]) -> bool:
+    """Whether BASE..MERGE changes a file under (or at) one of ROOTS. A diff that cannot be read counts as a change,
+    so the gate runs."""
+    done = git(repo, "diff", "--name-only", base, merge, check=False)
+    if done.returncode != 0:
+        return True
+    return any(path == root or path.startswith(root + "/") for path in done.stdout.split() for root in roots)
+
+
 def ratchet_inputs_changed(repo: Path, base: str, merge: str) -> bool:
     """Whether BASE..MERGE changes a file the crash ratchet reads (RATCHET_INPUTS)."""
-    changed = git(repo, "diff", "--name-only", base, merge).stdout.split()
-    return any(path == root or path.startswith(root + "/") for path in changed for root in RATCHET_INPUTS)
+    return inputs_changed(repo, base, merge, RATCHET_INPUTS)
 
+
+# What the crash-class rules read (crash_class_fast_gate.py): the concurrency rules scan Packages/macOS/CmuxNext with
+# scripts/cmux-next's checkers and scripts/ci's finding filter; the selector and CEF contract checks scan its Sources
+# against tables in scripts/cmux-next. cmux-next-crash-class.yml is one of the concurrency rules' --rules files (a change
+# to it makes every finding the change's own). A change outside all of them leaves the merge's findings the base's, so the gate
+# is green (the concurrency rules fail only for files the change touches, and the whole-tree checks only for what the
+# merge adds): skipping it takes its ~55 s off the critical path of a change with no web path (2026-11-24 job
+# 138554394707: crash-class rules 52 s, prepush gate 26 s, crash ratchet 18 s). Packages/ whole, not only CmuxNext,
+# so a package the checks come to read is covered without an edit here.
+CRASH_CLASS_INPUTS = ("Packages", "scripts/cmux-next", "scripts/ci/crash_class_fast_gate.py",
+                      "scripts/ci/crash-class-gate.sh", "scripts/ci/pr_owned_findings.py",
+                      ".github/workflows/cmux-next-crash-class.yml")
+
+
+def crash_class_inputs_changed(repo: Path, base: str, merge: str) -> bool:
+    """Whether BASE..MERGE changes a file the crash-class rules read (CRASH_CLASS_INPUTS)."""
+    return inputs_changed(repo, base, merge, CRASH_CLASS_INPUTS)
+
+
+# The gates a pull request's own run leaves to the push tier (the same gates run there as cmux-next-web-lint.yml,
+# cmux-next-crash-class.yml and ci-web.yml; a red there is fixed forward). `--tier full` (a dispatch, the `full-ci`
+# label, or vars.CI_FAST_GATES_PR_TIER=full) runs them on the pull request again. Slowest gate first on 2026-11-24:
+# crash-class rules 70.7 s, against 23.6 s for the prepush gate and 16.7 s for the crash ratchet.
+PR_TIER_DEFERRED = ("web lint", "crash-class rules", "webviews checks")
+
+# Why the PR tier skipped a gate that would otherwise run (a gate its own inputs skip keeps its SKIPPED reason).
+TIER_SKIPPED = "the pull request tier leaves it to the push tier (cmux-next-web-lint.yml, cmux-next-crash-class.yml, " \
+               "ci-web.yml); the full-ci label or vars.CI_FAST_GATES_PR_TIER=full runs it here"
 
 SKIPPED = {"web lint": "no web path changed",
+           "crash-class rules": "no change under Packages, scripts/cmux-next, its own scripts or its workflow",
            "crash ratchet": "no change under Packages, cmux-tui/crates, scripts/cmux-next or its compare script",
            "webviews checks": "a pull_request event with no catalog or protocol spec change: ci-web runs them "
                               "for a webviews/ change on this merge"}
 
 
 def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
-          checks: bool = False, ratchet: bool = True) -> list[tuple[str, list[str] | None]]:
-    """(name, argv) in order; argv None is a skipped gate (SKIPPED says why)."""
+          checks: bool = False, ratchet: bool = True, tier: str = "full",
+          crash_class: bool = True, deferred: set[str] | None = None) -> list[tuple[str, list[str] | None]]:
+    """(name, argv) in order; argv None is a skipped gate (SKIPPED says why). DEFERRED, when given, gets the names
+    the PR tier skipped that would otherwise run (TIER_SKIPPED says why)."""
     py = sys.executable
-    return [
+    table = [
         ("web lint", [py, "scripts/web_lint_prepush.py", "--base", base, "--head", merge, "--timings", "--new-only"]
          if web else None),
         ("crash ratchet", [py, "scripts/ci/crash_ratchet_compare.py", "--script", "scripts/cmux-next/crash_ratchet.py",
                            "--head", str(repo), "--base", str(base_tree)] if ratchet else None),
         # --advisory: the hook-only layers as ::warning annotations, never this gate's result (prepush-gate.py).
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
-        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree), "--base-rev", base]),
+        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree), "--base-rev", base]
+         if crash_class else None),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
         # Every pull request: a page-only change can refuse an older relay as surely as a relay change (cmux#46563).
         ("protocol skew", [py, "scripts/ci/protocol_skew_check.py", "--base", base, "--head", merge]),
+        # Every pull request, git objects only: a frozen append-only log grows only as files in its entry directory.
+        ("entry logs", [py, "-I", "scripts/ci/entry_logs.py", "check", "--base", base, "--head", merge]),
+        # Every pull request, git objects only: a change adds no outbound site outside the egress gate, compared
+        # with its own base, so a red base cannot excuse it (the guard group's egress step is skipped on most pull
+        # requests and excuses a step the base fails too; ten sites reached feat-cmux-next that way, 11-24..26).
+        ("egress gate", [py, "-I", "scripts/ci/egress_new_sites.py", "--base", base, "--head", merge,
+                         "--repo", str(repo)]),
+        # Every pull request, JSON only: the Mac export test checks the same, but feat-cmux-next PRs defer Mac jobs,
+        # and a schema row without its catalog keys stops the settings exports for every row after it. Compared
+        # with BASE from git objects: a key the base already misses is a note, not this PR's failure.
+        ("settings catalog keys", [py, "-I", "scripts/ci/settings_catalog_keys.py", "--root", str(repo),
+                                   "--base-rev", base]),
     ]
+    if tier == "pr":
+        if deferred is not None:
+            deferred.update(name for name, argv in table if name in PR_TIER_DEFERRED and argv is not None)
+        table = [(name, None if name in PR_TIER_DEFERRED else argv) for name, argv in table]
+    return table
 
 
 def gate_lanes(active: list[tuple[str, list[str]]]) -> list[list[tuple[str, list[str]]]]:
@@ -453,6 +607,77 @@ def run_gate_batch(lanes: list[list[tuple[str, list[str]]]], repo: Path, deadlin
     return results
 
 
+def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
+    """Remove temp folders PREFIX* whose owner process is gone (a run killed by SIGKILL or a timeout never reached its
+    cleanup; a lane VM's acpmux session TMPDIR keeps them). No .owner-pid: judged by age. Same sweep as
+    scripts/web_lint_prepush.py's sweep_orphan_holders."""
+    removed = 0
+    root = Path(tempfile.gettempdir())
+    try:
+        entries = [p for p in root.iterdir() if p.name.startswith(prefix) and p.is_dir() and not p.is_symlink()]
+    except OSError:
+        return 0
+    for holder in entries:
+        try:
+            owner = int((holder / ".owner-pid").read_text().strip())
+            try:
+                os.kill(owner, 0)
+                dead = False
+            except ProcessLookupError:
+                dead = True
+            except OSError:
+                dead = False
+        except (OSError, ValueError):
+            try:
+                dead = time.time() - holder.stat().st_mtime > grace_seconds
+            except OSError:
+                continue
+        if dead:
+            shutil.rmtree(holder, ignore_errors=True)
+            removed += 1
+    return removed
+
+
+FIXIT_LINT_SECONDS = 300.0
+
+
+def fixit_lint(repo: Path, base: str, merge: str, deadline: float | None) -> None:
+    """A red web lint (a finding, not a stall): its tools' own safe fixes, linted again, as a fixup patch
+    (scripts/ci/oops/fixit_lint.py; off unless the workflow sets FIXIT_COMPILE_HEAD_SHA). Only after every gate has
+    finished, since it edits the checkout and puts it back; never changes this run's result. Leo, 2026-11-22: "hell,
+    maybe even should've been automatic. how are our fixit type things for lint errors and random bullshit?\""""
+    seconds = FIXIT_LINT_SECONDS if deadline is None else min(FIXIT_LINT_SECONDS, deadline - time.monotonic())
+    if seconds < 30:
+        print(f"fixit-lint: {max(seconds, 0):.0f}s of the gates' budget left; not tried", flush=True)
+        return
+    script = Path(__file__).resolve().parent / "oops" / "fixit_lint.py"
+    print("::group::fixit-lint", flush=True)
+    try:
+        subprocess.run([sys.executable, "-I", str(script), "run", "--base", base, "--merge", merge, "--repo", str(repo),
+                        "--seconds", str(int(seconds))], cwd=repo, timeout=seconds + 60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"fixit-lint: {type(exc).__name__}: {exc}", flush=True)
+    print("::endgroup::", flush=True)
+
+
+def ensure_bun_tmpdir(env: dict) -> Path | None:
+    """Give every gate a writable BUN_TMPDIR (set in ENV, which the gates inherit); the directory made, or None when
+    the caller already set one or none could be made. bun unpacks into a temporary directory and fails `error: EACCES
+    accessing temporary directory. set $BUN_TMPDIR or $BUN_INSTALL` when it cannot write its default: fast gates run
+    46034085535 (cmux#59800, 2026-11-27 16:29Z), 46038329362 and 46050092532 failed web lint so, on bases nobody had
+    changed. The directory is made under the runner's own $RUNNER_TEMP, which the job owns."""
+    if env.get("BUN_TMPDIR"):
+        return None
+    for parent in (env.get("RUNNER_TEMP"), None):
+        try:
+            made = Path(tempfile.mkdtemp(prefix="fast-gates-bun-tmp-", dir=parent or None))
+        except OSError:
+            continue
+        env["BUN_TMPDIR"] = str(made)
+        return made
+    return None
+
+
 def run(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
     if not SHA.match(args.base) or not rev(repo, args.base):
@@ -462,17 +687,19 @@ def run(args: argparse.Namespace) -> int:
     if not merge:
         log(f"fast-gates: --merge {args.merge!r} is not a commit in this checkout")
         return 2
+    sweep_dead_holders("fast-gates-base-")
     holder = Path(tempfile.mkdtemp(prefix="fast-gates-base-"))
+    (holder / ".owner-pid").write_text(str(os.getpid()))
+    bun_tmp = ensure_bun_tmpdir(os.environ)
     rows: list[tuple[str, str, float]] = []
     deadline = None if args.budget_seconds is None else time.monotonic() + args.budget_seconds
     try:
         export_tree(repo, args.base, holder)
         ratchet = ratchet_inputs_changed(repo, args.base, merge)
-        active = [
-            (name, argv)
-            for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet)
-            if argv is not None
-        ]
+        crash_class = crash_class_inputs_changed(repo, args.base, merge)
+        planned = gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet,
+                        tier=args.tier, crash_class=crash_class, deferred=(tier_deferred := set()))
+        active = [(name, argv) for name, argv in planned if argv is not None]
         # Web lint and webviews checks can both run bun install in webviews/, so webviews checks waits for web lint
         # when both run. Every other gate reads the merge and its exported base tree and starts at once: on
         # 2026-11-22 webviews checks (93 s) waited out crash-class rules (61 s) in a second batch, a 157 s step whose
@@ -481,9 +708,9 @@ def run(args: argparse.Namespace) -> int:
         max_parallel = len(lanes)
         active_results = run_gate_batch(lanes, repo, deadline, holder / "gate-logs")
 
-        for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet):
+        for name, argv in planned:
             if argv is None:
-                print(f"{name}: skipped ({SKIPPED[name]})", flush=True)
+                print(f"{name}: skipped ({TIER_SKIPPED if name in tier_deferred else SKIPPED[name]})", flush=True)
                 rows.append((name, "skipped", 0.0))
                 continue
             if name not in active_results:
@@ -508,8 +735,13 @@ def run(args: argparse.Namespace) -> int:
             if code not in (0, None):
                 print(f"::error title=fast gates: {name}::{name} failed on the merge with base {args.base}")
             rows.append((name, outcome, seconds))
+        # Inside the try: its --fix runs bun too, under the BUN_TMPDIR the finally removes.
+        if any(name == "web lint" and outcome.startswith("failed (exit") for name, outcome, _ in rows):
+            fixit_lint(repo, args.base, merge, deadline)
     finally:
         shutil.rmtree(holder, ignore_errors=True)
+        if bun_tmp:
+            shutil.rmtree(bun_tmp, ignore_errors=True)
     failed = [name for name, outcome, _ in rows if outcome.startswith("failed")]
     timed = [(name, seconds) for name, outcome, seconds in rows
              if outcome not in {"skipped", "failed (no time left)"}]
@@ -550,11 +782,14 @@ def main(argv: list[str] | None = None) -> int:
     prep.add_argument("--remote", default="origin")
     prep.add_argument("--output", type=Path, help="append key=value lines here (GITHUB_OUTPUT)")
     prep.add_argument("--repo", type=Path, default=Path.cwd())
+    prep.add_argument("--tier", choices=("pr", "full"), default="full",
+                      help="pr: leave the gates in PR_TIER_DEFERRED to the push tier (no bun setup for them)")
     gate = sub.add_parser("run", help="run every gate on BASE..merge")
     gate.add_argument("--base", required=True)
     gate.add_argument("--merge", default="HEAD")
     gate.add_argument("--web", choices=("true", "false"), default="true")
     gate.add_argument("--checks", choices=("true", "false"), default="false")
+    gate.add_argument("--tier", choices=("pr", "full"), default="full")
     gate.add_argument("--summary", type=Path)
     gate.add_argument("--repo", type=Path, default=Path.cwd())
     gate.add_argument("--budget-seconds", type=int,

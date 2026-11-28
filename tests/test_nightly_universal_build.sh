@@ -482,9 +482,9 @@ if ! awk '
   exit 1
 fi
 
-# nightly-next ships arm64 only (tests/test_nightly_next_arm64_only.py); main's nightly keeps all three.
-if ! grep -Fq "const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
-  echo "FAIL: main's nightly must always build the universal download alongside the thin update tracks"
+# NIGHTLY and nightly-next ship arm64 only (tests/test_nightly_next_arm64_only.py); only RC keeps all three.
+if ! grep -Fq "const variants = fastBuild || track !== 'rc' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
+  echo "FAIL: only the RC channel builds the Intel and universal variants; NIGHTLY and nightly-next are arm64 only (Leo, 2026-11-25)"
   exit 1
 fi
 
@@ -761,13 +761,19 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
-  job == "report" && /\$\{process\.env\.CHANNEL_RELEASE_TAG\}-failure/ { saw_report_label=1 }
+  # The label is built in the reporter script the job requires (scripts/ci/nightly-steps/report-nightly-failure.cjs), checked below.
+  job == "report" && /report-nightly-failure\.cjs/ { saw_report_label=1 }
   # The result of publish-nightly, carried by published-build (another run on nightly-next).
   job == "close" && /needs\.published-build\.outputs\.publish_result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
   END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: a failing main nightly must open a nightly-failure issue and a successful publish must close it"
+  exit 1
+fi
+
+if ! grep -Fq 'const label = `${process.env.CHANNEL_RELEASE_TAG}-failure`;' "$ROOT_DIR/scripts/ci/nightly-steps/report-nightly-failure.cjs"; then
+  echo "FAIL: the nightly failure reporter must label its issue with the channel release tag"
   exit 1
 fi
 
@@ -802,6 +808,21 @@ if ! awk '
   END { exit !(saw_move_if && saw_move_id && saw_move_best_effort && saw_app_token && saw_github_token_cleared && saw_api_update) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: moving the channel release tag must use the scoped app token, remain observable when stale, and use the verified API helper"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Move channel release tag to built commit/ || /^      - name: Move the nightly-next tag to the published build/ {
+    in_move=1
+    moves++
+    next
+  }
+  in_move && /^      - name:/ { in_move=0 }
+  in_move && /GH_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/ { saw_app_token++ }
+  in_move && index($0, "GITHUB_TOKEN: ''") { saw_github_token_cleared++ }
+  END { exit !(moves == 2 && saw_app_token == 2 && saw_github_token_cleared == 2) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: both nightly tag moves must keep the scoped app token and intentionally clear GITHUB_TOKEN"
   exit 1
 fi
 

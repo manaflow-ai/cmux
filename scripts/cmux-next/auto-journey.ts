@@ -19,7 +19,9 @@
  *   5. chat on Mac    a checkout with a local commit and uncommitted work; `session/new`, Auto on
  *                     (`_acpmux/auto_session/set`), a prompt answered on the Mac; the store holds it as
  *                     `device:<id>` with a snapshot that covers its last event.
- *   6. to the Cloud   POST /v1/auto-sessions/:id/move {to: "cloud"}; the holder becomes `vm:<machine>`; the machine's
+ *   6. to the Cloud   POST /v1/auto-sessions/:id/move {to: "cloud"}; the holder becomes `vm:<machine>`; S4 with the Mac
+ *                     daemon stopped (auto-journey-s4.ts: the phone's read, then timed inbox sends that each run once on
+ *                     the machine; OUT/s4.json); the machine's
  *                     folder has the Mac's commit and uncommitted work; a message sent to the chat
  *                     (POST /v1/auto-sessions/:id/inbox) is answered by the harness on the machine.
  *   7. back home      POST /v1/auto-sessions/:id/move {to: "local", device}; the holder becomes `device:<id>`; the
@@ -38,20 +40,26 @@
  *   bun scripts/cmux-next/auto-journey.ts --backend staging --cleanup DIR
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Api, CHAT_START_SIZE, STACK, directExec, http, passwordSignIn, resolveBackend, scrub, sleep, waitMachine } from "./cloud-journey.ts";
+import { phoneSends, s4Detail, type S4Result } from "./auto-journey-s4.ts";
+import { Api, CHAT_START_SIZE, STACK, directExec, http, listAllMachines, passwordSignIn, resolveBackend, scrub, sleep, staleJourneyInstalls, staleJourneyMachines, waitRunning } from "./cloud-journey.ts";
 
 type Step = { step: string; status: "pass" | "fail" | "skip"; ms: number; detail: string };
-type View = { id: string; holder: string; epoch: number; version: number; lastSeq: number; snapshot: number; standby: string[]; auto: boolean; move?: unknown };
+type View = { id: string; holder: string; epoch: number; version: number; lastSeq: number; snapshot: number; standby: string[]; auto: boolean; move?: unknown; leaseExpiresAt?: number };
 
 const MOVE_BUDGET_MS = 6 * 60_000;
 const TURN_BUDGET_MS = 4 * 60_000;
 const HARNESS = "auto-journey";
+/** S4's phone sends a run (auto-journey-s4.ts); AUTO_JOURNEY_S4_SENDS changes it. */
+const S4_SENDS = Math.max(1, Math.min(100, Number(process.env.AUTO_JOURNEY_S4_SENDS) || 20));
+/** cmux NEXT's config folder on this side: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567), where the
+ * daemon reads harness profiles. The Linux guest keeps `cmux`. */
+const NEXT_DIR = process.platform === "darwin" ? "cmux-next" : "cmux";
 const RAN_FILE = "auto-journey-ran.txt";
 
 const argValue = (name: string, argv = process.argv): string | undefined => {
@@ -70,13 +78,13 @@ printf '%s\\n' "side=${side} prompt=$p" >> ${RAN_FILE}
 echo "AUTO_JOURNEY_REPLY side=${side} prompt=$p"
 `;
 const harnessProfile = (cmuxTui: string, script: string) =>
-  `protocol = "acp"\ncommand = ${JSON.stringify(cmuxTui)}\nargs = ["acp", "cli-agent", "--", ${JSON.stringify(script)}]\n`;
+  `schema = 1\nid = "${HARNESS}"\nprotocol = "acp"\ncommand = ${JSON.stringify(cmuxTui)}\nargs = ["acp", "cli-agent", "--", ${JSON.stringify(script)}]\n`;
 
 // ---------------------------------------------------------------- the install's token, for the Mac daemon
 
-type InstallState = { api: string; user: string; install: string; jwk: JsonWebKey; team?: string };
+export type InstallState = { api: string; user: string; install: string; jwk: JsonWebKey; team?: string };
 
-async function mintInstallToken(state: InstallState): Promise<{ access_token: string; expires_in?: number }> {
+export async function mintInstallToken(state: InstallState): Promise<{ access_token: string; expires_in?: number }> {
   const key = await crypto.subtle.importKey("jwk", state.jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
   const ch = await http("POST", `${state.api}/v1/auth/challenge`, { user: state.user, install: state.install }, {});
   if (ch.status !== 200) throw new Error(`challenge HTTP ${ch.status} ${short(ch.body)}`);
@@ -97,11 +105,22 @@ async function mintMode(stateFile: string): Promise<number> {
 
 // ---------------------------------------------------------------- the Mac daemon's socket (ACP + acpmux methods)
 
-class Socket {
+export class Socket {
   private buf = "";
   private next = 1;
   private waiting = new Map<number, { ok: (v: any) => void; err: (e: Error) => void }>();
   readonly notes: any[] = [];
+  private changes = new Set<() => void>();
+  private closeWaiters = new Set<() => void>();
+  private closed = false;
+  private markClosed() {
+    if (this.closed) return;
+    this.closed = true;
+    for (const w of this.waiting.values()) w.err(new Error("the daemon's socket closed"));
+    this.waiting.clear();
+    for (const changed of this.changes) changed();
+    for (const closed of this.closeWaiters) closed();
+  }
   private constructor(private conn: net.Socket) {
     conn.setEncoding("utf8");
     conn.on("data", (chunk: string) => {
@@ -119,6 +138,7 @@ class Socket {
           else w.ok(msg.result);
         } else if (msg.method) {
           this.notes.push(msg);
+          for (const changed of this.changes) changed();
           // A permission request: the stand-in never asks, but a request left unanswered would hang the turn.
           if (msg.id !== undefined && msg.method === "session/request_permission") {
             const allow = (msg.params?.options ?? []).find((o: any) => /allow/.test(String(o.kind ?? "")))?.optionId;
@@ -127,7 +147,9 @@ class Socket {
         }
       }
     });
-    conn.on("close", () => { for (const w of this.waiting.values()) w.err(new Error("the daemon's socket closed")); this.waiting.clear(); });
+    conn.on("close", () => {
+      this.markClosed();
+    });
   }
   static open(socketPath: string): Promise<Socket> {
     return new Promise((ok, err) => {
@@ -137,6 +159,7 @@ class Socket {
     });
   }
   call(method: string, params: unknown, timeoutMs = 60_000): Promise<any> {
+    if (this.closed) return Promise.reject(new Error("the daemon's socket closed"));
     const id = this.next++;
     return new Promise((ok, err) => {
       const timer = setTimeout(() => { this.waiting.delete(id); err(new Error(`${method}: no answer in ${timeoutMs} ms`)); }, timeoutMs);
@@ -144,7 +167,46 @@ class Socket {
       this.conn.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
     });
   }
-  close() { this.conn.destroy(); }
+  /** Wait on socket notifications, not a repeated status read. Register before reading so
+   * a change between the read and wait cannot be lost. */
+  async waitUntil(read: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (this.closed) throw new Error("the daemon's socket closed");
+      let wake!: () => void;
+      const changed = new Promise<void>(resolve => { wake = resolve; });
+      this.changes.add(wake);
+      let closeWake!: () => void;
+      const closed = new Promise<void>(resolve => { closeWake = resolve; });
+      this.closeWaiters.add(closeWake);
+      const timers = new Set<ReturnType<typeof setTimeout>>();
+      const timeout = (ms: number) => new Promise<"timeout">(resolve => {
+        const timer = setTimeout(() => { timers.delete(timer); resolve("timeout"); }, ms);
+        timers.add(timer);
+      });
+      try {
+        if (Date.now() >= deadline) return false;
+        const first = await Promise.race([
+          Promise.resolve().then(read).then(value => ({ kind: "read" as const, value })),
+          closed.then(() => ({ kind: "closed" as const })),
+          timeout(deadline - Date.now()),
+        ]);
+        if (first === "timeout") return false;
+        if (first.kind === "closed") throw new Error("the daemon's socket closed");
+        if (first.value) return Date.now() < deadline;
+        const left = deadline - Date.now();
+        if (left <= 0) return false;
+        const next = await Promise.race([changed.then(() => "changed" as const), closed.then(() => "closed" as const), timeout(left)]);
+        if (next === "closed") throw new Error("the daemon's socket closed");
+        if (next === "timeout") return false;
+      } finally {
+        for (const timer of timers) clearTimeout(timer);
+        this.changes.delete(wake);
+        this.closeWaiters.delete(closeWake);
+      }
+    }
+  }
+  close() { this.markClosed(); this.conn.destroy(); }
 }
 
 /** The text of every agent_message_chunk and user_message_chunk the socket saw for `session` since `from`. */
@@ -217,6 +279,7 @@ async function main(): Promise<number> {
   const keep = () => writeFileSync(path.join(out, "owned.json"), JSON.stringify(owned));
   const api = new Api(backend.api);
   let daemon: ChildProcess | null = null;
+  let s4Failed = false;
   let sock: Socket | null = null;
   const store = async (method: string, route: string, body?: unknown, timeoutMs = 30_000) => {
     const r = await http(method, `${backend.api}/v1/auto-sessions${route}`, body, { authorization: `Bearer ${api.bearer}` }, timeoutMs, method === "GET");
@@ -280,11 +343,40 @@ async function main(): Promise<number> {
     });
 
     // 3. A Cloud machine of this run's own, as the owner's Auto machine, with the stand-in harness.
+    // Machines and installs that killed or timed-out runs left (each journey's own name only) hold the test team's
+    // 300-machine cap: run 45562698608's create got cloud.quota.vm_limit. A sweep error never fails the journey.
+    {
+      const t0 = Date.now();
+      const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+      try {
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+        const stale = staleJourneyMachines(rows, Date.now());
+        const failed: string[] = [];
+        for (const m of stale) {
+          console.log(`sweep: deleting ${m.id} "${m.name}" status ${m.status} created ${m.created}`);
+          await api.deleteMachine(m.id, `${tag}-sweep-${m.id}`).catch((e) => failed.push(`${m.id}: ${err(e)}`));
+        }
+        const v = await api.read("install.list", {}).catch(() => null);
+        const installs = staleJourneyInstalls(Array.isArray(v?.installs) ? v.installs : [], Date.now());
+        let revoked = 0;
+        for (const id of installs) await api.op("install.revoke", { install: id }, `${tag}-sweep-install-${id}`).then(() => revoked++, (e) => failed.push(`${id}: ${err(e)}`));
+        J.record({ step: "sweep leaked journey machines and installs", status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail: `${stale.length} of ${rows.length} machines leaked, ${revoked} of ${installs.length} installs revoked${failed.length ? `; failed ${failed.join("; ")}` : ""}` });
+      } catch (e) {
+        J.record({ step: "sweep leaked journey machines and installs", status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
+      }
+    }
     const machine = await J.step("Cloud machine for this run (create, running)", async () => {
-      const v = await api.op("cloud.machine.create", { name: `auto journey ${tag}`, size: CHAT_START_SIZE }, `${tag}-create`);
+      const name = `auto journey ${tag}`;
+      const v = await api.op("cloud.machine.create", { name, size: CHAT_START_SIZE }, `${tag}-create`).catch(async (e) => {
+        // A create that errored or timed out may still have made the machine: find it by this run's name so cleanup deletes it.
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params)).catch(() => []);
+        const made = rows.find((r: any) => r?.name === name && r.status !== "deleted" && r.status !== "deleting");
+        if (made) { owned.machine = String(made.id ?? made.machine_id); keep(); }
+        throw e;
+      });
       owned.machine = v.machine.id as string;
       keep();
-      const m = await waitMachine(api, owned.machine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+      const m = await waitRunning(api, owned.machine, 300_000);
       return { value: owned.machine, detail: `${owned.machine} running, daemon ${m.image?.daemon_version ?? "?"}` };
     });
     meta.machine = machine;
@@ -301,10 +393,15 @@ async function main(): Promise<number> {
       return { value: null, detail: `team ${r.body.team}, machine ${machine}` };
     });
     const exec = directExec(api, machine, J);
+    /** The guest daemon's last words about importing a chat (auto_session/import), for a failure's message. */
+    const importLines = async (): Promise<string> => {
+      const r = await exec(`${GUEST}{ sudo -n journalctl -u acpmux.service --since '15 min ago' --no-pager -o cat 2>/dev/null; tail -n 2000 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null; } | grep -iE 'auto.session|import|mirror|folder' | tail -n 8 | cut -c1-300`, 60_000).catch((e: unknown) => ({ stdout: `unread: ${String(e)}`, stderr: "" }));
+      return r.stdout.trim().split("\n").join(" / ").slice(-1500) || "no import lines";
+    };
     await J.step("stand-in harness on the machine", async () => {
       const script = "$HOME/.cmux/auto-journey-agent.sh";
       const cmd = `${GUEST}set -e; mkdir -p "$HOME/.config/cmux/harnesses"; cat > "${script}" <<'AJ_AGENT'\n${agentScript("vm")}AJ_AGENT\nchmod 755 "${script}"; ` +
-        `printf '%s\\n' 'protocol = "acp"' "command = \\"$c\\"" "args = [\\"acp\\", \\"cli-agent\\", \\"--\\", \\"${script.replace("$HOME", "'\"$HOME\"'")}\\"]" > "$HOME/.config/cmux/harnesses/${HARNESS}.toml"; ` +
+        `printf '%s\\n' 'schema = 1' 'id = "${HARNESS}"' 'protocol = "acp"' "command = \\"$c\\"" "args = [\\"acp\\", \\"cli-agent\\", \\"--\\", \\"${script.replace("$HOME", "'\"$HOME\"'")}\\"]" > "$HOME/.config/cmux/harnesses/${HARNESS}.toml"; ` +
         `"$c" acp daemon reload >/dev/null 2>&1 || true; "$c" --version 2>/dev/null | head -1; echo "@@ok"`;
       const r = await exec(cmd, 120_000);
       if (!/@@ok/.test(r.stdout)) throw new Error(`exit ${r.code}: ${(r.stdout + r.stderr).slice(-400)}`);
@@ -318,13 +415,15 @@ async function main(): Promise<number> {
     for (const k of ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"]) delete env[k];
     const work = path.join(home, "work");
     await J.step("Mac daemon (cloud.autoCloud on, this run's HOME)", async () => {
-      mkdirSync(path.join(home, ".config", "cmux", "harnesses"), { recursive: true });
+      mkdirSync(path.join(home, ".config", NEXT_DIR, "harnesses"), { recursive: true });
       const settings = path.join(home, ".config", "cmux", "cmux-next.json");
+      // The settings folder is not the profile folder on macOS (`cmux` vs `cmux-next`), so make it on its own.
+      mkdirSync(path.dirname(settings), { recursive: true });
       writeFileSync(settings, JSON.stringify({ cloud: { autoCloud: true } }, null, 2));
       const script = path.join(home, "auto-journey-agent.sh");
       writeFileSync(script, agentScript("mac"));
       chmodSync(script, 0o755);
-      writeFileSync(path.join(home, ".config", "cmux", "harnesses", `${HARNESS}.toml`), harnessProfile(cmuxTui, script));
+      writeFileSync(path.join(home, ".config", NEXT_DIR, "harnesses", `${HARNESS}.toml`), harnessProfile(cmuxTui, script));
       const state = path.join(out, "install-state.json");
       writeFileSync(state, JSON.stringify(installState), { mode: 0o600 });
       const stub = path.join(home, "bin", "cmux");
@@ -362,7 +461,12 @@ async function main(): Promise<number> {
       git(["commit", "--quiet", "-m", "auto journey local commit"]);
       writeFileSync(path.join(work, "uncommitted.txt"), "uncommitted on the Mac\n");
       meta.mac_head = git(["rev-parse", "HEAD"]);
-      const created = await S.call("session/new", { cwd: work, mcpServers: [], _meta: { acpmux: { harness: HARNESS, policy: "approve-all" } } });
+      const created = await S.call("session/new", { cwd: work, mcpServers: [], _meta: { acpmux: { harness: HARNESS, policy: "approve-all" } } }).catch((e: unknown) => {
+        // The daemon's own words about the profile folder, so a refused harness names its cause.
+        const harnessLines = readFileSync(path.join(out, "daemon.log"), "utf8").split("\n").filter((l) => /harness|profile/i.test(l)).slice(-6).join(" / ").slice(0, 700);
+        const folder = path.join(home, ".config", NEXT_DIR, "harnesses");
+        throw new Error(`${e instanceof Error ? e.message : String(e)}; ${folder}: [${existsSync(folder) ? readdirSync(folder).join(",") : "missing"}]; daemon log: ${harnessLines || "no harness lines"}`);
+      });
       const sid = String(created.sessionId);
       const set = await S.call("_acpmux/auto_session/set", { sessionId: sid, auto: true });
       if (set?.autoSession?.auto !== true) throw new Error(`Auto did not go on: ${short(set)}`);
@@ -394,18 +498,48 @@ async function main(): Promise<number> {
       if (!v.standby.includes(device)) console.log(`note: the Mac is not listed standby yet (${v.standby.join(",") || "none"})`);
       return { value: v, detail: `holder ${v.holder} epoch ${v.epoch} standby ${v.standby.join(",") || "none"}` };
     });
-    await J.step("the machine's folder has the Mac's commit and uncommitted work", async () => {
-      const deadline = Date.now() + TURN_BUDGET_MS;
-      for (;;) {
-        const r = await exec(`${GUEST}d="$HOME/Projects/auto/${id}"; [ -d "$d" ] || { echo "@@missing"; exit 0; }; git -C "$d" rev-parse HEAD; cat "$d/local.txt" "$d/uncommitted.txt" "$d/${RAN_FILE}" 2>&1; echo "@@done"`, 60_000);
-        if (/@@done/.test(r.stdout)) {
-          const o = r.stdout;
-          for (const want of [meta.mac_head, "a local commit", "uncommitted on the Mac", "side=mac prompt=mac-1"]) if (!o.includes(want)) throw new Error(`the machine's folder lacks ${JSON.stringify(want)}: ${o.slice(-400)}`);
-          return { value: null, detail: `~/Projects/auto/${id} at ${meta.mac_head.slice(0, 12)} with the uncommitted file and the Mac's line` };
-        }
-        if (Date.now() > deadline) throw new Error(`no folder for the chat on the machine: ${(r.stdout + r.stderr).slice(-300)}`);
-        await sleep(5000);
+    // S4 (the slice's phone step): the Mac asleep, the phone reads and sends to the chat on the machine. It runs here,
+    // before the folder check, so its numbers come in even when a later step fails; a failure still fails the run.
+    await J.step(`S4: the phone reads and sends ${S4_SENDS} messages with the Mac asleep`, async () => {
+      const mac = daemon as ChildProcess | null;
+      if (!mac?.pid || mac.exitCode !== null) throw new Error("the Mac daemon is not running, so it cannot be put to sleep");
+      process.kill(mac.pid, "SIGSTOP");
+      let r: S4Result;
+      try {
+        r = await phoneSends({
+          store, now: () => performance.now(), sleep,
+          ranOnMachine: async () => {
+            const got = await exec(`${GUEST}cat "$HOME/Projects/auto/${id}/${RAN_FILE}" 2>/dev/null; echo "@@done"`, 60_000);
+            if (!/@@done/.test(got.stdout)) throw new Error(`reading the machine's ${RAN_FILE}: exit ${got.code}`);
+            return got.stdout;
+          },
+        }, id, machine, tag, S4_SENDS);
+      } finally {
+        process.kill(mac.pid, "SIGCONT");
       }
+      writeFileSync(path.join(out, "s4.json"), JSON.stringify(r, null, 2));
+      for (const [k, l] of [["post", r.post], ["ack", r.ack], ["vm_answer", r.turn]] as const) if (l) meta[`s4_${k}_ms`] = `p50 ${l.p50} p99 ${l.p99} max ${l.max} n ${r.n}`;
+      meta.s4_read_ms = String(Math.round(r.readMs));
+      if (!r.ok) throw new Error(s4Detail(r));
+      return { value: null, detail: s4Detail(r) };
+    }).catch(() => { s4Failed = true; });
+    // The store moves the holder at once (`assign`, leaseExpiresAt 0); the machine lays the folder out after that (git
+    // init, fetch the base, the bundle, the patch: import/folder.rs) and acks the assignment only once the import is
+    // done (holder/machine.rs `ImportDone` -> AckAssignment), which is when the store first gives it a lease. A folder
+    // that merely exists may be mid-layout (an unborn HEAD, no files yet), so the check waits on that ack, not on the folder.
+    await J.step("the machine takes the chat in (assignment acked, a lease)", async () => {
+      const v = await until(id, "the machine acks its import", (v) => v.epoch !== inCloud.epoch || (v.leaseExpiresAt ?? 0) > 0, TURN_BUDGET_MS).catch(async (e: unknown) => {
+        throw new Error(`${e instanceof Error ? e.message : String(e)}; the machine's import: ${await importLines()}`);
+      });
+      if (v.epoch !== inCloud.epoch || v.holder !== `vm:${machine}`) throw new Error(`the chat left the machine before its import was acked: holder ${v.holder} epoch ${v.epoch}`);
+      return { value: null, detail: `holder ${v.holder} epoch ${v.epoch} lease to ${new Date(v.leaseExpiresAt ?? 0).toISOString()}` };
+    });
+    await J.step("the machine's folder has the Mac's commit and uncommitted work", async () => {
+      const r = await exec(`${GUEST}d="$HOME/Projects/auto/${id}"; [ -d "$d" ] || { echo "@@missing"; exit 0; }; git -C "$d" rev-parse HEAD; cat "$d/local.txt" "$d/uncommitted.txt" "$d/${RAN_FILE}" 2>&1; echo "@@done"`, 60_000);
+      const o = r.stdout;
+      if (!/@@done/.test(o)) throw new Error(`no folder for the chat on the machine after its import was acked: ${(o + r.stderr).slice(-300)}; the machine's import: ${await importLines()}`);
+      for (const want of [meta.mac_head, "a local commit", "uncommitted on the Mac", "side=mac prompt=mac-1"]) if (!o.includes(want)) throw new Error(`the machine's folder lacks ${JSON.stringify(want)}: ${o.slice(-400)}; the machine's import: ${await importLines()}`);
+      return { value: null, detail: `~/Projects/auto/${id} at ${meta.mac_head.slice(0, 12)} with the uncommitted file and the Mac's line` };
     });
     await J.step("the chat runs on the machine (inbox message answered side=vm)", async () => {
       const posted = await store("POST", `/${encodeURIComponent(id)}/inbox`, { id: `${tag}-cloud-1`, text: "cloud-1" });
@@ -471,7 +605,7 @@ async function main(): Promise<number> {
       if (v.holder !== device) throw new Error(`holder ${v.holder}`);
       return { value: null, detail: `answered side=mac; holder ${v.holder} epoch ${v.epoch}` };
     });
-    return 0;
+    return s4Failed ? 1 : 0;
   } catch (e) {
     console.error(scrub(String((e as Error)?.stack ?? e), J.secrets));
     return 1;

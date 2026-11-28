@@ -77,7 +77,11 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-beforeEach(() => stored.clear());
+beforeEach(async () => {
+  stored.clear();
+  // A new launch: the app's copy of Cloud's last pick the module holds is gone with the page's storage.
+  (await import("../src/agent-session/acpmux/newtab/startedProject")).forgetAppCloudPickForTests();
+});
 
 afterAll(async () => {
   act(() => root?.unmount());
@@ -184,6 +188,93 @@ test("a project the person picks and starts a chat in is the next New Tab's defa
   ]);
   expect(page.chip).toContain("atlas");
   expect(page.folder).toBe(PICKED);
+});
+
+// Lucas 2026-11-27: "if the user selects a folder (without even sending), that should be the new default on the
+// next tab". A folder picked in the New Tab's folder chip is the next New Tab's default, before any send.
+test("a folder the person picks in the chip, with no send, is the next New Tab's default", async () => {
+  // The folder menu's list reads the window's frame clock (a virtual list).
+  Object.assign(window, {
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+  });
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat([theirs, ...agents])}
+        omnibar={EMPTY_OMNIBAR}
+        lastAgent="claude"
+        home={HOME}
+        projects={[
+          { cwd: PICKED, label: "atlas" },
+          { cwd: "/Users/you/src/billing", label: "billing" },
+        ]}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    ),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const option = [...window.document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("billing"),
+  );
+  expect(option, "missing option billing").toBeDefined();
+  await act(async () => option!.click());
+  expect(stored.get("cmux.acpmux.newTab.startedProject.v1")).toBe("/Users/you/src/billing");
+  // The next New Tab, with no folder of its own, starts there.
+  const page = await newTab([theirs, ...agents]);
+  expect(page.chip).toContain("billing");
+  expect(page.folder).toBe("/Users/you/src/billing");
+});
+
+test("a folder picked on a page whose chats start on another machine never becomes this Mac's default", async () => {
+  // The folder menu's list reads the window's frame clock (a virtual list).
+  Object.assign(window, {
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+  });
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat([theirs, ...agents])}
+        omnibar={EMPTY_OMNIBAR}
+        lastAgent="claude"
+        home={HOME}
+        startsRemote
+        projects={[
+          { cwd: PICKED, label: "atlas" },
+          { cwd: "/Users/you/src/billing", label: "billing" },
+        ]}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    ),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const option = [...window.document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("billing"),
+  );
+  expect(option, "missing option billing").toBeDefined();
+  await act(async () => option!.click());
+  expect(stored.has("cmux.acpmux.newTab.startedProject.v1")).toBe(false);
 });
 
 test("chats agents, the CLI or the socket start in another folder never change the default", async () => {
@@ -507,4 +598,266 @@ test("cmd-N: with nothing known the chip still holds its place (no layout shift)
   expect(first.pending).toBe(true);
   // The label keeps its text (hidden by CSS), so the chip has its width from the first frame.
   expect(first.label.length).toBeGreaterThan(0);
+});
+
+/// A New Tab with Cloud picked; its Return starts Cloud (`onCloud`), and its folder grants (`onProjectPicked`).
+async function cloudTab(
+  sessions: ReturnType<typeof session>[],
+  fields: { startedProject?: string; cloudStartedProject?: string; knownProjects?: string[] } = {},
+  { offeredLate = false } = {},
+) {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const clouded: unknown[][] = [];
+  const granted: string[] = [];
+  // PaneBody passes onProjectPicked only while Cloud is offered: `offeredLate` mounts the page before that.
+  const render = (offered: boolean) =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat(sessions)}
+        omnibar={EMPTY_OMNIBAR}
+        lastAgent="claude"
+        home={HOME}
+        {...fields}
+        // PICKED is a clone of a GitHub repository: Cloud still starts in it as itself.
+        projects={[{ cwd: PICKED, label: "atlas", repo: { root: PICKED, name: "atlas", github: "acme/atlas" } }]}
+        environments
+        runMode={{ mode: "cloud", onMode: noop }}
+        onCloud={(...args: unknown[]) => (clouded.push(args), true)}
+        onProjectPicked={offered ? (cwd: string) => void granted.push(cwd) : undefined}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    );
+  await act(async () => render(!offeredLate));
+  if (offeredLate) {
+    expect(granted).toEqual([]);
+    await act(async () => render(true));
+  }
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("fix the flaky upload test");
+  });
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+  const chip = host.querySelector(".nt-location")?.textContent ?? "";
+  await act(async () =>
+    editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+  );
+  return { chip, folder: clouded[0]?.[2], granted };
+}
+
+test("with Cloud picked, a New Tab starts in the folder the person last picked, as itself, never its GitHub repository or No folder (cmux#53226)", async () => {
+  await startChat(PICKED);
+  const page = await cloudTab([theirs, ...agents]);
+  // Before: the chip named acme/atlas (the folder's origin), or No folder for a folder with none.
+  expect(page.chip).toContain("atlas");
+  expect(page.chip).not.toContain("acme/atlas");
+  expect(page.folder).toBe(PICKED);
+  // The host grants it, so the Cloud start can copy it to the machine.
+  expect(page.granted).toContain(PICKED);
+});
+
+test("Cloud comes back to its own last pick: a repository started on Cloud is the next Cloud New Tab's default (cmux#53226)", async () => {
+  await startChat(PICKED);
+  const { rememberCloudPick } = await import("../src/agent-session/acpmux/newtab/startedProject");
+  rememberCloudPick("github:acme/api");
+  const page = await cloudTab([theirs]);
+  expect(page.chip).toContain("acme/api");
+  expect(page.folder).toBe("github:acme/api");
+});
+
+test("a remembered Cloud folder the host no longer lists gives way to the folder last started, never a missing folder (cmux#53226)", async () => {
+  await startChat(PICKED);
+  const { rememberCloudPick } = await import("../src/agent-session/acpmux/newtab/startedProject");
+  rememberCloudPick("/Users/dev/removed-project");
+  const page = await cloudTab([theirs], { knownProjects: [PICKED] });
+  expect(page.folder).toBe(PICKED);
+  expect(page.granted).not.toContain("/Users/dev/removed-project");
+});
+
+test("a Cloud offered after the New Tab mounts still grants the default folder, so the start can copy it (cmux#53226)", async () => {
+  await startChat(PICKED);
+  const page = await cloudTab([theirs], {}, { offeredLate: true });
+  expect(page.granted).toContain(PICKED);
+  expect(page.folder).toBe(PICKED);
+});
+
+// Chief relaying the person (2026-11-25): with Where = Cloud the folder chip must name the folder of the last Cloud
+// chat, kept per mode across launches; This Mac keeps its own. Before, Cloud's memory was the page's storage, which
+// ends with the launch: after a relaunch Cloud fell back to This Mac's folder.
+test("after a relaunch, Cloud's New Tab starts where the last Cloud chat did, not in This Mac's last folder (cmux#53226)", async () => {
+  const { forgetAppCloudPickForTests } = await import("../src/agent-session/acpmux/newtab/startedProject");
+  const posted: unknown[] = [];
+  (
+    window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> }
+  ).cmuxAcpmuxActions = {
+    "newTab.remember": async (params) => void posted.push(params),
+  };
+  try {
+    // This run: the person starts a Cloud chat in a repository; the app is told, to keep it across launches.
+    const first = await cloudTab([theirs], { cloudStartedProject: "github:acme/api" });
+    expect(first.folder).toBe("github:acme/api");
+    expect(posted).toContainEqual({ cloudStarted: "github:acme/api" });
+    // Relaunch: the page's storage and this run's copy are gone; the app's copy names Cloud's last pick, and This
+    // Mac's last folder (`startedProject`) stays This Mac's.
+    stored.clear();
+    forgetAppCloudPickForTests();
+    const page = await cloudTab([theirs], { startedProject: PICKED, cloudStartedProject: "github:acme/api" });
+    expect(page.chip).toContain("acme/api");
+    expect(page.folder).toBe("github:acme/api");
+    expect(stored.get(STARTED_KEY)).toBeUndefined();
+  } finally {
+    delete (window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    forgetAppCloudPickForTests();
+  }
+});
+
+// Found in the tagged build: picking Cloud put Cloud's last repository on the chip, and picking This Mac again then
+// showed No folder (a Cloud folder of this Mac would have stayed on This Mac's chip).
+test("Cloud and back: This Mac's chip comes back to This Mac's own last folder, not Cloud's pick or No folder (cmux#53226)", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  type Mode = "persistent" | "cloud";
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const render = (mode: Mode) =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat([theirs])}
+        omnibar={EMPTY_OMNIBAR}
+        lastAgent="claude"
+        home={HOME}
+        startedProject={PICKED}
+        cloudStartedProject="github:acme/api"
+        projects={[{ cwd: PICKED, label: "atlas", repo: { root: PICKED, name: "atlas", github: "acme/atlas" } }]}
+        environments
+        runMode={{ mode, onMode: (next: string) => render(next as Mode) }}
+        onCloud={() => true}
+        onProjectPicked={noop}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    );
+  await act(async () => render("persistent"));
+  const chip = () => host.querySelector('[aria-label="Folder"]')?.textContent ?? "";
+  const where = async (name: string) => {
+    await act(async () =>
+      host.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] button')!.click(),
+    );
+    const item = [...document.querySelectorAll<HTMLElement>(".acpmux-env-popover [role=option]")].find((option) =>
+      option.textContent?.startsWith(name),
+    );
+    await act(async () => item!.click());
+  };
+  expect(chip()).toContain("atlas");
+  await where("Cloud");
+  expect(chip()).toContain("acme/api");
+  // Before: No folder.
+  await where("This Mac");
+  expect(chip()).toContain("atlas");
+  expect(chip()).not.toContain("acme/api");
+  // Twice over, the same.
+  await where("Cloud");
+  expect(chip()).toContain("acme/api");
+  await where("This Mac");
+  expect(chip()).toContain("atlas");
+});
+
+test("after a relaunch, a remembered Cloud folder of this Mac is the default and is granted again (cmux#53226)", async () => {
+  const { forgetAppCloudPickForTests } = await import("../src/agent-session/acpmux/newtab/startedProject");
+  forgetAppCloudPickForTests();
+  const BILLING = "/Users/you/src/billing";
+  const page = await cloudTab([theirs], {
+    startedProject: PICKED,
+    cloudStartedProject: BILLING,
+    knownProjects: [PICKED, BILLING],
+  });
+  expect(page.chip).toContain("billing");
+  expect(page.folder).toBe(BILLING);
+  expect(page.granted).toContain(BILLING);
+  forgetAppCloudPickForTests();
+});
+
+test("the New Tab context's Cloud pick reaches the page: a folder or a GitHub repository, a relative path never", async () => {
+  const { newTabHost } = await import("../src/agent-session/acpmux/newTabModel");
+  expect(newTabHost({ newTab: { cloudStartedProject: "github:acme/api" } })?.cloudStartedProject).toBe(
+    "github:acme/api",
+  );
+  expect(newTabHost({ newTab: { cloudStartedProject: PICKED } })?.cloudStartedProject).toBe(PICKED);
+  expect(newTabHost({ newTab: { cloudStartedProject: "acme/api" } })?.cloudStartedProject).toBeUndefined();
+  expect(newTabHost({ newTab: { cloudStartedProject: HOME } })?.cloudStartedProject).toBeUndefined();
+});
+
+test("the app's Cloud pick seeds this run's copy, so a chat restored after a relaunch (no New Tab context) reads it", async () => {
+  const { cloudPickChoices, forgetAppCloudPickForTests } =
+    await import("../src/agent-session/acpmux/newtab/startedProject");
+  // The prewarmed spare page had the context; a restored chat's page (another module instance) has none.
+  expect(cloudPickChoices("github:acme/api")).toEqual(["github:acme/api"]);
+  forgetAppCloudPickForTests();
+  expect(cloudPickChoices()).toEqual(["github:acme/api"]);
+  // This run's own start wins over the app's older copy.
+  stored.set("cmux.acpmux.newTab.cloudPick.v1", "github:acme/web");
+  expect(cloudPickChoices("github:acme/api")).toEqual(["github:acme/web", "github:acme/api"]);
+});
+
+// Found in the tagged build: a new chat's composer (no New Tab context; its storage is not the New Tab page's) showed
+// No folder on Cloud after a relaunch. The page asks the app for Cloud's last pick once.
+test("a chat page with no New Tab context asks the app for Cloud's last pick, and a pick made here wins (cmux#53226)", async () => {
+  const { askAppCloudPick, cloudPickChoices, rememberCloudPick, forgetAppCloudPickForTests } =
+    await import("../src/agent-session/acpmux/newtab/startedProject");
+  forgetAppCloudPickForTests();
+  const asked: string[] = [];
+  const app = async (method: string) => (asked.push(method), { cloudStarted: "github:acme/api" });
+  expect(cloudPickChoices()).toEqual([]);
+  let answers = 0;
+  askAppCloudPick(app, () => answers++);
+  askAppCloudPick(app, () => answers++);
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asked).toEqual(["newTab.cloudPick"]);
+  // The page hears the answer, so a chat already on Cloud takes it.
+  expect(answers).toBe(1);
+  expect(cloudPickChoices()).toEqual(["github:acme/api"]);
+  // A pick this page made before the answer stays.
+  forgetAppCloudPickForTests();
+  stored.clear();
+  askAppCloudPick(app);
+  rememberCloudPick("github:acme/web");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(cloudPickChoices()).toEqual(["github:acme/web"]);
+  // An app that does not know the call (an older build) leaves the page as it was.
+  forgetAppCloudPickForTests();
+  stored.clear();
+  askAppCloudPick(async () => Promise.reject(new Error("unsupported")));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(cloudPickChoices()).toEqual([]);
+});
+
+// A chat start that settles after a newer folder pick (another page, while this chat was starting) leaves the
+// newer pick as the next New Tab's default.
+test("a slow chat start never overwrites a folder picked after its send", async () => {
+  const { rememberStartedProject, rememberedStartedProject } =
+    await import("../src/agent-session/acpmux/newtab/startedProject");
+  const post = () => Promise.resolve();
+  const sentAt = Date.now() - 1_000;
+  rememberStartedProject("/Users/you/src/billing", post);
+  rememberStartedProject(PICKED, post, sentAt);
+  expect(rememberedStartedProject()).toBe("/Users/you/src/billing");
+  // A start sent after the pick still writes its folder.
+  rememberStartedProject(PICKED, post, Date.now() + 1);
+  expect(rememberedStartedProject()).toBe(PICKED);
 });

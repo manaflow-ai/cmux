@@ -1,5 +1,5 @@
 //! Test seam of the git HEAD reads: how many reads a thread made, how many refreshes run, and a
-//! watch that counts the reads below one directory and can hold each of them. A test asserts
+//! watch for each directory that counts the reads below it and can hold each of them. A test asserts
 //! these counts, so a loaded host does not change its result.
 
 use std::cell::Cell;
@@ -21,7 +21,7 @@ struct Watch {
     reads: u64,
 }
 
-static WATCH: Mutex<Option<Watch>> = Mutex::new(None);
+static WATCHES: Mutex<Vec<Watch>> = Mutex::new(Vec::new());
 static RELEASED: Condvar = Condvar::new();
 static REFRESHES: AtomicUsize = AtomicUsize::new(0);
 
@@ -31,18 +31,21 @@ pub(super) fn reads_on_this_thread() -> u64 {
 }
 
 /// Counts from zero the reads of a directory below `root`, on each thread, and holds each of
-/// them while `held`. A second call for the same root keeps the count.
+/// them while `held`. A second call for the same root keeps the count. Each root has a watch of
+/// its own, so tests that run at once do not count or hold each other's reads.
 pub(super) fn watch_reads_below(root: &Path, held: bool) {
-    let mut watch = WATCH.lock().unwrap_or_else(PoisonError::into_inner);
-    let reads =
-        watch.as_ref().filter(|watch| watch.root.as_path() == root).map_or(0, |watch| watch.reads);
-    *watch = Some(Watch { root: root.to_path_buf(), held, reads });
+    let mut watches = WATCHES.lock().unwrap_or_else(PoisonError::into_inner);
+    match watches.iter_mut().find(|watch| watch.root.as_path() == root) {
+        Some(watch) => watch.held = held,
+        None => watches.push(Watch { root: root.to_path_buf(), held, reads: 0 }),
+    }
     RELEASED.notify_all();
 }
 
-/// The reads below the watched directory since its watch began.
-pub(super) fn watched_reads() -> u64 {
-    WATCH.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map_or(0, |watch| watch.reads)
+/// The reads below `root` since its watch began.
+pub(super) fn watched_reads(root: &Path) -> u64 {
+    let watches = WATCHES.lock().unwrap_or_else(PoisonError::into_inner);
+    watches.iter().find(|watch| watch.root.as_path() == root).map_or(0, |watch| watch.reads)
 }
 
 /// The background refreshes that run now, in each session of this process.
@@ -63,20 +66,22 @@ pub(super) fn refresh_ended() {
 /// Called by each git HEAD read before it touches the file system.
 pub(super) fn on_read(directory: &Path) {
     READS.with(|reads| reads.set(reads.get().saturating_add(1)));
-    let mut watch = WATCH.lock().unwrap_or_else(PoisonError::into_inner);
-    match watch.as_mut() {
-        Some(watch) if directory.starts_with(&watch.root) => {
-            watch.reads = watch.reads.saturating_add(1);
-        }
-        _ => return,
+    let mut watches = WATCHES.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut watched = false;
+    for watch in watches.iter_mut().filter(|watch| directory.starts_with(&watch.root)) {
+        watch.reads = watch.reads.saturating_add(1);
+        watched = true;
+    }
+    if !watched {
+        return;
     }
     let deadline = Instant::now() + HOLD_LIMIT;
-    while watch.as_ref().is_some_and(|watch| watch.held && directory.starts_with(&watch.root)) {
+    while watches.iter().any(|watch| watch.held && directory.starts_with(&watch.root)) {
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
             return;
         }
-        watch = RELEASED.wait_timeout(watch, left).unwrap_or_else(PoisonError::into_inner).0;
+        watches = RELEASED.wait_timeout(watches, left).unwrap_or_else(PoisonError::into_inner).0;
     }
 }
 
@@ -93,9 +98,9 @@ impl crate::mux::Mux {
         watch_reads_below(root, held);
     }
 
-    /// The git HEAD reads below the watched directory.
-    pub(crate) fn watched_git_head_reads() -> u64 {
-        watched_reads()
+    /// The git HEAD reads below `root`, watched.
+    pub(crate) fn watched_git_head_reads(root: &Path) -> u64 {
+        watched_reads(root)
     }
 
     /// The background refreshes of git HEADs that run now.

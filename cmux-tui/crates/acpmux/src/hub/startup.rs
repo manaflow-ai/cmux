@@ -40,7 +40,7 @@ pub(crate) fn startup_wait_error(phase: &str, wait: std::time::Duration) -> crat
     );
     error.message.push_str(
         "; no session was created. `acpmux --json daemon status` shows the phase \
-         (`loading.phase`); try again once it reads ready",
+         (`loading.phase`); sessions start once it reads ready",
     );
     if let Some(data) = error.data.as_mut().and_then(serde_json::Value::as_object_mut) {
         data.insert("phase".into(), serde_json::json!(phase));
@@ -71,7 +71,11 @@ impl Hub {
         // Startup's work is done here (`loading.startupDone`); the sync after it is not startup.
         self.end_startup_work();
         let config = self.config.read().await.clone();
-        crate::artifacts_sync::run_background(config, &self.shutdown).await;
+        // The fleet memory mount (`memory_mount.rs`) runs beside it; each returns when off.
+        tokio::join!(
+            crate::artifacts_sync::run_background(config.clone(), &self.shutdown),
+            crate::memory_mount::run_background(config, &self.shutdown),
+        );
     }
 
     /// What an agent start needs, run beside the chats' logs and adoption (`daemon.rs`): the

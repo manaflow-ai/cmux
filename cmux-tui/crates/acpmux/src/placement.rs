@@ -45,9 +45,22 @@
 
 pub(crate) mod command_sampler;
 pub(crate) mod command_shadow;
+pub mod exec_conformance;
+pub mod exec_conformance_report;
+pub mod exec_conformance_tree;
+pub mod exec_router;
 pub(crate) mod move_targets;
+pub mod reach;
+pub mod run_vm;
+pub mod run_vm_env;
+pub mod run_vm_rows;
+pub mod run_vm_shell;
+pub mod run_vm_tree;
 pub mod sub_fork;
 pub mod sub_fork_run;
+pub mod sub_fork_wire;
+pub mod work_place;
+pub mod work_wire;
 
 /// AutoCloud's hidden settings key (RFD 0144), off unless the settings file says `true`.
 pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
@@ -106,7 +119,8 @@ pub fn placed(verdict: &Value) -> Option<String> {
 /// One host to weigh: its name, whether it is this machine, its last
 /// health reading (`_acpmux/host_health` fields, or null), and when that
 /// reading arrived (ms on this machine's clock; `None` when unknown). The
-/// weighing ignores `health_at`; the shadow verdict reads it (`shadow_admission.rs`).
+/// weighing reads `unreachable`, which `peer_at` derives from `health_at` and the failures
+/// recorded (`reach.rs`); the shadow verdict reads `health_at` too (`shadow_admission.rs`).
 /// `via_hub`: a machine only the mesh hub lists (`mesh_book_hosts`), which no link asks
 /// for health, so its resources stay unknown whatever its build.
 #[derive(Clone, Debug)]
@@ -116,14 +130,26 @@ pub struct Candidate {
     pub health: Value,
     pub health_at: Option<u64>,
     pub via_hub: bool,
+    /// Why it cannot be reached now (`reach.rs`): a stale reading, a failed health read, or a
+    /// transfer to it that failed within the cooldown. Such a host takes no work, even as the
+    /// overloaded fallback.
+    pub unreachable: Option<String>,
 }
 
 impl Candidate {
     /// A connected peer from its `Hub::peers` row (`peer.rs` `summary`): its
     /// name, its last reading and `healthAt`. `None` for a row with no name.
     pub fn peer(row: &Value) -> Option<Self> {
+        Self::peer_at(row, crate::store::now_ms(), &reach::Failures::load())
+    }
+
+    /// [`Candidate::peer`] at `now` (ms), with the transfer failures `failures` recorded.
+    pub fn peer_at(row: &Value, now: u64, failures: &reach::Failures) -> Option<Self> {
+        let name = row.get("name")?.as_str()?;
+        let unreachable = reach::row_unreachable(row, now).or_else(|| failures.failure(name, now));
         Some(Self {
-            name: row.get("name")?.as_str()?.to_owned(),
+            unreachable,
+            name: name.to_owned(),
             local: false,
             health: row.get("health").cloned().unwrap_or(Value::Null),
             health_at: row.get("healthAt").and_then(Value::as_u64),
@@ -423,9 +449,18 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
     if let Some(why) = hold(machine, now_ms) {
         return Some(why);
     }
+    let lanes = machine.get("lanes");
+    // A machine that is never a lane host (`lanes.lane_host` false): a person's own box, no
+    // override (Leo, 2026-11-27, of a personal machine: "then please don't rely on" it).
+    if lanes.and_then(|l| l.get("lane_host")) == Some(&Value::Bool(false)) {
+        let why = lanes.and_then(|l| l.get("lane_host_why")).and_then(Value::as_str);
+        return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(why) => format!("never a lane host: {why}"),
+            None => "never a lane host (lanes.lane_host false)".into(),
+        });
+    }
     // leo-workspace lane-place's drain flag: a lane host with `lanes.accept_new` false takes no new
     // lanes, so this pick skips it too and one field drains a host for every placer.
-    let lanes = machine.get("lanes");
     if lanes.and_then(|l| l.get("accept_new")) == Some(&Value::Bool(false)) {
         let why = lanes.and_then(|l| l.get("accept_new_why")).and_then(Value::as_str);
         return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
@@ -479,7 +514,7 @@ const STOPPED: [&str; 6] = ["idle-stopped", "stopped", "paused", "retired", "res
 /// moment says nothing about whether the VM stays up, and a start forwarded to it was refused
 /// with only an ssh hint. Deleting the status line, as the registry asks once it is started for
 /// good, lets it take work again.
-fn stopped(machine: &Value) -> Option<String> {
+pub(crate) fn stopped(machine: &Value) -> Option<String> {
     let status = machine.get("status")?.as_str()?.trim().to_ascii_lowercase();
     let word = STOPPED.iter().find(|w| status.starts_with(**w))?;
     Some(format!("{word} (its fleet-registry.json status)"))
@@ -601,7 +636,37 @@ pub fn registry_path() -> Option<PathBuf> {
 }
 
 pub fn load_registry() -> Option<Value> {
-    serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()
+    let mut registry: Value =
+        serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()?;
+    fold_role_holders(&mut registry);
+    Some(registry)
+}
+
+/// Folds the registry's top-level `role_holders` (`{role: [host, ...]}`) into each machine's
+/// `roles`: a machine's roles are its own `roles` array plus every role whose holder list names
+/// it (by machine name), appended in sorted role order without duplicates. A holder that is no
+/// machine is ignored. Idempotent.
+pub fn fold_role_holders(registry: &mut Value) {
+    let Some(holders) = registry.get("role_holders").and_then(Value::as_object).cloned() else {
+        return;
+    };
+    let Some(machines) = registry.get_mut("machines").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let mut roles: Vec<&String> = holders.keys().collect();
+    roles.sort();
+    for role in roles {
+        let Some(list) = holders.get(role).and_then(Value::as_array) else { continue };
+        for host in list.iter().filter_map(Value::as_str) {
+            let Some(m) = machines.get_mut(host).and_then(Value::as_object_mut) else { continue };
+            let entry = m.entry("roles").or_insert_with(|| json!([]));
+            if let Some(arr) = entry.as_array_mut() {
+                if !arr.iter().any(|r| r.as_str() == Some(role)) {
+                    arr.push(json!(role));
+                }
+            }
+        }
+    }
 }
 
 /// The providers `lane_place.placement_preference` may name besides machine names.
@@ -675,6 +740,9 @@ struct Weighed {
     why: String,
     /// Free RAM in bytes from the reading: the new-chat chip's "This Mac: 12 GB free".
     ram_free: Option<f64>,
+    /// Its AutoCloud enrollment block from the reading (`autocloud_enroll.rs`), as it said it;
+    /// null from a machine on an older build: `place_mode`'s enrolled tier.
+    auto_cloud: Value,
 }
 
 impl Weighed {
@@ -729,6 +797,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         cap: CapState::Unknown,
         why: String::new(),
         ram_free: None,
+        auto_cloud: h.get("autoCloud").cloned().unwrap_or(Value::Null),
     };
     let Some(lanes) = lanes else {
         w.refused = Some("not a lane host (no lanes entry in fleet-registry.json)".into());
@@ -736,6 +805,12 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     };
     // A held host takes no new work, even when no other host has room.
     if let Some(why) = &lanes.held {
+        w.refused = Some(why.clone());
+        return w;
+    }
+    // A host the transport cannot reach now takes nothing: a pick there fails at the copy or the
+    // start, and the work lands wherever the caller falls back to (`reach.rs`).
+    if let Some(why) = &c.unreachable {
         w.refused = Some(why.clone());
         return w;
     }
@@ -946,6 +1021,8 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "why": w.why,
             // Free RAM in bytes (null without a reading): place_mode's chip.
             "ramFree": w.ram_free,
+            // Its AutoCloud enrollment (null: an older build, not enrolled): `place_mode`.
+            "autoCloud": w.auto_cloud,
             "refused": w.refused,
             // Refused only for room, load or swap: it may still take work (`overloaded`).
             "load": w.load,

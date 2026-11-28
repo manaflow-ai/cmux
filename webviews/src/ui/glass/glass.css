@@ -208,11 +208,37 @@
   --glass-gloss: 0;
 }
 
+/* THE CONTRAST EDGE (light glass over a light wallpaper; fs-agent-lane-17's readback on cmux#59205:
+   "with the light theme over a light (snow) photo, the hover card almost disappears. It is white glass
+   over white with no visible edge"). The hairline ring sits inside the glass, over its own white tint,
+   and elevation 2 is a 6 px blur at 11%, so over snow nothing marks where the glass ends. Every
+   floating glass (a popup, menu, hover card, tooltip, dialog, a transient surface) adds one outer
+   ring of the theme's ink and a soft lift under it, on the backdrop side of its edge. Both are dark
+   and translucent, so they adapt to what is behind on their own: a dark ink at 12% over white reads
+   as a line, over a dark or busy photo it is a shade on pixels that are already dark and does not
+   show. In dark they are transparent, so the dark theme draws exactly as before. Docked chrome and
+   content cards keep their one hairline (design-system-decisions B2: docked surfaces cast no shadow).
+   The gallery's ui.glass-contrast-edge compares the candidates (ring, lift, floor, ring + lift). */
+:root {
+  --glass-contrast-ring: light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent), transparent);
+  --glass-contrast-lift: light-dark(color-mix(in srgb, black 14%, transparent), transparent);
+  --glass-contrast-edge: 0 0 transparent;
+}
+:is(.ui-popup, .ui-card, .ui-dialog, .ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-glass-transient, .cu-tooltip).ui-glass,
+.ui-glass:is([data-glass-level="popover"], [data-glass-level="menu"], [data-glass-level="chip"]) {
+  --glass-contrast-edge:
+    0 0 0 var(--cmux-hairline, 0.5px) var(--glass-contrast-ring),
+    0 4px 14px -4px var(--glass-contrast-lift);
+}
+:root[data-borders="none"] {
+  --glass-contrast-ring: transparent;
+}
+
 .ui-glass {
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
-  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation), var(--glass-contrast-edge);
 }
 /* CONTENT LAYER (design/glass-system.md, rule 2: glass is for floating things; a card in the
    content layer gets a near-solid surface). A card that sits in the content layer (a permission ask
@@ -386,12 +412,13 @@
   --glass-material-depth:
     0 12px 32px -12px light-dark(color-mix(in srgb, black 22%, transparent), color-mix(in srgb, black 55%, transparent)),
     0 2px 6px -2px light-dark(color-mix(in srgb, black 12%, transparent), color-mix(in srgb, black 35%, transparent));
-  /* The agent composer's depth (composerStates.css) and its twins' (composerMaterial.css): the same
-     two steps at about half the reach and half the dark (Leo 2026-11-06, the composer: "Is there a
-     way to make this less glass, or maybe less shadow? ... Probably just a little bit more subtle."). */
-  --glass-material-depth-composer:
-    0 6px 18px -8px light-dark(color-mix(in srgb, black 10%, transparent), color-mix(in srgb, black 28%, transparent)),
-    0 1px 3px -1px light-dark(color-mix(in srgb, black 7%, transparent), color-mix(in srgb, black 20%, transparent));
+  /* The agent composer's depth (composerStates.css) and its twins' (composerMaterial.css): the popups'
+     one drop, --elevation-2 (popupSurface.css --ui-popup-drop), so the composer and the pickers it
+     opens are one material (Leo 2026-11-21: "our shitty multi layer glass + web view. we need to
+     properly do that once and for all."). It stays subtle (Leo 2026-11-06, the composer: "maybe less
+     shadow? ... Probably just a little bit more subtle."): 0 2px 6px at 11% black, 16% in dark.
+     Before, a two-step shadow of its own (0 6px 18px -8px at 10%/28% and 0 1px 3px -1px at 7%/20%). */
+  --glass-material-depth-composer: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
 }
 /* Under the system's Reduce Transparency as under the host's: none of the material, the solid card. */
 @media not (prefers-reduced-transparency: reduce) {
@@ -413,13 +440,13 @@
    - --wl-tint, --wl-tint-share: the picture's mean color and how far the glass surface leans to it.
    The material rim (above) keeps its white top-left specular and gains a colored line and a soft wash
    on the edge that faces the light; the glass surface leans toward the picture's color (mixed in
-   linear light). The colors are theme colors, so a new picture crossfades them with the theme's own
+   Oklab, which keeps the hue between the two). The colors are theme colors, so a new picture crossfades them with the theme's own
    transition (appearance.colorTransition, off with motion off); the numbers move at once. Reduce
    Transparency, Liquid Glass off and the lens keep their own looks. */
 @media not (prefers-reduced-transparency: reduce) {
   :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"]) {
     --glass-surface: color-mix(
-      in srgb-linear,
+      in oklab,
       var(--cmux-surface-solid, Canvas),
       var(--wl-tint) calc(100% * var(--wl-tint-share))
     );
@@ -477,7 +504,8 @@
         inset -0.75px -1px 1px -0.5px var(--glass-shade),
         inset 0 0 3px 0 var(--glass-shade),
         inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge),
-        var(--glass-elevation);
+        var(--glass-elevation),
+        var(--glass-contrast-edge);
     }
   }
 }
@@ -651,7 +679,7 @@
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
-  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation), var(--glass-contrast-edge);
 }
 /* A hover card that is not a tooltip popup (the header icons' preview, the thread minimap's card) is
    the same glass: desktop.css's solid .ui-card fill never wins over it, whichever sheet loads last. */
@@ -659,7 +687,7 @@
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
-  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation), var(--glass-contrast-edge);
 }
 /* A hover card's own class may set its border's width (a session card's hairline ring); its colour
    stays clear over one class more. */
@@ -806,6 +834,19 @@
   --surface-sheet-title-font: var(--weight-emphasis) var(--text-title)/var(--text-title--line-height) var(--font-ui);
   --surface-sheet-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
   --surface-sheet-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-prompt-radius: 14px; /* prompts that float over every app (a device asking to see or control this Mac, the join consent, Computer use acting as me): the theme's tint at a denser veil, since any app's pixels show through */
+  --surface-prompt-veil: light-dark(color-mix(in srgb, var(--glass-surface) 80%, transparent), color-mix(in srgb, var(--glass-surface) 74%, transparent));
+  --surface-prompt-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 30%, transparent));
+  --surface-prompt-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 6%, transparent));
+  --surface-prompt-material: floating;
+  --surface-prompt-fill: var(--surface-prompt-veil);
+  --surface-prompt-stroke: var(--surface-hairline);
+  --surface-prompt-elevation: var(--elevation-2);
+  --surface-prompt-pad: var(--ds-space-4);
+  --surface-prompt-gap: var(--ds-space-3);
+  --surface-prompt-title-font: var(--weight-emphasis) var(--text-title)/var(--text-title--line-height) var(--font-ui);
+  --surface-prompt-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-prompt-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
   --surface-tooltip-radius: var(--ds-radius-popup); /* tooltips: the frost (TooltipSurface), the popup surface at the least alpha that keeps 4.5:1 over a blur */
   --surface-tooltip-material: floating;
   --surface-tooltip-fill: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
@@ -921,28 +962,31 @@
     .acpmux-since-jump {
     --glass-backdrop: var(--ds-glass-chrome-blur);
   }
-  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock {
-    --chief-glass-fill: color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 64%, transparent);
-    --chief-glass-backdrop: var(--ds-glass-chrome-blur);
-    --chief-glass-wash: 8%;
-    --chief-glass-edge: color-mix(in srgb, var(--agent-text) 26%, transparent);
-    --chief-glass-rim:
+  /* The Chief dock's rail and cards are .ui-glass at the popover level; the old look is tokens on them. */
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock :is(.acpmux-chief-dock-rail, .acpmux-chief-card).ui-glass {
+    --glass-tint: color-mix(
+      in srgb,
+      var(--agent-text) 8%,
+      color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 64%, transparent)
+    );
+    --glass-backdrop: var(--ds-glass-chrome-blur);
+    --glass-rim-shadow:
       inset 0 1px 0 color-mix(in srgb, var(--agent-text) 30%, transparent),
       inset 0 -1px 0 color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 20%, transparent);
   }
-  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock-rail {
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock {
+    --chief-glass-edge: color-mix(in srgb, var(--agent-text) 26%, transparent);
+  }
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock .acpmux-chief-dock-rail.ui-glass {
     --chief-glass-edge: color-mix(in srgb, var(--agent-text) 28%, transparent);
-    --chief-glass-rim:
+    --glass-rim-shadow:
       inset 0 1px 0 color-mix(in srgb, var(--agent-text) 30%, transparent),
       inset 0 -1px 0 color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 22%, transparent);
   }
-  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .onb-import {
-    --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
-  }
   :root[data-glass-levels="previous"]:not([data-reduce-transparency])
     .onb-import
-    :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
-    -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-    backdrop-filter: var(--ds-glass-popover-blur);
+    :is(.onb-import-list, .onb-import-options, .onb-express-ask).ui-glass {
+    --glass-tint: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
+    --glass-backdrop: var(--ds-glass-popover-blur);
   }
 }

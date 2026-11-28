@@ -20,9 +20,9 @@
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-computer-use` is model-invocable: its description claims tasks
 //!   in a desktop app; the person's Computer Use settings decide what runs.
-//!   Known limit: `skills/` is not a cmux-tui tree-key input
-//!   (scripts/cmux-next/cmux-tui-tree-inputs.txt), so a skills-only change
-//!   reaches a published cmux-tui build with the next cmux-tui change.
+//!   Each embedded skill file is a `blob` line in scripts/cmux-next/cmux-tui-tree-inputs.txt,
+//!   so a skills-only change builds a new tree (scripts/ci/check_cmux_tui_tree_inputs.py
+//!   fails when one is missing).
 //! - Computer Use (`computer_use/mcp.rs`): every session gets
 //!   `acpmux computer-use-mcp` (server `cmux-computer-use`), whatever
 //!   `computerUse.mode` says: tools are fixed when a chat spawns, and Computer
@@ -86,6 +86,8 @@ use serde_json::{Map, Value, json};
 pub mod claude_plugin_dirs;
 mod cmux_mcp;
 pub mod project_mcp;
+#[cfg(unix)]
+pub mod shared_servers;
 mod upstreams;
 
 pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
@@ -461,8 +463,9 @@ pub struct AgentTools {
     pub servers: Vec<McpServer>,
     /// The Claude Code plugin folder holding the skills.
     pub plugin_dir: Option<PathBuf>,
-    /// The person's own skills (`~/.config/cmux/skills`) as a second plugin, `cmux-user`
-    /// (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and there are any.
+    /// The person's own skills (`~/.config/cmux/skills`, `cmux-next` on macOS) as a second
+    /// plugin, `cmux-user` (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and
+    /// there are any.
     pub user_plugin_dir: Option<PathBuf>,
     /// The display allocation folder, only in per-workspace display mode
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then leaves the
@@ -510,6 +513,9 @@ pub struct Inputs {
     /// by default): sessions get `start_session` and the rest
     /// (`subsession_mcp.rs`, `hub/subsessions.rs`).
     pub subsessions: bool,
+    /// Sessions get the forum tools (`forum_mcp.rs`): only on a machine in a team or forum
+    /// ([`crate::forum_mcp::enabled`]), not every chat.
+    pub forum: bool,
     /// The display allocation folder when this daemon runs with
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
@@ -570,6 +576,7 @@ impl Inputs {
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
             offers: var(OFFER_TOOLS_ENV).is_none_or(|v| v != "0"),
             subsessions: crate::subsession_settings::enabled(),
+            forum: crate::forum_mcp::enabled(),
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
@@ -767,7 +774,19 @@ pub fn acp_servers_for(
     }
     let tools = acp_tools_with(current(), env, session_id, all_tools, codex);
     let tools = if http { tools.via_gateway(session_id, cwd) } else { tools };
-    tools.acp_servers()
+    let servers = tools.acp_servers();
+    // The person's own Codex servers they share run once for every chat (`mcp_pool.rs`).
+    #[cfg(unix)]
+    let servers = match (codex, servers) {
+        (Some(_), Value::Array(mut list)) => {
+            let taken: std::collections::BTreeSet<String> =
+                list.iter().filter_map(|s| s["name"].as_str().map(str::to_owned)).collect();
+            list.extend(shared_servers::codex(env, cwd, &taken, &crate::config::home()));
+            Value::Array(list)
+        }
+        (_, servers) => servers,
+    };
+    servers
 }
 
 /// The person's own stdio `cmux` entry, whole, with the env keys, for a Codex chat whose servers
@@ -1067,9 +1086,20 @@ pub(crate) fn claude_args_and_hooks_for(
     let strict = args.iter().any(|a| a == "--strict-mcp-config");
     let project_servers =
         if remote_origin || strict { Map::new() } else { project_servers_at_head(env, cwd) };
+    // The person's own servers they share run once for every chat (`mcp_pool.rs`); a server
+    // wrapped for a checkout still filling stays wrapped.
+    #[cfg(unix)]
+    let shared = if remote_origin || strict {
+        Map::new()
+    } else {
+        let taken = project_servers.keys().cloned().collect();
+        shared_servers::claude(env, cwd, &taken, &crate::config::home())
+    };
+    #[cfg(not(unix))]
+    let shared = Map::new();
     let mut prompt = None;
     let tools = if left_out(remote_origin, env, args) {
-        if project_servers.is_empty() {
+        if project_servers.is_empty() && shared.is_empty() {
             return (Vec::new(), None, false);
         }
         AgentTools::default()
@@ -1089,6 +1119,13 @@ pub(crate) fn claude_args_and_hooks_for(
         tools.via_gateway(session_id, cwd)
     };
     let callbacks = tools.plugin_dir.is_some();
+    let mut project_servers = project_servers;
+    for (name, entry) in shared {
+        // cmux's own server of a name keeps it.
+        if !tools.servers.iter().any(|s| s.name == name) && !tools.http.contains_key(&name) {
+            project_servers.entry(name).or_insert(entry);
+        }
+    }
     let args = AgentTools { project_servers, ..tools }
         .claude_args(&mcp_config_path(&crate::config::home(), session_id));
     (args, prompt, callbacks)
@@ -1227,15 +1264,18 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
                 .collect(),
         });
     }
-    if let Some(acpmux) = &inputs.acpmux {
+    if let (true, Some(acpmux)) = (inputs.forum, &inputs.acpmux) {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
-        // session with its caller token, like the sub-session server.
+        // session with its caller token, like the sub-session server. Only
+        // in a team or forum ([`Inputs::forum`]).
         servers.push(McpServer {
             name: crate::forum_mcp::SERVER_NAME.into(),
             command: acpmux.exe.clone(),
             args: acpmux.args_lossy(&["forum-mcp"]),
             env: vec![],
         });
+    }
+    if let Some(acpmux) = &inputs.acpmux {
         // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
         // instead of `acpmux send` in a shell; and the chat's daemon-owned background tasks.
         servers.push(McpServer {

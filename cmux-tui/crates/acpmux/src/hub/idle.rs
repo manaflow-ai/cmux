@@ -9,7 +9,11 @@
 //! `ACPMUX_IDLE_CHILD_SECS`; 30 s for background work while the sr2 model pool sheds,
 //! `pool_pressure.rs`). A client attached to it, the open chat on screen
 //! included, does not keep it awake: the chat stays where it is and only the
-//! agent goes. Its harness is then stopped through `detach_child`: the record
+//! agent goes. Neither does looking at it: only a person's client arriving
+//! to show it, or letting go of it, starts the period again (`seen.rs`
+//! `attach_count_from`); an agent's CLI or tool reading it, a peer daemon's
+//! link, and the bookkeeping records a look or a restart writes do not
+//! ([`bookkeeping`]). Its harness is then stopped through `detach_child`: the record
 //! and the agent session id stay, so the next prompt resumes it
 //! (`session/load`, `claude --resume`). It is stopped only while nothing but
 //! its MCP servers runs under it (`idle_census.rs`): a stop ends its group and
@@ -19,10 +23,17 @@
 //! further away than its idle period sleeps with its queue and its waiting continuation kept,
 //! and the hold's timer wakes it at the reset (`rate_hold.rs`, "A held chat sleeps").
 //!
+//! The period is bounded by the chat's next known event (`idle_governor.rs`, RFD 0177): at least
+//! 7 min while a background task runs that will bring its end to the chat, 30 s while its cut
+//! turn's continuation is due later than that (it sleeps with that continuation waiting, whose
+//! prompt starts it again, [`Hub::sleep_eligible`]).
+//!
 //! A wake is the next start of a hibernated session's agent: a prompt, a
 //! person typing into the chat (`_acpmux/typing`, `wake_for_typing`, so the
 //! agent is up by the time they send), or any request that needs the agent.
-//! Every hibernation and every wake is logged with its cause and duration.
+//! Every hibernation and every wake is logged with its cause and duration: a prompt's wake names
+//! its sender (`person`, `agent-msg`, `bg-notice`, `outbox`, `auto_resume`, `rate-hold`, `notice`,
+//! `trigger`, `unverified`, else `prompt`; `idle_governor.rs` `prompt_wake_cause`).
 //! A wake that fails fails its prompt like any start that fails (its
 //! `turn_error`, which the chat shows with Retry).
 //!
@@ -40,6 +51,23 @@
 use super::*;
 use cmux_json::JsonSet as _;
 use futures::StreamExt as _;
+
+/// Whether a record is bookkeeping, which never starts a chat's idle period again (`Hub::append`):
+/// what its harness spent (`usage_view.rs`), a restarted daemon taking its agent's host back
+/// (`hosts.rs`), and a read mark (`seen.rs` `mark_seen`), written when any client shows the chat,
+/// an agent reading it included. Each such record used to give the harness a full idle period
+/// again, so a chat that was only read, or whose daemon restarted, never slept.
+pub(super) fn bookkeeping(dir: &str, kind: &str, msg: &Value) -> bool {
+    dir == "mux"
+        && (kind == super::usage_view::RECORD_KIND
+            || kind == "host_adopted"
+            || (kind == "status" && msg.get("read") == Some(&Value::Bool(true)))
+            // A daemon task's row (`bg_registry.rs`): its task never keeps the chat awake, so its
+            // start, its end and a listing's repair of it start no idle period either. One that
+            // brings its end to the chat (`notify`) does so as a turn of its own.
+            || (kind == "process_update"
+                && msg.pointer("/process/daemonTask") == Some(&Value::Bool(true))))
+}
 
 /// How many due harnesses one idle pass ends at once (`stop_idle_children`).
 const IDLE_EXITS_AT_ONCE: usize = 16;
@@ -119,6 +147,17 @@ impl Hub {
     }
 
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
+        self.eligible(session, false)
+    }
+
+    /// [`Self::idle_eligible`] for the idle reaper's own exit: a chat whose continuation is due
+    /// later than `idle_governor::FAR_RESUME` sleeps too, as its period says (`idle_governor.rs`):
+    /// the continuation's prompt starts it again when due.
+    pub(super) fn sleep_eligible(&self, session: &Session) -> bool {
+        self.eligible(session, true)
+    }
+
+    fn eligible(&self, session: &Session, far_resume_sleeps: bool) -> bool {
         // A chat its rate limit holds past its idle period sleeps through the hold, its queue
         // and its waiting continuation kept: the hold's own timer wakes it (`rate_hold.rs`
         // `sleeps_through_hold`).
@@ -135,7 +174,13 @@ impl Hub {
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
-            && (!self.continuation_pending(session) || sleeps_held)
+            && (!self.continuation_pending(session)
+                || sleeps_held
+                || (far_resume_sleeps
+                    && self.continuation_waits_far(session, super::idle_governor::FAR_RESUME)))
+            // Nor one whose agent holds a timer not yet fired (a /loop's wakeup or cron): the
+            // harness's exit would end the loop (`agent_timer.rs`).
+            && self.pending_timer(session, crate::store::now_ms()).is_none()
             // A Claude chat with turns but none stored would wake as a fresh conversation with
             // its transcript restored into the prompt (`claude_resume_refusal`): kept awake when
             // its agent did work there; one that only got agent errors loses nothing (cmux#48917).
@@ -279,6 +324,7 @@ impl Hub {
             }
             hub.stop_idle_children().await;
             hub.evict_idle_chats();
+            hub.evict_over_cap();
         }
     }
 
@@ -361,7 +407,7 @@ impl Hub {
         // an armed cache compaction runs now, into this live harness, while its cache is warm:
         // one into the respawned harness rewrites the whole context (`cache_compact.rs`).
         if busy
-            || !self.idle_eligible(&session)
+            || !self.sleep_eligible(&session)
             || self.recap_before_sleep(&session)
             || self.cache_compact_before_reap(&session)
         {
@@ -370,7 +416,7 @@ impl Hub {
         }
         // Its MCP servers, read before the leases: the configs are files (`idle_census.rs`).
         let Some(child) = session.child.lock().await.clone() else { return };
-        let sidecars = self.sidecars(&child).await;
+        let sidecars = self.sidecars(&session, &child).await;
         // Held until the harness is ended: no turn, start, mode change, fork or stop
         // begins meanwhile, and one that already began keeps the harness up.
         let turn = session.turn_lock.try_lock();
@@ -381,7 +427,7 @@ impl Hub {
             || using.is_err()
             || spawning.is_err()
             || !same
-            || !self.idle_eligible(&session)
+            || !self.sleep_eligible(&session)
         {
             // In use at its deadline: a full idle period starts now.
             self.touch(&session);
@@ -400,7 +446,7 @@ impl Hub {
         }
         // Anything that happened while the census ran moved the deadline.
         if session.last_active.load(Ordering::SeqCst).saturating_add(idle) > self.clock_now()
-            || !self.idle_eligible(&session)
+            || !self.sleep_eligible(&session)
         {
             return;
         }
@@ -423,7 +469,7 @@ impl Hub {
         Self::drain_inbound(&session).await;
         if session.last_active.load(Ordering::SeqCst) != seen
             || seen.saturating_add(idle) > self.clock_now()
-            || !self.idle_eligible(&session)
+            || !self.sleep_eligible(&session)
         {
             self.touch(&session);
             return;
@@ -713,18 +759,25 @@ impl Hub {
     /// records, so call it off the async workers.
     #[cfg(test)]
     pub(crate) fn sessions_at_work(&self) -> usize {
-        self.sessions().iter().filter(|s| self.at_work(s).is_some()).count()
+        let now = crate::store::now_ms();
+        self.sessions().iter().filter(|s| self.at_work(s, now).is_some()).count()
     }
 
     /// Each of this daemon's own sessions at work ([`Self::sessions_at_work`]) with what holds
     /// it, for the Cloud activity report's phases (`daemon/cloud_activity.rs`). Reads the same
     /// records, so call it off the async workers as well.
     pub(crate) fn sessions_at_work_detail(&self) -> Vec<SessionAtWork> {
-        self.sessions().iter().filter_map(|s| self.at_work(s)).collect()
+        self.sessions_at_work_detail_at(crate::store::now_ms())
     }
 
-    /// What holds `session` at work, or None when nothing does.
-    pub(super) fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
+    /// [`Self::sessions_at_work_detail`] as of `now_ms` (Unix ms), the time an agent's pending
+    /// timer is read against (`agent_timer.rs`).
+    pub(crate) fn sessions_at_work_detail_at(&self, now_ms: u64) -> Vec<SessionAtWork> {
+        self.sessions().iter().filter_map(|s| self.at_work(s, now_ms)).collect()
+    }
+
+    /// What holds `session` at work at `now_ms`, or None when nothing does.
+    pub(super) fn at_work(&self, session: &Session, now_ms: u64) -> Option<SessionAtWork> {
         let turn = self.turn_at_work(session);
         let subagents =
             session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running();
@@ -735,7 +788,9 @@ impl Hub {
         // Auto's own freeze is no move: a chat another holder runs has no work here.
         let moving = session.moving().is_some_and(|mark| mark != super::AUTO_AWAY)
             && session.meta().moved_to.is_none();
-        if !(turn || subagents > 0 || below || processes > 0 || moving) {
+        // A timer its agent set that has not fired: the machine must be up when it is due.
+        let timer = self.pending_timer(session, now_ms);
+        if !(turn || subagents > 0 || below || processes > 0 || moving || timer.is_some()) {
             return None;
         }
         Some(SessionAtWork {
@@ -746,6 +801,7 @@ impl Hub {
             processes,
             below: subagents > 0 || below,
             shown: self.shown(session),
+            timer,
         })
     }
 }
@@ -765,6 +821,8 @@ pub(crate) struct SessionAtWork {
     pub below: bool,
     /// An attached client shows the chat.
     pub shown: bool,
+    /// A timer its agent set has not fired yet (`agent_timer.rs`).
+    pub timer: Option<super::agent_timer::PendingTimer>,
 }
 
 /// Whether a listen address (`127.0.0.1:47811`, `[::1]:0`, `localhost:8080`) is loopback only;

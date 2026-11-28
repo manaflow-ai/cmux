@@ -81,6 +81,8 @@ struct Status {
     progress: Progress,
     failed: Option<Failed>,
     notes: Vec<&'static str>,
+    /// The clone's warm mirror ([`super::run::mirror`]): `hit`, `miss` or `off`.
+    mirror: Option<&'static str>,
     /// When done: what the folder has checked out.
     head: Option<(String, Option<String>)>,
     /// When an export is done: its answer's fields.
@@ -129,7 +131,7 @@ impl Status {
 /// One seed.
 pub struct Job {
     id: String,
-    folder: PathBuf,
+    pub(super) folder: PathBuf,
     /// With `folder`, what makes a retry this job ([`StartParams::retry_key`]).
     key: String,
     status: Mutex<Status>,
@@ -214,6 +216,11 @@ impl Job {
         self.update(|status| status.notes.push(note));
     }
 
+    /// What the clone's warm mirror came to: `hit`, `miss` or `off`.
+    pub(super) fn mirror(&self, outcome: &'static str) {
+        self.update(|status| status.mirror = Some(outcome));
+    }
+
     pub(super) fn finish(&self, result: Result<(), Failed>) {
         let runs = super::git::take_runs();
         self.update(|status| {
@@ -250,6 +257,9 @@ impl Job {
             "notes": status.notes,
             "timings": status.timings(),
         });
+        if let (Some(mirror), Some(object)) = (status.mirror, answer.as_object_mut()) {
+            object.insert("mirror".into(), mirror.into());
+        }
         if status.head_ready
             && let Some(object) = answer.as_object_mut()
         {
@@ -278,11 +288,13 @@ impl Job {
 }
 
 /// How a service runs git: the credential paths (the machine's own unless a
-/// test names them) and extra config (tests only).
+/// test names them), extra config (tests only) and the warm mirrors' folder a
+/// clone borrows from (`None`: every clone is direct).
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     pub git: Git,
     pub credentials: Option<Vec<Credential>>,
+    pub mirrors: Option<PathBuf>,
 }
 
 #[derive(Default)]
@@ -319,7 +331,9 @@ struct StatusParams {
 impl GitSeedService {
     #[must_use]
     pub fn new(roots: Roots) -> Self {
-        Self::with_config(roots, Config::default())
+        // The machine's warm mirrors, on unless `CMUX_SEED_MIRROR=off` ([`super::run::mirror`]).
+        let config = Config { mirrors: run::mirror::default_root(), ..Config::default() };
+        Self::with_config(roots, config)
     }
 
     pub(crate) fn with_config(roots: Roots, config: Config) -> Self {
@@ -350,6 +364,7 @@ impl GitSeedService {
                 ],
             },
             credentials: Some(vec![Credential::Anonymous]),
+            mirrors: None,
         };
         Self::with_config(roots, config)
     }
@@ -359,6 +374,7 @@ impl GitSeedService {
         match cmd {
             "git.seed.start" => self.start(params),
             "git.seed.export" => self.export(params),
+            "git.seed.borrowable" => run::borrow::borrowable(&self.config.git, &self.roots, params),
             "git.seed.hold" => self.hold(params),
             "git.seed.hold.head" => self.hold_head(params),
             "git.seed.hold.end" => self.hold_end(params),
@@ -435,13 +451,13 @@ impl GitSeedService {
         let seed = run::Seed::new(
             job.clone(),
             params,
-            folder,
             bundle,
             carry,
             self.roots.clone(),
             self.config.git.clone(),
             credentials,
-        );
+        )
+        .with_mirrors(self.config.mirrors.clone());
         // Publish the barrier before start answers: no agent may observe a
         // partially cloned or checked-out repository as ready.
         let mut barrier = cmux_git::sync_barrier::Sync::begin(&job.folder).map_err(|error| {
@@ -650,6 +666,7 @@ impl Status {
             progress: Progress::default(),
             failed: None,
             notes: Vec::new(),
+            mirror: None,
             head: None,
             exported: None,
             head_ready: false,

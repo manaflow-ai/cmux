@@ -36,6 +36,8 @@ final class TabCardMonogramUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
                                 "-cmux-mobile-card-face-probe",
+                                // Browsers shown: the grid hides them by default (#56982's pane filter).
+                                "-cmux.mobile.overview.paneFilter", "agents+terminals+browsers",
                                 // a plist Bool, as @AppStorage reads it
                                 "-cmuxMobile.settings.tabCardMonograms", monograms ? "<true/>" : "<false/>"]
         app.launch()

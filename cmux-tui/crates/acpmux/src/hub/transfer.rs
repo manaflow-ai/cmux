@@ -21,7 +21,7 @@ pub(super) const NATIVE_DIGESTS: &str = "native-digests.json";
 
 /// [`Hub::import_into`]'s `(live, guarded, replace_durable, defer_finalize, staged)`.
 pub(super) type ImportOptions<'a> = (
-    bool,
+    Live,
     Option<super::transfer_guard::GuardedImport<'a>>,
     bool,
     bool,
@@ -123,6 +123,8 @@ impl Hub {
             return Err(e);
         }
         out.flush()?;
+        // The draft's attachments go with its text (`draft_attachments.rs`).
+        self.export_draft_attachments(session, &dir)?;
         // The images its prompts sent (`prompt_images.rs`), which the log names but does not hold,
         // the pre-copied prefix's prompts' too.
         if let Some(after) = after {
@@ -159,7 +161,7 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        self.import_into(bundle, name, false, None, false, false, None).await
+        self.import_into(bundle, name, Live::No, None, false, false, None).await
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
@@ -171,7 +173,7 @@ impl Hub {
         self: &Arc<Self>,
         bundle: &Path,
         name: Option<String>,
-        live: bool,
+        live: Live,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
         replace_durable: bool,
         defer_finalize: bool,
@@ -198,7 +200,7 @@ impl Hub {
         self: &Arc<Self>,
         bundle: &Path,
         name: Option<String>,
-        live: bool,
+        live: Live,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
         replace_durable: bool,
         defer_finalize: bool,
@@ -343,6 +345,23 @@ impl Hub {
         meta.created_by = None;
         // Nor a race's authority or its resumption: its children stayed behind (`races.rs`).
         super::races::settle_imported(&mut meta.races);
+        if let Live::Moved(credential) = &live {
+            if let Some(binding) = credential.as_ref().and_then(|c| c.connection()) {
+                if meta.credential_connection.as_deref().is_some_and(|old| old != binding) {
+                    return Err(super::credentials::credential_needed());
+                }
+                meta.credential_connection = Some(binding.to_owned());
+                meta.credential_model = None;
+                meta.credential_withdrawn = false;
+                meta.claude_token_recovery = None;
+                meta.claude_login_restart_pending = None;
+            } else if meta.credential_connection.is_some() || meta.credential_withdrawn {
+                if credential.is_some() {
+                    return Err(super::credentials::credential_needed());
+                }
+                self.prepare_claude_move_without_credential(&mut meta).await?;
+            }
+        }
         steps.step("meta");
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
@@ -370,6 +389,8 @@ impl Hub {
             self.drop_failed_import(&meta);
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
+        // The draft's attachments, with the draft's text in `session.json`.
+        self.import_draft_attachments(bundle, &meta.id);
         let restored = match guarded {
             // A history-later move's receive bundle is read by nothing after its finish: its
             // transcript becomes the home folder's file by a link, not a copy under the freeze.
@@ -385,8 +406,10 @@ impl Hub {
                 crate::qos::off_worker(|| crate::native::restore_replacing(bundle, &meta))
                     .unwrap_or_default()
             }
-            None if live => crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
-                .unwrap_or_default(),
+            None if matches!(live, Live::Moved(_)) => {
+                crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
+                    .unwrap_or_default()
+            }
             None => {
                 crate::qos::off_worker(|| crate::native::restore(bundle, &meta)).unwrap_or_default()
             }
@@ -430,7 +453,12 @@ impl Hub {
             // The copied log may end in transcript records: say it may have.
             meta.transcript_seq = last;
         }
-        if live {
+        if let Live::Moved(credential) = live {
+            // The login the move brought is the chat's before its queue runs (`end_move` below):
+            // the turn it continues starts signed in. Held in memory only, as `session/new`'s.
+            if let Some(credential) = credential {
+                *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = Some(credential);
+            }
             self.restore_queue(&session);
             // A bundle from a daemon that wrote none moves the chat without them.
             if let Some(v) = std::fs::read(bundle.join(super::composers::BUNDLE_FILE))
@@ -489,6 +517,60 @@ impl Hub {
             return Err(RpcError::internal(error.to_string()));
         }
         Ok(session)
+    }
+
+    /// A Claude binding held by the source cannot launch here. Restore the destination's
+    /// usual Claude launch only when its own configured route or login is ready.
+    async fn prepare_claude_move_without_credential(
+        &self,
+        meta: &mut SessionMeta,
+    ) -> Result<(), RpcError> {
+        let unavailable = super::credentials::credential_needed;
+        let (profile, defaults) = {
+            let config = self.config.read().await;
+            let profile = super::resolve::session_profile_checked(
+                &config,
+                &meta.harness,
+                &meta.cwd,
+                meta.remote_origin,
+            )
+            .map_err(|_| unavailable())?;
+            (profile, config.defaults_for(&meta.harness))
+        };
+        if crate::config::derive_family(&meta.harness, &profile) != "claude" {
+            return Err(unavailable());
+        }
+        meta.credential_connection = None;
+        meta.credential_model = None;
+        meta.credential_withdrawn = false;
+        meta.claude_token_recovery = None;
+        meta.claude_login_restart_pending = None;
+        let launch = self
+            .spawn_profile_with(meta, &profile, &defaults.env, None)
+            .await
+            .map_err(|_| unavailable())?;
+        let env = crate::agent::resolved_profile_env(&launch).map_err(|_| unavailable())?;
+        if ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]
+            .iter()
+            .any(|key| env.get(*key).is_some_and(|value| !value.trim().is_empty()))
+        {
+            return Ok(());
+        }
+        if !crate::claude_cloud_auth::launches_claude_itself(&launch.argv) {
+            return Err(unavailable());
+        }
+        let cli = crate::agent_login::Cli { program: launch.argv[0].clone(), globals: vec![], env };
+        let machine = crate::agent_login::Machine {
+            root: self.vm_marker_root(),
+            home: dirs::home_dir().unwrap_or_default(),
+        };
+        let status =
+            crate::agent_login::claude_status(&machine, &cli).await.map_err(|_| unavailable())?;
+        if status["signedIn"] == true || status["apiKey"] == true {
+            Ok(())
+        } else {
+            Err(unavailable())
+        }
     }
 
     fn harness_pi_session_optional(
@@ -970,6 +1052,13 @@ impl Hub {
     }
 }
 
+/// Whether an import is a chat moved here (`transfer_in.rs`), which keeps its queue, composers
+/// and the owner's login its move brought (`agent_credentials.rs`), or a plain import.
+pub(super) enum Live {
+    No,
+    Moved(Option<crate::agent_credentials::AgentCredential>),
+}
+
 #[cfg(test)]
 #[path = "fork_reference_export_tests.rs"]
 mod fork_reference_export_tests;
@@ -1017,7 +1106,8 @@ mod tests {
         std::fs::write(bundle.join("events").join("000001.ndjson"), "not a record\n").unwrap();
         let marker = dir.join("sessions/.agent-0002.durable-transfer-state");
         for attempt in ["first", "retry"] {
-            let failed = hub.import_into(&bundle, None, true, None, true, true, None).await;
+            let failed =
+                hub.import_into(&bundle, None, Live::Moved(None), None, true, true, None).await;
             let failed = failed.err().map(|e| e.message);
             assert!(
                 failed.as_deref().is_some_and(|m| m.starts_with("import events")),
@@ -1054,6 +1144,44 @@ mod tests {
             "harness": "cmux-harness", "cwd": std::env::temp_dir(), "agentSessionId": agent,
             "status": "idle", "createdAt": 1, "updatedAt": 1,
         })
+    }
+
+    #[tokio::test]
+    async fn a_moved_setup_token_can_be_withdrawn_by_its_saved_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = harness_hub(dir.path());
+        let bundle = dir.path().join("bundle");
+        std::fs::create_dir_all(bundle.join("events")).unwrap();
+        let id = uuid::Uuid::now_v7().to_string();
+        let mut meta = harness_meta(&id, "agent-setup-token");
+        meta["cwd"] = json!(dir.path());
+        std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
+        let binding = format!("claude-token:{}", "a".repeat(64));
+        let token = "sk-ant-oat01-move-fixture";
+        let credential = crate::agent_credentials::AgentCredential::parse(&json!({
+            "env": {"ANTHROPIC_AUTH_TOKEN": token}, "connection": binding
+        }))
+        .unwrap();
+
+        let moved = hub
+            .import_into(&bundle, None, Live::Moved(Some(credential)), None, false, false, None)
+            .await
+            .unwrap();
+        let stored = hub.store.load(&moved.id).unwrap().unwrap();
+        assert_eq!(stored.credential_connection.as_deref(), Some(binding.as_str()));
+        assert!(!serde_json::to_string(&stored).unwrap().contains(token));
+        assert_eq!(hub.credential_status(&moved.id).await.unwrap()["held"], true);
+
+        let other = format!("claude-token:{}", "b".repeat(64));
+        hub.withdraw_credential_bindings(&std::collections::BTreeSet::from([other.as_str()]))
+            .await
+            .unwrap();
+        assert_eq!(hub.credential_status(&moved.id).await.unwrap()["held"], true);
+        hub.withdraw_credential_bindings(&std::collections::BTreeSet::from([binding.as_str()]))
+            .await
+            .unwrap();
+        assert_eq!(hub.credential_status(&moved.id).await.unwrap()["held"], false);
+        assert!(hub.store.load(&moved.id).unwrap().unwrap().credential_withdrawn);
     }
 
     /// Review of #25676: a marker write that fails before its rename takes its temporary file

@@ -123,6 +123,16 @@ pub(super) async fn route(
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
+    // The app's and webviews' own spans of one user action, into this daemon's Perfetto trace
+    // (`perf_trace.rs`): no store, no peer.
+    if m == crate::perf_trace::METHOD_SPANS {
+        return Ok(crate::perf_trace::record_client_spans(&params));
+    }
+    if m == crate::perf_trace::METHOD_STATUS {
+        return Ok(
+            serde_json::json!({"enabled": crate::perf_trace::enabled(), "now_us": crate::perf_trace::now_us()}),
+        );
+    }
     hub.prepare_store_request(m, &params).await;
     // The owner's phone a peer daemon vouches for on this request, before any rule reads it.
     super::remote_guard::note_vouched_phone(hub, conn, &params);
@@ -137,6 +147,9 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = super::consent_grant::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     // Agent byte channels: listen, unlisten, open (`channels.rs`).
@@ -216,7 +229,7 @@ pub(super) async fn route(
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }
-    if let Some(reply) = super::task_list::dispatch(hub, conn, m, &params) {
+    if let Some(reply) = super::history::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     // The plan approval card's builds (`plan_build.rs`): sub-sessions of this daemon.
@@ -241,8 +254,16 @@ pub(super) async fn route(
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
     // runs its queue with the rules it was sent under, so only the local socket moves one.
     if m.starts_with("_acpmux/transfer_") {
-        if conn.origin != Origin::Local {
+        // What a move would interrupt is read-only: the app's own pane asks it too, to say so
+        // before its Cloud / Auto / Evacuate (RFD 0063 item 6).
+        let read_only = m == "_acpmux/transfer_interrupts" && conn.origin == Origin::LocalApp;
+        if conn.origin != Origin::Local && !read_only {
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
+        }
+        // A move's finish may carry the owner's login for the chat's agent (`transfer_in.rs`),
+        // taken as `session/new` takes one: never from an agent's own connection.
+        if params.get(crate::agent_credentials::FIELD).is_some() {
+            crate::agent_credentials::admit(true, conn.caller())?;
         }
         return heap(|| hub.transfer_request(m, &params)).await;
     }
@@ -258,6 +279,10 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_SCORECARD {
         return scorecard::handle(hub, conn.origin, &params).await;
     }
+    // Replay of recorded logs against RFD 0161's invariants (`scorecard_replay.rs`): local only.
+    if m == crate::rpc::method::MUX_SCORECARD_REPLAY {
+        return scorecard::replay(hub, conn.origin, &params).await;
+    }
     // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
     if let Some(reply) =
         super::review_queue::route(hub, conn.origin, conn.auth, conn.is_person(), m, &params).await
@@ -272,8 +297,16 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_TEAM_AUDIT {
         return team_audit::handle(conn.origin, &params).await;
     }
-    // A chat's route (`routes.rs`) is a session method, not the chat index.
-    if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
+    // Routing, moving and placing a chat belong to the request dispatcher, which checks the
+    // caller's origin for each operation before running its handler.
+    let of_a_session = matches!(
+        m,
+        crate::rpc::method::MUX_CHAT_ROUTE_SET
+            | crate::rpc::method::MUX_CHAT_MOVE
+            | "_acpmux/chat_place"
+            | "_acpmux/chat_place_set"
+    );
+    if !m.starts_with(PREFIX) || of_a_session {
         return heap(|| super::requests::handle_request(hub, conn, m, params, sender_token)).await;
     }
     if conn.origin != Origin::Local {
@@ -462,7 +495,7 @@ pub(super) async fn route(
                 .map(PathBuf::from)
                 .or_else(dirs::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
-            let (profile_name, profile) = {
+            let (profile_name, mut profile) = {
                 let cfg = hub.config.read().await;
                 let (name, profile) =
                     crate::chat_fork::profile_for(&cfg, harness).ok_or_else(|| {
@@ -472,7 +505,17 @@ pub(super) async fn route(
                     })?;
                 (name.to_owned(), profile.clone())
             };
+            if crate::config::derive_family(&profile_name, &profile) == "github-copilot" {
+                let mut env = profile.env.clone();
+                hub.apply_route_for(&profile_name, None, None, true, &profile, &mut env).await?;
+                profile.env = env;
+            }
             let forked = crate::chat_fork::fork(harness, &profile_name, &profile, id, &cwd).await?;
+            crate::fork_spec::log(
+                &crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::TerminalChat),
+                id,
+                &forked,
+            );
             Ok(json!({"harness": harness, "agentSessionId": forked}))
         }
         "_acpmux/chat_roots_record" => {

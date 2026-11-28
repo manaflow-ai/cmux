@@ -107,32 +107,25 @@ public struct ComposerDockState: Equatable, Sendable {
     }
 }
 
-/// The dock's metrics: a 44 pt key row (Apple's minimum touch target; the
-/// row was classic's 28 pt with 32 pt glyph keys, Leo 2026-11-23: "the buttons
-/// are really small") of keys that hug their labels (glyph keys at least 44 pt
-/// wide) 6 pt apart, 8 pt above the composer; the composer's controls are 40 pt circles beside a field whose
-/// one line is 40 pt tall, with a 28 pt send circle inside it; 12 pt side
-/// insets. The stack rests 8 pt above the keyboard or the safe area.
+/// The dock's metrics: classic's 28 pt key row of keys that hug their labels
+/// (glyph keys 32 pt wide) 4 pt apart. #53325 made it 44 pt (Leo, 2026-11-23:
+/// "the buttons are really small"); it is 28 pt again (Leo, 2026-11-25: "We can
+/// just bring it back to what the older size was"). Each key's hit area is its
+/// own cap, inside the row: none reaches the composer 8 pt below, which is the agent chat's card
+/// (`ComposerCardMetrics`: a 44 pt row 2 pt inside it, 48 pt at one line, 12 pt
+/// side insets). The stack rests 8 pt above the keyboard or the safe area.
+/// Plain numbers here, so the macOS test leg runs them.
 public struct TerminalDockMetrics: Sendable {
-    public static let keyRowHeight: CGFloat = 44
-    public static let keySpacing: CGFloat = 6
-    public static let minKeyWidth: CGFloat = 44
+    public static let keyRowHeight: CGFloat = 28
+    public static let keySpacing: CGFloat = 4
+    public static let minKeyWidth: CGFloat = 32
     /// Between the key row and the composer.
     public static let keyRowGap: CGFloat = 8
     public static let horizontalInset: CGFloat = 12
-    public static let control: CGFloat = 40
-    public static let sendDiameter: CGFloat = 28
-    public static let fieldCornerRadius: CGFloat = 20
-    /// The field container's padding around the send circle, and beside the text.
-    public static let fieldPadding: CGFloat = 6
-    /// The text's distance from the text view's top and bottom inside the field
-    /// at rest (3 pt below the field's 6 pt padding).
-    public static let textInset: CGFloat = 3
-    /// The text view's own top and bottom inset. The text view runs the
-    /// field's whole height, so a draft that scrolls is cut at the field's
-    /// edge, not 6 pt inside it (user report 2026-11-13: a strip of empty
-    /// glass above the cut line); one line still sits where it did.
-    public static let textVerticalInset: CGFloat = textInset + fieldPadding
+    /// The composer card at one line (`ComposerCardMetrics.minHeight`) and its
+    /// row's inset from its top and bottom edges.
+    public static let composerMinHeight: CGFloat = 48
+    public static let composerRowInset: CGFloat = 2
 
     public init() {}
 
@@ -143,7 +136,7 @@ public struct TerminalDockMetrics: Sendable {
     /// 2026-10-14: an inline TUI such as Codex redraws its whole transcript on
     /// every resize).
     public func restingComposerHeight(lineHeight: CGFloat) -> CGFloat {
-        max(Self.control, (lineHeight + 2 * (Self.textInset + Self.fieldPadding)).rounded(.up))
+        max(Self.composerMinHeight, (lineHeight + 2 * Self.composerRowInset).rounded(.up))
     }
 
     /// The whole stack at rest (the keyboard down): the one-line composer.

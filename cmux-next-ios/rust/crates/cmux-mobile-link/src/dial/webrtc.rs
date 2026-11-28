@@ -31,6 +31,38 @@ use super::{DialError, DialFuture, Dialed, Dialer, LinkPath, SessionEvents, Tran
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient};
 use crate::timing::Timeline;
 
+/// `urls` with each `stun:` and `turn:` host as the IPv4 literal it resolves to: DNS, or the
+/// literal it last resolved to when DNS is down (`route_literals`), so ICE gathers without
+/// DNS. A URL whose host does not resolve, and `turns:` (TLS names its host), stay as they are.
+async fn literal_urls(
+    urls: &[String],
+    routes: &std::sync::Arc<crate::route_literals::RouteLiterals>,
+) -> Vec<String> {
+    // Every URL at once: a hanging DNS costs the dial one bound, not one per URL.
+    futures_util::future::join_all(urls.iter().map(|url| literal_url(url, routes))).await
+}
+
+async fn literal_url(url: &str, routes: &std::sync::Arc<crate::route_literals::RouteLiterals>) -> String {
+    let Some((scheme, rest)) = url.split_once(':').filter(|(scheme, _)| matches!(*scheme, "stun" | "turn"))
+    else {
+        return url.to_owned();
+    };
+    let (host_port, query) = rest.split_once('?').map_or((rest, None), |(hp, q)| (hp, Some(q)));
+    let Some((host, port)) = crate::route_literals::split_host_port(host_port, 3478) else {
+        return url.to_owned();
+    };
+    let ipv4 = routes
+        .resolve_host(&host)
+        .await
+        .ok()
+        .and_then(|found| found.into_iter().find(std::net::IpAddr::is_ipv4));
+    match (ipv4, query) {
+        (Some(ip), Some(query)) => format!("{scheme}:{ip}:{port}?{query}"),
+        (Some(ip), None) => format!("{scheme}:{ip}:{port}"),
+        (None, _) => url.to_owned(),
+    }
+}
+
 /// The data channel label (PROTOCOL.md).
 pub const LABEL: &str = "cmux-mobile-link";
 /// The input lane's data channel: ordered and reliable, its own SCTP stream
@@ -113,15 +145,16 @@ async fn new_peer_connection_for(
         APIBuilder::new().with_setting_engine(settings).build()
     };
     let ice_servers: &[crate::api::IceServer] = if udp_blocked { &[] } else { &options.ice_servers };
+    let mut rtc_servers = Vec::with_capacity(ice_servers.len());
+    for server in ice_servers.iter().filter(|server| server.hop_config().is_none()) {
+        rtc_servers.push(RTCIceServer {
+            urls: literal_urls(&server.urls, &options.routes).await,
+            username: server.username.clone().unwrap_or_default(),
+            credential: server.credential.clone().unwrap_or_default(),
+        });
+    }
     let config = RTCConfiguration {
-        ice_servers: ice_servers
-            .iter()
-            .map(|server| RTCIceServer {
-                urls: server.urls.clone(),
-                username: server.username.clone().unwrap_or_default(),
-                credential: server.credential.clone().unwrap_or_default(),
-            })
-            .collect(),
+        ice_servers: rtc_servers,
         ice_transport_policy: if options.relay_only {
             RTCIceTransportPolicy::Relay
         } else {
@@ -441,6 +474,7 @@ async fn finish(
         // A data channel cannot be held: ICE consent ends it after 30 s of
         // silence whatever the link does.
         hold: None,
+        on_link: None,
         path: path_rx,
         peer: peer_rx,
         guard: Box::new(Guard {

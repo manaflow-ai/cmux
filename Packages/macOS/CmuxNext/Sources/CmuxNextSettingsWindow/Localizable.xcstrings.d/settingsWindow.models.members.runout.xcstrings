@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.members.runout" : {
+      "comment" : "Settings > Models (ModelsCard.tsx): Cloud threads' subscriptions and keys. ChatGPT, Claude, Claude Code, OpenAI, Anthropic and the provider names are product names.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Members can choose what happens when a subscription or key runs out"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يمكن للأعضاء اختيار ما يحدث عند نفاد اشتراك أو مفتاح"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Članovi mogu izabrati šta se dešava kada se pretplata ili ključ potroše"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medlemmer kan vælge, hvad der sker, når et abonnement eller en nøgle er opbrugt"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mitglieder können wählen, was passiert, wenn ein Abo oder Schlüssel aufgebraucht ist"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los miembros pueden elegir qué pasa cuando se agota una suscripción o clave"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les membres peuvent choisir ce qui se passe quand un abonnement ou une clé est épuisé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I membri possono scegliere cosa succede quando un abbonamento o una chiave si esaurisce"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サブスクリプションやキーの上限に達したときの動作をメンバーが選べる"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សមាជិកអាចជ្រើសអ្វីដែលកើតឡើងពេលការជាវ ឬសោអស់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "구독이나 키가 소진될 때의 동작을 멤버가 선택할 수 있음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medlemmer kan velge hva som skjer når et abonnement eller en nøkkel er brukt opp"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Członkowie mogą wybrać, co się dzieje, gdy subskrypcja lub klucz się wyczerpie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Membros podem escolher o que acontece quando uma assinatura ou chave se esgota"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Участники могут выбирать, что происходит, когда подписка или ключ исчерпаны"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สมาชิกเลือกได้ว่าจะเกิดอะไรขึ้นเมื่อการสมัครสมาชิกหรือคีย์ใช้หมด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Üyeler bir abonelik veya anahtar tükendiğinde ne olacağını seçebilir"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Учасники можуть вибирати, що відбувається, коли підписка або ключ вичерпано"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thành viên có thể chọn điều xảy ra khi gói đăng ký hoặc khóa hết hạn mức"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成员可以选择订阅或密钥用尽时的处理方式"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成員可以選擇訂閱或金鑰用盡時的處理方式"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

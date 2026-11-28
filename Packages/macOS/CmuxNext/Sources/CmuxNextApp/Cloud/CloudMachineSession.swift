@@ -19,6 +19,21 @@ final class CloudMachineSession {
     var sizePick: CloudSizePick?
     @ObservationIgnored var answeredAt: ContinuousClock.Instant? // when a create's or spare claim's answer gave ``machine``; nil for a list's
     let daemon: DaemonService
+    func credentialHarnesses(subscription: Bool) -> Set<String>? {
+        Self.confirmedCredentialHarnesses(identity: daemon.liveIdentity, subscription: subscription)
+    }
+
+    nonisolated static func confirmedCredentialHarnesses(identity: DaemonIdentity?, subscription: Bool) -> Set<String>? {
+        let capability = AgentSessionAttachClient.credentialsCapability(harness: nil, nativeKey: true, subscription: subscription)
+        guard let identity, identity.supports(capability) else { return nil }
+        let prefix = "agent-session-start-endpoint-harness:"
+        return Set(identity.capabilities.compactMap { value in
+            guard value.hasPrefix(prefix) else { return nil }
+            let harness = String(value.dropFirst(prefix.count))
+            return subscription || ["gemini", "grok"].contains(harness) ? harness : nil
+        })
+    }
+
     @ObservationIgnored let appLink: CloudLinkSession
     /// A workspace close already said this machine is kept (it says so once, not on every close).
     @ObservationIgnored var toldKeptOnClose = false
@@ -77,6 +92,7 @@ final class CloudMachineSession {
     /// (`CloudService.resumeMachine`), for an attach to a paused machine.
     /// Set by `CloudService`; nil where nothing resumes (some tests).
     @ObservationIgnored var resumer: (@MainActor (String, CloudLinkOrigin) async throws -> Void)?
+    @ObservationIgnored var waking: (@MainActor @Sendable (Bool) -> Void)? // a start card's "Waking machine" while its settle waits (CloudStartChat, ask-259986a6c4)
     /// Reads the machine list again (`CloudService.refresh`); `force` false
     /// skips a list read in the last 30 seconds. Set by `CloudService`; nil in
     /// some tests. The record is read on launch and on activation, so a

@@ -623,6 +623,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final FlushLaunchSnapshotResult flushLaunchSnapshot() throws CmuxException {
+        Object result = execute(Commands.FLUSH_LAUNCH_SNAPSHOT, Map.of());
+        return FlushLaunchSnapshotResult.fromWire(result);
+    }
+
     public final FocusDirectionResult focusDirection(FocusDirectionRequest request) throws CmuxException {
         Object result = execute(Commands.FOCUS_DIRECTION, request.toWire());
         return FocusDirectionResult.fromWire(result);
@@ -959,6 +964,11 @@ public abstract class GeneratedCmuxClient {
     public final NotifyResult notify(NotifyRequest request) throws CmuxException {
         Object result = execute(Commands.NOTIFY, request.toWire());
         return NotifyResult.fromWire(result);
+    }
+
+    public final PhoneLinkOfferResult offerLinkToPhone(OfferLinkToPhoneRequest request) throws CmuxException {
+        Object result = execute(Commands.OFFER_LINK_TO_PHONE, request.toWire());
+        return PhoneLinkOfferResult.fromWire(result);
     }
 
     public final Object pageCredential(PageCredentialRequest request) throws CmuxException {

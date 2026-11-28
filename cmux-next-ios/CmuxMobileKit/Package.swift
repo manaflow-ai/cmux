@@ -76,7 +76,12 @@ let package = Package(
         // extensions link it without the app's modules (verify/rich-push.md).
         .target(name: "CmuxMobileNotifications"),
         // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
-        .target(name: "CmuxMobileModel", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore")], resources: [.process("Resources")]),
+        // CmuxMobileLinkFFI: New Task's terminal line, image type and agent pick rules (TaskComposer) are Rust's task_composer.
+        // CmuxMobileLinkFFI (iOS only): the cmux link grammar (CmuxLink) is Rust's cmux_link.
+        // CmuxMobileLinkFFI: New Workspace's rules (WorkspaceCreationRules) are Rust's workspace_creation.
+        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves; the workspace row menu's rules are workspace_row_actions; RowSpill's pages on disk are RowSpillPages (row_spill.rs).
+        // CmuxMobileLinkFFI (iOS only): Mac reachability and Retry steps (MacReachability) are Rust's mac_reachability.
+        .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
             name: "CmuxMobileLinkFFI",
@@ -84,9 +89,10 @@ let package = Package(
             path: "Sources/CmuxMobileLinkFFI",
             // uniffi's generated Swift is not Swift 6 concurrency-clean.
             swiftSettings: [.swiftLanguageMode(.v5)],
-            linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration")]
+            // CFNetwork: the system's proxy settings and PAC (cmux-mobile-link egress/apple.rs).
+            linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration"), .linkedFramework("CFNetwork")]
         ),
-        .target(name: "CmuxMobileTransport", dependencies: [.target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))]),
+        .target(name: "CmuxMobileTransport", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))]),
         // Markdown: native block renderer for transcripts, WKWebView renderer (pooled) for the Feed and math.
         .target(name: "CmuxMobileMarkdown", dependencies: ["CmuxMobileDesign", "CmuxMobileModel"], resources: [.copy("Resources/web")]),
         // Diff model (line + word diff, unified parser) and the GitHub-mobile-style viewer.
@@ -109,6 +115,8 @@ let package = Package(
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileAgentChat",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            // The Feed list's stacking and edit rules (feed_list_edit.rs).
+            .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
         .target(
             name: "CmuxMobileAuth",
@@ -139,6 +147,8 @@ let package = Package(
         .target(name: "CmuxMobileWorkspaces", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileBrowserStream",
+            // Close Tab as one traced user action (PhoneTrace, CMUX_TRACE_FILE).
+            "CmuxMobileTransport",
             // The + menu's Screen Sharing: the account's Macs and the viewer.
             "CmuxMobileScreenSharing",
             .product(name: "CmuxTabsKit", package: "CmuxTabsKit"),
@@ -190,7 +200,8 @@ let package = Package(
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 // Predictive local echo: the shared Rust engine (cmux-terminal-prediction).
                 .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         // Live Chief calls and agent voice mode, portable part: the Realtime API's events and session
         // configs, the call's and voice mode's state machines, the speech filter and tools, the OpenAI key in the Keychain (Foundation and Security only).
@@ -200,6 +211,8 @@ let package = Package(
         .target(name: "CmuxMobileScreenSharing", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel",
+            // Mac Screen over Link: the Mac's display as rd/1 on the paired Mac's link (`d~0`).
+            "CmuxMobileBrowserStream",
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxScreenKitUI", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
@@ -266,6 +279,7 @@ let package = Package(
         ]),
         .testTarget(name: "CmuxMobileScreenSharingTests", dependencies: [
             "CmuxMobileScreenSharing",
+            "CmuxMobileBrowserStream",
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
         ]),
@@ -288,6 +302,8 @@ let package = Package(
         ]),
         .testTarget(name: "CmuxMobileLiveTests", dependencies: [
             "CmuxMobileLive", "CmuxMobileChief", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign", "CmuxMobileMarkdown",
+            // TypingUnderLinkChurnTests: the workspace list and tabs source on screen while typing.
+            "CmuxMobileWorkspaces",
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
@@ -302,7 +318,7 @@ let package = Package(
             // terminal_chat_swap: the Rust decision is inside the timed swap.
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
-        .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileSettings", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed", .product(name: "CmuxTheme", package: "CmuxTheme")]),
+        .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileWorkspaces", "CmuxMobileSettings", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed", .product(name: "CmuxTheme", package: "CmuxTheme")]),
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileChiefTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",
@@ -323,7 +339,8 @@ let package = Package(
 // iOS and macOS, and keeps the whole package. cmux-next-ios-kit.yml skips these test targets on the Mac.
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     let linuxModules: Set<String> = [
-        "CmuxMobileDesignCore", "CmuxMobileModel", "CmuxMobileRealtime", "CmuxMobileTransport",
+        "CmuxMobileAuth", "CmuxMobileDesignCore", "CmuxMobileModel", "CmuxMobileNotifications", "CmuxMobileRealtime",
+        "CmuxMobileTransport", "CmuxMobileLive", "CmuxMobileWorkspaces",
     ]
     let linuxTests = Set(linuxModules.map { $0 + "Tests" })
     package.products.removeAll { !linuxModules.contains($0.name) }
@@ -334,9 +351,88 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             return false
         }
     }
+    // CmuxMobileAuth's portable TeamInviteFailure uses StackAuth's error protocol. The rest of
+    // the target is the iOS-only coordinator and its Apple frameworks, so leave those package
+    // products out of the Linux projection instead of making Linux resolve the app's auth graph.
+    if let auth = package.targets.first(where: { $0.name == "CmuxMobileAuth" }) {
+        auth.dependencies = [
+            "CmuxMobileModel",
+            .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+        ]
+    }
+    if let authTests = package.targets.first(where: { $0.name == "CmuxMobileAuthTests" }) {
+        authTests.dependencies = ["CmuxMobileAuth", "CmuxMobileModel"]
+    }
+    // The main-thread hang watchdog (Hangs/: Darwin thread suspension, os_unfair_lock, MetricKit) is the
+    // app's alone; nothing else in the model uses it, so Linux leaves it and its suite out.
+    if let model = package.targets.first(where: { $0.name == "CmuxMobileModel" }) {
+        model.exclude += ["Hangs"]
+    }
+    if let modelTests = package.targets.first(where: { $0.name == "CmuxMobileModelTests" }) {
+        modelTests.exclude += ["MainThreadHangWatchdogTests.swift"]
+    }
+    // Keep the production connection controller and launch state, without their UI clients.
+    // Resolve paths from the manifest, independent of the caller's working directory.
+    let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    func project(_ name: String, directory: String, sources: [String], dependencies: [Target.Dependency]) throws {
+        guard let target = package.targets.first(where: { $0.name == name }) else { return }
+        let entries = try FileManager.default.contentsOfDirectory(atPath: packageRoot.appendingPathComponent(directory).path)
+        target.exclude = entries.filter { !sources.contains($0) }.sorted()
+        target.sources = sources
+        target.dependencies = dependencies
+    }
+    try project("CmuxMobileLive", directory: "Sources/CmuxMobileLive", sources: [
+        "ClockInstants.swift", "LinkConnectivityEvents.swift", "LinkController.swift", "LinkMachine.swift",
+        "LinkPairingRetry.swift", "LinkServiceFailure.swift", "PresenceTiming.swift", "ReliabilityLinuxShims.swift",
+        "RetryBounds.swift",
+    ], dependencies: [
+        "CmuxMobileModel", "CmuxMobileTransport",
+        .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
+    ])
+    try project("CmuxMobileWorkspaces", directory: "Sources/CmuxMobileWorkspaces", sources: [
+        "WorkspacesLaunchState.swift",
+    ], dependencies: ["CmuxMobileModel"])
+    try project("CmuxMobileLiveTests", directory: "Tests/CmuxMobileLiveTests", sources: [
+        "AwakeDeadline.swift", "ConnectionContractScenarioTests.swift", "ConnectivityMatrixTests.swift", "LinkRecoveryTests.swift",
+        "LinkClockDriver.swift", "LinkTestClock.swift", "PairingRetryTests.swift", "TickRandom.swift",
+    ], dependencies: ["CmuxMobileLive", "CmuxMobileModel", "CmuxMobileTransport"])
+    try project("CmuxMobileWorkspacesTests", directory: "Tests/CmuxMobileWorkspacesTests", sources: [
+        "WorkspacesLaunchStateTests.swift",
+    ], dependencies: ["CmuxMobileWorkspaces", "CmuxMobileModel"])
     package.dependencies = [
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
+        .package(path: "../../Packages/Shared/CmuxConnectivityTelemetry"),
         .package(path: "../../Packages/Shared/CmuxEgress"),
+        .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
+        // CryptoKit's API for CmuxMobileNotifications (`import Crypto` where CryptoKit is absent).
+        .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
     ]
+    for target in package.targets where target.name == "CmuxMobileNotifications" || target.name == "CmuxMobileNotificationsTests" {
+        target.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))
+    }
+    // RFD 0051 route 2: the Swift binding over the Linux build of the Rust FFI, opt-in so the ios-kit
+    // job above is unchanged. rust/scripts/build-linux-ffi.sh builds libcmux_mobile_link_ffi.a,
+    // generates the uniffi header into the system-library directory, and sets this. No Apple
+    // framework linker settings; the binary target stays the Apple platforms' module.
+    // The opt-in graph is only the binding and its test: once CmuxMobileLinkFFI is a Linux module,
+    // `#if canImport(CmuxMobileLinkFFI)` turns on in CmuxMobileTransport (FFIMacLink.swift), which
+    // does not depend on it there, so building the portable modules alongside would fail.
+    if ProcessInfo.processInfo.environment["CMUX_MOBILE_LINK_FFI_LINUX"] == "1" {
+        package.products.removeAll()
+        package.targets = [
+            .systemLibrary(name: "CmuxMobileLinkFFIFFI", path: "Sources/CmuxMobileLinkFFIFFILinux"),
+            .target(
+                name: "CmuxMobileLinkFFI",
+                dependencies: ["CmuxMobileLinkFFIFFI"],
+                path: "Sources/CmuxMobileLinkFFI",
+                swiftSettings: [.swiftLanguageMode(.v5)]
+            ),
+            .testTarget(
+                name: "CmuxMobileLinkFFILinuxTests",
+                dependencies: ["CmuxMobileLinkFFI", .product(name: "Crypto", package: "swift-crypto")],
+                path: "Tests/CmuxMobileLinkFFILinuxTests"
+            ),
+        ]
+    }
 }
 #endif

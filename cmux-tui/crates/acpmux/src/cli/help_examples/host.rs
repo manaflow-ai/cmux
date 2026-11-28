@@ -47,6 +47,23 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine cells",
+        &[
+            ("See which lane hosts run past their lane cap", "acpmux machine cells"),
+            ("The same as JSON, for a script or a dashboard row", "acpmux machine cells --json"),
+        ],
+    ),
+    (
+        "machine unreachable",
+        &[
+            (
+                "Keep a machine out of the pick after a copy to it failed",
+                "acpmux machine unreachable build-1 --why 'scp: Connection closed'",
+            ),
+            ("Let the pick use it again", "acpmux machine unreachable build-1 --clear"),
+        ],
+    ),
+    (
         "machine dedicated",
         &[
             (
@@ -157,6 +174,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[(
             "Ask to turn screen consent off; a shell is refused, the cmux app changes it",
             "acpmux machine consent revoke --screen",
+        )],
+    ),
+    (
+        "machine grantors",
+        &[(
+            "List the Macs that may switch Control and Screen here",
+            "acpmux machine grantors list",
+        )],
+    ),
+    (
+        "machine grantors list",
+        &[(
+            "List the Macs that may switch Control and Screen here",
+            "acpmux machine grantors list",
+        )],
+    ),
+    (
+        "machine grantors rm",
+        &[(
+            "Stop a Mac's Control and Screen grants here at once",
+            "acpmux machine grantors rm mac-0123456789abcdef",
         )],
     ),
     (
@@ -452,6 +490,49 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine hypervisor",
+        &[
+            (
+                "Run the host agent on this libvirt host",
+                "acpmux machine hypervisor serve --base-image /var/lib/cmux/base.qcow2",
+            ),
+            ("List this host's cmux VMs and their leases", "acpmux machine hypervisor ls"),
+        ],
+    ),
+    (
+        "machine hypervisor serve",
+        &[
+            (
+                "Serve VMs backed by a base image",
+                "acpmux machine hypervisor serve --base-image /var/lib/cmux/base.qcow2",
+            ),
+            (
+                "One pass against the system libvirt, as JSON",
+                "acpmux machine hypervisor serve --connect qemu:///system --once --json",
+            ),
+        ],
+    ),
+    (
+        "machine hypervisor apply",
+        &[
+            (
+                "Queue a VM that is deleted after a day",
+                "cat create.json | acpmux machine hypervisor apply",
+            ),
+            (
+                "Queue a command under your own id",
+                "cat pause.json | acpmux machine hypervisor apply --id pause-a1",
+            ),
+        ],
+    ),
+    (
+        "machine hypervisor ls",
+        &[
+            ("List this host's cmux VMs", "acpmux machine hypervisor ls"),
+            ("List them with their leases as JSON", "acpmux machine hypervisor ls --json"),
+        ],
+    ),
+    (
         "channel",
         &[
             (
@@ -490,5 +571,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux channel open review --text hi --reply",
             ),
         ],
+    ),
+    ("machine vault audit", &[("Audit this machine's vault state", "acpmux machine vault audit")]),
+    (
+        "machine approvals grant",
+        &[("Record a standing pre-grant on this machine", "acpmux machine approvals grant")],
     ),
 ];

@@ -300,6 +300,19 @@ async fn run_with_changes(
     } else {
         None
     };
+    // The relay cache's copy of this Mac's chats for phones to read while it sleeps
+    // (`relay_feed.rs`); only with `LINK_RELAY_CACHE=on` and the app's identity key.
+    let _relay_feed = (crate::relay_feed::enabled() && services.pairing.is_some()).then(|| {
+        AbortTask(tokio::spawn(crate::relay_feed::run(
+            Arc::clone(&services),
+            config.base_url.clone(),
+            config.build_space.clone(),
+            config.device_id.clone(),
+            Arc::clone(&tokens),
+            config.session_exposure.clone(),
+            crate::relay_feed::FeedTiming::default(),
+        )))
+    });
     let mailbox = mailbox_for(&services, config.session_exposure.clone());
     // Phones beside this Mac link through its local hub with no Worker and
     // no internet (local_link.rs); it outlives every Worker reconnect.
@@ -346,6 +359,12 @@ async fn run_with_changes(
         tracing::warn!("test signals on (SIGUSR1 media black hole, SIGUSR2 media kill)");
         crate::media_session::spawn_test_signals();
     }
+    // The LAN direct path (lan.rs): runs whether or not signaling is up, so a
+    // phone on this Mac's network reaches it with the internet down.
+    let _lan =
+        crate::lan::start(Arc::clone(&services), config.include_loopback, config.session_exposure.clone())
+            .await
+            .map(AbortTask);
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);
@@ -443,6 +462,8 @@ async fn connect_once(
     )
     .await
     .context("signaling connect")?;
+    // Relay first (the answers' default): a phone's early `wg-relay` opens its session.
+    signaling.accept_early_relay_cue(DialOptions::default().relay_first);
     // Cancellation on wake/network change must close the old socket and stop
     // its auxiliary tasks; dropping a SignalingClient alone does neither.
     signaling_now.send_replace(Some(signaling.clone()));
@@ -609,6 +630,43 @@ pub fn answer_mailbox(
     });
 }
 
+/// Whether this Mac takes relay-held sends (RFD 0142 R8; `CMUX_MOBILE_RELAY_HOLD=1`, off by default).
+fn relay_hold() -> bool {
+    std::env::var("CMUX_MOBILE_RELAY_HOLD").is_ok_and(|v| v == "1")
+}
+
+/// Relay-held sends on answered session `session_id` (RFD 0142 R8): each `held_item` the relay drains to this
+/// Mac's socket goes through the mailbox like a mailbox frame (its spent ids apply an id once, whichever
+/// route carried it), and every settled one is acked over the relay. Ends with the session.
+pub fn drain_relay_held(session_id: &str, mailbox: Arc<crate::mailbox::Mailbox>) {
+    let Some(ports) = cmux_mobile_link::dial::wireguard::relay_hold_port(session_id, false) else { return };
+    let session = session_id.to_owned();
+    tokio::spawn(cmux_mobile_link::hold_route::drain_held(ports, move |items| {
+        let (mailbox, session) = (Arc::clone(&mailbox), session.clone());
+        async move {
+            let items: Vec<_> = items
+                .into_iter()
+                .map(|item| cmux_mobile_link::signaling::MailboxItem {
+                    id: item.id,
+                    from: item.from,
+                    sealed: item.sealed,
+                    at: None,
+                    seq: None,
+                })
+                .collect();
+            let count = items.len();
+            let handled = mailbox.handle(items, crate::mailbox::now()).await;
+            tracing::info!(
+                session_id = session,
+                held = count,
+                settled = handled.results.len(),
+                "relay-held items"
+            );
+            handled.results.into_iter().map(|result| result.id).collect()
+        }
+    }));
+}
+
 /// Answer every admitted dial on `signaling` until it closes; returns the
 /// close reason.
 pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext) -> String {
@@ -715,7 +773,7 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let mut peer = Peer {
+    let peer = Peer {
         device_id: first.from.clone(),
         session_id: first.session_id.clone(),
         video: None,
@@ -749,6 +807,16 @@ async fn answer_session(
         // video while it works (media_session.rs; CMUX_MOBILE_WEBRTC_MEDIA=0 turns
         // it off).
         webrtc_media: std::env::var("CMUX_MOBILE_WEBRTC_MEDIA").map_or(true, |v| v != "0"),
+        // The corporate network simulations, as on the phone (PROTOCOL.md
+        // "Corporate networks"): CMUX_MOBILE_DEV_DROP_WIREGUARD=1 drops every
+        // WireGuard-shaped UDP datagram, CMUX_MOBILE_DEV_PROXY_ONLY=1 lets
+        // TURN over TLS out only through the system's proxy.
+        drop_wireguard_udp: std::env::var_os("CMUX_MOBILE_DEV_DROP_WIREGUARD").is_some(),
+        egress: cmux_mobile_link::egress::Egress {
+            require_proxy: std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some(),
+            ..Default::default()
+        },
+        block_udp: std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some(),
         // The reliable link (per-channel seq/ack/replay; a dropped carrier
         // resumes): off unless CMUX_MOBILE_RELIABLE=1, and on only when the
         // phone offers it too.
@@ -763,12 +831,28 @@ async fn answer_session(
             return;
         }
     };
+    if let Some(mailbox) = context.mailbox.clone().filter(|_| relay_hold()) {
+        drain_relay_held(&session_id, mailbox);
+    }
     if connected.resumed {
         // A new carrier under a link this phone already has: its channels
         // and services run on, served where it was first answered.
         tracing::info!(session_id, ?kind, phone = peer.device_id, timings = %timeline.summary(), "link resumed");
         return;
     }
+    serve_link(connected, kind, peer, timeline, context.services).await;
+}
+
+/// Serve a link that is up (answered through signaling, or accepted on the
+/// LAN mesh, `lan.rs`) until it closes.
+pub(crate) async fn serve_link(
+    connected: dial::Connected,
+    kind: TransportKind,
+    mut peer: Peer,
+    timeline: Timeline,
+    service_config: Arc<ServiceConfig>,
+) {
+    let session_id = peer.session_id.clone();
     let path = *connected.path.borrow();
     peer.route =
         Some(crate::services::LinkRoute { path: connected.path.clone(), peer: connected.peer.clone() });
@@ -826,7 +910,7 @@ async fn answer_session(
             &peer.device_id,
             video.clone(),
             Arc::clone(&auth),
-            context.services.pairing.is_some(),
+            service_config.pairing.is_some(),
             connected.link.closed_state(),
         )),
         _ => None,
@@ -856,19 +940,14 @@ async fn answer_session(
         }
         // In open order: a channel opened after `auth` waits for it. One
         // `auth` runs at a time per link.
-        if incoming.service == "auth" && context.services.pairing.is_some() && !auth.try_begin() {
+        if incoming.service == "auth" && service_config.pairing.is_some() && !auth.try_begin() {
             tokio::spawn(services::refuse(incoming, "busy", "this iPhone's pairing is already running"));
             continue;
         }
-        if incoming.service == "auth" && context.services.pairing.is_none() {
+        if incoming.service == "auth" && service_config.pairing.is_none() {
             auth.begin();
         }
-        tokio::spawn(services::serve(
-            Arc::clone(&context.services),
-            peer.clone(),
-            Arc::clone(&auth),
-            incoming,
-        ));
+        tokio::spawn(services::serve(Arc::clone(&service_config), peer.clone(), Arc::clone(&auth), incoming));
     }
     let reason = connected.link.closed().await;
     path_watch.abort();

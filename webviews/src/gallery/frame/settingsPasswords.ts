@@ -4,6 +4,7 @@ import type { PageFixtureStep, PasswordsPageVariant, SettingsPageVariant } from 
 import type { SettingsClient } from "../../pages/settings/ops";
 import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
+import { lookSettingsValues, schemeOf } from "../golden/look";
 
 async function bridge(client: SettingsClient, ops: string[], streams: string[]) {
   const host = installMockHost(
@@ -79,6 +80,9 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   installCatalog(table);
   document.documentElement.lang = context.env.locale;
   const options = structuredClone(state.options ?? {});
+  // Under a whole look (golden/look.ts), the values it puts in effect for this scheme, as the app lists them.
+  const lookScheme = schemeOf(context.env.colorScheme);
+  if (state.look) options.values = { ...lookSettingsValues(state.look, lookScheme), ...options.values };
   const themes = state.allThemes ? (await import("virtual:cmux-gallery/themes")).default : [];
   if (state.allThemes) {
     // The app publishes every bundled Ghostty theme and answers their colors.
@@ -86,13 +90,22 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
     options.domains = { ...mockDomains, ...options.domains, themes: themes.map((theme) => theme.name) };
   }
   const mock = createMockClient(options);
-  if (state.allThemes) mock.provider.themeColors = themes;
+  // Under a look, its named theme answers with the theme file's colors over it (the stage's theme).
+  if (state.allThemes)
+    mock.provider.themeColors = state.look
+      ? themes.map((theme) => (theme.name === context.theme.name ? context.theme : theme))
+      : themes;
   mock.provider.host = { ...mock.provider.host, ...structuredClone(state.host ?? {}) };
   // The stage's own window theme stands in for the user's Ghostty config, as the app sends the
   // colors in effect while appearance.theme is unset.
   if (mock.provider.host.theme) {
     const config = { ...context.theme, name: "" };
-    mock.provider.host = { ...mock.provider.host, theme: { ...mock.provider.host.theme, config } };
+    // Under a look its theme file's theme is the app-wide one (the appearance.theme value): no space overrides it.
+    const current = state.look ? { room: null, workspace: null, terminal: null } : undefined;
+    mock.provider.host = {
+      ...mock.provider.host,
+      theme: { ...mock.provider.host.theme, config, ...(current && { current }) },
+    };
   }
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
   if (state.environments) mock.provider.environments = structuredClone(state.environments);
@@ -105,6 +118,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   if (state.keys) mock.provider.keys = structuredClone(state.keys);
   if (state.keys) mock.provider.keys = structuredClone(state.keys);
   if (state.hub) mock.provider.hub = structuredClone(state.hub);
+  if (state.tokens) mock.provider.tokens = structuredClone(state.tokens);
   if (state.autocloud) mock.provider.autocloud = structuredClone(state.autocloud);
   if (state.connections) mock.provider.connections = structuredClone(state.connections);
   if (state.activeTeam && mock.provider.accounts.teams) {
@@ -116,6 +130,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   }
   if (state.tailnet !== undefined) mock.provider.tailnet = structuredClone(state.tailnet);
   if (state.models !== undefined) mock.provider.models = structuredClone(state.models);
+  if (state.modelsLoading) mock.provider.modelsReadHold = new Promise(() => {});
+  if (state.modelAccessChecking) mock.provider.holdModelAccess = new Promise(() => {});
   if (state.agents) mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(state.agents) };
   if (state.endpoint)
     mock.provider.agents.endpoint = { ...mock.provider.agents.endpoint, ...structuredClone(state.endpoint) };

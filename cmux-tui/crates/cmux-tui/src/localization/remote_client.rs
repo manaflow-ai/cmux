@@ -114,6 +114,9 @@ pub(crate) struct RemoteClientMessages {
     pub(super) cp_remote_absolute: &'static str,
     pub(super) cp_directory: &'static str,
     pub(super) cp_not_a_file: &'static str,
+    pub(super) cp_remote_not_found: &'static str,
+    pub(super) cp_local_not_found: &'static str,
+    pub(crate) cp_remote_machine: &'static str,
     pub(super) cp_hash_mismatch: &'static str,
     pub(super) cp_remote_step_failed: &'static str,
     pub(super) remote_unexpected_response: &'static str,
@@ -152,6 +155,15 @@ impl RemoteClientMessages {
 
     pub(crate) fn cp_not_a_file(&self, path: &str) -> String {
         self.cp_not_a_file.replace("{path}", path)
+    }
+
+    /// A remote `path` that does not exist on `host` (the route's host, or the route).
+    pub(crate) fn cp_remote_not_found(&self, host: &str, path: &str) -> String {
+        self.cp_remote_not_found.replace("{host}", host).replace("{path}", path)
+    }
+
+    pub(crate) fn cp_local_not_found(&self, path: &str) -> String {
+        self.cp_local_not_found.replace("{path}", path)
     }
 
     pub(crate) fn cp_hash_mismatch(&self, path: &str) -> String {
@@ -383,6 +395,9 @@ OPTIONS:
   --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
 the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
+  --repo LOCAL[:REMOTE] once connected, puts LOCAL's repo at REMOTE on the host
+over this link: the git carry pack at your commit with uncommitted work, else a
+clone, else a copy (REMOTE defaults to ~/<LOCAL's folder name>)
   --upgrade explicitly replaces an SSH-managed remote sidecar; terminal panes
 survive, remote clients and forwards disconnect, RPC processes stop, and
 other RPC resources reset
@@ -496,6 +511,7 @@ for up to two relay fallbacks
     known_daemon_refresh_missing: "known daemon disappeared while refreshing its route",
     positional_invitation_rejected: "positional invitations are not accepted; use --invite-file or stdin",
     connect_one_route: "connect accepts one route",
+    // retry-prompt-ok: names the --reconnect-* flags' values, no instruction to reconnect
     reconnect_policy_invalid: "reconnect delays, attempt timeout, and enabled heartbeat timeout must be positive; max delay must be at least initial",
     upgrade_no_install: "--upgrade cannot be combined with --no-install",
     upgrade_forced_command: "--upgrade cannot be combined with --ssh-forced-command: that key runs only remote-link, so nothing can be installed over it",
@@ -596,10 +612,13 @@ EXAMPLES:
     exec_output_lost: "cmux: some remote output was lost (the daemon dropped it before it was read)",
     exec_output_truncated: "cmux: remote output was cut short: {reason}",
     cp_usage: "USAGE: cmux remote cp [ROUTE] [OPTIONS] SRC DST, where exactly one of SRC and DST is remote:PATH",
-    cp_one_remote: "exactly one of SRC and DST must be remote:PATH",
+    cp_one_remote: "exactly one of SRC and DST must be remote:PATH, for example `cmux remote cp box ./build.tar remote:/srv/app/build.tar` or `cmux remote cp box remote:/var/log/app.log ./`",
     cp_remote_absolute: "remote path must be absolute: remote:{path}",
     cp_directory: "{path} is a directory; cp copies files. Copy a tree with `cmux remote exec -- tar` (see `cmux remote cp --help`)",
     cp_not_a_file: "{path} is not a regular file",
+    cp_remote_not_found: "remote file not found on {host}: {path}",
+    cp_local_not_found: "local file not found: {path}",
+    cp_remote_machine: "the remote machine",
     cp_hash_mismatch: "{path} arrived with a different SHA-256 than was sent",
     cp_remote_step_failed: "remote {step} exited with status {status}: {stderr}",
     remote_unexpected_response: "the daemon answered {request} with an unexpected response",
@@ -679,6 +698,9 @@ ID とセッション:
   --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
 コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
+  --repo ローカル[:リモート]  接続後、このリンク経由でローカルのリポジトリをホストの
+リモートに置きます。未コミットの変更を含む git キャリーパック、だめならクローン、
+さらにだめならコピー (リモートの既定は ~/<ローカルのフォルダー名>)
   --upgrade は SSH 管理のサイドカーを明示的に置換します。ターミナルペインは維持され、
 リモートクライアントと転送は切断され、RPC プロセスなどの状態はリセットされます。
   --state-dir パス  --local-socket パス  --connect-timeout-seconds 秒数
@@ -889,10 +911,13 @@ N で終了したときは 128+N、接続やこの CLI が失敗したときは 
     exec_output_lost: "cmux: リモート出力の一部が失われました (読み取る前にデーモンが破棄しました)",
     exec_output_truncated: "cmux: リモート出力が途中で切れました: {reason}",
     cp_usage: "使用方法: cmux remote cp [ルート] [オプション] コピー元 コピー先 (ちょうど一方を remote:パス にします)",
-    cp_one_remote: "コピー元とコピー先のちょうど一方を remote:パス にしてください",
+    cp_one_remote: "コピー元とコピー先のちょうど一方を remote:パス にしてください (例: `cmux remote cp box ./build.tar remote:/srv/app/build.tar` または `cmux remote cp box remote:/var/log/app.log ./`)",
     cp_remote_absolute: "リモートパスは絶対パスにしてください: remote:{path}",
     cp_directory: "{path} はディレクトリです。cp はファイルをコピーします。ツリーは `cmux remote exec -- tar` でコピーしてください (`cmux remote cp --help`)",
     cp_not_a_file: "{path} は通常のファイルではありません",
+    cp_remote_not_found: "{host} にリモートファイルが見つかりません: {path}",
+    cp_local_not_found: "ローカルファイルが見つかりません: {path}",
+    cp_remote_machine: "リモートマシン",
     cp_hash_mismatch: "{path} の SHA-256 が送信したものと一致しません",
     cp_remote_step_failed: "リモートの {step} が終了コード {status} で終了しました: {stderr}",
     remote_unexpected_response: "デーモンが {request} に予期しない応答を返しました",

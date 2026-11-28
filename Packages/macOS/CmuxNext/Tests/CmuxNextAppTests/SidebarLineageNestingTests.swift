@@ -1,14 +1,15 @@
 import AppKit
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextDesign
+@testable import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
 
 /// Leo 2026-10-21 (ask-18a79e54a3): "A LOT OF THESE SESSIONS ID IMAGINE DIDNT NECESSSARILY NEED TO SHOW UP ON THE SIDE
-/// BY DEFAULT". Lineage nesting is on by default: a workspace an agent started lists under the workspace whose agent
-/// started it, at any depth; a parent below the top level starts folded behind a count. A Debug toggle
-/// (`sidebar.lineageNesting`) turns it off.
+/// BY DEFAULT"; 2026-11-25, about the nested helper sessions: "idk who asked for those in teh sidebar. it's weird".
+/// Agent-started sessions hide by default, with selected and needs-you exceptions, while lineage nesting stays
+/// controlled by the session-tree setting. A parent below the top level starts folded behind a count.
 @MainActor @Suite(.serialized) struct SidebarLineageNestingTests {
     private static let coordinator = WorkspaceID("coordinator"), lane = WorkspaceID("lane"), sub = WorkspaceID("sub")
     private static let reviewer = WorkspaceID("reviewer"), mine = WorkspaceID("mine")
@@ -191,6 +192,8 @@ import Testing
     /// Lineage nesting alone (the tree state set, `sidebar.sessionTree` off) draws no keycaps.
     @Test func nestingAloneDrawsNoKeycaps() {
         SidebarSessionTree.shared.state = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator])
+        SidebarSessionTree.shared.showsStartedOverride = true
+        defer { SidebarSessionTree.shared.showsStartedOverride = nil }
         let savedTree = DesignSettings.shared.sidebarSections.sessionTree
         DesignSettings.shared.sidebarSections.sessionTree = false
         defer {
@@ -218,7 +221,7 @@ import Testing
         #expect(model.listsHolding(Self.lane).count == 2)
         #expect(model.listsHolding(Self.sub).count == 1)
         let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator, Self.sub: Self.lane])
         // In the group, sub draws under lane at depth 1, and lane is a root there (open): sub is visible.
         #expect(tree.drawn?.hidesInFold(Self.sub, lists: model.listsHolding(Self.sub)) == false)
@@ -237,7 +240,7 @@ import Testing
         #expect(SidebarView.revealsSelection(selectionChanged: true, from: lineage, to: lineage))
         // Before the feed's first pass reveal does nothing; once the lineage is in, the same reveal opens the folds.
         let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.reveal(Self.reviewer, lists: [{ _ in true }])
         #expect(tree.opened.isEmpty)
         tree.state = lineage
@@ -248,7 +251,7 @@ import Testing
     /// A drag can move the current selection into a new list without changing its identity or lineage.
     @Test func movingTheSelectionIntoADeepListRevealsItButManualFoldsStay() {
         let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: Self.parents)
         var separate = Self.sections([Self.coordinator, Self.lane, Self.sub])
         separate[0].nodes.append(.group(SidebarGroup(id: GroupID("reviewers"), name: "Reviewers", workspaces: [
@@ -289,7 +292,7 @@ import Testing
     /// made above the selection stays closed (router review on #28103: any spawn reopened it).
     @Test func anUnrelatedSpawnOrCloseKeepsAFoldAboveTheSelection() {
         let other = WorkspaceID("other")
-        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard)
+        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard, showsStarted: true)
         let model = SidebarModel(sections: Self.sections([Self.coordinator, Self.lane, Self.sub, Self.reviewer, Self.mine, other]))
         var reveal = SidebarSelectionTreeReveal()
         tree.state = SidebarSessionTreeState(parents: Self.parents)
@@ -317,7 +320,7 @@ import Testing
 
     /// The selected row moved under a folded ancestor (its own chain changed): the folds above it open.
     @Test func reparentingTheSelectionUnderAFoldRevealsIt() {
-        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard)
+        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard, showsStarted: true)
         let model = SidebarModel(sections: Self.sections([Self.coordinator, Self.lane, Self.mine]))
         var reveal = SidebarSelectionTreeReveal()
         tree.state = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator])
@@ -338,7 +341,7 @@ import Testing
     /// The lineage's first arrival (the feed starts after restored windows) reveals the selection, past a fold kept
     /// from the last launch.
     @Test func theFirstLineageRevealsTheSelection() {
-        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard)
+        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard, showsStarted: true)
         tree.toggle(Self.coordinator)
         let model = SidebarModel(sections: Self.sections([Self.coordinator, Self.lane, Self.sub]))
         var reveal = SidebarSelectionTreeReveal()
@@ -360,13 +363,13 @@ import Testing
     /// The row's chevron toggles from what it draws: a deep parent starts folded, so its first press opens it.
     @Test func togglingADeepParentOpensItAndPersists() {
         let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: Self.parents)
         #expect(tree.drawn?.foldsDeep == true)
         #expect(tree.drawn?.isFolded(Self.lane, depth: 1) == true)
         tree.toggle(Self.lane, folded: true)
         #expect(tree.drawn?.isFolded(Self.lane, depth: 1) == false)
-        #expect(SidebarSessionTree(defaults: defaults).opened == [Self.lane]) // the next launch
+        #expect(SidebarSessionTree(defaults: defaults, showsStarted: true).opened == [Self.lane]) // the next launch
         tree.toggle(Self.lane, folded: false)
         #expect(tree.drawn?.isFolded(Self.lane, depth: 1) == true)
         #expect(tree.opened.isEmpty)
@@ -375,7 +378,7 @@ import Testing
     /// Selecting a session a deep fold hides opens the folds above it.
     @Test func revealOpensDeepAncestors() {
         let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: Self.parents)
         let oneList: [(WorkspaceID) -> Bool] = [{ _ in true }]
         #expect(tree.drawn?.hidesInFold(Self.reviewer, lists: oneList) == true)
@@ -388,7 +391,7 @@ import Testing
     /// selecting it opens nothing in the other list. A cycle nests nothing either.
     @Test func aParentInAnotherListOrACycleHidesAndOpensNothing() {
         let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: Self.parents)
         // sub is listed apart from lane (another group); lane and coordinator share a list.
         let list1: [(WorkspaceID) -> Bool] = [{ $0 == Self.sub || $0 == Self.reviewer }]
@@ -404,11 +407,9 @@ import Testing
         #expect(tree.opened.isEmpty && tree.collapsed.isEmpty)
     }
 
-    /// The Debug toggle: on by default; off, the feed's tree keeps no parents, so every workspace is top level,
-    /// while `sidebar.sessionTree`'s other parts still show. Nesting alone asks GitHub nothing.
-    @Test func theToggleTurnsNestingOff() {
-        #expect(SidebarTunables.lineageNesting.defaultValue == true)
-        #expect(SidebarTunables.all.contains { $0.key == SidebarTunables.lineageNesting.key })
+    /// The feed's shaping: nesting keeps the parents and asks GitHub nothing; `nests` false (no caller passes it now:
+    /// the lineage always runs, to nest or to hide) keeps none. Nesting with no lineage shows no tree.
+    @Test func theFeedShapesTheLineage() {
         let pass = SidebarSessionTreeFeed.Pass(state: SidebarSessionTreeState(parents: Self.parents), asks: [])
         let nesting = SidebarSessionTreeFeed.shaped(pass, sessionTree: false, nests: true, reads: false)
         #expect(nesting.showsTree && !nesting.readsPullRequests)
@@ -422,5 +423,137 @@ import Testing
         let none = SidebarSessionTreeFeed.Pass(state: SidebarSessionTreeState(parents: [:]), asks: [])
         #expect(!SidebarSessionTreeFeed.shaped(none, sessionTree: false, nests: true, reads: false).showsTree)
         #expect(SidebarSessionTreeFeed.shaped(none, sessionTree: true, nests: true, reads: false).showsTree)
+    }
+
+    // MARK: Sessions started by agents hide by default (Leo 2026-11-25, about the nested helper sessions: "idk who
+    // asked for those in teh sidebar. it's weird")
+
+    /// The default: `sidebar.showAgentSessions` is off, a regular setting (no Debug tunable), and the shared tree
+    /// reads it, so every agent-started session draws no row; the person's own rows draw as before.
+    @Test func agentStartedSessionsHideByDefault() {
+        #expect(SidebarSectionsPreferences().showAgentSessions == false)
+        #expect(SidebarSectionsPreferences.defaults.showAgentSessions == false)
+        #expect(!SidebarTunables.all.contains { $0.key == "sidebar.lineageNesting" })
+        let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
+        let tree = SidebarSessionTree(defaults: defaults) // no override: the person's setting
+        let saved = DesignSettings.shared.sidebarSections.showAgentSessions
+        DesignSettings.shared.sidebarSections.showAgentSessions = false
+        defer { DesignSettings.shared.sidebarSections.showAgentSessions = saved }
+        tree.state = SidebarSessionTreeState(parents: Self.parents)
+        #expect(tree.drawn?.hidesStarted == true)
+        let drawn = Self.rows(Self.sections([Self.reviewer, Self.mine, Self.sub, Self.coordinator, Self.lane]), tree: tree.drawn)
+        #expect(drawn.map(\.id) == [Self.mine, Self.coordinator])
+        #expect(drawn.allSatisfy { $0.content.treeDepth == 0 && $0.content.treeFold == nil && $0.content.rollUp == nil })
+        // In a group too: the members an agent started draw no row.
+        let group = SidebarGroup(id: GroupID("g"), name: "g", workspaces: [SidebarWorkspace(id: Self.coordinator, title: "c"),
+                                                                        SidebarWorkspace(id: Self.lane, title: "l"),
+                                                                        SidebarWorkspace(id: Self.mine, title: "m")])
+        let grouped = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [.group(group)])]
+        #expect(Self.rows(grouped, tree: tree.drawn).map(\.id) == [Self.coordinator, Self.mine])
+        // A filter finds them all.
+        let found = Self.rows(Self.sections([Self.coordinator, Self.lane]), tree: tree.drawn) {
+            $0.filterMatches = [Self.coordinator, Self.lane]
+        }
+        #expect(found.map(\.id) == [Self.coordinator, Self.lane])
+        #expect(found.allSatisfy { $0.content.treeDepth == 0 }, "a found helper draws flat, not under its parent")
+    }
+
+    /// A session that needs the person (a permission or a question: blocked) never hides: it draws as its own top-level
+    /// row, and its agent-started ancestors stay hidden (Leo 2026-11-27: no nesting under the parent). A session that
+    /// only runs, failed or finished stays hidden. Its row's own hook state counts as well as acpmux's lane state.
+    @Test func aSessionThatNeedsYouStaysVisible() {
+        var tree = SidebarSessionTreeState(parents: Self.parents, states: [Self.reviewer: .blocked, Self.sub: .running],
+                                           foldsDeep: true, hidesStarted: true)
+        let order = Self.sections([Self.coordinator, Self.lane, Self.sub, Self.reviewer, Self.mine])
+        let drawn = Self.rows(order, tree: tree)
+        #expect(drawn.map(\.id) == [Self.coordinator, Self.reviewer, Self.mine])
+        #expect(drawn.map(\.content.treeDepth) == [0, 0, 0])
+        // Open: nothing folds while agent-started rows hide, so no fold can hide the one waiting.
+        #expect(drawn.allSatisfy { $0.content.treeFold == nil && $0.content.rollUp == nil })
+        tree.states = [Self.reviewer: .failed, Self.sub: .running, Self.lane: .finishedUnread]
+        #expect(Self.rows(order, tree: tree).map(\.id) == [Self.coordinator, Self.mine])
+        // A terminal agent's hook says it waits (no lane): the row stays.
+        tree.states = [:]
+        var waiting = order
+        waiting[0].nodes[1] = .workspace({ var ws = SidebarWorkspace(id: Self.lane, title: "lane"); ws.activity = .waiting; return ws }())
+        let waitingRows = Self.rows(waiting, tree: tree)
+        #expect(waitingRows.map(\.id) == [Self.coordinator, Self.lane, Self.mine])
+        #expect(waitingRows.map(\.content.treeDepth) == [0, 0, 0])
+        // A known idle lane wins over a stale hook-level waiting state after the layout shape filters ordinary lane
+        // states. The helper stays hidden instead of reappearing because its hook has not cleared yet.
+        var staleHook = Self.sections([Self.coordinator, Self.lane])
+        staleHook[0].nodes[1] = .workspace({ var ws = SidebarWorkspace(id: Self.lane, title: "lane"); ws.activity = .waiting; return ws }())
+        let idleLane = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator],
+                                               pullRequests: [Self.lane: SidebarPullRequestBadge(count: 1, status: .attention)],
+                                               states: [Self.lane: .idle], hidesStarted: true)
+        #expect(idleLane.shape.pullRequests.isEmpty)
+        #expect(Self.rows(staleHook, tree: idleLane.shape).map(\.id) == [Self.coordinator])
+        // The row index lays the list out again when a hidden row starts or stops waiting, not on its other changes.
+        let idle = SidebarWorkspace(id: Self.lane, title: "lane")
+        var asks = idle
+        asks.activity = .waiting
+        var stepped = idle
+        stepped.title = "lane, step 2"
+        #expect(tree.patchChangesHidden(from: idle, to: asks))
+        #expect(tree.patchChangesHidden(from: asks, to: idle))
+        #expect(!tree.patchChangesHidden(from: idle, to: stepped))
+        tree.hidesStarted = false
+        #expect(!tree.patchChangesHidden(from: idle, to: asks))
+    }
+
+    /// A state-only transition keeps the cheap state path for ordinary work, but a hidden helper becoming blocked
+    /// changes the drawn row set and therefore advances the shape revision used by sidebar observation.
+    @Test func blockedStateChangesTheHiddenRowsShape() {
+        let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: false)
+        tree.state = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator], states: [Self.lane: .running])
+        let initialShape = tree.shapeRevision
+        let initialStates = tree.statesRevision
+        tree.state?.states[Self.lane] = .idle
+        #expect(tree.shapeRevision == initialShape)
+        #expect(tree.statesRevision > initialStates)
+        let beforeBlocked = tree.shapeRevision
+        tree.state?.states[Self.lane] = .blocked
+        #expect(tree.shapeRevision > beforeBlocked)
+        #expect(tree.drawn?.needsPerson == [Self.lane])
+    }
+
+    /// Selecting a hidden session (Command-K, a notification, the needs-you tray, Go to Chat from its parent chat's
+    /// list) shows it as its own top-level row while it stays selected, never under its parent; selecting a person's
+    /// row changes nothing drawn.
+    @Test func aSelectedHiddenSessionShowsAsItsOwnRow() {
+        let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: false)
+        tree.state = SidebarSessionTreeState(parents: Self.parents)
+        let order = Self.sections([Self.coordinator, Self.lane, Self.sub, Self.reviewer, Self.mine])
+        #expect(tree.drawn(keeping: [Self.mine]) == tree.drawn)
+        let shown = Self.rows(order, tree: tree.drawn(keeping: [Self.sub]))
+        #expect(shown.map(\.id) == [Self.coordinator, Self.sub, Self.mine])
+        #expect(shown.map(\.content.treeDepth) == [0, 0, 0])
+        #expect(Self.rows(order, tree: tree.drawn).map(\.id) == [Self.coordinator, Self.mine])
+    }
+
+    /// The toggle on (`sidebar.showAgentSessions`) brings back the nesting as it was: agent-started sessions under
+    /// their parents, a parent below the top level folded behind its count.
+    @Test func theToggleBringsBackTheNesting() {
+        let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
+        let tree = SidebarSessionTree(defaults: defaults)
+        let saved = DesignSettings.shared.sidebarSections.showAgentSessions
+        defer { DesignSettings.shared.sidebarSections.showAgentSessions = saved }
+        tree.state = SidebarSessionTreeState(parents: Self.parents)
+        DesignSettings.shared.sidebarSections.showAgentSessions = true
+        #expect(tree.drawn?.hidesStarted == false)
+        let drawn = Self.rows(Self.sections([Self.reviewer, Self.mine, Self.sub, Self.coordinator, Self.lane]), tree: tree.drawn)
+        #expect(drawn.map(\.id) == [Self.mine, Self.coordinator, Self.lane])
+        #expect(drawn.map(\.content.treeDepth) == [0, 0, 1])
+        #expect(drawn.last?.content.treeFold == .collapsed)
+        DesignSettings.shared.sidebarSections.showAgentSessions = false
+        #expect(Self.rows(Self.sections([Self.reviewer, Self.mine, Self.sub, Self.coordinator, Self.lane]), tree: tree.drawn).map(\.id)
+            == [Self.mine, Self.coordinator])
+    }
+
+    /// The setting's generated default (schemas/settings/source/sidebar.json) is off: hidden.
+    @Test func theSettingDefaultsOff() {
+        #expect(SidebarSectionsSetting.showAgentSessionsDefault == false)
     }
 }

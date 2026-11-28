@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { causeOf, phasesOf, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
+import { causeOf, pauseWithReconciliation, phasesOf, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
 
 const cycle = (i: number, ok: boolean, marks: WakeCycle["marks_ms"]): WakeCycle => ({
   i, ok, error: ok ? "" : "boom", at: "", paused_ms: 1, answered_ms: 1, first_exec_ms: 1, offset_ms: 0, offset_rtt_ms: 1, offset_pre_ms: 0,
@@ -74,6 +74,103 @@ test("start retries an indeterminate answer with the same key, and a pausing ref
   await expect(startWithRetry(async () => ({ status: 200, body: { ok: false, error: { code: "cloud.machine.not_found", retryable: false } } }), () => "k", async () => "paused", 60_000, sleep, () => t)).rejects.toThrow(/not_found/);
 });
 
+test("pause reconciliation reads the same machine after an indeterminate answer without a second mutation", async () => {
+  let now = 0;
+  const states = ["pausing", "paused"];
+  let requests = 0;
+  const result = await pauseWithReconciliation(
+    async () => { requests++; return { status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } }; },
+    async () => states.shift() ?? "paused",
+    0,
+    1000,
+    () => now,
+    async (ms) => { now += ms; },
+  );
+  expect(requests).toBe(1);
+  expect(result).toEqual({ pausedMs: 500, warnings: ["pause response mutation.indeterminate; reconciled by machine status"] });
+});
+
+test("pause reconciliation keeps an indeterminate pause failed when it is still pausing at the deadline", async () => {
+  let now = 0;
+  let requests = 0;
+  await expect(pauseWithReconciliation(
+    async () => { requests++; return { status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } }; },
+    async () => "pausing",
+    0,
+    1000,
+    () => now,
+    async (ms) => { now += ms; },
+  )).rejects.toThrow(/pause did not land/);
+  expect(requests).toBe(1);
+});
+
+test("pause reconciliation surfaces a refusal without reading or mutating again", async () => {
+  let reads = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 503, body: { ok: false, error: { code: "owner.unreachable", retryable: true } } }),
+    async () => { reads++; return "paused"; },
+    0,
+    1000,
+  )).rejects.toThrow(/HTTP 503/);
+  expect(reads).toBe(0);
+});
+
+test("pause reconciliation does not accept a paused read after the original deadline", async () => {
+  let now = 1000;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: true } }),
+    async () => "paused",
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/pause did not land/);
+});
+
+test("pause reconciliation rejects a paused read that crosses the deadline", async () => {
+  let now = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: true } }),
+    async () => { now = 1001; return "paused"; },
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/pause did not land/);
+});
+
+test("pause reconciliation keeps indeterminate evidence when status readback fails", async () => {
+  let now = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } }),
+    async () => { now = 1001; throw new Error("owner unreachable"); },
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/mutation\.indeterminate.*status reconciliation failed/);
+});
+
 test("a probe gap that ended before wake_at fails the cycle as the harness's, never counted as an echo", () => {
   expect(causeOf({ error: "the probe's gap ended 9517 ms before wake_at: not this wake", guest: null })).toBe("probe fired before the wake (harness)");
+});
+
+test("wake on intent: the key lands lead ms after the wake; before ready it waits for echo, after it takes the echo phase", async () => {
+  const { keyToEcho, intentArms, falseWakeCost, intentMarkdown } = await import("./cloud-wake-echo.ts");
+  const c = { ...cycle(0, true, { resumed: 3000, pty_attach: 3400, input: 3400, echo: 3450 }), arm: "off" as const, answered_ms: 1000, paused_ms: 2000 };
+  c.phases = { ...c.phases, restore: 3000 };
+  // Baseline: the typing prewarm wakes at the key: wake-to-first-echo.
+  expect(keyToEcho(c, 0)).toBe(3450);
+  // A key 1 s after the hint waits for the guest: 2.45 s.
+  expect(keyToEcho(c, 1000)).toBe(2450);
+  // A key after the guest is ready sees only the echo phase.
+  expect(keyToEcho(c, 5000)).toBe(50);
+  expect(keyToEcho({ ...c, ok: false }, 1000)).toBeNull();
+  const on = { ...c, i: 1, arm: "on" as const, marks_ms: { ...c.marks_ms, echo: 2450, input: 2400 } };
+  const arms = intentArms([c, on], 1000);
+  expect(arms.map((a) => [a.arm, a.n, a.p50])).toEqual([["baseline", 1, 3450], ["prefetch", 1, 2450], ["wake-on-intent", 1, 2450], ["both", 1, 1450]]);
+  // Wait to running (3 - 1 s) + the 30 s bound + the 2 s pause.
+  expect(falseWakeCost([c]).p50).toBe(34000);
+  expect(intentMarkdown([c, on], [1000])).toContain("| 1.00 | both | 1 | 1.45 | 1.45 | 0/1 |");
+  expect(wakeEchoMarkdown([c, on], {})).toContain("Wake on intent");
 });

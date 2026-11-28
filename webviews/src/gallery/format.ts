@@ -16,7 +16,6 @@ import type { DiffCommentRecord, DiffReviewTarget } from "../comments/types";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
-import type { ProviderRow } from "../pages/coderouter/types";
 import type { ReleaseNotes } from "../pages/changelog/types";
 import type { PickerSession } from "../pages/icon-picker/host";
 import type { EditorFile, ReadOnlyReason } from "../pages/editor/host";
@@ -48,9 +47,10 @@ import type {
   ModelsState,
   LibraryListing,
   HubState,
-  AutocloudState,
   DoctorReport,
+  AutocloudState,
   ConnectionsState,
+  DeveloperTokensState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -85,6 +85,8 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Developer fixture state; default the mock's (two personal tokens). */
+  tokens?: DeveloperTokensState;
   /** Settings > Automations fixture state; default the mock's (three automations, one failed run). */
   autocloud?: AutocloudState;
   /** Settings > Connections fixture state; default the mock's (Linear and Sentry connected). */
@@ -95,6 +97,10 @@ export type SettingsPageVariant = VariantBase & {
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
   models?: ModelsState | null;
+  /** Hold the connection list in flight while the Cloud page draws its loading rows. */
+  modelsLoading?: boolean;
+  /** Hold a provider check while its form draws the checking state. */
+  modelAccessChecking?: boolean;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello
@@ -290,9 +296,6 @@ export type AgentPaneVariant = VariantBase & {
   /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
    *  in progress (New Worktree's "Creating worktree…"). */
   nativeDelayMs?: Record<string, number>;
-  /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
-   *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
-  sessionStatus?: boolean;
   /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
    *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
   display?: Record<string, unknown>;
@@ -332,6 +335,8 @@ export type MarkdownPageVariant = VariantBase & {
   files?: Record<string, string>;
   /** Opens find (the `find` page command, Cmd-F) with this query once the document shows. */
   find?: string;
+  /** The link to cmux stays down: every config read fails as the bridge does. */
+  disconnected?: boolean;
 };
 
 /** One file of a diff fixture: the text before (absent for a new file) and after (absent when deleted). */
@@ -430,6 +435,10 @@ export type CloudPageVariant = VariantBase & {
   spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
   /** The member's own monthly budget is spent: a start or create is refused. */
   memberBudget?: { spent_usd: number; limit_usd: number };
+  /** The plan's hours and spend limit (RFD 0081); set, the variant turns the default-off switch on. */
+  pool?: import("../pages/cloud/pool").PoolStanding;
+  /** The spend limit's setter is refused: the caller is not a team admin. */
+  spendLimitForbidden?: boolean;
   /** The latest surge the list's last page reports (the surge card on Machines). */
   surge?: import("../pages/cloud/ops").CloudSurge;
   /** The app's billing read: the latest payment failed (true), or the read fails ("fail"). */
@@ -440,14 +449,6 @@ export type CloudPageVariant = VariantBase & {
   planId?: string;
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
-};
-
-/** The CodeRouter page on an in-page cmuxPage host serving account and provider rows. */
-export type CodeRouterPageVariant = VariantBase & {
-  mode?: "normal" | "loading" | "error";
-  error?: { code: string; message: string };
-  signedIn?: boolean;
-  providers: ProviderRow[];
 };
 
 /** The changelog page on an in-page cmuxPage host serving verified release notes. */
@@ -522,6 +523,9 @@ export type KeybindingsPageVariant = VariantBase & {
 /** A React component with props, for components no page host draws on its own. */
 export type ComponentVariant<P> = VariantBase & {
   props: P;
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  component loads: a variant about one arm's look keeps it when the default moves. */
+  experiments?: Record<string, string>;
   /** Gallery-only answers for the component's reply chip/preview host calls. */
   chipHost?: ChipHostFixture;
 };
@@ -578,7 +582,6 @@ export type MarkdownPageEntry = EntryBase<MarkdownPageVariant> & { host: "markdo
 export type DiffPageEntry = EntryBase<DiffPageVariant> & { host: "diff-page" };
 export type AppsPageEntry = EntryBase<AppsPageVariant> & { host: "apps-page" };
 export type CloudPageEntry = EntryBase<CloudPageVariant> & { host: "cloud-page" };
-export type CodeRouterPageEntry = EntryBase<CodeRouterPageVariant> & { host: "coderouter-page" };
 export type ChangelogPageEntry = EntryBase<ChangelogPageVariant> & { host: "changelog-page" };
 export type IconPickerPageEntry = EntryBase<IconPickerPageVariant> & { host: "icon-picker-page" };
 export type EditorPageEntry = EntryBase<EditorPageVariant> & { host: "editor-page" };
@@ -607,7 +610,6 @@ export type GalleryEntry =
   | DiffPageEntry
   | AppsPageEntry
   | CloudPageEntry
-  | CodeRouterPageEntry
   | ChangelogPageEntry
   | IconPickerPageEntry
   | EditorPageEntry
@@ -627,7 +629,6 @@ export {
   diffPageEntry,
   appsPageEntry,
   cloudPageEntry,
-  codeRouterPageEntry,
   changelogPageEntry,
   iconPickerPageEntry,
   editorPageEntry,

@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
@@ -20,12 +22,13 @@ final class SettingsPageProvider: PageProvider {
     private let settings: SettingsController
     /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`).
     private let domains: @MainActor () -> [String: [String]]
-    /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
-    /// in tests without an app.
-    private let hostLists: (@MainActor () -> JSONValue)?
+    /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles), by
+    /// section (``SettingsHostSection``); nil in tests without an app.
+    private let hostSections: [SettingsHostSection]?
     /// The Accounts part of the page (R82 commit 3): its state, and one gesture; nil in tests
     /// without an app.
     var accountsState: (@MainActor () -> JSONValue)?
+    var loadSignInAccounts: (@MainActor () async -> Void)?
     var accountsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Settings > Agents (BRING-YOUR-OWN-HARNESS): the harness list and its gestures; nil in tests
     /// without an app.
@@ -39,8 +42,9 @@ final class SettingsPageProvider: PageProvider {
     /// tests without an app.
     var devicesState: (@MainActor () -> JSONValue)?
     /// Settings > Accounts > Cloud Environments (``CloudEnvironmentsSettings``).
-    var environmentsState: (@MainActor () -> JSONValue)?
-    var environmentsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    var environments: CloudEnvironmentsSettings?
+    /// Settings > Cloud > Compute (``CloudAllotmentPage``): only the read; `cmux.settings.cloud.allotment.set` stays unknown here.
+    var allotment: CloudAllotmentPage?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
@@ -93,6 +97,8 @@ final class SettingsPageProvider: PageProvider {
     var personBacksGesture: (@MainActor (TimeInterval) -> Bool)?
     /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine: the error to show, or nil.
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
+    /// Notification sounds: the ▷ preview and Custom Sound…; nil in tests without an app.
+    var sounds: NotificationSoundImport?
     /// Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs; nil, never.
     var ownerConfirm: (any DeviceOwnerAuthenticating)?
     let wideningGate: PageWideningGate
@@ -103,10 +109,10 @@ final class SettingsPageProvider: PageProvider {
     private static let overrideRounds = 4
 
     init(settings: SettingsController, domains: @escaping @MainActor () -> [String: [String]] = { [:] },
-         hostLists: (@MainActor () -> JSONValue)? = nil, wideningGate: PageWideningGate = PageWideningGate()) {
+         hostSections: [SettingsHostSection]? = nil, wideningGate: PageWideningGate = PageWideningGate()) {
         self.settings = settings
         self.domains = domains
-        self.hostLists = hostLists
+        self.hostSections = hostSections
         self.wideningGate = wideningGate
     }
 
@@ -171,12 +177,12 @@ final class SettingsPageProvider: PageProvider {
                 do {
                     try await self.settings.resetAllSettings(by: Self.writer(context))
                 } catch let userOnly as SettingUserOnly {
-                    throw Self.userOnlyError(userOnly)
+                    throw PageError.userOnly(userOnly)
                 }
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
-        case "cmux.settings.host.lists": return try Self.host(hostLists, "host lists")()
+        case "cmux.settings.host.lists": return SettingsHostSection.merged(try Self.host(hostSections, "host lists").map { $0.read() })
         case "cmux.settings.devices.remove":
             guard let id = params["id"]?.stringValue else { throw PageError.invalidParams("id is required") }
             return try await Self.host(removeDevice, "devices")(id).map { ["error": .string($0)] } ?? .object([:])
@@ -213,15 +219,16 @@ final class SettingsPageProvider: PageProvider {
             // On lets that machine take the VM boundary again (its remote chains run without the sandbox): ``widen``.
             let reason = RemoteStrings.vmHostConfirmReason
             return try await widen("vmHost", id, reason: reason, on: on, context, Self.host(setMachineVmHost, "machines")).map { ["error": .string($0)] } ?? .object([:])
-        case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
+        case "cmux.settings.accounts.state": await loadSignInAccounts?(); return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState
         case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.models.state", "cmux.settings.models.run": return try await Self.host(models, "models").call(op, params: params, context: context)
-        case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
-        case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
+        case "cmux.settings.environments.state": return try Self.host(environments, "environments").pageState
+        case "cmux.settings.environments.run": return try await Self.host(environments, "environments").runPage(params)
+        case "cmux.settings.cloud.allotment.get": return try await Self.host(allotment, "allotment").read()
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
         case "cmux.settings.shares.list": return try await Self.host(sharesList, "shares")()
         case "cmux.settings.shares.revoke":
@@ -278,7 +285,7 @@ final class SettingsPageProvider: PageProvider {
             let descriptor = try descriptor(params)
             guard descriptor.kind == .folderList else { throw PageError.invalidParams("\(descriptor.id) is not a folder list") }
             if descriptor.path == ChatSettings.rootsPath, Self.writer(context) != .user {
-                throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
+                throw PageError.userOnly(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
             }
             let picker = descriptor.path == ChatSettings.rootsPath ? pickChatFolders : pickFolders
             guard let picker else { throw PageError(code: "cmux.page.unavailable", message: "no folder picker") }
@@ -310,27 +317,38 @@ final class SettingsPageProvider: PageProvider {
             return .object([:])
         case "cmux.settings.preview":
             // Live preview (R82 commit 5): the value applies to every window without a write;
-            // the gesture's end writes it with cmux.settings.set, or preview.end restores.
-            let descriptor = try descriptor(params)
-            let value = params["value"].flatMap { $0 == .null ? nil : $0 }
-            try requirePerson(context, for: descriptor)
-            if let source = settings.managedSource(for: descriptor) {
-                throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: source.pageInfo)
+            // the gesture's end writes it with cmux.settings.set, or preview.end restores. `also`
+            // ([{key, value}]) previews more keys with it as one preview (the whole-app theme preview).
+            let edits = try ([params] + (params["also"]?.arrayValue ?? [])).map { edit -> (SettingDescriptor, JSONValue?) in
+                let descriptor = try descriptor(edit)
+                try requirePerson(context, for: descriptor)
+                if let source = settings.managedSource(for: descriptor) {
+                    throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: source.pageInfo)
+                }
+                guard Self.writer(context).mayWrite(descriptor) else {
+                    throw PageError.userOnly(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
+                }
+                return (descriptor, edit["value"].flatMap { $0 == .null ? nil : $0 })
             }
-            guard Self.writer(context).mayWrite(descriptor) else {
-                throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
+            guard settings.preview(edits) else {
+                throw PageError(code: "cmux.settings.invalid", message: "\(edits.map(\.0.id).joined(separator: ", ")) does not accept this value")
             }
-            guard settings.preview(descriptor, value) else {
-                throw PageError(code: "cmux.settings.invalid", message: "\(descriptor.id) does not accept this value")
-            }
-            return ["previewing": .string(descriptor.id)]
+            return ["previewing": .string(edits[0].0.id)]
         case "cmux.settings.preview.end":
             settings.endPreview()
             return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }
-            if name != "default", name != "none" { NSSound(named: NSSound.Name(name))?.play() }
+            try Self.host(sounds, "sounds").preview(name)
             return .object([:])
+        case "cmux.settings.sound.import": // Custom Sound…: the person picks the file in the open panel, so the write is theirs.
+            let descriptor = try descriptor(params)
+            guard descriptor.kind == .sound else { throw PageError.invalidParams("\(descriptor.id) is not a sound") }
+            let picked: String?
+            do { picked = try await Self.host(sounds, "sounds").pick() } catch let failure as ActionWorkFailure { throw PageError(code: "cmux.settings.sound.import", message: failure.message) }
+            guard let name = picked else { return ["name": .null] }
+            try await write(descriptor, .string(name), by: Self.writer(context)) // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
+            return ["name": .string(name)]
         default:
             throw PageError.unknownOp(op)
         }
@@ -367,8 +385,8 @@ final class SettingsPageProvider: PageProvider {
             return Self.watch(harnessesState, onEvent: onEvent)
         }
         if stream == "cmux.settings.models.changed", let models { return try await models.subscribe(stream, filter: filter, context: context, onEvent: onEvent) }
-        if stream == "cmux.settings.host.changed", let hostLists {
-            return Self.watch(hostLists, onEvent: onEvent)
+        if stream == "cmux.settings.host.changed", let hostSections {
+            return SettingsHostSection.watch(hostSections, onEvent: onEvent)
         }
         guard stream == "cmux.settings.changed" else { throw PageError.unknownOp(stream) }
         let settings = settings
@@ -480,9 +498,6 @@ final class SettingsPageProvider: PageProvider {
         try context.requirePerson(on: PageDescriptor.settings.id, backs: personBacksGesture, refusal: Self.personOnly)
     }
 
-    static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {
-        PageError(code: "cmux.settings.user_only", message: String(describing: refusal), details: ["key": .string(refusal.key)])
-    }
     static var personOnly: PageError { PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) } // an agent's person-only op
 
     func write(_ descriptor: SettingDescriptor, _ value: JSONValue?, by writer: SettingWriter) async throws {
@@ -495,28 +510,9 @@ final class SettingsPageProvider: PageProvider {
                 ? (refused.value.arrayValue ?? []).compactMap { $0.stringValue.flatMap { ChatRootValidator().refusal($0) } } : []
             throw PageError(code: "cmux.settings.invalid", message: reasons.first ?? String(describing: refused))
         } catch let userOnly as SettingUserOnly {
-            throw Self.userOnlyError(userOnly)
+            throw PageError.userOnly(userOnly)
         }
         // setSetting returns once its own load applied the write (reloadAfterWrite), so the
         // page's next read is current without a second full load and apply.
     }
-}
-
-/// The value domains the Settings page offers in menus, listed once per launch.
-@MainActor
-enum SettingsPageDomains {
-    /// Installed fixed-pitch families the terminal accepts, sorted.
-    static let fontFamilies: [String] = {
-        let names = NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? []
-        let families = Set(names.compactMap { NSFont(name: $0, size: 0)?.familyName })
-            .filter { TerminalFontSetting().isValidFamily($0) && !$0.hasPrefix(".") }
-        return families.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    }()
-
-    /// The sounds in /System/Library/Sounds.
-    static let sounds: [String] = {
-        let urls = (try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: "/System/Library/Sounds"),
-                                                                  includingPropertiesForKeys: nil)) ?? []
-        return urls.map { $0.deletingPathExtension().lastPathComponent }.sorted()
-    }()
 }

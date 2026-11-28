@@ -104,6 +104,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
             name: Some("alt-n".into()),
             key: Some("018f6e21-7b70-7e70-8000-0000000000aa".into()),
             first_tab: None,
+            name_source: None,
             mutation: MutationRequest {
                 origin: Some("chrome-gui".into()),
                 mutation_id: Some("alt-n-create".into()),
@@ -409,7 +410,7 @@ fn identify_advertises_additive_capabilities() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();

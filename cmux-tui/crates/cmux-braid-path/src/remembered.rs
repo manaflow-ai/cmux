@@ -2,14 +2,17 @@
 //! candidates by a [`LastGood`] memory, races them with the stagger taken from the remembered
 //! connect time, and records the winner (or forgets the peer when every attempt failed). The
 //! one way every dial uses the memory, so cmux-remote's TCP dial and the phone's signaling
-//! dial behave and measure the same.
+//! dial behave and measure the same. A target that fails is marked broken on this network
+//! ([`LastGood::failed`], raced late next time), and every leg's outcome is counted
+//! ([`crate::legs`]).
 
 use std::future::Future;
 use std::hash::Hash;
 use std::io;
 use std::net::SocketAddr;
 
-use crate::{LastGood, RacePolicy, Won, race};
+use crate::legs::{self, Leg, Outcome};
+use crate::{LastGood, Losers, RacePolicy, Won, race_keeping_losers_observed};
 
 /// `addresses` IPv6 first, the two families alternating, the order within a family kept
 /// (RFC 8305). Dials race over this, not the resolver's order: musl sorts every A record first
@@ -45,19 +48,54 @@ pub async fn race_remembered<K, A, T, F, Fut>(
     connect: F,
 ) -> io::Result<(A, Won<T>)>
 where
-    K: Eq + Hash,
-    A: Clone + PartialEq,
+    K: Eq + Hash + Clone,
+    A: Clone + PartialEq + Leg,
+    F: FnMut(A) -> Fut,
+    Fut: Future<Output = io::Result<T>>,
+{
+    race_remembered_keeping_losers(memory, key, candidates, policy, connect)
+        .await
+        .map(|(winner, won, _)| (winner, won))
+}
+
+/// [`race_remembered`], with the attempts still in flight handed back as [`Losers`]
+/// ([`crate::race_keeping_losers`]): the feed for a [`crate::Standby`] pool.
+///
+/// # Errors
+/// The race's error: the last attempt's.
+pub async fn race_remembered_keeping_losers<K, A, T, F, Fut>(
+    memory: &LastGood<K, A>,
+    key: K,
+    candidates: &[A],
+    policy: RacePolicy,
+    connect: F,
+) -> io::Result<(A, Won<T>, Losers<A, Fut>)>
+where
+    K: Eq + Hash + Clone,
+    A: Clone + PartialEq + Leg,
     F: FnMut(A) -> Fut,
     Fut: Future<Output = io::Result<T>>,
 {
     let (ordered, lead) = memory.order(&key, candidates);
-    match race(&ordered, policy.with_lead(lead), connect).await {
-        Ok(won) => {
+    let dial = memory.name();
+    let on_failure = |index: usize, error: &io::Error| {
+        if let Some(target) = ordered.get(index) {
+            memory.failed(&key, target);
+            legs::record(dial, &target.leg(), Outcome::of(error));
+        }
+    };
+    match race_keeping_losers_observed(&ordered, policy.with_lead(lead), connect, on_failure).await
+    {
+        Ok((won, losers)) => {
             let Some(winner) = ordered.get(won.target_index).cloned() else {
                 return Err(io::Error::other("race won on a target it was not given"));
             };
+            legs::record(dial, &winner.leg(), Outcome::Won);
+            for outrun in losers.in_flight() {
+                legs::record(dial, &outrun.leg(), Outcome::Outrun);
+            }
             memory.record(key, winner.clone(), won.connect);
-            Ok((winner, won))
+            Ok((winner, won, losers))
         }
         Err(error) => {
             memory.forget(&key);

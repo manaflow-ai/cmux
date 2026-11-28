@@ -11,8 +11,9 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use cmux_migrate::apply::{self, Cloud, Created, Event, Local, PatchRoute, WorkPatch};
+use cmux_migrate::apply::{self, Cloud, Created, Event, Local, LocalWork, PatchRoute};
 use cmux_migrate::ledger::{Ledger, Load};
+use cmux_migrate::preview::Preview;
 use cmux_migrate::sources::competitors::{self, Product, Route};
 use cmux_migrate::sources::{compose, devcontainer, laptop, nix, ssh_host};
 use cmux_migrate::{Plan, Step};
@@ -22,7 +23,7 @@ use super::cloud_start_chat::{Ran, Runner, SelfRunner, shell_quote, step_result}
 use super::{GlobalArgs, OutputMode};
 
 pub(super) const USAGE: &str = "\
-usage: cmux migrate plan SOURCE [--json] [--out FILE]
+usage: cmux migrate plan SOURCE [--json] [--out FILE] [--preview]
        cmux migrate apply PLAN.json|SOURCE [--only KEY]... [--dry-run] [--headless [--backend B]]
        cmux migrate undo SOURCE_ID --yes
        cmux migrate status
@@ -41,6 +42,8 @@ SOURCE:
   ssh:HOST                      a box you reach over SSH (one read-only probe)
   codespaces | coder            your workspaces there (gh / coder CLI, signed in)
   gitpod [PATH]                 a checkout's .gitpod.yml
+  t3code | t3 [t3code:PATH]     T3 Code's projects, thread worktrees and their
+                                Claude Code / Codex sessions (CMUX_SWITCH_KIT=1)
   daytona | exe.dev | namespace | devpod | devin | capy
                                 how that product's workspaces move (`routes`)
 
@@ -54,6 +57,34 @@ skipped (said so), and a later run in the app carries them.
 Shell history is listed unchecked (it can hold typed tokens): check it in the
 plan to carry it.
 ";
+
+/// The switch kit (cmuxterm-hq#23822) is off until `CMUX_SWITCH_KIT=1`.
+fn switch_kit_on() -> bool {
+    std::env::var("CMUX_SWITCH_KIT").is_ok_and(|v| v == "1")
+}
+
+/// `t3code` or `t3code:PATH` (a T3 home), when the switch kit is on.
+fn t3code_source(source: &str) -> Option<Option<&str>> {
+    if !switch_kit_on() {
+        return None;
+    }
+    match source {
+        "t3code" | "t3" => Some(None),
+        _ => source.strip_prefix("t3code:").map(Some),
+    }
+}
+
+/// Reads T3 Code's database read-only and plans its projects and thread worktrees.
+fn t3code_plan(home: &Path, path: Option<&str>) -> Result<Plan, String> {
+    use cmux_migrate::sources::t3code;
+    let env = std::env::var("T3CODE_HOME").ok();
+    let t3_home = match path {
+        Some(p) => std::path::absolute(p).map_err(|e| format!("{p}: {e}"))?,
+        None => t3code::home_dir(home, env.as_deref()),
+    };
+    let catalog = t3code::read(&t3_home.join(t3code::DATABASE)).map_err(|e| e.to_string())?;
+    Ok(t3code::plan(home, &t3_home, &catalog, &laptop::GitCli::default()))
+}
 
 /// One external reader (ssh probe, `gh`, `coder`) ends by then.
 const READER_BOUND: Duration = Duration::from_secs(120);
@@ -102,9 +133,21 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Command {
-    Plan { source: String, out: Option<PathBuf> },
-    Apply { from: String, only: Vec<String>, dry_run: bool, headless: Option<String> },
-    Undo { source_id: String },
+    /// `preview`: print what a confirmation shows (cmux_migrate::preview) instead of the plan.
+    Plan {
+        source: String,
+        out: Option<PathBuf>,
+        preview: bool,
+    },
+    Apply {
+        from: String,
+        only: Vec<String>,
+        dry_run: bool,
+        headless: Option<String>,
+    },
+    Undo {
+        source_id: String,
+    },
     Status,
     Routes,
 }
@@ -112,8 +155,8 @@ pub(super) enum Command {
 pub(super) fn parse(words: &[String]) -> Result<Command, String> {
     let (verb, rest) = words.split_first().ok_or("a verb: plan, apply, undo, status, routes")?;
     let mut positional = Vec::new();
-    let (mut out, mut only, mut dry_run, mut headless, mut backend, mut yes) =
-        (None, Vec::new(), false, false, None::<String>, false);
+    let (mut out, mut only, mut dry_run, mut headless, mut backend, mut yes, mut preview) =
+        (None, Vec::new(), false, false, None::<String>, false, false);
     let mut it = rest.iter();
     while let Some(word) = it.next() {
         let mut value = |flag: &str| it.next().cloned().ok_or(format!("{flag} needs a value"));
@@ -124,6 +167,7 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
             "--dry-run" => dry_run = true,
             "--headless" => headless = true,
             "--yes" => yes = true,
+            "--preview" => preview = true,
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => positional.push(word.clone()),
         }
@@ -140,7 +184,7 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
         }
     };
     match verb.as_str() {
-        "plan" => Ok(Command::Plan { source: one("SOURCE")?, out }),
+        "plan" => Ok(Command::Plan { source: one("SOURCE")?, out, preview }),
         "apply" => Ok(Command::Apply {
             from: one("PLAN.json or SOURCE")?,
             only,
@@ -173,7 +217,7 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             });
             Ok(0)
         }
-        Command::Plan { source, out } => {
+        Command::Plan { source, out, preview } => {
             if let Some(product) = product_named(&source)
                 && !matches!(product, Product::Codespaces | Product::Coder | Product::Gitpod)
             {
@@ -186,6 +230,20 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             if let Some(out) = out {
                 std::fs::write(&out, format!("{text}\n"))
                     .map_err(|e| format!("{}: {e}", out.display()))?;
+            }
+            if preview {
+                let preview = Preview::of(&plan, &load_ledger()?);
+                print_answer(
+                    output,
+                    &serde_json::to_value(&preview).unwrap_or(Value::Null),
+                    || {
+                        format!(
+                            "{} project(s) to move, {} already moved",
+                            preview.moving, preview.already
+                        )
+                    },
+                );
+                return Ok(0);
             }
             print_answer(output, &serde_json::to_value(&plan).unwrap_or(Value::Null), || {
                 plan_words(&plan)
@@ -302,6 +360,9 @@ pub(super) fn read_source(source: &str) -> Result<Plan, String> {
             .map_err(|e| format!("{}: {e}", root.join(".gitpod.yml").display()))?;
         let repo = cmux_migrate::sources::project_files::repo_at(&root).url;
         return competitors::gitpod_plan(&root.display().to_string(), repo.as_deref(), &yml);
+    }
+    if let Some(t3) = t3code_source(source) {
+        return t3code_plan(&home, t3);
     }
     match source {
         "this-computer" | "laptop" | "this-mac" => {
@@ -838,56 +899,13 @@ impl HomeLocal {
             Err(_) => real.display().to_string(),
         }
     }
-
-    fn git(&self, checkout: &Path, args: &[&str]) -> Result<String, String> {
-        let overrides = cmux_git::filter_overrides(checkout).map_err(|e| e.to_string())?;
-        let out = cmux_git::run::run_git_within(
-            checkout,
-            &overrides,
-            args,
-            64 << 20,
-            Duration::from_secs(60),
-        )
-        .map_err(|e| format!("git {}: {e}", args.first().unwrap_or(&"")))?;
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-    }
 }
 
 impl HomeLocal {
-    /// Unpushed commits and the working tree of a checkout here, against the commit it shares
-    /// with its upstream (else the remote's default branch), which the machine checks out first.
-    fn local_work_patch(&self, checkout: &str) -> Result<WorkPatch, String> {
-        let dir = self.real(checkout);
-        let line = |args: &[&str]| {
-            self.git(&dir, args).ok().map(|o| o.trim().to_owned()).filter(|o| !o.is_empty())
-        };
-        let upstream = line(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
-            .or_else(|| line(&["rev-parse", "--abbrev-ref", "origin/HEAD"]));
-        let base = upstream.as_deref().and_then(|up| line(&["merge-base", up, "HEAD"]));
-        let branch = line(&["symbolic-ref", "--short", "-q", "HEAD"]);
-        let commits = match &base {
-            Some(base) => {
-                self.git(&dir, &["format-patch", "--stdout", "--binary", &format!("{base}..HEAD")])?
-            }
-            None => String::new(),
-        };
-        let mut work = self.git(&dir, &["-c", "core.quotepath=off", "diff", "--binary", "HEAD"])?;
-        // Untracked files as new-file diffs written here: git's own route (`add -N`) would touch the real index.
-        let untracked = self.git(&dir, &["ls-files", "--others", "--exclude-standard", "-z"])?;
-        let mut total = 0u64;
-        for path in untracked.split('\0').filter(|p| !p.is_empty()).take(2000) {
-            let Ok(meta) = std::fs::metadata(dir.join(path)) else { continue };
-            if !meta.is_file()
-                || meta.len() > apply::MAX_FILE_BYTES
-                || total + meta.len() > apply::MAX_CARRY_BYTES
-            {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(dir.join(path)) else { continue };
-            total += meta.len();
-            work.push_str(&new_file_diff(path, &text));
-        }
-        Ok(WorkPatch { commits, work, base, branch })
+    /// The local work of a checkout here, read by the same script a remote source runs.
+    fn local_work(&self, checkout: &str) -> Result<LocalWork, String> {
+        let dir = self.real(checkout).display().to_string();
+        apply::parse_work(&bounded("sh", &["-s"], Some(&apply::work_script(&dir)))?)
     }
 }
 
@@ -936,13 +954,13 @@ impl Local for HomeLocal {
         source: &cmux_migrate::Source,
         project: &str,
         checkout: &str,
-    ) -> Result<WorkPatch, String> {
+    ) -> Result<LocalWork, String> {
         match apply::patch_route(source, project) {
-            PatchRoute::Local => self.local_work_patch(checkout),
+            PatchRoute::Local => self.local_work(checkout),
             PatchRoute::Remote { program, args } => {
                 let args: Vec<&str> = args.iter().map(String::as_str).collect();
-                let out = bounded(&program, &args, Some(&apply::remote_patch_script(checkout)))?;
-                apply::parse_remote_patch(&out)
+                let out = bounded(&program, &args, Some(&apply::work_script(checkout)))?;
+                apply::parse_work(&out)
             }
             PatchRoute::Unsupported(why) => Err(why),
         }
@@ -951,24 +969,6 @@ impl Local for HomeLocal {
     fn now_ms(&self) -> i64 {
         self.epoch_ms + i64::try_from(self.started.elapsed().as_millis()).unwrap_or(0)
     }
-}
-
-/// A unified diff that adds `path` with `text` (what `git diff` prints for a new file).
-pub(super) fn new_file_diff(path: &str, text: &str) -> String {
-    let mut out = format!("diff --git a/{path} b/{path}\nnew file mode 100644\n");
-    if text.is_empty() {
-        return out;
-    }
-    let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    out.push_str(&format!("--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@\n", lines.len()));
-    for line in lines {
-        out.push('+');
-        out.push_str(line);
-        if !line.ends_with('\n') {
-            out.push_str("\n\\ No newline at end of file\n");
-        }
-    }
-    out
 }
 
 fn tail(text: &str, max: usize) -> String {

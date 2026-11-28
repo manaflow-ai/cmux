@@ -53,8 +53,12 @@ mod drafts;
 mod full_access_guards;
 #[path = "hub_integration/held_queue.rs"]
 mod held_queue;
+#[path = "hub_integration/held_rows.rs"]
+mod held_rows;
 #[path = "hub_integration/inbox_digest.rs"]
 mod inbox_digest;
+#[path = "hub_integration/key_auth.rs"]
+mod key_auth;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]
@@ -146,13 +150,13 @@ mod successor_harness;
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
-#[path = "hub_integration/task_list.rs"]
-mod task_list;
 #[path = "hub_integration/tasks.rs"]
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 
+#[path = "hub_integration/fork_own_process.rs"]
+mod fork_own_process;
 #[path = "hub_integration/turn_attestation.rs"]
 mod turn_attestation;
 #[path = "hub_integration/turn_cost.rs"]
@@ -230,6 +234,11 @@ async fn setup_defaults_env(
     setup_inbox(policy, env, defaults_env, true).await
 }
 
+/// `setup_env` with the fake harness in OpenCode's family.
+async fn setup_opencode(env: BTreeMap<String, String>) -> (Arc<Hub>, TestClient) {
+    setup_family(PermissionPolicy::ApproveAll, env, BTreeMap::new(), true, Some("opencode")).await
+}
+
 /// `setup` with `agentInbox` off: another agent's plain send queues or steers as before the
 /// inbox (`hub/inbox.rs`), for the tests of that path (still every non-plain agent message's).
 async fn setup_queue(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
@@ -242,6 +251,17 @@ async fn setup_inbox(
     defaults_env: BTreeMap<String, String>,
     inbox: bool,
 ) -> (Arc<Hub>, TestClient) {
+    setup_family(policy, env, defaults_env, inbox, None).await
+}
+
+/// `setup_inbox` with the fake harness's profile in `family`.
+async fn setup_family(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+    defaults_env: BTreeMap<String, String>,
+    inbox: bool,
+    family: Option<&str>,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -252,7 +272,7 @@ async fn setup_inbox(
             env,
             description: None,
             fallback: None,
-            family: None,
+            family: family.map(str::to_owned),
             models: vec![],
             model: None,
             effort: None,
@@ -735,35 +755,8 @@ async fn a_fork_keeps_the_chats_model_and_effort_when_the_agent_answers_with_its
     let _ = std::fs::remove_file(&calls);
 }
 
-/// An agent that does not offer `session/fork` (Kimi, DeepSeek, Prime, Unii in
-/// the fork matrix) is not asked: the fork is refused with a reason that names
-/// the harness, and no chat is made, instead of the agent's bare "Internal error".
-#[tokio::test]
-async fn a_fork_on_an_agent_without_session_fork_is_refused_with_a_reason() {
-    let env = BTreeMap::from([("FAKE_NO_FORK".to_owned(), "1".to_owned())]);
-    let (_hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
-    let s = c
-        .request(
-            method::SESSION_NEW,
-            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "nofork"}}}),
-        )
-        .await
-        .unwrap();
-    let id = s["sessionId"].as_str().unwrap().to_owned();
-    c.request(
-        method::SESSION_PROMPT,
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
-    )
-    .await
-    .unwrap();
-    let err = c
-        .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
-        .await
-        .expect_err("the agent cannot fork");
-    assert!(err.contains("cannot fork") && err.contains("fake"), "{err}");
-    let list = c.request(method::SESSION_LIST, json!({})).await.unwrap();
-    assert_eq!(list["sessions"].as_array().map(Vec::len), Some(1), "no chat is made: {list}");
-}
+// An agent that does not offer `session/fork` (pi, Kimi, DeepSeek) forks from the chat's
+// transcript, idle or working: `hub_integration/fork_context.rs` (#50089).
 
 #[tokio::test]
 async fn set_mode_and_config_and_list() {
@@ -1862,6 +1855,9 @@ mod start_retry;
 mod fork_restart;
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
+// A fork's agent sees what the fork shows, for every kind of fork.
+#[path = "hub_integration/fork_context.rs"]
+mod fork_context;
 #[path = "hub_integration/last_message.rs"]
 mod last_message;
 #[path = "hub_integration/session_git_state.rs"]

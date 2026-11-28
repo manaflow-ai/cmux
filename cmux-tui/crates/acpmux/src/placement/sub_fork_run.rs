@@ -18,7 +18,7 @@
 //! host key the platform answered, and runs `acpmux sub-fork-job` over that one ssh connection.
 
 use base64::Engine as _;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::future::Future;
 use std::path::PathBuf;
@@ -31,44 +31,7 @@ use super::sub_fork::{Ran, SubRun, Task};
 /// The most of the sub-agent's output a report keeps (its tail).
 const REPORT_LIMIT: usize = 64 * 1024;
 
-/// What the fork is asked to do, one JSON object on the stream's input.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Job {
-    /// The checkout on the fork (the parent's path: the fork is a copy of its disk).
-    pub checkout: PathBuf,
-    /// A patch that brings the fork's files to the parent's now ([`super::sub_fork::capture`]
-    /// against the tree the fork was taken at), base64; empty for a fork taken for this task.
-    #[serde(default)]
-    pub sync_patch: String,
-    pub prompt: String,
-    /// The sub-agent's session name on the fork.
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-}
-
-/// One line the fork writes back.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum Frame {
-    /// The fork's checkout is synced and snapshotted: the patch's base on the fork.
-    Base(String),
-    /// A line of the sub-agent's output, as it came.
-    Out(String),
-    /// The end: the harness's exit code and the fork's changes (base64 `capture` patch).
-    Done { exit: i32, patch: String },
-    /// The job could not run (a sync patch that did not apply, no git, no harness).
-    Error(String),
-}
-
-impl Frame {
-    pub fn line(&self) -> String {
-        let mut line = serde_json::to_string(self).unwrap_or_default();
-        line.push('\n');
-        line
-    }
-}
+pub use super::sub_fork_wire::{B64, Frame, Job};
 
 /// The stream a fork's job answers on: its lines, until the job ends.
 pub type Lines = Pin<Box<dyn AsyncBufRead + Send>>;
@@ -128,6 +91,12 @@ impl<L: ForkLink> SubRun for ForkRunner<L> {
             prompt: task.prompt.clone(),
             name: job_name(task),
             model: task.model.clone(),
+            command: None,
+            cwd: None,
+            path: None,
+            env: Vec::new(),
+            env_held: Vec::new(),
+            merged: false,
         };
         let mut lines =
             self.link.open(fork, &job).await.map_err(|e| format!("reaching the fork: {e}"))?;
@@ -144,7 +113,7 @@ impl<L: ForkLink> SubRun for ForkRunner<L> {
             // A line that is not a frame (a login banner) is not the job's.
             let Ok(frame) = serde_json::from_str::<Frame>(line.trim_end()) else { continue };
             match frame {
-                Frame::Base(_) => {}
+                Frame::Base(_) | Frame::Bytes { .. } => {}
                 Frame::Out(text) => {
                     first_output_ms.get_or_insert(began.elapsed().as_millis() as u64);
                     if let Some(show) = &self.on_output {
@@ -160,7 +129,7 @@ impl<L: ForkLink> SubRun for ForkRunner<L> {
                     }
                 }
                 Frame::Error(e) => return Err(format!("on the fork: {e}")),
-                Frame::Done { exit, patch } => {
+                Frame::Done { exit, patch, .. } => {
                     let back = Instant::now();
                     let patch = base64::engine::general_purpose::STANDARD
                         .decode(patch.as_bytes())
@@ -190,13 +159,14 @@ impl<L: ForkLink> SubRun for ForkRunner<L> {
     }
 }
 
-/// How the fork's job runs the sub-agent: `out` gets each output line as it comes; answers the
-/// harness's exit code. The real one is [`acpmux_harness`]; tests pass their own.
+/// How the fork's job runs the sub-agent: `out` gets each output frame as it comes (a line, or a
+/// command's raw bytes); answers the harness's exit code. The real one is [`acpmux_harness`];
+/// tests pass their own.
 pub trait Harness {
     fn run(
         &self,
         job: &Job,
-        out: &mut (dyn FnMut(&str) + Send),
+        out: &mut (dyn FnMut(Frame) + Send),
     ) -> impl Future<Output = Result<i32, String>> + Send;
 }
 
@@ -218,35 +188,47 @@ pub async fn run_job<H: Harness, W: tokio::io::AsyncWrite + Unpin + Send>(
         Ok(base) => base,
         Err(e) => return w.write_all(frame(format!("snapshot: {e}")).line().as_bytes()).await,
     };
+    // A command's run also lists the checkout before and after: what the patch cannot carry.
+    let before = match job.command.is_some().then(|| super::run_vm_tree::entries(&job.checkout)) {
+        Some(Err(e)) => return w.write_all(frame(format!("listing: {e}")).line().as_bytes()).await,
+        Some(Ok(listing)) => Some(listing),
+        None => None,
+    };
     w.write_all(Frame::Base(base.clone()).line().as_bytes()).await?;
     w.flush().await?;
-    // The harness's lines go out as they come, through a channel the writer drains.
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let mut push = move |l: &str| {
-        let _ = tx.send(l.to_owned());
+    // The harness's frames go out as they come, through a channel the writer drains.
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
+    let mut push = move |f: Frame| {
+        let _ = tx.send(f);
     };
     let ran = harness.run(job, &mut push);
     tokio::pin!(ran);
     let exit = loop {
         tokio::select! {
             biased;
-            Some(l) = rx.recv() => {
-                w.write_all(Frame::Out(l).line().as_bytes()).await?;
+            Some(f) = rx.recv() => {
+                w.write_all(f.line().as_bytes()).await?;
                 w.flush().await?;
             }
             exit = &mut ran => break exit,
         }
     };
-    while let Ok(l) = rx.try_recv() {
-        w.write_all(Frame::Out(l).line().as_bytes()).await?;
+    while let Ok(f) = rx.try_recv() {
+        w.write_all(f.line().as_bytes()).await?;
     }
     let exit = match exit {
         Ok(code) => code,
         Err(e) => return w.write_all(frame(format!("harness: {e}")).line().as_bytes()).await,
     };
+    let tree = match before.map(|b| super::run_vm_tree::entries(&job.checkout).map(|a| (b, a))) {
+        Some(Ok((b, a))) => super::run_vm_tree::delta(&b, &a),
+        Some(Err(e)) => return w.write_all(frame(format!("listing: {e}")).line().as_bytes()).await,
+        None => Default::default(),
+    };
     let out = match super::sub_fork::capture(&job.checkout, &base) {
         Ok(patch) => {
-            Frame::Done { exit, patch: base64::engine::general_purpose::STANDARD.encode(patch) }
+            let patch = base64::engine::general_purpose::STANDARD.encode(patch);
+            Frame::Done { exit, patch, tree }
         }
         Err(e) => frame(format!("capture: {e}")),
     };
@@ -265,7 +247,7 @@ pub fn acpmux_harness() -> AcpmuxHarness {
 }
 
 impl Harness for AcpmuxHarness {
-    async fn run(&self, job: &Job, out: &mut (dyn FnMut(&str) + Send)) -> Result<i32, String> {
+    async fn run(&self, job: &Job, out: &mut (dyn FnMut(Frame) + Send)) -> Result<i32, String> {
         let mut new = cmux_process::Command::new(&self.acpmux);
         new.arg("new").arg("--detach").arg("--quiet").arg("--name").arg(&job.name);
         new.arg("--cwd").arg(&job.checkout);
@@ -297,7 +279,7 @@ impl Harness for AcpmuxHarness {
             .map_err(|e| format!("acpmux send: {e}"))?;
         let mut lines = tokio::io::BufReader::new(stdout).lines();
         while let Some(l) = lines.next_line().await.map_err(|e| format!("acpmux send: {e}"))? {
-            out(&l);
+            out(Frame::Out(l));
         }
         // Its stdout ended, so it is exiting: the wait is short, off the runtime's workers.
         let status = tokio::task::spawn_blocking(move || child.wait())
@@ -314,6 +296,9 @@ pub async fn job_main() -> anyhow::Result<()> {
     tokio::io::AsyncReadExt::read_to_end(&mut tokio::io::stdin(), &mut input).await?;
     let mut stdout = tokio::io::stdout();
     match serde_json::from_slice::<Job>(&input) {
+        Ok(job) if job.command.is_some() => {
+            run_job(&job, &super::run_vm_shell::ShellHarness, &mut stdout).await?
+        }
         Ok(job) => run_job(&job, &acpmux_harness(), &mut stdout).await?,
         Err(e) => {
             stdout.write_all(Frame::Error(format!("not a job: {e}")).line().as_bytes()).await?
@@ -325,12 +310,14 @@ pub async fn job_main() -> anyhow::Result<()> {
 
 /// The Cloud link: `resume_machine`, then one ssh connection on the route the platform answers
 /// for a key made for this run.
+#[cfg(unix)]
 pub struct CloudLink {
     pub request: cmux_cloud_api::Request,
     /// The key, known-hosts file and the ssh process live here for the run.
     dir: std::sync::Mutex<Option<tempfile::TempDir>>,
 }
 
+#[cfg(unix)]
 impl CloudLink {
     pub fn new(request: cmux_cloud_api::Request) -> Self {
         Self { request, dir: std::sync::Mutex::new(None) }
@@ -368,6 +355,7 @@ pub fn ssh_route(endpoint: &Value) -> Result<(String, u16, String, String), Stri
     ))
 }
 
+#[cfg(unix)]
 impl ForkLink for CloudLink {
     async fn start(&self, fork: &str) -> Result<(), String> {
         cmux_cloud_api::machine_resume::resume_machine(&self.request, fork)
@@ -403,7 +391,7 @@ impl ForkLink for CloudLink {
         let (host, port, user, host_key) = ssh_route(&endpoint)?;
         let known = dir.path().join("known_hosts");
         let name = if port == 22 { host.clone() } else { format!("[{host}]:{port}") };
-        std::fs::write(&known, format!("{name} {host_key}\n"))
+        crate::home_fs::write(&known, format!("{name} {host_key}\n"))
             .map_err(|e| format!("known hosts: {e}"))?;
         let mut ssh = cmux_process::Command::new("ssh");
         ssh.arg("-i").arg(&key);
@@ -474,6 +462,7 @@ impl<R: AsyncBufRead + Unpin> AsyncBufRead for Owned<R> {
     }
 }
 
-#[cfg(test)]
+// Forks are git checkouts whose executable bits the tests compare: unix only.
+#[cfg(all(test, unix))]
 #[path = "sub_fork_run_tests.rs"]
 mod tests;

@@ -113,7 +113,7 @@ cmux-tui remote connect 'iroh://<node-id>?relay_url=<url>&direct_addrs=<addr>'
 cmux-tui remote connect unix:///path/to/link.sock
 ```
 
-An invitation tries its explicit route followed by its ordered route hints. A known enrolled or carrier daemon can reconnect without copying a route by using `cmux-tui remote connect --daemon <fingerprint>`. Run `cmux-tui remote known-daemons` to list names, fingerprints, authorization modes, and routes. A Unix hint is promoted only when its socket exists on the client machine; an unreachable Unix path from a remote host is tried last. cmux Noise authentication, pinned daemon-key, and protocol failures stop fallback. Provider connection failures, including rejected SSH or relay credentials, may try another route.
+An invitation tries its explicit route followed by its ordered route hints, one at a time (each attempt asks the owner to approve it). An enrolled device's first connect races its routes instead, the last route that connected first (`CMUX_REMOTE_ROUTE_RACE=0` dials them in order). A known enrolled or carrier daemon can reconnect without copying a route by using `cmux-tui remote connect --daemon <fingerprint>`. Run `cmux-tui remote known-daemons` to list names, fingerprints, authorization modes, and routes. A Unix hint is promoted only when its socket exists on the client machine; an unreachable Unix path from a remote host is tried last. cmux Noise authentication, pinned daemon-key, and protocol failures stop fallback. Provider connection failures, including rejected SSH or relay credentials, may try another route.
 
 Iroh defaults to `--iroh-path auto`, which probes direct IP paths and retains relay fallback. `direct-only` disables relay transports and requires `--iroh-address`. `relay-only` disables IP transports and requires `--iroh-relay`. The constrained modes are useful for policy enforcement and path verification; they fail instead of silently using the other path type.
 
@@ -129,6 +129,13 @@ Otherwise `cmux-tui remote ssh` uses SSH directly, matching the command the user
 
 ```sh
 cmux-tui remote ssh user@linux-server --session dev
+```
+
+`--repo LOCAL[:REMOTE]` puts a local repo on the host over the link `cmux ssh` just opened, with nothing cloned from the forge: the git carry pack (your commit at depth 1 plus uncommitted work, unpacked with `git index-pack` there), else a clone, else a copy, as `cmux link seed push` does. A later `--repo` to the same place sends only what changed. REMOTE defaults to `~/<LOCAL's folder name>`; `~` is the host's `$HOME`. The seed's JSON line goes to stderr (`--headless --json`: a `repo-seed` event on stdout) before the TUI opens.
+
+```sh
+cmux ssh buildbox --repo ~/src/app            # ~/app on buildbox
+cmux ssh buildbox --repo ~/src/app:/srv/app
 ```
 
 The SSH path probes for `~/.local/bin/cmux-tui`, then carries framed data over SSH stdio. It keeps a durable headless mux owner and a replaceable remote sidecar as separate processes. Existing terminal panes therefore survive sidecar replacement. If the named tmux-style session already has a live mux socket, the sidecar attaches without creating a second session. Otherwise cmux starts the user-scoped mux owner on demand.
@@ -214,7 +221,7 @@ cmux-tui remote connect <route> \
   --heartbeat-timeout-ms 15000
 ```
 
-Set `--heartbeat-interval-ms 0` to disable active liveness checks. Reconnect cycles through all known route candidates, including a different provider type, while the pinned daemon Noise key and logical session stay unchanged. The daemon retains disconnected replay state for 120 seconds by default; `--remote-resume-lease-seconds` accepts 1 through 86400.
+Set `--heartbeat-interval-ms 0` to disable active liveness checks. Reconnect cycles through all known route candidates, including a different provider type, while the pinned daemon Noise key and logical session stay unchanged. A redial is raced: the route that just failed is dialed first, the next route starts beside it after 1.5 times the last handshake's time (between 100 ms and 2 s; 250 ms when none is known) or at once when a route fails, at most three at a time and never two dials of one route before the first wave (a client with one route redials as before), and the first route whose handshake finishes carries the session. A route that accepts a connection and never answers (a captive portal, a firewall that drops UDP) therefore costs one stagger, not the per-attempt timeout. Every racer carries the same generation, so the daemon keeps one. While a raced redial has no winner it dials afresh every 750 ms (a wave): the client asks for a route again, and the route that opens races the ones still hanging, the same route included. A dial sent into a network that was silent waits on its transport's own backoff (a TCP SYN goes again after 1, 2, 4 and 8 s), so without waves a network that came back with no change event carried the link seconds later. A network change starts a wave at once and keeps the round. At most four of those asks and six handshakes are in flight; the oldest makes room. `CMUX_REMOTE_REDIAL_WAVE_MS` sets the interval (0: no waves, and a network change ends the round). `CMUX_REMOTE_REDIAL_RACE=0` dials one route per redial again, as does `CMUX_REMOTE_ROUTE_RACE=0`. The daemon retains disconnected replay state for 120 seconds by default; `--remote-resume-lease-seconds` accepts 1 through 86400.
 
 Interactive process input, control RPCs, cancellation, and bulk file, search, patch, diff, and replay operations use separate persistent service streams. Requests execute concurrently under per-lane admission limits, so a process wait or large diff cannot serialize unrelated control work. Non-cancelable mutations preserve receive order within their traffic class. Calls started concurrently across traffic classes are intentionally unordered; dependent operations await the earlier response. Interactive input is ordered but does not wait for an unrelated command response. Bulk backpressure cannot occupy the interactive queue.
 

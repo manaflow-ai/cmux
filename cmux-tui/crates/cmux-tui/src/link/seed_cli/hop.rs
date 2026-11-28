@@ -242,7 +242,7 @@ fn bulk(
     if kept.url.as_deref().is_some_and(|url| url != planned.params.url) {
         return Err(no_previous("the folder's GitHub remote changed since the seed"));
     }
-    if let Err(error) = run_seed(machine.socket, to_root, &planned, &bundle, None) {
+    if let Err(error) = run_seed(machine.socket, None, to_root, &planned, &bundle, None) {
         // The folder was not there: what the seed left is not anyone's.
         let _ = sync_cli::delete_remote(to, to_root);
         return Err(error.into());
@@ -264,6 +264,7 @@ fn moved(machine: Option<String>, url: String, hop: HopState) -> Record {
         stash_known: true,
         filling: None,
         hop: Some(hop),
+        snapshot: None,
     }
 }
 
@@ -299,7 +300,7 @@ fn upstream(
     let (url, repo) = github(&base.url)?;
     let planned = planned(&url, repo, &base.work, None, &exported);
     as_seed(&bundle.file)?;
-    if let Err(error) = run_seed(machine.socket, to_root, &planned, &bundle, None) {
+    if let Err(error) = run_seed(machine.socket, None, to_root, &planned, &bundle, None) {
         // The folder was not there: what the seed left is not anyone's.
         let _ = sync_cli::delete_remote(machine.socket, to_root);
         return Err(error.into());
@@ -339,12 +340,14 @@ fn back(
     let planned = planned(&url, repo, &base.work, Some(&base.work), &exported);
     as_seed(&bundle.file)?;
     // Never deleted on a failure: the folder was there before the move.
-    run_seed(to, to_root, &planned, &bundle, None).map_err(|error| match error.code.as_str() {
-        "seed.since_mismatch" | "seed.machine_changed" => theirs(format!(
-            "it changed since the chat left it, or the chat's folder did not come from it: {}",
-            error.message
-        )),
-        _ => error.into(),
+    run_seed(to, None, to_root, &planned, &bundle, None).map_err(|error| {
+        match error.code.as_str() {
+            "seed.since_mismatch" | "seed.machine_changed" => theirs(format!(
+                "it changed since the chat left it, or the chat's folder did not come from it: {}",
+                error.message
+            )),
+            _ => error.into(),
+        }
     })?;
     Ok((url, hop_state(&exported, true)))
 }
@@ -414,7 +417,9 @@ fn frozen(
         }
         as_seed(&bundle.file)?;
         let planned = planned(url, slug(url), &hop.work, Some(&hop.work), &exported);
-        return run_seed(to, to_root, &planned, &bundle, None).map(|_| ()).map_err(Into::into);
+        return run_seed(to, None, to_root, &planned, &bundle, None)
+            .map(|_| ())
+            .map_err(Into::into);
     }
     let (Some(head), Some(index), Some(work)) = (&waiting.head, &waiting.index, &waiting.work)
     else {
@@ -433,7 +438,7 @@ fn frozen(
     as_seed(&bundle.file)?;
     // The waiting record stays R: the base Bring Back Local from the second machine merges against.
     let planned = planned(url, slug(url), work, Some(work), &exported);
-    run_seed(to, to_root, &planned, &bundle, None).map(|_| ()).map_err(Into::into)
+    run_seed(to, None, to_root, &planned, &bundle, None).map(|_| ()).map_err(Into::into)
 }
 
 /// `OWNER/NAME` of `https://github.com/OWNER/NAME.git`.

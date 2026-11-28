@@ -1,5 +1,5 @@
 //! Help examples for the work groups: `task`, `process`, `worktree`, `briefs`, `bead`, `inbox`,
-//! `forum`, `watch`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
+//! `forum`, `watch`, `chats`, `hand`, `router`, `exec-router` (see `help_examples/mod.rs`).
 
 use super::Example;
 
@@ -389,6 +389,30 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("inbox read", &[("Read one team message by id", "acpmux inbox read msg-8f2a")]),
     ("inbox ack", &[("Acknowledge a team message you handled", "acpmux inbox ack msg-8f2a")]),
     (
+        "listen",
+        &[
+            ("Listen on a teammate's agent", "acpmux listen open @sam/coordinator"),
+            ("List your open listens", "acpmux listen ls"),
+            ("Read what that agent received", "acpmux listen read @sam/coordinator"),
+        ],
+    ),
+    (
+        "listen open",
+        &[(
+            "Listen on a teammate's agent for an hour",
+            "acpmux listen open @sam/coordinator --ttl 3600",
+        )],
+    ),
+    ("listen ls", &[("List your listens and others' on yours", "acpmux listen ls")]),
+    (
+        "listen close",
+        &[("Close a listen by id", "acpmux listen close lsn_0123456789abcdef0123456789abcdef")],
+    ),
+    (
+        "listen read",
+        &[("Read what a teammate's agent received", "acpmux listen read @sam/coordinator")],
+    ),
+    (
         "bridge",
         &[
             ("Connect Claude Desktop and Codex Desktop to cmux", "acpmux bridge connect"),
@@ -480,6 +504,44 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     ("forum rules", &[("List the current rules, newest per key", "acpmux forum rules")]),
+    (
+        "memory",
+        &[
+            ("Say how far this machine's memory mount is behind", "acpmux memory status"),
+            (
+                "Point Claude's project memory into the mount",
+                "acpmux memory link --harness claude --apply",
+            ),
+        ],
+    ),
+    (
+        "memory sync",
+        &[
+            ("Sync both scopes once", "acpmux memory sync"),
+            ("Keep the team scope syncing", "acpmux memory sync --scope team --watch"),
+        ],
+    ),
+    (
+        "memory put",
+        &[(
+            "Publish a note to the team",
+            "echo 'use wt new' | acpmux memory put notes/checkouts.md --scope team",
+        )],
+    ),
+    ("memory get", &[("Print a team note", "acpmux memory get notes/checkouts.md --scope team")]),
+    ("memory ls", &[("List the private scope's files", "acpmux memory ls")]),
+    (
+        "memory history",
+        &[("A note's versions", "acpmux memory history notes/checkouts.md --scope team")],
+    ),
+    ("memory status", &[("Last seq, lag, last error and pending files", "acpmux memory status")]),
+    (
+        "memory link",
+        &[
+            ("See what linking Codex's memories would do", "acpmux memory link --harness codex"),
+            ("Link Claude's project memory folders", "acpmux memory link --harness claude --apply"),
+        ],
+    ),
     (
         "forum ack",
         &[("From the agent session that read it, mark a rule read", "acpmux forum ack post-3f9a")],
@@ -686,4 +748,29 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("router", &[("Start the local CodeRouter", "acpmux router serve")]),
     ("router serve", &[("Start the local router listeners", "acpmux router serve")]),
+    (
+        "exec-router",
+        &[
+            ("Show where the last heavy commands ran, and why", "acpmux exec-router trace"),
+            ("Prove local and routed give identical results", "acpmux exec-router conformance"),
+        ],
+    ),
+    (
+        "exec-router trace",
+        &[
+            ("Show the last 20 routing decisions", "acpmux exec-router trace"),
+            ("The last 100, as JSON rows", "acpmux --json exec-router trace --last 100"),
+        ],
+    ),
+    (
+        "exec-router conformance",
+        &[
+            ("Run every case here and routed, and compare", "acpmux exec-router conformance"),
+            ("One JSON row per case, then the summary", "acpmux --json exec-router conformance"),
+            (
+                "Only two cases, keeping the work copies",
+                "acpmux exec-router conformance --case failing-exit --case cargo-build-test --keep",
+            ),
+        ],
+    ),
 ];

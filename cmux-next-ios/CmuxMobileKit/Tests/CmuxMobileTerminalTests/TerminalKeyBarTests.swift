@@ -244,34 +244,34 @@ import Testing
     @Test func restingHeightFollowsWhatShows() {
         let metrics = TerminalDockMetrics()
         let line: CGFloat = 20.29
-        // SF body: 20.29 + 2 x (3 + 6) = 38.3 -> the 40 pt circles win.
-        #expect(metrics.restingComposerHeight(lineHeight: line) == 40)
+        // SF body: 20.29 + 2 x 2 = 24.3 -> the chat card's 48 pt (a 44 pt row) wins.
+        #expect(metrics.restingComposerHeight(lineHeight: line) == 48)
         // At rest the keyboard is down, so the key row is never counted: the
         // PTY keeps its rows when the keyboard and the row come and go.
-        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == 40)
-        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(softKeyboard: .shown)) == 40)
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == 48)
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(softKeyboard: .shown)) == 48)
         #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(composerPresented: false)) == 0)
         #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(chromeHidden: true)) == 0)
         // Larger text: taller, but still fixed for that size.
-        #expect(metrics.restingComposerHeight(lineHeight: 40) == 58)
+        #expect(metrics.restingComposerHeight(lineHeight: 50) == 54)
     }
 }
 
 @Suite struct JoystickAndComposerGeometryTests {
     @Test func theThumbsCenterReachesTheCirclesEdgeAndNoFarther() {
         let geometry = JoystickGeometry()
-        #expect(JoystickGeometry.circle == 44)
-        // The dot's center stops on the circle's edge (22 pt), not 48 pt out.
-        #expect(JoystickGeometry.travel == 22)
+        #expect(JoystickGeometry.circle == 28)
+        // The dot's center stops on the circle's edge (14 pt), not 48 pt out.
+        #expect(JoystickGeometry.travel == 14)
         #expect(geometry.thumbOffset(for: CGSize(width: 4, height: -3)) == CGSize(width: 4, height: -3))
-        // The screenshot's case: a long drag up moves the dot 22 pt.
+        // The screenshot's case: a long drag up moves the dot 14 pt.
         let up = geometry.thumbOffset(for: CGSize(width: 0, height: -120))
-        #expect(abs(up.width) < 0.001 && abs(up.height + 22) < 0.001)
+        #expect(abs(up.width) < 0.001 && abs(up.height + 14) < 0.001)
         let right = geometry.thumbOffset(for: CGSize(width: 200, height: 0))
-        #expect(abs(right.width - 22) < 0.001 && abs(right.height) < 0.001)
+        #expect(abs(right.width - 14) < 0.001 && abs(right.height) < 0.001)
         // Diagonally it keeps the finger's direction, on the same edge.
         let diagonal = geometry.thumbOffset(for: CGSize(width: 60, height: 80))
-        #expect(abs(hypot(diagonal.width, diagonal.height) - 22) < 0.001)
+        #expect(abs(hypot(diagonal.width, diagonal.height) - 14) < 0.001)
         #expect(abs(diagonal.width / diagonal.height - 0.75) < 0.001)
         let corner = geometry.thumbOffset(for: CGSize(width: -500, height: 500))
         #expect(abs(hypot(corner.width, corner.height) - JoystickGeometry.circle / 2) < 0.001)

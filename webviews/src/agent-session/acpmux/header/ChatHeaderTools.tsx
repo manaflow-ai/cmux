@@ -7,8 +7,16 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import { keycapLegend } from "../../../ui/keycapLegend";
-import { memo, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { KeyHint } from "../../../ui/KeyHint";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useContext,
+} from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
@@ -37,7 +45,7 @@ import type { NeedsYouItem } from "../needsYou/model";
 import { newKinds, type HeaderControls, type NewKind } from "./headerTrio";
 import { HeaderNewButton } from "./HeaderNewButton";
 import { useShortcut } from "../shortcuts";
-import { registerPicker } from "../pickerOpeners";
+import { registerPicker, ChatViewParked } from "../pickerOpeners";
 import {
   Menu,
   MenuButton,
@@ -78,6 +86,7 @@ import {
   menuItemForShortcut,
 } from "./chatHeaderToolsModel";
 import { tooltipProps } from "../shortcuts";
+import { usePaneView } from "../paneViewStore";
 import { experimentArm } from "../../../experiments/experiment";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import {
@@ -98,7 +107,16 @@ import {
 /// `chat` names the chat the props are for: on a switch every callback is new, so a menu kept open
 /// across it runs the chat it opened for (through that chat's guardedChatMenu), never the new one's.
 export function ChatHeaderTools({ chat, ...props }: ChatHeaderToolsProps & { chat?: string }) {
-  const stable = useStableProps(props, { menu: [[]], summary: [[true], [false]] }, chat);
+  // A web row whose menu surely has rows reads them only as it opens (ChatMenu's `items`), so the
+  // pane's render builds none: chatMenuItems was ~6.5 ms of each attach's renders, twice (here and
+  // in the view). The native row publishes its rows, and a menu that may be empty is drawn
+  // disabled, so those still read them on every render.
+  const lazyMenu = props.menuHasRows === true && props.nativeRowTools?.enabled !== true;
+  const stable = useStableProps(
+    props,
+    lazyMenu ? { summary: [[true], [false]] } : { menu: [[]], summary: [[true], [false]] },
+    chat,
+  );
   return <ChatHeaderToolsMemo {...stable} />;
 }
 
@@ -120,6 +138,7 @@ function ChatHeaderToolsView({
   tabTools = true,
   summary,
   menu,
+  menuHasRows = false,
   onMenuOpen,
   expand,
   onExpanded,
@@ -170,6 +189,9 @@ function ChatHeaderToolsView({
   summary: ReactNode | ((native: boolean) => ReactNode);
   /// The menu's rows, read when it opens.
   menu: () => ChatMenuItem[];
+  /// The menu has rows whatever the chat's state (chatMenuHasRows): a header without the native row
+  /// then reads them only when the menu opens, never while it renders.
+  menuHasRows?: boolean;
   /// Runs before the menu opens; the menu shows once it settles.
   onMenuOpen?: () => Promise<unknown>;
   /// A row with children to show open (the palette's Continue In…); `onExpanded` clears it.
@@ -271,6 +293,7 @@ function ChatHeaderToolsView({
   // Changes is listed there with its button too.
   // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
   // render, and the lit splits as the App last pushed them.
+  const paneView = usePaneView();
   const live = useRef({
     actions,
     tabTools,
@@ -312,7 +335,7 @@ function ChatHeaderToolsView({
       overflow,
     } = live.current;
     if (!tabTools) return [];
-    const { lit } = headerState();
+    const { lit } = headerState(paneView);
     const shownIds = new Set(actions.map((action) => action.id));
     // The buttons the pane is too narrow for come first, in their order: Changes keeps its own row below.
     const folded: ChatMenuItem[] = overflow
@@ -404,8 +427,8 @@ function ChatHeaderToolsView({
   // The native row's "..." is built now, so its dormant icons go in before it is; the web row resets
   // this below once it knows what folds. `standard` keeps today's order untouched.
   if (headerIcons !== "standard") live.current.overflow = relevance.dormant;
-  const chatRows = rows();
-  const chatMenu = nativeChatMenu(chatRows);
+  const chatRows = menuHasRows && nativeRowTools?.enabled !== true ? undefined : rows();
+  const chatMenu = chatRows && nativeChatMenu(chatRows);
   const nativeSearch: RowToolBinding[] =
     glassLook !== "off" && onSearch
       ? [
@@ -558,11 +581,7 @@ function ChatHeaderToolsView({
       >
         <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
         {inCapsule && glassLook === "labels" && <span className="acpmux-glass-label">{tool.label}</span>}
-        {keycap && (
-          <kbd className="acpmux-glass-keycap" aria-hidden="true">
-            {keycapLegend(keycap)}
-          </kbd>
-        )}
+        {keycap && <KeyHint keys={keycap} className="acpmux-glass-key" aria-hidden="true" />}
       </button>
     );
   };
@@ -586,7 +605,7 @@ function ChatHeaderToolsView({
     native && glassLook !== "off" ? null : (
       <ChatMenu
         items={rows}
-        disabled={chatRows.length === 0}
+        disabled={chatRows?.length === 0}
         onOpen={onMenuOpen}
         nativeOpen={
           native && chatMenu
@@ -639,11 +658,7 @@ function ChatHeaderToolsView({
             onClick={onSearch}
           >
             <HeaderIcon name="search" size={HEADER_GLYPH} />
-            {searchKey && (
-              <kbd className="acpmux-glass-keycap" aria-hidden="true">
-                {keycapLegend(searchKey)}
-              </kbd>
-            )}
+            {searchKey && <KeyHint keys={searchKey} className="acpmux-glass-key" aria-hidden="true" />}
           </button>
         )}
       </div>
@@ -888,11 +903,12 @@ export function ChatMenu({
   }, [expand, onExpanded]);
   // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
   const label = t("chatMenu.open");
+  const parked = useContext(ChatViewParked);
   useEffect(() => {
     const pickerLabel = registerPickerLabel === undefined ? label : registerPickerLabel;
-    if (pickerLabel === null) return;
+    if (pickerLabel === null || parked) return;
     return registerPicker(pickerLabel, () => showRef.current());
-  }, [label, registerPickerLabel]);
+  }, [label, registerPickerLabel, parked]);
   const onOpenChange = (next: boolean) => {
     if (next) return show();
     opening.current++;
@@ -973,7 +989,7 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
         <Icon name={item.icon} size={14} />
       )}
       <span className="acpmux-chat-menu-label">{item.label}</span>
-      {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
+      {shortcut && <KeyHint keys={shortcut} className="acpmux-chat-menu-key" />}
     </MenuItem>
   );
 }
@@ -1049,7 +1065,7 @@ function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={child.disabled} onSelect={child.onSelect}>
       <span className="acpmux-chat-menu-label">{child.label}</span>
-      {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
+      {shortcut && <KeyHint keys={shortcut} className="acpmux-chat-menu-key" />}
     </MenuItem>
   );
 }

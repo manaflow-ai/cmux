@@ -90,6 +90,35 @@ fn protocol_registry_names_every_served_method() {
             }
         }
     }
+    // A dispatcher branch on a constant another module owns (`m == crate::perf_trace::METHOD_SPANS`)
+    // names no literal here and no `rpc::method` constant: read the constant from its module, so a
+    // method served that way cannot miss the registry (#55624's trace methods did).
+    let foreign = regex::Regex::new(r"\bm == crate::((?:[a-z_]+::)+)([A-Z0-9_]+)\b").unwrap();
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    for source in sources {
+        let served = source.split("\n#[cfg(test)]\nmod ").next().unwrap_or_default();
+        for capture in foreign.captures_iter(served) {
+            let module = capture[1].trim_end_matches("::").replace("::", "/");
+            if module == "rpc/method" {
+                continue;
+            }
+            let file = [src.join(format!("{module}.rs")), src.join(format!("{module}/mod.rs"))]
+                .into_iter()
+                .find(|path| path.is_file())
+                .unwrap_or_else(|| panic!("no source for crate::{module}"));
+            let text = std::fs::read_to_string(&file).unwrap();
+            let defined =
+                regex::Regex::new(&format!(r#"const {}: &str = "([^"]+)";"#, &capture[2])).unwrap();
+            let name = defined
+                .captures(&text)
+                .unwrap_or_else(|| panic!("{} names no &str in {}", &capture[2], file.display()))
+                [1]
+            .to_owned();
+            if !names.contains(name.as_str()) {
+                missing.insert(name);
+            }
+        }
+    }
     assert!(missing.is_empty(), "declare these in protocol::registry(): {missing:?}");
 }
 
@@ -175,6 +204,21 @@ fn protocol_keyed_params_are_closed_and_name_the_request_meta() {
     }
 }
 
+#[test]
+fn protocol_claude_login_accepts_an_optional_recovery_session() {
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).unwrap();
+    for name in ["AgentLoginStartParams", "AgentLoginFinishParams"] {
+        let params = &ir["types"][name];
+        assert_eq!(params["additionalProperties"], false);
+        assert_eq!(params["properties"]["recoverySession"], true);
+        assert!(
+            params["required"]
+                .as_array()
+                .is_none_or(|fields| { !fields.iter().any(|field| field == "recoverySession") })
+        );
+    }
+}
+
 /// Every `_meta.acpmux` key acpmux's own clients put in a request (the CLI, the hand, the TUI, a peer's
 /// `initialize`) is one [`super::params::AcpmuxRequestMeta`] lists, so the closed type accepts acpmux's own
 /// requests: `acpmux send --class/--thread`, `run --effort/--tag`, a peer's `compression` offer.
@@ -216,4 +260,41 @@ fn protocol_request_meta_lists_every_key_acpmux_clients_send() {
         }
     }
     assert!(missing.is_empty(), "add these request keys to ACPMUX_REQUEST_META: {missing:?}");
+}
+
+/// acpmux's wire is an ABI (RFD 0178): a change that can break an older or
+/// newer peer (a removed method or member, a new required param, a retype, a
+/// removed enum value, a result turning nullable) needs a rule in
+/// `spec/acpmux-abi.compat.json`. Additive changes are free:
+/// `ACPMUX_PROTOCOL_BLESS=1` refreshes `spec/acpmux-abi.surface.json` with the IR.
+#[test]
+fn abi_is_the_compat_files_newest_revision() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("spec/acpmux-abi.compat.json");
+    let schema = cmux_api_compat::Schema::from_json(&std::fs::read(path).expect("compat file"))
+        .expect("compat file parses");
+    assert_eq!(super::ABI, schema.current(), "bump protocol::ABI with the compat file's revision");
+}
+
+#[test]
+fn a_peer_without_abi_reads_as_zero() {
+    use serde_json::json;
+    assert_eq!(super::peer_abi(&json!({})), 0);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"build": "x"}}})), 0);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"abi": "1"}}})), 0);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"abi": 1}}})), 1);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"abi": u64::MAX}}})), 0);
+}
+
+#[test]
+fn protocol_abi_breaks_have_rules() {
+    let spec = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("spec");
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).expect("IR is JSON");
+    let outcome = cmux_api_compat::json_schema::check_files(
+        &ir,
+        &spec.join("acpmux-abi.surface.json"),
+        &spec.join("acpmux-abi.compat.json"),
+        std::env::var_os("ACPMUX_PROTOCOL_BLESS").is_some(),
+    )
+    .unwrap_or_else(|e| panic!("acpmux ABI check: {e}"));
+    assert!(outcome.ok, "{}", outcome.message);
 }

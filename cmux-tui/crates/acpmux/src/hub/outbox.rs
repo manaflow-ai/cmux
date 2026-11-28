@@ -145,6 +145,18 @@ pub struct Delivery {
     /// well. Cleared when the hub refuses it outright (`server/outbox.rs` `relay_attempt`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_post: Option<crate::mesh::OutMessage>,
+    /// No post of [`Self::relay_post`] can be at the hub: every one so far failed before it left
+    /// this daemon (`HubError::never_reached`), and it is saved false before any post that might
+    /// not. Only then may a copy go to its machine directly (`server/mesh_direct.rs`). False for a
+    /// record saved before the field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relay_unreached: bool,
+    /// A direct copy may have reached its machine (`server/mesh_direct.rs`): saved before it goes,
+    /// and from then on only the direct path tries it again, under the same key, which the far
+    /// daemon runs once; the hub is never posted it. Cleared when the direct attempt provably
+    /// did not run it (no circuit, or the far daemon refused before it ran).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub direct_maybe: bool,
     /// Delivered to a peer's session, and not yet seen in that peer's journal after a later
     /// link: the machine may have lost it with its disk (a session moved to a fresh machine,
     /// a VM back on an older snapshot). Every link of the peer that comes up gives back its
@@ -244,6 +256,13 @@ impl Delivery {
 
     pub fn projection_only(&self) -> bool {
         self.request.pointer("/_meta/acpmux/forwardProjection").is_some()
+    }
+
+    /// A message (not a projection intent, which keeps its own schedule) past [`RETRY_FOR_MS`]
+    /// since it was handed over: it is never sent again (`server/outbox.rs` `expired`), and a
+    /// failed one stays failed (`hub/watches.rs` `drain`).
+    pub fn past_retry_window(&self, now: u64) -> bool {
+        !self.projection_only() && now >= self.created_at.saturating_add(RETRY_FOR_MS)
     }
 
     /// Open on its peer past [`OPEN_ON_PEER_FOR_MS`].
@@ -405,6 +424,10 @@ pub struct OutboxState {
     pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
     /// [`Self::unsettled`]'s last count: what `status` shows while a writer holds the book.
     unsettled_seen: std::sync::atomic::AtomicUsize,
+    /// [`Self::stats`]'s last answer, for while a writer holds the book.
+    stats_seen: StdMutex<Option<Value>>,
+    /// Where a delivery that ends failed goes (`hub/dead_letters.rs`): set once.
+    failed: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<Delivery>>,
     /// Tests only: the next write says it started, then stalls until told to go on, as a full
     /// or hung disk does.
     #[cfg(test)]
@@ -417,10 +440,22 @@ pub struct OutboxState {
 /// The deliveries and the number of changes made to them.
 #[derive(Default)]
 struct Book {
+    /// Shared by all idle peer checks until the next change.
+    pending_targets: Option<Arc<PendingTargets>>,
     deliveries: BTreeMap<String, Delivery>,
     changes: u64,
     /// The deliveries changed since the last write: the next one journals them.
     dirty: BTreeSet<String>,
+    /// The counters every change here moves (`outbox_stats.rs`).
+    stats: super::outbox_stats::Counters,
+}
+
+/// Distinct destinations and pins of unfinished messages. Both keep a link alive when a
+/// previously pinned delivery's destination now resolves on another peer.
+#[derive(Default)]
+pub(super) struct PendingTargets {
+    pub(super) targets: HashSet<String>,
+    pub(super) pins: HashSet<String>,
 }
 
 /// What the files hold.
@@ -446,6 +481,8 @@ struct Disk {
     /// A snapshot that failed (a nearly full disk) is tried again once the journal holds this
     /// many bytes, not on every change.
     snapshot_retry_at: u64,
+    /// When the counters were last written (`outbox_stats.rs`): 0 writes them with the next save.
+    stats_written_at: u64,
 }
 
 impl OutboxState {
@@ -482,7 +519,9 @@ impl OutboxState {
             disk.snapshot_retry_at = 0;
         }
         let mut book = self.book();
+        book.pending_targets = None;
         book.deliveries.extend(saved.deliveries);
+        book.stats = super::outbox_stats::read(path, crate::store::now_ms());
         // Attachments come back from beside the file; ones no waiting delivery names go.
         let dir = attachments_dir(path);
         let mut named = std::collections::HashSet::new();
@@ -530,6 +569,7 @@ impl OutboxState {
                 return;
             }
             disk.snapshot_next = true;
+            disk.stats_written_at = 0;
         }
         let change = self.book().changed();
         self.save(change);
@@ -537,6 +577,17 @@ impl OutboxState {
 
     fn book(&self) -> std::sync::MutexGuard<'_, Book> {
         self.deliveries.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Sends every delivery that ends failed to `to` from now on: false when one already does.
+    pub(crate) fn on_failed(&self, to: tokio::sync::mpsc::UnboundedSender<Delivery>) -> bool {
+        self.failed.set(to).is_ok()
+    }
+
+    /// The dead-letter list beside `outbox.json`, when the outbox is on disk.
+    pub(crate) fn dead_letters_path(&self) -> Option<PathBuf> {
+        let path = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        Some(path.with_file_name(crate::hub::dead_letters::FILE))
     }
 
     /// Where delivery `d`'s attachments are kept, when it has any and the outbox is on disk.
@@ -554,6 +605,9 @@ impl OutboxState {
     pub fn add(&self, delivery: Delivery) -> anyhow::Result<Delivery> {
         let (delivery, change, added) = self.add_scoped(delivery, false);
         self.save_or_take_out(change, added.then_some(delivery.id.as_str()))?;
+        if added {
+            self.book().stats.note_queued();
+        }
         // The first add of this prompt id failed and took it out after this one found it.
         if !added && !self.book().deliveries.contains_key(&delivery.id) {
             anyhow::bail!("the first send of this prompt id was not saved");
@@ -616,6 +670,29 @@ impl OutboxState {
         })
     }
 
+    /// One snapshot per changed book, shared by every quiet link. While the writer holds the
+    /// book, keep the link until it can check again.
+    pub(super) fn pending_targets(&self) -> Option<Arc<PendingTargets>> {
+        let mut book = self.deliveries.try_lock()?;
+        if let Some(targets) = &book.pending_targets {
+            return Some(Arc::clone(targets));
+        }
+        let mut targets = PendingTargets::default();
+        for d in book
+            .deliveries
+            .values()
+            .filter(|d| !d.settled() && !d.projection_only() && !d.is_team_receipt())
+        {
+            targets.targets.insert(d.target.clone());
+            if let Some(pin) = &d.pin {
+                targets.pins.insert(pin.peer.clone());
+            }
+        }
+        let targets = Arc::new(targets);
+        book.pending_targets = Some(Arc::clone(&targets));
+        Some(targets)
+    }
+
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
     /// journal counts).
     /// Never waits: `status` (every pane's connect, `ls`) reads it, and a writer can hold the
@@ -629,6 +706,36 @@ impl OutboxState {
         let count = book.deliveries.values().filter(|d| !d.settled()).count();
         self.unsettled_seen.store(count, Relaxed);
         count
+    }
+
+    /// The outbox's counters and gauges (`outbox_stats.rs`): `send_status {stats: true}` and
+    /// `acpmux ls`. One pass over the book, the one [`Self::unsettled`] makes, so it costs what
+    /// `status` already did; never waits: while a writer holds the book it answers the last one.
+    pub fn stats(&self) -> Value {
+        use std::sync::atomic::Ordering::Relaxed;
+        let Some(book) = self.deliveries.try_lock() else {
+            let seen = self.stats_seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            return seen.unwrap_or_else(|| book_free_stats(self.unsettled_seen.load(Relaxed)));
+        };
+        let now = crate::store::now_ms();
+        let (mut depth, mut oldest) = (0usize, None::<u64>);
+        for d in book.deliveries.values().filter(|d| !d.settled()) {
+            depth += 1;
+            if !d.projection_only() && !d.is_team_receipt() {
+                oldest = Some(oldest.map_or(d.created_at, |o| o.min(d.created_at)));
+            }
+        }
+        self.unsettled_seen.store(depth, Relaxed);
+        let value = book.stats.status(depth, oldest.map(|c| now.saturating_sub(c)));
+        drop(book);
+        *self.stats_seen.lock().unwrap_or_else(|e| e.into_inner()) = Some(value.clone());
+        value
+    }
+
+    /// The mesh relay leased an inbound message for its `attempt`th time (`server/mesh_relay.rs`).
+    /// Saved with the next save.
+    pub(crate) fn note_relay_lease(&self, attempt: u32) {
+        self.book().stats.note_relay_lease(attempt);
     }
 
     /// Tests only: takes the book, runs `taken`, and holds it for `held`, as a slow writer does.
@@ -676,6 +783,8 @@ impl OutboxState {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -761,12 +870,33 @@ impl OutboxState {
         f: impl FnOnce(&mut Delivery),
     ) -> Option<(u64, std::thread::Result<()>)> {
         let mut book = self.book();
+        let book = &mut *book;
         let d = book.deliveries.get_mut(id)?;
+        let before = (d.state, d.attempts);
+        let was = d.state;
         // A closure that panics part way has still changed the delivery: that change is marked
         // and saved like any other before the panic goes on, so memory never holds what no
         // write will take (a restart went back to before it and sent it again).
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(d)));
         d.updated_at = crate::store::now_ms();
+        if !d.is_team_receipt() {
+            book.stats.note_change(
+                before,
+                d.state,
+                d.attempts,
+                d.created_at,
+                d.error.as_deref(),
+                d.updated_at,
+            );
+        }
+        // Failed now: it bounces to its sender and is a dead letter (`hub/dead_letters.rs`).
+        if was != State::Failed
+            && d.state == State::Failed
+            && !d.projection_only()
+            && let Some(failed) = self.failed.get()
+        {
+            let _ = failed.send(d.clone());
+        }
         book.dirty.insert(id.to_owned());
         Some((book.changed(), ran))
     }
@@ -832,6 +962,11 @@ impl OutboxState {
             || (disk.journal >= COMPACT_FLOOR.max(2 * disk.snapshot)
                 && disk.journal >= disk.snapshot_retry_at);
         // The changed deliveries' lines and, for a snapshot, every delivery, as of one change.
+        let now = crate::store::now_ms();
+        let stats = (now.saturating_sub(disk.stats_written_at)
+            >= super::outbox_stats::SAVE_EVERY_MS)
+            .then(|| serde_json::to_vec(&self.book().stats).ok())
+            .flatten();
         let (lines, whole, dirty, newest) = {
             let mut book = self.book();
             let dirty = std::mem::take(&mut book.dirty);
@@ -869,7 +1004,9 @@ impl OutboxState {
                 self.stall.lock().unwrap_or_else(|e| e.into_inner()).take()
             {
                 let _ = started.send(());
-                let _ = go_on.recv();
+                // A dropped sender lets the write go on, as before; a test that never lets it
+                // go on fails its own wait instead of hanging the worker.
+                let _ = go_on.recv_timeout(std::time::Duration::from_secs(30));
             }
             #[cfg(test)]
             if let Some(error) =
@@ -964,12 +1101,26 @@ impl OutboxState {
             book.dirty.extend(dirty);
             if let Some(id) = added {
                 book.deliveries.remove(id);
+                book.pending_targets = None;
             }
             return Err(e);
         }
         disk.saved = newest;
+        // The counters ride on a save the outbox makes anyway, at most every
+        // `SAVE_EVERY_MS`, unsynced: a lost write only loses counts, never a delivery.
+        if let Some(stats) = stats {
+            disk.stats_written_at = now;
+            if let Err(e) = crate::qos::off_worker(|| super::outbox_stats::write(&path, &stats)) {
+                tracing::debug!("outbox: counters not written: {e}");
+            }
+        }
         Ok(())
     }
+}
+
+/// [`OutboxState::stats`] before any answer, while a writer holds the book: the depth only.
+fn book_free_stats(depth: usize) -> Value {
+    super::outbox_stats::Counters::default().status(depth, None)
 }
 
 /// Delivery `d` as it is written: attachment bytes are kept once beside the file
@@ -1090,10 +1241,20 @@ fn read_saved(path: &Path) -> Saved {
 impl Book {
     /// Counts a change and drops what settled long ago; returns the change's number.
     fn changed(&mut self) -> u64 {
+        self.pending_targets = None;
         let now = crate::store::now_ms();
         for d in self.deliveries.values_mut().filter(|d| d.open_lapsed(now)) {
             tracing::warn!(delivery = %d.id, target = %d.target, "an open delivery lapsed; failed");
+            let before = (d.state, d.attempts);
             d.fail_open(OPEN_LAPSED.to_owned());
+            self.stats.note_change(
+                before,
+                d.state,
+                d.attempts,
+                d.created_at,
+                d.error.as_deref(),
+                now,
+            );
             crate::attach::strip(&mut d.request);
             d.updated_at = now;
             // The journal gets its failed state too, not only the next snapshot.
@@ -1232,6 +1393,8 @@ mod tests {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -1846,6 +2009,8 @@ mod tests {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,

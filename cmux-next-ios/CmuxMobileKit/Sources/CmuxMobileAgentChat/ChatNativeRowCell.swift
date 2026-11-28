@@ -106,7 +106,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                 view.frame = box.frame.offsetBy(dx: margin, dy: 0)
                 view.backgroundColor = box.fill
                 view.layer.cornerRadius = box.radius
-                view.layer.borderWidth = box.bordered ? 0.5 : 0
+                view.layer.borderWidth = box.bordered ? 1 / max(traitCollection.displayScale, 1) : 0
                 view.layer.borderColor = Self.borderColor(traitCollection)
                 view.isHidden = false
             }
@@ -486,7 +486,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     }
 
     private static func borderColor(_ traits: UITraitCollection) -> CGColor {
-        UIColor.separator.withAlphaComponent(0.5).resolvedColor(with: traits).cgColor
+        CmuxMobileContentSurface.line(.card).resolvedColor(with: traits).cgColor
     }
 
     private func updateBorderColors() {
@@ -601,7 +601,10 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
     private let scroll = UIScrollView()
     private let body = UILabel()
     private let fade = CAGradientLayer()
-    private let capFade = CAGradientLayer()
+    /// Capped: the code fades out above "Show all" through this mask on its clip view (a fill
+    /// fade would paint a band over the Mac's picture).
+    private let capMask = CAGradientLayer()
+    private let scrollClip = UIView()
     private let capView = UIView()
     private let showAll = UIButton(type: .system)
     private var code = ""
@@ -611,10 +614,12 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .cmuxMobileCodeBackground
+        // The card level (design/chat-surfaces.md): the theme's ink over the page, so the Mac's
+        // picture shows through; never an opaque code box.
+        backgroundColor = CmuxMobileContentSurface.fill(.card)
         layer.cornerRadius = 20
         layer.cornerCurve = .continuous
-        layer.borderWidth = 0.5
+        layer.borderWidth = 1 / max(traitCollection.displayScale, 1)
         clipsToBounds = true
         glyph.tintColor = .secondaryLabel
         glyph.contentMode = .center
@@ -633,11 +638,11 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
         fade.startPoint = CGPoint(x: 0, y: 0.5)
         fade.endPoint = CGPoint(x: 1, y: 0.5)
         scroll.layer.mask = fade
-        capView.layer.addSublayer(capFade)
+        scrollClip.addSubview(scroll)
         showAll.addTarget(self, action: #selector(showAllTapped), for: .touchUpInside)
         capView.addSubview(showAll)
-        for view in [glyph, title, copy, scroll, capView] as [UIView] { addSubview(view) }
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: ChatCodeCardView, _: UITraitCollection) in view.updateColors() }
+        for view in [glyph, title, copy, scrollClip, capView] as [UIView] { addSubview(view) }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: ChatCodeCardView, _: UITraitCollection) in view.updateColors() }
         updateColors()
     }
 
@@ -680,10 +685,20 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
         let titleWidth = min(title.intrinsicContentSize.width, width - 16 - 22 - 44)
         title.frame = CGRect(x: 16 + 16 + 6, y: (40 - titleHeight) / 2, width: max(titleWidth, 0), height: titleHeight)
         copy.frame = CGRect(x: width - 8 - 38, y: -2, width: 44, height: 44)
-        scroll.frame = CGRect(x: 0, y: 40, width: width, height: bounds.height - 40)
+        scrollClip.frame = CGRect(x: 0, y: 40, width: width, height: bounds.height - 40)
+        scroll.frame = scrollClip.bounds
         if !capped, scroll.contentSize.width <= width { scroll.contentSize.width = width }
         capView.frame = CGRect(x: 0, y: bounds.height - 88, width: width, height: 88)
-        capFade.frame = CGRect(x: 0, y: 0, width: width, height: 48)
+        if capped, scrollClip.bounds.height > 88 {
+            let height = scrollClip.bounds.height
+            capMask.frame = scrollClip.bounds
+            // Mask alpha only: opaque down to the fade, clear from "Show all" down.
+            capMask.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor, UIColor.clear.cgColor]
+            capMask.locations = [0, NSNumber(value: Double((height - 88) / height)), NSNumber(value: Double((height - 40) / height)), 1]
+            scrollClip.layer.mask = capMask
+        } else {
+            scrollClip.layer.mask = nil
+        }
         showAll.frame = CGRect(x: 0, y: 48, width: width, height: 40)
         updateFade()
     }
@@ -703,10 +718,7 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
     }
 
     private func updateColors() {
-        layer.borderColor = UIColor.separator.withAlphaComponent(0.5).resolvedColor(with: traitCollection).cgColor
-        let background = UIColor.cmuxMobileCodeBackground.resolvedColor(with: traitCollection)
-        capFade.colors = [background.withAlphaComponent(0).cgColor, background.cgColor]
-        showAll.backgroundColor = background
+        layer.borderColor = CmuxMobileContentSurface.line(.card).resolvedColor(with: traitCollection).cgColor
     }
 
     private func setCopied(_ copied: Bool) {
@@ -737,7 +749,9 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
     }
 }
 
-/// `MarkdownTableView` in UIKit: the grid in a horizontal scroll area with a trailing fade.
+/// `MarkdownTableView` in UIKit: the grid in a horizontal scroll area with a trailing fade,
+/// centered when narrower than the row, scrolling sideways in its own box when wider (Leo
+/// 2026-11-22: "i dont know why we dont simply center tables in our agent chats.").
 @MainActor
 final class ChatTableView: UIScrollView, UIScrollViewDelegate {
     private var labels: [UILabel] = []
@@ -809,13 +823,25 @@ final class ChatTableView: UIScrollView, UIScrollViewDelegate {
         }
         for index in table.rules.count..<rules.count { rules[index].isHidden = true }
         contentSize = CGSize(width: table.contentSize.width + inset * 2, height: table.contentSize.height)
+        contentInset = .zero
         contentOffset = .zero
+        centerIfNarrow()
         setNeedsLayout()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        centerIfNarrow()
         updateFade()
+    }
+
+    /// A grid narrower than the row: an even inset on its leading side centers it (and it does not
+    /// scroll); a wider one keeps no inset and scrolls from its leading edge.
+    private func centerIfNarrow() {
+        let slack = max(0, ((bounds.width - contentSize.width) / 2).rounded(.down))
+        guard contentInset.left != slack else { return }
+        contentInset = UIEdgeInsets(top: 0, left: slack, bottom: 0, right: 0)
+        contentOffset = CGPoint(x: -slack, y: 0)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) { updateFade() }

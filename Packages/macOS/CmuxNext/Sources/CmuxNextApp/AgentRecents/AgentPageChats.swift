@@ -42,7 +42,8 @@ final class AgentPageChats {
     /// The app's Cloud account sign-in, awaited by an inline first-send recovery card, and whether it is signed in now.
     var cloudSignIn: (@MainActor () async -> Bool)?
     var cloudSignedIn: (@MainActor () -> Bool)?
-    var cloudSetUp: (@MainActor (CloudSetup.Action, String) async -> Bool)?
+    var mayRecoverCloudConnection: (@MainActor (String) async -> String?)?
+    var cloudSetup: CloudSetup? // Set up Cloud's ways in and the picker's read (``AgentPaneModel/useCloudSetup(_:)``)
     var gitHub: AgentPaneGitHub? // the new chat folder picker's GitHub section (``AgentPaneGitHub``)
     /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
     var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
@@ -53,6 +54,8 @@ final class AgentPageChats {
     private(set) var runNotices: SandboxRunNotices?
     /// A Cloud chat's hand-off turn (``CloudHandoffTurnOpener``), one runner for every page, given the pane that asked.
     var handoffTurn: (@MainActor (AgentPaneView?, String) async -> [String: Any])?
+    /// "Fork first" on a risky step of a Cloud chat (``CloudHandoffTurnOpener/forkFirst(_:services:)``), one runner for every page, given the pane that asked.
+    var forkFirst: (@MainActor (AgentPaneView?, AgentPaneForkFirst) async -> [String: Any])?
     /// The app-level waiter on every hand-off of a chat to a Cloud machine, and its notification.
     private(set) var handoffNotices: HandoffNotices?
 
@@ -119,6 +122,13 @@ final class AgentPageChats {
         } else {
             view.model.onCloudHandoffTurn = nil
         }
+        if let run = forkFirst {
+            view.model.onCloudForkFirst = { @MainActor [weak view] (fork: AgentPaneForkFirst) async -> [String: Any] in
+                await run(view, fork)
+            }
+        } else {
+            view.model.onCloudForkFirst = nil
+        }
         // Written out with its type: Xcode 26.6 could not type the `map` form.
         if let run = cloudStart {
             view.model.onCloudStartChat = { @MainActor [weak view] (start: AgentPaneCloudStart) async -> [String: Any] in
@@ -129,7 +139,8 @@ final class AgentPageChats {
         }
         view.model.onCloudSignIn = cloudSignIn
         view.model.onCloudSignedIn = cloudSignedIn
-        view.model.onCloudSetUp = cloudSetUp
+        view.model.useCloudSetup(cloudSetup)
+        view.model.mayRecoverCloudConnection = mayRecoverCloudConnection
         view.useGitHub(gitHub)
         if let run = cloudRepick {
             view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
@@ -152,9 +163,15 @@ final class AgentPageChats {
         tabs.pageChats.cloudSignIn = { [weak services] in await services?.cloud.auth.signInEndedOnCancel() ?? false }
         tabs.pageChats.cloudSignedIn = { [weak services] in services?.cloud.auth.isSignedIn ?? false }
         CloudStartChat.wireSetup(services)
-        tabs.pageChats.cloudSetUp = { [weak services] action, family in await services?.cloud.setup.setUp(action, family: family) ?? false }
+        tabs.pageChats.cloudSetup = services.cloud.setup
+        tabs.pageChats.mayRecoverCloudConnection = { [weak services] tabID in
+            guard let services, let (tab, _) = services.locateTab(tabID),
+                  let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
+                  let machine = services.machines.session(daemon.machineID) else { return nil }
+            return await CloudMove.ownerAnswer(machine).vmKind == "owner" ? machine.machineID : nil
+        }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
-        tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.open($0) }
+        tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.openGitHubConnect($0) }
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if !request.release, services.cloud.mayCallCloud { CloudStartChat.warmSpare(services); Task { await services.cloud.capability.prefetch(services.cloud.installIdentity) } } // never awaited (task-owner: fire and forget): Send's gesture ticket waits only on the reserve; the pre-approval while they type
@@ -175,6 +192,7 @@ final class AgentPageChats {
         tabs.pageChats.handoffNotices = handoffs
         handoffs.start()
         tabs.pageChats.handoffTurn = CloudHandoffTurnOpener.runner(tabs, services: services)
+        tabs.pageChats.forkFirst = CloudHandoffTurnOpener.forkFirst(tabs, services: services)
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key, incognito in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Cloud turned off by policy, or the managed team it requires missing: a definite
@@ -186,7 +204,7 @@ final class AgentPageChats {
             // person picked Sandboxed and sent, Cloud is allowed and they are signed in. `account` is the account and team
             // they sent under, read now: the daemon starts the Run only while the app is still on them (CloudDaemon.runSandbox).
             guard services.cloud.isSignedIn, let account = services.cloud.auth.runAccount else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
-            let team = account.team, api = services.cloud.machineAPI.daemon.sending(as: account) // the Stack team, as followed
+            let team = account.team, api = services.cloud.machineAPI.sending(as: account) // the Stack team, as followed
             let follow: @Sendable (String) async throws -> Data = { id in
                 try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }

@@ -17,6 +17,9 @@ pub(crate) struct TranscriptCache {
     status: String,
     prefix_items: usize,
     prefix_rows: usize,
+    /// The finished turns hold an error card a later turn may supersede (`superseded_error`):
+    /// a turn's end rebuilds them once so the card goes, then never again.
+    prefix_errors: bool,
     /// Parsed markdown within the mutable turn. Older replies in a long
     /// tool loop do not need highlighting again when a new chunk arrives.
     markdown: std::collections::HashMap<usize, Vec<Row>>,
@@ -51,18 +54,27 @@ impl TranscriptCache {
         } else {
             self.markdown.retain(|&item, _| item < dirty);
         }
-        // Keep queued messages in the tail: promotion can move their item
-        // indices, and they are displayed after the live turn.
+        // The live turn is the tail, from the newest turn prompt. Queued prompts dock after it
+        // (`Transcript::queue`), outside `items`; any `queued` row still in `items` stays in the
+        // tail too, so nothing in the prefix moves.
         let first_queued = t
             .items
             .iter()
             .position(|i| matches!(i, Item::User { queued: true, .. }))
             .unwrap_or(t.items.len());
-        let split = t.items[..first_queued]
+        let split = t
+            .items
+            .get(..first_queued)
+            .unwrap_or_default()
             .iter()
-            .rposition(|i| matches!(i, Item::User { queued: false, .. }))
+            // A turn's prompt, never a steer in it: `late_steers_last` reorders across a steer.
+            .rposition(|i| matches!(i, Item::User { queued: false, steer: false, .. }))
             .unwrap_or(0);
-        let rebuild_prefix = reset || dirty < self.prefix_items || split < self.prefix_items;
+        let turn_ended = self.status != t.status && t.status != "running";
+        let rebuild_prefix = reset
+            || dirty < self.prefix_items
+            || split < self.prefix_items
+            || (self.prefix_errors && turn_ended);
         let changed_row = if rebuild_prefix { 0 } else { self.prefix_rows };
         if rebuild_prefix {
             self.rows.clear();
@@ -71,6 +83,7 @@ impl TranscriptCache {
         } else {
             self.rows.truncate(self.prefix_rows);
         }
+        let prefix_changed = rebuild_prefix || split > self.prefix_items;
         if split > self.prefix_items {
             let rows = transcript_rows_range(
                 t,
@@ -86,6 +99,12 @@ impl TranscriptCache {
             self.append(rows);
             self.prefix_items = split;
             self.prefix_rows = self.rows.len();
+        }
+        if prefix_changed {
+            self.prefix_errors =
+                t.items.iter().take(self.prefix_items).enumerate().any(|(i, x)| {
+                    matches!(x, Item::Error { .. }) && !crate::turn_fold::superseded_error(t, i)
+                });
         }
         self.markdown.retain(|&item, _| item >= split);
         let rows = transcript_rows_range(
@@ -124,7 +143,13 @@ impl TranscriptCache {
 /// Animation changes paint, never document layout or scroll geometry.
 pub(super) fn animated_line(t: &Transcript, row: &Row, c: &Chrome) -> Option<Line<'static>> {
     if t.status != "running" {
-        return None;
+        // A capacity wait's footer counts down while nothing runs.
+        return match t.capacity_wait.as_ref() {
+            Some(wait) if row.item == usize::MAX && !row.text.is_empty() => {
+                Some(super::transcript_rows::capacity_row(wait, c).line)
+            }
+            _ => None,
+        };
     }
     if row.item == usize::MAX && !row.text.is_empty() {
         return Some(working_row(t, c).line);
@@ -136,12 +161,13 @@ pub(super) fn animated_line(t: &Transcript, row: &Row, c: &Chrome) -> Option<Lin
     {
         let label = format!("Working for {}", duration_label(now_ms().saturating_sub(start)));
         let mut line = row.line.clone();
-        let suffix = line.spans[0]
+        let first = line.spans.first_mut()?;
+        let suffix = first
             .content
             .split_once(" · ")
             .map(|(_, rest)| format!(" · {rest}"))
             .unwrap_or_default();
-        line.spans[0] = Span::styled(format!("{label}{suffix}"), c.muted());
+        *first = Span::styled(format!("{label}{suffix}"), c.muted());
         return Some(line);
     }
     if row.item == t.items.len().saturating_sub(1)

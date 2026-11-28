@@ -1916,9 +1916,9 @@ pub mod types {
     ///`Conflict`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Conflict {
-        ///mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.
+        ///mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again. creation.intent_refused: this Idempotency-Key's recorded create refuses this attempt (its intent changed, it was cancelled or completed, or its reservation expired); retrying the same key never creates it.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        pub code: ::std::option::Option<ConflictCode>,
+        pub code: ::std::option::Option<::std::string::String>,
         #[serde(
             rename = "creationKey",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -1933,53 +1933,6 @@ pub mod types {
         pub pending_snapshot_id: ::std::option::Option<ConflictPendingSnapshotId>,
         #[serde(rename = "_tag")]
         pub tag: ConflictTag,
-    }
-    ///mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.
-    #[derive(
-        ::serde::Deserialize,
-        ::serde::Serialize,
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-    )]
-    pub enum ConflictCode {
-        #[serde(rename = "mesh.device.intent_revoked")]
-        MeshDeviceIntentRevoked,
-    }
-    impl ::std::fmt::Display for ConflictCode {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            match *self {
-                Self::MeshDeviceIntentRevoked => f.write_str("mesh.device.intent_revoked"),
-            }
-        }
-    }
-    impl ::std::str::FromStr for ConflictCode {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            match value {
-                "mesh.device.intent_revoked" => Ok(Self::MeshDeviceIntentRevoked),
-                _ => Err("invalid value".into()),
-            }
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for ConflictCode {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for ConflictCode {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
     }
     ///a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -4862,6 +4815,27 @@ pub mod types {
     pub struct FileList {
         pub entries: ::std::vec::Vec<FileEntry>,
     }
+    ///`FileReplica`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct FileReplica {
+        pub bytes: u64,
+        pub complete: bool,
+        pub files: u64,
+        pub root: GuestPath,
+        #[serde(rename = "seedMs")]
+        pub seed_ms: u64,
+        pub truncated: u64,
+    }
+    ///`FileSearch`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct FileSearch {
+        ///False when a bound (5000 files, 2000 folders, 16 MiB) left files under the path unread, or the limit cut the matches.
+        pub complete: bool,
+        pub matches: ::std::vec::Vec<SearchMatch>,
+        pub scanned: u64,
+        ///replica: answered from the copy of the text seeded while this VM has been paused, in one read. disk: read from the saved disk file by file (no replica, or the VM changed since it was seeded).
+        pub source: ::std::string::String,
+    }
     ///`FileStat`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct FileStat {
@@ -5125,6 +5099,165 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for FilesReadFileXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///A literal, case-sensitive substring, matched line by line.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesSearchFilesQuery(::std::string::String);
+    impl ::std::ops::Deref for FilesSearchFilesQuery {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesSearchFilesQuery> for ::std::string::String {
+        fn from(value: FilesSearchFilesQuery) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesSearchFilesQuery {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 256usize {
+                return Err("longer than 256 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesSearchFilesQuery {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesSearchFilesQuery {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesSearchFilesQuery {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesSearchFilesXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for FilesSearchFilesXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesSearchFilesXCmuxTeamId> for ::std::string::String {
+        fn from(value: FilesSearchFilesXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesSearchFilesXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesSearchFilesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesSearchFilesXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesSearchFilesXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct FilesSeedFileReplicaXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for FilesSeedFileReplicaXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<FilesSeedFileReplicaXCmuxTeamId> for ::std::string::String {
+        fn from(value: FilesSeedFileReplicaXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for FilesSeedFileReplicaXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for FilesSeedFileReplicaXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for FilesSeedFileReplicaXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for FilesSeedFileReplicaXCmuxTeamId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -5785,6 +5918,8 @@ pub mod types {
     ///Network intent for the new VM only. Requires vm:network in addition to vm:write. Omit to keep the private default.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct InitialVmNetwork {
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub egress: ::std::option::Option<VmEgressAllowlist>,
         ///an array of at most 8 item(s)
         #[serde(
             rename = "httpsProxies",
@@ -5801,6 +5936,13 @@ pub mod types {
     ///Accepted creation-time policy. Proxy credentials and destination origins are never returned.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct InitialVmNetworkReceipt {
+        ///Present for an allowlist create: every exact HTTPS name the VM may reach besides its proxies.
+        #[serde(
+            rename = "allowedDomains",
+            default,
+            skip_serializing_if = "::std::vec::Vec::is_empty"
+        )]
+        pub allowed_domains: ::std::vec::Vec<::std::string::String>,
         #[serde(rename = "httpsProxyHosts")]
         pub https_proxy_hosts: ::std::vec::Vec<::std::string::String>,
         #[serde(rename = "publicEgress")]
@@ -10541,6 +10683,14 @@ pub mod types {
                 })
         }
     }
+    ///`SearchMatch`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct SearchMatch {
+        pub line: ::std::num::NonZeroU64,
+        pub path: ::std::string::String,
+        ///The matching line, at most 400 characters.
+        pub text: ::std::string::String,
+    }
     ///`ServiceUnavailable`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct ServiceUnavailable {
@@ -13808,6 +13958,164 @@ pub mod types {
                 })
         }
     }
+    ///The VM reaches no public address: only these exact HTTPS names (plus the names every cmux VM needs: its CLI downloads and GitHub releases), and its HTTPS proxies. Conflicts with publicEgress true.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct VmEgressAllowlist {
+        ///Exact host names (no wildcard, no address), reached over HTTPS on 443 only.
+        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+        pub domains: ::std::vec::Vec<VmEgressAllowlistDomainsItem>,
+        pub mode: VmEgressAllowlistMode,
+        ///Named groups of exact host names: anthropic, openai, openrouter, opencode, github, npm, pypi, rust.
+        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+        pub presets: ::std::vec::Vec<VmEgressAllowlistPresetsItem>,
+    }
+    ///a string at most 253 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct VmEgressAllowlistDomainsItem(::std::string::String);
+    impl ::std::ops::Deref for VmEgressAllowlistDomainsItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmEgressAllowlistDomainsItem> for ::std::string::String {
+        fn from(value: VmEgressAllowlistDomainsItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmEgressAllowlistDomainsItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 253usize {
+                return Err("longer than 253 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmEgressAllowlistDomainsItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmEgressAllowlistDomainsItem {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmEgressAllowlistDomainsItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`VmEgressAllowlistMode`
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum VmEgressAllowlistMode {
+        #[serde(rename = "allowlist")]
+        Allowlist,
+    }
+    impl ::std::fmt::Display for VmEgressAllowlistMode {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Allowlist => f.write_str("allowlist"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for VmEgressAllowlistMode {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "allowlist" => Ok(Self::Allowlist),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmEgressAllowlistMode {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmEgressAllowlistMode {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    ///a string at most 32 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct VmEgressAllowlistPresetsItem(::std::string::String);
+    impl ::std::ops::Deref for VmEgressAllowlistPresetsItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmEgressAllowlistPresetsItem> for ::std::string::String {
+        fn from(value: VmEgressAllowlistPresetsItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmEgressAllowlistPresetsItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 32usize {
+                return Err("longer than 32 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmEgressAllowlistPresetsItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmEgressAllowlistPresetsItem {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmEgressAllowlistPresetsItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`VmHttpsProxy`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct VmHttpsProxy {
@@ -15216,6 +15524,53 @@ pub mod types {
                 .map_err(|e: self::error::ConversionError| {
                     <D::Error as ::serde::de::Error>::custom(e.to_string())
                 })
+        }
+    }
+    ///`VmsCreateVmXCmuxCreatePriority`
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum VmsCreateVmXCmuxCreatePriority {
+        #[serde(rename = "background")]
+        Background,
+    }
+    impl ::std::fmt::Display for VmsCreateVmXCmuxCreatePriority {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Background => f.write_str("background"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for VmsCreateVmXCmuxCreatePriority {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "background" => Ok(Self::Background),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmsCreateVmXCmuxCreatePriority {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmsCreateVmXCmuxCreatePriority {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
         }
     }
     ///a string at most 128 character(s) long
@@ -19725,23 +20080,28 @@ impl Client {
 
     Arguments:
     - `idempotency_key`: a string at most 255 character(s) long
+    - `x_cmux_create_priority`
     - `x_cmux_team_id`: a string at most 128 character(s) long
     - `body`
     */
     pub async fn vms_create_vm<'a>(
         &'a self,
         idempotency_key: Option<&'a types::VmsCreateVmIdempotencyKey>,
+        x_cmux_create_priority: Option<types::VmsCreateVmXCmuxCreatePriority>,
         x_cmux_team_id: Option<&'a types::VmsCreateVmXCmuxTeamId>,
         body: &'a types::CreateVmRequest,
     ) -> Result<ResponseValue<types::CreatedVm>, Error<ByteStream>> {
         let url = format!("{}/v1/vms", self.baseurl,);
-        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(3usize);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(4usize);
         header_map.append(
             ::reqwest::header::HeaderName::from_static("api-version"),
             ::reqwest::header::HeaderValue::from_static(Self::api_version()),
         );
         if let Some(value) = idempotency_key {
             header_map.append("idempotency-key", value.to_string().try_into()?);
+        }
+        if let Some(value) = x_cmux_create_priority {
+            header_map.append("x-cmux-create-priority", value.to_string().try_into()?);
         }
         if let Some(value) = x_cmux_team_id {
             header_map.append("x-cmux-team-id", value.to_string().try_into()?);
@@ -20284,6 +20644,132 @@ impl Client {
             .build()?;
         let info = OperationInfo {
             operation_id: "files_list_files",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Seed a paused VM's read replica
+
+    Seed a paused VM's read replica. Requires the vm:files scope. Reads the text under the path from the paused VM's saved disk once and keeps it off the VM, so later searches under it answer in one read with no wake. Call it right after a pause. Replaces the previous replica. A VM that is not paused is 409. The replica answers only while the VM is unchanged; a resume makes it stale. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `POST` request to `/v1/vms/{vmId}/files/replica`
+
+    Arguments:
+    - `vm_id`
+    - `path`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn files_seed_file_replica<'a>(
+        &'a self,
+        vm_id: &'a str,
+        path: &'a types::GuestPath,
+        x_cmux_team_id: Option<&'a types::FilesSeedFileReplicaXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::FileReplica>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/files/replica",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .query(&progenitor_client::QueryParam::new("path", &path))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "files_seed_file_replica",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Search the text of files under a folder in a VM
+
+    Search the text of files under a folder in a VM. Requires the vm:files scope. One request instead of a listing and a read per file. On a paused VM it never wakes the guest: it answers from the replica seeded at pause (POST files/replica) while the VM is unchanged since, and otherwise reads the saved disk and keeps what it read as the replica. On a running VM it reads the disk. Folders named .git, node_modules, target, .cache, .venv, __pycache__, .next, dist and build are skipped; binary files are not matched. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `GET` request to `/v1/vms/{vmId}/files/search`
+
+    Arguments:
+    - `vm_id`
+    - `limit`: a string to be decoded into a number
+    - `path`
+    - `query`: A literal, case-sensitive substring, matched line by line.
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn files_search_files<'a>(
+        &'a self,
+        vm_id: &'a str,
+        limit: Option<&'a str>,
+        path: &'a types::GuestPath,
+        query: &'a types::FilesSearchFilesQuery,
+        x_cmux_team_id: Option<&'a types::FilesSearchFilesXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::FileSearch>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/files/search",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .query(&progenitor_client::QueryParam::new("limit", &limit))
+            .query(&progenitor_client::QueryParam::new("path", &path))
+            .query(&progenitor_client::QueryParam::new("query", &query))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "files_search_files",
         };
         self.pre(&mut request, &info).await?;
         let result = self.exec(request, &info).await;

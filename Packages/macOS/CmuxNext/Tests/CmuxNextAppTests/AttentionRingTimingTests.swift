@@ -18,12 +18,12 @@ import Testing
 @Suite(.serialized)
 struct AttentionRingTimingTests {
     /// Workspace `a`: one quiet terminal (with `hiddenUnread`, a second tab behind it, unread: its blue dot shows on the
-    /// strip, no ring). Workspace `b`: one pane, its tab holding an unread notification.
-    private static func tree(hiddenUnread: Bool = false) -> DaemonTree {
+    /// strip, no ring). Workspace `b`: one pane, its tab holding an unread notification (with `bRings` false, none yet).
+    static func tree(hiddenUnread: Bool = false, bRings: Bool = true) -> DaemonTree {
         let marker = TabNotification(notification: NotificationID(rawValue: 11), unread: true, level: .info, source: "terminal")
         let hidden = TabSnapshot(surface: SurfaceID(rawValue: 3), title: "~", notification: TabNotification(notification: NotificationID(rawValue: 12), unread: true, level: .info, source: "terminal"))
         let quiet = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")] + (hiddenUnread ? [hidden] : []))
-        let ringing = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~", notification: marker)])
+        let ringing = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~", notification: bRings ? marker : nil)])
         let a = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(quiet.id), panes: [quiet])
         let b = ScreenSnapshot(id: ScreenID(rawValue: 2), layout: .leaf(ringing.id), panes: [ringing])
         var tree = DaemonTree(registryID: "s-local", workspaces: [
@@ -37,7 +37,7 @@ struct AttentionRingTimingTests {
         return tree
     }
 
-    private struct Fixture {
+    struct Fixture {
         let services: AppServices
         let controller: WindowController
         let window: NSWindow
@@ -54,7 +54,7 @@ struct AttentionRingTimingTests {
     }
 
     /// One window listing `a` and `b`, showing `a` with its window key. `active`: whether cmux is active.
-    private static func open(active: Bool, hiddenUnread: Bool = false) async throws -> Fixture {
+    static func open(active: Bool, hiddenUnread: Bool = false, bRings: Bool = true) async throws -> Fixture {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { nil }, appActiveSource: { active },
                                    heldKeyReplay: { event, _, _ in NSApp?.sendEvent(event) })
@@ -64,7 +64,7 @@ struct AttentionRingTimingTests {
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        store.apply(snapshot: Self.tree(hiddenUnread: hiddenUnread))
+        store.apply(snapshot: Self.tree(hiddenUnread: hiddenUnread, bRings: bRings))
         let a = try #require(store.workspaces.first { $0.name == "a" })
         let b = try #require(store.workspaces.first { $0.name == "b" })
         let ringing = try #require(b.screens.first?.panes.first)
@@ -329,5 +329,64 @@ struct AttentionRingTimingTests {
         #expect(model.attention[pane] == nil, "the quick click's mouse-up left the ring")
         #expect(model.attentionReadByEntry.contains(pane), "the quick click read the tab without the flash")
         try await PinnedPageTests.until({ !unread.showsUnread }, report: { "the quick click left the tab's blue dot" })
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/56125: b shows once with nothing to ring, is parked, and its pane rings
+    /// while parked (a parked workspace follows no marks, so its chrome never took this ring). Shown again
+    /// with nothing looking at it, the pane shows its ring once the switch's frame lets rings draw, and keeps it.
+    @Test func aPaneThatRangWhileItsWorkspaceWasParkedShowsItsRingUntilAttended() async throws {
+        let (fixture, model, overlay, pane) = try await Self.ringWhileParked()
+        defer { fixture.close() }
+
+        fixture.controller.showWorkspace(requested: fixture.b.id)
+        #expect(fixture.controller.content?.layoutModel === model, "b did not come back from its parked content")
+        #expect(model.attention[pane] != nil, "b's ring was read though nothing looks at it")
+        try await PinnedPageTests.until({ !model.holdsAttentionUntilShown }, report: { "the hold never ended" })
+        try await PinnedPageTests.until({ overlay.attentionRingShown && !overlay.attentionLayer.isHidden },
+                                        report: { "the pane that rang while b was parked never drew its ring" })
+        for _ in 0..<5 { await Task.yield() }
+        #expect(overlay.attentionRingShown && !overlay.attentionLayer.isHidden && model.attention[pane] != nil,
+                "the ring went though nothing attended the pane")
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/56125, with cmux active: the switch is the person going into b's pane,
+    /// so it reads the ring, and the ring shows as its dismiss blink once the switch's frame lets it draw. Before, the
+    /// hold kept the chrome's parked rings, which never had this one: the switch read a ring that never drew at all.
+    @Test func switchingToAWorkspaceWhosePaneRangWhileParkedStillBlinksItsRing() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let (fixture, model, overlay, pane) = try await Self.ringWhileParked()
+        defer { fixture.close() }
+        fixture.services.appActiveSource = { true }
+
+        fixture.controller.showWorkspace(requested: fixture.b.id)
+        #expect(fixture.controller.content?.layoutModel === model, "b did not come back from its parked content")
+        #expect(model.attention[pane] == nil && model.attentionReadByEntry.contains(pane), "the switch did not read b's ring")
+        #expect(overlay.attentionLayer.isHidden, "the read ring blinks over the old workspace's frame")
+        try await PinnedPageTests.until({ !model.holdsAttentionUntilShown }, report: { "the hold never ended" })
+        try await PinnedPageTests.until({ overlay.attentionAnimationKeys.contains("attention-dismiss") },
+                                        report: { "the ring b's pane got while parked never showed: no dismiss blink on the overlay" })
+        #expect(!overlay.attentionLayer.isHidden, "the blink plays hidden")
+    }
+
+    /// Shows b (no ring yet), parks it behind a, then gives b's pane an unread notification while cmux is in the back.
+    private static func ringWhileParked() async throws -> (Fixture, LayoutModel, PaneOverlayView, LayoutPaneID) {
+        let fixture = try await Self.open(active: false, bRings: false)
+        let pane = LayoutPaneID(fixture.ringing.id)
+        fixture.controller.showWorkspace(requested: fixture.b.id)
+        try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.b && fixture.controller.content?.layoutModel.focusedPane == pane },
+                                        report: { "workspace b never showed with its pane focused" })
+        let model = try #require(fixture.controller.content?.layoutModel)
+        let overlay = try #require(fixture.controller.content?.layoutView.context.hosts[pane]?.chrome, "b's pane has no overlay")
+        #expect(model.attention[pane] == nil && !overlay.attentionRingShown, "b rang before its notification came")
+        fixture.controller.showWorkspace(requested: fixture.a.id)
+        try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.a && fixture.controller.focus.state.pane != fixture.ringing.id })
+        #expect(fixture.controller.parked[fixture.b.id]?.layoutModel === model, "b was not kept parked")
+
+        fixture.services.machines.local.store.apply(snapshot: Self.tree(bRings: true))
+        let tab = try #require(fixture.b.screens.first?.panes.first?.tabs.first, "b's tab went with the new snapshot")
+        try await PinnedPageTests.until({ tab.showsUnread }, report: { "b's tab never took its notification" })
+        #expect(model.attention[pane] == nil && !overlay.attentionRingShown, "a parked workspace followed its marks")
+        return (fixture, model, overlay, pane)
     }
 }

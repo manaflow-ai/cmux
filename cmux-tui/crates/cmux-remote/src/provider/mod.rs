@@ -13,6 +13,7 @@ mod iroh_config;
 mod machine_pipe;
 #[cfg(unix)]
 pub mod overlay;
+mod proxied;
 mod relay;
 pub(crate) mod socks;
 mod ssh;
@@ -53,17 +54,20 @@ pub use machine_pipe::{
     machine_pipe_request,
 };
 pub use relay::{
-    BoundCredential, RegistrationState, RelayClientConfig, RelayCredentialSource,
-    RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls,
-    register_relay_daemon, register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
-    spawn_relay_daemon_registration,
+    BoundCredential, EARLY_CONNECT_NOT_INLINE, RegistrationState, RelayClientConfig,
+    RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming,
+    RelayProvider, RelayTls, register_relay_daemon, register_relay_daemon_with_credentials,
+    register_relay_daemon_with_tls, spawn_relay_daemon_registration,
 };
 pub use ssh::{
     REMOTE_LINK_MUX_SOCKET_CAPABILITY, REMOTE_LINK_STRICT_FLAGS_CAPABILITY, SSH_STDERR_MARK,
     SshProvider, SshProviderConfig, one_line, ssh_stderr_of,
 };
 pub use stream::LengthDelimitedLink;
-pub use tailnet::{NoTailnetHints, PeerPath, TailnetCarrierMode, TailnetHints, add_candidates};
+pub use tailnet::{
+    LocalApiTailnetHints, NoTailnetHints, PeerPath, TailnetCarrierMode, TailnetHints,
+    add_candidates, hints_for_mode,
+};
 #[cfg(unix)]
 pub use unix::UnixProvider;
 pub(crate) use websocket::DisplaySeconds;

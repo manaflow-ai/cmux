@@ -44,9 +44,39 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     /// frame: the session attaches again for a full resync, or in bytes mode
     /// (``DaemonTerminalSession``), so the phone never shows a wrong screen it cannot see is wrong.
     case hybridFallback(reason: String)
+    /// `phone-open-link` (`phone-open-link-v1`): a program in terminal `terminalID` asked a
+    /// browser for `url` while this phone drove it, and the Mac's daemon sent it here.
+    case openLink(URL, terminalID: String?)
     /// The Mac stamped this line's redraw (`pseq`, hostd): after its bytes, with the time the
     /// phone read the line (epoch ms), so the screen can say when it painted it.
     case stamped(seq: Int, receivedMs: Double)
+    /// Where the mirror stands in the Mac's byte stream once this line's bytes are drawn
+    /// (`terminal-resume-v1`: `offset` and `generation` on `vt-state`, `output`, `resized` and
+    /// `colors-changed`), only on a line that carries one.
+    case streamPosition(TerminalStreamPosition)
+    /// The bytes a whole replay (`vt-state`) took: a resume that would send more asks for a
+    /// replay instead (`resume_max_bytes`, `terminal-resume-bounded-v1`).
+    case replayBytes(Int)
+}
+
+/// A position in a terminal's byte stream (cmux-tui `resume_ring.rs`): the offset after the
+/// last byte the mirror holds, and the stream's `"<nonce>.<epoch>"` generation (a resize, a
+/// host replay or a color change starts a new one).
+struct TerminalStreamPosition: Sendable, Equatable {
+    var offset: Int
+    var generation: String
+
+    init?(_ object: [String: Any]) {
+        guard let offset = (object["offset"] as? NSNumber)?.intValue, offset >= 0,
+              let generation = object["generation"] as? String, !generation.isEmpty else { return nil }
+        self.offset = offset
+        self.generation = generation
+    }
+
+    init(offset: Int, generation: String) {
+        self.offset = offset
+        self.generation = generation
+    }
 }
 
 /// Decodes attach-stream event lines (JSON, base64) and follows the alternate
@@ -74,10 +104,14 @@ struct DaemonTerminalEventParser: Sendable {
 
     /// `hybridResume`: the stream and frame this attach names to resume from (nil: none);
     /// `alternate`: whether the mirror it resumes on shows the alternate screen.
-    init(surface: Int, hybridResume: (stream: String, frame: Int)? = nil, alternate: Bool = false) {
+    /// `bytesResume`: the attach names a byte offset to resume from (`terminal-resume-v1`), so
+    /// an exact resume's bytes go on the mirror as it was, on the screen `alternate` says (a
+    /// replay starts its own detector over).
+    init(surface: Int, hybridResume: (stream: String, frame: Int)? = nil, alternate: Bool = false, bytesResume: Bool = false) {
         self.surface = surface
         hybridShown = hybridResume
         resumeAlternate = alternate
+        if bytesResume { detector = AlternateScreenDetector(active: alternate) }
     }
 
     mutating func parse(_ line: Data) -> [DaemonTerminalInbound] {
@@ -109,8 +143,13 @@ struct DaemonTerminalEventParser: Sendable {
             for chunk in chunks { _ = detector.scan(chunk) }
             out.append(.alternateScreen(detector.isActive))
             out.append(contentsOf: chunks.map { .output($0) })
+            if let position = TerminalStreamPosition(object) {
+                out.append(.replayBytes(chunks.reduce(0) { $0 + $1.count }))
+                out.append(.streamPosition(position))
+            }
         case "output":
             emit(object["data"] as? String, into: &out)
+            position(object, into: &out)
         case "resized":
             if let cols = object["cols"] as? Int, cols > 0 { out.append(.columns(cols)) }
             if let rows = object["rows"] as? Int, rows > 0 { out.append(.rows(rows)) }
@@ -123,6 +162,8 @@ struct DaemonTerminalEventParser: Sendable {
             if let cols = object["cols"] as? Int, let rows = object["rows"] as? Int,
                let grid, grid.columns == cols, grid.rows == rows {
                 out.append(.sameGridResize(columns: cols, rows: rows))
+                // The kept screen is at the replay's new generation.
+                position(object, into: &out)
                 break
             }
             noteGrid(object)
@@ -138,6 +179,10 @@ struct DaemonTerminalEventParser: Sendable {
                 out.append(.historyRowsOmitted(max(0, omitted)))
             }
             out.append(contentsOf: chunks.map { .output($0) })
+            position(object, into: &out)
+        case "colors-changed":
+            // Colors are not in the bytes: the position moves to the new generation.
+            position(object, into: &out)
         case "agent-cli-frame":
             // An agent CLI's screen as the cells that changed (`agent-cli-hybrid-v1`), drawn
             // into the same mirror as terminal bytes, so it looks as it does from the PTY.
@@ -152,6 +197,12 @@ struct DaemonTerminalEventParser: Sendable {
             accept(frame, into: &out)
         case "detached":
             out.append(.detached(reason: object["reason"] as? String))
+        case "phone-open-link":
+            // A program in this terminal asked a browser for a public page while this phone
+            // drove it: the Mac's daemon sent it here instead of opening it on the Mac.
+            if let text = object["url"] as? String, let url = URL(string: text) {
+                out.append(.openLink(url, terminalID: object["terminal_id"] as? String))
+            }
         case "size-state":
             if let state = TerminalSizeState.decode(object["state"]) {
                 out.append(.sizeState(state, selfParticipant: object["self_participant"] as? String))
@@ -235,6 +286,13 @@ struct DaemonTerminalEventParser: Sendable {
         drewCursor = cursor
         out.append(.hybridFrame(stream: frame.stream, frame: frame.frame, resumed: frame.base != nil && !drewHybridFrame))
         drewHybridFrame = true
+    }
+
+    /// The line's place in the byte stream, when it carries one (`terminal-resume-v1`). An
+    /// attach's lines all carry one or none (a daemon without it, an agent CLI attach), and
+    /// the session forgets the last position at each attach that does not resume from it.
+    private func position(_ object: [String: Any], into out: inout [DaemonTerminalInbound]) {
+        if let position = TerminalStreamPosition(object) { out.append(.streamPosition(position)) }
     }
 
     private mutating func noteGrid(_ object: [String: Any]) {

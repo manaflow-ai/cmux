@@ -243,9 +243,13 @@ async fn lending_peer_with_a_switch_wanted()
 #[tokio::test]
 async fn an_incoming_github_action_holds_a_path_switch_until_its_answer_is_written() {
     let (peer, link, mut out) = lending_peer_with_a_switch_wanted().await;
-    let slot =
-        crate::github_broker::admit_owner(&peer.name, peer.github_ready(link), &peer.github_slots)
-            .unwrap();
+    let slot = crate::github_broker::admit_owner(
+        &peer.name,
+        peer.github_ready(link),
+        &peer.github_slots,
+        &serde_json::json!({}),
+    )
+    .unwrap();
     // Invalid, so it answers without a `gh`: what matters is the answer's way out.
     peer.serve_github_action(serde_json::json!(7), serde_json::json!({}), slot, link);
     assert!(!peer.switch_due(), "the action is running: the link stays");
@@ -472,6 +476,34 @@ async fn a_path_that_stops_being_offered_is_taken_out() {
     assert!(peer.dial_order().contains(&Via::Tailnet));
     peer.apply_tailnet_route(None);
     assert!(!peer.dial_order().contains(&Via::Tailnet));
+}
+
+#[tokio::test]
+async fn a_cold_connect_never_waits_on_an_absent_or_hung_tailscale() {
+    use crate::tailnet_carrier::{LocalRead, Mode, PathSource, Snapshots};
+    // LocalAPI never answers its first read; the CLI is missing or hangs for 2 s.
+    let missing = Snapshots::new(Arc::new(|| Err(anyhow::anyhow!("no tailscale CLI"))));
+    let hung = Snapshots::new(Arc::new(|| {
+        std::thread::sleep(Duration::from_secs(2));
+        Err(anyhow::anyhow!("tailscale status hung"))
+    }));
+    for (name, local, cli) in [
+        ("localapi pending", LocalRead::Pending, missing.clone()),
+        ("localapi absent, cli missing", LocalRead::Unavailable, missing),
+        ("localapi absent, cli hung", LocalRead::Unavailable, hung),
+    ] {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("box", "ssh://leo@box:7777", Some("t".into()), Some("p".into()), tx);
+        let source = PathSource::new(Arc::new(move || local.clone()), cli);
+        *peer.tailnet.lock().unwrap() =
+            super::super::tailnet_path::State::with_source(Mode::DirectOnly, Some(source));
+        let started = std::time::Instant::now();
+        peer.refresh_tailnet(None).await;
+        let waited = started.elapsed();
+        eprintln!("cold connect tailnet read, {name}: {waited:?}");
+        assert!(waited < Duration::from_millis(5), "{name}: the race waited {waited:?}");
+        assert!(!peer.dial_order().contains(&Via::Tailnet));
+    }
 }
 
 #[tokio::test(start_paused = true)]

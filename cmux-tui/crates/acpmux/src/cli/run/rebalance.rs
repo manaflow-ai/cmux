@@ -6,8 +6,14 @@
 //! machine once a pass (`lane_overflow.providers`, `hub/admission_scale_up.rs`).
 //!
 //! Receipts and pass records: `$ACPMUX_HOME/rebalance.jsonl`. `--undo ID` moves a receipt's
-//! session back. Off unless the registry's `lane_overflow.rebalance.enabled` is true: a pass then
-//! only plans and records what it would move (`--force` acts anyway).
+//! session back. Off unless the registry's `lane_overflow.rebalance.enabled` is true (and, with a
+//! `hosts` list, the host is in it): a pass then only plans and records what it would move
+//! (`--force` acts anyway).
+//!
+//! With `own_machine`, each session that may move gets a machine of its own: the provider chain
+//! is asked once per move with `--placement one-per-lane` and `--busy` naming the source and every
+//! machine this pass already claimed, so two moves never share one. `--machine HOST` runs the
+//! pass for a peer from this hub.
 
 use super::*;
 use crate::rebalance as rb;
@@ -22,6 +28,7 @@ pub(crate) struct Args {
     pub max_moves: Option<usize>,
     pub timeout: u64,
     pub undo: Option<String>,
+    pub machine: Option<String>,
 }
 
 fn now_ms() -> u64 {
@@ -34,7 +41,7 @@ fn log_path() -> PathBuf {
 
 fn append(line: &Value) {
     let path = log_path();
-    let wrote = std::fs::OpenOptions::new()
+    let wrote = crate::home_fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
@@ -64,15 +71,41 @@ async fn read_here(client: &Client) -> Result<(Vec<Value>, bool)> {
     Ok((rows, facts))
 }
 
-/// Runs `acpmux session move ARGS --json` (the one move path), bounded: its answer's JSON.
-async fn session_move(args: &[&str], bound: Duration) -> Result<Value, String> {
+/// A peer's live rows from this hub: its list, then `session info` for each row the list calls
+/// live (the list's status can lag; the info is the host's own word), as [`rb::peer_row`]s.
+/// A row with no facts below it is unknown and stays (the pass reads peers without idle facts).
+async fn read_peer(host: &str, bound: Duration) -> Result<Vec<Value>> {
+    let list = acpmux_json(&["--json", "ls", "--machine", host], bound)
+        .await
+        .map_err(|e| anyhow!("{host}: its session list: {e}"))?;
+    let rows = match list {
+        Value::Array(a) => a,
+        v => v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
+    };
+    let mut out = Vec::new();
+    for r in rows.iter().filter(|r| r.get("peer").and_then(Value::as_str) == Some(host)) {
+        let stripped = rb::peer_row(r);
+        if !rb::counts_live(&stripped) {
+            continue;
+        }
+        let Some(id) = r.get("sessionId").and_then(Value::as_str) else { continue };
+        out.push(read_peer_one(host, id, bound).await.unwrap_or(stripped));
+    }
+    Ok(out)
+}
+
+async fn read_peer_one(host: &str, id: &str, bound: Duration) -> Result<Value, String> {
+    let key = format!("{host}/{id}");
+    acpmux_json(&["--json", "session", "info", &key], bound).await.map(|v| rb::peer_row(&v))
+}
+
+/// Runs this acpmux with `args`, bounded: its stdout as JSON (whole, else its last line).
+async fn acpmux_json(args: &[&str], bound: Duration) -> Result<Value, String> {
     use std::process::Stdio;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut command = tokio::process::Command::new(exe);
     command
-        .args(["session", "move"])
         .args(args)
-        .arg("--json")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -82,6 +115,9 @@ async fn session_move(args: &[&str], bound: Duration) -> Result<Value, String> {
         .map_err(|_| format!("session move ran past {}s", bound.as_secs()))?
         .map_err(|e| e.to_string())?;
     let stdout = String::from_utf8_lossy(&out.stdout);
+    if let Ok(v) = serde_json::from_str::<Value>(stdout.trim()) {
+        return Ok(v);
+    }
     let last = stdout.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
     match serde_json::from_str::<Value>(last.trim()) {
         Ok(v) => Ok(v),
@@ -92,16 +128,34 @@ async fn session_move(args: &[&str], bound: Duration) -> Result<Value, String> {
     }
 }
 
+/// Runs `acpmux session move ARGS --json` (the one move path), bounded: its answer's JSON.
+async fn session_move(args: &[&str], bound: Duration) -> Result<Value, String> {
+    let mut all = vec!["session", "move"];
+    all.extend_from_slice(args);
+    all.push("--json");
+    acpmux_json(&all, bound).await
+}
+
 /// Asks the fleet for a fresh machine through `lane_overflow.providers`, once: the first host a
-/// provider answers, or why none did.
-async fn spill(registry: &Value, here: &str) -> Value {
+/// provider answers, or why none did. `own`: a machine of its own (`--placement one-per-lane`),
+/// none of `busy` (the source is always busy).
+async fn spill(registry: &Value, here: &str, own: bool, busy: &[String]) -> Value {
     use crate::hub::admission_scale_up as up;
     let source = crate::placement::registry_path().unwrap_or_default();
     let Some(plan) = up::plan(registry, &source, here, up::workspace_of(&source).as_deref()) else {
         return json!({"asked": false, "why": "no lane_overflow.providers here"});
     };
     let mut tried = Vec::new();
-    for p in plan.providers {
+    for mut p in plan.providers {
+        // The last --busy wins (argparse): it names the source again with every claimed one.
+        if !busy.is_empty() {
+            let all: Vec<&str> =
+                std::iter::once(here).chain(busy.iter().map(String::as_str)).collect();
+            p.argv.extend(["--busy".into(), all.join(",")]);
+        }
+        if own {
+            p.argv.extend(["--placement".into(), "one-per-lane".into()]);
+        }
         let name = p.name.clone();
         let bound = plan.budget + Duration::from_secs(10);
         let answer = tokio::task::spawn_blocking(move || up::run_provider_blocking(&p, bound))
@@ -122,6 +176,57 @@ async fn spill(registry: &Value, here: &str) -> Value {
     json!({"asked": true, "host": null, "tried": tried})
 }
 
+/// A move's wait handoff (`_acpmux/bg/rearm` version 1, `server/bg_rearm.rs`): re-arms `waits`
+/// (`bgWaits` rows) for the chat at `dest`, then, only once every one is re-armed or expired,
+/// stops them at `source`. What it did, with `error` when a wait was left running at the source:
+/// the chat moved either way (its receipt stays ok, so its undo works), and a wait left running
+/// still wakes it through its old host, so none is lost.
+async fn hand_off(client: &Client, dest: &str, source: &str, waits: &[Value]) -> Value {
+    let v = crate::rearm::VERSION;
+    let armed = client
+        .request(method::MUX_BG_REARM, json!({"version": v, "sessionId": dest, "waits": waits}))
+        .await;
+    let armed = match armed {
+        Ok(a) => a,
+        Err(e) => {
+            let why =
+                format!("moved; its waits were not re-armed at {dest} and still run here: {e:#}");
+            return json!({"version": v, "error": why});
+        }
+    };
+    let done = armed.get("rearmed").and_then(Value::as_array).map_or(0, Vec::len)
+        + armed.get("expired").and_then(Value::as_array).map_or(0, Vec::len);
+    if done != waits.len() {
+        let why = format!(
+            "moved; {dest} re-armed {done} of {} waits, so they still run here",
+            waits.len()
+        );
+        return json!({"version": v, "armed": armed, "error": why});
+    }
+    let ids: Vec<&str> = waits.iter().filter_map(|w| w.get("id").and_then(Value::as_str)).collect();
+    let released = client
+        .request(method::MUX_BG_REARM, json!({"version": v, "sessionId": source, "release": ids}))
+        .await;
+    match released {
+        Ok(r) => {
+            let refused = r.get("refused").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+            let error = refused.then(|| {
+                format!(
+                    "moved and re-armed; {source} kept some: {}",
+                    r.get("refused").unwrap_or(&Value::Null)
+                )
+            });
+            json!({"version": v, "armed": armed, "released": r, "error": error})
+        }
+        Err(e) => {
+            let why = format!(
+                "moved and re-armed at {dest}; the waits at {source} were not stopped: {e:#}"
+            );
+            json!({"version": v, "armed": armed, "error": why})
+        }
+    }
+}
+
 pub(crate) async fn run(args: Args, json_out: bool) -> Result<()> {
     if let Some(id) = &args.undo {
         return undo(id, args.timeout, json_out).await;
@@ -131,15 +236,20 @@ pub(crate) async fn run(args: Args, json_out: bool) -> Result<()> {
     if let Some(n) = args.max_moves {
         conf.max_moves = n;
     }
-    let here = crate::host_pressure::host_name();
+    let peer = args.machine.clone();
+    let here = peer.clone().unwrap_or_else(crate::host_pressure::host_name);
+    let read_bound = Duration::from_secs(60);
     let (cap, _) = crate::session_budget::lanes_of(registry.as_ref(), &here);
     let client = connect(true).await?;
-    let (rows, facts) = read_here(&client).await?;
+    let (rows, facts) = match &peer {
+        Some(h) => (read_peer(h, read_bound).await?, false),
+        None => read_here(&client).await?,
+    };
     let started = now_ms();
     let mut targets = Vec::new();
     let mut place_error = None;
     let over = cap.is_some_and(|c| rows.iter().filter(|r| rb::counts_live(r)).count() as u64 > c);
-    if over {
+    if over && !conf.own_machine {
         match client
             .request(
                 "_acpmux/place",
@@ -151,38 +261,58 @@ pub(crate) async fn run(args: Args, json_out: bool) -> Result<()> {
             Err(e) => place_error = Some(format!("{e:#}")),
         }
     }
+    // Which hosts re-arm a moved session's waits (`bgRearm`): a session with waits goes only
+    // to one of them. Unread: none does, and such a session stays.
+    let peers = if over {
+        client.request("_acpmux/peers", json!({})).await.unwrap_or(Value::Null)
+    } else {
+        Value::Null
+    };
+    rb::rearm_targets(&mut targets, &peers);
     let plan = rb::plan(&rows, facts, cap, targets, &conf, started);
-    let acting = !args.dry_run && (conf.enabled || args.force);
+    let acting = !args.dry_run && (conf.on_for(&here) || args.force);
     let mut pass = plan.to_json();
     if let Some(o) = pass.as_object_mut() {
         o.insert("kind".into(), json!("pass"));
         o.insert("atMs".into(), json!(started));
         o.insert("host".into(), json!(here));
+        o.insert("from".into(), json!(peer.as_ref().map(|_| crate::host_pressure::host_name())));
         o.insert("idleFacts".into(), json!(facts));
-        o.insert("enabled".into(), json!(conf.enabled));
+        o.insert("enabled".into(), json!(conf.on_for(&here)));
+        o.insert("ownMachine".into(), json!(conf.own_machine));
         o.insert("acting".into(), json!(acting));
         o.insert("placeError".into(), json!(place_error));
     }
     let mut done = Vec::new();
     if acting {
         let bound = Duration::from_secs(args.timeout + 120);
-        for (n, m) in plan.moves.iter().enumerate() {
+        // With own_machine every move is a fresh one: its target is claimed just before it.
+        let own: Vec<&rb::Move> =
+            if conf.own_machine { plan.fresh.iter().collect() } else { Vec::new() };
+        let mut claimed: Vec<String> = Vec::new();
+        for (n, m) in plan.moves.iter().chain(own).enumerate() {
             let id = format!("rb-{started}-{n}");
             // Read again just before: a chat prompted since the plan stays.
-            let still: Result<(), String> = match read_here(&client).await {
-                Ok((rows, facts)) => {
-                    match rows
-                        .iter()
+            let row = match &peer {
+                Some(h) => read_peer_one(h, &m.session_id, read_bound).await.map(|r| (r, false)),
+                None => match read_here(&client).await {
+                    Ok((rows, facts)) => rows
+                        .into_iter()
                         .find(|r| r.get("sessionId").and_then(Value::as_str) == Some(&m.session_id))
-                    {
-                        Some(r) => match rb::held(r, facts, now_ms(), conf.min_idle_secs * 1000) {
-                            Some(why) => Err(format!("held since the plan: {why}")),
-                            None => Ok(()),
-                        },
-                        None => Err("gone since the plan".into()),
-                    }
+                        .map(|r| (r, facts))
+                        .ok_or_else(|| "gone since the plan".to_owned()),
+                    Err(e) => Err(format!("{e:#}")),
+                },
+            };
+            let still = row.and_then(|(r, facts)| match rb::stays(&r, facts, now_ms(), &conf) {
+                Some(why) => Err(format!("held since the plan: {why}")),
+                None => {
+                    rb::waits(&r, now_ms()).map_err(|why| format!("held since the plan: {why}"))
                 }
-                Err(e) => Err(format!("{e:#}")),
+            });
+            let (still, waits) = match still {
+                Ok(w) => (Ok(()), w),
+                Err(e) => (Err(e), Vec::new()),
             };
             let mut d = rb::Done {
                 source: here.clone(),
@@ -192,11 +322,39 @@ pub(crate) async fn run(args: Args, json_out: bool) -> Result<()> {
                 error: still.err(),
                 ..rb::Done::default()
             };
+            if d.error.is_none() && m.target.is_empty() {
+                let asked = match registry.as_ref() {
+                    Some(reg) => spill(reg, &here, true, &claimed).await,
+                    None => json!({"asked": false, "why": "no registry"}),
+                };
+                match asked.get("host").and_then(Value::as_str) {
+                    Some(h) => {
+                        claimed.push(h.to_owned());
+                        d.target = h.to_owned();
+                    }
+                    None => d.error = Some(format!("no machine of its own: {asked}")),
+                }
+            }
+            // Its waits are re-armed there, so there must re-arm them (a fresh machine of its
+            // own is checked here, once claimed).
+            if d.error.is_none() && !waits.is_empty() && !rb::rearms(&peers, &d.target) {
+                let peers = client.request("_acpmux/peers", json!({})).await.unwrap_or(Value::Null);
+                if !rb::rearms(&peers, &d.target) {
+                    d.error = Some(format!(
+                        "held: {} does not re-arm waits (its link lists no bgRearm)",
+                        d.target
+                    ));
+                }
+            }
+            let key = match &peer {
+                Some(h) => format!("{h}/{}", m.session_id),
+                None => m.session_id.clone(),
+            };
             if d.error.is_none() {
                 let t0 = Instant::now();
                 let timeout = args.timeout.to_string();
                 let answer = session_move(
-                    &[&m.session_id, "--machine", &m.target, "--after-turn", "--timeout", &timeout],
+                    &[&key, "--machine", &d.target, "--after-turn", "--timeout", &timeout],
                     bound,
                 )
                 .await;
@@ -206,14 +364,20 @@ pub(crate) async fn run(args: Args, json_out: bool) -> Result<()> {
                     Err(e) => d.error = Some(e),
                 }
             }
+            if let Some((host, there)) = d.there.clone()
+                && !waits.is_empty()
+            {
+                d.rearm = Some(hand_off(&client, &format!("{host}/{there}"), &key, &waits).await);
+            }
             let r = rb::receipt(&id, now_ms(), &d, &plan.why);
             append(&r);
             done.push(r);
         }
         if plan.spill > 0
+            && !conf.own_machine
             && let Some(reg) = registry.as_ref()
         {
-            let asked = spill(reg, &here).await;
+            let asked = spill(reg, &here, false, &[]).await;
             if let Some(o) = pass.as_object_mut() {
                 o.insert("fresh".into(), asked);
             }
@@ -228,24 +392,34 @@ pub(crate) async fn run(args: Args, json_out: bool) -> Result<()> {
         return Ok(());
     }
     println!("{here}: {}", plan.why);
+    let verb = if acting { "moving" } else { "would move" };
     for m in &plan.moves {
-        let verb = if acting { "moving" } else { "would move" };
         println!("  {verb} {} ({}) to {}", m.name, m.session_id, m.target);
+    }
+    if conf.own_machine {
+        for m in &plan.fresh {
+            println!("  {verb} {} ({}) to a machine of its own", m.name, m.session_id);
+        }
     }
     for r in &done {
         match r.get("error").and_then(Value::as_str) {
             None => println!(
-                "  moved {} in {} ms; undo: {}",
+                "  moved {} to {} in {} ms; undo: {}",
                 r["name"].as_str().unwrap_or(""),
+                r["target"].as_str().unwrap_or(""),
                 r["unavailableMs"],
                 r["undo"].as_str().unwrap_or("")
             ),
             Some(e) => println!("  {} did not move: {e}", r["name"].as_str().unwrap_or("")),
         }
+        if let Some(e) = r.pointer("/rearm/error").and_then(Value::as_str) {
+            println!("    waits: {e}");
+        }
     }
-    if !acting && !plan.moves.is_empty() {
+    if !acting && (!plan.moves.is_empty() || !plan.fresh.is_empty()) && !args.dry_run {
         println!(
-            "  (planned only: lane_overflow.rebalance.enabled is off in the registry; --force acts)"
+            "  (planned only: lane_overflow.rebalance is off for {here} in the registry; --force \
+             acts)"
         );
     }
     Ok(())
@@ -258,16 +432,40 @@ async fn undo(id: &str, timeout: u64, json_out: bool) -> Result<()> {
     let t0 = Instant::now();
     let key = format!("{host}/{there}");
     let to = timeout.to_string();
+    // Back where it came from: this host, or the peer a hub pass moved it off.
+    let source = r.get("source").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let me = crate::host_pressure::host_name();
+    let back = if source.is_empty()
+        || crate::placement::canonical(&source) == crate::placement::canonical(&me)
+    {
+        "local".to_owned()
+    } else {
+        source.clone()
+    };
+    // Its waits come back with it: read there before the move, re-armed here after.
+    let client = connect(true).await?;
+    let waits = match acpmux_json(&["--json", "session", "info", &key], Duration::from_secs(60))
+        .await
+    {
+        Ok(row) => rb::waits(&row, now_ms()).map_err(|why| anyhow!("{id}: held there: {why}"))?,
+        Err(e) => return Err(anyhow!("{id}: could not read {key}: {e}")),
+    };
+    if !waits.is_empty() && back != "local" {
+        let peers = client.request("_acpmux/peers", json!({})).await.unwrap_or(Value::Null);
+        if !rb::rearms(&peers, &back) {
+            return Err(anyhow!("{id}: held: {back} does not re-arm waits (no bgRearm)"));
+        }
+    }
     let answer = session_move(
-        &[&key, "--machine", "local", "--after-turn", "--timeout", &to],
+        &[&key, "--machine", &back, "--after-turn", "--timeout", &to],
         Duration::from_secs(timeout + 120),
     )
     .await;
     let mut d = rb::Done {
         source: host.clone(),
         session_id: there.clone(),
-        name: r["name"].as_str().unwrap_or_default().to_owned(),
-        target: crate::host_pressure::host_name(),
+        name: r.get("name").and_then(Value::as_str).unwrap_or_default().to_owned(),
+        target: if back == "local" { me } else { source },
         unavailable_ms: t0.elapsed().as_millis() as u64,
         undoes: Some(id.to_owned()),
         ..rb::Done::default()
@@ -276,6 +474,12 @@ async fn undo(id: &str, timeout: u64, json_out: bool) -> Result<()> {
         Ok(back) => d.there = Some(back),
         Err(e) => d.error = Some(e),
     }
+    if let Some((host_back, id_back)) = d.there.clone()
+        && !waits.is_empty()
+    {
+        let dest = if back == "local" { id_back } else { format!("{host_back}/{id_back}") };
+        d.rearm = Some(hand_off(&client, &dest, &key, &waits).await);
+    }
     let out = rb::receipt(&format!("{id}-undo-{}", now_ms()), now_ms(), &d, "undo");
     append(&out);
     if json_out {
@@ -283,7 +487,7 @@ async fn undo(id: &str, timeout: u64, json_out: bool) -> Result<()> {
     } else if let Some(e) = &d.error {
         println!("{id}: did not move back: {e}");
     } else {
-        println!("{id}: {} is back here", d.name);
+        println!("{id}: {} is back on {}", d.name, d.target);
     }
     if d.error.is_some() { Err(anyhow!("undo failed")) } else { Ok(()) }
 }

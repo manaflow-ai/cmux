@@ -113,10 +113,10 @@ EXEMPT = {
     ("cmux-next.yml", "app-compile-fleet"):
         "reads the build fleet's posted compile result (fleet_compile_result.py); "
         "the compile runs on a fleet worker, not on this runner",
-    ("cmux-next.yml", "fast-tier-fleet"):
-        "build-fleet gateway: checks nothing out and only runs cmux-ci "
-        "run (package-test-lane.sh suites); the suites build on a fleet "
-        "worker, never with this runner's Xcode",
+    ("cmux-next.yml", "fast-tier-fleet-mac"):
+        "mac fallback build-fleet gateway: checks nothing out and only runs "
+        "cmux-ci run (package-test-lane.sh suites); the suites build on a "
+        "fleet worker, never with this runner's Xcode",
     ("cmux-next.yml", "release-compile-fast"):
         "build-fleet gateway: checks nothing out and only runs cmux-ci "
         "compile-check --release; the compile runs on a fleet worker, never "
@@ -269,6 +269,8 @@ def check_workflow(name: str, text: str) -> list[str]:
             if BELOW_FLOOR in body and (name, job_id, step_name) not in BELOW_FLOOR_STEPS:
                 errors.append(f"{label} sets {BELOW_FLOOR}; only the SDK 15 helper may")
             scanned = re.sub(r".*select-ci-xcode\.sh.*", "", body)
+            # A whole-line YAML comment (`# Why: 2026-11-24-swift-test-1.md`, a note pointer) runs nothing.
+            scanned = re.sub(r"(?m)^\s*#.*$", "", scanned)
             uses_toolchain = TOOLCHAIN.search(job_id_token.sub("", scanned) if job_id_token else scanned)
             if uses_toolchain and first_select is not None and index < first_select:
                 errors.append(f"{label} uses the toolchain ({uses_toolchain.group(0)}) before {SELECTOR} runs")
@@ -395,6 +397,14 @@ def check_detects_regressions() -> list[str]:
                 "      - name: Report\n        run: swift --version  # for swift-check\n      - name: Select Xcode\n",
             ) + "  swift-check:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n",
             ["before scripts/select-ci-xcode.sh runs"],
+        ),
+        "a comment naming swift is not the toolchain": (
+            base.replace(
+                "      - name: Select Xcode\n",
+                "      - name: Checkout\n        uses: actions/checkout@v6\n        with:\n"
+                "          # Why: 2026-11-24-swift-test-1.md\n          fetch-depth: 2\n      - name: Select Xcode\n",
+            ),
+            [],
         ),
         "selector through a step alias": (
             base.replace("      - name: Select Xcode\n", "      - &select-xcode\n        name: Select Xcode\n")

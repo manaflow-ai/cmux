@@ -24,7 +24,7 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "cloud",
         surfaces: KEYBOARD | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 200).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarNew", "create", 1)], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
         cli_name: "cloud new-workspace",
         main_menu: Some("file"),
@@ -197,6 +197,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH.optional(), args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -211,6 +212,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 1).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud bring-back",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -276,6 +278,20 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "chatPriority.set",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chatPriority.set", "Set Keep Running"),
+        keywords: &["vm", "cloud", "priority", "keep", "running", "hybrid", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[Argument { name: "priority", title: t("Localizable", "argument.chatPriority", "Priority"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
+        targets: &["tab"],
+        cli_name: "action chat-priority-set",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "chatMove.cancel",
         group: GROUP,
         title: t("ActionCatalog", "action.chatMove.cancel", "Cancel Chat Move"),
@@ -316,6 +332,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 2).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud transfer-local",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -331,6 +348,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move-to-machine",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -782,6 +800,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target: Some("machine"),
         palette_target_source: Some("cloud"),
         cli_name: "cloud open-desktop",
+        focuses: true,
         ..Action::DEFAULT
     },
     Action {
@@ -799,6 +818,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         cli_name: "cloud setup-desktop",
         waits_for_result: true,
+        focuses: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1014,6 +1034,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         targets: &["machine"],
         cli_name: "cloud set-idle-pause",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1050,6 +1071,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         cli_name: "cloud delete-snapshot",
         is_destructive: true,
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1064,6 +1086,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "cloud diagnostics",
         main_menu: Some("help"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1092,6 +1115,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
         requires: &["signedOut"],
         cli_name: "cloud sign-in",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1105,6 +1129,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
         requires: &["signedIn"],
         cli_name: "cloud sign-out",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
