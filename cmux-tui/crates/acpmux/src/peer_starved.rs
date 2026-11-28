@@ -2,7 +2,9 @@
 //! is not the peer's (cmuxterm-hq RFD 0124, "starved is slow, never dead").
 //!
 //! One canary task per process sleeps [`TICK`] at a time on the daemon's runtime and records how
-//! late each wake was, by the second, for the last [`KEPT`] seconds. A link's loop takes the
+//! late each wake was, by the second, for the last [`KEPT`] seconds, while a link loop watches
+//! ([`watch`]); with none it waits with no timer. A link reads the meter over its own silence
+//! only, which its loop watched throughout. A link's loop takes the
 //! starved time over the window it was silent ([`Starved::within`]) off that silence before it
 //! judges it against the budget. The loop's own late tick (`peer_runtime_io.rs`) saw only the
 //! tick that ran; a host at load 187 on 15 cores (cosmic-gray, 2026-11-27) starves every tick a
@@ -10,7 +12,7 @@
 //! redial and a punch.
 
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
 /// How often the canary wakes.
@@ -82,23 +84,81 @@ pub fn global() -> &'static Starved {
     METER.get_or_init(Starved::default)
 }
 
-/// Start the canary on this runtime, once per process. Outside a runtime, nothing: the meter
-/// reads zero and no silence is discounted.
-pub fn ensure_started() {
-    static STARTED: AtomicBool = AtomicBool::new(false);
-    let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
-    if STARTED.swap(true, Relaxed) {
-        return;
+/// Who wants the meter: the link loops that read it. The canary wakes only while one holds a
+/// [`Watch`]; with none it waits on `wake` and costs the process no wakeups.
+pub struct Gate {
+    watchers: AtomicUsize,
+    wake: tokio::sync::Notify,
+    /// Canary wakes so far (tests).
+    ticks: AtomicU64,
+}
+
+impl Gate {
+    pub const fn new() -> Self {
+        Self {
+            watchers: AtomicUsize::new(0),
+            wake: tokio::sync::Notify::const_new(),
+            ticks: AtomicU64::new(0),
+        }
     }
-    handle.spawn(canary(global()));
+
+    /// The meter is wanted until the returned guard drops.
+    pub fn watch(&'static self) -> Watch {
+        self.watchers.fetch_add(1, Relaxed);
+        self.wake.notify_one();
+        Watch(self)
+    }
+
+    pub fn ticks(&self) -> u64 {
+        self.ticks.load(Relaxed)
+    }
+}
+
+impl Default for Gate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A link loop's hold on the meter (see [`Gate`]).
+pub struct Watch(&'static Gate);
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        self.0.watchers.fetch_sub(1, Relaxed);
+    }
+}
+
+fn gate() -> &'static Gate {
+    static GATE: Gate = Gate::new();
+    &GATE
+}
+
+/// A link loop wants the meter until the guard drops. Starts the canary on this runtime, once
+/// per process. Outside a runtime, nothing: the meter reads zero and no silence is discounted.
+pub fn watch() -> Watch {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    let watch = gate().watch();
+    if let Ok(handle) = tokio::runtime::Handle::try_current()
+        && !STARTED.swap(true, Relaxed)
+    {
+        handle.spawn(canary(global(), gate()));
+    }
+    watch
 }
 
 /// Sleep `TICK` and record how late each wake came, by the wall clock: under a paused test
 /// clock the sleeps return at once and record nothing.
-pub async fn canary(meter: &'static Starved) {
+pub async fn canary(meter: &'static Starved, gate: &'static Gate) {
     loop {
+        // No link loop reads the meter: wait for one, with no timer (a `watch` stores a permit, so
+        // one that comes between the load and the wait is not missed).
+        while gate.watchers.load(Relaxed) == 0 {
+            gate.wake.notified().await;
+        }
         let asked = Instant::now();
         tokio::time::sleep(TICK).await;
+        gate.ticks.fetch_add(1, Relaxed);
         let now = Instant::now();
         meter.record(now, now.saturating_duration_since(asked).saturating_sub(TICK));
     }
