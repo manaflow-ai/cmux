@@ -58,11 +58,12 @@ CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-c
                    'early-nightly-webviews')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
-# publish-nightly-next-github is the loop run's one hosted job (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS, Leo's
-# override): an upload with the release App key that held the whole signing Mac. The names keep "hosted": these
-# jobs take an ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
+# publish-nightly-next-github and keep-published-dsyms are loop-run hosted jobs (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS).
+# The former uploads with the release App key and the latter retains dSYMs. The names keep "hosted": these jobs take an
+# ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'publish-nightly-next-github', 'published-in', 'wake-nightly-next-tick', 'dispatch-published-in')
+                      'publish-nightly-next-github', 'keep-published-dsyms', 'published-in', 'wake-nightly-next-tick',
+                      'dispatch-published-in')
 # Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
 # jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
 # 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
@@ -112,7 +113,6 @@ OWNED_SECRET_JOBS = {
     'recover-nightly-next-notarization': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'generate-nightly-deltas': "Sparkle keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'publish-nightly': "release and feed credentials in the push run; the signer's label",
-    'keep-published-dsyms': "release credentials, short; the signer's label",
     'nightly-next-pkg': "the .pkg's Installer identity (RFD 0134 cut 2, #54859); the signer's label, after publish",
     'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
 }
