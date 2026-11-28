@@ -109,6 +109,9 @@
   "cmux_tui::cli::api_tokens": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/api_tokens_tests.rs::seeded_secrets_ride_only_in_their_headers"
   },
+  "cmux_tui::cli::app::web_cas": {
+   "none": "GETs of public cas/1 objects under the https base the person named (cmux app web-cas): only a Range header and the cmux-web-cas user-agent, no auth, cookie or person data"
+  },
   "cmux_tui::cli::app::web_pieces": {
    "todo": true
   },
