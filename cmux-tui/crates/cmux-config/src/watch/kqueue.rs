@@ -38,9 +38,9 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use super::{MAX_DELAY, Plan, QUIET};
+use super::{Next, Plan, burst};
 
 // <sys/event.h> and <fcntl.h> (Darwin).
 const EVFILT_VNODE: i16 = -4;
@@ -163,26 +163,24 @@ fn run(watches: &mut Watches, files: &[PathBuf], on_hint: &mut impl FnMut()) {
                 }
             }
         }
-        // One hint per burst: wait until the events stop for QUIET.
-        let started = Instant::now();
-        loop {
-            let left = MAX_DELAY.saturating_sub(started.elapsed()).min(QUIET);
-            if left.is_zero() {
-                break;
-            }
-            match wait(watches.kq.as_raw_fd(), Some(left)) {
-                Wake::Stop => return,
-                Wake::Timeout => break,
-                // Keeps the names' identities current; the burst goes on.
-                Wake::Event(ident, fflags) => {
-                    watches.matters(ident, fflags);
-                }
-            }
+        let running = burst(
+            watches,
+            |watches, left| match wait(watches.kq.as_raw_fd(), Some(left)) {
+                Wake::Stop => Next::Stop,
+                Wake::Timeout => Next::Quiet,
+                // Keeps the names' identities current.
+                Wake::Event(ident, fflags) => Next::Event(watches.matters(ident, fflags)),
+            },
+            // A directory that appeared or vanished, or a file replaced,
+            // moves the watch.
+            |watches| {
+                let _ = watches.rearm(files);
+                on_hint();
+            },
+        );
+        if !running {
+            return;
         }
-        // A directory that appeared or vanished, or a file replaced, moves
-        // the watch.
-        let _ = watches.rearm(files);
-        on_hint();
     }
 }
 
