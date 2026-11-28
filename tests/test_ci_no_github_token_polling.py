@@ -187,7 +187,7 @@ ALLOWED: dict[str, str] = {
     'nightly.yml: Ask the push group for the newest head':
         'bounded retry: asks the push group for its newest head with a finite retry budget',
     'cmux-next-ios-verify-auto.yml: Dispatch the verify run on feat-cmux-next':
-        'retry only: one workflow dispatch, exits on success; 3 tries 10/20 s apart only after a refusal (#63833)',
+        'retry only: one workflow dispatch, exits on success; 3 tries 10/20 s apart after a refusal, a spent rate limit sleeps once to its reset (GET /rate_limit is free, bounded 1500 s), then fails (#63833)',
     "customize-prompts-cold-model.yml: Install feat-cmux-next's published cmux-tui client":
         'retry only: ensure-gh-attestation.sh gh_waiting_out_rate_limit returns on success or any refusal but a rate limit, and sleeps to the limit reset (GET /rate_limit is free) (#56977)',
     'mobile-old-phones.yml: step 3':
