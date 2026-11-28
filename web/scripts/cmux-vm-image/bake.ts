@@ -172,6 +172,7 @@ import {
   SSH_LOGIN_GROUP,
   SSH_SYNC_UNIT,
   SSHD_DROP_IN,
+  carrierSshdCommand,
   sshdBakeCommand,
   sshdDropIn,
   sshdListenProblems,
@@ -999,6 +1000,8 @@ async function configureSshd(ctx: Ctx): Promise<void> {
   // --now: a clone resumes this running system (no boot), so an enabled-only unit would never run. Until a team
   // bind it blocks on inotify (no wakeups).
   await L.step(vm, "team-ssh-sync", `systemctl daemon-reload && systemctl enable --now --quiet ${SSH_SYNC_UNIT} && systemctl is-active ${SSH_SYNC_UNIT}`);
+  // acpmux (wireCmuxTui) serves this sshd to the person's other machines over its hub carrier.
+  ctx.result.carrierSshd = (await L.step(vm, "carrier-sshd", carrierSshdCommand())).trim();
 }
 
 /**

@@ -9,6 +9,7 @@
  * bind writes the CA public key, the work user's principals and the KRL.
  * No key material is baked.
  */
+import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { CURRENT_BIN, sq } from "./lock";
 
 export const SSH_DIR = "/etc/cmux/ssh";
@@ -301,6 +302,24 @@ export function sshdCertSmokeCommand(workUser: string): string {
     `printf '{"krl_version":2,"generation":1,"synced_at":%s}' "$(( $(date +%s) - 121 ))" > ${SSH_TRUST_FILE}`,
     `if ${ssh} ${id2} ${target} true 2>/dev/null; then echo "FAIL login with stale trust"; exit 1; fi; echo "PASS stale trust refuses"`,
   ].join("\n");
+}
+
+/**
+ * The loopback sshd over acpmux's hub carrier: the far end of `_acpmux/remote.pipe` bridges a circuit only to
+ * its config's `remoteDaemon` (acpmux cmux_tui_service.rs), so `ssh -o ProxyCommand=<carrier pipe>` reaches this
+ * sshd (still certificate-only) with no inbound port. A `remoteDaemon` already set is kept.
+ */
+export const CARRIER_SSHD_ADDRESS = "127.0.0.1:22";
+
+/** Bake step, after the acpmux service starts: set `remoteDaemon` unless one is set, then print it. */
+export function carrierSshdCommand(): string {
+  const read = `python3 -I -c 'import json, sys; c = json.load(open(sys.argv[1])); print(c.get("remoteDaemon") or c.get("remote_daemon") or "")' "$CMUX_TUI_HOME/.acpmux/config.json" 2>/dev/null || true`;
+  return [
+    cmuxTuiLayoutSelector(),
+    `current="$(${read})"`,
+    `{ [ -n "$current" ] || ${cmuxTuiAsDaemonUser(`"$CMUX_TUI_HOME/.local/bin/acpmux" config --set remote_daemon=${CARRIER_SSHD_ADDRESS} >/dev/null`)}; }`,
+    `echo "remote_daemon=$(${read})"`,
+  ].join(" && ");
 }
 
 /**

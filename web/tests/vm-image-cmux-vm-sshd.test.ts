@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { cmuxTuiLayoutSelector } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
+  CARRIER_SSHD_ADDRESS,
+  carrierSshdCommand,
   CRON_ALLOW_FILE,
   AT_ALLOW_FILE,
   cronAtAllowCommand,
@@ -209,5 +216,43 @@ describe("cron and at allowlist", () => {
     expect(cronAtAllowProblems(`--- ${CRON_ALLOW_FILE}\nroot\ncmux\nalice-agents\n--- ${AT_ALLOW_FILE}\nroot\ncmux\n`, "cmux")).toEqual([`${CRON_ALLOW_FILE} allows alice-agents`]);
     expect(cronAtAllowProblems(`--- ${CRON_ALLOW_FILE}\nroot\ncmux\n`, "cmux")).toEqual([`${AT_ALLOW_FILE} is missing`]);
     expect(cronAtAllowProblems(`--- ${CRON_ALLOW_FILE}\nroot\n--- ${AT_ALLOW_FILE}\nroot\ncmux\n`, "cmux")).toEqual([`${CRON_ALLOW_FILE} does not allow cmux`]);
+  });
+});
+
+// Leo, 2026-11-22 13:07Z: "and/or have it bundled to our cloud portion in platform. idk. improve everything".
+// The image's acpmux serves its loopback sshd over the hub carrier; an owner's own remoteDaemon is kept.
+describe("sshd over the acpmux carrier", () => {
+  /** Runs the bake step with the daemon home at a temp dir and a stand-in acpmux that records `config --set`. */
+  function run(config: object | null): { out: string; config: Record<string, unknown>; calls: string } {
+    const home = mkdtempSync(path.join(tmpdir(), "carrier-sshd-"));
+    try {
+      mkdirSync(path.join(home, ".acpmux"));
+      mkdirSync(path.join(home, ".local/bin"), { recursive: true });
+      if (config) writeFileSync(path.join(home, ".acpmux/config.json"), JSON.stringify(config));
+      const fake = path.join(home, ".local/bin/acpmux");
+      writeFileSync(fake, `#!/bin/sh\necho "$*" >> "$HOME/calls"\nv="\${3#remote_daemon=}"\nprintf '{"remoteDaemon":"%s"}' "$v" > "$HOME/.acpmux/config.json"\n`);
+      chmodSync(fake, 0o755);
+      const cmd = carrierSshdCommand().replace(cmuxTuiLayoutSelector(), `CMUX_TUI_USER=root; CMUX_TUI_HOME=${home}`);
+      const r = spawnSync("bash", ["-c", cmd], { encoding: "utf8" });
+      expect(r.status).toBe(0);
+      const read = (f: string) => { try { return readFileSync(path.join(home, f), "utf8"); } catch { return ""; } };
+      return { out: r.stdout.trim(), config: JSON.parse(read(".acpmux/config.json") || "{}"), calls: read("calls") };
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  test("an unset remoteDaemon becomes the loopback sshd", () => {
+    expect(CARRIER_SSHD_ADDRESS).toBe("127.0.0.1:22");
+    const r = run(null);
+    expect(r.calls.trim()).toBe(`config --set remote_daemon=${CARRIER_SSHD_ADDRESS}`);
+    expect(r.out).toBe(`remote_daemon=${CARRIER_SSHD_ADDRESS}`);
+  });
+
+  test("a remoteDaemon already set is kept", () => {
+    const r = run({ remoteDaemon: "127.0.0.1:7781" });
+    expect(r.calls).toBe("");
+    expect(r.config.remoteDaemon).toBe("127.0.0.1:7781");
+    expect(r.out).toBe("remote_daemon=127.0.0.1:7781");
   });
 });
