@@ -138,7 +138,7 @@
    "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct_seeded_tests.rs::seeded_secrets_ride_only_where_the_cmux_api_needs_them"
   },
   "cmux_tui::cli::cloud_wire_watch": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_wire_watch_tests.rs::seeded_access_token_rides_only_in_the_ticket_mints_authorization"
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_wire_watch_tests.rs::seeded_secrets_ride_only_where_the_wire_needs_them"
   },
   "cmux_tui::cli::customize::pr": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/customize/pr_tests.rs::seeded_layer_fetch_sends_no_credential"
