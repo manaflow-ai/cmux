@@ -13,17 +13,27 @@
 # rig, launched the way a person's tap launches it.
 #
 #   (ios-launch-tti-hosted.yml runs it in each leg after LaunchTTIUITests)
-#   bash scripts/measure/ios-first-connect-simctl.sh [--app PATH] [--runs 20] [--out artifacts/ios-sim]
+# Time zero: each mark is ms since the kernel's start of the app's process, so `simctl launch`'s own work before
+# the spawn is not in it. To show that, each launch also records the host clock just before `simctl launch` (t0)
+# and when it returns (t1); the `spawn` block gives process start minus t0 (simctl's cost before the process
+# exists) and t1 minus process start, from the `main` event's log timestamp minus its ms.
+#
+# --tag NAME names the arm (default simctl): its files are simctl-first-connect[-NAME].json and its line
+# SIMCTL_FIRSTCONNECT {"arm": NAME, ...}. The launch floor (scripts/measure/ios-launch-floor) runs as --tag floor.
+#
+#   bash scripts/measure/ios-first-connect-simctl.sh [--app PATH] [--runs 20] [--out artifacts/ios-sim] [--tag NAME]
 set -euo pipefail
 
 runs=20
 out=artifacts/ios-sim
 app=""
+tag=simctl
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --app) app="$2"; shift 2 ;;
     --runs) runs="$2"; shift 2 ;;
     --out) out="$2"; shift 2 ;;
+    --tag) tag="$2"; shift 2 ;;
     *) echo "ios-first-connect-simctl.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -75,9 +85,11 @@ pids="$work/pids.txt"
 for i in $(seq 0 "$runs"); do
   sim terminate "$udid" "$bundle" >/dev/null 2>&1 || true
   sleep 1
+  t0="$(python3 -c 'import time; print(f"{time.time():.6f}")')"
   line="$(sim launch "$udid" "$bundle" "${args[@]}")"
+  t1="$(python3 -c 'import time; print(f"{time.time():.6f}")')"
   pid="${line##*: }"
-  echo "$i $pid" >>"$pids"
+  echo "$i $pid $t0 $t1" >>"$pids"
   # Bounded: the list's frame mark for this pid, else 30 s.
   for _ in $(seq 1 300); do
     grep workspaces_list_frame "$stream" 2>/dev/null | grep -Eq "\"processID\" *: *$pid[,} ]" && break
@@ -95,16 +107,29 @@ done
 sleep 1
 kill "$stream_pid" 2>/dev/null || true
 stream_pid=""
-cp "$stream" "$out/simctl-launch-marks.ndjson"
+suffix=""
+[[ "$tag" != simctl ]] && suffix="-$tag"
+cp "$stream" "$out/simctl-launch-marks$suffix.ndjson"
+cp "$pids" "$out/simctl-launch-pids$suffix.txt"
 
-python3 -I - "$stream" "$pids" "$out/simctl-first-connect.json" "$bundle" "$device_name" "$runtime" <<'PY'
-import json, math, re, sys
-stream, pids_path, dest, bundle, device, runtime = sys.argv[1:]
+python3 -I - "$stream" "$pids" "$out/simctl-first-connect$suffix.json" "$bundle" "$device_name" "$runtime" "$tag" <<'PY'
+import datetime, json, math, re, sys
+stream, pids_path, dest, bundle, device, runtime, tag = sys.argv[1:]
 pid_run = {}
+host = {}
 for l in open(pids_path):
-    i, pid = l.split()
-    if pid.isdigit():
-        pid_run[int(pid)] = int(i)
+    f = l.split()
+    if len(f) >= 2 and f[1].isdigit():
+        pid_run[int(f[1])] = int(f[0])
+        if len(f) >= 4:
+            host[int(f[0])] = (float(f[2]), float(f[3]))
+def when(ts):
+    # log stream ndjson: "2026-11-28 12:00:00.123456-0800"
+    try:
+        return datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S.%f%z").timestamp()
+    except (TypeError, ValueError):
+        return None
+start = {}
 marks = {}
 pat = re.compile(r"timing launch (\w+) \((\d+)ms\)")
 for l in open(stream):
@@ -116,11 +141,19 @@ for l in open(stream):
     run = pid_run.get(ev.get("processID"))
     if m and run is not None and run > 0:
         marks.setdefault(run, {}).setdefault(m.group(1), int(m.group(2)))
+        t = when(ev.get("timestamp"))
+        if t is not None and run not in start:
+            start[run] = t - int(m.group(2)) / 1000
 def rank(s, p):
     s = sorted(s)
     return s[max(0, math.ceil(p / 100 * len(s)) - 1)] if s else None
-out = {"arm": "simctl", "bundle": bundle, "device": device, "runtime": runtime, "launches": len(pid_run) - 1,
-       "with_list_frame": sum(1 for r in marks.values() if "workspaces_list_frame" in r), "marks": {}}
+lead = [round((start[r] - host[r][0]) * 1000) for r in sorted(start) if r in host]
+ret = [round((host[r][1] - start[r]) * 1000) for r in sorted(start) if r in host]
+out = {"arm": tag, "bundle": bundle, "device": device, "runtime": runtime, "launches": len(pid_run) - 1,
+       "with_list_frame": sum(1 for r in marks.values() if "workspaces_list_frame" in r),
+       "spawn": {"process_start_minus_simctl_call_ms": {"p50": rank(lead, 50), "p90": rank(lead, 90), "samples": lead},
+                 "simctl_return_minus_process_start_ms": {"p50": rank(ret, 50), "p90": rank(ret, 90), "samples": ret}},
+       "marks": {}}
 for name in ("main", "app_init_done", "did_finish_launching", "first_frame", "shell_frame", "workspaces_list_frame"):
     s = [r[name] for _, r in sorted(marks.items()) if name in r]
     out["marks"][name] = {"n": len(s), "p50_ms": rank(s, 50), "p90_ms": rank(s, 90), "samples_ms": s}
