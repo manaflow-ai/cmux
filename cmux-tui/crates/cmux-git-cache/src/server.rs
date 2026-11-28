@@ -127,11 +127,14 @@ impl StatsWriter {
     fn write(&self, stats: &Stats) {
         let Some(path) = &self.0 else { return };
         let mut body = stats.json();
-        body["at"] = serde_json::json!(
+        let at = serde_json::json!(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs())
         );
+        if let Some(object) = body.as_object_mut() {
+            object.insert("at".to_owned(), at);
+        }
         let tmp = path.with_extension("json.tmp");
         if std::fs::write(&tmp, body.to_string())
             .and_then(|()| std::fs::rename(&tmp, path))
@@ -269,10 +272,12 @@ async fn health(axum::extract::State(state): axum::extract::State<Arc<State>>) -
     {
         m.extend(c);
     }
-    body["ok"] = true.into();
-    body["upstream"] = state.cfg.upstream.clone().into();
-    body["tenant"] = state.cfg.tenant.clone().into();
-    body["peers"] = state.cfg.peers.clone().into();
+    if let Some(object) = body.as_object_mut() {
+        object.insert("ok".to_owned(), true.into());
+        object.insert("upstream".to_owned(), state.cfg.upstream.clone().into());
+        object.insert("tenant".to_owned(), state.cfg.tenant.clone().into());
+        object.insert("peers".to_owned(), state.cfg.peers.clone().into());
+    }
     ([(header::CONTENT_TYPE, "application/json")], body.to_string()).into_response()
 }
 

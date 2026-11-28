@@ -15,8 +15,9 @@ public enum CmuxMobilePreferences {
         /// in its cell. Read by the terminal (`TerminalSurfacePrediction`).
         public static let predictiveEchoFullScreen = "cmuxMobile.settings.predictiveEchoFullScreen"
         /// Settings → Terminal → Fit to Phone: on resizes the Mac's terminal to
-        /// the phone (as before); off, the phone re-wraps it at its own width.
+        /// the phone; off keeps the Mac's grid unless phone-side re-wrap is enabled.
         public static let terminalFitToPhone = "cmuxMobile.settings.terminalFitToPhone"
+        public static let terminalPhoneProjection = "cmuxMobile.settings.terminalPhoneProjection"
         /// Settings → Terminal → Jump to Bottom Button (CMUX-10): off removes the
         /// terminal's Jump to bottom row above the composer.
         public static let terminalJumpToBottom = "cmuxMobile.settings.terminalJumpToBottom"
@@ -89,6 +90,7 @@ public enum CmuxMobilePreferences {
     public static let defaultPredictiveEcho = true
     public static let defaultPredictiveEchoFullScreen = false
     public static let defaultTerminalFitToPhone = false
+    public static let defaultTerminalPhoneProjection = false
     public static let defaultTerminalJumpToBottom = true
     /// Off: a shell line is not prose. On for talking to an agent CLI in
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
@@ -189,6 +191,12 @@ public enum CmuxMobilePreferences {
     public static func terminalFitToPhone(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.terminalFitToPhone) == nil
             ? defaultTerminalFitToPhone : defaults.bool(forKey: Key.terminalFitToPhone)
+    }
+
+    /// Phone-side re-wrap is opt-in; otherwise the phone renders the Mac's grid.
+    public static func terminalPhoneProjection(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.terminalPhoneProjection) == nil
+            ? defaultTerminalPhoneProjection : defaults.bool(forKey: Key.terminalPhoneProjection)
     }
 
     /// A downward swipe inside a composer's text collapses it (`ComposerSwipeCollapse`). Read as each swipe begins.
