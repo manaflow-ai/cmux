@@ -4552,6 +4552,18 @@ pub type UrlOpenSubscribeResult = T::GuestUrlSubscribeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VaultEnvRequest {
+    pub access_token: String,
+    pub action: String,
+    pub params: Nullable<T::JsonValue>,
+    pub platform_origin: String,
+}
+
+#[rustfmt::skip]
+pub type VaultEnvResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateRequest {
     pub surface: T::Id,
 }
@@ -6453,6 +6465,10 @@ impl CmuxClient {
 
     pub fn url_open_subscribe(&mut self, request: UrlOpenSubscribeRequest) -> Result<CmuxStream> {
         self.execute_stream(&URL_OPEN_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn vault_env(&mut self, request: VaultEnvRequest) -> Result<VaultEnvResult> {
+        self.execute(&VAULT_ENV_METADATA, &request)
     }
 
     pub fn vt_state(&mut self, request: VtStateRequest) -> Result<T::VtStateResult> {

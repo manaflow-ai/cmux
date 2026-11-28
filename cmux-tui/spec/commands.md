@@ -9111,6 +9111,50 @@ refusals preserve their code; invalid fields fail before an HTTP call. Neither
 this command nor its reads change focus. CLI/MCP use requires the person's own
 API authorization, the token the caller brings; this command never grants one.
 
+### vault-env
+
+| Field | Value |
+| --- | --- |
+| name | `vault-env` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `vault-env-v1` |
+
+Settings › Environment reads and edits the person's own vault (RFD 0222 (c)1), the
+store `cmux machine vault` edits from the CLI, on the same off-loop worker, admission,
+origin check and install token as `cloud-environment`: the verified app or a process of
+this machine's user on the local Unix socket; a link peer, a WebSocket or remote
+connection and an in-process app are refused (`forbidden`). Redirects are disabled.
+
+Required fields: `platform_origin`, `access_token`, `action` and `params` (object).
+Actions and their params:
+
+- `list`, `{}`: `GET /v1/vault/env`, answers `{entries: [{name, revision, updatedAt,
+  delivery, allowedHosts, keyShaped}]}`. `delivery` is `env` (a variable written to the
+  machine) or `proxy` (a secret the egress proxy adds for `allowedHosts`); a hub that
+  sends none predates the proxy and reads `env`.
+- `set`, `{name, value, delivery?, allowedHosts?}`: `PUT /v1/vault/env/{name}` with
+  `{valueBase64, fingerprint, delivery?, allowedHosts?}`; the daemon base64s the value,
+  computes its SHA-256 fingerprint and wipes every copy once sent. Answers `{name,
+  revision, warning?}`.
+- `policy`, `{name, delivery?, allowedHosts?}` (at least one): `PUT
+  /v1/vault/env/{name}/policy`, answers `{name, revision, delivery, allowedHosts, warning?}`.
+- `rm`, `{name}`: `DELETE /v1/vault/env/{name}`, answers `{name, revision}`.
+- `grants`, `{}`: `GET /v1/vault/grants`, answers `{grants: [{kind, id, entries?,
+  expiresAt, grantedAt}]}`; `kind` is `joined` or `cloud`, `expiresAt` 0 is revoked.
+
+A name is `[A-Za-z_][A-Za-z0-9_]*`, at most 128 bytes, and not one the machine owns
+(`PATH`, `HOME`, `LD_*`, `CMUX_*` and the rest of cmux-platform `RESERVED_ENV_NAMES`);
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `OPENAI_API_KEY` are allowed but proxy
+only. A value is 1 to 16384 bytes with no NUL. Hosts are at most 16 lowercase DNS
+names, optionally `*.` and `:port`. Refusals before any HTTP call answer
+`cloud_conversation_rejected` with `reason`: `vault.invalid_name`,
+`vault.key_shaped_variable` (`env` delivery for a name ending in `TOKEN`, `API_KEY`,
+`SECRET`, `PASSWORD` and the like, or a model key), `vault.invalid_hosts`,
+`vault.invalid_value` or `vault.invalid`. A platform `vault.*` code reaches `reason`
+unchanged; any other refusal is `http_<status>`. Upstream messages are never
+forwarded. No reply carries a value or a fingerprint; diagnostics redact params and the
+install token. Neither this command nor its reads change focus.
+
 ### cloud-conversation-thread
 
 | Field | Value |

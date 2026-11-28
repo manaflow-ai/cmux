@@ -3180,6 +3180,16 @@ export interface UrlOpenSubscribeRequest extends CmuxRequestBase {
 }
 export type UrlOpenSubscribeResult = T.GuestUrlSubscribeResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface VaultEnvRequest extends CmuxRequestBase {
+  cmd: "vault-env";
+  "access_token": string;
+  "action": string;
+  "params": (T.JsonValue) | null;
+  "platform_origin": string;
+}
+export type VaultEnvResult = T.JsonValue;
+
 /** Protocol v5; authority: control. */
 export interface VtStateRequest extends CmuxRequestBase {
   cmd: "vt-state";
@@ -3523,6 +3533,7 @@ export type CmuxRequest =
   | UrlOpenClaimRequest
   | UrlOpenResultRequest
   | UrlOpenSubscribeRequest
+  | VaultEnvRequest
   | VtStateRequest
   | WaitForRequest
   | WsListenRequest
@@ -6017,6 +6028,14 @@ export interface CmuxCommandDefinitionMap {
     since: 12;
     capability: null;
     stream: "subscribe";
+  };
+  "vault-env": {
+    request: VaultEnvRequest;
+    result: VaultEnvResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "vault-env-v1";
+    stream: null;
   };
   "vt-state": {
     request: VtStateRequest;

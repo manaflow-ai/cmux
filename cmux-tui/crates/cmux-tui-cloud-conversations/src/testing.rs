@@ -85,6 +85,8 @@ pub struct FakeBackend {
     pub put: Mutex<Vec<(String, usize)>>,
     /// Platform `PUT` requests with an install bearer (a project's default environment).
     pub platform_put: Mutex<Vec<Posted>>,
+    /// Platform `DELETE` requests (body `Null`).
+    pub deleted: Mutex<Vec<Posted>>,
     /// Objects a ranged read serves, by path without the query: (mime, bytes).
     pub objects: Mutex<HashMap<String, (String, Vec<u8>)>>,
 }
@@ -185,6 +187,7 @@ impl CloudBackend for FakeBackend {
             "POST" => &self.posted,
             "PATCH" => &self.patched,
             "PUT" => &self.platform_put,
+            "DELETE" => &self.deleted,
             _ => return Err(TransportError("unsupported platform method".into())),
         };
         requests.lock().unwrap_or_else(PoisonError::into_inner).push(Posted {

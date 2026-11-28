@@ -2170,6 +2170,8 @@ enum Command {
     CloudSelfhostInfo(cloud_conversations::NoParams),
     /// The cloud environment editor; the signed-in person only.
     CloudEnvironment(cloud_conversations::EnvironmentParams),
+    /// The person's own vault (`/v1/vault/env`, `/v1/vault/grants`) for Settings › Environment.
+    VaultEnv(cloud_conversations::EnvironmentParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),

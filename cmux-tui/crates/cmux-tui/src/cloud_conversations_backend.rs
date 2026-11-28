@@ -217,6 +217,7 @@ impl CloudBackend for RemoteCloudBackend {
             "POST" => reqwest::Method::POST,
             "PATCH" => reqwest::Method::PATCH,
             "PUT" => reqwest::Method::PUT,
+            "DELETE" => reqwest::Method::DELETE,
             _ => return Err(TransportError("unsupported platform method".into())),
         };
         // Reuse the no-redirect transport: an install bearer never follows an upstream redirect.
@@ -226,7 +227,7 @@ impl CloudBackend for RemoteCloudBackend {
             .timeout(REQUEST_TIMEOUT)
             .header(reqwest::header::ACCEPT, "application/json")
             .bearer_auth(bearer);
-        if method != reqwest::Method::GET {
+        if method != reqwest::Method::GET && method != reqwest::Method::DELETE {
             request = request.json(body);
         }
         self.runtime.block_on(async move {

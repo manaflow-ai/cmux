@@ -687,6 +687,7 @@
       "cloud-requests-list",
       "cloud-selfhost-info",
       "cloud-environment",
+      "vault-env",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",

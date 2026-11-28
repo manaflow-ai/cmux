@@ -612,6 +612,7 @@ MODEL_BY_PATH = {
     'commands/url-open-claim/request': models.UrlOpenClaimRequest,
     'commands/url-open-result/request': models.UrlOpenResultRequest,
     'commands/url-open-subscribe/request': models.UrlOpenSubscribeRequest,
+    'commands/vault-env/request': models.VaultEnvRequest,
     'commands/vt-state/request': models.VtStateRequest,
     'commands/wait-for/request': models.WaitForRequest,
     'commands/ws-listen/request': models.WsListenRequest,

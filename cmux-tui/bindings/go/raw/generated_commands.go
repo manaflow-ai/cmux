@@ -37693,6 +37693,77 @@ func (value *URLOpenSubscribeRequest) UnmarshalJSON(data []byte) error {
 
 type URLOpenSubscribeResult = GuestURLSubscribeResult
 
+// VaultEnvRequest is the exact vault-env wire payload.
+type VaultEnvRequest struct {
+	AccessToken    string                      `json:"access_token"`
+	Action         string                      `json:"action"`
+	Params         RequiredNullable[JSONValue] `json:"-"`
+	PlatformOrigin string                      `json:"platform_origin"`
+}
+
+func (value VaultEnvRequest) MarshalJSON() ([]byte, error) {
+	type wire VaultEnvRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if !value.Params.IsSet() {
+		return nil, fmt.Errorf("encode VaultEnvRequest: required nullable field params is missing")
+	}
+	if value.Params.IsNull() {
+		object["params"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Params.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode VaultEnvRequest.Params: %w", err)
+		}
+		object["params"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *VaultEnvRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode VaultEnvRequest: expected object")
+	}
+	var fields struct {
+		AccessToken    *string                     `json:"access_token"`
+		Action         *string                     `json:"action"`
+		Params         RequiredNullable[JSONValue] `json:"params"`
+		PlatformOrigin *string                     `json:"platform_origin"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode VaultEnvRequest: %w", err)
+	}
+	type wire VaultEnvRequest
+	var decoded wire
+	if fields.AccessToken == nil {
+		return fmt.Errorf("decode VaultEnvRequest: required field access_token is missing or null")
+	}
+	decoded.AccessToken = *fields.AccessToken
+	if fields.Action == nil {
+		return fmt.Errorf("decode VaultEnvRequest: required field action is missing or null")
+	}
+	decoded.Action = *fields.Action
+	if !fields.Params.IsSet() {
+		return fmt.Errorf("decode VaultEnvRequest: required field params is missing")
+	}
+	decoded.Params = fields.Params
+	if fields.PlatformOrigin == nil {
+		return fmt.Errorf("decode VaultEnvRequest: required field platform_origin is missing or null")
+	}
+	decoded.PlatformOrigin = *fields.PlatformOrigin
+	*value = VaultEnvRequest(decoded)
+	return nil
+}
+
+type VaultEnvResult = JSONValue
+
 // VTStateRequest is the exact vt-state wire payload.
 type VTStateRequest struct {
 	Surface ID `json:"surface"`
@@ -41125,6 +41196,18 @@ func (c *Client) URLOpenClaim(ctx context.Context, requestID string) (URLOpenCla
 func (c *Client) URLOpenResult(ctx context.Context, opened bool, requestID string) (URLOpenResultResult, error) {
 	var result URLOpenResultResult
 	err := c.requestGenerated(ctx, commandMetadata["url-open-result"], "url-open-result", map[string]any{"opened": opened, "request_id": requestID}, &result)
+	return result, err
+}
+
+// VaultEnv sends vault-env. Protocol v12; authority local-admin.
+func (c *Client) VaultEnv(ctx context.Context, request VaultEnvRequest) (VaultEnvResult, error) {
+	var result VaultEnvResult
+	params, err := commandMap(request)
+	if err != nil {
+		err = fmt.Errorf("%w: encode vault-env parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["vault-env"], "vault-env", params, &result)
 	return result, err
 }
 

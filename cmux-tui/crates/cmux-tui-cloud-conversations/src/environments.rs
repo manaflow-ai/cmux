@@ -64,7 +64,7 @@ fn identifier(value: Option<&Value>) -> Result<&str, CloudError> {
 /// `vault.*` save failures) is forwarded alone, shape and length checked, even for a 503. Any
 /// other 4xx code becomes `http_<status>`. The message is always ours, never the upstream's: a
 /// validation service can quote a submitted write-only value.
-fn refused(reply: &HttpReply) -> Result<(), CloudError> {
+pub(super) fn refused(reply: &HttpReply) -> Result<(), CloudError> {
     if (200..=299).contains(&reply.status) {
         return Ok(());
     }

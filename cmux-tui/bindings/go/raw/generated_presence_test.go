@@ -45793,6 +45793,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "name", true, "\"value\"")
 	})
+	t.Run("VaultEnvRequest.Params", func(t *testing.T) {
+		var missing VaultEnvRequest
+		if err := json.Unmarshal([]byte("{\"access_token\":\"value\",\"action\":\"value\",\"platform_origin\":\"value\"}"), &missing); err == nil {
+			t.Fatal("missing required nullable field params decoded successfully")
+		}
+		var nullValue VaultEnvRequest
+		if err := json.Unmarshal([]byte("{\"access_token\":\"value\",\"action\":\"value\",\"params\":null,\"platform_origin\":\"value\"}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Params.IsSet() || !nullValue.Params.IsNull() {
+			t.Fatal("Params did not preserve required null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "params", true, "null")
+		var presentValue VaultEnvRequest
+		if err := json.Unmarshal([]byte("{\"access_token\":\"value\",\"action\":\"value\",\"params\":{\"value\":true},\"platform_origin\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Params.Get(); !ok {
+			t.Fatal("Params did not preserve a required value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "params", true, "{\"value\":true}")
+	})
 	t.Run("WSListenRequest.AllowOrigin", func(t *testing.T) {
 		var missing WSListenRequest
 		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
@@ -57158,6 +57180,30 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field terminal_ids decoded successfully")
 		}
 	})
+	t.Run("VaultEnvRequest.AccessToken", func(t *testing.T) {
+		var decoded VaultEnvRequest
+		if err := json.Unmarshal([]byte("{\"action\":\"value\",\"params\":null,\"platform_origin\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field access_token decoded successfully")
+		}
+	})
+	t.Run("VaultEnvRequest.Action", func(t *testing.T) {
+		var decoded VaultEnvRequest
+		if err := json.Unmarshal([]byte("{\"access_token\":\"value\",\"params\":null,\"platform_origin\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field action decoded successfully")
+		}
+	})
+	t.Run("VaultEnvRequest.Params", func(t *testing.T) {
+		var decoded VaultEnvRequest
+		if err := json.Unmarshal([]byte("{\"access_token\":\"value\",\"action\":\"value\",\"platform_origin\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field params decoded successfully")
+		}
+	})
+	t.Run("VaultEnvRequest.PlatformOrigin", func(t *testing.T) {
+		var decoded VaultEnvRequest
+		if err := json.Unmarshal([]byte("{\"access_token\":\"value\",\"action\":\"value\",\"params\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field platform_origin decoded successfully")
+		}
+	})
 	t.Run("VTStateRequest.Surface", func(t *testing.T) {
 		var decoded VTStateRequest
 		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
@@ -66347,6 +66393,24 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 			t.Fatal("required non-nullable field terminal_ids accepted null")
 		}
 	})
+	t.Run("VaultEnvRequest.AccessToken", func(t *testing.T) {
+		var decoded VaultEnvRequest
+		if err := json.Unmarshal([]byte("{\"access_token\":null,\"action\":\"value\",\"params\":null,\"platform_origin\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field access_token accepted null")
+		}
+	})
+	t.Run("VaultEnvRequest.Action", func(t *testing.T) {
+		var decoded VaultEnvRequest
+		if err := json.Unmarshal([]byte("{\"access_token\":\"value\",\"action\":null,\"params\":null,\"platform_origin\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field action accepted null")
+		}
+	})
+	t.Run("VaultEnvRequest.PlatformOrigin", func(t *testing.T) {
+		var decoded VaultEnvRequest
+		if err := json.Unmarshal([]byte("{\"access_token\":\"value\",\"action\":\"value\",\"params\":null,\"platform_origin\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field platform_origin accepted null")
+		}
+	})
 	t.Run("VTStateRequest.Surface", func(t *testing.T) {
 		var decoded VTStateRequest
 		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
@@ -70243,12 +70307,12 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1976
+	generatedFieldShapeCount               = 1977
 	generatedOptionalNullableFieldCount    = 1365
-	generatedRequiredNullableFieldCount    = 178
+	generatedRequiredNullableFieldCount    = 179
 	generatedOptionalNonnullableFieldCount = 433
-	generatedRequiredFieldCount            = 1669
-	generatedRequiredNonnullableFieldCount = 1491
+	generatedRequiredFieldCount            = 1673
+	generatedRequiredNonnullableFieldCount = 1494
 	generatedConstrainedFieldCount         = 142
 	generatedEncodedConstrainedFieldCount  = 142
 )

@@ -19309,6 +19309,25 @@
         "ty": "string"
       }
     },
+    "request:vault-env": {
+      "/access_token": {
+        "ty": "string",
+        "required": true
+      },
+      "/action": {
+        "ty": "string",
+        "required": true
+      },
+      "/params": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/platform_origin": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:vt-state": {
       "/surface": {
         "ty": "uint64",
@@ -30643,6 +30662,12 @@
     "response:url-open-subscribe": {
       "/data/url_open_ready": {
         "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:vault-env": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

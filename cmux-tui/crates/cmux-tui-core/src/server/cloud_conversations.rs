@@ -455,6 +455,26 @@ pub(super) fn environment(
     )?)
 }
 
+/// `vault-env`: the person's own vault, by the same gate and install token as
+/// [`environment`].
+pub(super) fn vault_env(
+    mux: &Mux,
+    client: u64,
+    params: EnvironmentParams,
+) -> anyhow::Result<Value> {
+    check_install_token_forwarder(mux, client)?;
+    let mut params = params;
+    let answer = service(mux, client)?.vault_env(
+        &params.action,
+        &params.params,
+        &params.platform_origin,
+        &params.access_token,
+    );
+    // `set` carried a value: wipe every copy of the request.
+    crate::cloud_conversations::wipe_value(&mut params.params);
+    Ok(answer?)
+}
+
 /// The Worker's user id for a Stack user of a Stack project (backend
 /// domains/user.ts `userIdFor`).
 fn worker_user_id(project: &str, account: &str) -> String {
@@ -623,6 +643,7 @@ pub(super) fn is_network(cmd: &Command) -> bool {
             | Command::CloudRequestsList(_)
             | Command::CloudSelfhostInfo(_)
             | Command::CloudEnvironment(_)
+            | Command::VaultEnv(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
             | Command::CloudConversationThread(_)
@@ -682,7 +703,7 @@ pub(super) fn start(
     writer: &MessageWriter,
 ) -> bool {
     let precheck = || {
-        if matches!(&cmd, Command::CloudEnvironment(_)) {
+        if matches!(&cmd, Command::CloudEnvironment(_) | Command::VaultEnv(_)) {
             check_install_token_forwarder(mux, client)?;
             return Ok(service(mux, client)?.begin_request()?);
         }

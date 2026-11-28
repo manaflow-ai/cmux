@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf" as const;
+export const SDK_IR_SHA256 = "7b7a3028061267748471393161f58e1bb7833056e8546873172990b0e750f54d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -4055,6 +4055,16 @@ export const COMMAND_METADATA = {
     },
     "constraints": [
       "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+    ]
+  },
+  "vault-env": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "vault-env-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified native app or a local process of this user, with its own install token, as cloud-environment. action list/set/policy/rm/grants maps to GET /v1/vault/env, PUT /v1/vault/env/{name}, PUT /v1/vault/env/{name}/policy, DELETE /v1/vault/env/{name} or GET /v1/vault/grants. set takes the value; the daemon base64s and fingerprints it and wipes it. Replies carry names, revisions, policy and grants, never a value or fingerprint; diagnostics redact access_token and params. See spec/commands.md."
     ]
   },
   "vt-state": {
@@ -33379,6 +33389,50 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "GuestUrlSubscribeResult"
+    }
+  },
+  "vault-env": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "access_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "action": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "params": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "platform_origin": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "vt-state": {

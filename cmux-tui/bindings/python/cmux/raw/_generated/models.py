@@ -5863,6 +5863,15 @@ class UrlOpenSubscribeRequest:
 
 
 @dataclass(frozen=True)
+class VaultEnvRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/vault-env/request'
+    access_token: str
+    action: str
+    params: Union[JsonValue, None]
+    platform_origin: str
+
+
+@dataclass(frozen=True)
 class VtStateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/vt-state/request'
     surface: Id
@@ -7662,6 +7671,7 @@ __all__ = [
     'UrlOpenClaimRequest',
     'UrlOpenResultRequest',
     'UrlOpenSubscribeRequest',
+    'VaultEnvRequest',
     'VtStateRequest',
     'WaitForRequest',
     'WsListenRequest',

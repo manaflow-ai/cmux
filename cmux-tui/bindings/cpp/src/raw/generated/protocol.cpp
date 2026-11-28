@@ -40364,6 +40364,75 @@ Result<UrlOpenSubscribeRequest> Codec<UrlOpenSubscribeRequest>::decode(const Jso
     return result;
 }
 
+Result<Json> Codec<VaultEnvRequest>::encode(const VaultEnvRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_access_token = encode_value(value.access_token);
+    if (!encoded_access_token) return std::move(encoded_access_token).error();
+    object.emplace("access_token", std::move(encoded_access_token).value());
+    auto encoded_action = encode_value(value.action);
+    if (!encoded_action) return std::move(encoded_action).error();
+    object.emplace("action", std::move(encoded_action).value());
+    if (value.params) {
+        auto encoded = encode_value(*value.params);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("params", std::move(encoded).value());
+    } else {
+        object.emplace("params", Json(nullptr));
+    }
+    auto encoded_platform_origin = encode_value(value.platform_origin);
+    if (!encoded_platform_origin) return std::move(encoded_platform_origin).error();
+    object.emplace("platform_origin", std::move(encoded_platform_origin).value());
+    return Json(std::move(object));
+}
+
+Result<VaultEnvRequest> Codec<VaultEnvRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    VaultEnvRequest result{};
+    const Json* field_access_token = value.find("access_token");
+    if (!field_access_token) {
+        return make_error(ErrorCode::decode, "missing required field 'access_token'");
+    }
+    if (field_access_token) {
+        auto decoded = decode_value<std::string>(*field_access_token);
+        if (!decoded) return std::move(decoded).error();
+        result.access_token = std::move(decoded).value();
+    }
+    const Json* field_action = value.find("action");
+    if (!field_action) {
+        return make_error(ErrorCode::decode, "missing required field 'action'");
+    }
+    if (field_action) {
+        auto decoded = decode_value<std::string>(*field_action);
+        if (!decoded) return std::move(decoded).error();
+        result.action = std::move(decoded).value();
+    }
+    const Json* field_params = value.find("params");
+    if (!field_params) {
+        return make_error(ErrorCode::decode, "missing required field 'params'");
+    }
+    if (field_params) {
+        if (field_params->is_null()) {
+            result.params.reset();
+        } else {
+            auto decoded = decode_value<JsonValue>(*field_params);
+            if (!decoded) return std::move(decoded).error();
+            result.params = std::move(decoded).value();
+        }
+    }
+    const Json* field_platform_origin = value.find("platform_origin");
+    if (!field_platform_origin) {
+        return make_error(ErrorCode::decode, "missing required field 'platform_origin'");
+    }
+    if (field_platform_origin) {
+        auto decoded = decode_value<std::string>(*field_platform_origin);
+        if (!decoded) return std::move(decoded).error();
+        result.platform_origin = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<VtStateRequest>::encode(const VtStateRequest& value) {
     (void)value;
     Json::Object object;
@@ -50484,7 +50553,7 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand304FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand305FieldRequirements{{
     {"icon", 12U, "tab-group-icon-v1"},
 }};
-constexpr std::array<CommandMetadata, 315> kCommands{{
+constexpr std::array<CommandMetadata, 316> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -50796,6 +50865,7 @@ constexpr std::array<CommandMetadata, 315> kCommands{{
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-result", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-subscribe", "frontend", 12U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
+    {"vault-env", "local-admin", 12U, "vault-env-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"vt-state", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -54335,6 +54405,17 @@ Result<EventStream> Client::url_open_subscribe(
     auto parameters = encoded.value().as_object();
     if (!parameters) return std::move(parameters).error();
     return open_event_stream("url-open-subscribe", *parameters.value(), "", options);
+}
+
+Result<JsonValue> Client::vault_env(
+    const VaultEnvRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("vault-env", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<JsonValue>(response.value());
 }
 
 Result<VtStateResult> Client::vt_state(

@@ -945,6 +945,9 @@ class GeneratedClientMixin:
     def url_open_subscribe(self, terminal_ids: List[str]) -> Any:
         return self._open_command_stream('url-open-subscribe', UrlOpenSubscribeRequest(terminal_ids=terminal_ids))
 
+    def vault_env(self, access_token: str, action: str, params: Union[JsonValue, None], platform_origin: str) -> JsonValue:
+        return self._invoke_command('vault-env', VaultEnvRequest(access_token=access_token, action=action, params=params, platform_origin=platform_origin))
+
     def vt_state(self, surface: Id) -> VtStateResult:
         return self._invoke_command('vt-state', VtStateRequest(surface=surface))
 
@@ -1269,6 +1272,7 @@ GeneratedClientMixin.url_open.__cmux_command__ = COMMANDS['url-open']
 GeneratedClientMixin.url_open_claim.__cmux_command__ = COMMANDS['url-open-claim']
 GeneratedClientMixin.url_open_result.__cmux_command__ = COMMANDS['url-open-result']
 GeneratedClientMixin.url_open_subscribe.__cmux_command__ = COMMANDS['url-open-subscribe']
+GeneratedClientMixin.vault_env.__cmux_command__ = COMMANDS['vault-env']
 GeneratedClientMixin.vt_state.__cmux_command__ = COMMANDS['vt-state']
 GeneratedClientMixin.wait_for.__cmux_command__ = COMMANDS['wait-for']
 GeneratedClientMixin.ws_listen.__cmux_command__ = COMMANDS['ws-listen']

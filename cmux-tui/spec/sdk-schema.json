@@ -30917,6 +30917,57 @@
     "The verified native app only; platform_origin comes from its existing platform resolver and access_token is its cmux install JWT. Neither is a page parameter or the Home lease. action list/get/update/derive maps to GET /v1/cloud-environments, GET or PATCH /v1/cloud-environments/{id}, or POST /v1/environments/derive. Params are the documented per-action object; no arbitrary path or headers. Secrets are write-only and never returned; diagnostics must redact access_token and params. See spec/commands.md."
    ]
   },
+  "vault-env": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "vault-env-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "action": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "params": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "platform_origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "access_token": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "The verified native app or a local process of this user, with its own install token, as cloud-environment. action list/set/policy/rm/grants maps to GET /v1/vault/env, PUT /v1/vault/env/{name}, PUT /v1/vault/env/{name}/policy, DELETE /v1/vault/env/{name} or GET /v1/vault/grants. set takes the value; the daemon base64s and fingerprints it and wipes it. Replies carry names, revisions, policy and grants, never a value or fingerprint; diagnostics redact access_token and params. See spec/commands.md."
+   ]
+  },
   "chief-work": {
    "authority": "frontend",
    "since": 12,
