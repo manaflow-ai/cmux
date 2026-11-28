@@ -8,11 +8,13 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
-import { recentSessions } from "../src/agent-session/acpmux/newTabModel";
-import { recentChatCards } from "../src/agent-session/acpmux/newtab/screenModel";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { recentSessions } = await importWithDom(() => import("../src/agent-session/acpmux/newTabModel"));
+const { recentChatCards } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/screenModel"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
