@@ -87,6 +87,10 @@ pub(crate) struct Frame {
     pub hash: u64,
     #[serde(default)]
     pub url: Option<String>,
+    /// What the picture is of ([`source_of`]): `page`, `simulator` or `window` (a native Mac
+    /// window). None in an index written before sources were kept: read as `page`.
+    #[serde(default)]
+    pub source: Option<String>,
     /// The hash of the page's outline (`turn_frames_shape.rs`); none for a frame with no page read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shape: Option<u64>,
@@ -558,7 +562,30 @@ fn ask(session: &str, trigger: &'static str) {
 fn take(session: &str, trigger: &'static str, repl: &str) -> Option<Frame> {
     let (turn_id, page, dir, picture) = shoot(session, repl)?;
     let outline = shape::take(&dir.join(format!("{repl}.capture.png")));
-    keep(session, &turn_id, &dir, &picture, trigger, page.url, outline)
+    keep(session, &turn_id, &dir, &picture, trigger, source_of(&page.id), page.url, outline)
+}
+
+/// What a captured picture is of, from the capture's id ([`shoot`]): the iOS Simulator's screen,
+/// the app's native window, else a browser page.
+pub(crate) fn source_of(captured: &str) -> &'static str {
+    match captured {
+        "simulator" => "simulator",
+        "window" => "window",
+        _ => "page",
+    }
+}
+
+/// The screen a preview window may stream through cmux-rd instead of polling frames (RFD 0150:
+/// "when the surface is a native Mac window, the window hosts a cmux-rd tile"): only for a native
+/// window, and only when this machine's share host runs with a hub device a viewer can open
+/// (`<scheme>://mac-screen?device=...`). `{device, name}`, else None and the window keeps frames.
+pub(crate) fn screen_offer(surface: &str, share_host: &Value) -> Option<Value> {
+    if surface != "window" || share_host.get("running").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let device = share_host.get("deviceId").and_then(Value::as_str).filter(|d| !d.is_empty())?;
+    let name = share_host.get("deviceName").and_then(Value::as_str).unwrap_or_default();
+    Some(json!({"device": device, "name": name}))
 }
 
 /// A picture of `session`'s page now: the agent-driven page of its workspace, else, in a turn that
@@ -661,12 +688,14 @@ fn bounded_shot(binary: &std::ffi::OsStr, args: &[&str], out: &Path) -> bool {
 /// Keeps `picture` as the turn's next frame unless it matches the last kept one, in its picture and,
 /// when both have one, in the page's `outline` (a `turn-end` matching it is still dropped: the strip
 /// already shows that picture).
+#[allow(clippy::too_many_arguments)]
 fn keep(
     session: &str,
     turn_id: &str,
     dir: &Path,
     picture: &Rgb,
     trigger: &'static str,
+    source: &'static str,
     url: Option<String>,
     outline: Option<Shape>,
 ) -> Option<Frame> {
@@ -693,6 +722,7 @@ fn keep(
         moved: first.map_or(0.0, |f| f64::from(bits(f, hash)) / 64.0),
         hash,
         url,
+        source: Some(source.to_owned()),
         shape: outline.as_ref().map(|o| o.hash),
         change,
     };
@@ -736,6 +766,7 @@ fn frame_value(dir: &Path, frame: &Frame, full: bool) -> Option<Value> {
         "height": frame.height,
         "distance": frame.distance,
         "moved": frame.moved,
+        "source": frame.source.as_deref().unwrap_or("page"),
         "thumb": picture_value(&thumb),
     });
     if let Some(fields) = value.as_object_mut() {
@@ -784,20 +815,29 @@ fn read(session: &str, params: &Value) -> Value {
         return json!({"sessionId": session, "turnId": turn, "frames": frames});
     }
     let since = params.get("sinceSeq").and_then(Value::as_u64).unwrap_or(0);
-    let (turn_id, live, newest) = {
+    let (turn_id, live, newest, surface) = {
         let all = turns();
         let Some(turn) = all.get(session) else {
             return json!({"sessionId": session, "frames": [], "seq": since, "live": false});
         };
         let newest = turn.frames.iter().rev().find(|f| f.seq > since).cloned();
-        (turn.id.clone(), turn.live, newest)
+        // What the window shows now: the turn's last frame's source, whether or not it is new.
+        let surface = turn.frames.last().and_then(|f| f.source.clone());
+        (turn.id.clone(), turn.live, newest, surface)
     };
     let seq = newest.as_ref().map_or(since, |f| f.seq);
     let frames: Vec<Value> = match (turn_dir(&base, session, &turn_id), &newest) {
         (Some(dir), Some(frame)) => frame_value(&dir, frame, true).into_iter().collect(),
         _ => Vec::new(),
     };
-    json!({"sessionId": session, "turnId": turn_id, "frames": frames, "seq": seq, "live": live})
+    let surface = surface.unwrap_or_else(|| "page".to_owned());
+    // The share host is read only for a native window: a page or the simulator never streams.
+    let screen = (surface == "window")
+        .then(crate::share_host::status_now)
+        .and_then(|status| screen_offer(&surface, &status));
+    // `screen` rides in the literal (null when nothing streams): no index write on a Value.
+    json!({"sessionId": session, "turnId": turn_id, "frames": frames, "seq": seq,
+        "live": live, "surface": surface, "screen": screen})
 }
 
 /// `_acpmux/turn_frames {sessionId, look: true}`: a frame now (kept as `look` when the page moved),
@@ -823,7 +863,16 @@ fn look_now(session: &str) -> Value {
         return json!({"error": "no agent-driven page is showing in this chat's workspace, no iOS Simulator is booted, no Mac app this turn ran has a window Computer Use may look at without asking, and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
     };
     let outline = shape::take(&dir.join(format!("{LOOK_REPL_SESSION}.capture.png")));
-    let kept = keep(session, &turn_id, &dir, &picture, "look", page.url.clone(), outline);
+    let kept = keep(
+        session,
+        &turn_id,
+        &dir,
+        &picture,
+        "look",
+        source_of(&page.id),
+        page.url.clone(),
+        outline,
+    );
     let hash = dhash(&picture);
     let first = turns().get(session).and_then(|t| t.frames.first().map(|f| f.hash));
     let moved = first.map_or(0, |f| bits(f, hash));

@@ -107,6 +107,7 @@ fn a_frame_index_round_trips() {
         moved: 0.5,
         hash: u64::MAX,
         url: None,
+        source: Some("window".into()),
         shape: Some(7),
         change: Some("+1 -1 +h1 Saved -h1 Save".into()),
     };
@@ -134,6 +135,7 @@ fn the_same_picture_is_kept_only_when_its_outline_changed() {
         moved: 0.0,
         hash: dhash(&picture),
         url: None,
+        source: None,
         shape: None,
         change: None,
     };
@@ -141,17 +143,48 @@ fn the_same_picture_is_kept_only_when_its_outline_changed() {
     turns().insert(session.to_owned(), turn);
     shape::kept(session, "t1", Some(outline(&["h1 Draft", "button Save"])));
     let same = Some(outline(&["h1 Draft", "button Save"]));
-    assert_eq!(keep(session, "t1", dir.path(), &picture, "edit", None, same), None);
-    assert_eq!(keep(session, "t1", dir.path(), &picture, "edit", None, None), None);
+    assert_eq!(keep(session, "t1", dir.path(), &picture, "edit", "page", None, same), None);
+    assert_eq!(keep(session, "t1", dir.path(), &picture, "edit", "page", None, None), None);
     let saved = Some(outline(&["h1 Draft", "button Saved"]));
-    let frame = keep(session, "t1", dir.path(), &picture, "edit", None, saved.clone()).unwrap();
+    let frame =
+        keep(session, "t1", dir.path(), &picture, "edit", "page", None, saved.clone()).unwrap();
     assert_eq!(frame.index, 1);
     assert_eq!(frame.change.as_deref(), Some("+1 -1 +button Saved -button Save"));
     assert_eq!(frame.shape, saved.as_ref().map(|s| s.hash));
     assert_eq!(read_index(dir.path())[1].change, frame.change);
     // The kept frame is the new last: the same outline again is dropped.
-    assert_eq!(keep(session, "t1", dir.path(), &picture, "turn-end", None, saved), None);
+    assert_eq!(keep(session, "t1", dir.path(), &picture, "turn-end", "page", None, saved), None);
     remove_session(session);
+}
+
+#[test]
+fn an_index_from_before_sources_reads_as_none() {
+    let old = json!([{"index": 0, "seq": 1, "trigger": "turn-start", "at": 1, "width": 1,
+        "height": 1, "distance": 0.0, "hash": 0}]);
+    let back: Vec<Frame> = serde_json::from_value(old).unwrap();
+    assert_eq!(back[0].source, None);
+}
+
+#[test]
+fn a_capture_names_its_source() {
+    assert_eq!(source_of("window"), "window");
+    assert_eq!(source_of("simulator"), "simulator");
+    assert_eq!(source_of("tab_7"), "page");
+}
+
+#[test]
+fn only_a_native_window_with_a_running_share_host_offers_its_screen() {
+    let running = json!({"running": true, "deviceId": "d47f285e", "deviceName": "Studio Mac"});
+    assert_eq!(
+        screen_offer("window", &running),
+        Some(json!({"device": "d47f285e", "name": "Studio Mac"}))
+    );
+    // A page or the simulator keeps polled frames.
+    assert_eq!(screen_offer("page", &running), None);
+    assert_eq!(screen_offer("simulator", &running), None);
+    // No share host, or one with no device yet: frames.
+    assert_eq!(screen_offer("window", &json!({"running": false, "state": "not-joined"})), None);
+    assert_eq!(screen_offer("window", &json!({"running": true, "deviceId": ""})), None);
 }
 
 #[test]
