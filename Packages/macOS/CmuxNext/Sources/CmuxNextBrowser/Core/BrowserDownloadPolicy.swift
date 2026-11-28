@@ -6,7 +6,8 @@ public import Foundation
 /// - a file goes only to the Downloads folder, under the page's suggested
 ///   name made safe and unique, or to the exact file the person chose in a
 ///   save panel; never to a path a page supplies;
-/// - it is written to a temporary sibling and moves into place only when
+/// - it is written to a temporary file in a staging folder on the same
+///   volume, outside Downloads, and moves into place only when
 ///   it completes (`place`, `BrowserDownloadPlacement`): two downloads never
 ///   share a name, an existing file or symlink is never written through,
 ///   and a failed Save As keeps the old file;
@@ -50,17 +51,29 @@ public nonisolated struct BrowserDownloadPolicy: Sendable {
     /// main thread): a look at a name that is not there does not ask for
     /// access, and the engine then asked on the main thread (WebKit issues
     /// the file's sandbox extension there), freezing the app the same way.
+    /// The engine then writes in a staging folder outside `directory`
+    /// (`BrowserDownloadPlacement.stagingFolder`, made off the main thread
+    /// too), so WebKit's sandbox extension is never for a protected folder.
     @MainActor
     public static func place(chosen: URL?, suggestedFilename: String, directory: URL,
                              reservations: BrowserDownloadReservations = .shared,
                              probe: @escaping @Sendable (URL) -> DownloadDestination.Entry = DownloadDestination.entry(at:),
-                             mayWrite: @escaping @Sendable (URL) -> Bool = DownloadDestination.mayWrite(in:))
+                             mayWrite: @escaping @Sendable (URL) -> Bool = DownloadDestination.mayWrite(in:),
+                             stagingFolder: @escaping @Sendable (URL) -> URL? = BrowserDownloadPlacement.stagingFolder(for:))
         async -> Result<BrowserDownloadPlacement, PlaceFailure> {
         // The save panel already asked before replacing the chosen file.
-        if let chosen { return .success(BrowserDownloadPlacement(finalURL: chosen, chosen: chosen, reservations: reservations)) }
-        guard await Task.detached(priority: .userInitiated, operation: { mayWrite(directory) }).value else {
-            return .failure(.folderDenied)
+        if let chosen {
+            let folder = chosen.deletingLastPathComponent()
+            let staging = await Task.detached(priority: .userInitiated) { stagingFolder(folder) }.value
+            return .success(BrowserDownloadPlacement(finalURL: chosen, chosen: chosen, reservations: reservations,
+                                                     staging: staging))
         }
+        let ready = await Task.detached(priority: .userInitiated) { () -> (Bool, URL?) in
+            guard mayWrite(directory) else { return (false, nil) }
+            return (true, stagingFolder(directory))
+        }.value
+        guard ready.0 else { return .failure(.folderDenied) }
+        let staging = ready.1
         // Another download can take a name while this one looks: look again
         // with the names held now (a bounded number of times).
         for _ in 0..<8 {
@@ -69,12 +82,16 @@ public nonisolated struct BrowserDownloadPolicy: Sendable {
                 firstFreeURL(in: directory, suggestedFilename: suggestedFilename, held: held, probe: probe)
             }.value
             switch found {
-            case .failure(let failure): return .failure(failure)
+            case .failure(let failure):
+                if let staging { rmdir(staging.path(percentEncoded: false)) }
+                return .failure(failure)
             case .success(let url) where !reservations.contains(url):
-                return .success(BrowserDownloadPlacement(finalURL: url, chosen: nil, reservations: reservations))
+                return .success(BrowserDownloadPlacement(finalURL: url, chosen: nil, reservations: reservations,
+                                                         staging: staging))
             case .success: continue
             }
         }
+        if let staging { rmdir(staging.path(percentEncoded: false)) }
         return .failure(.noFreeName)
     }
 
