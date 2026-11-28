@@ -63,8 +63,18 @@ pub struct RelayOptions {
     /// again. A refusal can pass (a hub deploy, a proxy, a rotated token), so it never ends the
     /// relay: nothing would start it again before the daemon restarts.
     pub refused_retry: Duration,
-    /// Deliveries running at once; the inbox waits for one to end past it.
+    /// Sends and starts running at once; the inbox waits for one to end past it.
     pub max_in_flight: usize,
+    /// Reads running at once, in slots of their own: a read never queues behind sends and starts
+    /// that hang (`docs/handbook/mesh-hub-read-unanswered.md`).
+    pub max_reads_in_flight: usize,
+    /// How long one send or start may hold its slot. Past it the delivery is dropped without an
+    /// ack, so its lease brings it back (a send is deduplicated by its prompt id, a start by the
+    /// control ledger).
+    pub delivery_bound: Duration,
+    /// How long one read may hold its slot; past it the read answers with a retryable error. Under
+    /// the reader's own 50 s wait (`mesh_read.rs`), so the reader hears the error, not silence.
+    pub read_bound: Duration,
     /// Called when the hub takes a heartbeat again after failing ones (the joined relay states
     /// the machine's capabilities then, `cli/cloud_join/self_capabilities.rs`).
     pub on_reconnect: Option<fn()>,
@@ -83,6 +93,9 @@ impl Default for RelayOptions {
             backoff_cap: Duration::from_secs(60),
             refused_retry: Duration::from_secs(60),
             max_in_flight: 32,
+            max_reads_in_flight: 16,
+            delivery_bound: Duration::from_secs(90),
+            read_bound: Duration::from_secs(45),
             on_reconnect: None,
             capacity_every: None,
         }
@@ -636,12 +649,18 @@ async fn inbox(
         () = ended(&mut stop, &hub) => return,
     }
     let mut deliveries = tokio::task::JoinSet::new();
+    let mut reads = tokio::task::JoinSet::new();
     let in_flight: Arc<StdMutex<HashSet<String>>> = Arc::default();
     loop {
         while deliveries.try_join_next().is_some() {}
-        if deliveries.len() >= options.max_in_flight.max(1) {
+        while reads.try_join_next().is_some() {}
+        let other_room = options.max_in_flight.max(1).saturating_sub(deliveries.len());
+        let read_room = options.max_reads_in_flight.max(1).saturating_sub(reads.len());
+        if other_room + read_room == 0 {
+            // Every bounded slot is held: one ends within its bound.
             tokio::select! {
                 _ = deliveries.join_next() => continue,
+                _ = reads.join_next() => continue,
                 () = ended(&mut stop, &hub) => break,
             }
         }
@@ -658,7 +677,7 @@ async fn inbox(
         }
         let started = Instant::now();
         // Only as many as it can deliver now: a leased message waits for its ack.
-        let room = options.max_in_flight.max(1) - deliveries.len();
+        let room = other_room + read_room;
         let polled = tokio::select! {
             r = client.inbox(options.inbox_wait, room) => r,
             () = ended(&mut stop, &hub) => break,
@@ -683,32 +702,64 @@ async fn inbox(
                         }
                         continue;
                     }
+                    // A read has slots of its own. A message whose slots are all held is left
+                    // unacked: its lease brings it back once one frees.
+                    let is_read =
+                        message.kind == Kind::Control && message.op.as_deref() == Some("read");
+                    let (pool_len, pool_max) = if is_read {
+                        (reads.len(), options.max_reads_in_flight.max(1))
+                    } else {
+                        (deliveries.len(), options.max_in_flight.max(1))
+                    };
+                    if pool_len >= pool_max {
+                        continue;
+                    }
                     if !in_flight.lock_or_recover().insert(message.message_id.clone()) {
                         continue;
                     }
                     let Some(hub) = hub.upgrade() else { return };
+                    let bound = if is_read { options.read_bound } else { options.delivery_bound };
                     hub.outbox.note_relay_lease(message.attempt);
                     let (client, control, in_flight, beat) =
                         (client.clone(), control.clone(), in_flight.clone(), beat.clone());
                     let own_id = own.borrow().clone();
-                    deliveries.spawn(async move {
-                        let ack =
-                            deliver(&hub, &message, control.as_ref(), own_id.as_deref()).await;
-                        // A started session is in the hub's address book before its sender
-                        // hears the start went through.
-                        if message.kind == Kind::Control
-                            && message.op.as_deref() == Some("start")
-                            && ack
-                                .as_ref()
-                                .is_some_and(|a| a.state == crate::mesh::AckState::Delivered)
-                        {
-                            beat.now(START_LISTED_WAIT).await;
-                        }
-                        if let Some(ack) = ack
-                            && let Err(e) = client.ack(&message.message_id, &clip(ack)).await
-                        {
-                            // Its lease brings it back, and that delivery answers with this one.
-                            tracing::warn!("mesh relay: ack of {} failed: {e}", message.message_id);
+                    let pool = if is_read { &mut reads } else { &mut deliveries };
+                    pool.spawn(async move {
+                        let delivery = async {
+                            let ack =
+                                deliver(&hub, &message, control.as_ref(), own_id.as_deref()).await;
+                            // A started session is in the hub's address book before its sender
+                            // hears the start went through.
+                            if message.kind == Kind::Control
+                                && message.op.as_deref() == Some("start")
+                                && ack
+                                    .as_ref()
+                                    .is_some_and(|a| a.state == crate::mesh::AckState::Delivered)
+                            {
+                                beat.now(START_LISTED_WAIT).await;
+                            }
+                            if let Some(ack) = ack
+                                && let Err(e) = client.ack(&message.message_id, &clip(ack)).await
+                            {
+                                // Its lease brings it back, and that delivery answers with this one.
+                                tracing::warn!(
+                                    "mesh relay: ack of {} failed: {e}",
+                                    message.message_id
+                                );
+                            }
+                        };
+                        // timeout: a hung delivery frees its slot at its bound. A read answers
+                        // with a retryable error; a send or start is left unacked and its lease
+                        // brings it back.
+                        if tokio::time::timeout(bound, delivery).await.is_err() {
+                            tracing::warn!(
+                                "mesh relay: delivery of {} ran past {bound:?}; its slot is freed",
+                                message.message_id
+                            );
+                            if is_read {
+                                let ack = Ack::refused("mesh.read_timeout");
+                                let _ = client.ack(&message.message_id, &clip(ack)).await;
+                            }
                         }
                         in_flight.lock_or_recover().remove(&message.message_id);
                     });
@@ -2229,6 +2280,116 @@ mod tests {
         // The same person's device passes the check; the read then runs (no such session here).
         let own = hook.control(&hub, &read("person-1")).await.unwrap();
         assert_ne!(own.detail.as_deref(), Some("mesh.control_not_allowed"), "{own:?}");
+    }
+
+    /// A hub fake: leases each queued batch to one inbox poll, then waits; records every ack.
+    struct Queued {
+        batches: std::sync::Mutex<std::collections::VecDeque<Vec<InMessage>>>,
+        acks: std::sync::Mutex<Vec<(String, Ack)>>,
+    }
+
+    impl MeshHub for Queued {
+        fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+            let next = self.batches.lock().unwrap().pop_front();
+            Box::pin(async move {
+                match next {
+                    Some(batch) => Ok(batch),
+                    None => std::future::pending().await,
+                }
+            })
+        }
+        fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+            self.acks.lock().unwrap().push((id.to_owned(), ack.clone()));
+            Box::pin(async { Ok(()) })
+        }
+        fn heartbeat<'a>(
+            &'a self,
+            _: &'a Heartbeat,
+        ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+            Box::pin(async {
+                Ok(crate::mesh::HeartbeatReply { daemon_id: "inst_a".into(), ttl_seconds: 90 })
+            })
+        }
+        fn send<'a>(
+            &'a self,
+            _: &'a crate::mesh::OutMessage,
+        ) -> BoxFuture<'a, Result<crate::mesh::Receipt, HubError>> {
+            unreachable!()
+        }
+        fn receipt<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> BoxFuture<'a, Result<crate::mesh::Receipt, HubError>> {
+            unreachable!()
+        }
+    }
+
+    /// Starts hang forever; a read answers at once.
+    struct HangingStarts;
+
+    impl ControlHook for HangingStarts {
+        fn control<'a>(
+            &'a self,
+            _: &'a Arc<Hub>,
+            message: &'a InMessage,
+        ) -> futures::future::BoxFuture<'a, Option<Ack>> {
+            let read = message.op.as_deref() == Some("read");
+            Box::pin(async move {
+                if read {
+                    Some(Ack::answered("r", "{}".into()))
+                } else {
+                    std::future::pending().await
+                }
+            })
+        }
+    }
+
+    fn control_message(id: &str, op: &str) -> InMessage {
+        let mut message = from("", "");
+        message.message_id = id.to_owned();
+        message.kind = Kind::Control;
+        message.op = Some(op.into());
+        message
+    }
+
+    /// Hangs 40 starts (more than the 32 send and start slots) and then asks a read: the read
+    /// answers from its own slots at once, and the hung starts free their slots at their bound.
+    #[tokio::test(start_paused = true)]
+    async fn a_read_answers_while_more_than_thirty_two_deliveries_hang() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let starts: Vec<InMessage> =
+            (0..40).map(|n| control_message(&format!("msg_{:032x}", n + 1), "start")).collect();
+        let read = control_message(&format!("msg_{:032x}", 1000), "read");
+        let fake = Arc::new(Queued {
+            batches: std::sync::Mutex::new(vec![starts, vec![read]].into()),
+            acks: Default::default(),
+        });
+        let options =
+            RelayOptions { heartbeat_every: Duration::from_secs(60), ..RelayOptions::default() };
+        let bound = options.delivery_bound;
+        let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(HangingStarts), options);
+        let answered = async {
+            loop {
+                if fake.acks.lock().unwrap().iter().any(|(id, _)| id.ends_with("3e8")) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), answered)
+            .await
+            .expect("a read answers while 32 starts hang");
+        let acks = fake.acks.lock().unwrap().clone();
+        assert_eq!(acks.len(), 1, "no hung start was acked");
+        assert_eq!(acks[0].1.state, AckState::Delivered);
+        // The hung starts free their slots at their bound, unacked: the lease brings them back.
+        tokio::time::sleep(bound + Duration::from_secs(1)).await;
+        assert_eq!(fake.acks.lock().unwrap().len(), 1);
+        relay.stop().await;
     }
 
     #[test]
