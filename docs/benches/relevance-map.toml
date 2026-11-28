@@ -1914,12 +1914,20 @@ paths = ["Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxUpdater --filter CmuxUpdaterTests"]
 
 [[unit]]
+name = "swift:UiHomeHost"
+paths = ["Prototypes/UiLayerHost/Sources/UiHomeHost/**"]
+
+[[unit]]
 name = "swift:UiLayerHost"
 paths = ["Prototypes/UiLayerHost/Sources/UiLayerHost/**"]
 
 [[unit]]
 name = "swift:UiLayerSourceWatcher"
 paths = ["Prototypes/UiLayerHost/Sources/UiLayerSourceWatcher/**"]
+
+[[unit]]
+name = "swift:UiShellShootKit"
+paths = ["Prototypes/UiLayerHost/Sources/UiShellShootKit/**"]
 
 [[unit]]
 name = "swift:ViewShell"
@@ -2973,6 +2981,11 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-pane-protocol"]
 name = "rust:cmux-panic-log"
 paths = ["cmux-tui/crates/cmux-panic-log/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-panic-log"]
+
+[[unit]]
+name = "rust:cmux-phone-core"
+paths = ["cmux-tui/crates/cmux-phone-core/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-phone-core"]
 
 [[unit]]
 name = "rust:cmux-phone-page"
