@@ -4498,7 +4498,6 @@ function TranscriptView({
       ? heldWarmAt.current
       : warmAnchor(layout, rows, liveWarmAt, warmStep);
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
-  flingMount.current = warmOutrun && !sessionSwitched;
   // A chat's first followed frame (a cold open, at its latest row) mounts only the rows it shows: the
   // history above them (and the warm rows) are stand-ins at their estimated boxes until that frame has
   // painted, then mount in full (the effect below). Built in the first commit they were about 3/4 of
@@ -4506,6 +4505,11 @@ function TranscriptView({
   // into a frame later (Leo, 2026-11-12: "if you try to scroll up, you can't really scroll much of
   // anything up at all"). A stand-in reports no drawn height, so the estimates above stay as they were.
   const deferHistory = renderFollowing && historySession !== sessionKey && rows.length > 0 && height > 0;
+  // A cold open's first frame takes its rows' first sizes from their observer too (as a fling's rows do):
+  // the commit's own read was a forced layout of the view's rows ahead of the browser's layout for the
+  // paint, which then ran again. The observer reports before that frame paints and a followed view is
+  // placed then (`observer` above), so the first frame draws the same boxes.
+  flingMount.current = (warmOutrun && !sessionSwitched) || deferHistory;
   useEffect(() => {
     if (!deferHistory) return;
     // Two frames, then a task: the frame that drew the view paints, the next one starts (where the
