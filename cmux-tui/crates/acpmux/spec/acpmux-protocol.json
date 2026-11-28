@@ -933,6 +933,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pull_request_action",
+      "params": {
+        "$ref": "#/types/PullRequestActionParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -1154,6 +1162,12 @@
     {
       "kind": "request",
       "name": "_acpmux/github/pr_wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github/read",
       "params": true,
       "result": true
     },
@@ -1536,13 +1550,43 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/team/customization",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/customize",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/handoff",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/history",
       "params": true,
       "result": true
     },
     {
       "kind": "request",
+      "name": "_acpmux/last",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/session_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_resources",
       "params": true,
       "result": true
     },
@@ -2257,6 +2301,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_interrupts",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_history",
       "params": true,
       "result": true
@@ -2425,6 +2475,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_login/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/logout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/agent_login/start",
       "params": {
         "$ref": "#/types/AgentLoginStartParams"
@@ -2434,6 +2496,22 @@
     {
       "kind": "request",
       "name": "_acpmux/agent_login/finish",
+      "params": {
+        "$ref": "#/types/AgentLoginFinishParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/recover_start",
+      "params": {
+        "$ref": "#/types/AgentLoginStartParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/recover_finish",
       "params": {
         "$ref": "#/types/AgentLoginFinishParams"
       },
@@ -2699,6 +2777,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/secret.store",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/secret.delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/chatgpt.begin",
       "params": true,
       "result": true
@@ -2712,6 +2802,48 @@
     {
       "kind": "request",
       "name": "_acpmux/connections/chatgpt.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/grok.hook",
       "params": true,
       "result": true
     },
@@ -2798,6 +2930,12 @@
     {
       "kind": "request",
       "name": "_acpmux/shutdown",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watchdog_hold",
       "params": true,
       "result": true
     },
@@ -3415,6 +3553,7 @@
     "AcpmuxRequestMeta": {
       "additionalProperties": false,
       "properties": {
+        "abi": true,
         "adopt": true,
         "agentSessionId": true,
         "answeredBy": true,
@@ -3424,6 +3563,7 @@
         "author": true,
         "autoPlace": true,
         "beforePromptId": true,
+        "build": true,
         "callerKind": true,
         "callerProtocol": true,
         "callerSession": true,
@@ -3431,6 +3571,7 @@
         "chunkDeltas": true,
         "class": true,
         "cliHost": true,
+        "cloudRegistryId": true,
         "compression": true,
         "context": true,
         "createKey": true,
@@ -3578,6 +3719,7 @@
         },
         "code": true,
         "loginId": true,
+        "recoverySession": true,
         "sessionId": true
       },
       "type": "object"
@@ -3589,6 +3731,8 @@
           "$ref": "#/types/RequestMeta"
         },
         "agent": true,
+        "recoverySession": true,
+        "reuseExisting": true,
         "sessionId": true
       },
       "type": "object"
@@ -5322,6 +5466,10 @@
       "additionalProperties": false,
       "description": "`_acpmux/here`.",
       "properties": {
+        "includeSync": {
+          "description": "Include acknowledgement state for peers this daemon has exchanged chat state with.",
+          "type": "boolean"
+        },
         "scope": {
           "description": "Only who shows this chat or workspace; agents match by session id.",
           "type": [
@@ -5340,6 +5488,27 @@
             "$ref": "#/types/HereMember"
           },
           "type": "array"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/types/HereSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the sidebar's status icon shows (RFD 0140), reduced here so no client re-derives it.\nPresent exactly when `sync` is."
+        },
+        "sync": {
+          "description": "Absent unless requested. Empty means no peer has exchanged yet, not globally synced.",
+          "items": {
+            "$ref": "#/types/HereSyncPeer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -5355,6 +5524,92 @@
         "away"
       ],
       "type": "string"
+    },
+    "HereSummary": {
+      "description": "`HereResult::summary`: the one sync state, the edits it counts, and who else is here.",
+      "properties": {
+        "agents": {
+          "description": "Agents here, in a turn on this daemon or beating from elsewhere.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "others": {
+          "description": "People here besides this machine's own person.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pendingEdits": {
+          "description": "Offline: the most edits any peer is missing. Syncing: the most any connected peer is missing. Else 0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sync": {
+          "$ref": "#/types/HereSyncState"
+        }
+      },
+      "required": [
+        "agents",
+        "others",
+        "pendingEdits",
+        "sync"
+      ],
+      "type": "object"
+    },
+    "HereSyncPeer": {
+      "description": "A peer's last acknowledged chat-state vector, separate from its current connectivity.",
+      "properties": {
+        "acknowledged": {
+          "description": "Both vectors were equal at this read. A disconnected peer can still have new offline edits.",
+          "type": "boolean"
+        },
+        "connected": {
+          "type": "boolean"
+        },
+        "peer": {
+          "type": "string"
+        },
+        "unacknowledgedEdits": {
+          "description": "Local edit sequences not covered by the peer's last acknowledgement; not a chunk count.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "acknowledged",
+        "connected",
+        "peer",
+        "unacknowledgedEdits"
+      ],
+      "type": "object"
+    },
+    "HereSyncState": {
+      "description": "The sync state the status icon draws, most urgent first.",
+      "oneOf": [
+        {
+          "const": "offline",
+          "description": "No peer is connected and some have edits they have not acknowledged: they queue and merge on reconnect.",
+          "type": "string"
+        },
+        {
+          "const": "syncing",
+          "description": "A connected peer has not acknowledged every local edit yet.",
+          "type": "string"
+        },
+        {
+          "const": "synced",
+          "description": "Every connected peer acknowledged every local edit. A disconnected one can still have unseen offline edits.",
+          "type": "string"
+        },
+        {
+          "const": "alone",
+          "description": "No peer has exchanged state yet: nothing to sync with.",
+          "type": "string"
+        }
+      ]
     },
     "InboxThreadParams": {
       "additionalProperties": false,
@@ -7186,6 +7441,19 @@
       "description": "`_acpmux/protocol` takes no params.",
       "type": "object"
     },
+    "PullRequestActionParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "action": true,
+        "headSha": true,
+        "sessionId": true,
+        "url": true
+      },
+      "type": "object"
+    },
     "PurgedSession": {
       "description": "A purged session: only its id is left.",
       "properties": {
@@ -8508,6 +8776,9 @@
             "null"
           ]
         },
+        "residency": {
+          "description": "What the chat costs its machine now, versioned (`v`): `resident` (a harness runs),\n`busy` (a turn runs), `hibernatedAt`, and the idle `policy` with this chat's\nperiod (`hub/residency.rs`, `acpmux_list_types::residency`). A cap counts every resident\nchat. Absent from a peer on an older acpmux: unknown, not idle."
+        },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
           "items": {
@@ -9487,6 +9758,9 @@
             "integer",
             "null"
           ]
+        },
+        "residency": {
+          "description": "What the chat costs its machine now, versioned (`v`): `resident` (a harness runs),\n`busy` (a turn runs), `hibernatedAt`, and the idle `policy` with this chat's\nperiod (`hub/residency.rs`, `acpmux_list_types::residency`). A cap counts every resident\nchat. Absent from a peer on an older acpmux: unknown, not idle."
         },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",

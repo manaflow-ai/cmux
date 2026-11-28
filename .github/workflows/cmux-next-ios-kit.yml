@@ -485,9 +485,24 @@ jobs:
           enableCrossOsArchive: true
           key: ${{ steps.xcf-key.outputs.fleet_key }}
 
+      # The same entry in R2 (ios-link-ffi-cache-seed.yml's r2 job): a Blacksmith Mac's actions/cache reads a store of its
+      # own, which the seed's cmux-linux save never reaches, so the GitHub-store restore above misses there.
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework from R2
+        id: xcf-r2-restore
+        if: ${{ !cancelled() && steps.xcf-key.outputs.fleet_key != '' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
+
       - name: Wait for the fleet-built CmuxMobileLinkFFI.xcframework
         id: xcf-fleet
-        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && github.repository_owner == 'manaflow-ai' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-r2-restore.outputs.cache-hit != 'true' && github.repository_owner == 'manaflow-ai' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         timeout-minutes: 6
         env:
@@ -531,7 +546,7 @@ jobs:
           done
 
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}
+        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-r2-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}
         env:
           JOBS: "8"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
@@ -547,7 +562,7 @@ jobs:
           fi
 
       - name: Save CmuxMobileLinkFFI.xcframework
-        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && steps.xcf-key.outputs.key != '' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}
+        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && steps.xcf-key.outputs.key != '' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-r2-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -831,11 +846,16 @@ jobs:
       # Pull requests do not need this advisory measurement: it adds 3-10 minutes after the required kit verdict while
       # the same bench still runs on feat-cmux-next pushes and dispatch/nightly runs. Keeping measurements on those
       # lanes preserves the base trend without charging every PR (goal ios-ci-under-5min in cmuxterm-hq).
+      # Both bench steps build only the bench's own test target and the library targets it needs
+      # (CMUX_MOBILE_KIT_TEST_TARGETS, read by Package.swift): `--filter` and `-only-testing:` alone still compile
+      # every test target, so a compile error in CmuxMobileShellTests left base run 45853032811 with no INSTANTPERF
+      # line, and the mobile-speed-ios-bench goal read unknown for hours.
       - name: Instant list bench (macOS swift test)
         id: bench-macos
         if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         continue-on-error: true
         env:
+          CMUX_MOBILE_KIT_TEST_TARGETS: CmuxMobileInstantPerfTests
           CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
 
@@ -850,6 +870,7 @@ jobs:
         timeout-minutes: 30
         working-directory: cmux-next-ios/CmuxMobileKit
         env:
+          CMUX_MOBILE_KIT_TEST_TARGETS: CmuxMobileInstantPerfTests
           TEST_RUNNER_CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/ios-simulator.jsonl
           UDID: ${{ steps.ios-sim.outputs.udid || steps.ios-sim-fallback.outputs.udid }}
         run: |

@@ -16,6 +16,7 @@ export function AgentIdentity({
   fallbackNode,
   glyphSize,
   plain = false,
+  blankUnknown = false,
   className,
   style,
 }: {
@@ -29,10 +30,24 @@ export function AgentIdentity({
   /// The mark alone whatever the Sender Badge setting: no session badge over it (the composer hat;
   /// Leo 2026-11-23 on the hat's rows, a colored badge on every Claude mark: "weird and bad and unncessary"). The tone still colors a fallback glyph.
   plain?: boolean;
+  /// No glyph at all while the harness is unknown (the composer hat, before a chat's harness has
+  /// come): its slot stays, empty, rather than a generic sparkle that names nothing (Leo, 2026-11-27:
+  /// "there was a really dumb looking symbol in the top left of the composer hat when i loaded into
+  /// this chat").
+  blankUnknown?: boolean;
   className?: string;
   style?: CSSProperties;
 }) {
   const look = useSenderIconLook();
+  if (blankUnknown && !harness)
+    return (
+      <span
+        className={className}
+        style={{ display: "inline-block", width: size, height: size, flex: "none", ...style }}
+        data-agent-mark="unknown"
+        aria-hidden="true"
+      />
+    );
   if (!plain && look.badge !== "none" && tone !== undefined)
     return (
       <SenderIcon

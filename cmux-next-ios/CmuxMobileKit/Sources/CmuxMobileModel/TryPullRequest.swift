@@ -104,6 +104,32 @@ public enum TryInstallEvent: Equatable, Sendable {
     }
 }
 
+/// The Mac's last install, as `{"op":"status"}` answers it: what the relaunched app shows
+/// after an install replaced it (#51721 F3).
+public struct TryInstallStatus: Equatable, Sendable {
+    public var number: Int
+    public var lines: [String]
+    /// nil while it still runs.
+    public var exit: Int?
+
+    public init(number: Int, lines: [String], exit: Int? = nil) {
+        self.number = number
+        self.lines = lines
+        self.exit = exit
+    }
+
+    /// `{"run":{"pr","started_ms","lines","exit"?}|null}`: nil for no install (or a frame that
+    /// does not read).
+    public static func decode(_ data: Data) -> TryInstallStatus? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let run = object["run"] as? [String: Any],
+              let number = run["pr"] as? Int, number > 0 else { return nil }
+        let lines = (run["lines"] as? [Any] ?? []).compactMap { $0 as? String }
+        return TryInstallStatus(number: number, lines: Array(lines.suffix(TryPullRequestModel.keepLines)),
+                                exit: run["exit"] as? Int)
+    }
+}
+
 /// The Mac side of the picker.
 @MainActor
 public protocol TryPullRequestService: AnyObject {
@@ -111,6 +137,8 @@ public protocol TryPullRequestService: AnyObject {
     /// Starts `try.sh number` on the Mac; the stream ends with `.done` or throws when the channel
     /// closes first (installing replaces this app, so it often does).
     func installPullRequest(macID: String, number: Int) -> AsyncThrowingStream<TryInstallEvent, any Error>
+    /// The Mac's last install (`{"op":"status"}`), nil when it ran none.
+    func tryInstallStatus(macID: String) async throws -> TryInstallStatus?
 }
 
 /// The capability a Mac lists when it serves `try-pr`.
@@ -162,6 +190,19 @@ public final class TryPullRequestModel {
             load = .loaded(try await service.tryPullRequests(macID: macID))
         } catch {
             load = .failed(error.localizedDescription)
+        }
+    }
+
+    /// After the app was replaced by an install (or the page opens again): show how the Mac's
+    /// last install went, and follow it when it still runs (hostd replays its kept lines).
+    public func resume() async {
+        guard let service, case .idle = install,
+              let status = try? await service.tryInstallStatus(macID: macID) else { return }
+        guard case .idle = install else { return }
+        if let exit = status.exit {
+            install = .finished(number: status.number, exit: exit, lines: status.lines)
+        } else {
+            await start(status.number)
         }
     }
 

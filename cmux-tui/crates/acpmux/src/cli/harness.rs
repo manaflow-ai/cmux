@@ -1064,6 +1064,19 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
         .collect();
     let resolved = profiles::resolve_env_refs(&mut env, &*opts.lookup_env, &*opts.lookup_keychain);
     env.extend(opts.extra_env.clone());
+    #[cfg(unix)]
+    if crate::config::derive_family(id, profile) == "github-copilot"
+        && !env.contains_key(crate::agent_credentials::COPILOT_TOKEN)
+        && let Err(code) = crate::subscriptions::standalone_copilot_env(cfg, &mut env).await
+    {
+        let text = if code == "keychain_locked" {
+            "Unlock your Mac's keychain to use GitHub Copilot."
+        } else {
+            "Reconnect GitHub Copilot in Settings > Models."
+        };
+        r.push("auth", StepStatus::Fail, text, None);
+        return r.done();
+    }
     r.masks = env.values().filter(|v| v.len() >= 6).cloned().collect();
     r.masks.sort_by_key(|m| std::cmp::Reverse(m.len()));
     match resolved {
@@ -1084,12 +1097,15 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
             return r.done();
         }
     }
+    // Never pass the Copilot grant to a profile's external login check.
+    let mut auth_env = env.clone();
+    auth_env.remove(crate::agent_credentials::COPILOT_TOKEN);
     // 4. The login check, when the profile has one.
     let meta = cfg.profile_meta.get(id);
     if let Some(check) =
         meta.and_then(|m| m.auth.as_ref()).map(|a| a.check.clone()).filter(|c| !c.is_empty())
     {
-        match run_short(&check, &env, Duration::from_secs(30)).await {
+        match run_short(&check, &auth_env, Duration::from_secs(30)).await {
             Ok(_) => r.push("auth", StepStatus::Pass, &check.join(" "), None),
             Err(e) => {
                 let fix = meta.and_then(|m| m.auth.as_ref()).and_then(|a| a.login.clone());
@@ -1213,13 +1229,21 @@ async fn acp_steps(
         &crate::config::derive_family(id, profile),
         |k| std::env::var(k).ok(),
     );
-    let mut cmd = match crate::agent::harness_command_ready(id, &spawn, folder, None, None).await {
-        Ok(cmd) => cmd,
-        Err(e) => {
-            r.push("launch", StepStatus::Fail, &e.to_string(), None);
-            return;
-        }
-    };
+    if let Some(key) = spawn.env.get(crate::acp_key_auth::GEMINI_API_KEY_ENV)
+        && !key.is_empty()
+        && !r.masks.contains(key)
+    {
+        r.masks.push(key.clone());
+        r.masks.sort_by_key(|m| std::cmp::Reverse(m.len()));
+    }
+    let (mut cmd, _scratch) =
+        match crate::agent::harness_command_ready(id, &spawn, folder, None, None).await {
+            Ok(prepared) => prepared,
+            Err(e) => {
+                r.push("launch", StepStatus::Fail, &e.to_string(), None);
+                return;
+            }
+        };
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -1339,7 +1363,11 @@ fn endpoint_prompt_verdict(
     let problem = crate::byo_endpoint::classify(&format!("{detail}\n{stderr}"));
     let fix = r.mask(&crate::byo_endpoint::fix(problem, kind, id));
     // No prompt step: the handshake stopped before it, and that step has the fix.
-    if let Some(i) = at {
+    if let Some(i) = at.or_else(|| {
+        (problem == crate::byo_endpoint::Problem::UpdateOpenCode)
+            .then(|| r.steps.iter().rposition(|step| step.status == StepStatus::Fail))
+            .flatten()
+    }) {
         r.steps[i].status = StepStatus::Fail;
         r.steps[i].fix = Some(fix);
     }
