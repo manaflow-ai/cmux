@@ -1,38 +1,45 @@
-/// Turns a tap or a swipe in device points into paced ``PhoneTouch`` events.
+/// Turns a tap or a swipe in device points into paced ``PhoneTouch`` events
+/// (`cmux-phone-core`'s ops `tap` and `swipe`).
 struct PhoneGesture {
-    static let shortestSwipe = 0.05
-    static let defaultSwipe = 0.3
     /// The screen size in points the touches are normalized against.
     let screen: PhonePoint
 
-    /// Normalizes `point`; nil when it is outside the screen.
-    func normalized(_ point: PhonePoint) -> (x: Double, y: Double)? {
-        guard screen.x > 0, screen.y > 0 else { return nil }
-        let x = point.x / screen.x, y = point.y / screen.y
-        guard (0...1).contains(x), (0...1).contains(y) else { return nil }
-        return (x, y)
+    private struct Touch: Decodable {
+        let phase: String
+        let x: Double
+        let y: Double
+        let offsetMicros: Int64
+
+        enum CodingKeys: String, CodingKey {
+            case phase, x, y
+            case offsetMicros = "offset_micros"
+        }
+
+        var touch: PhoneTouch {
+            let phase: PhoneTouch.Phase = switch phase {
+            case "began": .began
+            case "moved": .moved
+            default: .ended
+            }
+            return PhoneTouch(phase: phase, x: x, y: y, offset: .microseconds(offsetMicros))
+        }
     }
 
     /// Down, then up 50 ms later (shorter reads as no touch to some UIKit controls).
     func tap(_ point: PhonePoint) throws -> [PhoneTouch] {
-        guard let at = normalized(point) else { throw PhoneError.outsideScreen }
-        return [PhoneTouch(phase: .began, x: at.x, y: at.y, offset: .zero),
-                PhoneTouch(phase: .ended, x: at.x, y: at.y, offset: .milliseconds(50))]
+        try touches("tap", ["screen": [screen.x, screen.y], "point": [point.x, point.y]])
     }
 
     /// Down at `from`, one move per 16 ms frame, up at `to` after `seconds`.
     func swipe(from: PhonePoint, to: PhonePoint, seconds: Double) throws -> [PhoneTouch] {
-        guard let start = normalized(from), let end = normalized(to) else { throw PhoneError.outsideScreen }
-        // A gesture's length (input timing the caller chose), not an animation.
-        let duration = max(Self.shortestSwipe, seconds.isFinite ? seconds : Self.defaultSwipe)
-        let steps = max(2, Int(duration / 0.016))
-        var touches = [PhoneTouch(phase: .began, x: start.x, y: start.y, offset: .zero)]
-        for step in 1..<steps {
-            let t = Double(step) / Double(steps)
-            touches.append(PhoneTouch(phase: .moved, x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t,
-                                      offset: .microseconds(Int(duration * 1_000_000 * t))))
+        try touches("swipe", ["screen": [screen.x, screen.y], "from": [from.x, from.y], "to": [to.x, to.y], "seconds": seconds])
+    }
+
+    private func touches(_ op: String, _ fields: [String: Any]) throws -> [PhoneTouch] {
+        do {
+            return try PhoneRules.decode([Touch].self, "touches", op, fields, what: "the touches").map(\.touch)
+        } catch {
+            throw PhoneError.outsideScreen
         }
-        touches.append(PhoneTouch(phase: .ended, x: end.x, y: end.y, offset: .milliseconds(Int((duration * 1000).rounded()))))
-        return touches
     }
 }
