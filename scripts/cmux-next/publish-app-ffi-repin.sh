@@ -351,12 +351,13 @@ pin_on_base() { # pin_on_base SHA CHECKSUM [PROVEN_PIN]: sets base_result
 }
 # The re-pin PR's head proves its pin when the build fleet's compile of that head passed (the tip check's Release
 # compile, scripts/ci/fleet_compile_result.py: no GitHub quota, and no --pr, which would submit a compile) and its
-# cmux-next fast tier, which runs HandlerCoverageTests, succeeded with none of its jobs failed. The PR's whole rollup
+# fast tier, which runs HandlerCoverageTests, passed: a cmux-next fast tier check at the head with none of its jobs
+# failed, or else the build fleet's fast tier verdict for that head. The PR's whole rollup
 # is not the proof: on 2026-11-25 release b6be67e4 changed a declaration over the pin (run 45645816280), went to
 # #55633, whose rollup never went green on infra reds while base merges restarted its CI, and the pin sat about 11
 # hours behind. A head that pins the base's own pin proves nothing new.
 proven_pr_pin() {
-  local verdict runs
+  local verdict runs fast
   [[ -n "$pr_pin" && "$pr_pin" != "$current" && -n "$previous" ]] || return 1
   verdict="$(python3 -I scripts/ci/fleet_compile_result.py --sha "$previous" --repo "$GITHUB_REPOSITORY" \
     --wait 45 --no-record 0)" || verdict=none
@@ -366,9 +367,23 @@ proven_pr_pin() {
   fi
   runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
     gh_retry python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs")" || return 1
-  if ! jq -e '[.[] | select(.name | startswith("cmux-next fast tier"))]
-      | any(.conclusion == "success") and all(.conclusion == "success" or .conclusion == "skipped")' <<<"$runs" >/dev/null; then
-    echo "the re-pin branch's head ${previous:0:12} has no passing cmux-next fast tier yet; its pin stays on the pull request"
+  if jq -e '[.[] | select(.name | startswith("cmux-next fast tier"))]
+      | any(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")' <<<"$runs" >/dev/null; then
+    echo "the re-pin branch's head ${previous:0:12} has a failed cmux-next fast tier; its pin stays on the pull request"
+    return 1
+  fi
+  if jq -e '[.[] | select(.name | startswith("cmux-next fast tier"))] | any(.conclusion == "success")' <<<"$runs" >/dev/null; then
+    return 0
+  fi
+  # Since #53487 (2026-11-24) the cmux-next fast tier runs only on feat-cmux-next pushes, and pr-router's nightly gate
+  # leaves pr-pipeline's mac-fast-tier out of a landing re-pin head, so no check-run at the head ever proved it:
+  # #64944's proven head dd754ec6 (fleet compile pass) sat held 17:24Z-18:48Z until the PR landed whole, with every
+  # fast tier check skipped. Ask the build fleet for the re-pin's own fast tier at the head instead (HandlerCoverageTests,
+  # scripts/ci/fleet_fast_tier_result.py --ffi-repin): the read submits it, and a later release run reads its pass.
+  fast="$(python3 -I scripts/ci/fleet_fast_tier_result.py --sha "$previous" --repo "$GITHUB_REPOSITORY" --ffi-repin \
+    --wait "${REPIN_FAST_TIER_WAIT_S:-600}" --queue-wait 300 --no-record 120)" || fast=unavailable
+  if [[ "$fast" != pass ]]; then
+    echo "the re-pin branch's head ${previous:0:12} has no passing fast tier yet (build fleet: ${fast:-unavailable}); its pin stays on the pull request"
     return 1
   fi
 }
