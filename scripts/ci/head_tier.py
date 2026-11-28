@@ -218,6 +218,35 @@ GREEN = frozenset({"success", "skipped", "neutral"})
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 # Seconds the previous head's verdict may take before the head keeps its usual tier.
 VERDICT_SECONDS = 20.0
+# Spare read tokens (space-separated), tried in turn after the request's own token when GitHub answers that its hourly
+# budget is spent: pr-router.yml's route step passes the cmux-bot App's read token and the CI pool tokens here.
+READ_TOKENS_VAR = "CI_ROUTER_READ_TOKENS"
+
+
+def rate_limited(status: int, body: bytes | str | None) -> bool:
+    """Whether an answer is GitHub refusing a spent budget (primary or secondary rate limit), not a permission."""
+    text = body.decode("utf-8", "replace") if isinstance(body, bytes) else str(body or "")
+    return status in (403, 429) and "rate limit" in text.lower()
+
+
+def read_with_spares(req: urllib.request.Request, call) -> tuple:
+    """CALL(REQ) (a (status, body, headers) answer) with REQ's own token, then with each $CI_ROUTER_READ_TOKENS token
+    while GitHub answers that the budget is spent. The job's GITHUB_TOKEN draws on the repository's hour, which ran
+    dry within minutes of each reset on 2026-11-28 (router run 46159124593 at 15:18Z: "rate-limited until 15:55Z"):
+    every previous-head read then failed open, so a ready-to-land update-branch onto a head whose land tier and runs
+    had all passed ran the affected landing tier instead of the green or carry rule's none or cheap tier. Over
+    14:32Z..15:41Z, 61 heavy router runs (702 wall-min) were such update-branch heads, 50 of them onto a land-tier
+    success head. A permission refusal or any other answer is returned as it is (no spare asked)."""
+    answer = call(req)
+    own = req.get_header("Authorization") or ""
+    for token in os.environ.get(READ_TOKENS_VAR, "").split():
+        if not rate_limited(answer[0], answer[1]):
+            break
+        if f"Bearer {token}" == own:
+            continue
+        req.add_header("Authorization", f"Bearer {token}")
+        answer = call(req)
+    return answer
 
 
 def base_merge_message(base: str) -> re.Pattern:
@@ -307,7 +336,7 @@ def runs_at(repo: str, sha: str, token: str) -> list | None:
         req = urllib.request.Request(f"{API}/repos/{repo}/actions/runs?{query}", headers={
             "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28"})
-        status, body, _ = deadline_http.request(req, VERDICT_SECONDS)
+        status, body, _ = read_with_spares(req, lambda r: deadline_http.request(r, VERDICT_SECONDS))
         data = json.loads(body) if status == 200 else None
     except Exception:  # fail open: an unread verdict keeps the usual tier
         return None
@@ -332,7 +361,7 @@ def own_patch_key(repo: str, base: str, sha: str, token: str, blobs: bool = Fals
             f"{API}/repos/{repo}/compare/{urllib.parse.quote(base, safe='')}...{sha}?per_page=300", headers={
                 "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                 "X-GitHub-Api-Version": "2022-11-28"})
-        status, body, _ = deadline_http.request(req, VERDICT_SECONDS)
+        status, body, _ = read_with_spares(req, lambda r: deadline_http.request(r, VERDICT_SECONDS))
         data = json.loads(body) if status == 200 else None
     except Exception:  # fail open: an unread diff keeps the usual tier
         return None
@@ -369,7 +398,7 @@ def land_status_at(repo: str, sha: str, token: str) -> str | None:
         req = urllib.request.Request(f"{API}/repos/{repo}/commits/{sha}/status?per_page=100", headers={
             "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28"})
-        status, body, _ = deadline_http.request(req, VERDICT_SECONDS)
+        status, body, _ = read_with_spares(req, lambda r: deadline_http.request(r, VERDICT_SECONDS))
         data = json.loads(body) if status == 200 else None
     except Exception:  # fail open: an unread status keeps the full tier
         return None
@@ -514,7 +543,8 @@ def _get_json(url: str, token: str) -> object | None:
             "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28"})
         # A 5xx or secondary limit is asked again inside the same VERDICT_SECONDS bound; no rate-limit sleep.
-        status, body, _ = gh_http.request(req, VERDICT_SECONDS, budget_s=VERDICT_SECONDS, rate_budget_s=0)
+        status, body, _ = read_with_spares(req, lambda r: gh_http.request(
+            r, VERDICT_SECONDS, budget_s=VERDICT_SECONDS, rate_budget_s=0))
         return json.loads(body) if status == 200 else None
     except Exception:  # fail open: unread is not green
         return None
@@ -694,6 +724,15 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
             facts, time.time() if now is None else now):
         return "none", (f"this head only merges the base into a pull request with no commit of its own for "
                         f"{IDLE_HOURS} h: nothing runs until a new commit, the land's merge run, or full-ci")
+    # The land carry rule before the green-head rule: on a ready-to-land head whose previous head landed, the green
+    # rule's `none` leaves cmux/land-tier pending, land-judge then pulses ready-to-land (land_tier pulse_due) and that
+    # `labeled` event runs the affected landing tier anyway; the carry keeps success, so nothing is pulsed.
+    if (landing and facts and facts.get("base_merge_only") and facts.get("previous_landed") is True
+            and carry_rule_applies(event, carry_switch, land_switch, one_shot)):
+        return "cheap", (f"{CARRY_REASON}: this head only merges the base onto "
+                         f"{str(facts.get('previous') or '')[:10]}, whose full tier passed ({LAND_STATUS} success, "
+                         f"every run green): the cheap tier runs and {LAND_STATUS} carries success; a commit of its "
+                         f"own or {FULL_CI} runs the full tier")
     if (facts and facts.get("base_merge_only") and facts.get("previous_green") is True
             and green_rule_applies(event, green_switch, land_switch, labelled_switch, one_shot)):
         return "none", (f"this head only merges the base onto {str(facts.get('previous') or '')[:10]}, whose every "
@@ -715,12 +754,6 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
         return "cheap", ("this head only merges the base into the pull request, with a merge commit that was made "
                          "by git, not GitHub: the cheap tier runs, and the branch's next commit of its own, "
                          "`full-ci`, or land's update-branch runs the full tier")
-    if (landing and facts and facts.get("base_merge_only") and facts.get("previous_landed") is True
-            and carry_rule_applies(event, carry_switch, land_switch, one_shot)):
-        return "cheap", (f"{CARRY_REASON}: this head only merges the base onto "
-                         f"{str(facts.get('previous') or '')[:10]}, whose full tier passed ({LAND_STATUS} success, "
-                         f"every run green): the cheap tier runs and {LAND_STATUS} carries success; a commit of its "
-                         f"own or {FULL_CI} runs the full tier")
     if (switch or "1").strip() == "0" and pr.get("draft") is True:
         return "full", "CI_DRAFT_CHEAP_TIER=0"
     if pr.get("draft") is True:

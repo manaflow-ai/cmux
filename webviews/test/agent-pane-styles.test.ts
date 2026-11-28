@@ -104,6 +104,20 @@ describe.skipIf(!built)("agent pane page", () => {
     expect(copy.length).toBeLessThan(css.length / 10);
   });
 
+  // A WebKit pane reloaded onto other web kept the pane.js it had cached under the same name and ran it under
+  // the new document: it imported chunks the new web does not have, and New Tab drew blank (cmux#64758). The
+  // script is named by its content, as the sheets are, in both places the page names it.
+  test("names its script by its content", () => {
+    const html = fs.readFileSync(page, "utf8");
+    const hash = createHash("sha256")
+      .update(fs.readFileSync(path.join(path.dirname(page), "pane.js")))
+      .digest("hex")
+      .slice(0, 16);
+    expect(html).toContain(`<link rel="preload" as="script" href="pane.js?h=${hash}" />`);
+    expect(html).toContain(`<script src="pane.js?h=${hash}"></script>`);
+    expect(html).not.toMatch(/["']pane\.js["']/);
+  });
+
   // Source comments were a third of the sheet (638 KB of 1.96 MB), tokenized by every renderer before
   // the page's first style pass. Only a `/*!` notice (Tailwind's license) stays.
   test("ships no source comments", () => {

@@ -3201,6 +3201,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/hub/auto_resume/*",
   "cmux-tui/crates/acpmux/src/hub/book_tee/*",
   "cmux-tui/crates/acpmux/src/hub/file_uploads/*",
+  "cmux-tui/crates/acpmux/src/hub/fleet/*",
   "cmux-tui/crates/acpmux/src/hub/handoff/*",
   "cmux-tui/crates/acpmux/src/hub/hosts/*",
   "cmux-tui/crates/acpmux/src/hub/journal_restore/*",

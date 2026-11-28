@@ -1908,12 +1908,13 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
   if (late < 0) return rows;
   const answerIndex = answerAt(rows.slice(0, end));
   // The agent's text just over the first late steer moves with the answer: the reply it was writing
-  // when the steer came, held open in its row over the steer while the agent had not read it, so the
-  // bubble draws over the whole reply (#56293, agent-pane-steer-split.test.ts, `steerOverReply`).
-  // A reply that had ended before the steer came, or one acpmux said the agent read the steer under
-  // (direct.ts `steer_read`), stays over it when the answer is already under it: those words were
-  // written before the read (Leo, 2026-11-17: "the message you sent after my steer... shot up.
-  // instead of landing after my steer prompt"; carriedSteerOrder.test.ts,
+  // when the steer came, held open in its row over the steer (`steerOverReply`, set in direct.ts only
+  // when the steer came while that reply streamed), so the ended turn reads its steer and then its
+  // whole last word (Leo, 2026-11-25: "i steer RIGHT before you finish a turn but your completed
+  // sent message goes above mine"; chat-sim.test.ts late-steer, agent-pane-steer-split.test.ts).
+  // A reply that had ended before the steer came stays over it when the answer is already under it,
+  // and the words after the read never draw over the steer (Leo, 2026-11-17: "the message you sent
+  // after my steer... shot up. instead of landing after my steer prompt"; carriedSteerOrder.test.ts,
   // transcript-completed-fold.test.ts).
   let from = late;
   // ends: from walks back to the first row or the preceding change of author

@@ -17,7 +17,9 @@ import { acpmuxSendCall } from "../conversation/acpmuxSends";
 import {
   MARK_STEP,
   ROW_GAP_LOOKS,
+  ownMessagesJoin,
   TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_FOOTER_GAP,
   TRANSCRIPT_TURN_GAP,
   transcriptGap,
   TRANSCRIPT_RUN_GAP,
@@ -481,7 +483,16 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       // A turn's head (Thinking, Working for) under the line that opened it: the block gap under a person's
       // prompt; under another agent's notice or message, the gap "Worked for" stands under any one-line row
       // (transcriptGrid.ts ROW_GAP_LOOKS.shipped.workedAfterLine, #48591).
-      const headWant = above.received ? ROW_GAP_LOOKS.shipped.workedAfterLine : TRANSCRIPT_BLOCK_GAP;
+      // A steer of the person's right under their prompt sticks to it as one group, the footer gap apart
+      // (transcriptGrid.ts ownMessagesJoin, #61546; Leo, 2026-11-27: "potentially we can just stick the
+      // steered together").
+      const ownGroup =
+        probe.kind === "user" && above.kind === "user" && !probe.incoming && !above.received && ownMessagesJoin();
+      const headWant = ownGroup
+        ? TRANSCRIPT_FOOTER_GAP
+        : above.received
+          ? ROW_GAP_LOOKS.shipped.workedAfterLine
+          : TRANSCRIPT_BLOCK_GAP;
       if (probe.head && above.opens && gap < headWant - 0.5)
         flag(
           "a-head-gap",
@@ -712,7 +723,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       const turnRows = rows.slice(Math.max(0, from - 1));
       for (const finding of checkIntegrity({
         rows: turnRows,
-        turnEnded: ends || turnEnded,
+        // A woken turn opens at turn_started with no prompt, so `turnEnded` never flips for it: one still
+        // working has not ended, and its typing row is the live line's (i-placeholder-after-end, #53729).
+        turnEnded: ends || (turnEnded && !working),
         messageOf: (id) => byRow.get(id),
       }))
         if (!exempt.has(finding.rule)) flag(finding.rule, finding.rowId, finding.detail);

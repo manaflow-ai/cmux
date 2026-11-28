@@ -60,7 +60,7 @@ jobs:
     # The client's queue wait (30 min) and run limit (150 min: 12 apps, each about 10 min: the bundle copy, the quiet
     # wait, five launches with 20 s after each, a 5 minute soak), the upload. A re-attach waits 30 min, as the submit does.
     timeout-minutes: 200
-    environment: next-cache-writer
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
     steps:

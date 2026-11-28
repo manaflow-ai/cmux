@@ -166,11 +166,12 @@ on:
         required: false
       ASC_API_KEY_P8_BASE64:
         required: false
-      # Declared so a called run's references resolve; the INTERNAL builder
-      # passes none of these (only the ASC key), so a called run mints no
-      # routing token and saves no R2 cache, as before: both steps continue on error.
+      # The routing App key: the INTERNAL builder passes it, so the called plan's picker reads the queue on
+      # the App's own hour, not the shared job token's (tests/test_ci_reusable_route_key_passed.py).
       GLAEDA_ROUTE_APP_KEY:
         required: false
+      # Declared so a called run's references resolve; the INTERNAL builder passes none
+      # of these, so a called run saves no R2 cache, as before: the step continues on error.
       CI_CACHE_R2_ACCESS_KEY_ID:
         required: false
       CI_CACHE_R2_SECRET_ACCESS_KEY:

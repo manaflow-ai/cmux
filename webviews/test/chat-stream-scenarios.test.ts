@@ -22,14 +22,8 @@ import { STREAM_SCENARIOS, type LiveStep, type StreamScenario } from "../src/age
 
 /// Scenarios red today, each with its owner (streamScenarios.ts `owner`). Filled from the first CI run; a scenario
 /// here that passes fails its test, so the list only shrinks as owners land fixes.
-const KNOWN_RED: Record<string, string> = {
-  // A Stop hook inside the harness (images/1157.png): live, the hook's line now draws between the two replies
-  // (acpmux stop_hook_feedback). Once the turn ends, the default fold arm folds that line into Worked for with
-  // the work, so the settled turn shows the two replies side by side again: the fold's own call (turns.ts).
-  "SE-18": "turn-end fold keeps the hook line in sight (turns.ts foldSegments)",
-  // feat-cmux-next's own chat-sim "incoming-notice-turn: rule b" is red on the base too: the same turn-end fold.
-  "SE-22": "base: chat-sim incoming-notice-turn rule b (turn-end fold owner)",
-};
+// SE-18 and SE-22 pass now (the turn-end fold keeps a hook line and a notice's turn in sight).
+const KNOWN_RED: Record<string, string> = {};
 
 let clock: VirtualClock | undefined;
 afterEach(() => {

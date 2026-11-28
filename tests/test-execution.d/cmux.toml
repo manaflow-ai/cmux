@@ -23,6 +23,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_code_mode_packed.py"
 
 [[test]]
+path = "tests/test_cmux_config_ring.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_config_ring.py"
+
+[[test]]
 path = "tests/test_cmux_duress_workflow.py"
 lane = "linux-guard"
 

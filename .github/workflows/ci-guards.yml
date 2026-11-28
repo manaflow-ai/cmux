@@ -2286,6 +2286,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_app_review_gate.py
 
+      - name: Validate reusable workflow callers pass the routing App key
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ci_reusable_route_key_passed.py
+
       - name: Validate the iOS workflows' package path filters match the app's manifests
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_app_package_paths.py
