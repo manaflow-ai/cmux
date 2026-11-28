@@ -383,3 +383,31 @@ fn more_calls_than_the_old_cap_wait_on_one_link_and_each_is_answered() {
     assert_eq!(answered, CALLS);
     link.close();
 }
+
+/// `begin` puts a request on the wire before its answer is read, so a second call overlaps it: this
+/// acpmux answers nothing until it read both, then the later one first (a Cloud start's Auto move
+/// and its family read pay one round trip, not two).
+#[test]
+fn a_begun_request_overlaps_the_next_call() {
+    let dir = cmux_unix_socket::short_test_dir("aslink");
+    let socket = dir.path().join("acpmux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        let mut lines = BufReader::new(stream).lines();
+        let mut read =
+            || -> Value { serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap() };
+        let (first, second) = (read(), read());
+        for request in [second, first] {
+            let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": {"method": request["method"]}});
+            writeln!(writer, "{reply}").unwrap();
+        }
+    });
+    let link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let pending = link.begin("session/set_mode", json!({"modeId": "auto"})).unwrap();
+    let read = link.call("_acpmux/web_modes", json!({}), WAIT).unwrap();
+    assert_eq!(read["method"], "_acpmux/web_modes");
+    assert_eq!(pending.wait(WAIT).unwrap()["method"], "session/set_mode");
+    assert!(link.pending.lock().unwrap().is_empty(), "both slots forgotten");
+}
