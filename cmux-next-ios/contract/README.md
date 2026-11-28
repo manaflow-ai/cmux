@@ -53,3 +53,36 @@ Gaps this suite closes (2026-11-27):
 ## Changing the contract
 
 Change the Rust code, update the fixture until `cargo test -p cmux-mobile-link-ffi --test connection_contract` passes, then make the Swift suites pass in the same PR. A new step kind or event needs a line in `ConnectionContractScenarioTests.apply`/`observe`, mirroring the app's own mapping.
+
+## App-level API: one method list, served by the Mac
+
+The link contract above versions the pipe. What rides it (daemon commands, acpmux methods,
+link services) is versioned here, so a phone and a Mac from different days keep working
+(Leo: "well clearly we need to be able to support the multiple versions as it goes").
+
+- **One list.** `cmux-next-ios/rust/crates/cmux-mobile-api/phone-api.json` names every
+  method a phone may call or read: `link/<service>`, `daemon/<command or event>`,
+  `acpmux/<method>`, each with JSON Schemas cut from `cmux-tui/spec/sdk-schema.json` and
+  `acpmux-protocol.json`. It is generated, never edited.
+- **Served by the Mac.** hostd's `api` service (capability `api-describe-v1`):
+  `{"op":"list"}` (what this Mac serves now, plus a digest), `{"op":"describe","method":M}`
+  (schemas and every type they reach), `{"op":"llms"}` (as text). A Mac without it replies
+  `unknown_service`; the phone falls back to `version` capabilities.
+- **Capabilities, not versions.** The phone asks `cmux_mobile_api::Discovery::supports`
+  (`Yes`, `No`, or `Unknown` on an older Mac) and `supports_field` for a field marked
+  `x-capability`.
+- **Strict requests.** hostd checks every phone daemon line against its command's schema.
+  A field the schema does not name is logged; a phone that opens `daemon` with
+  `"strict": true` gets `unknown_field` instead. No default changed for older phones.
+- **Tolerant readers.** Result and event schemas are read open: a reader skips fields and
+  events it does not know.
+- **CI.** `cargo test -p cmux-mobile-host --test phone_api_contract` fails when the list
+  is stale, when a method changed without a rule in `phone-api.compat.json` (the same
+  break rules as `cmux-api-compat` uses for the daemon and acpmux), when a phone-allowed
+  daemon command has no schema, when the Swift app names an acpmux method not in
+  `api.rs` `PHONE_ACPMUX_METHODS`, or when hostd serves an unlisted service.
+
+To change a method: change its IR, run
+`CMUX_UPDATE_PHONE_API=1 cargo test -p cmux-mobile-host --test phone_api_contract`, and
+when the test names a break, add a revision with one rule per break to
+`phone-api.compat.json` first.
