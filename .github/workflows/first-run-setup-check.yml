@@ -20,6 +20,11 @@ name: first run setup check
 
 # Started by pr-router.yml (scripts/ci/pr_router.json holds its pull_request types and paths).
 on:
+  # Registers the file (a dispatch of an unregistered workflow answers 404); walk-fleet's `if` skips a push run.
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/first-run-setup-check.yml
   workflow_call:
   workflow_dispatch:
     inputs:
@@ -40,7 +45,7 @@ jobs:
   walk-fleet:
     name: first run setup walk submit (advisory)
     if: ${{ github.repository_owner == 'manaflow-ai' && (vars.CI_FIRST_RUN_SETUP_CHECK || '1') != '0' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (linux-pickers-gone gateway)
     # The scheme-debug read waits up to 10 min for the head's app; the submit then ends in about a minute.
     timeout-minutes: 20
     env:
