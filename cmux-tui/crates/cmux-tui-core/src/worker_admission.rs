@@ -1,9 +1,10 @@
 //! Server-wide admission for long-lived work: resource stream and wait
 //! worker permits (per client and per server), and surface-operation
 //! admission by worker count and retained bytes.
+//!
+//! Daemon-owned state `Mux` holds (`surface_operation_admission`), so it lives
+//! below `server` (RFD 0174, server cycle step 3).
 
-use super::SERVER_SURFACE_RETAINED_BYTE_CAPACITY;
-use super::SERVER_SURFACE_WORKER_CAPACITY;
 use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,27 +14,30 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 #[cfg(test)]
 use std::time::Instant;
 
+pub(crate) const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
+pub(crate) const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+
 #[derive(Default)]
 struct ResourceWorkerAdmissionState {
     active: usize,
     active_by_client: HashMap<u64, usize>,
 }
 
-pub(super) struct ResourceWorkerAdmission {
-    pub(super) per_client_capacity: usize,
-    pub(super) server_capacity: usize,
+pub(crate) struct ResourceWorkerAdmission {
+    pub(crate) per_client_capacity: usize,
+    pub(crate) server_capacity: usize,
     state: Mutex<ResourceWorkerAdmissionState>,
-    pub(super) changed: Condvar,
+    pub(crate) changed: Condvar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ResourceWorkerAdmissionError {
+pub(crate) enum ResourceWorkerAdmissionError {
     ClientCapacity,
     ServerCapacity,
 }
 
 #[derive(Clone)]
-pub(super) struct ResourceWorkerPermit {
+pub(crate) struct ResourceWorkerPermit {
     _lease: Arc<ResourceWorkerPermitLease>,
 }
 
@@ -60,12 +64,12 @@ impl Drop for ResourceWorkerPermitLease {
 impl ResourceWorkerAdmission {
     /// Counts permits and never refuses one: work whose cost is bounded per
     /// item (resource streams, detached waits). The count is for draining.
-    pub(super) fn counting() -> Arc<Self> {
+    pub(crate) fn counting() -> Arc<Self> {
         Self::new(usize::MAX, usize::MAX)
     }
 
     /// A permit of a [`Self::counting`] admission, which never refuses.
-    pub(super) fn reserve(self: &Arc<Self>, client: u64) -> ResourceWorkerPermit {
+    pub(crate) fn reserve(self: &Arc<Self>, client: u64) -> ResourceWorkerPermit {
         let mut state = self.state.lock().recover_poison();
         state.active += 1;
         *state.active_by_client.entry(client).or_default() += 1;
@@ -74,7 +78,7 @@ impl ResourceWorkerAdmission {
         }
     }
 
-    pub(super) fn new(per_client_capacity: usize, server_capacity: usize) -> Arc<Self> {
+    pub(crate) fn new(per_client_capacity: usize, server_capacity: usize) -> Arc<Self> {
         Arc::new(Self {
             per_client_capacity,
             server_capacity,
@@ -83,7 +87,7 @@ impl ResourceWorkerAdmission {
         })
     }
 
-    pub(super) fn try_reserve(
+    pub(crate) fn try_reserve(
         self: &Arc<Self>,
         client: u64,
     ) -> Result<ResourceWorkerPermit, ResourceWorkerAdmissionError> {
@@ -104,12 +108,12 @@ impl ResourceWorkerAdmission {
     }
 
     #[cfg(test)]
-    pub(super) fn active(&self) -> usize {
+    pub(crate) fn active(&self) -> usize {
         self.state.lock().recover_poison().active
     }
 
     #[cfg(test)]
-    pub(super) fn wait_until_idle(&self, deadline: Instant) -> bool {
+    pub(crate) fn wait_until_idle(&self, deadline: Instant) -> bool {
         let mut state = self.state.lock().recover_poison();
         while state.active != 0 {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
@@ -151,11 +155,11 @@ pub(crate) struct ServerSurfaceOperationAdmission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ServerSurfaceAdmissionError {
+pub(crate) enum ServerSurfaceAdmissionError {
     RetainedByteCapacity,
 }
 
-pub(super) struct ServerSurfaceWorkerPermit {
+pub(crate) struct ServerSurfaceWorkerPermit {
     admission: Arc<ServerSurfaceOperationAdmission>,
     /// The arm it reserved from; it releases to the same one.
     lock_free: bool,
@@ -172,9 +176,9 @@ impl Drop for ServerSurfaceWorkerPermit {
     }
 }
 
-pub(super) struct ServerSurfaceBytesPermit {
-    pub(super) admission: Arc<ServerSurfaceOperationAdmission>,
-    pub(super) retained_bytes: usize,
+pub(crate) struct ServerSurfaceBytesPermit {
+    pub(crate) admission: Arc<ServerSurfaceOperationAdmission>,
+    pub(crate) retained_bytes: usize,
     /// The arm it reserved from; it releases to the same one.
     lock_free: bool,
 }
@@ -220,19 +224,19 @@ impl ServerSurfaceOperationAdmission {
 
     /// The clear-history workers reserved now, on either arm (tests).
     #[cfg(test)]
-    pub(super) fn reserved_workers(&self) -> usize {
+    pub(crate) fn reserved_workers(&self) -> usize {
         self.workers.load(Ordering::Acquire) + self.state.lock().recover_poison().workers
     }
 
     /// Runs `hold` while this thread holds the old arm's lock (test hook: a person's key must not wait for it,
     /// R-DAEMON-STATE stage S1).
     #[cfg(test)]
-    pub(super) fn hold_for_test(&self, hold: impl FnOnce()) {
+    pub(crate) fn hold_for_test(&self, hold: impl FnOnce()) {
         let _state = self.state.lock().recover_poison();
         hold();
     }
 
-    pub(super) fn try_reserve_worker(self: &Arc<Self>) -> Option<ServerSurfaceWorkerPermit> {
+    pub(crate) fn try_reserve_worker(self: &Arc<Self>) -> Option<ServerSurfaceWorkerPermit> {
         if self.lock_free.load(Ordering::Relaxed) {
             return reserve(&self.workers, 1, SERVER_SURFACE_WORKER_CAPACITY)
                 .then(|| ServerSurfaceWorkerPermit { admission: self.clone(), lock_free: true });
@@ -245,7 +249,7 @@ impl ServerSurfaceOperationAdmission {
         Some(ServerSurfaceWorkerPermit { admission: self.clone(), lock_free: false })
     }
 
-    pub(super) fn try_reserve_bytes(
+    pub(crate) fn try_reserve_bytes(
         self: &Arc<Self>,
         retained_bytes: usize,
     ) -> Result<ServerSurfaceBytesPermit, ServerSurfaceAdmissionError> {

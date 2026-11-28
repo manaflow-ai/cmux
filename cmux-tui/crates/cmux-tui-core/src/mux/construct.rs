@@ -497,7 +497,7 @@ impl Mux {
             shell_runs: crate::shell_runs::ShellRuns::default(),
             history: crate::history_ops::HistoryHost::default(),
             surface_operation_admission: Arc::new(
-                crate::server::ServerSurfaceOperationAdmission::new(lane_on),
+                crate::worker_admission::ServerSurfaceOperationAdmission::new(lane_on),
             ),
             pairing: PairingBroker::new(),
             #[cfg(test)]

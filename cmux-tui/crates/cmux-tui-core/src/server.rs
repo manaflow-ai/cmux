@@ -3029,8 +3029,6 @@ const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 const CONNECTION_SURFACE_QUEUE_CAPACITY: usize = 256;
 const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
-const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
-const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 /// The stack of a resource stream's or a detached wait's worker thread. No
 /// count bounds them: each one's cost is this stack (virtual; the pages it
 /// touches are its RSS), its socket's share of the connection's outbound byte
@@ -3043,11 +3041,14 @@ const RESOURCE_WORKER_STACK_BYTES: usize = 256 * 1024;
 const EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY: usize = 32;
 const EVENT_SUBSCRIPTIONS_SERVER_CAPACITY: usize = 1024;
 
-mod worker_admission;
-pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
-use worker_admission::{
+pub(crate) use crate::worker_admission::ServerSurfaceOperationAdmission;
+use crate::worker_admission::{
     ResourceWorkerAdmission, ResourceWorkerAdmissionError, ResourceWorkerPermit,
     ServerSurfaceAdmissionError, ServerSurfaceBytesPermit,
+};
+#[cfg(test)]
+use crate::worker_admission::{
+    SERVER_SURFACE_RETAINED_BYTE_CAPACITY, SERVER_SURFACE_WORKER_CAPACITY,
 };
 
 mod render_service;

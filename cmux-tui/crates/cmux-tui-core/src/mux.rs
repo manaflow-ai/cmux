@@ -969,7 +969,8 @@ pub struct Mux {
     pub(crate) shell_runs: crate::shell_runs::ShellRuns,
     /// The history module's session state: journal folds and revision.
     pub(crate) history: crate::history_ops::HistoryHost,
-    pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
+    pub(crate) surface_operation_admission:
+        Arc<crate::worker_admission::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,
