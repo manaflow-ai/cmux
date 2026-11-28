@@ -98,7 +98,8 @@ esac
 /// written and the timer is not started (the reason goes to stdout, as [`AUTO_UPDATE_OFF`]). The
 /// same holds when the running user manager has either unit from anywhere
 /// else, or is masked, or cannot say ([`MANAGER_HAS_UNIT`]): a file written
-/// here would shadow theirs. With [`NO_AUTO_UPDATE`] the timer is stopped
+/// here would shadow theirs. A failed reload, or a timer the manager does not then call enabled,
+/// is said as [`AUTO_UPDATE_OFF`] too, never taken for a running timer. With [`NO_AUTO_UPDATE`] the timer is stopped
 /// instead, and only when the timer is acpmux's (whatever the service is): a
 /// timer someone else wrote keeps running (review of #24232). Nothing here
 /// fails the script it runs in.
@@ -119,7 +120,8 @@ elif [ -n "$au_c" ]; then echo "{AUTO_UPDATE_OFF}$au_c is a unit acpmux did not 
 else
 for au_f in {UNITS}; do if [ ! -e "$au_d/$au_f" ]; then if mkdir -p "$au_d" && cp "$au_t/$au_f" "$au_d/.$au_f.part" && mv -f "$au_d/.$au_f.part" "$au_d/$au_f"; then au_w=1; else rm -f "$au_d/.$au_f.part"; au_e=1; fi; fi; done
 if [ -n "$au_e" ]; then echo "{AUTO_UPDATE_OFF}writing the acpmux-update units in $au_d failed, so this host does not update itself yet: the next host update tries again"
-elif [ -z "$au_w" ] || systemctl --user daemon-reload; then systemctl --user enable --now acpmux-update.timer >/dev/null 2>&1 || :; fi
+elif [ -n "$au_w" ] && ! systemctl --user daemon-reload >/dev/null 2>&1; then echo "{AUTO_UPDATE_OFF}systemctl --user daemon-reload failed after writing the acpmux-update units, so this host does not update itself yet: the next host update tries again"
+elif ! systemctl --user enable --now acpmux-update.timer >/dev/null 2>&1 || ! systemctl --user is-enabled --quiet acpmux-update.timer >/dev/null 2>&1; then echo "{AUTO_UPDATE_OFF}systemctl --user did not enable acpmux-update.timer, so this host does not update itself yet: the next host update tries again"; fi
 fi
 rm -rf "$au_t"
 else [ -e {REMOTE_HOME}/{NO_AUTO_UPDATE} ] || echo "{AUTO_UPDATE_OFF}staging the acpmux-update units failed, so this host does not update itself yet: the next host update tries again"; [ -z "$au_t" ] || rm -rf "$au_t"
