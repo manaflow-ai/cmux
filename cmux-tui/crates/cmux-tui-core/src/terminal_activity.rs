@@ -188,7 +188,8 @@ impl ShellActivity {
     }
 
     fn finish(&mut self, exit_code: Option<i32>, now_ms: u64) {
-        let last = LastCommand { exit_code, started_at_ms: self.busy_since_ms, finished_at_ms: now_ms };
+        let last =
+            LastCommand { exit_code, started_at_ms: self.busy_since_ms, finished_at_ms: now_ms };
         self.last_command = Some(last);
         if std::mem::take(&mut self.notify_when_done) {
             self.done_notice = Some(last);

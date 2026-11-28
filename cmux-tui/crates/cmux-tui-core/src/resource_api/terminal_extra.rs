@@ -35,10 +35,7 @@ pub(super) fn extra(surface: Option<&crate::Surface>, running: bool) -> Map<Stri
     }
     // `terminal-notify-when-done-v1`: the one-shot watch is armed.
     if running && surface.is_some_and(crate::Surface::terminal_notify_when_done) {
-        extra.insert(
-            "notify_when_done".into(),
-            crate::terminal_activity::notify_when_done_json(),
-        );
+        extra.insert("notify_when_done".into(), crate::terminal_activity::notify_when_done_json());
     }
     if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {
         extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));

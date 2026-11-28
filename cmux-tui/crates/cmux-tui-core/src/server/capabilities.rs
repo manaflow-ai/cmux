@@ -23,6 +23,15 @@ pub const PINNED_DOCK_ALONE_CAPABILITY: &str = "pinned-dock-alone-v1";
 /// `dock-column-agent-chat`.
 pub const DOCK_COLUMN_SPLIT_DOWN_CAPABILITY: &str = "dock-column-split-down-v1";
 
+/// Advertises `set-terminal-tail-pin`: a pinned terminal's last output line
+/// shows under its workspace as the status entry `tail:<term id>`.
+pub const TERMINAL_TAIL_PIN_CAPABILITY: &str = "terminal-tail-pin-v1";
+
+/// Advertises `set-terminal-notify-when-done`: a one-shot watch that posts
+/// one terminal notification when the terminal's next shell command finishes
+/// (OSC 133), and `extra.notify_when_done` while it is armed.
+pub const TERMINAL_NOTIFY_WHEN_DONE_CAPABILITY: &str = "terminal-notify-when-done-v1";
+
 /// `identify`'s capabilities: [`always_identified`] plus `cloud-conversations-v1`
 /// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,

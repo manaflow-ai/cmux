@@ -464,12 +464,14 @@ impl TerminalNotification {
     /// The one notification an armed `notify_when_done` watch posts when its
     /// command finishes.
     pub(crate) fn command_done(last: crate::terminal_activity::LastCommand) -> Self {
-        let ran = last
-            .started_at_ms
-            .map(|start| crate::terminal_activity::duration_text(last.finished_at_ms.saturating_sub(start)));
+        let ran = last.started_at_ms.map(|start| {
+            crate::terminal_activity::duration_text(last.finished_at_ms.saturating_sub(start))
+        });
         let (title, level, status) = match last.exit_code {
             Some(0) => ("Command finished", crate::NotificationLevel::Info, "exit 0".to_owned()),
-            Some(code) => ("Command failed", crate::NotificationLevel::Error, format!("exit {code}")),
+            Some(code) => {
+                ("Command failed", crate::NotificationLevel::Error, format!("exit {code}"))
+            }
             None => ("Command finished", crate::NotificationLevel::Info, String::new()),
         };
         let body = match (status.is_empty(), ran) {

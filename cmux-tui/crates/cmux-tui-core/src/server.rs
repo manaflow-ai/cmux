@@ -534,13 +534,6 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
-/// Advertises `set-terminal-tail-pin`: a pinned terminal's last output line
-/// shows under its workspace as the status entry `tail:<term id>`.
-pub const TERMINAL_TAIL_PIN_CAPABILITY: &str = "terminal-tail-pin-v1";
-/// Advertises `set-terminal-notify-when-done`: a one-shot watch that posts
-/// one terminal notification when the terminal's next shell command finishes
-/// (OSC 133), and `extra.notify_when_done` while it is armed.
-pub const TERMINAL_NOTIFY_WHEN_DONE_CAPABILITY: &str = "terminal-notify-when-done-v1";
 /// Advertises `terminal-last-command`: the newest command a live shell
 /// finished, for Run Last Command Again.
 pub const TERMINAL_LAST_COMMAND_CAPABILITY: &str = "terminal-last-command-v1";
@@ -1453,16 +1446,8 @@ enum Command {
         terminal: Option<String>,
         pinned: bool,
     },
-    /// Arm (`on: true`) or disarm one terminal's one-shot command-finish
-    /// watch (`terminal-notify-when-done-v1`), named by exactly one of a PTY
-    /// `surface` or a public `terminal` (`term_`) id.
-    SetTerminalNotifyWhenDone {
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-        #[serde(default)]
-        terminal: Option<String>,
-        on: bool,
-    },
+    /// One-shot command-finish watch (server/cmd_terminals.rs).
+    SetTerminalNotifyWhenDone(cmd_terminals::NotifyWhenDone),
     /// Read, set (a string) or clear (null) the resume command of one hosted
     /// terminal, named by exactly one of a PTY `surface` or a stable
     /// `terminal_id`. A respawn of the terminal types the command on its new

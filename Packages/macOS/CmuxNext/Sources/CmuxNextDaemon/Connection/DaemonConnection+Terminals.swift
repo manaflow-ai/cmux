@@ -23,6 +23,15 @@ extension DaemonConnection {
         return try await request(SetTerminalTailPinRequest(target, pinned: pinned))
     }
 
+    /// Arms (or disarms) one notification when a terminal's next shell command finishes.
+    @discardableResult
+    public func setTerminalNotifyWhenDone(_ target: SetTerminalNotifyWhenDoneRequest.Target, on: Bool) async throws -> SetTerminalNotifyWhenDoneRequest.Response {
+        guard identity?.supports(DaemonCapability.terminalNotifyWhenDone.rawValue) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapability.terminalNotifyWhenDone.rawValue])
+        }
+        return try await request(SetTerminalNotifyWhenDoneRequest(target, on: on))
+    }
+
     /// Adds a tab showing the live terminal `terminal` (`term_…`) at `index`
     /// in the pane at `path` (`terminal.project`, resource API v2). Works on
     /// a terminal with no tab while it is still alive; fails with the
