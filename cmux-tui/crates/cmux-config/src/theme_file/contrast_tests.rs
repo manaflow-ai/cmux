@@ -98,6 +98,7 @@ const KNOWN: [(&str, &str); 29] = [
     ("tonal-dark", "sidebar selected row muted text"),
     ("tonal-ink", "sidebar selected row muted text"),
     ("tonal-ink-dark", "sidebar selected row muted text"),
+    ("web-coding-app", "sidebar selected row muted text"),
     ("workbench-light", "sidebar selected row muted text"),
     ("web-coding-app", "sidebar selected row muted text"),
 ];
