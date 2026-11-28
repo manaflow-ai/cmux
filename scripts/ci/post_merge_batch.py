@@ -164,15 +164,31 @@ def _core_reset() -> float | None:
         return None
 
 
+def _distinct(*tokens: str) -> list[str]:
+    return [t for i, t in enumerate(tokens) if t and t not in tokens[:i]] or [""]
+
+
 def read_tokens() -> list[str]:
     """Tokens a read may use, in order: the route App's (GH_READ_TOKEN, its own budget) first, then the job's
-    GH_TOKEN, whose budget every workflow in the repository shares and which is often spent."""
-    return [t for t in (os.environ.get("GH_READ_TOKEN", ""), os.environ.get("GH_TOKEN", "")) if t] or [""]
+    GH_TOKEN, whose budget every workflow in the repository shares and which is often spent, then
+    GH_FALLBACK_TOKEN (a token on yet another budget, set by a caller that has one)."""
+    env = os.environ.get
+    return _distinct(env("GH_READ_TOKEN", ""), env("GH_TOKEN", ""), env("GH_FALLBACK_TOKEN", ""))
+
+
+def write_tokens() -> list[str]:
+    """Tokens a write may use, in order: GH_TOKEN, then GH_FALLBACK_TOKEN. A rate-limited write never ran, so
+    trying it on another budget is safe. main's cmux-next-post-merge-dispatch.yml ticks on the cmux bot App's
+    token with the job token as the fallback: from 2026-11-27 23:55Z every tick for over 2 h ended "tick
+    skipped: ... API rate limit exceeded for installation ID 175618676" (the bot App, which every post-merge
+    read had moved onto) with the job token, on its own budget, never tried, and no batch ran."""
+    env = os.environ.get
+    return _distinct(env("GH_TOKEN", ""), env("GH_FALLBACK_TOKEN", ""))
 
 
 def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=_core_reset, tokens=None) -> object:
-    """One GitHub API call through gh. A read tries each of read_tokens() in turn when one is rate limited; a
-    write uses GH_TOKEN. Fields go as JSON on stdin. Once every token is rate limited it waits for the reset and
+    """One GitHub API call through gh. A call tries each of read_tokens() (a read) or write_tokens() (a write) in
+    turn when one is rate limited. Fields go as JSON on stdin. Once every token is rate limited it waits for the reset and
     retries within API_WAIT_BUDGET."""
     argv = ["gh", "api", "-X", method, path]
     data = None
@@ -180,7 +196,7 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=su
         argv += ["--input", "-"]
         data = json.dumps(fields)
     if tokens is None:
-        tokens = read_tokens() if method == "GET" else [os.environ.get("GH_TOKEN", "")]
+        tokens = read_tokens() if method == "GET" else write_tokens()
     while True:
         for i, token in enumerate(tokens):
             env = {**os.environ, "GH_TOKEN": token} if token else None

@@ -71,6 +71,8 @@ pub mod ffi;
 pub mod frame;
 pub mod gesture;
 pub mod json_keys;
+mod new_tab_project_groups;
+pub mod new_tab_projects;
 pub mod params;
 pub mod reply;
 pub mod service_wait;
