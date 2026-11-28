@@ -1,0 +1,2 @@
+ci-step local-gcp-agent-lane-11.us-west1-c.c.manaflow-437420.internal-29931024-1-af5418795f17: scripts/ci/cmux-next-ios-sim.sh test only=CmuxMobileAgentChatTests/LateEditedFilesCardTests,CmuxMobileAgentChatTests/ChatOpeningStaysReplayTests,CmuxMobileDesignCoreTests/LayoutShiftCounterTests ui=PlaceholderBoundUITests duress=heavy at 3008dc117ba232d2aaf27f88aefb294d1dc34cc4: exit 65
+ci-step local-gcp-agent-lane-11.us-west1-c.c.manaflow-437420.internal-29931024-1-af5418795f17 exited 65
