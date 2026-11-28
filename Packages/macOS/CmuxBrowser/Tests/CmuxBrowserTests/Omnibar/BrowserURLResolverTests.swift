@@ -77,6 +77,74 @@ import Testing
         #expect(resolver.navigableURL(from: "go\nexample.com/path") == nil)
     }
 
+    /// Foundation encodes a URL component that holds raw Unicode as if none of
+    /// it were encoded yet, so a `%2F` beside Japanese text used to reach the
+    /// page as `%252F` (manaflow-ai/cmux#40300). Browsers keep it.
+    @Test func keepsPercentEscapesThatSitNextToRawUnicode() throws {
+        let explicit = try #require(
+            resolver.navigableURL(from: "https://scrapbox.io/example-project/会議メモ_2026%2F11%2F5#section")
+        )
+        #expect(
+            explicit.absoluteString ==
+                "https://scrapbox.io/example-project/%E4%BC%9A%E8%AD%B0%E3%83%A1%E3%83%A2_2026%2F11%2F5#section"
+        )
+
+        let schemeLess = try #require(
+            resolver.navigableURL(from: "scrapbox.io/example-project/会議メモ_2026%2F11%2F5")
+        )
+        #expect(
+            schemeLess.absoluteString ==
+                "https://scrapbox.io/example-project/%E4%BC%9A%E8%AD%B0%E3%83%A1%E3%83%A2_2026%2F11%2F5"
+        )
+
+        let spacedQuery = try #require(
+            resolver.navigableURL(from: "https://example.com/search?q=日本 語&next=a%2Fb")
+        )
+        #expect(
+            spacedQuery.absoluteString ==
+                "https://example.com/search?q=%E6%97%A5%E6%9C%AC%20%E8%AA%9E&next=a%2Fb"
+        )
+    }
+
+    @Test func stillEncodesCharactersURLsCannotCarryNextToRawUnicode() throws {
+        #expect(
+            try #require(resolver.navigableURL(from: "https://example.com/日本100%")).absoluteString ==
+                "https://example.com/%E6%97%A5%E6%9C%AC100%25"
+        )
+        #expect(
+            try #require(resolver.navigableURL(from: "https://example.com/メモ|a")).absoluteString ==
+                "https://example.com/%E3%83%A1%E3%83%A2%7Ca"
+        )
+        #expect(
+            try #require(resolver.navigableURL(from: "https://example.com/a#メモ#b")).absoluteString ==
+                "https://example.com/a#%E3%83%A1%E3%83%A2%23b"
+        )
+    }
+
+    /// A wrapped scheme-less URL is still unwrapped when its kept escapes are
+    /// not UTF-8 (a Shift-JIS path or query). The decoded path and query of
+    /// such a URL are empty, so wrap removal must judge the encoded components.
+    @Test func unwrapsSchemeLessURLWhoseKeptEscapesAreNotUTF8() throws {
+        #expect(
+            try #require(resolver.navigableURL(from: "example.com/\n%93%FA%96%7B日本")).absoluteString ==
+                "https://example.com/%93%FA%96%7B%E6%97%A5%E6%9C%AC"
+        )
+        #expect(
+            try #require(resolver.navigableURL(from: "example.com?\nq=%93%FA日本")).absoluteString ==
+                "https://example.com?q=%93%FA%E6%97%A5%E6%9C%AC"
+        )
+        #expect(resolver.textForPaste("example.com/\n%93%FA%96%7B日本") == "example.com/%93%FA%96%7B日本")
+    }
+
+    /// All-ASCII wrapped text resolves as it did before escapes were kept:
+    /// the encoder leaves it unchanged, so wrap removal must judge it the same way.
+    @Test func wrappedAllASCIITextWithNonUTF8EscapesResolvesAsBefore() {
+        for text in ["example.com/\n%FF", "example.com?\nq=%93%FA", "example.com#\n%FF"] {
+            #expect(resolver.navigableURL(from: text) == nil, "\(text)")
+            #expect(resolver.textForPaste(text) == text, "\(text)")
+        }
+    }
+
     @Test func doesNotCompactTextThatConstructsADifferentAuthority() {
         let explicitInput = "https://trusted.example\n@evil.example/path"
         let schemeLessInput = "trusted.example\n@evil.example/path"
