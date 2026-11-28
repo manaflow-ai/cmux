@@ -174,7 +174,9 @@ final class TabHoverCardView: NSView {
                 cpuHistory.removeAll()
             }
             self.item = item
-            titleTwoLines.isActive = true
+            // A one-line title no longer reserves a second, empty line: it left a hole between the
+            // title and the rows (Lawrence 2026-11-23, "consistent padding").
+            titleTwoLines.isActive = false
             setActivity(item.indicator, style: item.busyStyle)
             render()
             // The thumbnail frame is the controller's: it shows or hides once the tab's own is known.
@@ -242,10 +244,9 @@ final class TabHoverCardView: NSView {
 
     /// Where the title's text and the rows under it start: past the title's glyph when it has one.
     private var textLeading: CGFloat {
-        switch item?.icon {
-        case .none?, nil: Self.padding
-        default: Self.padding + Self.iconSize + Metrics.space2
-        }
+        // Lawrence 2026-11-23 ("left alignment, consistent padding"): the rows start on the card's
+        // padding, the title glyph's leading edge, not indented under the title's text.
+        Self.padding
     }
 
     private func setCardWidth(_ width: CGFloat) {
@@ -275,7 +276,7 @@ final class TabHoverCardView: NSView {
         kindIcon.image = iconImage(tint: tint, size: Self.iconSize)
         kindIcon.isHidden = kindIcon.image == nil
         titleLeading?.constant = Self.padding + (kindIcon.isHidden ? 0 : Self.iconSize + Metrics.space2)
-        rowsLeading?.constant = titleLeading?.constant ?? Self.padding
+        rowsLeading?.constant = Self.padding
         updateTitleWidth()
     }
 
