@@ -61,6 +61,30 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "safeMode.enter",
+        group: GROUP,
+        title: t("AppStoreActions", "action.safeMode.enter", "Enter Safe Mode"),
+        keywords: &["safe mode", "extensions", "apps", "off", "crash", "troubleshoot"],
+        category: "settings",
+        symbol: "shield",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action safe-mode-enter",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "safeMode.leave",
+        group: GROUP,
+        title: t("AppStoreActions", "action.safeMode.leave", "Leave Safe Mode"),
+        keywords: &["safe mode", "extensions", "apps", "on", "exit", "restore"],
+        category: "settings",
+        symbol: "shield.slash",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action safe-mode-leave",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "app.reloadCustomViews",
         group: GROUP,
         title: t("AppStoreActions", "action.app.reloadCustomViews", "Reload Custom Views"),
