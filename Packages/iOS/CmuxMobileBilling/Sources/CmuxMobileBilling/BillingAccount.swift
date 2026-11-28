@@ -17,6 +17,17 @@ public struct BillingAccount: Sendable, Equatable, Codable {
     public let currentPlan: BillingCurrentPlan
     /// The products on sale for this bundle.
     public let products: [BillingProductReference]
+    /// The server-assigned paywall configuration; nil when the server sent
+    /// none or an invalid one (the app then shows
+    /// ``BillingPaywallConfig/control``).
+    public let paywall: BillingPaywallConfig?
+    /// The free trial the server may grant after a device proof; nil when
+    /// it offers none.
+    public let trial: BillingTrialOffer?
+    /// True for cmux staff accounts; shows the Paywall Lab.
+    public let staff: Bool
+    /// The server's pricing facts per plan id; empty when it sent none.
+    public let planFacts: [String: BillingPlanFacts]
 
     /// Creates an account value.
     /// - Parameters:
@@ -25,18 +36,27 @@ public struct BillingAccount: Sendable, Equatable, Codable {
     ///   - reason: Why purchases are not allowed, when they are not.
     ///   - currentPlan: The current plan.
     ///   - products: The products on sale.
+    ///   - paywall: The server's paywall configuration, when it sent one.
     public init(
         appAccountToken: UUID,
         eligible: Bool,
         reason: BillingIneligibilityReason?,
         currentPlan: BillingCurrentPlan,
-        products: [BillingProductReference]
+        products: [BillingProductReference],
+        paywall: BillingPaywallConfig? = nil,
+        trial: BillingTrialOffer? = nil,
+        staff: Bool = false,
+        planFacts: [String: BillingPlanFacts] = [:]
     ) {
         self.appAccountToken = appAccountToken
         self.eligible = eligible
         self.reason = reason
         self.currentPlan = currentPlan
         self.products = products
+        self.paywall = paywall
+        self.trial = trial
+        self.staff = staff
+        self.planFacts = planFacts
     }
 
     enum CodingKeys: String, CodingKey {
@@ -45,10 +65,15 @@ public struct BillingAccount: Sendable, Equatable, Codable {
         case reason
         case currentPlan
         case products
+        case paywall
+        case trial
+        case staff
+        case planFacts
     }
 
     /// Decodes the response; a missing `products` list (an ineligible
-    /// account) decodes as empty instead of failing.
+    /// account) decodes as empty instead of failing, and a missing or
+    /// invalid `paywall` object decodes as nil instead of failing.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         appAccountToken = try container.decode(UUID.self, forKey: .appAccountToken)
@@ -56,5 +81,9 @@ public struct BillingAccount: Sendable, Equatable, Codable {
         reason = try container.decodeIfPresent(BillingIneligibilityReason.self, forKey: .reason)
         currentPlan = try container.decode(BillingCurrentPlan.self, forKey: .currentPlan)
         products = try container.decodeIfPresent([BillingProductReference].self, forKey: .products) ?? []
+        paywall = try? container.decodeIfPresent(BillingPaywallConfig.self, forKey: .paywall)
+        trial = try? container.decodeIfPresent(BillingTrialOffer.self, forKey: .trial)
+        staff = (try? container.decodeIfPresent(Bool.self, forKey: .staff)) == true
+        planFacts = (try? container.decodeIfPresent([String: BillingPlanFacts].self, forKey: .planFacts)) ?? [:]
     }
 }

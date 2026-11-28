@@ -22,10 +22,28 @@ public actor LiveStoreKitClient: StoreKitClient {
         } catch {
             throw Self.normalized(error)
         }
-        return products.map(Self.storeProduct(_:))
+        var result: [StoreProduct] = []
+        for product in products {
+            result.append(await Self.storeProduct(product))
+        }
+        return result
     }
 
     public func purchase(productID: String, appAccountToken: UUID) async throws -> StorePurchaseResult {
+        try await purchase(productID: productID, appAccountToken: appAccountToken, introductoryOfferJWS: nil)
+    }
+
+    public func appTransactionID() async -> String? {
+        guard #available(iOS 18.4, macOS 15.4, *) else { return nil }
+        guard case .verified(let appTransaction) = try? await AppTransaction.shared else { return nil }
+        return appTransaction.appTransactionID
+    }
+
+    public func purchase(
+        productID: String,
+        appAccountToken: UUID,
+        introductoryOfferJWS: String?
+    ) async throws -> StorePurchaseResult {
         let product: Product
         do {
             guard let found = try await Product.products(for: [productID]).first else {
@@ -39,7 +57,11 @@ public actor LiveStoreKitClient: StoreKitClient {
         }
         let result: Product.PurchaseResult
         do {
-            result = try await product.purchase(options: [.appAccountToken(appAccountToken)])
+            var options: Set<Product.PurchaseOption> = [.appAccountToken(appAccountToken)]
+            if let introductoryOfferJWS, #available(iOS 18.4, macOS 15.4, *) {
+                options.insert(.introductoryOfferEligibility(compactJWS: introductoryOfferJWS))
+            }
+            result = try await product.purchase(options: options)
         } catch {
             throw Self.normalized(error)
         }
@@ -140,8 +162,19 @@ public actor LiveStoreKitClient: StoreKitClient {
         }
     }
 
-    private static func storeProduct(_ product: Product) -> StoreProduct {
+    private static func storeProduct(_ product: Product) async -> StoreProduct {
         let period = product.subscription?.subscriptionPeriod
+        var introductoryOffer: StoreIntroductoryOffer?
+        if let subscription = product.subscription, let offer = subscription.introductoryOffer,
+           let unit = introductoryUnit(offer.period.unit) {
+            introductoryOffer = StoreIntroductoryOffer(
+                periodValue: offer.period.value,
+                periodUnit: unit,
+                periodCount: offer.periodCount,
+                isFreeTrial: offer.paymentMode == .freeTrial,
+                isEligibleOnDevice: await subscription.isEligibleForIntroOffer
+            )
+        }
         let isYearly = period.map { $0.unit == .year && $0.value == 1 } ?? false
         return StoreProduct(
             id: product.id,
@@ -151,8 +184,19 @@ public actor LiveStoreKitClient: StoreKitClient {
             periodUnitName: period.map { $0.unit.localizedDescription },
             price: product.price,
             currencyCode: product.priceFormatStyle.currencyCode,
-            monthlyEquivalentDisplayPrice: isYearly ? (product.price / 12).formatted(product.priceFormatStyle) : nil
+            monthlyEquivalentDisplayPrice: isYearly ? (product.price / 12).formatted(product.priceFormatStyle) : nil,
+            introductoryOffer: introductoryOffer
         )
+    }
+
+    private static func introductoryUnit(_ unit: Product.SubscriptionPeriod.Unit) -> StoreIntroductoryOffer.PeriodUnit? {
+        switch unit {
+        case .day: .day
+        case .week: .week
+        case .month: .month
+        case .year: .year
+        @unknown default: nil
+        }
     }
 
     private static func environmentName(_ environment: AppStore.Environment) -> String? {
