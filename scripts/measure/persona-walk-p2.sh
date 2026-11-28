@@ -3,8 +3,10 @@
 # step and note helpers, and its scratch $work, $pid and $cli); not run alone.
 #
 # p2 walks P2 tasks 1 and 2:
-#   1. a scratch repo with two worktrees; `claude` in a terminal tab in each (what a fresh person's claude shows, and
-#      a STUCK line when it is missing or stops at sign-in, which a fresh HOME always does);
+#   1. a scratch repo with two worktrees; Claude Code installed with its official install script when the tab has none
+#      (step p2_install_claude; a STUCK line names cmux's "not installed" stand-in when it still answers), then
+#      `claude` in a terminal tab (signin=route exports the route's ANTHROPIC_BASE_URL and placeholder key there, as
+#      route_on does for the app; signed out, a fresh HOME's claude stops at its first-run sign-in, a STUCK line);
 #   2. the background tab asks for the person (the bell and OSC 9 notification Claude Code writes to its terminal
 #      when it waits on a permission prompt), the person is in the other tab: the time until the window shows a
 #      needs-you mark (an accessibility element naming unread, attention, needs or waiting), then a click on that mark
@@ -40,21 +42,49 @@ for e in walk(doc):
 PY
 }
 
+p2_claude_check() { # p2_claude_check LABEL: what `claude` answers in the focused tab, into $work/p2-claude-answer
+  shell_task "p2_claude_$1" 20 "{ command -v claude || echo no-claude; claude --version; } >$work/p2-claude-answer 2>&1" || return 0
+  note "p2 claude $1: $(tr '\n' ' ' <"$work/p2-claude-answer" 2>/dev/null | cut -c1-200)"; }
+# cmux's `claude` stand-in, when Claude Code is missing: "cmux: the agent executable was not found" and
+# "cmux: Claude Code is not installed. To install it, run: curl -fsSL https://claude.ai/install.sh | bash".
+p2_claude_standin() { grep -qiE 'agent executable was not found|Claude Code is not installed' "$work/p2-claude-answer" 2>/dev/null; }
+p2_claude_real() { ! p2_claude_standin && grep -qE '[0-9]+\.[0-9]+\.[0-9]+ \(Claude Code\)' "$work/p2-claude-answer" 2>/dev/null; }
+
 p2() {
   local repo="$work/p2-repo" t a b
   git init -q "$repo" && git -C "$repo" -c user.email=p@x -c user.name=persona commit -q --allow-empty -m init &&
     git -C "$repo" worktree add -q "$work/p2-wt-a" -b wt-a && git -C "$repo" worktree add -q "$work/p2-wt-b" -b wt-b ||
     { note "FAIL p2 scratch repo"; return 1; }
-  # Task 1: claude in two tabs, one per worktree. The tab's shell is the app's, so `command -v` is what the person has.
+  # Task 1: claude in two tabs, one per worktree. The tab's shell is the app's, so what `claude` answers there is what
+  # the person has. A runner has no Claude Code, and the `claude` on the tab's PATH may be cmux's stand-in (it prints
+  # "Claude Code is not installed"), so the walk first installs it the way a 2025 person did: the official install
+  # script, into the scratch HOME, then the PATH line the installer asks for.
+  local bin="$work/home/.local/bin" env_line
+  env_line="export HOME=$work/home PATH=$bin:\$PATH DISABLE_AUTOUPDATER=1"
+  # signin=route: the tab's claude signs through the route, as route_on gives the app (its env reaches the app's
+  # daemon, not necessarily a tab's login shell, so the person's export puts it there).
+  [ -n "${route_env[*]-}" ] && env_line="$env_line ANTHROPIC_BASE_URL=$base_url ANTHROPIC_API_KEY=sk-ant-placeholder-the-route-signs CLAUDE_CONFIG_DIR=$work/home/.claude"
   main_window p2; keys ctrl '`'; sleep_s 1; main_window p2-a
-  shell_task p2_tab_a 10 "cd $work/p2-wt-a && (command -v claude || echo no-claude) >$work/p2-claude-path" || return 0
-  note "p2 claude on the tab's PATH: $(cat "$work/p2-claude-path" 2>/dev/null)"
-  if grep -q no-claude "$work/p2-claude-path" 2>/dev/null; then
-    note "STUCK p2 claude: not on the terminal's PATH (a P2 person installs it first; the app offered no path)"
+  shell_task p2_tab_a 10 "cd $work/p2-wt-a && $env_line" || return 0
+  p2_claude_check before_install
+  p2_claude_standin && note "p2 claude before install: cmux's stand-in answers (Claude Code is not installed on this runner)"
+  if ! p2_claude_real; then
+    shell_task p2_install_claude 240 "curl -fsSL https://claude.ai/install.sh | bash >$work/p2-claude-install.log 2>&1" ||
+      note "STUCK p2 claude: the official install script did not finish in 240 s ($(tail -1 "$work/p2-claude-install.log" 2>/dev/null))"
+    p2_claude_check after_install
+  fi
+  if p2_claude_standin; then
+    note "STUCK p2 claude: Claude Code is not installed: the tab's claude is cmux's stand-in ($(grep -m1 -iE 'not installed|not found' "$work/p2-claude-answer"))"
+  elif ! p2_claude_real; then
+    note "STUCK p2 claude: no claude on the terminal's PATH after the install script ($(head -1 "$work/p2-claude-answer" 2>/dev/null))"
   else
     typeln "claude"; sleep_s 6; shot 20-p2-claude-a
-    # A fresh HOME has no Claude login: what claude shows first is the finding (sign-in, theme picker, trust prompt).
-    note "STUCK p2 claude: a fresh profile's claude stops at its own first-run sign-in (shot 20-p2-claude-a)"
+    if [ -n "${route_env[*]-}" ]; then
+      note "p2 claude: Claude Code $(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' "$work/p2-claude-answer") started signed through the route (shot 20-p2-claude-a)"
+    else
+      # Signed out, a fresh HOME's claude has no login: what it shows first is the finding (sign-in, theme, trust).
+      note "STUCK p2 claude: a fresh profile's claude stops at its own first-run sign-in (signin=$signin; shot 20-p2-claude-a)"
+    fi
     keys ctrl c; sleep_s 0.5; keys ctrl c; sleep_s 1
     shell_task p2_claude_a_exit 10 "true" || note "STUCK p2 claude: Ctrl-C twice did not return tab A to its shell"
   fi
