@@ -136,7 +136,7 @@ KEEP_H = 36
 PUBLISH_WINDOW_H = 25
 PUBLISH_MAX = 768 << 10
 PUBLISH_FILES = 8  # NOW asks only whether any is a UI path; the count stays as ui_files_n
-PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "posted_at", "error",
+PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "recipient_host", "posted_at", "error_posted_at", "error",
                   "synthetic")
 # Bounds, seconds.
 FETCH_SECONDS = 180
@@ -150,7 +150,9 @@ INSTALL_SECONDS = 15 * 60
 GALLERY_UP_SECONDS = 180
 # The gallery's ranker of touched entries; a tree without it (a branch off main) has no gallery to shoot.
 GALLERY_RANKER = "webviews/scripts/gallery/touched.ts"
+STRINGS_GENERATOR = "scripts/pages/gen-strings.mjs"  # under webviews/; writes the gitignored generated/strings.json
 SEND_SECONDS = 60
+SEND_RETRY_S = 2  # between a HOST/NAME send that failed and the bare-NAME lookup after it
 PREFETCH_SECONDS = 300
 # The VM's own mirror of manaflow-ai/cmux (repo-mirrors.timer, about every 15 min): the clone borrows its objects
 # (objects/info/alternates), so a fetch from GitHub sends only what the mirror lacks and a checkout's blobs are local.
@@ -207,8 +209,33 @@ def tail(text, most: int = 400) -> str:
     return " ".join((text or "").split())[-most:]
 
 
+def send_targets(req: dict) -> list[str]:
+    """Whom a look's message goes to, in order: HOST/NAME when the request names the pushing session's host and the
+    recipient is a bare name, then the recipient as given."""
+    recipient, host = str(req["recipient"]), req.get("recipient_host")
+    if host and "/" not in recipient and SESSION.match(str(host)) and "/" not in str(host):
+        return [f"{host}/{recipient}", recipient]
+    return [recipient]
+
+
+def send_why(text) -> str:
+    """A send's refusal, its `send:` line first: lane-gh prints hints (a report's --state) before the refusal, and
+    the last 400 characters cut the refusal in half."""
+    lines = [ln.strip() for ln in (text.decode("utf-8", "replace") if isinstance(text, bytes) else text or "").splitlines()]
+    why = [ln for ln in lines if "send:" in ln and "reads faster" not in ln]
+    return tail(" ".join(why) if why else "\n".join(lines), 300)
+
+
 class LookError(Exception):
     pass
+
+
+class NoShotError(LookError):
+    """A look that ran and shot nothing: its errors say why."""
+
+
+# A touched.ts failure is the head's own code failing to load (a pusher's bug), not this worker's.
+PUSHER_ERROR = "touched.ts exited"
 
 
 def run(argv: list[str], cwd: Path | None = None, timeout: float = 120, env: dict | None = None,
@@ -322,6 +349,7 @@ class Gallery:
         self.lock = threading.Lock()  # the tree, its vite and its shooter: one side's checkout and shots at a time
         self.proc: subprocess.Popen | None = None
         self.lock_hash: str | None = None
+        self.strings_hash: str | None = None
         self.shooter: subprocess.Popen | None = None
         self.shooter_lines: "queue.Queue[str | None]" = queue.Queue()
         suffix = "" if name == "web" else f"-{name}"
@@ -362,15 +390,33 @@ class Gallery:
         return ids
 
     def install(self) -> bool:
-        """bun install when the lockfile changed since the last install; True when it ran."""
+        """bun install when the lockfile changed since the last install; True when it ran. Then the strings tables
+        when a catalog or their generator changed: generated/strings.json is gitignored build output that only
+        bun install's postinstall writes, so a push adding a catalog on an unchanged lockfile had no table and
+        touched.ts failed "Cannot find module '../generated/strings.json'" (3 looks on 11-27)."""
         lock = self.tree / "bun.lock"
         digest = git(self.tree, "hash-object", str(lock)) if lock.exists() else "none"
-        if digest == self.lock_hash and (self.tree / "webviews" / "node_modules").is_dir():
-            return False
-        run([self.worker.bun(), "install", "--frozen-lockfile"], cwd=self.tree / "webviews", timeout=INSTALL_SECONDS,
-            what="bun install")
-        self.lock_hash = digest
-        return True
+        ran = False
+        if digest != self.lock_hash or not (self.tree / "webviews" / "node_modules").is_dir():
+            run([self.worker.bun(), "install", "--frozen-lockfile"], cwd=self.tree / "webviews",
+                timeout=INSTALL_SECONDS, what="bun install")
+            self.lock_hash = digest
+            ran = True
+        strings = self.strings_digest()
+        if ran:
+            self.strings_hash = strings  # the postinstall wrote them
+        elif strings != self.strings_hash:
+            run([self.worker.bun(), STRINGS_GENERATOR, "--best-effort"], cwd=self.tree / "webviews",
+                timeout=INSTALL_SECONDS, what="gen-strings")
+            self.strings_hash = strings
+        return ran
+
+    def strings_digest(self) -> str:
+        """The checkout's string catalogs and their generator, as git names them (a tree read, no file hashing)."""
+        listed = git(self.tree, "ls-tree", "-r", "HEAD", "--", "webviews/src", f"webviews/{STRINGS_GENERATOR}")
+        return hashlib.sha256("".join(ln for ln in listed.splitlines(keepends=True)
+                                      if ".xcstrings" in ln or ln.rstrip().endswith(STRINGS_GENERATOR)).encode()
+                              ).hexdigest()
 
     def deps_dir(self, key: str | None = None) -> Path:
         return self.tree / "webviews" / "node_modules" / f".vite-{key or self.key or 'none'}"
@@ -988,7 +1034,7 @@ class Worker:
     # One look.
     def new_receipt(self, req: dict) -> dict:
         receipt = {k: req.get(k) for k in ("repo", "head_sha", "base_sha", "branch", "pushed_at", "ui_files",
-                                           "recipient")}
+                                           "recipient", "recipient_host")}
         receipt.update(posted_at=None, scenes=[], worker=self.host, started_at=utc_now())
         if req.get("synthetic"):
             receipt["synthetic"] = True
@@ -1030,6 +1076,8 @@ class Worker:
         except LookError as err:
             receipt["error"] = str(err)[:500]
             log(f"{req.get('head_sha', '')[:12]}: {receipt['error']}")
+            if isinstance(err, NoShotError) and PUSHER_ERROR in receipt["error"]:
+                self.post_error(req, receipt)
         receipt["stages"] = stages.seconds
         pushed, posted = parse_ts(receipt.get("pushed_at")), parse_ts(receipt.get("posted_at"))
         if pushed and posted:
@@ -1121,10 +1169,23 @@ class Worker:
         if errors:
             receipt["error"] = "; ".join(errors)[:500]
         if not any(s.get("before") and s.get("after") for s in scenes):
-            raise LookError(receipt.get("error") or "no scene was shot")
+            raise NoShotError(receipt.get("error") or "no scene was shot")
         with stages("send"):
-            self.send(req["recipient"], self.message(req, scenes, receipt))
+            receipt["sent_to"] = self.send(send_targets(req), self.message(req, scenes, receipt))
         receipt["posted_at"] = utc_now()
+
+    def post_error(self, req: dict, receipt: dict) -> None:
+        """Tells the pusher why its push has no pictures, when the why is in its own code (touched.ts could not
+        load the head: "already declared", a SyntaxError, merge markers; 10 silent looks on 11-27). posted_at stays
+        null (no pictures were posted); error_posted_at says the note landed, and only when it did."""
+        head = req["head_sha"][:12]
+        text = (f"UI preview of your push {head} ({req.get('branch') or 'no branch'}): no pictures, the gallery "
+                f"could not load this commit. Fix it and push again:\n{receipt['error']}\n")
+        try:
+            receipt["sent_to"] = self.send(send_targets(req), text)
+            receipt["error_posted_at"] = utc_now()
+        except LookError as err:
+            receipt["error"] = f"{receipt['error']}; the error note: {err}"[:500]
 
     def url(self, token: str, side: str, name: str) -> str:
         rel = f"looks/{token}/{side}/{name}"
@@ -1144,21 +1205,34 @@ class Worker:
             lines.append(f"Read one: d=$(mktemp -d) && curl -s -o \"$d/ui-preview-{head}.png\" URL, then open it (tailnet only).")
         return "\n".join(lines) + "\n"
 
-    def send(self, recipient: str, text: str) -> None:
-        """Hands TEXT to RECIPIENT with --send's command ({recipient} filled in, the text on stdin); with no --send,
-        writes it to outbox/ (a test)."""
+    def send(self, recipients, text: str) -> str:
+        """Hands TEXT to the first of RECIPIENTS that takes it, with --send's command ({recipient} filled in, the
+        text on stdin), and returns the one that did. The pushing session is named HOST/NAME first (the request's
+        recipient_host): a bare NAME makes `lane-gh send` look it up on every machine, and with any machine unread
+        it refuses ("no session named X on the machines read; unread: ..."), which dropped 33 posts on 11-27. The
+        bare NAME comes second, for a session that moved off its host since the push. With no --send, writes it to
+        outbox/ (a test)."""
+        if isinstance(recipients, str):
+            recipients = [recipients]
         if not self.send_template:
             box = self.state / "outbox"
             box.mkdir(exist_ok=True)
-            (box / f"{int(time.time() * 1000)}-{re.sub(r'[^A-Za-z0-9._-]', '_', recipient)}.txt").write_text(text)
-            return
-        argv = [a.replace("{recipient}", recipient) for a in shlex.split(self.send_template)]
-        try:
-            done = subprocess.run(argv, input=text, capture_output=True, text=True, timeout=SEND_SECONDS)
-        except (subprocess.TimeoutExpired, OSError) as err:
-            raise LookError(f"the send to {recipient} failed: {err}") from None
-        if done.returncode != 0:
-            raise LookError(f"the send to {recipient} exited {done.returncode}: {tail(done.stderr or done.stdout)}")
+            (box / f"{int(time.time() * 1000)}-{re.sub(r'[^A-Za-z0-9._-]', '_', recipients[0])}.txt").write_text(text)
+            return recipients[0]
+        errors = []
+        for attempt, recipient in enumerate(recipients):
+            if attempt:
+                time.sleep(SEND_RETRY_S)
+            argv = [a.replace("{recipient}", recipient) for a in shlex.split(self.send_template)]
+            try:
+                done = subprocess.run(argv, input=text, capture_output=True, text=True, timeout=SEND_SECONDS)
+            except (subprocess.TimeoutExpired, OSError) as err:
+                errors.append(f"the send to {recipient} failed: {err}")
+                continue
+            if done.returncode == 0:
+                return recipient
+            errors.append(f"the send to {recipient} exited {done.returncode}: {send_why(done.stderr or done.stdout)}")
+        raise LookError("; ".join(errors))
 
     # Receipts.
     def write_receipt(self, receipt: dict) -> None:
