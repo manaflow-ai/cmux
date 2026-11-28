@@ -13,8 +13,18 @@ scripts/cmux-next/check-action-surfaces.sh):
           entry: an exemption that names the palette row standing in for it (FAMILY: a family's one row, the
           default engine's row), and a live-input action that only a right-click menu offers (Copy Link on the
           link under the pointer: the palette has no pointer).
-  menu    a hand-built menu (`context_menus_not_exported`): its rows are not registry actions, so the palette
-          cannot know them. It counts until its rows become actions or its keep reason says why none is needed.
+  menu    a hand-built menu (`context_menus_not_exported`). The Rust catalog's hand_built_menus.rs (whose test fails
+          on a row naming no palette action) lists each one's rows by action id, read here from its `MENUS` list;
+          a menu is covered when it is listed there and every row and registry menu it names is offered
+          (cmux#51026), and counts as a gap otherwise.
+  shortcut  the same rule for an action with a default keyboard shortcut or chord (`default_shortcut`,
+          `default_chord`): a key a person presses is an action they can search for. Covered without an entry: the
+          palette's own keys (`paletteInternal`: Ctrl-N/P inside the palette) and a shortcut-only live-input action
+          (Cmd-Return in the address bar acts on the text being typed). Counted once `inventoried` names it.
+  setting a Settings-page row cmux-next reads (schemas/settings/settings-schema.json, `page_hidden` false,
+          `consumers` has cmux-next) whose palette surface is not offered (`surfaces.palette.offered`) and gives no
+          reason (`surfaces.palette.reason`, from SettingDescriptor.hiddenFromPalette): every toggle, choice and
+          value on the Settings page is a Set Setting… / Toggle Setting… row. Counted once `inventoried` names it.
   cli     cmux-tui's own grammar verbs (`workspace create`, `tab pin`, `closed reopen`), not app actions, so the
           export does not list them. `cli_verbs` in the keep list holds one entry per verb: {verb, palette} names
           the palette-offered (or FAMILY) action that does the same for a person, {verb, reason} says with
@@ -51,30 +61,104 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 KEEP = ROOT / "plans/cmux-next/palette-coverage.json"
 SURFACES = ROOT / "plans/cmux-next/action-surfaces.json"
+MENUS = ROOT / "cmux-tui/crates/cmux-action-catalog/src/hand_built_menus.rs"
 CATALOG = ROOT / "plans/cmux-next/action-catalog.json"
+SETTINGS = ROOT / "schemas/settings/settings-schema.json"
 KEY_MAP = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteKeyMap.swift"
-KINDS = ("action", "menu", "cli")
+KINDS = ("action", "menu", "cli", "shortcut", "setting")
+# Palette decisions a shortcut-only action needs no row for: the palette's own keys, live input under the cursor.
+SHORTCUT_ONLY_COVERED = {"paletteInternal", "liveInput"}
 KEEP_REASON = re.compile(r"keep: \S[^\n]*$")
 # Palette exemptions whose own row stands in for the action (ActionSurface.swift SurfaceExemption).
 FAMILY = {"familyMember", "duplicateOfDefault", "secondaryEngine"}
 
 
-def gaps(surfaces: dict) -> dict[tuple[str, str], str]:
-    """{(surface, name): what it is} for every CLI or menu action the palette does not offer."""
+RUST_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def rust_menus(text: str) -> dict:
+    """{"menus": [{name, source, rows, contexts, pointer_rows}]} read from hand_built_menus.rs's `MENUS` list.
+
+    Each entry there is `menu("name", "source", &[rows...])`, then `.contexts(&[...])` and `.pointer_rows("...")`
+    when it has them. A list this cannot read raises, so the count never quietly drops a menu."""
+    start = text.index("pub const MENUS")
+    body = text[text.index("= &[", start) + 4:text.index("\n];", start)]
+    body = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("//"))
+    menus = []
+    for chunk in re.split(r"\bmenu\(", body)[1:]:
+        head, _, rest = chunk.partition("&[")
+        rows, _, tail = rest.partition("]")
+        names = RUST_STRING.findall(head)
+        if len(names) != 2:
+            raise ValueError(f"hand_built_menus.rs: cannot read the entry `menu({chunk[:80]}`")
+        contexts = re.search(r"\.contexts\(&\[(.*?)\]\)", tail, re.S)
+        pointer = re.search(r"\.pointer_rows\(\s*" + RUST_STRING.pattern + r"\s*\)", tail, re.S)
+        menus.append({"name": names[0], "source": names[1], "rows": RUST_STRING.findall(rows),
+                      "contexts": RUST_STRING.findall(contexts.group(1)) if contexts else [],
+                      "pointer_rows": pointer.group(1) if pointer else None})
+    if not menus:
+        raise ValueError("hand_built_menus.rs: no entries in MENUS")
+    return {"menus": menus}
+
+
+def menu_gap(menu: dict, declared: dict | None, offered: set[str], contexts: set[str]) -> str | None:
+    """Why the palette does not cover hand-built `menu` (its rows by `declared`), or None when it does."""
+    where = f"hand-built menu in {menu.get('source')}"
+    if declared is None:
+        return f"{where}: no rows in cmux-action-catalog hand_built_menus.rs"
+    off = [r for r in declared.get("rows", []) if r not in offered]
+    off += [f"menu {c}" for c in declared.get("contexts", []) if c not in contexts]
+    if off or not (declared.get("rows") or declared.get("contexts") or declared.get("pointer_rows")):
+        return f"{where}: rows the palette does not offer: {', '.join(off) or 'none listed'}"
+    return None
+
+
+def gaps(surfaces: dict, menus: dict | None = None, shortcuts: bool = False) -> dict[tuple[str, str], str]:
+    """{(surface, name): what it is} for every CLI, menu (or, with `shortcuts`, keyboard) action the palette does
+    not offer."""
     out: dict[tuple[str, str], str] = {}
+    offered = {a["id"] for a in surfaces.get("actions", []) if a.get("palette") == "offered" or a.get("palette") in FAMILY}
+    contexts = set(surfaces.get("context_menus") or {})
+    declared = {m.get("name"): m for m in (menus or {}).get("menus", [])}
     for a in surfaces.get("actions", []):
         palette = a.get("palette")
         cli, main_menu, context = a.get("cli") == "offered", a.get("main_menu"), a.get("context_menu") == "offered"
-        if palette == "offered" or palette in FAMILY or not (cli or main_menu or context):
+        key = shortcuts and bool(a.get("default_shortcut") or a.get("default_chord"))
+        if palette == "offered" or palette in FAMILY or not (cli or main_menu or context or key):
             continue
         if palette == "liveInput" and not cli and not main_menu:
+            continue
+        if palette in SHORTCUT_ONLY_COVERED and key and not (cli or main_menu or context):
             continue
         where = [f"cli `{a.get('cli_name')}`"] if cli else []
         where += [f"{main_menu} menu"] if main_menu else []
         where += [f"right-click {','.join(a.get('context_menus') or [])}"] if context else []
+        where += [f"shortcut {shortcut_text(a)}"] if key else []
         out[("action", a["id"])] = f"{a.get('title')} (palette: {palette}; {'; '.join(where)})"
     for m in surfaces.get("context_menus_not_exported", []):
-        out[("menu", m["name"])] = f"hand-built menu in {m.get('source')}"
+        if (why := menu_gap(m, declared.get(m["name"]), offered, contexts)) is not None:
+            out[("menu", m["name"])] = why
+    return out
+
+
+def shortcut_text(a: dict) -> str:
+    keys = a.get("default_chord") if isinstance(a.get("default_chord"), list) else [a.get("default_shortcut") or {}]
+    return " ".join("-".join([*k.get("modifiers", []), repr(k.get("key", ""))]) for k in keys if isinstance(k, dict))
+
+
+def setting_gaps(schema: dict) -> dict[tuple[str, str], str]:
+    """{("setting", key): what} for every Settings-page row cmux-next reads that the palette neither offers nor
+    gives a reason to skip."""
+    out = {}
+    for r in schema.get("rows", []):
+        palette = (r.get("surfaces") or {}).get("palette") or {}
+        if r.get("page_hidden") or "cmux-next" not in (r.get("consumers") or []):
+            continue
+        if palette.get("offered") or str(palette.get("reason") or "").strip():
+            continue
+        title = r.get("title")
+        title = title.get("text") if isinstance(title, dict) else title
+        out[("setting", r.get("key"))] = f"{title} ({r.get('kind')}; Settings > {r.get('section')})"
     return out
 
 
@@ -230,10 +314,14 @@ def segment_verbs(scope: str, tokens: list[str]) -> tuple[list[str], bool]:
 
 def usage_verbs(scope: str, text: str) -> list[tuple[str, bool]]:
     """Verb paths of a scope help's `cmux SCOPE ...` usage lines (indented, or after `usage:`)."""
-    out = []
+    out, examples = [], False
     for raw in text.splitlines():
+        # An EXAMPLES section's lines are uses, not usage: `cmux move my-chat --to auto` names a session, no verb.
+        if re.match(r"[A-Z][A-Z ]*:?$", raw.strip()) and not raw.startswith(" "):
+            examples = raw.strip().rstrip(":") == "EXAMPLES"
+            continue
         m = re.match(r"(?:\s*usage:?\s*|\s{2,})cmux\s+(.*)$", raw, re.I)
-        if not m:
+        if not m or examples:
             continue
         line = re.split(r"\s{2,}", _protect(m.group(1)).strip())[0]  # drop the description column
         no_bare = bool(re.search(r"[\[<](COMMAND|verb|action)", line, re.I))
@@ -420,9 +508,12 @@ def refresh_cli(binary: str, source: str | None) -> int:
 def report() -> dict:
     keep = json.loads(KEEP.read_text())
     surfaces = json.loads(SURFACES.read_text())
-    found = gaps(surfaces)
-    if "cli" in keep.get("inventoried", []):
+    lists = keep.get("inventoried", [])
+    found = gaps(surfaces, rust_menus(MENUS.read_text()), shortcuts="shortcut" in lists)
+    if "cli" in lists:
         found |= cli_gaps(surfaces, keep)
+    if "setting" in lists:
+        found |= setting_gaps(json.loads(SETTINGS.read_text()))
     gone = missing(found, keep)
     return {"inventoried": keep.get("inventoried", []), "missing": len(gone), "kept": len(found) - len(gone),
             "entries": [{"surface": s, "name": n, "what": w} for (s, n), w in sorted(gone.items())],
@@ -447,8 +538,38 @@ class Rules(unittest.TestCase):
         self.assertEqual(gaps({"actions": covered}), {})
         self.assertIn(("action", "x"), gaps({"actions": [self.action(palette="liveInput", cli="offered")]}))
 
-    def test_hand_built_menus_are_gaps(self):
-        self.assertIn(("menu", "m"), gaps({"context_menus_not_exported": [{"name": "m", "source": "M.swift"}]}))
+    def test_hand_built_menus_are_gaps_until_their_rows_are_palette_rows(self):
+        surfaces = {"actions": [self.action(id="a", palette="offered"), self.action(id="b")],
+                    "context_menus": {"tab": {}}, "context_menus_not_exported": [{"name": "m", "source": "M.swift"}]}
+        self.assertIn(("menu", "m"), gaps(surfaces))
+        self.assertIn(("menu", "m"), gaps(surfaces, {"menus": [{"name": "m", "rows": ["a", "b"]}]}))
+        self.assertIn(("menu", "m"), gaps(surfaces, {"menus": [{"name": "m", "rows": ["a"], "contexts": ["pane"]}]}))
+        self.assertIn(("menu", "m"), gaps(surfaces, {"menus": [{"name": "m", "rows": [], "contexts": [], "pointer_rows": None}]}))
+        self.assertEqual(gaps(surfaces, {"menus": [{"name": "m", "rows": [], "contexts": [], "pointer_rows": "a page's own"}]}), {})
+        self.assertEqual(gaps(surfaces, {"menus": [{"name": "m", "rows": ["a"], "contexts": ["tab"]}]}), {})
+
+    def test_hand_built_menus_are_read_from_the_rust_list(self):
+        text = """pub const MENUS: &[HandBuiltMenu] = &[
+    menu("a", "A.swift", &["x", "y"]),
+    // a comment
+    menu("b", "B/B.swift", &[
+        "z",
+    ])
+        .contexts(&["tab", "pane"])
+        .pointer_rows("the link under the pointer, which the palette cannot name"),
+    menu("c", "C.swift", &[]).pointer_rows("a page's own rows"),
+];
+"""
+        self.assertEqual(rust_menus(text)["menus"], [
+            {"name": "a", "source": "A.swift", "rows": ["x", "y"], "contexts": [], "pointer_rows": None},
+            {"name": "b", "source": "B/B.swift", "rows": ["z"], "contexts": ["tab", "pane"],
+             "pointer_rows": "the link under the pointer, which the palette cannot name"},
+            {"name": "c", "source": "C.swift", "rows": [], "contexts": [], "pointer_rows": "a page's own rows"}])
+        with self.assertRaises(ValueError):
+            rust_menus('pub const MENUS: &[HandBuiltMenu] = &[\n    menu(name, "A.swift", &[]),\n];\n')
+        real = {m["name"]: m for m in rust_menus(MENUS.read_text())["menus"]}
+        self.assertIn("browserReload", real["browserReload"]["rows"])
+        self.assertEqual(real["agentPaneMessage"]["contexts"], ["agentChat"])
 
     def test_keep_entries_name_live_gaps_with_a_reason(self):
         found = {("action", "x"): "X", ("menu", "m"): "M"}
@@ -510,6 +631,9 @@ Prose: cmux workspace close --all closes them.
         self.assertEqual(scope_verbs("open", "usage: cmux open <path|url>... [--focus]\n  cmux open --link\n"), ["open"])
         self.assertEqual(scope_verbs("status", "  cmux status run [--label <text>] -- CMD …\n"), ["status run"])
         self.assertEqual(scope_verbs("identify", "usage: cmux identify | ping | capabilities\n"), ["identify"])
+        # An EXAMPLES section names sessions and hosts, not verbs (`cmux move my-chat`, `cmux move first second`).
+        self.assertEqual(scope_verbs("move", "USAGE\n  cmux move [SESSION...] --to MACHINE\nEXAMPLES\n"
+                                     "  cmux move my-chat --to auto\n  cmux move first second --to box\n"), ["move"])
         self.assertEqual(scope_verbs("app", "  cmux app <verb...> [--x <v>]\n  cmux app ping\n"), ["app ping"])
         self.assertEqual(scope_verbs("device", "  cmux device add HOST --yes\n  cmux device remove ID|NAME\n"),
                          ["device add", "device remove"])
@@ -576,6 +700,27 @@ Prose: cmux workspace close --all closes them.
         merged, added, removed = merge_cli(keep, ["a", "b"])
         self.assertEqual(merged["cli_verbs"], [{"verb": "a", "palette": "x"}, {"verb": "b"}])
         self.assertEqual((added, removed), (["b"], ["gone"]))
+
+    def test_shortcut_actions_off_the_palette_are_gaps_once_inventoried(self):
+        key = {"default_shortcut": {"key": "i", "modifiers": ["cmd"]}}
+        self.assertEqual(gaps({"actions": [self.action(**key)]}), {})
+        self.assertIn(("action", "x"), gaps({"actions": [self.action(**key)]}, shortcuts=True))
+        self.assertIn(("action", "x"), gaps({"actions": [self.action(default_chord=[{"key": "k", "modifiers": ["cmd"]}])]},
+                                            shortcuts=True))
+        covered = [self.action(palette=p, **key) for p in ("offered", "familyMember", "paletteInternal", "liveInput")]
+        self.assertEqual(gaps({"actions": covered}, shortcuts=True), {})
+        # A palette-internal key that a menu also offers is still a gap: the menu rule does not exempt it.
+        self.assertIn(("action", "x"), gaps({"actions": [self.action(palette="paletteInternal", main_menu="edit", **key)]},
+                                            shortcuts=True))
+
+    def test_settings_page_rows_off_the_palette_are_gaps_unless_a_reason_says_why(self):
+        def row(offered=False, reason=None, **kw):
+            return {"key": "a.b", "title": {"text": "B"}, "kind": "toggle", "section": "general", "page_hidden": False,
+                    "consumers": ["cmux-next"], "surfaces": {"palette": {"offered": offered, "reason": reason}}, **kw}
+        self.assertIn(("setting", "a.b"), setting_gaps({"rows": [row()]}))
+        for r in (row(offered=True), row(reason="the Density card edits it"), row(page_hidden=True),
+                  row(consumers=["cmux-browser"])):
+            self.assertEqual(setting_gaps({"rows": [r]}), {})
 
     def test_this_tree(self):
         got = report()

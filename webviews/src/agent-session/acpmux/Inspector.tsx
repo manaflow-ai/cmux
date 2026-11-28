@@ -2,15 +2,22 @@
 // wire log, wire.ts) and the selected session's ACP event journal as acpmux
 // recorded it, with the connection and session state above them. It opens
 // over the transcript like the diff panel and reads nothing while closed.
+// Timing lays each turn's message to agent, queue and first output on one session axis
+// (InspectorTiming.tsx), read from acpmux's history when the tab opens.
+// A message that carries a Point at Element pick names the element on its row,
+// and Pointed shows only those rows (inspectorModel.ts pointedElements).
 import { useEffect, useRef, useState } from "react";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { useT } from "./i18n";
 import type { AcpmuxSnapshot } from "./model";
 import { acpWire, type AcpWireLog, type WireEntry } from "./wire";
+import { PerfPanel } from "./PerfPanel";
+import { InspectorTiming, type ReadInspectorHistory } from "./InspectorTiming";
+import type { PerfSend } from "./perfReporter";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import "./Inspector.css";
 import { exportFileName, clockTime, wireRow, sessionRow, visibleRows } from "./inspectorModel";
-export type InspectorView = "wire" | "session";
+export type InspectorView = "wire" | "session" | "timing" | "perf";
 
 /** What the host did with an export: saved it, the user cancelled its save panel, or it cannot save (the log is copied instead). */
 export type ExportOutcome = "saved" | "cancelled" | "unavailable";
@@ -62,6 +69,8 @@ export function Inspector({
   onClose,
   onExport,
   wire = acpWire,
+  perf,
+  readHistory,
 }: {
   snapshot: AcpmuxSnapshot;
   /** The selected session's ACP events as the client holds them. */
@@ -70,20 +79,25 @@ export function Inspector({
   /** Saves the export; cancellation leaves the clipboard unchanged. */
   onExport?: (text: string, suggestedName: string) => Promise<ExportOutcome>;
   wire?: AcpWireLog;
+  /** `_acpmux/perf` through the page's client: the Perf tab (the live perf commentator); none, no tab. */
+  perf?: PerfSend;
+  /** `_acpmux/history` through the page's client: the Timing tab; none, no tab. */
+  readHistory?: ReadInspectorHistory;
 }) {
   const t = useT();
   const [view, setView] = useState<InspectorView>("wire");
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [pointedOnly, setPointedOnly] = useState(false);
   const entries = useWireEntries(wire);
   const stats = wire.stats();
   // The client's journal grows with each snapshot, which renders this again.
   const events = view === "session" ? sessionEvents() : [];
-  const rows = visibleRows(
-    view === "wire" ? entries.map((entry) => wireRow(entry, t)) : events.map((event) => sessionRow(event, t)),
-    filter,
-  );
+  const allRows =
+    view === "wire" ? entries.map((entry) => wireRow(entry, t)) : events.map((event) => sessionRow(event, t));
+  const anyPointed = allRows.some((row) => row.pointed);
+  const rows = visibleRows(allRows, filter, pointedOnly && anyPointed);
 
   const firstControlRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -129,7 +143,7 @@ export function Inspector({
         </button>
         <strong>{t("inspector.title")}</strong>
         <div className="acpmux-diff-tools acpmux-inspector-views ui-slide-host" aria-label={t("inspector.view")}>
-          {/* The pressed plate travels between Wire and Session (ui/motion, transform only). */}
+          {/* The pressed plate travels between the views (ui/motion, transform only). */}
           <SlidingIndicator selected={view} look="plate" />
           <button
             type="button"
@@ -147,6 +161,26 @@ export function Inspector({
           >
             {t("inspector.session")}
           </button>
+          {readHistory && (
+            <button
+              type="button"
+              className="acpmux-diff-tool ui-slide-item"
+              aria-pressed={view === "timing"}
+              onClick={() => setView("timing")}
+            >
+              {t("inspector.timing")}
+            </button>
+          )}
+          {perf && (
+            <button
+              type="button"
+              className="acpmux-diff-tool ui-slide-item"
+              aria-pressed={view === "perf"}
+              onClick={() => setView("perf")}
+            >
+              {t("inspector.perf")}
+            </button>
+          )}
         </div>
       </div>
       <dl className="acpmux-inspector-state">
@@ -195,69 +229,94 @@ export function Inspector({
           </div>
         )}
       </dl>
-      <div className="acpmux-inspector-tools">
-        <input
-          type="search"
-          aria-label={t("inspector.filter")}
-          placeholder={t("inspector.filter")}
-          value={filter}
-          onChange={(event) => setFilter(event.target.value)}
-        />
-        <span className="acpmux-inspector-count">
-          {rows.length < (view === "wire" ? entries.length : events.length)
-            ? t("inspector.rowsOf", { shown: rows.length, total: view === "wire" ? entries.length : events.length })
-            : rows.length}
-          {view === "wire" && stats.dropped ? ` · ${t("inspector.olderDropped", { count: stats.dropped })}` : ""}
-        </span>
-        {notice && <output className="acpmux-inspector-count">{notice}</output>}
-        <button type="button" onClick={() => void exportLog()}>
-          {t("inspector.export")}
-        </button>
-        {view === "wire" && (
-          <button
-            type="button"
-            onClick={() => {
-              wire.clear();
-              setOpen(undefined);
-            }}
-          >
-            {t("inspector.clear")}
-          </button>
-        )}
-      </div>
-      <ol className="acpmux-inspector-list">
-        {rows.map((row) => (
-          <li key={row.key} className={`acpmux-inspector-row acpmux-inspector-${row.kind}`}>
-            <button
-              type="button"
-              aria-expanded={open === row.key}
-              onClick={() => setOpen((current) => (current === row.key ? undefined : row.key))}
-            >
-              <time>{clockTime(row.at)}</time>
-              <span className="acpmux-inspector-dir" aria-label={row.dir}>
-                {DIR_GLYPH[row.dir] ?? row.dir}
-              </span>
-              <span className="acpmux-inspector-kind">{row.kind}</span>
-              <span className="acpmux-inspector-name">{row.name}</span>
-              {row.latencyMs !== undefined && (
-                <span className="acpmux-inspector-num">
-                  {t("inspector.milliseconds", {
-                    value: row.latencyMs < 10 ? row.latencyMs.toFixed(1) : Math.round(row.latencyMs),
-                  })}
-                </span>
-              )}
-              {row.size !== undefined && (
-                <span className="acpmux-inspector-num">
-                  {row.size < 1024
-                    ? t("inspector.bytes", { value: row.size })
-                    : t("inspector.kilobytes", { value: (row.size / 1024).toFixed(1) })}
-                </span>
-              )}
-            </button>
-            {open === row.key && <pre>{row.body}</pre>}
-          </li>
+      {view === "perf" && perf && <PerfPanel send={perf} />}
+      {view === "timing" &&
+        readHistory &&
+        (snapshot.sessionId ? (
+          <InspectorTiming sessionId={snapshot.sessionId} read={readHistory} />
+        ) : (
+          <p className="acpmux-timing-note">{t("inspector.none")}</p>
         ))}
-      </ol>
+      {(view === "wire" || view === "session") && (
+        <>
+          <div className="acpmux-inspector-tools">
+            <input
+              type="search"
+              aria-label={t("inspector.filter")}
+              placeholder={t("inspector.filter")}
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+            />
+            <span className="acpmux-inspector-count">
+              {rows.length < (view === "wire" ? entries.length : events.length)
+                ? t("inspector.rowsOf", { shown: rows.length, total: view === "wire" ? entries.length : events.length })
+                : rows.length}
+              {view === "wire" && stats.dropped ? ` · ${t("inspector.olderDropped", { count: stats.dropped })}` : ""}
+            </span>
+            {notice && <output className="acpmux-inspector-count">{notice}</output>}
+            {anyPointed && (
+              <button type="button" aria-pressed={pointedOnly} onClick={() => setPointedOnly((on) => !on)}>
+                {t("inspector.pointed")}
+              </button>
+            )}
+            <button type="button" onClick={() => void exportLog()}>
+              {t("inspector.export")}
+            </button>
+            {view === "wire" && (
+              <button
+                type="button"
+                onClick={() => {
+                  wire.clear();
+                  setOpen(undefined);
+                }}
+              >
+                {t("inspector.clear")}
+              </button>
+            )}
+          </div>
+          <ol className="acpmux-inspector-list">
+            {rows.map((row) => (
+              <li key={row.key} className={`acpmux-inspector-row acpmux-inspector-${row.kind}`}>
+                <button
+                  type="button"
+                  aria-expanded={open === row.key}
+                  onClick={() => setOpen((current) => (current === row.key ? undefined : row.key))}
+                >
+                  <time>{clockTime(row.at)}</time>
+                  <span className="acpmux-inspector-dir" aria-label={row.dir}>
+                    {DIR_GLYPH[row.dir] ?? row.dir}
+                  </span>
+                  <span className="acpmux-inspector-kind">{row.kind}</span>
+                  <span className="acpmux-inspector-name">{row.name}</span>
+                  {row.pointed && (
+                    <span
+                      className="acpmux-inspector-pointed"
+                      title={t("inspector.pointedAt", { name: row.pointed.join(", ") })}
+                    >
+                      {row.pointed.join(", ")}
+                    </span>
+                  )}
+                  {row.latencyMs !== undefined && (
+                    <span className="acpmux-inspector-num">
+                      {t("inspector.milliseconds", {
+                        value: row.latencyMs < 10 ? row.latencyMs.toFixed(1) : Math.round(row.latencyMs),
+                      })}
+                    </span>
+                  )}
+                  {row.size !== undefined && (
+                    <span className="acpmux-inspector-num">
+                      {row.size < 1024
+                        ? t("inspector.bytes", { value: row.size })
+                        : t("inspector.kilobytes", { value: (row.size / 1024).toFixed(1) })}
+                    </span>
+                  )}
+                </button>
+                {open === row.key && <pre>{row.body}</pre>}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
     </section>
   );
 }

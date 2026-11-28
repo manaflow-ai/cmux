@@ -23,6 +23,15 @@ here only names it to them or reads it. A hit that is safe for a reason the grep
 reason, keyed by path, a piece of its line holding what the hit found, and which occurrence (1 when left out): it
 approves that one hit, never another on its line or another line with the same piece; an entry nothing matches fails,
 so the list only shrinks.
+
+On a pull request (CMUX_GUARDS_BASE_SHA set) the sweep reads only what the change can move (tests/guard_delta.py):
+the files under scripts/ and .github/ it touched, and every shell file that may source one of them, near or far (a
+git grep for a `source` or `.` line naming a touched file, repeated until it finds no more: a source shell_tree
+follows names its file by a literal path on that line). A sourcing file is looked for under scripts/ and .github/,
+and elsewhere among the files a shell suffix or no suffix marks (sourcers()): a #! shell script elsewhere named
+like x.py, or a source split over lines, is not followed there; the branch's own run, which reads everything,
+still finds what they do. ALLOWED entries and APP_NAMES are checked against those files' hits,
+plus a git grep for an app name none of them hit. A change to RULES scans everything, as does a branch's own run.
 """
 from __future__ import annotations
 
@@ -50,10 +59,15 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 DIRS = ("scripts", ".github")
+# A change to one of these scans everything: the sweep, its parser, and the ALLOWED list in this file
+# (guard_delta.py adds itself).
+RULES = ["tests/test_ci_noclobber_sweep.py", "tests/shell_tree.py", "tests/git_fixture_env.py"]
+# Past this many files to read, the changed-files run is no cheaper: scan everything.
+DELTA_CAP = 1500
 NOCLOBBER = re.compile(r"(?<![\w-])(?:set\s+-[a-zA-Z]*C\b|set\s+-o\s+noclobber)")
 SHARED_TMP = re.compile(r"(?:(?<![\w.])(?:/private)?/tmp|\$\{?TMPDIR(?::-/tmp)?\}?)/[A-Za-z0-9._-]*"
                         r"(?:\$\$|\$\{?[A-Za-z_]\w*\}?|\$\(|\{[A-Za-z_][^}]*\})")
-SKIP_SUFFIXES = (".md", ".json", ".jsonl", ".csv", ".txt", ".html", ".toml", "_test.py", "_test.go", "_test.sh",
+SKIP_SUFFIXES = (".md", ".json", ".jsonl", ".csv", ".tsv", ".txt", ".html", ".toml", "_test.py", "_test.go", "_test.sh",
                  ".test.ts", ".test.mjs", ".test.js", ".spec.ts")
 
 # Name prefixes the app, its daemons or acpmux choose. The app makes these sockets, logs and records; a script here
@@ -99,8 +113,6 @@ ALLOWED = {
     ("scripts/ci/owned_catch_up.sh", 'root="/private/tmp/cmux-ci-$root_number"'):
         "the canonical build root: the compile cache keys on this exact path (canonical-build-root.sh), and on an "
         "owned Mac glaeda-canonical-root holds it for the job",
-    (".github/workflows/seed-derived-data.yml", 'root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"'):
-        "the canonical build root (canonical-build-root.sh), taken through glaeda-canonical-root for the job",
     ("scripts/reload.sh", 'local own="" link="/tmp/cmux-${tag}"'):
         "the tag's DerivedData compatibility link, a name other tools follow (#41021 kept it); read with readlink",
     ("scripts/reload.sh", 'local own="" link="/tmp/cmux-${tag}" root=""'):
@@ -129,10 +141,17 @@ ALLOWED = {
         "made by os.makedirs after the rmtree: mkdir fails on any entry another account left there",
     ("scripts/cmux-next/rust-live.py", 'path = f"/tmp/rust-live-{os.getuid()}"'):
         "control_dir refuses it unless it is a real 700 folder this user owns",
-    ("scripts/journeys/ext_marker.py", 'path = f"/tmp/jr-m-{j.nonce}-{os.urandom(4).hex()}"'):
-        "made with O_CREAT|O_EXCL, which fails on any entry already there",
     ("scripts/irx-soak.py", "/tmp/cmux-irx-journal-mac-{args.tag}.jsonl"):
         "read only: the journal of the tagged app the runner launched; nothing is written there",
+    ("scripts/cmux-next/own-machine-parity.ts", 'mktemp -d "\\${TMPDIR:-/tmp}/owp-${run}-XXXXXX"'):
+        "a mktemp -d template in the command string bsh runs on machine B: mktemp makes it there, and the line after "
+        "checks it printed a path",
+    ("scripts/cmux-next/vm-hassle.ts", "const stage = `/tmp/vm-hassle-${ctx.tag}-${id}`;"):
+        "a path in the Cloud machine the run made, a single-account VM of its own, written through its fs/write API; "
+        "the name also carries a randomUUID request id",
+    ("scripts/measure/cu-driver-eval/cueval-guest.sh", 'sock="${TMPDIR:-/tmp}/cmux-tui-$(id -u)/cmux-app-nightly.sock"'):
+        "the Nightly daemon's own per-user socket (cmux-tui names and makes that folder), only waited on with -S, "
+        "never made, inside the guest VM the run boots",
     ("scripts/cmux-next/cloud-chaos.ts", "`/tmp/cmux-chaos-seq-${tag}.txt`"):
         "a path in the Cloud machine's terminal the run made, a single-account VM of its own",
     ("scripts/gallery-matrix/runner.ts", "const remoteRoot = `/tmp/${runId}`;"):
@@ -164,6 +183,7 @@ def code(line: str) -> str:
 # word is still scanned, and so is every redirection. A line the parser cannot read exempts nothing and keeps its #s.
 # shell_tree.corpus() is the detector's own check: every unsafe write in it is flagged and no safe template is.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import guard_delta  # noqa: E402
 import shell_tree  # noqa: E402
 # tests/process_gone.py by path, as each other test file loads it: `import process_gone` here made a second module
 # object of that file beside theirs (tests/test_script_module_loads.py names it).
@@ -199,11 +219,94 @@ def skipped(path: str) -> bool:
             or path.endswith(SKIP_SUFFIXES))
 
 
-def hits(root: Path = ROOT) -> list[tuple[str, int, str, str, int]]:
+def grep_names(root: Path, needles: set[str], where: tuple[str, ...] = (), sourced: bool = False) -> set[str]:
+    """The tracked files (under WHERE, or anywhere) whose text holds one of NEEDLES; SOURCED: on a line that runs
+    `source` or `.`."""
+    if not needles:
+        return set()
+    argv = ["git", "-C", str(root), "grep", "-l", "-z", "-I"]
+    if sourced:
+        argv.append("-E")
+        for n in sorted(needles):
+            name = re.sub(r"([][.*+?(){}|^$\\])", r"\\\1", n)  # ERE-quoted
+            argv += ["-e", r"(^|[;&|({[:space:]])(source|\.)[[:space:]].*" + name]
+    else:
+        argv.append("-F")
+        for n in sorted(needles):
+            argv += ["-e", n]
+    p = subprocess.run([*argv, "--", *where], capture_output=True)
+    if p.returncode not in (0, 1):
+        raise RuntimeError(p.stderr.decode(errors="replace"))
+    return {r for r in p.stdout.decode(errors="surrogateescape").split("\0") if r}
+
+
+SHELL_SUFFIXES_WHOLE = shell_tree.SHELL_SUFFIXES
+
+
+def in_dirs(path: str) -> bool:
+    return any(path == d or path.startswith(d + "/") for d in DIRS)
+
+
+def sources_files(root: Path, path: str) -> bool:
+    """Whether scan_file follows PATH's sources: a whole shell file (by suffix or #!), never a YAML run: block."""
+    if path.endswith(SHELL_SUFFIXES_WHOLE):
+        return True
+    try:
+        with open(root / path, "rb") as f:
+            head = f.read(512).decode(errors="replace")
+    except OSError:
+        return False
+    return head.startswith("#!") and shell_tree.shebang(head) in ("shell", "unresolved")
+
+
+def sourcers(root: Path) -> tuple[str, ...]:
+    """Pathspecs for the files that may source another: under DIRS, by a shell suffix, or with no suffix."""
+    p = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True)
+    bare = [rel for rel in p.stdout.decode(errors="surrogateescape").split("\0")
+            if rel and not in_dirs(rel) and "." not in rel.rsplit("/", 1)[-1].lstrip(".")]
+    return (*DIRS, *(f"*{s}" for s in SHELL_SUFFIXES_WHOLE), *(f":(literal){r}" for r in bare))
+
+
+def reach(root: Path, paths: list[str]) -> set[str] | None:
+    """The files under DIRS whose hits a change to PATHS can move: the paths, and every shell file that may source
+    one of them, at any depth. None past DELTA_CAP."""
+    seen, todo, where = set(paths), set(paths), None
+    while todo:
+        where = where or sourcers(root)
+        names = {p.rsplit("/", 1)[-1] for p in todo}
+        todo = {p for p in grep_names(root, names, where, sourced=True) - seen if sources_files(root, p)}
+        seen |= todo
+        if len(seen) > DELTA_CAP:
+            return None
+    return {p for p in seen if in_dirs(p)}
+
+
+def scope(root: Path = ROOT) -> tuple[set[str] | None, str | None]:
+    """(the files a pull request's sweep reads, its base), or (None, None) to read them all."""
+    base = guard_delta.base_commit(root)
+    paths = guard_delta.changed(RULES, root, base) if base else None
+    if paths is None:
+        return None, None
+    only = reach(root, paths)
+    return (only, base) if only is not None else (None, None)
+
+
+def with_app_names(root: Path, only: set[str], found: list) -> list:
+    """FOUND, plus the hits of the files a git grep names for each app name FOUND does not hit (so a stale one
+    fails only when no file hits it). Only their app-name hits: their other hits are the base's."""
+    missing = {p for p in APP_NAMES if not any(h[3].startswith(p) for h in found)}
+    more = grep_names(root, missing, DIRS) - only
+    return found + ([h for h in hits(root, more) if app_name(h)] if more else [])
+
+
+def hits(root: Path = ROOT, only: set[str] | None = None) -> list[tuple[str, int, str, str, int]]:
     """(path, line number, the line, what was found, its offset in the line): one hit per set -C or guessable name,
-    each with its own text and place, so an allowance approves that hit and no other on its line."""
+    each with its own text and place, so an allowance approves that hit and no other on its line. ONLY: just these
+    files (a pull request's, scope())."""
     files = subprocess.run(["git", "-C", str(root), "ls-files", "--", *DIRS], capture_output=True, text=True,
                            check=True).stdout.splitlines()
+    if only is not None:
+        files = [f for f in files if f in only]
     out = []
     for path in files:
         if skipped(path):
@@ -355,7 +458,13 @@ def oracle_names():
 class NoclobberSweep(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.found = hits()
+        only, base = scope()
+        cls.only = only
+        if only is None:
+            cls.found = hits()
+        else:
+            guard_delta.note("noclobber sweep", base, sorted(only))
+            cls.found = with_app_names(ROOT, only, hits(ROOT, only))
 
     def test_no_noclobber_and_no_guessable_shared_temp_name(self):
         bad = unapproved(self.found)
@@ -365,6 +474,8 @@ class NoclobberSweep(unittest.TestCase):
     def test_every_allowance_is_still_used(self):
         approved = {}
         for entry, why in ALLOWED.items():
+            if self.only is not None and entry[0] not in self.only:
+                continue  # a file the change did not reach: its hits are the base's
             with self.subTest(entry=entry):
                 self.assertGreater(len(why.strip()), 10)
                 hit = approves(entry, self.found)

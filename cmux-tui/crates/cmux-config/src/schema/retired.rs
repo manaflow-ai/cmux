@@ -7,10 +7,16 @@
 //!
 //! An entry with `replaced_by` names the row that took the key's place, and
 //! `values` what the old key's values read as in it (any other reads as the
-//! row's default). While the row is unset its effective value reads the old
-//! key through that table, and every write or reset of the row, and Reset
-//! All, removes the old key, so it never applies behind the row (Swift
-//! `RenamedSettingKeys`, from the same file).
+//! row's default; no `values`: a plain rename, the old key's value reads as
+//! is). One row may replace several keys (`updates.automatic` replaced three
+//! update toggles): while the row is unset its effective value is the first of
+//! them, in the file's order, whose value the table lists, and every write or
+//! reset of the row, and Reset All, removes all of them, so none applies
+//! behind the row (Swift `RenamedSettingKeys`, from the same file).
+//!
+//! The same table rewrites a setup, a profile or a theme file written for an
+//! older cmux ([`crate::migrations`]); `since` and `until` bound the window in
+//! which an old name installs without the author being told to change it.
 
 use std::sync::OnceLock;
 
@@ -27,10 +33,13 @@ struct RetiredFile {
 #[derive(Deserialize)]
 struct RetiredEntry {
     key: String,
+    #[serde(default)]
+    migrated_by_app: bool,
     reason: String,
     replaced_by: Option<String>,
-    #[serde(default)]
-    values: Vec<ValueMap>,
+    values: Option<Vec<ValueMap>>,
+    since: Option<String>,
+    until: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -46,16 +55,56 @@ pub struct Replaced {
     pub old: Vec<String>,
     /// The row's path.
     pub row: Vec<String>,
-    /// What the old key's values read as in the row.
-    pub values: Vec<(Value, Value)>,
+    /// What the old key's values read as in the row; `None` for a plain
+    /// rename, where every value reads as is.
+    pub values: Option<Vec<(Value, Value)>>,
 }
 
 impl Replaced {
     /// The row's value for the old key's `value`; `None` reads as the row's
     /// default.
-    pub fn read(&self, value: &Value) -> Option<&Value> {
-        self.values.iter().find(|(from, _)| from == value).map(|(_, to)| to)
+    pub fn read<'a>(&'a self, value: &'a Value) -> Option<&'a Value> {
+        match &self.values {
+            None => Some(value),
+            Some(values) => values.iter().find(|(from, _)| from == value).map(|(_, to)| to),
+        }
     }
+}
+
+/// One entry of the table, as [`crate::migrations`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Retired {
+    /// The old dotted key.
+    pub key: String,
+    /// Why it went, for a person.
+    pub reason: String,
+    /// The row that took its place (`None`: removed outright).
+    pub replaced_by: Option<String>,
+    /// The app owns a value transform on its settings file. Leave the source for it.
+    pub migrated_by_app: bool,
+    /// When the old name stopped being the setting (`YYYY-MM-DD` or a cmux version).
+    pub since: Option<String>,
+    /// The end of the deprecation window (`YYYY-MM-DD` or a cmux version).
+    pub until: Option<String>,
+}
+
+/// Every entry, in the file's order.
+pub fn retired_entries() -> &'static [Retired] {
+    static TABLE: OnceLock<Vec<Retired>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        parse()
+            .retired
+            .into_iter()
+            .map(|entry| Retired {
+                key: entry.key,
+                migrated_by_app: entry.migrated_by_app,
+                reason: entry.reason,
+                replaced_by: entry.replaced_by,
+                since: entry.since,
+                until: entry.until,
+            })
+            .collect()
+    })
 }
 
 fn parse() -> RetiredFile {
@@ -79,16 +128,51 @@ pub fn replaced_keys() -> &'static [Replaced] {
                 Some(Replaced {
                     old: path(&entry.key),
                     row: path(&entry.replaced_by?),
-                    values: entry.values.into_iter().map(|map| (map.from, map.to)).collect(),
+                    values: entry
+                        .values
+                        .map(|values| values.into_iter().map(|map| (map.from, map.to)).collect()),
                 })
             })
             .collect()
     })
 }
 
-/// The retired key the row at `path` replaced, if any.
-pub fn replaced_by_row(path: &[String]) -> Option<&'static Replaced> {
-    replaced_keys().iter().find(|replaced| replaced.row == path)
+/// The retired keys the row at `path` replaced, in the order they are read.
+pub fn replaced_by_row(path: &[String]) -> impl Iterator<Item = &'static Replaced> + '_ {
+    replaced_keys().iter().filter(move |replaced| replaced.row == path)
+}
+
+/// The dotted names of every retired key a row replaced, so a managed profile or
+/// team policy that still sets one is read (Swift `EffectiveSettings.replacedOldKeys`).
+pub fn replaced_old_keys() -> impl Iterator<Item = String> {
+    replaced_keys().iter().map(|replaced| replaced.old.join("."))
+}
+
+/// `values` (dotted keys, one settings layer) with each row an old key it replaced
+/// answers for set from that old key when the layer leaves the row unset, the first
+/// listed old key winning: a profile forcing `updates.checkAutomatically: false`
+/// forces and locks `updates.automatic: "off"`.
+pub fn aliasing_replaced(
+    values: &std::collections::BTreeMap<String, Value>,
+) -> std::collections::BTreeMap<String, Value> {
+    let mut out = values.clone();
+    for replaced in replaced_keys() {
+        let row = replaced.row.join(".");
+        if out.contains_key(&row) {
+            continue;
+        }
+        if let Some(to) = values.get(&replaced.old.join(".")).and_then(|v| replaced.read(v)) {
+            out.insert(row, to.clone());
+        }
+    }
+    out
+}
+
+/// What the retired keys the row at `path` replaced read as in `root`: the first
+/// of them whose value the table lists, else `None`.
+pub fn replaced_value<'a>(path: &[String], root: &'a Value) -> Option<&'a Value> {
+    replaced_by_row(path)
+        .find_map(|replaced| replaced.read(crate::value::value_at(root, &replaced.old)?))
 }
 
 /// Every retired dotted key and why, in the file's order.

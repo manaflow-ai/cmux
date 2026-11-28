@@ -2,12 +2,11 @@ import CmuxNextBridge
 import CmuxNextDaemon
 
 extension WorkspaceContentController {
-    /// The pane a new page tab (Settings, Channels, any app page) opens in: the focused pane,
-    /// unless it sits in a dock column (an agent chat dock, the docked Home page, cx-ebm.59.5).
-    /// Then the first pane of the first column that is not a dock on its screen, so the page opens
-    /// in the workspace beside the dock, never in it. The focused pane when that screen has only docks.
-    var pageTabPane: PaneController? {
-        guard let focused = focusedPane else { return nil }
+    /// The pane a new page tab (Settings, Channels, Mac Screen, any app page) opens in: the focused pane (or `focused`),
+    /// unless it sits in a dock column (an agent chat dock, the docked Home page, cx-ebm.59.5); then the first pane of
+    /// the first non-dock column on its screen, so the page opens beside the dock, never in it; `focused` if only docks.
+    var pageTabPane: PaneController? { focusedPane.map(pageTabPane(from:)) }
+    func pageTabPane(from focused: PaneController) -> PaneController {
         let handle = focused.pane.handle
         guard let screen = workspace.screens.first(where: { $0.columns.contains { $0.layout.paneIDs.contains(handle) } }),
               screen.columns.contains(where: { $0.dock != nil && $0.layout.paneIDs.contains(handle) }) else { return focused }

@@ -175,14 +175,29 @@ pub(super) fn family_role(from: &SessionMeta, to: &SessionMeta) -> &'static str 
     }
 }
 
-/// What a sub-session waits on the person for, when it does: `question`
-/// (an agent question, with its first prompt) or `permission`. Only the
-/// person allows a permission (`person.rs`), in the app's card or with
-/// `acpmux allow` from their own terminal. An ancestor may answer a question
-/// only when the person turned that on (`subsession_answer.rs`, the row's
-/// `questions`); otherwise the person answers it too.
-pub(super) fn waiting_on(s: &Session) -> Option<(&'static str, Option<String>)> {
-    waiting_cut(s, short_text)
+impl Hub {
+    /// What a session waits on the person for, when it does (the summary's `waitingOn`):
+    /// `question` (an agent question, with its first prompt) or `permission` while one is
+    /// pending; else `secret` or `elevation` (a private card asking a secret's value or the
+    /// password for one command as root) or `mcp_connect` (a card asking to connect an MCP
+    /// server) while that card is open; else, while it is Waiting, the reason it was set Waiting
+    /// with (`Hub::set_waiting`), so a Waiting session always says what it waits for. Only the
+    /// person allows a permission (`person.rs`), in the app's card or with `acpmux allow` from
+    /// their own terminal, and only the person answers a card. An ancestor may answer a question
+    /// only when the person turned that on (`subsession_answer.rs`, the row's `questions`);
+    /// otherwise the person answers it too.
+    pub(super) fn waiting_on(&self, s: &Session) -> Option<(&'static str, Option<String>)> {
+        if let Some(asked) = waiting_cut(s, short_text) {
+            return Some(asked);
+        }
+        let reason = self
+            .secrets
+            .waiting_for(&s.id)
+            .or_else(|| self.mcp_connects.waiting_in(&s.id).then_some(WaitReason::McpConnect))
+            // None exactly while the status is not Waiting: both are written together.
+            .or_else(|| *s.wait_reason.lock().unwrap_or_else(|e| e.into_inner()))?;
+        Some((reason.as_str(), None))
+    }
 }
 
 /// The question prompt [`waiting_on`] reads, masked before its cut
@@ -213,7 +228,7 @@ fn waiting_cut(
 
 /// A sub-session's "currently doing" line for its parent: while it waits on
 /// the person, what for (the summary's `waitingOn`, from [`waiting_on`]);
-/// while a turn runs, its plan step and latest tool (`activity.rs`), else
+/// while a turn runs, its latest tool (`activity.rs`), else
 /// what the turn was asked; else null (its `state` and `lastReply` say the rest).
 pub(super) fn doing(summary: &Value) -> Value {
     let turn = &summary["turn"];
@@ -224,6 +239,15 @@ pub(super) fn doing(summary: &Value) -> Value {
         (Some("question"), None) => {
             return json!("Waiting for the user to answer a question, in the app");
         }
+        (Some("secret"), _) => {
+            return json!("Waiting for the user to enter a secret, in the app");
+        }
+        (Some("elevation"), _) => {
+            return json!("Waiting for the user to approve a command as root, in the app");
+        }
+        (Some("mcp_connect"), _) => {
+            return json!("Waiting for the user to connect an MCP server, in the app");
+        }
         (Some(_), _) => return json!("Waiting for the user to allow a tool, in the app"),
         (None, _) if summary["lane"]["state"] == "input" => {
             return json!("Waiting for the user to answer it");
@@ -233,33 +257,13 @@ pub(super) fn doing(summary: &Value) -> Value {
     if turn.is_null() {
         return Value::Null;
     }
-    let line = super::activity::doing_line(turn["planStep"].as_str(), turn["activity"].as_str())
+    let line = turn["activity"]
+        .as_str()
+        .map(str::to_owned)
         .or_else(|| turn["prompt"].as_str().map(|p| format!("Working on: {}", short_text(p, 120))));
     line.map_or(Value::Null, Value::String)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_child_waiting_on_the_user_says_what_for() {
-        let waiting = |on: &str, prompt: Value| {
-            json!({"lane": {"state": "input"}, "turn": {"prompt": "fix it"},
-                   "waitingOn": on, "waitingPrompt": prompt})
-        };
-        assert_eq!(
-            doing(&waiting("question", json!("Which branch?"))),
-            "Waiting for the user to answer, in the app: Which branch?"
-        );
-        assert_eq!(
-            doing(&waiting("permission", Value::Null)),
-            "Waiting for the user to allow a tool, in the app"
-        );
-        let input = json!({"lane": {"state": "input"}, "turn": {"prompt": "fix it"}});
-        assert_eq!(doing(&input), "Waiting for the user to answer it");
-        let working = json!({"lane": {"state": "working"}, "turn": {"activity": "Run cargo test"}});
-        assert_eq!(doing(&working), "Run cargo test");
-        assert_eq!(doing(&json!({"lane": {"state": "idle"}, "turn": null})), Value::Null);
-    }
-}
+#[path = "subsession_send_tests.rs"]
+mod tests;

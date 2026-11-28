@@ -75,12 +75,38 @@ WINDOWS_OPTIONAL_NAMES = (
 # them beside GATE_NAMES. A republication of a tree whose completion.json
 # exists keeps that file's names (existing_completion_file), so a tree
 # published before acpmux writes the same immutable bytes and gets no acpmux.
+# cmux-rd, the screen host a joined Linux machine's join line installs from the
+# channel (the shipped build's Linux legs, build_cmux_rd; glibc, so the gnu targets), and its notices ride along
+# the same way: optional, carried when the commit manifest attests them.
 # The workflow reads this list with --list-acpmux-companions.
 ACPMUX_NAMES = (
     "cmux-tui-acpmux-x86_64-unknown-linux-musl",
     "cmux-tui-acpmux-aarch64-unknown-linux-musl",
     "cmux-tui-acpmux-aarch64-apple-darwin",
     "cmux-tui-acpmux-x86_64-apple-darwin",
+    "cmux-tui-rd-x86_64-unknown-linux-gnu",
+    "cmux-tui-rd-aarch64-unknown-linux-gnu",
+    "cmux-tui-rd-notices-x86_64-unknown-linux-gnu.md",
+    "cmux-tui-rd-notices-aarch64-unknown-linux-gnu.md",
+    # The opt-in login prereader, carried only when the commit manifest attests it.
+    "cmux-tui-launch-preread-aarch64-apple-darwin",
+    "cmux-tui-launch-preread-x86_64-apple-darwin",
+)
+# The rest of the signed Linux release file's names (cmuxterm-hq docs/design/linux-signed-packages.md
+# section 2; scripts/ci/cmux-machine-channel.py LINUX_RELEASE_NAMES on LINUX_RELEASE_TARGETS): the hook,
+# the glibc-named copies, the musl agent screen detector (and its glibc-named copy when built). The tree's
+# release.json (tree/<key>/release.json, signed by the run that publishes the tree) names every binary under
+# tree/<key>/, so the tree carries these too: each one the source commit's manifest attests, write-once with
+# its .sha256 like every companion. No completion file lists them (a tree published before them keeps its
+# completion bytes); the signed release.json attests them. The workflow reads this list with
+# --list-release-companions.
+RELEASE_NAMES = tuple(
+    f"{name}-{target}"
+    for target in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
+                   "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+    for name in ("cmux-tui", "cmux-tui-hook", "cmux-tui-acpmux", "cmux-tui-app-host",
+                 "cmux-tui-agent-screen-detection")
+    if f"{name}-{target}" not in COMPANION_NAMES + ACPMUX_NAMES
 )
 REPAIR_POINTER = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 
@@ -276,6 +302,23 @@ def publish_tree(
             f"published completion.json lists {sorted(existing_gate)}, this publication {sorted(gate_names)}"
         )
 
+    # The Linux release file's other names (RELEASE_NAMES): each one the manifest attests, never listed in
+    # a completion file.
+    release_digests: dict[str, str] = {}
+    for name in RELEASE_NAMES:
+        if binaries.get(name) is None:
+            continue
+        expected = _require_sha(binaries.get(name), f"manifest binary {name}")
+        path = assets_dir / name
+        if not path.is_file():
+            raise PublicationError(f"missing companion {name} in {assets_dir}")
+        actual = _sha256(path)
+        if actual != expected:
+            raise PublicationError(
+                f"companion {name} digest {actual} does not match commit manifest {expected}"
+            )
+        release_digests[name] = actual
+
     windows_digests: dict[str, str] = {}
     if (windows_manifest_file is None) != (windows_source_commit is None):
         raise PublicationError("--windows-manifest-file and --windows-source-commit go together")
@@ -355,7 +398,7 @@ def publish_tree(
     with tempfile.TemporaryDirectory(prefix="cmux-tui-tree-") as temporary:
         temporary_dir = Path(temporary)
         uploads: list[tuple[Path, str]] = []
-        for name, digest in {**digests, **windows_digests}.items():
+        for name, digest in {**digests, **release_digests, **windows_digests}.items():
             checksum = temporary_dir / f"{name}.sha256"
             checksum.write_text(f"{digest}  {name}\n")
             uploads += [(assets_dir / name, f"{prefix}/{name}"), (checksum, f"{prefix}/{name}.sha256")]
@@ -400,7 +443,7 @@ def publish_tree(
         write_completion("completion-linux.json", {n: d for n, d in digests.items() if n not in gate_names})
         # Last: the cmux-next gate reads completion.json as "the tree is complete".
         write_completion("completion.json", {n: d for n, d in digests.items() if n in gate_names})
-    return {**digests, **windows_digests}
+    return {**digests, **release_digests, **windows_digests}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -417,6 +460,9 @@ def main(argv: list[str] | None = None) -> int:
     if argv == ["--list-acpmux-companions"]:
         print("\n".join(ACPMUX_NAMES))
         return 0
+    if argv == ["--list-release-companions"]:
+        print("\n".join(RELEASE_NAMES))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list-companions", action="store_true",
                         help="print the companion names, one per line, and exit")
@@ -426,6 +472,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="print the optional Windows companion names, one per line, and exit")
     parser.add_argument("--list-acpmux-companions", action="store_true",
                         help="print the acpmux companion names, one per line, and exit")
+    parser.add_argument("--list-release-companions", action="store_true",
+                        help="print the Linux release file's other names, one per line, and exit")
     parser.add_argument("--key", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--assets-dir", type=Path, required=True)

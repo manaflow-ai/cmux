@@ -54,17 +54,29 @@ export function transcriptRepositoriesFrom(
   while (keep > 0 && previous!.marks[keep - 1]!.index >= start) keep -= 1;
   const marks = keep > 0 ? previous!.marks.slice(0, keep) : [];
   let latest = marks.at(-1)?.repository;
+  let read = 0;
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     if ((row.kind === "user" || row.kind === "assistant") && row.text) {
       const cached = cache.get(row.id);
       const known = cached?.text === row.text ? cached : { text: row.text, repository: mentionedRepository(row.text) };
       if (known !== cached) cache.set(row.id, known);
+      read += 1;
       if (known.repository !== undefined && known.repository !== latest) {
         latest = known.repository;
         marks.push({ index, repository: latest });
       }
     }
+  }
+  // A read from the first row (the chat let go of its oldest rows, another chat, a new fallback) keeps only the rows
+  // it read: the rows that left took their text with them. Kept for the page's life, the cache held every prompt and
+  // reply a chat left open ever streamed (bench/transcript-replay.bench.ts god log: 20,994 entries and 2.3 MB of text
+  // against a 600-turn chat's 1,800 and 0.6 MB; test/repository-cache-held.cost.test.ts). Each row read is in the
+  // cache, so a cache that holds more than the rows read holds rows that left: only then a second pass, O(rows).
+  if (start === 0 && cache.size > read) {
+    const held = new Set<string>();
+    for (const row of rows) if ((row.kind === "user" || row.kind === "assistant") && row.text) held.add(row.id);
+    for (const id of cache.keys()) if (!held.has(id)) cache.delete(id);
   }
   const at = (index: number) => {
     // The last mark at or before `index`.

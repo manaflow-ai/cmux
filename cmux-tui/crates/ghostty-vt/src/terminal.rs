@@ -8,13 +8,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use base64::Engine as _;
 use ghostty_vt_sys as sys;
 
+use crate::formatter_options::{
+    FormatterScreenExtra, FormatterTerminalExtra, FormatterTerminalOptions,
+};
 use crate::kitty::{
     self, KITTY_INFLIGHT_REPLAY_MAX_BYTES, KittyGraphicsSnapshot, KittyImage, KittyImageAlias,
     KittyInFlightTracker, KittyPlacement, KittyPlacementAnchor, KittyReplaySnapshot,
     MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES, MAX_KITTY_PLACEMENTS,
 };
 use crate::mouse::{MouseModeProbe, MouseModeSignature, MouseWireFormat};
-use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
+use crate::render::{
+    Cell, CellWidth, CursorShape, GridCellReader, read_grid_ref_cell, terminal_palette,
+};
 use crate::{Error, Result, check};
 
 pub(crate) mod byte_scan;
@@ -619,6 +624,19 @@ impl Terminal {
     /// Process hosts should publish this returned stream so every frontend
     /// parses the same bytes as the authoritative terminal.
     pub fn vt_write_with_normalized<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+        self.vt_write_forwarding(data, |_| {})
+    }
+
+    /// [`Self::vt_write_with_normalized`] that hands the accepted bytes to
+    /// `forward` before Ghostty parses them: a host can send its viewers the
+    /// exact stream its own parser takes while that parse runs, instead of
+    /// after it (goal terminal-throughput, G3). `forward` is not called for
+    /// empty `data`.
+    pub fn vt_write_forwarding<'a, F: FnMut(&[u8])>(
+        &mut self,
+        data: &'a [u8],
+        mut forward: F,
+    ) -> Cow<'a, [u8]> {
         if data.is_empty() {
             return Cow::Borrowed(data);
         }
@@ -626,6 +644,7 @@ impl Terminal {
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let (normalized, mouse_modes_may_have_changed) = self.prepare_write(data);
+        forward(&normalized);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
@@ -867,16 +886,16 @@ impl Terminal {
         unsafe {
             if let Some(style) = style {
                 let style = match style {
-                    CursorShape::Bar => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR,
-                    CursorShape::Underline => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE,
+                    CursorShape::Bar => sys::GHOSTTY_CURSOR_STYLE_BAR,
+                    CursorShape::Underline => sys::GHOSTTY_CURSOR_STYLE_UNDERLINE,
                     CursorShape::Block | CursorShape::BlockHollow => {
-                        sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK
+                        sys::GHOSTTY_CURSOR_STYLE_BLOCK
                     }
                 };
                 sys::ghostty_terminal_set(
                     self.raw,
                     sys::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE,
-                    &style as *const sys::GhosttyTerminalCursorStyle as *const c_void,
+                    &style as *const sys::GhosttyCursorStyle as *const c_void,
                 );
             }
             if let Some(blink) = blink {
@@ -893,11 +912,9 @@ impl Terminal {
     /// and restores Ghostty's built-in default for that channel.
     pub fn replace_default_cursor(&mut self, style: Option<CursorShape>, blink: Option<bool>) {
         let style = style.map(|style| match style {
-            CursorShape::Bar => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR,
-            CursorShape::Underline => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE,
-            CursorShape::Block | CursorShape::BlockHollow => {
-                sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK
-            }
+            CursorShape::Bar => sys::GHOSTTY_CURSOR_STYLE_BAR,
+            CursorShape::Underline => sys::GHOSTTY_CURSOR_STYLE_UNDERLINE,
+            CursorShape::Block | CursorShape::BlockHollow => sys::GHOSTTY_CURSOR_STYLE_BLOCK,
         });
         unsafe {
             sys::ghostty_terminal_set(
@@ -905,7 +922,7 @@ impl Terminal {
                 sys::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE,
                 style
                     .as_ref()
-                    .map(|style| style as *const sys::GhosttyTerminalCursorStyle as *const c_void)
+                    .map(|style| style as *const sys::GhosttyCursorStyle as *const c_void)
                     .unwrap_or(ptr::null()),
             );
             sys::ghostty_terminal_set(
@@ -935,12 +952,12 @@ impl Terminal {
     /// Effective cursor visual for the active screen, including DECSCUSR,
     /// alternate-screen state, DEC mode 12, and embedder defaults.
     pub fn effective_cursor_visual(&self) -> Result<(CursorShape, bool)> {
-        let shape = match self.get::<sys::GhosttyTerminalCursorStyle>(
-            sys::GHOSTTY_TERMINAL_DATA_CURSOR_VISUAL_STYLE,
-        )? {
-            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR => CursorShape::Bar,
-            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE => CursorShape::Underline,
-            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
+        let shape = match self
+            .get::<sys::GhosttyCursorStyle>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_VISUAL_STYLE)?
+        {
+            sys::GHOSTTY_CURSOR_STYLE_BAR => CursorShape::Bar,
+            sys::GHOSTTY_CURSOR_STYLE_UNDERLINE => CursorShape::Underline,
+            sys::GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
             _ => CursorShape::Block,
         };
         let blinking: bool = self.get(sys::GHOSTTY_TERMINAL_DATA_CURSOR_BLINKING)?;
@@ -1565,6 +1582,25 @@ impl Terminal {
     /// empty page. This uses Ghostty's read-only history-coordinate grid refs;
     /// it never scrolls the shared viewport or updates a render state.
     pub fn styled_history_rows(&self, start: u32, count: u16) -> Result<Vec<Vec<Cell>>> {
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
+        let mut reader = GridCellReader::new(&palette);
+        self.styled_history_rows_with(start, count, |grid_ref| reader.read(grid_ref))
+    }
+
+    /// [`Self::styled_history_rows`] as it was before page runs and the
+    /// batched reader: two history lookups a row, then the per-cell read,
+    /// field by field. The oracle (and the bench's "before") the fast path is
+    /// held to.
+    #[cfg(test)]
+    #[allow(
+        clippy::arithmetic_side_effects,
+        reason = "test-only oracle: the old loop kept verbatim; end > start and cols > 0 are checked before each subtraction"
+    )]
+    pub(crate) fn styled_history_rows_per_cell(
+        &self,
+        start: u32,
+        count: u16,
+    ) -> Result<Vec<Vec<Cell>>> {
         let total = self.history_rows();
         if count == 0 || start >= total {
             return Ok(Vec::new());
@@ -1578,23 +1614,128 @@ impl Terminal {
 
         for y in start..end {
             let mut row = Vec::with_capacity(cols as usize);
+            let first = if cols == 0 { None } else { Some(self.history_grid_ref(0, y)?) };
+            let whole_row = first.filter(|first| {
+                cols == 1
+                    || self.history_grid_ref(cols - 1, y).is_ok_and(|last| {
+                        last.node == first.node && last.y == first.y && last.x == cols - 1
+                    })
+            });
             for x in 0..cols {
-                let point = sys::GhosttyPoint {
-                    tag: sys::GHOSTTY_POINT_TAG_HISTORY,
-                    value: sys::GhosttyPointValue {
-                        coordinate: sys::GhosttyPointCoordinate { x, y },
-                    },
+                let grid_ref = match whole_row {
+                    Some(first) => sys::GhosttyGridRef { x, ..first },
+                    None => self.history_grid_ref(x, y)?,
                 };
-                let mut grid_ref = sys::GhosttyGridRef {
-                    size: size_of::<sys::GhosttyGridRef>(),
-                    ..Default::default()
-                };
-                check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
                 row.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf)?);
             }
             rows.push(row);
         }
         Ok(rows)
+    }
+
+    fn styled_history_rows_with(
+        &self,
+        start: u32,
+        count: u16,
+        mut read: impl FnMut(&sys::GhosttyGridRef) -> Result<Cell>,
+    ) -> Result<Vec<Vec<Cell>>> {
+        let total = self.history_rows();
+        if count == 0 || start >= total {
+            return Ok(Vec::new());
+        }
+
+        let end = start.saturating_add(u32::from(count)).min(total);
+        let cols = self.cols();
+        let mut rows = Vec::with_capacity(end.saturating_sub(start) as usize);
+        if cols == 0 {
+            rows.resize_with(end.saturating_sub(start) as usize, Vec::new);
+            return Ok(rows);
+        }
+
+        for run in self.history_row_runs(start, end)? {
+            // Every row of a run is on one page, and a page's rows are all
+            // as wide as the page, so the run's first row tells whether each
+            // column is on its row. A page narrower than the terminal (a
+            // reflow not done yet) takes the checked lookup for each cell, as
+            // before.
+            let whole_rows = cols == 1
+                || self.history_grid_ref(cols.saturating_sub(1), run.start).is_ok_and(|last| {
+                    last.node == run.first.node
+                        && last.y == run.first.y
+                        && last.x == cols.saturating_sub(1)
+                });
+            for offset in 0..run.len {
+                let y = run.start.saturating_add(u32::from(offset));
+                let first =
+                    sys::GhosttyGridRef { y: run.first.y.saturating_add(offset), ..run.first };
+                let mut row = Vec::with_capacity(usize::from(cols));
+                for x in 0..cols {
+                    let grid_ref = if whole_rows {
+                        sys::GhosttyGridRef { x, ..first }
+                    } else {
+                        self.history_grid_ref(x, y)?
+                    };
+                    row.push(read(&grid_ref)?);
+                }
+                rows.push(row);
+            }
+        }
+        Ok(rows)
+    }
+
+    /// History rows `start..end` as runs of consecutive rows on one page.
+    ///
+    /// A history lookup walks the page list from the top of the history, so
+    /// a lookup per row made a page of a long history cost a walk per row.
+    /// The rows of one page node are consecutive, in order, so when rows
+    /// `lo` and `hi` resolve to the same node `hi - lo` rows apart, every
+    /// row between them is on that node too, at its offset. The range is
+    /// bisected until each piece passes that check: a page of rows costs
+    /// O(pages x log rows) lookups, not one per row.
+    fn history_row_runs(&self, start: u32, end: u32) -> Result<Vec<HistoryRowRun>> {
+        let mut runs = Vec::new();
+        let Some(last) = end.checked_sub(1).filter(|last| *last >= start) else {
+            return Ok(runs);
+        };
+        // Pieces still to place, newest first so `pop` takes the oldest:
+        // (lo, hi, ref of lo, ref of hi). A piece places rows lo..hi (hi
+        // excluded: it is the next piece's lo); the last row goes on after.
+        let last_ref = self.history_grid_ref(0, last)?;
+        let mut pending = Vec::new();
+        if last > start {
+            pending.push((start, last, self.history_grid_ref(0, start)?, last_ref));
+        }
+        while let Some((lo, hi, lo_ref, hi_ref)) = pending.pop() {
+            let span = hi.saturating_sub(lo);
+            let one_page = lo_ref.node == hi_ref.node
+                && hi_ref.y >= lo_ref.y
+                && u32::from(hi_ref.y.saturating_sub(lo_ref.y)) == span;
+            if one_page || span <= 1 {
+                // A one-page span is a difference of two u16 page rows.
+                push_history_run(&mut runs, lo, lo_ref, u16::try_from(span).unwrap_or(u16::MAX));
+            } else {
+                let mid = lo.saturating_add(span / 2);
+                let mid_ref = self.history_grid_ref(0, mid)?;
+                pending.push((mid, hi, mid_ref, hi_ref));
+                pending.push((lo, mid, lo_ref, mid_ref));
+            }
+        }
+        push_history_run(&mut runs, last, last_ref, 1);
+        Ok(runs)
+    }
+
+    /// The grid ref of history cell (`x`, `y`), `y` from the oldest
+    /// retained row.
+    fn history_grid_ref(&self, x: u16, y: u32) -> Result<sys::GhosttyGridRef> {
+        let point = sys::GhosttyPoint {
+            tag: sys::GHOSTTY_POINT_TAG_HISTORY,
+            value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
+        };
+        let mut grid_ref = sys::GhosttyGridRef::default();
+        #[cfg(test)]
+        HISTORY_GRID_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
+        check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
+        Ok(grid_ref)
     }
 
     /// Terminal title as set by OSC 0/2, if any.
@@ -1655,18 +1796,19 @@ impl Terminal {
 
     pub fn scroll_delta(&mut self, delta: isize) {
         let behavior = sys::GhosttyTerminalScrollViewport {
-            tag: sys::GHOSTTY_SCROLL_VIEWPORT_DELTA,
+            tag: sys::GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA,
             value: sys::GhosttyTerminalScrollViewportValue { delta },
         };
-        unsafe { sys::ghostty_terminal_scroll_viewport(self.raw, behavior) }
+        // GHOSTTY_INVALID_VALUE only for an unknown tag; these are known.
+        let _ = unsafe { sys::ghostty_terminal_scroll_viewport(self.raw, behavior) };
     }
 
     pub fn scroll_to_bottom(&mut self) {
         let behavior = sys::GhosttyTerminalScrollViewport {
-            tag: sys::GHOSTTY_SCROLL_VIEWPORT_BOTTOM,
+            tag: sys::GHOSTTY_TERMINAL_SCROLL_VIEWPORT_BOTTOM,
             value: sys::GhosttyTerminalScrollViewportValue { delta: 0 },
         };
-        unsafe { sys::ghostty_terminal_scroll_viewport(self.raw, behavior) }
+        let _ = unsafe { sys::ghostty_terminal_scroll_viewport(self.raw, behavior) };
     }
 
     /// Scrollbar geometry for the current viewport. The engine notes this
@@ -1773,10 +1915,7 @@ impl Terminal {
             boundary_codepoints: ptr::null(),
             boundary_codepoints_len: 0,
         };
-        let mut selection = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
-            ..Default::default()
-        };
+        let mut selection = sys::GhosttySelection { ..Default::default() };
         let result =
             unsafe { sys::ghostty_terminal_select_word(self.raw, &options, &mut selection) };
         if result == sys::GHOSTTY_NO_VALUE {
@@ -1807,10 +1946,7 @@ impl Terminal {
             boundary_codepoints: ptr::null(),
             boundary_codepoints_len: 0,
         };
-        let mut selection = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
-            ..Default::default()
-        };
+        let mut selection = sys::GhosttySelection { ..Default::default() };
         let result = unsafe {
             sys::ghostty_terminal_select_word_between(self.raw, &options, &mut selection)
         };
@@ -1865,10 +2001,7 @@ impl Terminal {
             whitespace_len,
             semantic_prompt_boundary: true,
         };
-        let mut selection = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
-            ..Default::default()
-        };
+        let mut selection = sys::GhosttySelection { ..Default::default() };
         let result =
             unsafe { sys::ghostty_terminal_select_line(self.raw, &options, &mut selection) };
         if result == sys::GHOSTTY_NO_VALUE {
@@ -1968,20 +2101,15 @@ impl Terminal {
         trim: bool,
     ) -> Option<String> {
         let selection = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
             start: self.grid_ref(tag, start.0, start.1)?,
             end: self.grid_ref(tag, end.0, end.1)?,
             rectangle: false,
         };
-        let opts = sys::GhosttyFormatterTerminalOptions {
-            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+        let opts = FormatterTerminalOptions {
             emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
             unwrap: unwrap_lines,
             trim,
-            extra: sys::GhosttyFormatterTerminalExtra {
-                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
-                ..Default::default()
-            },
+            extra: FormatterTerminalExtra { ..Default::default() },
             selection: &selection,
         };
         let bytes = self.format(opts).ok()?;
@@ -1991,15 +2119,11 @@ impl Terminal {
     /// Plain-text dump of the active screen's full page list, INCLUDING
     /// scrollback. For the rendered viewport only, use [`Self::viewport_text`].
     pub fn plain_text(&mut self) -> Result<String> {
-        let opts = sys::GhosttyFormatterTerminalOptions {
-            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+        let opts = FormatterTerminalOptions {
             emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
             unwrap: false,
             trim: true,
-            extra: sys::GhosttyFormatterTerminalExtra {
-                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
-                ..Default::default()
-            },
+            extra: FormatterTerminalExtra { ..Default::default() },
             selection: ptr::null(),
         };
         Ok(String::from_utf8_lossy(&self.format(opts)?).into_owned())
@@ -2009,15 +2133,11 @@ impl Terminal {
     /// `None` means the formatter would exceed `max_bytes`; it never builds
     /// an unbounded output buffer first.
     pub fn plain_text_bounded(&mut self, max_bytes: usize) -> Result<Option<String>> {
-        let opts = sys::GhosttyFormatterTerminalOptions {
-            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+        let opts = FormatterTerminalOptions {
             emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
             unwrap: false,
             trim: true,
-            extra: sys::GhosttyFormatterTerminalExtra {
-                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
-                ..Default::default()
-            },
+            extra: FormatterTerminalExtra { ..Default::default() },
             selection: ptr::null(),
         };
         Ok(self
@@ -2460,7 +2580,6 @@ impl Terminal {
             return Err(Error::InvalidValue);
         }
         Ok(sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
             start: self
                 .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, start_row)
                 .ok_or(Error::InvalidValue)?,
@@ -2502,28 +2621,24 @@ impl Terminal {
             x
         };
         let selection = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
             start: self
                 .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, start_x, u64::from(y))
                 .ok_or(Error::InvalidValue)?,
             end: cursor_ref,
             rectangle: false,
         };
-        let opts = sys::GhosttyFormatterTerminalOptions {
-            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+        let opts = FormatterTerminalOptions {
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
             unwrap: false,
             trim: false,
-            extra: sys::GhosttyFormatterTerminalExtra {
-                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+            extra: FormatterTerminalExtra {
                 palette: false,
                 modes: false,
                 scrolling_region: false,
                 tabstops: false,
                 pwd: false,
                 keyboard: false,
-                screen: sys::GhosttyFormatterScreenExtra {
-                    size: size_of::<sys::GhosttyFormatterScreenExtra>(),
+                screen: FormatterScreenExtra {
                     cursor: false,
                     style: true,
                     hyperlink: true,
@@ -2546,7 +2661,7 @@ impl Terminal {
         last: bool,
         include_palette: bool,
         unwrap_soft_wrap: bool,
-    ) -> sys::GhosttyFormatterTerminalOptions {
+    ) -> FormatterTerminalOptions {
         let mut options =
             Self::vt_replay_options(Some(selection), include_palette, unwrap_soft_wrap);
         options.extra.palette = include_palette && first;
@@ -2568,22 +2683,19 @@ impl Terminal {
         selection: Option<&sys::GhosttySelection>,
         include_palette: bool,
         unwrap_soft_wrap: bool,
-    ) -> sys::GhosttyFormatterTerminalOptions {
-        sys::GhosttyFormatterTerminalOptions {
-            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+    ) -> FormatterTerminalOptions {
+        FormatterTerminalOptions {
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
             unwrap: unwrap_soft_wrap,
             trim: false,
-            extra: sys::GhosttyFormatterTerminalExtra {
-                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+            extra: FormatterTerminalExtra {
                 palette: include_palette,
                 modes: true,
                 scrolling_region: true,
                 tabstops: true,
                 pwd: true,
                 keyboard: true,
-                screen: sys::GhosttyFormatterScreenExtra {
-                    size: size_of::<sys::GhosttyFormatterScreenExtra>(),
+                screen: FormatterScreenExtra {
                     cursor: true,
                     style: true,
                     hyperlink: true,
@@ -2610,17 +2722,15 @@ impl Terminal {
             tag,
             value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
         };
-        let mut out =
-            sys::GhosttyGridRef { size: size_of::<sys::GhosttyGridRef>(), ..Default::default() };
+        let mut out = sys::GhosttyGridRef::default();
+        #[cfg(test)]
+        GRID_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
         let result = unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut out) };
         (result == sys::GHOSTTY_SUCCESS).then_some(out)
     }
 
-    fn format(&mut self, opts: sys::GhosttyFormatterTerminalOptions) -> Result<Vec<u8>> {
-        let mut formatter: sys::GhosttyFormatter = ptr::null_mut();
-        check(unsafe {
-            sys::ghostty_formatter_terminal_new(ptr::null(), &mut formatter, self.raw, opts)
-        })?;
+    fn format(&mut self, opts: FormatterTerminalOptions) -> Result<Vec<u8>> {
+        let formatter = opts.new_formatter(self.raw)?;
         let result = (|| {
             let mut needed: usize = 0;
             let query = unsafe {
@@ -2648,13 +2758,10 @@ impl Terminal {
 
     fn format_bounded(
         &mut self,
-        opts: sys::GhosttyFormatterTerminalOptions,
+        opts: FormatterTerminalOptions,
         max_bytes: usize,
     ) -> Result<Option<Vec<u8>>> {
-        let mut formatter: sys::GhosttyFormatter = ptr::null_mut();
-        check(unsafe {
-            sys::ghostty_formatter_terminal_new(ptr::null(), &mut formatter, self.raw, opts)
-        })?;
+        let formatter = opts.new_formatter(self.raw)?;
         let result = (|| {
             let mut needed: usize = 0;
             let query = unsafe {
@@ -3290,13 +3397,51 @@ impl Drop for Terminal {
     }
 }
 
+/// Appends `len` rows from history row `start` (page ref `first`) to
+/// `runs`, extending the last run when they continue it on the same page.
+fn push_history_run(
+    runs: &mut Vec<HistoryRowRun>,
+    start: u32,
+    first: sys::GhosttyGridRef,
+    len: u16,
+) {
+    if len == 0 {
+        return;
+    }
+    if let Some(run) = runs.last_mut()
+        && run.first.node == first.node
+        && run.start.saturating_add(u32::from(run.len)) == start
+        && run.first.y.checked_add(run.len) == Some(first.y)
+    {
+        run.len = run.len.saturating_add(len);
+        return;
+    }
+    runs.push(HistoryRowRun { start, first, len });
+}
+
+/// Consecutive history rows on one page: row `start` is `first` (column
+/// 0), and row `start + i` is the same page's row `first.y + i`.
+struct HistoryRowRun {
+    start: u32,
+    first: sys::GhosttyGridRef,
+    len: u16,
+}
+
 #[cfg(test)]
 thread_local! {
     /// Tests: text layouts (formatter passes) since the thread started.
     static REPLAY_TEXT_LAYOUTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Tests: lay the text out twice, as before the reuse.
     static FORCE_TWO_PASS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: history grid lookups `styled_history_rows` made.
+    static HISTORY_GRID_LOOKUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Tests: grid lookups (`grid_ref`, each a page-list walk) since the thread started.
+    pub(crate) static GRID_LOOKUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
+
+#[cfg(test)]
+#[path = "styled_history_tests.rs"]
+mod styled_history_tests;
 
 #[cfg(test)]
 #[path = "replay_layout_tests.rs"]

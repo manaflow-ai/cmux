@@ -76,6 +76,10 @@ pub(super) fn put_frontend_projection(
         expected_projection_revision,
         &projection,
     )?;
+    // The launch snapshot carries every native projection (all but `resource-api`).
+    if frontend != "resource-api" {
+        mux.launch_snapshot_projection_writer(client);
+    }
     let mut value = serde_json::to_value(commit.projection)?;
     value.insert("replayed", json!(commit.replayed));
     Ok(value)
@@ -138,6 +142,37 @@ pub(super) fn notify(
     Ok(json!({ "notification": notification }))
 }
 
+/// The app's report of what it did with notification `notification`'s banner:
+/// `desktop` is `shown` or `suppressed`, `reason` one of [`crate::mux::DELIVERY_REASONS`].
+pub(super) fn record_notification_delivery(
+    mux: &Arc<Mux>,
+    notification: u64,
+    desktop: String,
+    reason: Option<String>,
+) -> anyhow::Result<Value> {
+    let outcome = crate::mux::NotificationDesktopOutcome::parse(&desktop)
+        .ok_or_else(|| anyhow::anyhow!("bad desktop {desktop}: shown or suppressed"))?;
+    let reason = match reason.as_deref() {
+        None => None,
+        Some(reason) => Some(
+            crate::mux::DELIVERY_REASONS
+                .iter()
+                .copied()
+                .find(|known| *known == reason)
+                .ok_or_else(|| anyhow::anyhow!("bad reason {reason}"))?,
+        ),
+    };
+    let id = mux.record_notification_delivery(
+        notification,
+        outcome,
+        reason,
+        crate::safe_mode_flag::now_ms(),
+    )?;
+    Ok(
+        json!({ "id": id, "notification": notification, "desktop": outcome.as_str(), "reason": reason }),
+    )
+}
+
 pub(super) fn list_agents(
     mux: &Arc<Mux>,
     surface: Option<SurfaceId>,
@@ -177,14 +212,20 @@ pub(super) fn report_agent(
     }))
 }
 
-pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow::Result<Value> {
+pub(super) fn list_notifications(
+    mux: &Arc<Mux>,
+    limit: Option<usize>,
+    stats: bool,
+) -> anyhow::Result<Value> {
     let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
-    Ok(json!({
+    let mut listed = json!({
         "notifications": rows
             .iter()
             .map(|(row, acknowledged)| {
                 let post = mux.notification_post(&row.id);
                 let poster = post.as_ref().and_then(|post| post.poster.as_ref());
+                // What the row's agent said, while this daemon keeps it (memory only).
+                let texts = mux.agent_feed_texts(row.id.as_str());
                 json!({
                     "id": row.id,
                     "notification": post.as_ref().map(|post| post.notification),
@@ -206,10 +247,29 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
                         .as_ref()
                         .and_then(|terminal| mux.pending_agent_question(terminal, row.id.as_str()))
                         .as_deref(),
+                    // The approval the row's agent still waits on (memory only).
+                    "approval": row
+                        .terminal_id
+                        .as_ref()
+                        .and_then(|terminal| mux.pending_agent_approval(terminal, row.id.as_str()))
+                        .as_deref(),
+                    "message": texts.as_ref().and_then(|texts| texts.message.as_deref()),
+                    "prompt": texts.as_ref().and_then(|texts| texts.prompt.as_deref()),
+                    "detail": texts.as_ref().map(|texts| &*texts.detail),
+                    // What the app did with the banner, once it reports (memory only).
+                    "delivery": post.as_ref().and_then(|post| post.delivery.as_ref()).map(|delivery| json!({
+                        "desktop": delivery.desktop.as_str(),
+                        "reason": delivery.reason,
+                        "at_ms": delivery.at_ms,
+                    })),
                 })
             })
             .collect::<Vec<_>>(),
-    }))
+    });
+    if stats && let Some(fields) = listed.as_object_mut() {
+        fields.insert("agent_notice_stats".to_owned(), mux.agent_notice_stats()?);
+    }
+    Ok(listed)
 }
 
 /// One `list-agents` row. `state` is the roster state (`done` there is an
@@ -219,6 +279,7 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
 fn agent_json(record: &AgentRecord, status: Option<crate::AgentStatus>) -> Value {
     json!({
         "surface": record.surface,
+        "terminal_id": record.terminal_id.as_str(),
         "state": record.state.as_str(),
         "status": status.map(crate::AgentStatus::as_str),
         "source": record.source.as_str(),

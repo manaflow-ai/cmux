@@ -1,6 +1,6 @@
 use cmux_rd_proto::{
     Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, FrameBody, HEADER_LEN,
-    INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, Nack, REF_NONE, flags,
+    INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, MAX_ARRIVALS, Nack, REF_NONE, flags,
 };
 use proptest::prelude::*;
 
@@ -59,10 +59,40 @@ fn header_rejects_bad_input() {
 
 #[test]
 fn frame_body_ignores_padding() {
-    let body =
-        FrameBody { t_capture_us: 42, ref_frame: REF_NONE, access_unit: vec![0, 0, 0, 1, 0x65] };
+    let body = FrameBody {
+        t_capture_us: 42,
+        ref_frame: REF_NONE,
+        ltr_token: None,
+        access_unit: vec![0, 0, 0, 1, 0x65],
+    };
     let mut bytes = body.encode();
     bytes.resize(bytes.len() + 100, 0);
+    assert_eq!(FrameBody::decode(&bytes).expect("decode"), body);
+}
+
+#[test]
+fn a_tokenless_frame_whose_access_unit_starts_with_a_short_nal_keeps_every_byte() {
+    // A 4-byte PPS then a slice: bytes 8..12 of the access unit are a start code, which
+    // the old decoder took for a token's end and so stripped the PPS. With LTR off.
+    let access_unit = vec![0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80, 0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00];
+    let body = FrameBody { t_capture_us: 7, ref_frame: 3, ltr_token: None, access_unit };
+    let mut bytes = body.encode();
+    assert_eq!(bytes.len(), cmux_rd_proto::FRAME_PREFIX_LEN + 16, "version-1 layout");
+    bytes.resize(bytes.len() + 64, 0);
+    assert_eq!(FrameBody::decode(&bytes).expect("decode"), body);
+}
+
+#[test]
+fn a_frame_with_an_ltr_token_round_trips_padded() {
+    let body = FrameBody {
+        t_capture_us: 9,
+        ref_frame: 2,
+        ltr_token: Some(0x0102_0304_0506_0708),
+        access_unit: vec![0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80, 0, 0, 0, 1, 0x41, 0x9a],
+    };
+    let mut bytes = body.encode();
+    assert_eq!(bytes.len(), body.encoded_len());
+    bytes.resize(bytes.len() + 64, 0);
     assert_eq!(FrameBody::decode(&bytes).expect("decode"), body);
 }
 
@@ -121,13 +151,15 @@ proptest! {
         acked in any::<u32>(),
         decode_us in any::<u32>(),
         need in any::<bool>(),
-        arrivals in proptest::collection::vec((any::<u16>(), any::<u32>()), 0..50),
+        arrivals in proptest::collection::vec((any::<u16>(), any::<u32>()), 0..=MAX_ARRIVALS),
+        tokens in proptest::collection::vec(any::<u64>(), 0..=16),
         nacks in proptest::collection::vec((any::<u32>(), proptest::collection::vec(any::<u16>(), 0..10)), 0..4),
     ) {
         let feedback = Feedback {
             acked_frame: acked,
             decode_us,
             need_recovery: need,
+            acked_ltr_tokens: tokens,
             arrivals: arrivals.into_iter().map(|(transport_seq, arrival_us)| Arrival { transport_seq, arrival_us }).collect(),
             nacks: nacks.into_iter().map(|(frame, indexes)| Nack { frame, indexes }).collect(),
         };
@@ -141,6 +173,22 @@ proptest! {
         let _ = Feedback::decode(&bytes);
         let _ = FrameBody::decode(&bytes);
     }
+}
+
+#[test]
+fn feedback_with_128_arrivals_keeps_its_version_1_layout_and_round_trips_with_ltr_tokens() {
+    // 128 arrivals encode their count as 0x80 0x00. A decoder that read a high-bit first byte
+    // as an LTR marker lost every arrival of a full chunk (cmux#44354).
+    let arrivals: Vec<Arrival> = (0..MAX_ARRIVALS as u16)
+        .map(|seq| Arrival { transport_seq: seq, arrival_us: u32::from(seq) * 10 })
+        .collect();
+    let legacy = Feedback { acked_frame: 7, arrivals, ..Feedback::default() };
+    let bytes = legacy.encode();
+    assert_eq!(&bytes[9..11], &[0x80, 0x00], "the arrival count stays where version 1 put it");
+    assert_eq!(Feedback::decode(&bytes).expect("decode"), legacy);
+
+    let with_tokens = Feedback { acked_ltr_tokens: vec![1, u64::MAX], ..legacy };
+    assert_eq!(Feedback::decode(&with_tokens.encode()).expect("decode"), with_tokens);
 }
 
 #[test]
@@ -159,7 +207,12 @@ fn large_frames_without_parity_are_accepted_and_large_fec_blocks_refused() {
         .encode()
     };
     assert!(DatagramHeader::decode(&header(300, 0, 299, DatagramKind::Video)).is_ok());
-    assert!(DatagramHeader::decode(&header(300, 1, 300, DatagramKind::Fec)).is_err());
+    // Parity past one block is split across interleaved blocks (`fec_blocks`): valid while
+    // every block fits 255 shards and there is no more parity than data.
+    assert!(DatagramHeader::decode(&header(300, 1, 300, DatagramKind::Fec)).is_ok());
+    assert!(DatagramHeader::decode(&header(300, 30, 329, DatagramKind::Fec)).is_ok());
+    assert!(DatagramHeader::decode(&header(300, 301, 300, DatagramKind::Fec)).is_err());
+    assert!(DatagramHeader::decode(&header(300, 30, 330, DatagramKind::Fec)).is_err());
     assert!(DatagramHeader::decode(&header(254, 1, 254, DatagramKind::Fec)).is_ok());
     assert!(DatagramHeader::decode(&header(4097, 0, 0, DatagramKind::Video)).is_err());
 }

@@ -1,9 +1,11 @@
 //! Bare first strokes (no cmd, ctrl or opt: `g g`, `] f`) in keybindings.json
 //! (K1, plans/cmux-next/customization.md). Only pages that own bare keys (the
-//! diff viewer, a read-only markdown page) take them; everywhere else a bare
-//! key is typing. An entry whose first stroke is bare binds only when its
-//! `when` requires one of [`OWNER_KEYS`] as an `&&` term and none of
-//! [`TEXT_KEYS`]; a top-level `||` proves nothing, so it is refused. The app's
+//! diff viewer, a read-only markdown page) and a user key mode the person
+//! entered (`keyMode.enter`, design/key-modes.md) take them; everywhere else a
+//! bare key is typing. An entry whose first stroke is bare binds only when its
+//! `when` requires one of [`OWNER_KEYS`] or a key mode ([`MODE_KEY`]` == 'name'`,
+//! or `keyMode` for any mode) as an `&&` term and none of [`TEXT_KEYS`]; a
+//! top-level `||` proves nothing, so it is refused. The app's
 //! loader applies the same rule (`BareKeys` in CmuxNextActions), and
 //! `schemas/keybindings/keybinding-vectors.json` pins both.
 //!
@@ -14,6 +16,12 @@
 
 /// Context keys whose page owns bare keys (`ActionContext.bareKeyOwners`).
 pub const OWNER_KEYS: &[&str] = &["diffViewerFocused", "markdownReadOnlyFocused"];
+
+/// The context key naming the user key mode the person is in (`keyMode.enter`
+/// sets it, Escape or `keyMode.exit` clears it): a mode owns bare keys in any
+/// focus but a text field, so `keyMode == 'resize'` (or `keyMode`) as an `&&`
+/// term lets a bare first stroke bind.
+pub const MODE_KEY: &str = "keyMode";
 
 /// Context keys that can hold while a text field has the keyboard.
 pub const TEXT_KEYS: &[&str] = &[
@@ -40,7 +48,7 @@ pub fn may_bind(when: Option<&str>) -> bool {
     };
     let mut required = Vec::new();
     clause.required_keys(&mut required);
-    required.iter().any(|key| OWNER_KEYS.contains(key))
+    required.iter().any(|key| OWNER_KEYS.contains(key) || *key == MODE_KEY)
         && !required.iter().any(|key| TEXT_KEYS.contains(key))
 }
 
@@ -158,7 +166,12 @@ impl Parser<'_> {
             return Some(Clause::Other);
         }
         let key = self.key()?;
-        if self.take("==") || self.take("!=") {
+        if self.take("==") {
+            let named = self.value()?;
+            // `keyMode == 'resize'` requires the mode key as `keyMode` does.
+            return Some(if key == MODE_KEY && named { Clause::Has(key) } else { Clause::Other });
+        }
+        if self.take("!=") {
             self.value()?;
             return Some(Clause::Other);
         }
@@ -191,22 +204,26 @@ impl Parser<'_> {
         (self.index > start).then(|| String::from_utf8_lossy(&self.bytes[start..self.index]).into())
     }
 
-    fn value(&mut self) -> Option<()> {
+    /// A quoted or bare value: whether it is not empty (`''` is), or `None`
+    /// when there is none.
+    fn value(&mut self) -> Option<bool> {
         self.skip_space();
         let quote = self.peek(0)?;
         if quote == b'\'' || quote == b'"' {
             self.index += 1;
+            let start = self.index;
             while self.peek(0)? != quote {
                 self.index += 1;
             }
+            let named = self.index > start;
             self.index += 1;
-            return Some(());
+            return Some(named);
         }
         let start = self.index;
         while self.peek(0).is_some_and(is_value_byte) {
             self.index += 1;
         }
-        (self.index > start).then_some(())
+        (self.index > start).then_some(true)
     }
 
     fn regex(&mut self) -> Option<()> {
@@ -228,3 +245,7 @@ impl Parser<'_> {
         Some(())
     }
 }
+
+#[cfg(test)]
+#[path = "bare_tests.rs"]
+mod tests;

@@ -2,7 +2,7 @@
 # Golden interactions (motion guard, cx-codh2) on a 120 Hz virtual display.
 #
 # usage: golden.sh WORK_DIR
-#   WORK_DIR holds the tagged app (app/*.app) and VDisplay.app, as for bench.sh. Run it in
+#   WORK_DIR holds the tagged app (app/*.app) and VDisplay.app (not with GOLDEN_DISPLAY=given), as for bench.sh. Run it in
 #   the console user's GUI session (console-session.sh); CMUX_TAG is the app's baked tag.
 #
 # Brings up the virtual display, launches the app on it (no activation, automation socket,
@@ -59,14 +59,18 @@ teardown() {
 }
 trap teardown EXIT
 
-"$work/VDisplay.app/Contents/MacOS/VDisplay" 120 1800 >"$out/vdisplay.out" 2>"$out/vdisplay.err" &
-display_pid=$!
-for _ in $(seq 20); do
-  grep -q '^ready\|^error' "$out/vdisplay.out" 2>/dev/null && break
-  sleep 1
-done
-cat "$out/vdisplay.out"
-grep -q '^ready' "$out/vdisplay.out" || { echo "error: the virtual display never came up" >&2; exit 0; }
+# GOLDEN_DISPLAY=given: the caller already brought up the display (split-spring.sh --vdisplay, the
+# cmux-ci fleet path of motion_frames_fleet.py), so no VDisplay.app is needed.
+if [ "${GOLDEN_DISPLAY:-}" != given ]; then
+  "$work/VDisplay.app/Contents/MacOS/VDisplay" 120 1800 >"$out/vdisplay.out" 2>"$out/vdisplay.err" &
+  display_pid=$!
+  for _ in $(seq 20); do
+    grep -q '^ready\|^error' "$out/vdisplay.out" 2>/dev/null && break
+    sleep 1
+  done
+  cat "$out/vdisplay.out"
+  grep -q '^ready' "$out/vdisplay.out" || { echo "error: the virtual display never came up" >&2; exit 0; }
+fi
 
 printf '{}\n' > "$out/cmux-next.json"
 rm -f "$socket"
@@ -80,5 +84,5 @@ if [ ! -S "$socket" ]; then
   echo "error: no socket at $socket" | tee "$out/error.txt"
   exit 0
 fi
-sleep 5
+# golden.py drive waits for the window and for the launch layout to settle before its first scenario.
 python3 "$here/golden.py" drive "$socket" "$out"

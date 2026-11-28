@@ -1,7 +1,6 @@
 //! Dynamic machine catalog backed by a versioned external provider.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-#[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -92,73 +91,31 @@ struct PendingConnection {
 ///
 /// Only a definite answer removes an entry, so every entry here is unsettled
 /// and none is ever evicted: dropping one would make its retry mint a new id
-/// and could create a second machine. While the ledger is full, a request
-/// with a new intent is refused before it reaches the provider; a retry of a
-/// listed request still replays its id and, once answered, frees its slot.
+/// and could create a second machine. The ledger is not capped by count: each
+/// entry is one request held in memory and keyed by its serialized form, so a
+/// lookup, an add and a settle each cost a constant, however many wait.
 #[derive(Default)]
 struct UnsettledMutations {
-    entries: Vec<(protocol::ProviderRequest, protocol::OpaqueId)>,
+    entries: HashMap<String, protocol::OpaqueId>,
 }
 
-/// How many mutations may wait for a definite answer at once. A new intent
-/// past this is refused, never made room for by forgetting an unsettled one.
-const MAX_UNSETTLED_MUTATIONS: usize = 32;
-
-/// The refusal a new mutation gets while the ledger is full of unsettled ones.
-#[derive(Debug)]
-struct UnsettledMutationsFull {
-    pending: usize,
+/// The ledger key of a request with its id cleared: its JSON (the protocol's maps are
+/// `BTreeMap`s, so equal requests serialize alike), or its `Debug` text should that fail.
+fn intent_key(intent: &protocol::ProviderRequest) -> String {
+    serde_json::to_string(intent).unwrap_or_else(|_| format!("{intent:?}"))
 }
-
-impl std::fmt::Display for UnsettledMutationsFull {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "{} earlier machine-provider requests are still waiting for an answer, so a new one \
-             is not sent. Retry one of them until it succeeds or fails; each retry reuses its \
-             request id, so it cannot create a second machine.",
-            self.pending
-        )
-    }
-}
-
-impl std::error::Error for UnsettledMutationsFull {}
 
 impl UnsettledMutations {
     fn replay_id(&self, intent: &protocol::ProviderRequest) -> Option<protocol::OpaqueId> {
-        self.entries
-            .iter()
-            .find(|(candidate, _)| candidate == intent)
-            .map(|(_, mutation_id)| mutation_id.clone())
+        self.entries.get(&intent_key(intent)).cloned()
     }
 
-    /// Refuses a new intent while the ledger is full. A listed intent passes:
-    /// its retry replays an id already in the ledger and adds no entry.
-    fn admit(&self, intent: &protocol::ProviderRequest) -> Result<(), UnsettledMutationsFull> {
-        if self.entries.len() >= MAX_UNSETTLED_MUTATIONS
-            && !self.entries.iter().any(|(candidate, _)| candidate == intent)
-        {
-            return Err(UnsettledMutationsFull { pending: self.entries.len() });
-        }
-        Ok(())
-    }
-
-    fn remember(
-        &mut self,
-        intent: protocol::ProviderRequest,
-        mutation_id: protocol::OpaqueId,
-    ) -> Result<(), UnsettledMutationsFull> {
-        if let Some(entry) = self.entries.iter_mut().find(|(candidate, _)| *candidate == intent) {
-            entry.1 = mutation_id;
-            return Ok(());
-        }
-        self.admit(&intent)?;
-        self.entries.push((intent, mutation_id));
-        Ok(())
+    fn remember(&mut self, intent: &protocol::ProviderRequest, mutation_id: protocol::OpaqueId) {
+        self.entries.insert(intent_key(intent), mutation_id);
     }
 
     fn settle(&mut self, intent: &protocol::ProviderRequest) {
-        self.entries.retain(|(candidate, _)| candidate != intent);
+        self.entries.remove(&intent_key(intent));
     }
 }
 
@@ -225,8 +182,7 @@ impl ProviderNoticeIdentity {
                     let state_root = state_root.as_deref().ok_or_else(|| {
                         anyhow::anyhow!("cannot determine durable state directory").context(message)
                     })?;
-                    let acquired =
-                        crate::provider_notice_identity::acquire(state_root).map_err(|error| {
+                    let acquired = acquire_notice_identity_lease(state_root).map_err(|error| {
                             let message = if error
                                 .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
                                 .is_some()
@@ -255,6 +211,33 @@ impl ProviderNoticeIdentity {
             Self::Persisted { lease, .. } => lease.as_ref().map(|identity| identity.consumer_id()),
         }
     }
+}
+
+/// How long a connection waits for another runtime's notice identity lease:
+/// a runtime of this process that is shutting down (a reconnect, a provider
+/// switch) drops its lease within moments, so that race is waited out; a
+/// lease that another live window holds stays refused.
+const NOTICE_IDENTITY_LEASE_PATIENCE: Duration = Duration::from_millis(1500);
+
+fn acquire_notice_identity_lease(
+    state_root: &Path,
+) -> anyhow::Result<crate::provider_notice_identity::ProviderNoticeIdentityLease> {
+    use cmux_tui_core::retry::{Attempt, Patience};
+    Patience::new("the machine provider connection", NOTICE_IDENTITY_LEASE_PATIENCE)
+        .quiet()
+        .spaced(Duration::from_millis(25), Duration::from_millis(250))
+        .run(|| {
+            crate::provider_notice_identity::acquire(state_root).map_err(|error| {
+                if error
+                    .downcast_ref::<crate::provider_notice_identity::ProviderNoticeIdentityInUse>()
+                    .is_some()
+                {
+                    Attempt::Retry(error)
+                } else {
+                    Attempt::Fail(error)
+                }
+            })
+        })
 }
 
 /// Owns the provider control connection and stable process-local machine keys.
@@ -1207,8 +1190,7 @@ impl ProviderMachineRuntime {
         );
         let result: anyhow::Result<protocol::ConnectExternalMachineResult> =
             self.send_mutation(intent.clone());
-        // The connect stays ambiguous exactly while the ledger still lists
-        // it. A connect the full ledger refused leaves another one alone.
+        // The connect stays ambiguous exactly while the ledger still lists it.
         if self.unsettled_mutations.replay_id(&intent).is_some() {
             self.pending_external_connect = Some(PendingExternalConnect { scope_id, specifier });
         } else if self
@@ -1563,7 +1545,7 @@ impl ProviderMachineRuntime {
     /// attempt of the exact same request already sent.
     ///
     /// Every provider mutation goes through here, so every one is replayed
-    /// and counted against `MAX_UNSETTLED_MUTATIONS`. The test
+    /// and kept in the ledger until it is answered. The test
     /// `every_provider_mutate_call_goes_through_send_mutation` fails on a
     /// `.mutate(` call anywhere else in the crate.
     fn send_mutation<T>(&mut self, mut request: protocol::ProviderRequest) -> anyhow::Result<T>
@@ -1575,8 +1557,6 @@ impl ProviderMachineRuntime {
             anyhow::bail!("machine-provider request carries no mutation id");
         };
         *intent_id = unassigned_mutation_id()?;
-        // Refuse before minting an id, so a refused request leaves no trace.
-        self.unsettled_mutations.admit(&intent)?;
         let replayed = self.unsettled_mutations.replay_id(&intent);
         let first_attempt = replayed.is_none();
         let mutation_id = match replayed {
@@ -1586,7 +1566,7 @@ impl ProviderMachineRuntime {
         if let Some(slot) = request_mutation_id_mut(&mut request) {
             *slot = mutation_id.clone();
         }
-        self.unsettled_mutations.remember(intent.clone(), mutation_id)?;
+        self.unsettled_mutations.remember(&intent, mutation_id);
         let result = self.client.mutate(request);
         // A first attempt that failed before its frame was written left
         // nothing on the provider, so it holds no slot. A replay keeps its

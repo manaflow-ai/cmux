@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -13,6 +14,8 @@ use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, SWITCH_OR_VALUE_FLAGS, usage, validate_one_of};
 
 mod agent_focus;
+#[cfg(unix)]
+mod agent_hook_links;
 #[cfg(unix)]
 mod agent_hook_status;
 mod agent_list;
@@ -31,6 +34,7 @@ mod machine;
 mod name_flags;
 mod notification;
 mod pane_move;
+mod project;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
@@ -115,8 +119,12 @@ impl Selectors {
     ) -> Result<(), UsageError> {
         validate_selector(scope, prefix, value)?;
         if !matches!(Selector::parse(value), Ok(Selector::Id(_))) {
+            // `focused` is the object the person looks at, so its implied
+            // parents are the focused ones too, not the caller's
+            // (resolve.rs `focused_scopes`).
+            let parent = if value == "focused" { "focused" } else { "current" };
             for ancestor in structural_ancestors(scope) {
-                self.values.entry(ancestor).or_insert_with(|| "current".into());
+                self.values.entry(ancestor).or_insert_with(|| parent.into());
             }
         }
         self.values.insert(scope, value.to_string());
@@ -139,6 +147,15 @@ struct Flags {
 impl Flags {
     fn take(&mut self, name: &str) -> Option<String> {
         self.values.remove(name).flatten()
+    }
+
+    fn take_hook_emit_budget(&mut self) -> Result<Option<Duration>, UsageError> {
+        let Some(value) = self.values.remove("deadline-ms") else { return Ok(None) };
+        let millis = value
+            .as_deref()
+            .and_then(|s| s.parse::<std::num::NonZeroU64>().ok())
+            .ok_or_else(|| UsageError::new("--deadline-ms needs a positive integer"))?;
+        Ok(Some(Duration::from_millis(millis.get())))
     }
 
     fn required(&mut self, name: &str) -> Result<String, UsageError> {
@@ -167,6 +184,21 @@ struct Tokens {
     words: Vec<String>,
     flags: Flags,
     argv: Option<Vec<String>>,
+}
+
+/// Inspect an emit budget before the command parser reads the native payload from stdin.
+pub(super) fn hook_emit_budget(args: &[String]) -> Result<Option<Duration>, UsageError> {
+    if args.first().is_none_or(|word| word != "agent" && !word.starts_with('-'))
+        || !args.iter().any(|word| word == "--deadline-ms" || word.starts_with("--deadline-ms="))
+    {
+        return Ok(None);
+    }
+    // The regular parser reports tokenization errors before reading the payload.
+    let Ok(mut tokens) = tokenize(args) else { return Ok(None) };
+    if tokens.words != ["agent", "hook", "emit"] || tokens.argv.is_some() {
+        return Ok(None);
+    }
+    tokens.flags.take_hook_emit_budget()
 }
 
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
@@ -210,6 +242,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "space" => parse_space(&strs(words), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
+        "project" => project::parse_project(&strs(words), &mut tokens.flags)?,
         "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
         "conversation" => conversation::parse_conversation(&strs(words), &mut tokens.flags)?,
         "notify" => parse_notify(words, &mut tokens.flags)?,
@@ -290,7 +323,7 @@ fn parse_server(
 }
 
 /// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
-/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
+/// [--if-idle] [--restore-wait-seconds <n>]`. The wait for an owner that still restores
 /// defaults to the bound `server ensure` gives a restore
 /// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
 fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
@@ -298,6 +331,7 @@ fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, Usag
         restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
         end_terminals: flags.boolean("end-terminals"),
+        if_idle: flags.boolean("if-idle"),
     })
 }
 
@@ -1026,7 +1060,9 @@ fn parse_tab_strings(
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => {
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+            let created_by = list_filter::take_created_by(flags)?;
             request(ResourceOperation::TabList, selectors, flags, Map::new())
+                .map(|plan| plan.filtered(ListFilter { created_by, ..ListFilter::default() }))
         }
         ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
@@ -1040,6 +1076,7 @@ fn parse_tab_strings(
             insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
+            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
         }
         ["create", "browser"] => {
@@ -1053,6 +1090,7 @@ fn parse_tab_strings(
             browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
+            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
         }
         [selector, "rename"] => {
@@ -1150,6 +1188,7 @@ fn parse_agent(
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;
             let native_event = flags.required("event")?;
+            let _ = flags.take_hook_emit_budget()?;
             let native = match flags.take("payload-json") {
                 Some(payload) => serde_json::from_str(&payload).map_err(|error| {
                     UsageError::new(format!("invalid --payload-json JSON: {error}"))
@@ -1931,7 +1970,7 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
 
 pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
     #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut result = crate::agent_hook_install::run(&plan);
+    let mut result = run_hooks_and_links(&plan);
     #[cfg(unix)]
     if plan.action == crate::agent_hook_install::Action::Status {
         result.value =
@@ -1948,6 +1987,44 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     } else {
         super::wire::print_local_success(&result.value, global.output)
     }
+}
+
+/// `agent hook` over the hook providers and the `link-` rows (agent_hook_links.rs): a status
+/// with no ids lists both; an install or uninstall with no ids touches hooks only; ids that are
+/// all `link-` run no hook step.
+#[cfg(unix)]
+fn run_hooks_and_links(
+    plan: &crate::agent_hook_install::Plan,
+) -> crate::agent_hook_install::RunResult {
+    use crate::agent_hook_install::{Action, Plan, RunResult};
+    let (apps, hooks, mut errors) = agent_hook_links::split(&plan.providers);
+    let every = plan.providers.is_empty();
+    let hooks_run = every || !hooks.is_empty();
+    let base = if hooks_run {
+        crate::agent_hook_install::run(&Plan { action: plan.action, providers: hooks })
+    } else {
+        let action = match plan.action {
+            Action::Install => "install",
+            Action::Uninstall => "uninstall",
+            Action::Status => "status",
+        };
+        RunResult { value: json!({"action": action, "providers": [], "errors": []}), failed: false }
+    };
+    let (rows, link_errors) = if every && plan.action != Action::Status {
+        (Vec::new(), Vec::new())
+    } else {
+        agent_hook_links::run(plan.action, &apps, every)
+    };
+    errors.extend(link_errors);
+    let failed = base.failed || !errors.is_empty();
+    RunResult { value: agent_hook_links::merge(base.value, rows, errors), failed }
+}
+
+#[cfg(not(unix))]
+fn run_hooks_and_links(
+    plan: &crate::agent_hook_install::Plan,
+) -> crate::agent_hook_install::RunResult {
+    crate::agent_hook_install::run(plan)
 }
 
 /// What `cmux agent|sidebar plugin list` prints when no plugin is installed.

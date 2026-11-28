@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Where a fleet webview run's time goes (land-judge's WEBVIEW_FLEET route: one fast-checks `checks` job running
+`CMUX_WEB_TEST_SKIP_BASE=1 ../scripts/ci/run-webviews-tests.sh`, every file, unsharded).
+
+Usage: ci140-webview-fleet JOB_LOG... [--base-reds base-reds.json]
+
+Each JOB_LOG is a downloaded Actions job log (`gh api repos/OWNER/REPO/actions/jobs/ID/logs`). For each it prints
+the source sha, the deadline, how many files started and finished, the plain and dev server phases (wall minutes,
+mean files at once, files done), and the file-minutes spent on red and timed-out files. With --base-reds
+(webviews_test_history.py known-reds) it also says how many of those red files are red on the base.
+
+11-26T22:00Z to 11-27T03:39Z, 20 such jobs: every one hit its 5,400 or 9,000 s deadline (exit 124) with no verdict.
+The plain files finished in about 20 minutes; the 693 dev server files, run 2 at a time on the 8 vCPU runner, then
+filled the rest, and about 300 files were red at feat-cmux-next (about 40% of the file-minutes)."""
+import argparse
+import datetime
+import json
+import re
+
+LINE = re.compile(r"﻿?(\S+)Z (START|PASS|FAIL|TIMEOUT) (\S+)")
+
+
+def stamp(text):
+    return datetime.datetime.fromisoformat(text[:26])
+
+
+def one(path, base_reds):
+    starts, done, head = {}, [], {}
+    for raw in open(path, errors="replace"):
+        for key in ("FAST_CHECKS_SOURCE", "FAST_CHECKS_TIMEOUT"):
+            if key not in head and f"{key}: " in raw:
+                head[key] = raw.split(f"{key}: ", 1)[1].strip()
+        if "running " in raw and " webviews test files" in raw and "plan" not in head:
+            head["plan"] = raw.split("Z ", 1)[-1].strip()
+        found = LINE.match(raw)
+        if not found:
+            continue
+        at, kind, name = stamp(found.group(1)), found.group(2), found.group(3)
+        if kind == "START":
+            starts[name] = at
+        elif name in starts:
+            done.append((starts[name], at, kind, name))
+    print(f"{path}: source {head.get('FAST_CHECKS_SOURCE', '?')[:12]}, deadline {head.get('FAST_CHECKS_TIMEOUT', '?')} s")
+    print(f"  {head.get('plan', 'no plan line')}")
+    if not done:
+        print("  no file finished")
+        return
+    first = min(s for s, _, _, _ in done)
+    last = max(e for _, e, _, _ in done)
+    # the plain pool ends when the last file that started in the first busy stretch ends: the dev server files start
+    # after it, fewer at once (run-webviews-tests.sh); split where the files at once fall to the dev width
+    dev_from = None
+    minute = datetime.timedelta(minutes=1)
+    t = first
+    while t < last:
+        busy = sum(max(0.0, (min(e, t + minute) - max(s, t)).total_seconds()) for s, e, _, _ in done) / 60
+        if busy <= 2.5 and t - first > 5 * minute:
+            dev_from = t
+            break
+        t += minute
+    phases = [("plain", first, dev_from or last), ("dev server", dev_from, last)] if dev_from else [("all", first, last)]
+    for label, lo, hi in phases:
+        span = (hi - lo).total_seconds()
+        rows = [r for r in done if lo <= r[0] < hi]
+        busy = sum(max(0.0, (min(e, hi) - max(s, lo)).total_seconds()) for s, e, _, _ in done)
+        red = [r for r in rows if r[2] != "PASS"]
+        print(f"  {label}: {span / 60:.1f} min wall, {busy / max(span, 1):.1f} files at once, {len(rows)} files, "
+              f"{len(red)} red ({sum((e - s).total_seconds() for s, e, _, _ in red) / 60:.0f} of "
+              f"{sum((e - s).total_seconds() for s, e, _, _ in rows) / 60:.0f} file-min)")
+    reds = {n for _, _, k, n in done if k != "PASS"}
+    line = f"  started {len(starts)}, finished {len(done)}, red files {len(reds)}"
+    if base_reds is not None:
+        line += f", of them red on the base's newest recorded push: {len(reds & base_reds)}"
+    print(line)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("logs", nargs="+")
+    parser.add_argument("--base-reds")
+    args = parser.parse_args()
+    base = None
+    if args.base_reds:
+        base = {str(n).split(" > ")[0] for n in json.load(open(args.base_reds)).get("red") or []}
+    for path in args.logs:
+        one(path, base)
+
+
+if __name__ == "__main__":
+    main()

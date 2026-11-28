@@ -6,6 +6,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+import { installVirtualSizes } from "./support/virtualSizes";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -41,6 +43,10 @@ beforeAll(() => {
   scope.requestAnimationFrame = (callback: FrameRequestCallback) =>
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+  // The list is windowed: give it a viewport and its rows a height, as a browser would.
+  installVirtualSizes(dom.window, (element) =>
+    element.classList.contains("stash-list") ? 600 : element.classList.contains("stash-group") ? 40 : 28,
+  );
 });
 
 afterEach(() => {
@@ -59,17 +65,17 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { StashPage } = await import("../src/pages/stash/StashPage");
-const { UiProvider } = await import("../src/ui/UiProvider");
-const { createStrings } = await import("../src/pages/shared/i18n");
+const { StashPage } = await importWithDom(() => import("../src/pages/stash/StashPage"));
+const { UiProvider } = await importWithDom(() => import("../src/ui/UiProvider"));
+const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
 const table = (await import("../src/pages/stash/generated/strings.json")).default as Record<
   string,
   Record<string, string>
 >;
-const { MockStashProvider } = await import("../src/pages/stash/mockProvider");
-const { StashStore } = await import("../src/pages/stash/store");
-const { StashOps } = await import("../src/pages/stash/types");
-const { matchGroups, parseOneTab, normalized } = await import("../src/pages/stash/model");
+const { MockStashProvider } = await importWithDom(() => import("../src/pages/stash/mockProvider"));
+const { StashStore } = await importWithDom(() => import("../src/pages/stash/store"));
+const { StashOps } = await importWithDom(() => import("../src/pages/stash/types"));
+const { matchGroups, parseOneTab, normalized } = await importWithDom(() => import("../src/pages/stash/model"));
 
 async function mount(provider = new MockStashProvider(), options = {}) {
   const store = new StashStore(provider, options);

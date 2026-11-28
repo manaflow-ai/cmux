@@ -39,7 +39,17 @@ python -m pip install cmux
 cmux
 ```
 
-For one-off use, run `uvx cmux` or `pipx run cmux`. See the
+For one-off use, run `uvx cmux` or `pipx run cmux`.
+
+`cmux autocloud` is an agent chat in the terminal: it signs in, starts (or reuses) your
+AutoCloud machine, shows how ready the machine's copy of your repository is, and streams the
+agent. Ctrl-N opens another chat beside it.
+
+```bash
+uvx cmux autocloud login
+uvx cmux autocloud
+```
+ See the
 [cmux-tui documentation](https://github.com/manaflow-ai/cmux/tree/main/cmux-tui)
 for CLI commands, configuration, remote sessions, and SDKs.
 """

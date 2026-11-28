@@ -1056,127 +1056,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud is creating the VM. A new machine usually takes under a minute."
+            "value" : "cmux Cloud is creating the VM."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud が VM を作成しています。新しいマシンは通常 1 分以内に作成されます。"
+            "value" : "cmux Cloud が VM を作成しています。"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "يُنشئ cmux Cloud الجهاز الافتراضي. يستغرق الجهاز الجديد عادةً أقل من دقيقة."
+            "value" : "يُنشئ cmux Cloud الجهاز الافتراضي."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud kreira VM. Nova mašina obično traje manje od minute."
+            "value" : "cmux Cloud kreira VM."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud opretter VM’en. En ny maskine tager normalt under et minut."
+            "value" : "cmux Cloud opretter VM’en."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud erstellt die VM. Eine neue Maschine dauert meist weniger als eine Minute."
+            "value" : "cmux Cloud erstellt die VM."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud está creando la VM. Una máquina nueva suele tardar menos de un minuto."
+            "value" : "cmux Cloud está creando la VM."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud crée la VM. Une nouvelle machine prend en général moins d’une minute."
+            "value" : "cmux Cloud crée la VM."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud sta creando la VM. Una nuova macchina di solito richiede meno di un minuto."
+            "value" : "cmux Cloud sta creando la VM."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud កំពុងបង្កើត VM។ ម៉ាស៊ីនថ្មីជាធម្មតាចំណាយពេលតិចជាងមួយនាទី។"
+            "value" : "cmux Cloud កំពុងបង្កើត VM។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud가 VM을 만드는 중입니다. 새 머신은 보통 1분 이내에 준비됩니다."
+            "value" : "cmux Cloud가 VM을 만드는 중입니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud oppretter VM-en. En ny maskin tar vanligvis under ett minutt."
+            "value" : "cmux Cloud oppretter VM-en."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud tworzy maszynę wirtualną. Nowa maszyna zwykle zajmuje mniej niż minutę."
+            "value" : "cmux Cloud tworzy maszynę wirtualną."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O cmux Cloud está criando a VM. Uma máquina nova costuma levar menos de um minuto."
+            "value" : "O cmux Cloud está criando a VM."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud создаёт ВМ. Новая машина обычно готова меньше чем за минуту."
+            "value" : "cmux Cloud создаёт ВМ."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud กำลังสร้าง VM โดยปกติเครื่องใหม่ใช้เวลาไม่ถึงหนึ่งนาที"
+            "value" : "cmux Cloud กำลังสร้าง VM"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud VM’yi oluşturuyor. Yeni bir makine genellikle bir dakikadan kısa sürer."
+            "value" : "cmux Cloud VM’yi oluşturuyor."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud створює ВМ. Нова машина зазвичай готова менш ніж за хвилину."
+            "value" : "cmux Cloud створює ВМ."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud đang tạo VM. Máy mới thường mất chưa đến một phút."
+            "value" : "cmux Cloud đang tạo VM."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud 正在创建虚拟机。新机器通常不到一分钟。"
+            "value" : "cmux Cloud 正在创建虚拟机。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux Cloud 正在建立虛擬機器。新機器通常不到一分鐘。"
+            "value" : "cmux Cloud 正在建立虛擬機器。"
           }
         }
       }
@@ -2097,6 +2097,138 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "cmux Cloud 正在再次啟動此機器。它執行後即會連線。"
+          }
+        }
+      }
+    },
+    "cloudProgress.slow" : {
+      "comment" : "The Cloud progress page's line under a machine still on its way after three minutes. Retry and Dismiss are the page's buttons.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is taking longer than usual. Retry starts it again; Dismiss stops waiting."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يستغرق هذا وقتًا أطول من المعتاد. إعادة المحاولة تبدأ من جديد؛ تجاهل يوقف الانتظار."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovo traje duže nego obično. Pokušaj ponovo kreće iznova; Odbaci prestaje čekati."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det tager længere tid end normalt. Prøv igen starter forfra; Afvis holder op med at vente."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das dauert länger als üblich. Wiederholen startet neu; Verwerfen beendet das Warten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esto está tardando más de lo habitual. Reintentar vuelve a empezar; Descartar deja de esperar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cela prend plus de temps que d’habitude. Réessayer recommence ; Ignorer arrête d’attendre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ci sta mettendo più del solito. Riprova ricomincia; Ignora smette di attendere."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通常より時間がかかっています。再試行でやり直し、閉じるで待機をやめます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "វាចំណាយពេលយូរជាងធម្មតា។ ព្យាយាមម្ដងទៀត ចាប់ផ្ដើមឡើងវិញ; បោះបង់ ឈប់រង់ចាំ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "평소보다 오래 걸리고 있습니다. 다시 시도하면 처음부터 시작하고, 닫기를 누르면 기다리지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dette tar lengre tid enn vanlig. Prøv igjen starter på nytt; Avvis slutter å vente."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trwa to dłużej niż zwykle. Ponów zaczyna od nowa; Odrzuć przestaje czekać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isso está demorando mais que o normal. Tentar novamente recomeça; Dispensar para de esperar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это занимает больше времени, чем обычно. «Повторить» начинает заново; «Закрыть» прекращает ожидание."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้เวลานานกว่าปกติ ลองอีกครั้งจะเริ่มใหม่ ปิดจะหยุดรอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu her zamankinden uzun sürüyor. Yeniden Dene baştan başlatır; Kapat beklemeyi bırakır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Це триває довше, ніж зазвичай. «Повторити» починає знову; «Закрити» припиняє очікування."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Việc này lâu hơn bình thường. Thử lại sẽ bắt đầu lại; Bỏ qua sẽ ngừng chờ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这比平时花的时间更长。重试会重新开始；关闭会停止等待。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這比平常花的時間更長。重試會重新開始；關閉會停止等待。"
           }
         }
       }

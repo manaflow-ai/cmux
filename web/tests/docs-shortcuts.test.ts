@@ -2,14 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { localizedShortcutText, shortcutCategories } from "../data/cmux-shortcuts";
-import generated from "../data/cmux-shortcuts.generated.json";
+import { localizedShortcutText, shortcutCategoriesOf } from "../data/cmux-shortcuts";
 import { buildDocsShortcuts } from "../scripts/export-docs-shortcuts";
 
 // DOCS-SHORTCUTS-FROM-CATALOG: the keyboard shortcuts docs are the cmux-next
 // action catalog. The page reads a copy in web/data (web/ never reads plans/
-// at build time); these tests read the catalog export and the string
-// catalogs at test time and require the copy and the page to match them.
+// at build time) that only the base autofix writes (RFD 0048), so a pull
+// request's copy may lag the catalog by one autofix run. These tests build the
+// page from the catalog export and the string catalogs at the head, never the copy.
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const surfaces = JSON.parse(readFileSync(join(repo, "plans/cmux-next/action-surfaces.json"), "utf8"));
@@ -27,6 +27,7 @@ type Action = {
   default_shortcut: Wire | null; default_chord: Wire[] | null; default_aliases: Alias[];
 };
 const bound: Action[] = surfaces.actions.filter((action: Action) => action.default_shortcut || action.default_chord || action.default_aliases.length > 0);
+const shortcutCategories = shortcutCategoriesOf(buildDocsShortcuts(surfaces, catalogs));
 
 /** The keys a reader sees for one stroke: modifiers ⌃⌥⇧⌘, then the key. */
 function expectedStroke(wire: Wire): string[] {
@@ -40,10 +41,6 @@ function expectedStroke(wire: Wire): string[] {
 }
 
 describe("keyboard shortcuts docs", () => {
-  test("the web/data copy is fresh against the catalog export and string catalogs", () => {
-    expect(buildDocsShortcuts(surfaces, catalogs)).toEqual(generated as never);
-  });
-
   test("every catalog default shortcut is on the page with the same keys, and nothing else is", () => {
     const rows = new Map(shortcutCategories.flatMap((category) => category.shortcuts).map((row) => [row.id, row]));
     expect([...rows.keys()].sort()).toEqual(bound.map((action) => action.id).sort());
@@ -52,9 +49,11 @@ describe("keyboard shortcuts docs", () => {
       // The default key or chord, then each table alias (Ctrl-Cmd arrows for resize, browser tab keys) once.
       const primary = action.default_chord ? action.default_chord.map(expectedStroke) : action.default_shortcut ? [expectedStroke(action.default_shortcut)] : [];
       const aliases = action.default_aliases.map((alias) => expectedStroke(alias.keys[0]));
-      const expected = [...primary, ...aliases].filter((combo, index, all) => all.findIndex((other) => other.join() === combo.join()) === index);
-      expect({ id: action.id, combos: row.combos, sequence: Boolean(row.sequence) })
-        .toEqual({ id: action.id, combos: expected, sequence: Boolean(action.default_chord) });
+      // A chord stays one sequence; its aliases (agentPane.searchChats: ⌘J K, or ⌘K outside a terminal) are alternatives to it.
+      const expected = action.default_chord ? primary : [...primary, ...aliases].filter((combo, index, all) => all.findIndex((other) => other.join() === combo.join()) === index);
+      const expectedAliases = action.default_chord && aliases.length > 0 ? aliases : undefined;
+      expect({ id: action.id, combos: row.combos, sequence: Boolean(row.sequence), aliases: row.aliases })
+        .toEqual({ id: action.id, combos: expected, sequence: Boolean(action.default_chord), aliases: expectedAliases });
       expect(localizedShortcutText(row.description, "en")).toBe(action.title);
     }
   });
@@ -67,6 +66,8 @@ describe("keyboard shortcuts docs", () => {
     expect(rows.get("nextSurface")!.combos).toContainEqual(["⇧", "⌘", "]"]);
     expect(rows.get("nextSidebarTab")!.combos).not.toContainEqual(["⌃", "PgDn"]);
     expect(rows.get("nextSidebarTab")!.combos).not.toContainEqual(["⌥", "⌘", "→"]);
+    // A chord with an alias: the chord is the sequence, the alias an alternative after it.
+    expect(rows.get("agentPane.searchChats")).toMatchObject({ combos: [["⌘", "J"], ["K"]], sequence: true, aliases: [["⌘", "K"]] });
   });
 
   test("titles are the app's own translations", () => {

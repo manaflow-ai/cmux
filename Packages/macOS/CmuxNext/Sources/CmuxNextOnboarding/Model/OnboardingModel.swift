@@ -11,11 +11,9 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        // Agents comes first: at first run it opens over Bring your history.
-        // The app may host importData as Bring your history (web); the standalone browser
-        // importer remains this model's native import tool.
-        // agentTools asks whether cmux may add its MCP server to the person's coding agents.
-        case agents, importData, computerUse, agentTools
+        // Agents comes first at a first run. importData is the browser importer (Import from Browser).
+        // makeItYours: a new person's one setup screen (how they work, density, background), cmux#48416.
+        case agents, importData, computerUse, makeItYours
     }
 
     /// The tool this window shows; it never changes.
@@ -25,21 +23,32 @@ public final class OnboardingModel {
     public let importer: ImportStepModel
     public let computerUse: ComputerUseStepModel
     public let agents: AgentsStepModel
-    public let agentTools: AgentToolsStepModel
+    public let makeItYours: MakeItYoursStepModel
     @ObservationIgnored public let services: any OnboardingServices
+    /// Make cmux Yours' split, read once so a walk's start and end go to the same log.
+    @ObservationIgnored private let walkSplit: (any IntroWalkSplitSource)?
     /// Set once the window ended, so a second close does not report twice.
     public private(set) var ended = false
+    /// Make cmux Yours' bundle for this install, read when the step first shows (nil: no split source).
+    public private(set) var walkBundle: String?
+    /// The walk's screen index the page last reported (`screen` on its next or skip); logged with the end.
+    public var walkScreen = 0
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
 
-    /// `agentTools`: the cmux Tools source, else the services' own.
-    public init(services: any OnboardingServices, step: Step, agentTools tools: (any AgentToolsSource)? = nil) {
+    /// `choices`: Make cmux Yours' source, else the services' own. `clock` times the Computer Use done
+    /// view's close (tests pass their own).
+    public init(services: any OnboardingServices, step: Step, choices: (any FirstRunChoicesSource)? = nil,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
         self.step = step
+        walkSplit = step == .makeItYours ? services.introWalkSplit : nil
         importer = ImportStepModel(services: services)
-        computerUse = ComputerUseStepModel(source: services.computerUsePermissions)
+        computerUse = ComputerUseStepModel(source: services.computerUsePermissions, clock: clock)
         agents = AgentsStepModel(source: services.agentSignIns)
-        agentTools = AgentToolsStepModel(source: tools ?? services.agentTools)
+        makeItYours = MakeItYoursStepModel(source: choices ?? services.firstRunChoices)
+        // The done view's time is up: the window closes as Done.
+        computerUse.onFinished = { [weak self] in self?.finish(completed: true) }
     }
 
     /// The primary button: Find Browsers on the import step before a person
@@ -51,8 +60,7 @@ public final class OnboardingModel {
         if step == .importData, importer.explainingAccess != nil { return OnboardingStrings.continueTitle }
         if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
-        if step == .agents { return OnboardingStrings.continueTitle }
-        if step == .agentTools, !agentTools.answered { return OnboardingStrings.turnOnTools }
+        if step == .agents || step == .makeItYours { return OnboardingStrings.continueTitle }
         return OnboardingStrings.done
     }
 
@@ -85,12 +93,6 @@ public final class OnboardingModel {
         case .computerUse where !computerUse.allGranted:
             if computerUse.permissions.helperFailed { computerUse.restart() } else { computerUse.allowNext() }
             return
-        // cmux Tools: Turn On answers yes and stays, so the rows show what it did; then Done.
-        case .agentTools where !agentTools.answered:
-            agentTools.add()
-            return
-        case .agentTools where agentTools.applying:
-            return
         default:
             finish(completed: true)
         }
@@ -115,8 +117,6 @@ public final class OnboardingModel {
     /// not offer a misleading Done action while the scan is still running.
     public var canAdvance: Bool {
         !(step == .importData && importer.phase == .detecting)
-            // cmux Tools: Return answers only once the agents it would change are listed, and not twice.
-            && !(step == .agentTools && (agentTools.applying || !agentTools.loaded))
     }
 
     /// Back: from either explainer to the list, nothing read.
@@ -133,10 +133,8 @@ public final class OnboardingModel {
     /// answers after the window is gone.
     public func skipStep() {
         if step == .importData, importer.isConfirmingPasswords { importer.backFromConsent() }
-        // cmux Tools' Not Now is the person's no (Escape too): nothing is written to any agent.
-        if step == .agentTools, !agentTools.answered { agentTools.decline() }
-        // Once answered, Escape is Done (the step's work is finished).
-        if step == .agentTools, agentTools.answered, !agentTools.applying { return finish(completed: true) }
+        // Make cmux Yours' Skip keeps the person's settings: the picks it made live are put back.
+        if step == .makeItYours { makeItYours.revert() }
         finish(completed: false)
     }
 
@@ -149,8 +147,23 @@ public final class OnboardingModel {
         case .importData: importer.detect()
         case .computerUse: computerUse.start()
         case .agents: agents.start()
-        case .agentTools: agentTools.start()
+        case .makeItYours:
+            makeItYours.start()
+            recordWalkStart()
         }
+    }
+
+    /// The walk's start, once per window, against this install's bundle.
+    private func recordWalkStart() {
+        guard walkBundle == nil, let split = walkSplit, let bundle = split.bundle() else { return }
+        walkBundle = bundle
+        split.record(bundle: bundle, ending: .started, screen: walkScreen)
+    }
+
+    /// The walk's end: Continue is completed; Skip, the close button and quit are skipped.
+    private func recordWalkEnd(completed: Bool) {
+        guard step == .makeItYours, let bundle = walkBundle else { return }
+        walkSplit?.record(bundle: bundle, ending: completed ? .completed : .skipped, screen: walkScreen)
     }
 
     /// The window became key: back from an agent's sign-in, the Agents step reads again.
@@ -163,19 +176,21 @@ public final class OnboardingModel {
     public func leave() {
         guard !ended else { return }
         ended = true
+        recordWalkEnd(completed: false)
         computerUse.stop()
         importer.stopDetecting()
         agents.stop()
-        agentTools.stop()
+        makeItYours.stop()
     }
 
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
+        recordWalkEnd(completed: completed)
         computerUse.stop()
         importer.stopDetecting()
         agents.stop()
-        agentTools.stop()
+        makeItYours.stop()
         onEnd?(completed)
     }
 }

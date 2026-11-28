@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(OSLog)
 import OSLog
+#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "timing")
 
@@ -65,11 +67,15 @@ public final class ConnectTimeline: @unchecked Sendable {
     }
 
     private static func processStartDate() -> Date? {
+        #if canImport(Darwin)
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
         guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else { return nil }
         let start = info.kp_proc.p_starttime
         return Date(timeIntervalSince1970: TimeInterval(start.tv_sec) + TimeInterval(start.tv_usec) / 1_000_000)
+        #else
+        return nil
+        #endif
     }
 }

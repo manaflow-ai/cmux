@@ -24,6 +24,11 @@ use serde_json::{Value, json};
 pub const RETRY_BUDGET: Duration = Duration::from_secs(30);
 const FIRST_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_BACKOFF: Duration = Duration::from_secs(2);
+/// The code of a call that found no daemon running (the app is not open).
+pub const DAEMON_NOT_RUNNING: &str = "daemon_not_running";
+/// How long a call waits for a daemon whose socket is missing (no app runs it) before it says
+/// so: enough for an app restart to bring the socket back, far less than [`RETRY_BUDGET`].
+pub const NOT_RUNNING_GRACE: Duration = Duration::from_secs(3);
 /// One daemon request (the endpoint, the machine list).
 const DAEMON_WAIT: Duration = Duration::from_secs(10);
 /// The worker's hello after the secret.
@@ -33,6 +38,9 @@ const MAX_DAEMON_REPLY: u64 = 1 << 20;
 
 /// The daemon command that names the worker (lane `worker` serves it).
 pub const ENDPOINT_CMD: &str = "computer-use-endpoint";
+
+/// What an agent does when Computer Use is off: open the guided setup for the person.
+const OFF_NEXT: &str = "Open its setup for the person with `cmux action run palette.computerUse.setup` (it opens without taking their focus; there the person turns Computer Use on and grants the two macOS permissions), tell them it is open, and try again once they finish.";
 
 /// Where the worker serves, from the daemon.
 #[derive(Clone, PartialEq, Eq)]
@@ -99,6 +107,12 @@ pub trait Daemon: Send + Sync {
     fn workspace_name(&self, _id: &str) -> Option<String> {
         None
     }
+    /// Why no daemon runs at all (no socket file at any place it may listen: the app is not
+    /// running), naming the app and the paths; None when one may be up or restarting. A missing
+    /// socket is no restart in progress, so calls stop waiting for it after [`NOT_RUNNING_GRACE`].
+    fn not_running(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Where a workspace named `id` sits in a `list-workspaces` answer: its `name`.
@@ -141,17 +155,54 @@ impl std::fmt::Display for DaemonError {
 pub const DAEMON_SOCKET_ENV: &str = "CMUX_TUI_SOCKET";
 
 /// The real daemons: the cmux-tui daemon on its local socket
-/// (`CMUX_TUI_SOCKET`, else the `main` session's default socket) and this
-/// user's acpmux daemon (`ACPMUX_SOCKET` / `ACPMUX_HOME`).
+/// (`CMUX_TUI_SOCKET`, else the running app's daemon, else the `main`
+/// session's: [`super::daemon_socket`]) and this user's acpmux daemon
+/// (`ACPMUX_SOCKET` / `ACPMUX_HOME`).
 pub struct SocketDaemon {
     pub path: PathBuf,
+    /// Every path the lookup considered, for the error when none answers.
+    looked: Vec<super::daemon_socket::Candidate>,
+    /// The app bundle this binary ships in ("cmux NIGHTLY"), for the not-running message.
+    app: Option<String>,
 }
 
 impl SocketDaemon {
     pub fn from_env() -> Self {
-        let path =
-            cmux::raw::env_socket_path().unwrap_or_else(|| cmux::raw::default_socket_path("main"));
-        Self { path }
+        let mut daemon = Self::from_candidates(super::daemon_socket::from_process());
+        daemon.app = std::env::current_exe()
+            .ok()
+            .map(|exe| exe.canonicalize().unwrap_or(exe))
+            .and_then(|exe| super::daemon_socket::bundle_name(&exe));
+        daemon
+    }
+
+    /// The daemon at `path` and no other: a socket another process's environment named (the
+    /// terminal a chat types into, `hub/terminal_input.rs`).
+    pub fn at(path: PathBuf) -> Self {
+        Self { path, looked: Vec::new(), app: None }
+    }
+
+    /// The first of `candidates` whose socket exists, else the first.
+    pub fn from_candidates(candidates: Vec<super::daemon_socket::Candidate>) -> Self {
+        let path = super::daemon_socket::pick(&candidates)
+            .map(|c| c.path.clone())
+            .unwrap_or_else(|| cmux::raw::default_socket_path("main"));
+        Self { path, looked: candidates, app: None }
+    }
+
+    /// Why the daemon could not be reached: the path tried and, when the lookup had others,
+    /// every one it looked at and what named it.
+    fn unreachable(&self, error: &io::Error) -> DaemonError {
+        let mut why = format!("{} at {}", error, self.path.display());
+        if self.looked.len() > 1 {
+            let looked: Vec<String> = self
+                .looked
+                .iter()
+                .map(|c| format!("{} ({})", c.path.display(), c.source))
+                .collect();
+            why.push_str(&format!("; looked for {}", looked.join(", ")));
+        }
+        DaemonError::Unreachable(why)
     }
 
     #[cfg(unix)]
@@ -170,9 +221,21 @@ impl SocketDaemon {
         Ok(stream)
     }
 
-    /// `{"cmd": cmd, ...params}` on a new connection; the reply's `data`.
+    /// `{"cmd": cmd, ...params}` on a new connection; the reply's `data`. A
+    /// daemon older than the command is restarted once with the installed
+    /// build first (`daemon_skew.rs`).
     pub fn request(&self, cmd: &str, params: Value) -> Result<Value, DaemonError> {
-        let unreachable = |e: io::Error| DaemonError::Unreachable(e.to_string());
+        crate::daemon_skew::request(self, cmd, params)
+    }
+}
+
+impl crate::daemon_skew::RawDaemon for SocketDaemon {
+    fn restart_in_place(&self, cli: &std::path::Path) -> Result<(), String> {
+        crate::daemon_skew::restart_in_place(cli, &self.path)
+    }
+
+    fn send_once(&self, cmd: &str, params: Value) -> Result<Value, DaemonError> {
+        let unreachable = |e: io::Error| self.unreachable(&e);
         let mut stream = self.connect().map_err(unreachable)?;
         let id = format!("cu-{}", uuid::Uuid::now_v7().simple());
         let mut request = match params {
@@ -256,6 +319,29 @@ impl Daemon for SocketDaemon {
     fn workspace_name(&self, id: &str) -> Option<String> {
         workspace_name_in(&self.request("list-workspaces", json!({})).ok()?, id)
     }
+
+    fn not_running(&self) -> Option<String> {
+        let paths: Vec<&std::path::Path> = if self.looked.is_empty() {
+            vec![self.path.as_path()]
+        } else {
+            self.looked.iter().map(|c| c.path.as_path()).collect()
+        };
+        not_running_message(self.app.as_deref(), &paths)
+    }
+}
+
+/// [`Daemon::not_running`] for daemon sockets at `paths`: Some when none of them exists. Only
+/// on Unix, where a listening socket is a file; elsewhere a missing path proves nothing.
+pub fn not_running_message(app: Option<&str>, paths: &[&std::path::Path]) -> Option<String> {
+    if !cfg!(unix) || paths.is_empty() || paths.iter().any(|p| p.exists()) {
+        return None;
+    }
+    let app = app.unwrap_or("the cmux app");
+    let looked: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+    Some(format!(
+        "{app} is not running on this Mac, so Computer Use has no daemon to ask (no socket at {}); open {app}, then try again.",
+        looked.join(", ")
+    ))
 }
 
 /// The `data` of a cmux-tui daemon reply, or why it refused (classic
@@ -340,9 +426,25 @@ fn open_admitted(
 }
 
 fn exchange(endpoint: &Endpoint, request: &Value) -> Result<Value, Attempt> {
+    exchange_with(endpoint, request, true)
+}
+
+/// One request to the worker at `endpoint`, answered within the hello's read timeout
+/// ([`HELLO_WAIT`]): no retry, no presence connection and never a wait on the person. For acpmux's
+/// own passive reads (turn frames of a native window, `hub/turn_frames_native.rs`), which give up
+/// rather than wait. The worker's result, or why there was none.
+pub(crate) fn call_bounded(endpoint: &Endpoint, request: &Value) -> Result<Value, String> {
+    exchange_with(endpoint, request, false).map_err(|e| match e {
+        Attempt::Transport(why) | Attempt::Worker(why) => why,
+    })
+}
+
+fn exchange_with(endpoint: &Endpoint, request: &Value, wait: bool) -> Result<Value, Attempt> {
     let transport = |e: io::Error| Attempt::Transport(e.to_string());
     let (mut reader, unbounded) = open_admitted(endpoint)?;
-    unbounded();
+    if wait {
+        unbounded();
+    }
     let mut line = request.to_string();
     line.push('\n');
     reader.get_mut().write_all(line.as_bytes()).map_err(transport)?;
@@ -418,11 +520,14 @@ impl Outcome {
             Outcome::Output(out) => out.to_mcp(),
             Outcome::Off(reason) => ToolOutput::error(
                 "computer_use_off",
-                if reason.is_empty() {
-                    "Computer Use is off on this machine. The person can turn it on in Settings > Computer Use.".to_owned()
-                } else {
-                    format!("Computer Use is off: {reason}. The person can turn it on in Settings > Computer Use.")
-                },
+                format!(
+                    "Computer Use is off{}. {OFF_NEXT}",
+                    if reason.is_empty() {
+                        " on this machine".to_owned()
+                    } else {
+                        format!(": {reason}")
+                    }
+                ),
             )
             .to_mcp(),
             Outcome::Failed { code, message } => ToolOutput::error(code, message.clone()).to_mcp(),
@@ -458,6 +563,8 @@ pub struct Caller<D: Daemon> {
     /// ends and its cursor never lingers. None until the first call, and
     /// again once the worker it was open to went away.
     attached: std::sync::Arc<Mutex<Option<Endpoint>>>,
+    /// No presence connection ([`Self::detached`]): the session outlives this process.
+    detached: bool,
 }
 
 /// Where the agent cursor's tag comes from.
@@ -484,7 +591,23 @@ impl<D: Daemon> Caller<D> {
             next_id: std::sync::atomic::AtomicU64::new(1),
             tag: Mutex::new(CursorTag::default()),
             attached: std::sync::Arc::new(Mutex::new(None)),
+            detached: false,
         }
+    }
+
+    /// The same caller with no presence connection (`session/attach`): its session outlives
+    /// this process, so the element ids one short-lived process (the `cmux computer-use call`
+    /// CLI) was shown still act in the next one with the same session key. The worker ends
+    /// such a session once it has been idle a while (`server/detached.rs`); [`Self::idle`]
+    /// hides its cursor after each call.
+    pub fn detached(mut self) -> Self {
+        self.detached = true;
+        self
+    }
+
+    /// Whether this caller opens a presence connection on its first call.
+    pub fn attaches(&self) -> bool {
+        !self.detached && self.origin.is_none()
     }
 
     /// Opens this session's presence connection to `endpoint` (`session/attach`) unless one is
@@ -493,7 +616,7 @@ impl<D: Daemon> Caller<D> {
     /// worker. Only for this machine's own agent (a relayed call's session is the other
     /// machine's).
     fn attach(&self, endpoint: &Endpoint) {
-        if self.origin.is_some() {
+        if !self.attaches() {
             return;
         }
         let Ok(mut attached) = self.attached.lock() else { return };
@@ -657,6 +780,16 @@ impl<D: Daemon> Caller<D> {
                     "settings": "Settings > Computer Use",
                 })))
             }
+            // So is the app not running: `status` says so at once, with what to open.
+            Err(Outcome::Failed { code, message })
+                if name == "status" && code == DAEMON_NOT_RUNNING =>
+            {
+                Outcome::Output(ToolOutput::ok(json!({
+                    "engine": "cmux Computer Use",
+                    "mode": "not_running",
+                    "reason": message,
+                })))
+            }
             Err(outcome) => outcome,
         }
     }
@@ -678,10 +811,24 @@ impl<D: Daemon> Caller<D> {
         let _ = exchange(&endpoint, &request);
     }
 
+    /// The session's Computer Use is no longer active (`session/idle`): its cursor hides, its
+    /// state (element ids, last looks) stays for its next call. Once, best effort, and only
+    /// when a call reached the worker (no endpoint: nothing to hide).
+    pub fn idle(&self) {
+        let Ok(Some(endpoint)) = self.endpoint.lock().map(|e| e.clone()) else { return };
+        let request = json!({"id": self.id(), "method": "session/idle", "session": self.session});
+        let _ = exchange(&endpoint, &request);
+    }
+
     fn send(&self, request: &Value) -> Result<Value, Outcome> {
         let deadline = Instant::now() + self.budget;
         let mut backoff = FIRST_BACKOFF;
         let mut last = String::new();
+        // `status` reports a daemon that is not running at once; a call gives it a short grace.
+        let is_status = request.get("name").and_then(Value::as_str) == Some("status")
+            || request.get("method").and_then(Value::as_str) == Some("status");
+        let grace = if is_status { Duration::ZERO } else { NOT_RUNNING_GRACE };
+        let mut missing_since: Option<Instant> = None;
         loop {
             let cached = self.endpoint.lock().ok().and_then(|e| e.clone());
             let endpoint = match cached {
@@ -709,16 +856,29 @@ impl<D: Daemon> Caller<D> {
                         }
                     },
                     Err(DaemonError::Refused { code, message }) => {
-                        // A daemon without the command never gets it by waiting.
+                        // A daemon without the command never gets it by waiting. An older
+                        // daemon an update left running was already swapped for the
+                        // installed build once (`daemon_skew.rs`); the message says why not.
                         return Err(Outcome::Failed {
                             code: "computer_use_unavailable".into(),
                             message: format!(
-                                "cmux could not start Computer Use: {message} ({code})"
+                                "cmux could not start Computer Use: {message} ({code})."
                             ),
                         });
                     }
                     Err(e) => {
                         last = e.to_string();
+                        if let Some(why) = self.daemon.not_running() {
+                            let since = *missing_since.get_or_insert_with(Instant::now);
+                            if since.elapsed() >= grace {
+                                return Err(Outcome::Failed {
+                                    code: DAEMON_NOT_RUNNING.into(),
+                                    message: why,
+                                });
+                            }
+                        } else {
+                            missing_since = None;
+                        }
                         None
                     }
                 },
@@ -743,7 +903,7 @@ impl<D: Daemon> Caller<D> {
                 return Err(Outcome::Failed {
                     code: "computer_use_unavailable".into(),
                     message: format!(
-                        "cmux Computer Use did not answer for {} s ({last}). It restarts by itself; try again in a moment, or call status.",
+                        "cmux Computer Use did not answer for {} s ({last}). It restarts by itself; status shows when it is back.",
                         self.budget.as_secs()
                     ),
                 });
@@ -751,6 +911,19 @@ impl<D: Daemon> Caller<D> {
             (self.sleep)(backoff.min(deadline - now));
             backoff = (backoff * 2).min(MAX_BACKOFF);
         }
+    }
+
+    /// The person's other machines a call this Mac refused as locked can run on instead (design
+    /// L3, the "remote" route): reachable now, Computer Use `ready` there, never `except` (the
+    /// machine that just answered locked). Only machines the person already joined to this one,
+    /// over their authenticated link; nothing here unlocks a Mac. Empty for a call another machine
+    /// sent (it runs only here, never one hop further) and when the daemon cannot list them.
+    pub fn routable_machines(&self, except: Option<&str>) -> Vec<String> {
+        if self.origin.is_some() {
+            return Vec::new();
+        }
+        let Ok(data) = self.daemon.machines() else { return Vec::new() };
+        routable_in(&data, except)
     }
 
     /// `list_machines`: this machine's daemon knows the person's machines.
@@ -823,6 +996,19 @@ impl<D: Daemon> Caller<D> {
             backoff = (backoff * 2).min(MAX_BACKOFF);
         }
     }
+}
+
+/// The machine names in a `_acpmux/computer_use_machines` answer that can take a call now.
+pub(crate) fn routable_in(data: &Value, except: Option<&str>) -> Vec<String> {
+    data.get("machines")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|m| m["reachable"].as_bool() == Some(true) && m["computer_use"] == "ready")
+        .filter_map(|m| m["name"].as_str())
+        .filter(|name| Some(*name) != except)
+        .map(str::to_owned)
+        .collect()
 }
 
 #[cfg(test)]

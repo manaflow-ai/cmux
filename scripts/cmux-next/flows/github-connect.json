@@ -1,0 +1,37 @@
+{
+  "name": "github-connect",
+  "title": "A new user connects GitHub, then opens a PR from a Cloud chat (staging)",
+  "vars": {
+    "org": "cmux-cloud-test-org",
+    "repo": "pr-target",
+    "return_scheme": "cmux"
+  },
+  "steps": [
+    { "id": "sign-in", "title": "Sign in to cmux (the staging capture account)", "do": "sign-in", "needs": ["staging-account"] },
+    { "id": "config", "title": "Staging's GitHub App: configured, its slug as the API names it", "do": "github-config", "needs": ["staging-account"] },
+    { "id": "app-page", "title": "GitHub's install page for the staging App (the slug the API named)", "do": "browser-open", "needs": ["staging-account"],
+      "url": "https://github.com/apps/{slug}/installations/new", "expect_url": "github\\.com/(login|apps/)" },
+    { "id": "app-public", "title": "The App's public page answers 200 (a test org can install it)", "do": "github-app-public", "needs": ["staging-account"],
+      "warn_without": "github-test-user" },
+    { "id": "reset", "title": "A new user: the test org's old connection revoked", "do": "github-reset", "needs": ["staging-account"] },
+    { "id": "connect", "title": "Connect GitHub: GitHub's install page opens", "do": "github-connect", "needs": ["staging-account"] },
+    { "id": "github-sign-in", "title": "GitHub: sign in as the test user (password, TOTP)", "do": "github-sign-in",
+      "needs": ["staging-account", "github-test-user"] },
+    { "id": "install", "title": "GitHub: install on the test org, only pr-target", "do": "github-install",
+      "needs": ["staging-account", "github-test-user"] },
+    { "id": "complete", "title": "Back in cmux: the completion link finished", "do": "github-complete",
+      "needs": ["staging-account", "github-test-user"] },
+    { "id": "readback", "title": "cmux shows the repo: connection active, pr-target listed", "do": "github-readback",
+      "needs": ["staging-account", "github-test-user"] },
+    { "id": "chat-pr", "title": "A Cloud chat on the repo makes a branch, a change and a PR", "do": "journey",
+      "needs": ["staging-account", "github-test-user", "claude-login"],
+      "args": ["--skip", "lifecycle,keys"], "env": { "CMUX_JOURNEY_GITHUB_REPO": "{org}/{repo}" },
+      "expect": ["GitHub connection (team status)", "GitHub by the agent (live)"],
+      "extract": { "pr": "agent_pr number (\\d+)" }, "timeout_s": 1800 },
+    { "id": "open-pr", "title": "The PR link opens on GitHub", "do": "browser-open",
+      "needs": ["staging-account", "github-test-user", "claude-login"],
+      "url": "https://github.com/{org}/{repo}/pull/{pr}", "expect_text": "cmux agent e2e" },
+    { "id": "uninstall", "title": "Cleanup: the App off the test org (the next run is a new user)", "do": "github-uninstall",
+      "needs": ["staging-account", "github-test-user"], "cleanup": true }
+  ]
+}

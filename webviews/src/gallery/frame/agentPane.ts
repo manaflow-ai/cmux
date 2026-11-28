@@ -5,14 +5,14 @@
 // app's own snapshot does. The theme goes through `applyTheme` (AgentPaneTheme.swift's values) and
 // the font through `applyCustomization` (the user's agent pane theme.css), the app's own inputs.
 import type { AgentPaneVariant } from "../format";
-import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
 import { installChipHost } from "./chips";
+import { installPaneStrings } from "./paneStrings";
 import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
 import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
 import { prepareMockTransport } from "../../agent-session/acpmux/mockTransport";
 import { setPreviewComposerLook } from "../../agent-session/acpmux/composerLook";
-import { lookDisplay, schemeOf } from "../golden/look";
+import { lookComposerLook, lookDisplay, schemeOf } from "../golden/look";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -44,7 +44,9 @@ function withLook(state: AgentPaneVariant, context: StageContext): AgentPaneVari
   const page = look.schemes[schemeOf(context.env.colorScheme)].surfaces?.agentPane;
   return {
     ...state,
-    composerLook: state.composerLook ?? look.composerLook,
+    // A setup's own agentPane.composerLook, after a registry entry's pick (looks.json).
+    composerLook:
+      state.composerLook ?? look.composerLook ?? (lookComposerLook(look) as AgentPaneVariant["composerLook"]),
     display: { ...lookDisplay(look), ...state.display },
     theme: { ...(page && { pageBackground: page, surfaceBackground: page }), ...state.theme },
     userCSS: [fontCSS, look.themeCSS ?? ""].filter(Boolean).join("\n"),
@@ -53,12 +55,7 @@ function withLook(state: AgentPaneVariant, context: StageContext): AgentPaneVari
 
 export async function mountAgentPane(variant: AgentPaneVariant, context: StageContext): Promise<void> {
   const state = withLook(variant, context);
-  const strings = (await import("../../agent-session/acpmux/generated/strings.json")).default as unknown as Record<
-    string,
-    Record<string, string>
-  >;
-  addPseudoLocales(strings);
-  globalThis.__cmuxPaneStrings = strings as never;
+  await installPaneStrings();
   installChipHost(state.chipHost);
   resetSummaryCards();
   setPreviewComposerLook(state.composerLook);
@@ -143,7 +140,6 @@ export async function mountAgentPane(variant: AgentPaneVariant, context: StageCo
     if (!bridge) return;
     bridge.applyTheme({ ...context.agentTheme, ...state.theme });
     bridge.applyCustomization({ themeCSS: state.userCSS });
-    bridge.applySessionStatus?.(state.sessionStatus === true);
     // The chat's look as the app's `display` push sends it (none: the default look).
     setChatDisplay(state.display ?? {});
     bridge.applyWorkflowLabs?.(state.workflowLabs !== false);
@@ -230,6 +226,9 @@ export async function mountAgentPane(variant: AgentPaneVariant, context: StageCo
   // Mock pages need their daemon before mounting: the ready reply schedules the fixture
   // snapshot, which must not paint while the mock transport's chunk is still loading.
   if (state.ready?.transport === "mock") prepareMockTransport(await import("../../agent-session/acpmux/mock"));
+  // Settings > Advanced > Experiments switches on, as the app's `applyExperiments` push sends them.
+  if (state.experimentSwitches)
+    (await import("../../experiments/switches")).setExperimentSwitches(state.experimentSwitches);
   // Opened before the chat binds: the first chat's own choice (a new pane starts with it closed).
   if (state.sessionInfoOpen)
     (await import("../../agent-session/acpmux/session-info/sessionInfoState")).setSessionInfoOpen(true);
@@ -243,10 +242,8 @@ export async function mountAgentPane(variant: AgentPaneVariant, context: StageCo
       : undefined;
   if (initialChat) {
     const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/paneTheme");
-    const { setSessionStatus } = await import("../../agent-session/acpmux/sessionStatus");
     applyPaneTheme({ ...context.agentTheme, ...state.theme });
     applyPaneThemeCSS(state.userCSS);
-    setSessionStatus(state.sessionStatus === true);
     setChatDisplay(state.display ?? {});
   }
   // mount.tsx imports some pane sheets itself (styles.css, diffTokens.css, composerFooterShared.css,

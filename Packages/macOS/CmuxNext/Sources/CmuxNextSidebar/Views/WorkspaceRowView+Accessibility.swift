@@ -107,15 +107,18 @@ extension WorkspaceRowView {
     /// row reads (`SidebarWorkspace.spokenRowTitle`), nil for the workspace's.
     static func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, tabCount count: Int?,
                                   presence: [SidebarPresence], title: String? = nil) -> String {
-        var parts = [title ?? ws.title]
+        var parts = [content.displayedTitle(title ?? ws.title)]
         let detail = content.now.map(Strings.rowNow) ?? content.detail
         if let detail { parts.append(detail) }
+        if let meta = content.meta { parts.append(meta) }
         // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.
-        if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) }) ?? content.trailingStatus { parts.append(s) }
+        if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) })
+            ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
         if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
         if let rollUp = content.rollUp { parts.append(Strings.rollUp(rollUp)) }
+        if content.subagentsFailed > 0 { parts.append(Strings.subagentsFailed(content.subagentsFailed)) }
         if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         if let count { parts.append(Strings.tabCount(count)) }
         switch ws.unread {
@@ -124,15 +127,14 @@ extension WorkspaceRowView {
         default: break
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
+        if ws.isPinnedInGroup { parts.append(Strings.pinned) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
-        parts += ws.usageWarnings
         // The computer: a one-list row on another computer says it with its status when it cannot connect
         // (`SidebarLayout.machineLabel`, "gpu-box · Failed to start"), whether or not the row draws a mark
         // (with one machine listed it draws none). No line draws it (Leo 2026-10-30: "remove the second
         // line"), and the detail now holds only the facts the person turned on, so it is said on its own,
         // never matched against them: a branch named like the machine is no proof the machine was said
         // (review of #28510 at 4acab8c2).
-        if content.runsInCloud { parts.append(Strings.hoverCloud) }
         if let spoken = content.machineLabel ?? content.machine?.name { parts.append(spoken) }
         parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")

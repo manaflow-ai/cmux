@@ -19,12 +19,10 @@ extension LayoutModel {
     /// without it, as the drop preview shows (`DropPreviewLayout`, #22287).
     public func splitSizingChanges(splitting pane: PaneID, axis: SplitAxis, removing: PaneID? = nil) -> [SplitRatioChange] {
         guard splitSizing == .even, let layout = screen(containing: pane)?.layout else { return [] }
-        let tree: SplitNode? = switch layout {
-        case let .splits(root): root
-        case .columns: layout.column(containing: pane)?.tree(containing: pane)
-        }
-        let pruned = removing.flatMap { $0 == pane ? nil : tree?.removing($0) } ?? tree
-        return pruned.map { EvenSplitRatios.changes(splitting: pane, axis: axis, in: $0) } ?? []
+        struct Request: Encodable { var layout: ScreenLayout, pane: PaneID, axis: SplitAxis, removing: PaneID?, even = true }
+        let reply: EvenSplitRatios.Reply? = LayoutRules.call("layout_model_split_sizing",
+                                                             Request(layout: layout, pane: pane, axis: axis, removing: removing))
+        return reply?.changes ?? []
     }
 
     /// The ratio intents a tab drop that splits `pane` at `zone` sends once its move landed: the
@@ -59,6 +57,19 @@ extension LayoutModel {
             holdSplitRatio(change.split, ratio: change.ratio, transaction: sizing.transaction)
         }
         return sizing
+    }
+
+    /// ``showSplitSizing(_:)`` of splitting `pane` along `axis` (``splitSizingChanges(splitting:axis:removing:)``), nil when
+    /// nothing moves: what a split the caller is about to show holds until ``settleSplitSizing(_:landed:)``.
+    public func showSplitSizing(splitting pane: PaneID, axis: SplitAxis) -> PendingSplitSizing? {
+        let changes = splitSizingChanges(splitting: pane, axis: axis)
+        return changes.isEmpty ? nil : showSplitSizing(changes)
+    }
+
+    /// Ends `sizing`: ``commitSplitSizing(_:)`` once its split `landed`, else ``cancelSplitSizing(_:)``.
+    public func settleSplitSizing(_ sizing: PendingSplitSizing?, landed: Bool) {
+        guard let sizing else { return }
+        if landed { commitSplitSizing(sizing) } else { cancelSplitSizing(sizing) }
     }
 
     /// The split landed: sends the sizing's ratio intents to the daemon, under the transaction

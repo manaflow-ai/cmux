@@ -140,6 +140,7 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
     /// once, never asked for again (tests).
     @ObservationIgnored public private(set) var lostRows = 0
     /// The text a failure shows.
+    // retry-prompt-ok: the line over the list's own Try Again (PagedList's failed edge), which reads the page again when the reader asks
     @ObservationIgnored public var message: (any Error) -> String = { _ in String(localized: "Check your connection and try again.") }
 
     /// At most this many empty pages in a row before the older edge ends.

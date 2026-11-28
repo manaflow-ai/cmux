@@ -28,6 +28,7 @@ beside the code it covers.
 
 from __future__ import annotations
 
+import ast
 import functools
 import json
 import os
@@ -68,7 +69,9 @@ CANDIDATE_WORDS_ANY_CASE = ("big-red", "big_red", "bigred", "big red")
 @functools.lru_cache(maxsize=1)
 def candidate_files() -> tuple[str, ...]:
     found: set[str] = set()
-    for flags, words in ((["-F"], CANDIDATE_WORDS), (["-F", "-i"], CANDIDATE_WORDS_ANY_CASE)):
+    # --cached too: a sparse checkout's left-out files are tracked, and CI's full checkout scans them (read_text).
+    for flags, words in ((["-F"], CANDIDATE_WORDS), (["-F", "-i"], CANDIDATE_WORDS_ANY_CASE),
+                         (["--cached", "-F"], CANDIDATE_WORDS), (["--cached", "-F", "-i"], CANDIDATE_WORDS_ANY_CASE)):
         argv = ["git", "-C", str(ROOT), "grep", "-I", "-l", "-z", *flags]
         for word in words:
             argv += ["-e", word]
@@ -81,6 +84,18 @@ def candidate_files() -> tuple[str, ...]:
 
 def read_text(rel: str) -> str | None:
     path = ROOT / rel
+    if not path.exists() and not path.is_symlink():
+        # A sparse checkout (a lane worktree leaves cmux-next-ios/verify/ out) still tracks the file, and CI's full
+        # checkout reads it: read the index copy, so a local run agrees with CI. #60339 removed 20 allowlist rows
+        # under cmux-next-ios/verify/ as stale from such a checkout, and the feat-cmux-next push went red on them.
+        p = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-s", "--", rel], capture_output=True, text=True)
+        if not p.stdout.startswith("100"):  # a regular file, not a symlink (120000) or a submodule (160000)
+            return None
+        p = subprocess.run(["git", "-C", str(ROOT), "show", f":{rel}"], capture_output=True)
+        try:
+            return p.stdout.decode() if p.returncode == 0 else None
+        except UnicodeDecodeError:
+            return None
     if path.is_symlink() or not path.is_file():
         return None
     try:
@@ -104,8 +119,51 @@ FLEET_SUDO_NAMERS: set[str] = set()
 
 
 def keychain_lines(text: str) -> int:
-    """Keychain reads, whatever service they name."""
-    return len(KEYCHAIN_READ.findall(text))
+    """Secret reads and unknown forms; exact literal service-attributes argv reads no password."""
+    matches = list(KEYCHAIN_READ.finditer(text))
+    if not matches:
+        return 0
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return len(matches)
+    # Accept only a direct argv literal in a subprocess call (including the injected subprocess.run
+    # default used by portable tests), or the test assertion of that literal. A stored/mutated list,
+    # shell string, unknown wrapper, starred options or any extra flags remains a counted read.
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    ignored = []
+    lines = text.splitlines(keepends=True)
+    def offset(node, end=False):
+        line = (node.end_lineno if end else node.lineno) - 1
+        column = node.end_col_offset if end else node.col_offset
+        return sum(len(part) for part in lines[:line]) + len(lines[line].encode()[:column].decode())
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.List, ast.Tuple)) or len(node.elts) != 4:
+            continue
+        first = node.elts[:3]
+        if not all(isinstance(part, ast.Constant) and isinstance(part.value, str) for part in first):
+            continue
+        if (first[0].value not in ("security", "/usr/bin/security")
+                or first[1].value != "find-generic-password" or first[2].value != "-s"
+                or isinstance(node.elts[3], ast.Starred)):
+            continue
+        call = parents.get(node)
+        if not isinstance(call, ast.Call) or node not in call.args:
+            continue
+        name = ast.unparse(call.func)
+        known = name == "subprocess.run" or name == "self.assertEqual"
+        if name == "run":
+            scope = call
+            while scope in parents and not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scope = parents[scope]
+            if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                args = [*scope.args.posonlyargs, *scope.args.args]
+                known = any(arg.arg == "run" and ast.unparse(default) == "subprocess.run"
+                            for arg, default in zip(args[-len(scope.args.defaults):], scope.args.defaults))
+        if known and not any(item.arg is None or item.arg == "shell" for item in call.keywords):
+            ignored.append((offset(first[1]), offset(first[1], True)))
+    return sum(not any(start <= match.start() and match.end() <= end for start, end in ignored)
+               for match in matches)
 
 
 def reads_fleet_sudo(text: str) -> bool:
@@ -220,12 +278,36 @@ def base_allowlist() -> dict | None:
     return json.loads(p.stdout) if p.returncode == 0 else None
 
 
+def base_tree_count(rule: str, rel: str) -> int:
+    """How many lines of `rel` match `rule` at the base commit (0 when the base has no such file)."""
+    p = subprocess.run(["git", "-C", str(ROOT), "show", f"{base_ref()}:{rel}"], capture_output=True)
+    if p.returncode != 0:
+        return 0
+    try:
+        return RULES[rule][0](p.stdout.decode())
+    except UnicodeDecodeError:
+        return 0
+
+
 def grown(base: dict, allow: dict, rule: str) -> list[str]:
     """Entries added or raised since the base allowlist whose reason is not "safe:": debt only shrinks."""
     out = []
     old = base.get(rule, {})
+
+    def debt_in_dir(entries: dict, folder: str) -> int:
+        return sum(e.get("count", 0) for k, e in entries.items()
+                   if os.path.dirname(k) == folder and not str(e.get("reason", "")).startswith("safe:"))
+
     for rel, entry in sorted(allow.get(rule, {}).items()):
         was = old.get(rel, {}).get("count", 0)
+        if entry.get("count", 0) > was:
+            # Debt the base tree already held (an entry a wrong cleanup dropped) is recorded, not grown.
+            was = max(was, base_tree_count(rule, rel))
+        # A test module moved out of its file (foo.rs -> foo_tests.rs) takes its entry along: the folder's debt
+        # did not grow, so the new row is not new debt.
+        if rel.endswith(("_tests.rs", "/tests.rs")) and \
+                debt_in_dir(allow[rule], os.path.dirname(rel)) <= debt_in_dir(old, os.path.dirname(rel)):
+            continue
         if entry.get("count", 0) > was and not str(entry.get("reason", "")).startswith("safe:"):
             out.append(f"{rel}: allowlist {was} -> {entry.get('count')} since the base: debt only shrinks "
                        f"(a genuinely safe new use gets a reason starting with \"safe:\" that says why)")
@@ -300,6 +382,23 @@ class Patterns(unittest.TestCase):
         self.assertEqual(keychain_lines('svc = cfg["service"]\nrun(["security", "find-generic-password", "-s", svc])'), 1)
         self.assertTrue(reads_fleet_sudo('KEYCHAIN_SERVICE = "manaflow-fleet-sudo"\nrun(["security", "find-generic-password"])'))
         self.assertFalse(reads_fleet_sudo('KEYCHAIN_SERVICE = "cmuxterm-circleci"\nrun(["security", "find-generic-password"])'))
+
+    def test_attributes_only_keychain_probe_is_not_a_secret_read(self):
+        vector = '["/usr/bin/security", "find-generic-password", "-s", namespace + ".device-hub"]'
+        for source in ('subprocess.run(' + vector + ', capture_output=True)',
+                       'def probe(run=subprocess.run):\n    run(' + vector + ')',
+                       'self.assertEqual(argv, ' + vector + ')'):
+            self.assertEqual(keychain_lines(source), 0, source)
+        for source in ('subprocess.run(' + vector[:-1] + ', "-w"])',
+                       'subprocess.run(' + vector[:-1] + ', "-g"])',
+                       'subprocess.run(' + vector[:-1] + ', *options])',
+                       'subprocess.run(' + vector + ', shell=True)',
+                       'run(' + vector + ')', 'unknown(' + vector + ')',
+                       'argv=' + vector + '\nargv.append("-w")\nsubprocess.run(argv)',
+                       'subprocess.run(["security", "find-generic-password", "-ws", service])',
+                       'security find-generic-password -s "$service"',
+                       'subprocess.run(' + vector + ')\nkeyring.get_password("service", "account")'):
+            self.assertEqual(keychain_lines(source), 1, source)
 
     def test_pkill_catches_kills_by_name(self):
         for line in ('pkill -f "cmux DEV"', "killall Dock", "sudo pkill -x tccd",

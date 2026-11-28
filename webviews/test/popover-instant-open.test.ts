@@ -211,7 +211,6 @@ const scripts = (dir: string) =>
 /// entrance anywhere under webviews/src fails until it is listed here, so a menu cannot be given
 /// one whatever shape its JSX takes.
 const ENTRANCES: Record<string, { count: number; what: string }> = {
-  "src/agent-session/acpmux/App.tsx": { count: 1, what: "the hand-off error line under the header" },
   "src/agent-session/acpmux/ChatUnavailableState.tsx": {
     count: 3,
     what: "a paused chat's card, its one-line form above a missing chat's kept rows, and its resume spinner into a slot already there (afterDelay.ts)",
@@ -227,11 +226,13 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/MissingChat.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/PeerCopyBanner.tsx": { count: 3, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/WatchBanner.tsx": { count: 1, what: "a banner at the top of the chat" },
+  "src/agent-session/acpmux/autoSession/AutoSessionBanner.tsx": { count: 2, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/conversation/ArtifactPanel.tsx": { count: 1, what: "the artifact side panel" },
   "src/agent-session/acpmux/conversation/PromptCoachCard.tsx": {
     count: 1,
     what: "a prompt coach card arriving under a turn",
   },
+  "src/agent-session/acpmux/pane/PaneBody.tsx": { count: 1, what: "the hand-off error line under the header" },
   "src/agent-session/acpmux/session-info/useSessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
   "src/agent-session/acpmux/session-info/TasksSection.tsx": { count: 1, what: "an arriving task row" },
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
@@ -250,12 +251,16 @@ const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=
 /// keyframes are built.
 const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/VirtualTranscript.tsx": {
-    count: 5,
-    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943); the rows ride the composer field's growth spring",
+    count: 6,
+    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943); the rows ride the composer field's growth spring and slide by the room a change above them took",
   },
   "src/agent-session/acpmux/composer/fieldGrowth.ts": {
     count: 2,
     what: "the composer field grows and shrinks on one spring as a draft gains or loses lines; the field, never a menu",
+  },
+  "src/agent-session/acpmux/composer/composerHandover.ts": {
+    count: 3,
+    what: "a started chat's composer, its card and its field glide from where New Tab's drew to their place at the bottom; the composer, never a menu",
   },
   "src/agent-session/acpmux/chatSwitch.ts": {
     count: 1,
@@ -263,8 +268,27 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   },
   "src/agent-session/acpmux/changes/treeMotionDom.ts": { count: 4, what: "the changes tree's rows move and tint" },
   "src/agent-session/acpmux/changes/treeTitles.ts": { count: 2, what: "a long tree title's marquee" },
-  "src/agent-session/acpmux/conversation/PromptText.tsx": { count: 3, what: "a prompt bubble resizes" },
-  "src/agent-session/acpmux/conversation/fold.ts": { count: 3, what: "a transcript block folds" },
+  "src/agent-session/acpmux/conversation/fold.ts": { count: 2, what: "a transcript block folds" },
+  "src/agent-session/acpmux/conversation/compoundScenarios.tsx": {
+    count: 1,
+    what: "the gallery's compound-motion scenarios grow the composer field",
+  },
+  "src/agent-session/acpmux/conversation/motionTransaction.ts": {
+    count: 1,
+    what: "one motion for the thread when several movers shift its rows at once",
+  },
+  "src/agent-session/acpmux/conversation/unpopMorph.ts": {
+    count: 2,
+    what: "a queued prompt taken back plays its send in reverse into the field",
+  },
+  "src/agent-session/acpmux/header/TopRightLayouts.tsx": {
+    count: 2,
+    what: "the gallery's top-right header layouts: a control's ghost moves to its new place, its row slides",
+  },
+  "src/agent-session/acpmux/newChatEntrance.ts": {
+    count: 1,
+    what: "a new chat's hero, lists and composer rise into place",
+  },
   "src/agent-session/acpmux/conversation/pinnedLiveLine.ts": {
     count: 2,
     what: "the live line let go of its pin plays home, and the rows over it are clipped on the same clock",
@@ -290,14 +314,21 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "a prompt sent while scrolled up arcs over the composer and tucks behind it",
   },
   "src/agent-session/acpmux/conversation/turnEndFold.ts": {
-    count: 1,
+    count: 4,
     what: "a turn's end folds its work in one motion: the rows that stay slide to their place, copies of the rows it took away fade where they were",
   },
   "src/agent-session/acpmux/conversation/tailGlide.ts": {
     count: 2,
     what: "the rows under a change in a running turn (the live line, a steer, the footer) glide to their new place, and the row above one that glides down shows its new part as the room opens (a clip on the same clock); transcript rows, never a menu",
   },
-  "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
+  "src/agent-session/acpmux/conversation/turnFold.ts": {
+    count: 2,
+    what: "a turn folds: the rows that stay move, and copies of the rows it took away fade on the lead",
+  },
+  "src/apps/scene/useSceneMotion.ts": {
+    count: 1,
+    what: "an extension scene node's own `.animation` value changes on a spring or timed curve (js/ABI.md Motion): content the extension author asked for, never app chrome or a menu",
+  },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/session-info/foldMotion.ts": {
     count: 2,
@@ -305,8 +336,8 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
   "src/agent-session/acpmux/subagents/trayMotion.tsx": {
-    count: 2,
-    what: "a status line's width easing as its words slide; the hat's +N more and time gliding to their new place in the row",
+    count: 1,
+    what: "the hat's +N more and time gliding to their new place in the row",
   },
   "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx": { count: 1, what: "the minimap glides" },
   "src/agent-session/acpmux/threadMinimap/scrollMotion.ts": { count: 1, what: "the minimap's scroll bubble" },
@@ -318,9 +349,13 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "a tab bar's or segmented control's highlight travels to the selected item",
   },
   "src/ui/motion/ViewSwap.tsx": { count: 2, what: "a swapped view's content enters, or an accent band sweeps it" },
-  "src/ui/motion/useTextSwap.ts": {
-    count: 4,
-    what: "a running call's words on the Working and activity lines change: the old rise out, the new rise in, the clock slides",
+  "src/ui/motion/TextRoll.tsx": {
+    count: 1,
+    what: "a live one-line label's cell eases its width from the old words' to the new ones' as they roll",
+  },
+  "src/ui/noticeMorph.ts": {
+    count: 1,
+    what: "a toast that changes in place (working, then done) moves its box from the old size to the new; a toast, never a menu",
   },
 };
 

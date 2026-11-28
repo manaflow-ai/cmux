@@ -3,8 +3,10 @@ import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextIcons
+import CmuxNextSidebar
+import CmuxNextPages
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     /// History as a top page (TOP-SECTION-ITEMS-ARE-PAGES Q3).
     static let history = InternalPageID(rawValue: "history")
     /// Bookmarks as a top page (Q3).
@@ -72,4 +74,9 @@ final class BookmarksTopPage: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) { pages.removeValue(forKey: key)?.close() }
+}
+
+nonisolated extension InternalPageID {
+    /// The Forum and the Feed as top pages (`experiments.forum`, `experiments.feed`, off by default).
+    static let forum = InternalPageID(rawValue: "forum"), feed = InternalPageID(rawValue: "feed")
 }

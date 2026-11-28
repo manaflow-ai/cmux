@@ -22,14 +22,16 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
+  source scripts/measure/build-progress.sh
   local out tools report="$PWD/.build/update-idle-e2e/report.tgz"
   mkdir -p "$PWD/.build" || exit 3
   out="$(mktemp -d "$PWD/.build/update-idle-e2e.XXXXXX")" || exit 3
+  trap "rm -rf -- $(printf %q "$out")" EXIT  # the report is copied out first; a failed or killed run leaks nothing
   chmod 0777 "$out"
   local work_dirs=()
   # The harness as of this commit, whatever the sides' trees hold.
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" \
-    && cp scripts/cmux-next/tag_teardown.py "$tools/"  # run.py and idle_e2e.py import it from their parent folder
+    && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/"  # run.py and idle_e2e.py import them from their parent folder
   local base="" head rounds=1 idle=1 control=1 setting=on tag=uide arg rc=0 i side
   head="$(git rev-parse HEAD)"
   local checkout="$head"
@@ -81,7 +83,7 @@ main() {
     run_side head "$i" || rc=1
   done
   git -c advice.detachedHead=false checkout --quiet --detach "$checkout"
-  rm -rf "$out/base" "$out/head" "${work_dirs[@]}"
+  rm -rf "$out/base" "$out/head" ${work_dirs[@]+"${work_dirs[@]}"}
   mkdir -p "$(dirname "$report")" || exit 3
   tar -czf "$out.tgz" -C "$out" . 2>/dev/null && mv "$out.tgz" "$report" || exit 3
   exit "$rc"
@@ -110,10 +112,10 @@ build_app() {
     ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build-$side.log" 2>&1 || { echo "UIE GhosttyKit download failed" >&2; return 3; }
   fi
   # Build the changed rule into the test bundle; the checked-in binary pin may predate it.
-  CMUX_APP_FFI_OUT="$out/ffi-$side" ./scripts/cmux-next/build-app-ffi.sh >>"$out/build-$side.log" 2>&1 \
+  measure_quiet "UIE FFI build $side" "$out/build-$side.log" env CMUX_APP_FFI_OUT="$out/ffi-$side" ./scripts/cmux-next/build-app-ffi.sh \
     || { echo "UIE FFI build $side failed" >&2; return 3; }
-  CMUX_FLEET_BUILD_TAG="$tag" ./scripts/cmux-next/build-acpmux.sh >>"$out/build-$side.log" 2>&1 || { echo "UIE acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links --config bench >>"$out/build-$side.log" 2>&1 \
+  measure_quiet "UIE acpmux build $side" "$out/build-$side.log" env CMUX_FLEET_BUILD_TAG="$tag" ./scripts/cmux-next/build-acpmux.sh || { echo "UIE acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
+  measure_quiet "UIE app build $side" "$out/build-$side.log" env CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links --config bench \
     || { echo "UIE app build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$side.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then

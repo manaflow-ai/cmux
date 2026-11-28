@@ -185,6 +185,7 @@ public struct PagedListLabRoot: View {
                 }
             }
             operation("Banner", "banner") { banner.toggle() }
+            // retry-prompt-ok: a DEBUG lab control the list tests tap to read the first page again, not a failure prompt
             operation("Reload", "reload") { Task { await model.loadFirst() } }
         }
         .padding(.horizontal, 8)

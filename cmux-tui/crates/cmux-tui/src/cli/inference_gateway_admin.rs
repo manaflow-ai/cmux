@@ -2,8 +2,11 @@
 //!
 //! - `cmux inference gateway status [--personal]`: the team's (or the person's own) gateway: mode, named machine,
 //!   whether a gateway is online, its kind and since when (`GET /v1/cloud/inference-gateway[/personal]`).
-//! - `cmux inference gateway mode gateway|off [--personal] [--gateway-machine vm_… | --no-gateway-machine]`: sets it
-//!   (`PUT`). The person's own gateway serves every machine they created, in any team; the team's serves the team.
+//! - `cmux inference gateway mode gateway|off|joined [--personal] [--gateway-machine vm_…|machine_<uuid> |
+//!   --no-gateway-machine]`: sets it (`PUT`). The person's own gateway serves every machine they created, in any team;
+//!   the team's serves the team. `joined` serves only the team's hub-joined machines (`acpmux machine join`, their
+//!   `cmm_` credential): its Cloud machines get no edge rule, as in `off`. A joined machine named as the gateway
+//!   machine (`machine_<uuid>`) holds the socket with its own credential (`cmux inference gateway --token-command`).
 //! - `cmux inference route --machine vm_… [--agent claude|codex]`: which route that machine's next model call takes,
 //!   asked FROM the machine through its edge (`GET https://coderouter.cmux.internal/v1/cmux/route`), so it proves the
 //!   edge rule too. No model call is made and nothing secret is printed.
@@ -17,7 +20,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::cloud_client_session::secure_origin;
-use super::inference_gateway::{TokenSource, backend_token};
+use super::inference_gateway::{TokenSource, backend_credential};
 use cmux_cloud_api::machine_io::{Op, Request, RouteChoice, perform};
 use cmux_cloud_api::session::valid_machine;
 
@@ -34,14 +37,16 @@ own `cmux inference gateway --personal`), team_gateway (the team's gateway), sha
 edge does not reach the gateway service: the team and the owner have no gateway or key on).
 ";
 pub(super) const ADMIN_HELP: &str = "\
-  cmux inference gateway status [--personal] [--json]
-  cmux inference gateway mode gateway|off [--personal]
-                         [--gateway-machine vm_... | --no-gateway-machine] [--json]
+  cmux inference gateway status [--personal] [--token-stdin] [--json]
+  cmux inference gateway mode gateway|off|joined [--personal]
+                         [--gateway-machine vm_...|machine_<uuid> | --no-gateway-machine] [--json]
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Common {
-    pub api: String,
+    /// The cmux API origin; `None` when nothing names one and the token is the app's: the API that issued the app's
+    /// token (`cmux auth token --json`'s `api_origin`), as the app runs `inference gateway status` with no `--api`.
+    pub api: Option<String>,
     pub team: Option<String>,
     pub token: TokenSource,
 }
@@ -93,33 +98,47 @@ pub(super) fn parse(
             "--team" => team = Some(value()?),
             "--token-file" => token = Some(TokenSource::File(value()?.into())),
             "--token-command" => token = Some(TokenSource::Command(value()?)),
+            "--token-stdin" if inline.is_none() => token = Some(TokenSource::Stdin),
             "--personal" if kind != "route" => personal = true,
             "--machine" if kind == "route" => machine = Some(value()?),
             "--agent" if kind == "route" => agent = Some(value()?),
             "--gateway-machine" if kind == "mode" => gateway_machine = Some(Some(value()?)),
             "--no-gateway-machine" if kind == "mode" => gateway_machine = Some(None),
-            "gateway" | "off" if kind == "mode" && mode.is_none() => mode = Some(arg.clone()),
+            "gateway" | "off" | "joined" if kind == "mode" && mode.is_none() => {
+                mode = Some(arg.clone());
+            }
             _ => return Err(format!("unexpected argument {arg}")),
         }
     }
-    let api = api
-        .or_else(|| env("CMUX_CLOUD_API_URL"))
-        .ok_or("--api (or CMUX_CLOUD_API_URL) names the cmux API")?;
-    let api = secure_origin(&api)?;
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
+    // The app runs these with its own environment, which names no API (hq#15762): the app's token says which.
+    let api = match api.or_else(|| env("CMUX_CLOUD_API_URL")) {
+        Some(api) => Some(secure_origin(&api)?),
+        // The held token on stdin is the app's own (`--token-stdin`): its JSON names the API that issued it.
+        None if token == TokenSource::App || token == TokenSource::Stdin => None,
+        None => return Err("--api (or CMUX_CLOUD_API_URL) names the cmux API".into()),
+    };
     let verb = match kind {
         "status" => Verb::Status { personal },
         "mode" => {
             if let Some(Some(m)) = &gateway_machine
                 && !valid_machine(m)
+                && !joined_machine(m)
             {
-                return Err("--gateway-machine takes a machine id (vm_...)".into());
+                return Err(
+                    "--gateway-machine takes a machine id (vm_..., or a joined machine's machine_<uuid>)"
+                        .into(),
+                );
             }
             Verb::Mode {
                 personal,
-                mode: mode.ok_or("mode takes gateway or off")?,
+                mode: mode.ok_or("mode takes gateway, off or joined")?,
                 machine: gateway_machine,
             }
         }
@@ -138,18 +157,44 @@ pub(super) fn parse(
     Ok((Common { api, team, token }, verb))
 }
 
+/// A hub-joined machine's id, as the join registry names it: `machine_` and a lowercase UUID.
+pub(super) fn joined_machine(id: &str) -> bool {
+    let Some(uuid) = id.strip_prefix("machine_") else { return false };
+    let groups: Vec<&str> = uuid.split('-').collect();
+    groups.iter().map(|g| g.len()).eq([8, 4, 4, 4, 12])
+        && groups
+            .iter()
+            .all(|g| g.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+}
+
 /// The admin path for `personal`.
 pub(super) fn route_path(personal: bool) -> &'static str {
     if personal { "/v1/cloud/inference-gateway/personal" } else { "/v1/cloud/inference-gateway" }
 }
 
+/// The API a verb asks: the one named (`--api`, `CMUX_CLOUD_API_URL`), else the one that issued the app's token.
+pub(super) fn api_origin(named: Option<&str>, issued_by: Option<&str>) -> Result<String, String> {
+    match (named, issued_by) {
+        (Some(api), _) => Ok(api.to_owned()),
+        (None, Some(issued)) => secure_origin(issued),
+        (None, None) => {
+            Err("--api (or CMUX_CLOUD_API_URL) names the cmux API; the app's token named none"
+                .into())
+        }
+    }
+}
+
 /// The verb's JSON answer and exit code (0 ok, 1 refused or failed).
 pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
-    let token = match backend_token(&common.token, common.team.as_deref()).await {
+    let (token, issued_by) = match backend_credential(&common.token, common.team.as_deref()).await {
         Ok(t) => t,
         Err(e) => return (error_json("auth.no_token", &e), 1),
     };
-    let http = match reqwest::Client::builder()
+    let api = match api_origin(common.api.as_deref(), issued_by.as_deref()) {
+        Ok(api) => api,
+        Err(e) => return (error_json("cli.invalid_args", &e), 2),
+    };
+    let http = match cmux_egress::client_builder("cmux_tui::cli::inference_gateway_admin")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))
@@ -160,7 +205,7 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
     };
     let answer = match verb {
         Verb::Status { personal } | Verb::Mode { personal, .. } => {
-            let url = format!("{}{}", common.api, route_path(*personal));
+            let url = format!("{}{}", api, route_path(*personal));
             let mut request = match verb {
                 Verb::Mode { mode, machine, .. } => {
                     let mut body = serde_json::Map::new();
@@ -189,17 +234,27 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
                 },
             }
         }
-        Verb::Route { machine, agent } => route(&http, common, &token, machine, agent).await,
+        Verb::Route { machine, agent } => route(&http, &api, common, &token, machine, agent).await,
     };
     let ok = answer.get("ok").and_then(Value::as_bool) == Some(true);
     (answer, if ok { 0 } else { 1 })
 }
 
-/// The status or mode answer, scoped: `{ok, scope, gateway}` or the API's error object.
+/// The agents a gateway in mode `gateway` that is online serves now: Claude and Codex (the agents the edge routes
+/// through it, `cmux inference route`'s `team_gateway` / `owner_gateway`); none for any other state. `joined` serves
+/// none here: it takes only hub-joined machines' calls, never a Cloud chat's.
+pub(super) const GATEWAY_SERVES: [&str; 2] = ["claude", "codex"];
+
+/// The status or mode answer, scoped: `{ok, scope, gateway, serves}` or the API's error object. `serves` is what the
+/// app's Cloud start gate counts (CmuxNextCloud `CloudSetup`, hq#15762): a team in gateway mode whose gateway is
+/// online serves its members' Cloud chats with no connection of their own.
 pub(super) fn status_answer(personal: bool, body: &Value) -> Value {
     match body.get("gateway") {
         Some(gateway) if body.get("ok").and_then(Value::as_bool) == Some(true) => {
-            json!({"ok": true, "scope": if personal { "personal" } else { "team" }, "gateway": gateway})
+            let up = gateway.get("mode").and_then(Value::as_str) == Some("gateway")
+                && gateway.get("online").and_then(Value::as_bool) == Some(true);
+            let serves: &[&str] = if up { &GATEWAY_SERVES } else { &[] };
+            json!({"ok": true, "scope": if personal { "personal" } else { "team" }, "gateway": gateway, "serves": serves})
         }
         _ => api_error(body),
     }
@@ -246,13 +301,14 @@ pub(super) fn probe_answer(machine: &str, agent: &str, stdout: &str) -> Value {
 
 async fn route(
     http: &reqwest::Client,
+    api: &str,
     common: &Common,
     token: &str,
     machine: &str,
     agent: &str,
 ) -> Value {
     let request = Request {
-        api: common.api.clone(),
+        api: api.to_owned(),
         credential: token.to_owned(),
         team: common.team.clone(),
         machine: machine.to_owned(),
@@ -371,7 +427,7 @@ pub(super) fn app_route(
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Option<(String, String)> {
     let direct = ["--api", "--team", "--token-file", "--token-command"];
-    if env("CMUX_CLOUD_ACCESS_TOKEN").is_some()
+    if super::api_tokens::env_credential(env).is_some()
         || words.iter().any(|w| direct.iter().any(|d| w == d || w.starts_with(&format!("{d}="))))
     {
         return None;
@@ -430,135 +486,5 @@ pub(super) fn run_words(words: &[String], json_out: bool) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn words(list: &[&str]) -> Vec<String> {
-        list.iter().map(|s| (*s).to_owned()).collect()
-    }
-    fn env(k: &str) -> Option<String> {
-        (k == "CMUX_CLOUD_API_URL").then(|| "https://api.cmux.test".to_owned())
-    }
-
-    /// `inference route --machine` with no API flags goes through the app (as `vm exec`); any direct flag keeps the API path.
-    #[test]
-    fn a_route_without_api_flags_goes_through_the_app() {
-        let none = |_: &str| None;
-        let machine = "vm_abcdefghij0123456789";
-        assert_eq!(
-            app_route(&words(&["route", "--machine", machine, "--agent", "claude"]), &none),
-            Some((machine.to_owned(), "claude".to_owned()))
-        );
-        assert_eq!(
-            app_route(&words(&["route", "--machine", machine, "--api", "https://a.test"]), &none),
-            None
-        );
-        assert_eq!(
-            app_route(&words(&["route", "--machine", machine, "--token-file=/t"]), &none),
-            None
-        );
-        let token = |k: &str| (k == "CMUX_CLOUD_ACCESS_TOKEN").then(|| "t".to_owned());
-        assert_eq!(app_route(&words(&["route", "--machine", machine]), &token), None);
-        assert_eq!(app_route(&words(&["route", "--machine", "nope"]), &none), None);
-    }
-
-    /// The app's exec answer reads like the API's: the route from stdout, or the exec's failure.
-    #[test]
-    fn the_apps_exec_answer_is_the_route() {
-        let routed = app_route_answer(
-            "vm_a",
-            "codex",
-            Ok(json!({"stdout": "{\"ok\":true,\"route\":\"team_key\"}\n200", "exit_code": 0})),
-        );
-        assert_eq!(routed["route"], "team_key");
-        let shared = app_route_answer(
-            "vm_a",
-            "codex",
-            Ok(json!({"stdout": "not found\n404", "exit_code": 0})),
-        );
-        assert_eq!(shared["route"], "shared_coderouter");
-        let failed = app_route_answer(
-            "vm_a",
-            "codex",
-            Err(json!({"code": "unavailable", "message": "vm_a is paused"})),
-        );
-        assert_eq!(failed["error"]["code"], "machine.exec_failed");
-        assert!(failed["error"]["message"].as_str().unwrap().contains("vm_a is paused"));
-    }
-
-    #[test]
-    fn parses_status_mode_and_route() {
-        let (c, v) = parse(&words(&["status", "--personal"]), &env).unwrap();
-        assert_eq!(c.api, "https://api.cmux.test");
-        assert_eq!(v, Verb::Status { personal: true });
-        let (_, v) = parse(
-            &words(&["mode", "gateway", "--gateway-machine", "vm_abcdefghij0123456789"]),
-            &env,
-        )
-        .unwrap();
-        assert_eq!(
-            v,
-            Verb::Mode {
-                personal: false,
-                mode: "gateway".into(),
-                machine: Some(Some("vm_abcdefghij0123456789".into()))
-            }
-        );
-        let (_, v) =
-            parse(&words(&["mode", "off", "--no-gateway-machine", "--personal"]), &env).unwrap();
-        assert_eq!(v, Verb::Mode { personal: true, mode: "off".into(), machine: Some(None) });
-        let (_, v) = parse(
-            &words(&["route", "--machine", "vm_abcdefghij0123456789", "--agent", "claude"]),
-            &env,
-        )
-        .unwrap();
-        assert_eq!(
-            v,
-            Verb::Route { machine: "vm_abcdefghij0123456789".into(), agent: "claude".into() }
-        );
-        assert!(parse(&words(&["mode"]), &env).is_err());
-        assert!(parse(&words(&["mode", "on"]), &env).is_err());
-        assert!(parse(&words(&["route", "--machine", "nope"]), &env).is_err());
-        assert!(
-            parse(
-                &words(&["route", "--machine", "vm_abcdefghij0123456789", "--agent", "gemini"]),
-                &env
-            )
-            .is_err()
-        );
-        assert!(parse(&words(&["status", "--machine", "vm_abcdefghij0123456789"]), &env).is_err());
-    }
-
-    #[test]
-    fn scopes_the_status_and_keeps_api_error_codes() {
-        let ok = json!({"ok": true, "gateway": {"mode": "gateway", "online": true}});
-        assert_eq!(
-            status_answer(true, &ok),
-            json!({"ok": true, "scope": "personal", "gateway": {"mode": "gateway", "online": true}})
-        );
-        let refused = json!({"ok": false, "error": {"code": "auth.forbidden", "message": "no"}});
-        assert_eq!(status_answer(false, &refused), error_json("auth.forbidden", "no"));
-        assert_eq!(route_path(true), "/v1/cloud/inference-gateway/personal");
-    }
-
-    #[test]
-    fn reads_the_machine_probe() {
-        let body = r#"{"ok":true,"route":"owner_gateway","agent":"claude"}"#;
-        assert_eq!(
-            probe_answer("vm_x", "claude", &format!("{body}\n200"))["route"],
-            "owner_gateway"
-        );
-        assert_eq!(probe_answer("vm_x", "codex", "not found\n404")["route"], "shared_coderouter");
-        assert_eq!(
-            probe_answer("vm_x", "codex", "\n000")["error"]["code"],
-            "machine.edge_unreachable"
-        );
-        let err = r#"{"error":{"code":"inference.keys_unreachable","message":"retry"}}"#;
-        assert_eq!(
-            probe_answer("vm_x", "codex", &format!("{err}\n503"))["error"]["code"],
-            "inference.keys_unreachable"
-        );
-        assert!(probe_command("claude").ends_with("/v1/cmux/route?agent=claude'"));
-        assert!(!probe_command("claude").contains("x-cmux-inference-authorization"));
-    }
-}
+#[path = "inference_gateway_admin_tests.rs"]
+mod tests;

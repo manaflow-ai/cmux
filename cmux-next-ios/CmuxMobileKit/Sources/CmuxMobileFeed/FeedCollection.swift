@@ -18,6 +18,8 @@ final class FeedListControl {
     var newAbove = 0
     /// A jump to the top (the pill's) is under way: the pill stays until it lands.
     var jumpingToTop = false
+    /// The stacks shown open (`FeedStacks`), by their newest event's id. Folded is the default.
+    @ObservationIgnored var expandedStacks: Set<String> = []
     @ObservationIgnored fileprivate weak var controller: FeedListController?
 
     func scrollToTop(animated: Bool = true) { controller?.scrollToTop(animated: animated) }
@@ -29,11 +31,14 @@ final class FeedListControl {
 
 /// The Feed's list (verify/feed-perf-20261022.md): a `UITableView` whose
 /// rows are UIKit views only (`FeedRowCell`), with a diffable data source
-/// keyed by event id. Each row's layout (`FeedRowLayout`) is computed off
-/// the main thread, kept until its event or row state changes, and gives the
-/// table exact heights, so scrolling a row in costs placing reused views and
-/// nothing else. A table (not a collection view with its own layout) so the
-/// rows get UIKit's own trailing swipe actions (`UIContextualAction`): the
+/// keyed by event id. Work follows the screen, not the list: the table holds an
+/// estimate for every row and asks the height of the rows it shows; a row's
+/// layout (`FeedRowLayout`) is computed when the row comes near the screen
+/// (UIKit's prefetch, about a screen ahead, off the main thread), kept until its
+/// event, row state or width changes, and gives that row its exact height, so
+/// scrolling a row in costs placing reused views and nothing else. A width
+/// change lays out the rows on screen again, once; the rest when they come in.
+/// A table (not a collection view with its own layout) so the rows get UIKit's own trailing swipe actions (`UIContextualAction`): the
 /// system slide, full swipe, haptic and VoiceOver actions, as in Mail. The SwiftUI rows it replaced
 /// built and measured a full view tree for each row that scrolled in, 14 to
 /// 20 ms of main-thread work each.
@@ -59,6 +64,13 @@ struct FeedCollection: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: FeedCollectionController, context: Context) {
         context.coordinator.update(items: items, header: header, signature: headerSignature, headerContent: headerContent)
+        // Room under the last row for the New Task button that floats over the list's bottom.
+        let bottomRoom = context.environment.cmuxMobileFloatingBottomRoom
+        let list = controller.collection
+        if list.contentInset.bottom != bottomRoom {
+            list.contentInset.bottom = bottomRoom
+            list.verticalScrollIndicatorInsets.bottom = bottomRoom
+        }
     }
 }
 
@@ -104,11 +116,16 @@ final class FeedCollectionView: UITableView {
 }
 
 @MainActor
-final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelegate {
+final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSourcePrefetching, FeedRowCellDelegate {
     enum Section: Hashable { case header, events }
     static let headerID = "feed.header"
+    /// The most rows that travel at once when asks leave or join the pinned group; more is a rebuild.
+    static let pinnedMoveLimit = 4
     /// How many rows before the end the next page of spilled events is read.
     static let loadOlderLead = 30
+    /// A row's height before it is laid out (a one- or two-line event): the table sums estimates
+    /// for the rows it has not shown instead of asking every row's height up front.
+    static let estimatedRowHeight: CGFloat = 140
 
     let context: FeedRowContext
     let swipe: FeedSwipeCoordinator
@@ -127,8 +144,17 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var shownSet: Set<String> = []
     /// Each shown row's height (its shown layout's), so a commit reads no layout it did not change.
     private var shownHeights: [String: CGFloat] = [:]
+    /// How many of the first shown rows are the pinned group (open asks, the whole Feed only).
+    private var shownPinned = 0
     /// The latest events from the store, applied once per run-loop turn.
     private var pending: [FeedItem]?
+    /// The store's events as last given (before stacking): a fold line's tap stacks them again.
+    private var latest: [FeedItem] = []
+    /// The stacks among `latest` (`FeedStacks`): each fold line by its row id, and the stacks' newest events.
+    private var folds: [String: FeedFold] = [:]
+    private var stackHeads: Set<String> = []
+    /// The next commit is a fold line's toggle: its rows come and go with the table's own row animation.
+    private var animatesNextCommit = false
     private var applyScheduled = false
     /// Layouts computed off the main thread, one batch at a time.
     private let queue = DispatchQueue(label: "dev.cmux.mobile.feed-layout", qos: .userInitiated)
@@ -151,6 +177,16 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var everShown: Set<String> = []
     /// Snapshots applied (tests and the rig read it).
     private(set) var applyCount = 0
+    /// Event rows whose height the table asked for (`heightForRowAt`).
+    private(set) var heightQueries = 0
+    /// Row layouts built (`FeedRowLayout.make`), on the main thread or off it.
+    private(set) var rowsLaidOut = 0
+    /// Event rows handed to a snapshot's `reconfigureItems`.
+    private(set) var rowsReconfigured = 0
+    /// Event cells the cell provider bound to a layout.
+    private(set) var cellsConfigured = 0
+    /// A snapshot or a layout batch is still on its way (tests wait for it).
+    var hasPendingWork: Bool { applyScheduled || batchInFlight }
 
     init(context: FeedRowContext, swipe: FeedSwipeCoordinator, control: FeedListControl) {
         self.context = context
@@ -177,15 +213,18 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         view.allowsSelection = false
         view.cellLayoutMarginsFollowReadableWidth = false
         view.sectionHeaderTopPadding = 0
-        // Exact heights from the row layouts, never estimates: the table sums them as the old layout did.
-        view.estimatedRowHeight = 0
+        // An estimate for rows not shown yet; a shown row's height is its layout's (heightForRowAt).
+        // With no estimate (0) the table asked every row's height on each load and height change.
+        view.estimatedRowHeight = Self.estimatedRowHeight
         view.estimatedSectionHeaderHeight = 0
         view.estimatedSectionFooterHeight = 0
         view.sectionHeaderHeight = 0
         view.sectionFooterHeight = 0
         view.delegate = self
+        view.prefetchDataSource = self
         view.register(UITableViewCell.self, forCellReuseIdentifier: Self.headerID)
         view.register(FeedRowCell.self, forCellReuseIdentifier: FeedRowCell.reuseID)
+        view.register(FeedFoldCell.self, forCellReuseIdentifier: FeedFoldCell.reuseID)
         let refresh = UIRefreshControl()
         refresh.addAction(UIAction { [weak self, weak refresh] _ in
             Task { @MainActor in
@@ -208,10 +247,19 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                     if let self { cell.contentConfiguration = UIHostingConfiguration { self.header }.margins(.all, 0) }
                     return cell
                 }
+                if FeedStacks.isFold(id) {
+                    let cell = tableView.dequeueReusableCell(withIdentifier: FeedFoldCell.reuseID, for: indexPath)
+                    guard let self, let fold = cell as? FeedFoldCell, let layout = self.layout(for: id) else { return cell }
+                    fold.onToggle = { [weak self] id in self?.toggleStack(fold: id) }
+                    fold.apply(layout)
+                    return fold
+                }
                 let cell = tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID, for: indexPath)
                 guard let self, let row = cell as? FeedRowCell, let layout = self.layout(for: id) else { return cell }
                 row.delegate = self
+                self.cellsConfigured += 1
                 row.apply(layout, item: self.items[id], settled: self.rowsSettled)
+                row.leadsStack = self.stackHeads.contains(id)
                 return row
             }
         }
@@ -270,13 +318,42 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         }
         // The diffable source refuses a repeated id: keep the first (the store's order is newest first).
         var seen = Set<String>()
-        pending = next.filter { seen.insert($0.id).inserted }
+        latest = next.filter { seen.insert($0.id).inserted }
+        stack()
         guard !applyScheduled else { return }
         applyScheduled = true
         // Every write of this run-loop turn (a burst from the Mac) becomes one snapshot.
         RunLoop.main.perform(inModes: [.common]) { [weak self] in
             MainActor.assumeIsolated { self?.applyPending() }
         }
+    }
+
+    /// Folds each chat's run of events in `latest` into its newest event and a fold line; the result is `pending`.
+    private func stack() {
+        // A row whose reply is being written, or could not be sent, is never folded away.
+        let open = Set(states.lazy.filter { $0.value.replying || $0.value.replyFailure != nil }.map(\.key))
+        let stacks = FeedStacks(latest, expanded: &control.expandedStacks, open: open)
+        folds = stacks.folds
+        stackHeads = stacks.heads
+        // A folded event is known, not new: showing it later (the stack opened) never counts for the "N new" pill.
+        everShown.formUnion(stacks.hidden)
+        pending = stacks.rows
+    }
+
+    /// A fold line was tapped: its stack's older events show under it, or fold away again.
+    private func toggleStack(fold id: String) {
+        guard let head = FeedStacks.head(ofFold: id) else { return }
+        setStack(head: head, expanded: !control.expandedStacks.contains(head))
+        CmuxMobileTheme.standard.haptics.selectionChanged()
+    }
+
+    func setStack(head: String, expanded: Bool) {
+        guard stackHeads.contains(head), control.expandedStacks.contains(head) != expanded else { return }
+        if expanded { control.expandedStacks.insert(head) } else { control.expandedStacks.remove(head) }
+        stack()
+        animatesNextCommit = true
+        applyScheduled = true
+        applyPending()
     }
 
     private func measureHeader() {
@@ -310,7 +387,13 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         var laidOut = item
         laidOut.isRead = false
         laidOut.createdAt = .distantPast
-        return FeedRowKey(item: laidOut, state: states[item.id] ?? FeedRowState(), width: Int(width.rounded()), textSize: textSize)
+        return FeedRowKey(item: laidOut, state: state(for: item.id), width: Int(width.rounded()), textSize: textSize)
+    }
+
+    /// The row's state as its layout reads it: the person's, or for a fold line its stack's count and whether it is open.
+    private func state(for id: String) -> FeedRowState {
+        if let fold = folds[id] { return FeedRowState(fold: fold) }
+        return states[id] ?? FeedRowState()
     }
 
     private var styles: NativeTextStyles { NativeTextStyles(category: UIContentSizeCategory(rawValue: textSize)) }
@@ -318,8 +401,13 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func layout(for id: String) -> FeedRowLayout? {
         guard let item = items[id] else { return nil }
         let key = key(for: item)
-        let styles = styles, scale = scale
-        return layouts.value(for: key) { FeedRowLayout.make(key, styles: styles, scale: scale) }
+        return layouts.value(for: key) { makeLayout(key) }
+    }
+
+    /// Builds one row's layout on the main thread.
+    private func makeLayout(_ key: FeedRowKey) -> FeedRowLayout {
+        rowsLaidOut += 1
+        return FeedRowLayout.make(key, styles: styles, scale: scale)
     }
 
     private func applyPending() {
@@ -351,42 +439,55 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let widthKey = Int(width.rounded()), size = textSize
         let keys: [(String, FeedRowKey)] = next.map { item in
             if !relayingOut, let shown = shownKeys[item.id], let old = items[item.id], shown.width == widthKey, shown.textSize == size,
-               shown.state == (states[item.id] ?? FeedRowState()), old == item {
+               shown.state == state(for: item.id), old == item {
                 unchanged.insert(item.id)
                 return (item.id, shown)
             }
             return (item.id, key(for: item))
         }
-        let missing = keys.filter { !unchanged.contains($0.0) && layouts.cached($0.1) == nil }.map(\.1)
         if relayingOut {
-            // A width or text size change: wait until every row is laid out again, then reconfigure them all.
-            if !missing.isEmpty { computeInBackground(missing); return }
+            // A width or text size change: the rows on screen are laid out again here, once, and
+            // reconfigured; every other row when it scrolls in (heightForRowAt, prefetch).
             relayingOut = false
-            commit(next, keys: keys, reconfigureAll: true)
+            let mounted = mountedIDs()
+            for (id, key) in keys where mounted.contains(id) && layouts.cached(key) == nil { layouts.store(makeLayout(key), for: key) }
+            commit(next, keys: keys, relayout: mounted)
             return
         }
-        // Rows are laid out off the main thread; the list shows the change once its rows are ready.
-        // Only the first screen of a new Feed is laid out here.
-        if !missing.isEmpty {
-            if shownOrder.isEmpty {
-                // The first screen at once; the rest follow.
-                let styles = styles, scale = scale
-                for key in missing.prefix(10) { layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key) }
-            }
-            let still = keys.filter { !unchanged.contains($0.0) && layouts.cached($0.1) == nil }.map(\.1)
-            if !still.isEmpty { computeInBackground(still) }
-            // Show what is ready only when nothing is shown yet; otherwise wait for the batch.
-            guard shownOrder.isEmpty || still.isEmpty else { return }
-            let ready = Set(keys.filter { unchanged.contains($0.0) || layouts.cached($0.1) != nil }.map(\.0))
-            commit(next.filter { ready.contains($0.id) }, keys: keys.filter { ready.contains($0.0) }, unchanged: unchanged)
-            return
+        // Changed rows near the screen (one screen above and below) are laid out off the main thread
+        // before the change shows; rows further away when they come in. A first load shows at once:
+        // the table asks the heights of the rows it shows, and those are laid out then.
+        if !shownOrder.isEmpty {
+            let near = nearIDs(next)
+            let missing = keys.filter { !unchanged.contains($0.0) && near.contains($0.0) && layouts.cached($0.1) == nil }.map(\.1)
+            if !missing.isEmpty { computeInBackground(missing); return }
         }
         commit(next, keys: keys, unchanged: unchanged)
+    }
+
+    /// The event rows the table shows now (it keeps cells for these only).
+    private func mountedIDs() -> Set<String> {
+        guard let collectionView, let dataSource else { return [] }
+        return Set((collectionView.indexPathsForVisibleRows ?? []).filter { $0.section == 1 }.compactMap { dataSource.itemIdentifier(for: $0) })
+    }
+
+    /// The rows on screen and one screen above and below them, read at their places in `next` and in
+    /// the shown order (a row inserted above shifts the places; the shown order still names the rows on screen).
+    private func nearIDs(_ next: [FeedItem]) -> Set<String> {
+        let rows = (collectionView?.indexPathsForVisibleRows ?? []).filter { $0.section == 1 }.map(\.row)
+        guard let first = rows.min(), let last = rows.max() else { return [] }
+        let span = last - first + 1
+        let low = max(0, first - span), high = last + span
+        var near = Set<String>()
+        if low < next.count { for item in next[low ..< min(next.count, high + 1)] { near.insert(item.id) } }
+        if low < shownOrder.count { near.formUnion(shownOrder[low ..< min(shownOrder.count, high + 1)]) }
+        return near
     }
 
     private func computeInBackground(_ keys: [FeedRowKey]) {
         guard !batchInFlight else { return }
         batchInFlight = true
+        rowsLaidOut += keys.count
         let styles = styles, scale = scale
         queue.async { [weak self] in
             let built = keys.map { FeedRowLayout.make($0, styles: styles, scale: scale) }
@@ -408,14 +509,15 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     /// Applies `next` to the list: a new snapshot when the order changed, else a reconfigure of
     /// the rows whose layout key changed, keeping the row under the reader's eyes in place.
-    private func commit(_ next: [FeedItem], keys: [(String, FeedRowKey)], reconfigureAll: Bool = false, unchanged: Set<String> = []) {
+    /// `mounted`: a relayout (width or text size); only these rows (on screen) are reconfigured.
+    private func commit(_ next: [FeedItem], keys: [(String, FeedRowKey)], relayout mounted: Set<String>? = nil, unchanged: Set<String> = []) {
         #if DEBUG
         let t0 = CACurrentMediaTime()
         defer { FeedCellTiming.log("commit n=\(next.count)", t0) }
         #endif
         guard let dataSource, let collectionView else { return }
         var plan = FeedListPlan(oldOrder: shownOrder, shown: shownKeys, new: keys, unchanged: unchanged)
-        if reconfigureAll { plan.reconfigure = keys.map(\.0).filter { shownKeys[$0] != nil } }
+        if let mounted { plan.reconfigure = plan.reconfigure.filter { mounted.contains($0) } }
         for item in next where !unchanged.contains(item.id) { items[item.id] = item }
         // Read flags change no layout: those rows redraw their dot and actions in place.
         let reconfiguring = Set(plan.reconfigure)
@@ -424,27 +526,46 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             if !reconfiguring.contains(item.id), let was = previousRead[item.id], was != item.isRead { redraw.append(item.id) }
             previousRead[item.id] = item.isRead
         }
-        defer { for id in redraw { if let item = items[id] { cell(id)?.redraw(item) } } }
-        guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
+        defer {
+            for id in redraw { if let item = items[id] { cell(id)?.redraw(item) } }
+            // A row that now leads a stack (or no longer does) hides or shows its divider in place.
+            for cell in visibleCells { if let id = cell.layout?.key.item.id { cell.leadsStack = stackHeads.contains(id) } }
+        }
+        let animated = animatesNextCommit && !UIAccessibility.isReduceMotionEnabled && mounted == nil
+        animatesNextCommit = false
+        // The pinned group (open asks first, the whole Feed only): an ask leaving or joining it moves its row.
+        let pinned = FeedPinnedGroup.count(next, filter: store.filter)
+        let wasPinned = shownPinned
+        guard !plan.isEmpty || mounted != nil || pinned != wasPinned || dataSource.snapshot().numberOfSections == 0 else { return }
         // A jump to the top in flight keeps no anchor: restoring one would set the offset and cut the
         // jump's animation short wherever it was (the pill then left the person mid-list).
-        let anchor = syncAtTop() || jumpingToTop ? nil : visibleAnchor()
+        // A fold line's toggle keeps no anchor either: its rows come and go below it, under the table's animation.
+        var anchor = syncAtTop() || jumpingToTop || animated ? nil : visibleAnchor()
         let previousOrder = shownOrder
         let previousSet = shownSet
         shownOrder = next.map(\.id)
         if plan.orderChanged { shownSet = Set(shownOrder) }
-        if plan.orderChanged || reconfigureAll {
+        if plan.orderChanged || mounted != nil {
             shownKeys = Dictionary(keys, uniquingKeysWith: { first, _ in first })
         }
-        // Each changed row's height, from the layout of the key it is shown with.
-        var heightChanged = false
-        for (id, key) in keys where !unchanged.contains(id) || shownHeights[id] == nil {
+        // Each changed row's height, from the layout of the key it is shown with. A row with no layout
+        // yet keeps no height: the table holds its estimate and asks when the row comes in. A relayout
+        // forgets every height but the rows on screen (laid out again in applyPending).
+        if mounted != nil { shownHeights.removeAll(keepingCapacity: true) }
+        var heightChanged = mounted != nil
+        for (id, key) in keys where !unchanged.contains(id) {
             shownKeys[id] = key
-            let height = layouts.cached(key)?.height ?? 1
-            if let old = shownHeights[id], abs(old - height) > 0.25 { heightChanged = true }
-            shownHeights[id] = height
+            guard mounted?.contains(id) ?? true, let layout = layouts.cached(key) else {
+                if shownHeights.removeValue(forKey: id) != nil { heightChanged = true }
+                continue
+            }
+            if let old = shownHeights[id], abs(old - layout.height) > 0.25 { heightChanged = true }
+            shownHeights[id] = layout.height
         }
         var snapshot = dataSource.snapshot()
+        // An answered ask travels from the pinned group to its place in time (the table's row move).
+        var travelling: Set<String> = []
+        shownPinned = pinned
         if snapshot.numberOfSections == 0 {
             snapshot = NSDiffableDataSourceSnapshot<Section, String>()
             snapshot.appendSections([.header, .events])
@@ -452,32 +573,62 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             snapshot.appendItems(shownOrder, toSection: .events)
         } else if plan.orderChanged {
             // Inserts and removals with the rest in order (a live event, a done swipe): edits, not a new
-            // snapshot of every row to diff. Anything else (a re-sort) rebuilds the section.
+            // snapshot of every row to diff. An ask leaving or joining the pinned group: row moves.
+            // Anything else (a re-sort) rebuilds the section.
             if !FeedListController.edit(&snapshot, from: previousOrder, to: shownOrder) {
-                snapshot.deleteSections([.events])
-                snapshot.appendSections([.events])
-                snapshot.appendItems(shownOrder, toSection: .events)
+                let movers = Set(previousOrder.prefix(wasPinned)).symmetricDifference(shownOrder.prefix(pinned))
+                if let move = FeedMoveEdit(old: previousOrder, new: shownOrder, movers: movers, limit: Self.pinnedMoveLimit) {
+                    FeedListController.apply(move, to: &snapshot)
+                    travelling = movers
+                } else {
+                    snapshot.deleteSections([.events])
+                    snapshot.appendSections([.events])
+                    snapshot.appendItems(shownOrder, toSection: .events)
+                }
             }
         }
         // Reconfigured rows are shown rows by construction (the plan lists only ids it had shown); a
         // relayout's list may name rows the snapshot just removed.
         let reconfigure = plan.orderChanged ? plan.reconfigure.filter { shownSet.contains($0) && previousSet.contains($0) } : plan.reconfigure
         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
+        rowsReconfigured += reconfigure.count
         applyCount += 1
-        UIView.performWithoutAnimation {
-            dataSource.apply(snapshot, animatingDifferences: false)
-            // A shown row has a new height: the table reads the heights again.
+        if !travelling.isEmpty, !UIAccessibility.isReduceMotionEnabled, collectionView.window != nil {
+            // The rows show their new state where they are (an answered card, at once), then the
+            // table moves the answered ask to its place in time and closes the gap it left. The row
+            // kept in place is never one that travels: the reader stays with the asks still open.
+            if anchor.map({ travelling.contains($0.id) }) == true { anchor = visibleAnchor(excluding: travelling) }
+            if !reconfigure.isEmpty {
+                var inPlace = dataSource.snapshot()
+                inPlace.reconfigureItems(reconfigure)
+                UIView.performWithoutAnimation { dataSource.apply(inPlace, animatingDifferences: false) }
+            }
+            dataSource.apply(snapshot, animatingDifferences: true)
             if heightChanged { collectionView.performBatchUpdates(nil) }
             if let anchor { restore(anchor) }
             continueJumpToTop()
+        } else if animated {
+            // The stack's rows slide in under its fold line (or out), as the system inserts rows.
+            dataSource.apply(snapshot, animatingDifferences: true)
+        } else {
+            UIView.performWithoutAnimation {
+                dataSource.apply(snapshot, animatingDifferences: false)
+                // A shown row has a new height: the table reads the heights again.
+                if heightChanged { collectionView.performBatchUpdates(nil) }
+                if let anchor { restore(anchor) }
+                continueJumpToTop()
+            }
         }
         if let anchor {
             // Only events never shown before count as new (an undone Done or a filter switch does not).
             let fresh = FeedListPlan.fresh(plan.inserted, seen: &everShown)
-            let above = shownOrder.prefix { $0 != anchor.id }.count { fresh.contains($0) }
+            let above = shownOrder.prefix { $0 != anchor.id }.count { fresh.contains($0) && !FeedStacks.isFold($0) }
             if above > 0 { control.newAbove += above }
         } else {
-            _ = FeedListPlan.fresh(plan.inserted, seen: &everShown)
+            let fresh = FeedListPlan.fresh(plan.inserted, seen: &everShown)
+            if FeedArrival.springs(fresh: fresh, order: shownOrder, hadRows: !previousOrder.isEmpty, atTop: !jumpingToTop) {
+                springIn(fresh)
+            }
         }
         if !plan.inserted.isEmpty || !plan.reconfigure.isEmpty { scheduleWarmUp(plan.inserted + plan.reconfigure) }
         // Rows that left the list: only when some did (an insert or a move removes none).
@@ -500,6 +651,27 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         for group in plan.groups { snapshot.insertItems(group.ids, beforeItem: group.before) }
         if !plan.tail.isEmpty { snapshot.appendItems(plan.tail, toSection: .events) }
         return true
+    }
+
+    /// Applies an ask's move out of (or into) the pinned group, with the inserts and removals beside it.
+    static func apply(_ move: FeedMoveEdit, to snapshot: inout NSDiffableDataSourceSnapshot<Section, String>) {
+        if !move.removed.isEmpty { snapshot.deleteItems(move.removed) }
+        for step in move.steps {
+            switch step {
+            case .move(let id, let before):
+                if let before {
+                    snapshot.moveItem(id, beforeItem: before)
+                } else if let last = snapshot.itemIdentifiers(inSection: .events).last, last != id {
+                    snapshot.moveItem(id, afterItem: last)
+                }
+            case .insert(let id, let before):
+                if let before {
+                    snapshot.insertItems([id], beforeItem: before)
+                } else {
+                    snapshot.appendItems([id], toSection: .events)
+                }
+            }
+        }
     }
 
     // MARK: Warm-up
@@ -549,7 +721,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     /// Queues a warm-up draw for the shapes among `ids` (the rows just added or changed) not seen yet.
     private func scheduleWarmUp(_ ids: [String]) {
         for id in ids {
-            guard let key = shownKeys[id], let layout = layouts.cached(key) else { continue }
+            guard let key = shownKeys[id], let layout = layouts.cached(key), layout.fold == nil else { continue }
             let shape = Self.shape(layout)
             if warmed.insert(shape).inserted { warmQueue.append(layout) }
         }
@@ -605,18 +777,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     /// The width or the text size changed: every layout is stale. The list keeps showing what it
-    /// shows (order, row state) while the rows are laid out again: the visible ones here, the rest off
-    /// the main thread; then every row is reconfigured at once, and nothing counts as new.
+    /// shows (order, row state); the rows on screen are laid out again once and reconfigured
+    /// (applyPending), the rest when they scroll in; the top row stays put and nothing counts as new.
     private func relayoutAll() {
         guard width > 0 else { return }
-        let pendingItems = pending ?? shownOrder.compactMap { items[$0] }
-        pending = pendingItems
-        let keys = pendingItems.map { key(for: $0) }
-        let styles = styles, scale = scale
-        let visible = Set(collectionView?.indexPathsForVisibleRows?.compactMap { dataSource?.itemIdentifier(for: $0) } ?? [])
-        for key in keys where visible.contains(key.item.id) || (visible.isEmpty && keys.firstIndex(of: key).map { $0 < 10 } == true) {
-            layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key)
-        }
+        pending = pending ?? shownOrder.compactMap { items[$0] }
         relayingOut = !shownOrder.isEmpty
         // Off the layout pass (this runs from layoutSubviews and trait changes).
         guard !applyScheduled else { return }
@@ -650,7 +815,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         for id in present {
             guard let item = items[id] else { continue }
             let key = key(for: item)
-            if layouts.cached(key) == nil { layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key) }
+            if layouts.cached(key) == nil { layouts.store(makeLayout(key), for: key) }
             keys[id] = key
         }
         // A row the person toggled keeps its top where it is, so what they read does not move: anchoring
@@ -666,6 +831,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         }
         var snapshot = dataSource.snapshot()
         snapshot.reconfigureItems(present)
+        rowsReconfigured += present.count
         // One batch update reconfigures the rows and reads their new heights; animated, the table moves
         // the rows to them (Reduce Motion: at once).
         let animate = animated && !UIAccessibility.isReduceMotionEnabled
@@ -676,6 +842,60 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             self.continueJumpToTop()
         }
         if animate { resize() } else { UIView.performWithoutAnimation(resize) }
+    }
+
+    /// When the last arrival's soft tap played (``FeedArrival/taps(now:last:)``).
+    private var lastArrivalTap: TimeInterval?
+
+    /// Live events just inserted at the top while the reader is there (``FeedArrival``): each new row drops
+    /// in from a little above and fades up, and every row already on screen starts where it was and slides
+    /// down by the new rows' height, so nothing jumps (all of them move together, on one spring). One soft
+    /// tap, at most every ``FeedArrival/hapticGap`` seconds, and only while the Feed is on screen in the
+    /// foreground. Reduce Motion: the new rows fade in and nothing moves. The model values are set at once
+    /// (UIView animations), so a row reused mid-spring is never left offset.
+    private func springIn(_ fresh: Set<String>) {
+        guard let collectionView, let dataSource, collectionView.window != nil else { return }
+        collectionView.layoutIfNeeded()
+        let visible = (collectionView.indexPathsForVisibleRows ?? []).filter { $0.section == 1 }.sorted()
+        var newRows: [UITableViewCell] = []
+        var oldRows: [UITableViewCell] = []
+        var drop: CGFloat = 0
+        for indexPath in visible {
+            guard let id = dataSource.itemIdentifier(for: indexPath), let row = collectionView.cellForRow(at: indexPath) else { continue }
+            if fresh.contains(id) {
+                newRows.append(row)
+                drop += row.bounds.height
+            } else {
+                oldRows.append(row)
+            }
+        }
+        guard !newRows.isEmpty else { return }
+        let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        for row in newRows {
+            row.alpha = 0
+            if !reduceMotion { row.transform = CGAffineTransform(translationX: 0, y: -min(row.bounds.height * 0.4, 28)) }
+        }
+        if !reduceMotion {
+            for row in oldRows { row.transform = CGAffineTransform(translationX: 0, y: -drop) }
+        }
+        let settle = {
+            for row in newRows + oldRows {
+                row.alpha = 1
+                row.transform = .identity
+            }
+        }
+        if reduceMotion {
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: settle)
+        } else {
+            UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState], animations: settle)
+        }
+        let now = CACurrentMediaTime()
+        if collectionView.window?.windowScene?.activationState == .foregroundActive,
+           FeedArrival.taps(now: now, last: lastArrivalTap) {
+            lastArrivalTap = now
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.6)
+        }
     }
 
     private func cell(_ id: String) -> FeedRowCell? {
@@ -751,7 +971,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func scrollToTop(animated: Bool) {
         guard let collectionView else { return }
         let top = CGPoint(x: 0, y: -collectionView.adjustedContentInset.top)
-        jumpingToTop = animated && abs(collectionView.contentOffset.y - top.y) > 0.25
+        // Reduce Motion: the list is at its top at once.
+        jumpingToTop = animated && !UIAccessibility.isReduceMotionEnabled && abs(collectionView.contentOffset.y - top.y) > 0.25
         trace("jump from \(Int(collectionView.contentOffset.y)) to \(Int(top.y)) animated=\(jumpingToTop)")
         collectionView.setContentOffset(top, animated: jumpingToTop)
         if !jumpingToTop {
@@ -823,11 +1044,50 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     // MARK: Cells
 
-    /// Exact heights: the header's measured height, each row's from its layout.
+    /// Exact heights for the rows the table shows: the header's measured height, each row's from
+    /// its layout (laid out here if prefetch did not get to it). Other rows hold the estimate.
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         guard indexPath.section != 0 else { return headerHeight }
+        heightQueries += 1
         guard let id = dataSource?.itemIdentifier(for: indexPath) else { return 1 }
-        return shownHeights[id] ?? 1
+        if let height = shownHeights[id] { return height }
+        guard let layout = layout(for: id) else { return Self.estimatedRowHeight }
+        shownHeights[id] = layout.height
+        return layout.height
+    }
+
+    // MARK: Prefetch
+
+    /// Rows a prefetch is laying out now.
+    private var prefetching: Set<String> = []
+
+    /// UIKit's prefetch (about a screen ahead in the scroll direction) is the list's overscan: those
+    /// rows are laid out off the main thread, so they scroll in with their layout ready.
+    func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
+        guard let dataSource else { return }
+        let keys = indexPaths.filter { $0.section != 0 }.compactMap { dataSource.itemIdentifier(for: $0) }
+            .filter { !prefetching.contains($0) && shownHeights[$0] == nil }
+            .compactMap { id in items[id].map { key(for: $0) } }
+            .filter { layouts.cached($0) == nil }
+        guard !keys.isEmpty else { return }
+        prefetching.formUnion(keys.map(\.item.id))
+        rowsLaidOut += keys.count
+        let styles = styles, scale = scale
+        queue.async { [weak self] in
+            let built = keys.map { FeedRowLayout.make($0, styles: styles, scale: scale) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    for layout in built {
+                        let id = layout.key.item.id
+                        self.prefetching.remove(id)
+                        // A row that changed meanwhile is laid out when it shows.
+                        guard let item = self.items[id], self.key(for: item) == layout.key else { continue }
+                        self.layouts.store(layout, for: layout.key)
+                    }
+                }
+            }
+        }
     }
 
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
@@ -911,7 +1171,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     /// The row's trailing actions, UIKit's own: the outermost is the full swipe.
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        guard indexPath.section != 0, let id = dataSource?.itemIdentifier(for: indexPath), let item = items[id] else {
+        guard indexPath.section != 0, let id = dataSource?.itemIdentifier(for: indexPath), !FeedStacks.isFold(id), let item = items[id] else {
             return UISwipeActionsConfiguration(actions: [])
         }
         let context = context
@@ -926,8 +1186,21 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
         guard let id = dataSource?.itemIdentifier(for: indexPath) else { return }
         openRow = id
-        // The drawer closes it on a rightward swipe (Mail), as it closes a `List` row's.
-        RowSwipeActions.shared.setOpen(registrationKey, close: { [weak tableView] in tableView?.setEditing(false, animated: true) })
+        registerOpenRow(in: tableView)
+    }
+
+    /// Tells the drawer a row is open: a rightward swipe closes it and never opens the drawer (Mail).
+    /// A swipe on the table is UIKit's: its own swipe recognizer drags the row closed under the
+    /// finger, so closing it here too ran a second, animated close against that one, and the row
+    /// jumped up a row's height for a moment. The drawer closes it only for a swipe that starts off
+    /// the table. Left to UIKit, the row stays registered (the drawer drops a closer it called): a
+    /// short drag springs it back open, and the row must still count as open.
+    private func registerOpenRow(in tableView: UITableView) {
+        RowSwipeActions.shared.setOpen(registrationKey, close: { [weak self, weak tableView] in
+            guard let self, let tableView else { return }
+            guard !tableView.isTracking else { return self.registerOpenRow(in: tableView) }
+            tableView.setEditing(false, animated: true)
+        })
     }
 
     func tableView(_ tableView: UITableView, didEndEditingRowAt indexPath: IndexPath?) {
@@ -998,7 +1271,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         states[id] = state
         // Only a new line count changes the row; otherwise the field grows nothing.
         guard let item = items[id], let before, let old = layouts.cached(before) else { return refreshRows([id], animated: false) }
-        let layout = FeedRowLayout.make(key(for: item), styles: styles, scale: scale)
+        let layout = makeLayout(key(for: item))
         layouts.store(layout, for: layout.key)
         if abs(layout.height - old.height) > 0.25 || (layout.composer?.height != old.composer?.height) {
             refreshRows([id], animated: false)
@@ -1035,7 +1308,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         case .failed(let reason):
             mutateState(id) { $0.replyFailure = reason; $0.replying = false; $0.replyDraft = "" }
         }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        CmuxMobileTheme.standard.haptics.impact(.light, intensity: 1)
     }
 
     /// The chat the reply went to: its refusal (the Mac's reason) shows under the reply.
@@ -1053,7 +1326,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func rowCopy(_ id: String) {
         guard let item = items[id] else { return }
         UIPasteboard.general.string = item.markdown
-        if states[id]?.copied != true { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7) }
+        if states[id]?.copied != true { CmuxMobileTheme.standard.haptics.impact(.light, intensity: 0.7) }
         mutateState(id, animated: false) { $0.copied = true }
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1.5))
@@ -1064,7 +1337,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func rowCopyCommand(_ id: String) {
         guard let item = items[id], case .permission(let request) = item.kind else { return }
         UIPasteboard.general.string = request.toolCall.command
-        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+        CmuxMobileTheme.standard.haptics.impact(.light, intensity: 0.7)
     }
 
     func rowShare(_ id: String, from source: UIView) {
@@ -1143,6 +1416,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         switch command {
         case .feedExpand(let id):
             mutateState(id) { $0.expanded = true }
+        case .feedStack(let id, let expanded):
+            setStack(head: id, expanded: expanded)
         case .feedReply(let id, let text):
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -1187,7 +1462,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 /// header row no.
 final class FeedTableDataSource: UITableViewDiffableDataSource<FeedListController.Section, String> {
     override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-        indexPath.section != 0
+        // A stack's fold line has no swipe actions.
+        indexPath.section != 0 && itemIdentifier(for: indexPath).map { !FeedStacks.isFold($0) } ?? true
     }
 }
 #endif

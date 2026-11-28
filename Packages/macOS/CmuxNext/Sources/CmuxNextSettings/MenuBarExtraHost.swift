@@ -8,6 +8,8 @@ public import CmuxNextActions
 public protocol MenuBarExtraHost: AnyObject {
     /// The signed-in cmux account, nil when signed out.
     var menuBarAccount: MenuBarMenuState.Account? { get }
+    /// What Sign In signs in to ("Signs in to cmux.com"), the line under it while signed out; nil shows none.
+    var menuBarSignInBackend: String? { get }
     /// The signed-in account's picture at menu row size, nil without one.
     var menuBarAvatar: NSImage? { get }
     /// This Mac's tabs whose agent runs a turn.
@@ -35,4 +37,12 @@ public protocol MenuBarExtraHost: AnyObject {
     func menuBarResumeComputerUse(_ session: String)
     /// Rings Computer Use session `session`'s agent cursor where it is (the menu's Show Cursor).
     func menuBarShowComputerUseCursor(_ session: String)
+    /// Installed extensions' menu bar status items (`cmux.status/1`, `placement: menuBar`), each a fresh
+    /// view of its drawn scene, made as the menu opens; empty when no extension contributes one.
+    func menuBarExtensionRows() -> [NSView]
+}
+
+extension MenuBarExtraHost {
+    /// A host with no extensions shows none.
+    public func menuBarExtensionRows() -> [NSView] { [] }
 }

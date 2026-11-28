@@ -10,6 +10,11 @@ export type HistoryRange = "hour" | "today" | "week" | "month" | "all";
 
 export const HISTORY_RANGES: readonly HistoryRange[] = ["hour", "today", "week", "month", "all"];
 
+/** Whose page visits the list shows (RFD 0125 D5): the person's by default, agents', or both. */
+export type HistoryActor = "mine" | "agents" | "all";
+
+export const HISTORY_ACTORS: readonly HistoryActor[] = ["mine", "agents", "all"];
+
 export type ClosedKind = "terminal_tab" | "browser_tab" | "conversation_tab" | "screen" | "workspace";
 
 /** One row of the merged timeline. Optional fields are absent when the kind has no such fact. */
@@ -38,6 +43,8 @@ export interface HistoryEntry {
   exit_code?: number;
   session_id?: string;
   provider?: string;
+  /** Page: who drove the visit. */
+  actor?: "person" | "agent";
 }
 
 export interface HistoryListParams {
@@ -46,6 +53,8 @@ export interface HistoryListParams {
   range?: HistoryRange;
   limit?: number;
   cursor?: string;
+  /** Page visits by who drove them; omitted: mine. */
+  actor?: HistoryActor;
 }
 
 export interface HistoryListResult {

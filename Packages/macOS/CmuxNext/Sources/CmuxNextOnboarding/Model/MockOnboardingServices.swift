@@ -17,6 +17,8 @@ public final class MockOnboardingServices: OnboardingServices {
     public var passwordStore = false
     /// The computer use step's grants; nil: this build has no computer use.
     public var computerUseSource: MockComputerUsePermissionSource?
+    /// Make cmux Yours' split; nil: this app logs no walks.
+    public var introWalkSplit: (any IntroWalkSplitSource)?
 
     public private(set) var opened: [URL] = []
     public private(set) var plans: [ImportPlan] = []
@@ -101,8 +103,4 @@ public final class MockOnboardingServices: OnboardingServices {
     /// The Agents step's source; nil: this build has no acpmux.
     public var agentSource: MockAgentSignInSource?
     public var agentSignIns: (any AgentSignInSource)? { agentSource }
-
-    /// The cmux Tools step's source; nil: this build has no bundled CLI.
-    public var agentToolsSource: (any AgentToolsSource)?
-    public var agentTools: (any AgentToolsSource)? { agentToolsSource }
 }

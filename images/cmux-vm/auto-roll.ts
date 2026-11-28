@@ -3,33 +3,44 @@
 // image change is pinned, baked and gated with no hand PR, then made production's first boot image by a bot
 // commit, and taken back out by one when the production smoke after that commit's deploy is red.
 //
-//   bun images/cmux-vm/auto-roll.ts plan --event dispatch|build|push [--commit <40-hex>] [--before <sha>]
-//       [--dry-run auto|true|false] [--tip <ref>] [--repo <checkout>]
+//   bun images/cmux-vm/auto-roll.ts plan --event dispatch|build|push|newest [--commit <40-hex>] [--before <sha>]
+//       [--dry-run auto|true|false] [--tip <ref>] [--repo <checkout>] [--channel <url|file>]
+//     A push roll pins the commit the Cloud machine channel serves (RFD 0224 phase 4: the image carries the binary
+//     running VMs take), else the newest published build when the channel is unreadable or its commit fails a guard.
+//     A newest roll (the cadence tick) picks its build the same way, then plans it as a build roll.
 //     Prints what to roll as JSON: roll (true|false), reason, pin (the cmux-tui commit to pin, or ""),
 //     dryRun, and the fix commits (sha, merged-at, subject) the roll carries. Reads git and files.cmux.com only.
 //     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
 //     never rolls an older build needs the pin's history.
 //   bun images/cmux-vm/auto-roll.ts approve --candidate <channel-dev.json> --revision <ci-RUN-ATTEMPT>
-//       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>]
+//       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>] [--platform-wrangler <path>]
 //     Puts the baked, gated image first in production's VM_BOOT_IMAGES and last in staging's, trims the
-//     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked.
+//     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked. --platform-wrangler
+//     (cmux-platform's root wrangler.jsonc) names its CLOUD_VM_API_IMAGE pins, which are never trimmed.
 //   bun images/cmux-vm/auto-roll.ts behind --pin <40-hex> [--lock <path>] [--repo <checkout>]
 //     Exits 3 when the pin is older than the cmux-tui the lock pins (a newer roll landed while this one baked),
 //     0 when it may roll; fails closed on a shallow checkout or a commit it lacks. image-roll-push.sh asks before
 //     it writes the pin onto the tip.
-//   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>]
+//   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>] [--platform-wrangler <path>]
+//     (refuses an image cmux-platform pins)
 //     Removes an auto-rolled image from both lists wherever it is, so it can never be first again (when it was
 //     first, the entry before it boots again). Prints what it did; never removes a hand-approved image.
-//   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome>
+//   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome> [--smoke-ran <gate output>] [--worker-deploy <step outcome>]
 //       --boot-image <id> --deployed-wrangler <path> [--wrangler <tip path>] [--attempt <n>]
 //     What cmux-vm.yml's image-roll-settle does after a roll or rollback commit's production deploy and smoke
 //     (see settle() below). Prints the decision as JSON; changes nothing.
 //   bun images/cmux-vm/auto-roll.ts check [--max-behind <n>] [--wrangler <path>]
 //     The detector for a stale boot image: exits 1 when an environment's boot entry (production's first, staging's
 //     last: BOOT_ENTRY) trails production's newest roll by more than n rolls (default MAX_ROLLS_BEHIND).
+//   bun images/cmux-vm/auto-roll.ts skew [--channel <file>] [--lock <path>] [--max-behind <commits>] [--repo <checkout>]
+//     RFD 0224 phase 4 (images from the binary's SHA): how far the image lock's cmux-tui pin trails the commit the
+//     Cloud machine channel (files.cmux.com/cmux-tui/channels/cloud-machine.json, or --channel) serves running VMs.
+//     Prints JSON; exits 1 when the pin is not the channel's commit and trails it by more than n first-parent
+//     commits (default MAX_BINARY_SKEW). Reads the envelope's payload only: a detector, not an install, so the
+//     signature check stays with the in-VM updater.
 //
 // Every edit rewrites only the two VM_BOOT_IMAGES string values; the rest of wrangler.jsonc keeps its bytes.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -50,7 +61,7 @@ export const MAX_ENTRIES = 32;
  * 42361417513 and 42361837374: staging's 26 entries were 6.0 kB). Bytes of the binding's value, the list's JSON. */
 export const MAX_BYTES = 5_120;
 export const SERVICES = {
-  production: ["cloud-platform-production", "ci-product-smoke"],
+  production: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"],
   staging: ["cloud-platform-dev", "cloud-platform-staging"],
 } as const;
 /** The paths whose change is a change to what the image carries (the push trigger's paths). */
@@ -64,8 +75,20 @@ export type BootImage = {
   services: string[];
   /** The image's inputs key (bake.ts bakeInputsSha256): absent on entries from before it and on bakes it does not cover. */
   inputs_sha256?: string;
+  /**
+   * The same bake at another size (bake.ts --large): its own snapshot and the size a VM made from it boots at. The
+   * Worker boots it for a create that asks for exactly this size, so no resize follows; any other create boots
+   * `snapshotId` and grows.
+   */
+  large?: LargeVariant;
 };
+export type LargeVariant = { snapshotId: string; vcpus: number; memoryMib: number; diskMib: number };
 type Env = keyof typeof SERVICES;
+/**
+ * The environments whose entry lists a roll's large image: staging only (the cmux-vm development and staging share),
+ * until booting it there has been watched. Production's entry never carries one, so production creates are unchanged.
+ */
+export const LARGE_ENVS: ReadonlyArray<Env> = ["staging"];
 
 // ---- wrangler.jsonc: the VM_BOOT_IMAGES value of one environment ----
 
@@ -106,9 +129,11 @@ export function validate(images: BootImage[], env: string): void {
   if (images.length > MAX_ENTRIES) fail(`${images.length} entries, at most ${MAX_ENTRIES}`);
   if (new Set(images.map((i) => i.id)).size !== images.length) fail("duplicate ids");
   for (const i of images) {
-    const keys = Object.keys(i).sort().join(",");
-    if (keys !== "displayName,id,revision,services,snapshotId" && keys !== "displayName,id,inputs_sha256,revision,services,snapshotId") fail(`${i.id}: fields ${keys}`);
+    const keys = Object.keys(i).filter((k) => k !== "inputs_sha256" && k !== "large").sort().join(",");
+    if (keys !== "displayName,id,revision,services,snapshotId") fail(`${i.id}: fields ${Object.keys(i).sort().join(",")}`);
     if (i.inputs_sha256 !== undefined && !SHA256.test(i.inputs_sha256)) fail(`${i.id}: bad inputs_sha256`);
+    // The Worker drops a malformed large image and keeps the entry; this tool never writes one.
+    if ("large" in i && !validLarge(i.large, i.snapshotId)) fail(`${i.id}: bad large`);
     if (!/^[a-z][a-z0-9-]*$/u.test(i.id) || i.id.length > 63) fail(`bad id ${i.id}`);
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(i.revision) || i.revision.length > 64) fail(`${i.id}: bad revision`);
     if (i.displayName.length < 1 || i.displayName.length > 100 || [...i.displayName].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127))
@@ -120,16 +145,55 @@ export function validate(images: BootImage[], env: string): void {
 }
 
 const SHA256 = /^[0-9a-f]{64}$/u;
+const SNAPSHOT_ID = /^sh-[0-9a-f]{32}$/u;
+
+/** A large image as the Worker takes it (src/upstream/live-images.ts Variant): its own snapshot and a whole size. */
+function validLarge(large: unknown, imageSnapshot: string): large is LargeVariant {
+  if (typeof large !== "object" || large === null) return false;
+  const l = large as Record<string, unknown>;
+  const whole = (v: unknown, max: number) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= max;
+  return (
+    Object.keys(l).sort().join(",") === "diskMib,memoryMib,snapshotId,vcpus" &&
+    typeof l["snapshotId"] === "string" && SNAPSHOT_ID.test(l["snapshotId"]) && l["snapshotId"] !== imageSnapshot &&
+    whole(l["vcpus"], 64) && whole(l["memoryMib"], 1_048_576) && whole(l["diskMib"], 4_194_304)
+  );
+}
+
+/** Whether the Worker source beside this wrangler.jsonc decodes an entry's `large` (src/upstream/live-images.ts). */
+export function workerTakesLarge(wrangler: string): boolean {
+  try {
+    return /^\s*large: Schema\.optional\(/mu.test(readFileSync(path.join(path.dirname(wrangler), "src/upstream/live-images.ts"), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The candidate's large image as an entry lists it, or undefined: only one whose own smoke passed (the bake records
+ * `large` in channel-dev.json only then, and this checks it again), with its own snapshot and a whole size.
+ */
+export function largeOf(candidate: Candidate): LargeVariant | undefined {
+  const l = candidate.large;
+  if (typeof l !== "object" || l === null || l.smoke?.result !== "PASSED" || typeof l.snapshot_id !== "string") return undefined;
+  const size = l.size ?? {};
+  const large = { snapshotId: l.snapshot_id, vcpus: size.vcpu, memoryMib: Number(size.mem_gib) * 1024, diskMib: Number(size.disk_gib) * 1024 };
+  return validLarge(large, candidate.snapshot_id) ? large : undefined;
+}
 
 /** Drops the oldest auto-rolled entries past KEEP_AUTO; `newestFirst` says which end of the list is newest. */
-export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[] {
+export function trimAuto(images: BootImage[], newestFirst: boolean, keep: readonly string[] = [], keepAuto = KEEP_AUTO): BootImage[] {
   const ordered = newestFirst ? images : [...images].reverse();
   let seen = 0;
-  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || ++seen <= KEEP_AUTO);
+  // An image cmux-platform pins (platformPins) is never trimmed and does not count toward KEEP_AUTO.
+  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || keep.includes(i.id) || ++seen <= keepAuto);
   return newestFirst ? kept : kept.reverse();
 }
 
-export type Candidate = { snapshot_id: string; lock_sha256: string; run: number; source_sha?: string; smoke?: { detail?: string }; cmux_tui?: { commit?: string }; inputs_sha256?: string };
+export type Candidate = {
+  snapshot_id: string; lock_sha256: string; run: number; source_sha?: string; smoke?: { detail?: string }; cmux_tui?: { commit?: string }; inputs_sha256?: string;
+  /** The bake's large image, when it made one and its own smoke passed (cloud-vm-image-bake.yml, input large_image). */
+  large?: { snapshot_id?: string; size?: { vcpu?: number; mem_gib?: number; disk_gib?: number }; smoke?: { result?: string } };
+};
 
 /**
  * cmux-platform's fallback image (fallback-image.json): what its CLOUD_VM_API_IMAGE pin names in every environment, the
@@ -163,17 +227,66 @@ export function withFallback(images: BootImage[], env: Env, fallback = fallbackI
   return [...images.slice(0, at), { ...fallback, services: [...SERVICES[env]] }, ...images.slice(at)];
 }
 
-/** The approved entry for a baked candidate: production first, staging last (its order is append-only). */
-export function approve(text: string, entry: BootImage): { text: string; previousFirst: string } {
+/**
+ * cmux-platform's CLOUD_VM_API_IMAGE pins, from its wrangler.jsonc text (every environment, each id once): the image a
+ * create boots before its isolate reads a list, and the one a create that recorded the pin boots after. A pin a list no
+ * longer names fails as cloud.provider.image_withdrawn (production, 2026-11-20: cloud-native-auto-9d5f6bd6-44156090531-1,
+ * trimmed by KEEP_AUTO), so approve and rollback keep every pin listed.
+ */
+export function platformPins(text: string): string[] {
+  const pins = [...text.matchAll(/"CLOUD_VM_API_IMAGE"\s*:\s*"([^"]+)"/gu)].map((m) => m[1]!);
+  return [...new Set(pins)];
+}
+
+/**
+ * The approved entry for a baked candidate: production first, staging last (its order is append-only).
+ *
+ * The entry's large image is listed only in LARGE_ENVS. Older entries keep theirs while the list fits (each is about
+ * 106 bytes of a 5,120 byte binding) and lose them first when it does not. It is never
+ * a gate: when the list would not fit with it, the entry is listed without it and creates grow as before. `large`
+ * says whether it was listed.
+ */
+export function approve(text: string, entry: BootImage, keep: readonly string[] = []): { text: string; previousFirst: string; large: boolean } {
   const prod = locate(text, "production").images;
   const staging = locate(text, "staging").images;
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
   const fallback = fallbackImage();
-  const nextProd = withFallback(trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true), "production", fallback);
-  const nextStaging = withFallback(trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false), "staging", fallback);
-  let out = replaceList(text, "production", nextProd);
-  out = replaceList(out, "staging", nextStaging);
-  return { text: out, previousFirst: prod[0]?.id ?? "" };
+  const { large, ...plain } = entry;
+  const fits = (images: BootImage[]) => Buffer.byteLength(JSON.stringify(images), "utf8") <= MAX_BYTES;
+  const lists = (withLarge: boolean, keepOlder: boolean, keepAuto: number) => {
+    const listed = (env: Env): BootImage => ({ ...(withLarge && LARGE_ENVS.includes(env) ? entry : plain), services: [...SERVICES[env]] });
+    const older = (env: Env, images: BootImage[]) => (LARGE_ENVS.includes(env) && !keepOlder ? images.map(({ large: _dropped, ...i }) => i) : images);
+    return {
+      production: withFallback(trimAuto([listed("production"), ...older("production", prod)], true, keep, keepAuto), "production", fallback),
+      staging: withFallback(trimAuto([...older("staging", staging), listed("staging")], false, keep, keepAuto), "staging", fallback),
+    };
+  };
+  // An entry that stays listed keeps its large image while the list fits: a create journaled on it and retried after
+  // this roll's deploy must find the same snapshot (the Worker refuses to boot another one). The older ones go first
+  // when the list is too long, then this entry's.
+  //
+  // Only when no list fits at KEEP_AUTO rolls does each keep fewer, oldest unpinned roll first, down to this roll
+  // alone. A pinned roll does not count toward KEEP_AUTO, so with one pinned a list holds KEEP_AUTO + 1 rolls: at about
+  // 376 bytes each, production came to 5,150 bytes and every promote threw (roll 45625813906, 2026-11-25). A
+  // hand-approved entry, a pin and this roll are never trimmed.
+  const wants = large !== undefined;
+  const variants = (n: number) => [lists(wants, true, n), lists(wants, false, n), lists(false, false, n)];
+  let next = variants(KEEP_AUTO)[2]!;
+  let at = -1;
+  for (let n = KEEP_AUTO; n >= 1 && at < 0; n--) {
+    const tries = variants(n);
+    at = tries.findIndex((t) => fits(t.production) && fits(t.staging));
+    if (at >= 0) next = tries[at]!;
+  }
+  const listLarge = wants && at >= 0 && at < 2;
+  for (const [before, after, env] of [[prod, next.production, "production"], [staging, next.staging, "staging"]] as const) {
+    for (const id of keep) {
+      if (before.some((i) => i.id === id) && !after.some((i) => i.id === id)) throw new Error(`approve would take cmux-platform's pinned ${id} out of ${env}'s list`);
+    }
+  }
+  let out = replaceList(text, "production", next.production);
+  out = replaceList(out, "staging", next.staging);
+  return { text: out, previousFirst: prod[0]?.id ?? "", large: listLarge };
 }
 
 /**
@@ -181,10 +294,11 @@ export function approve(text: string, entry: BootImage): { text: string; previou
  * second only until that newer roll is rolled back, and would then boot again with no check; removing it wherever
  * it is means it can never come back.
  */
-export function rollback(text: string, id: string): { text: string; rolledBack: boolean; reason: string; nowFirst: string } {
+export function rollback(text: string, id: string, keep: readonly string[] = []): { text: string; rolledBack: boolean; reason: string; nowFirst: string } {
   const prod = locate(text, "production").images;
   const first = prod[0]?.id ?? "";
   if (!id.startsWith(AUTO_PREFIX)) return { text, rolledBack: false, reason: `${id} is not an auto-rolled image`, nowFirst: first };
+  if (keep.includes(id)) return { text, rolledBack: false, reason: `cmux-platform pins ${id} (CLOUD_VM_API_IMAGE); move its pin first`, nowFirst: first };
   const staging = locate(text, "staging").images;
   const inProd = prod.some((i) => i.id === id);
   if (!inProd && !staging.some((i) => i.id === id)) return { text, rolledBack: false, reason: `${id} is in neither list`, nowFirst: first };
@@ -216,7 +330,47 @@ export function rolledImage(candidate: Candidate, revision: string, cmuxTui: str
     services: [],
     // cmux-platform compares it across rolls: equal means only cmux-tui changed, so a spare stays claimable.
     ...(typeof candidate.inputs_sha256 === "string" && SHA256.test(candidate.inputs_sha256) ? { inputs_sha256: candidate.inputs_sha256 } : {}),
+    // approve lists it only where LARGE_ENVS says, and only while the list fits.
+    ...(largeOf(candidate) === undefined ? {} : { large: largeOf(candidate)! }),
   };
+}
+
+// ---- skew: the image carries the binary the channel serves (RFD 0224 phase 4) ----
+
+export const CLOUD_MACHINE_CHANNEL = "https://files.cmux.com/cmux-tui/channels/cloud-machine.json";
+/** First-parent commits the image's cmux-tui pin may trail the Cloud machine channel's commit. 0: the same SHA. */
+export const MAX_BINARY_SKEW = 0;
+
+/** The commit a Cloud machine channel envelope (`{payload: base64 JSON, ...}`) names, or a bare `{commit}` file's. */
+export function channelCommit(text: string): string {
+  const doc = JSON.parse(text) as { payload?: unknown; commit?: unknown };
+  const inner = typeof doc.payload === "string" ? (JSON.parse(Buffer.from(doc.payload, "base64").toString("utf8")) as { commit?: unknown }) : doc;
+  const commit = typeof inner.commit === "string" ? inner.commit : "";
+  if (!/^[0-9a-f]{40}$/u.test(commit)) throw new Error("the channel names no 40-hex commit");
+  return commit;
+}
+
+export type BinarySkew = { imagePin: string; channelCommit: string; same: boolean; behindCommits: number | null; ok: boolean; why: string };
+
+/**
+ * The image pin against the channel's commit. BEHIND is the first-parent commit count pin..channel when the pin is an
+ * ancestor of it, null when unknown (not in the checkout, or the pin is newer or on another line, which the image roll
+ * already guards with behind()). Unknown is not ok unless the two are the same SHA.
+ */
+export function binarySkew(imagePin: string, channel: string, behind: number | null, maxBehind = MAX_BINARY_SKEW): BinarySkew {
+  const same = imagePin === channel;
+  if (same) return { imagePin, channelCommit: channel, same, behindCommits: 0, ok: true, why: "the image carries the binary the channel serves" };
+  if (behind === null)
+    return { imagePin, channelCommit: channel, same, behindCommits: null, ok: false, why: `image pin ${imagePin.slice(0, 12)} is not an ancestor of the channel's ${channel.slice(0, 12)} in this checkout` };
+  const ok = behind <= maxBehind;
+  return { imagePin, channelCommit: channel, same, behindCommits: behind, ok, why: `image pin ${imagePin.slice(0, 12)} trails the channel's ${channel.slice(0, 12)} by ${behind} commits (at most ${maxBehind})` };
+}
+
+function commitsBehind(pin: string, channel: string): number | null {
+  for (const c of [pin, channel]) if (!gitOk(["cat-file", "-e", `${c}^{commit}`])) return null;
+  if (!gitOk(["merge-base", "--is-ancestor", pin, channel])) return null;
+  const n = Number(gitOut(["rev-list", "--first-parent", "--count", `${pin}..${channel}`]));
+  return Number.isInteger(n) ? n : null;
 }
 
 // ---- check: each environment boots a recent roll ----
@@ -268,6 +422,17 @@ export type SettleInput = {
   product: string;
   /** The image the product create booted ("" when it did not run). */
   bootImage: string;
+  /**
+   * Whether smoke-production ran any step (its gate step's output; false when the job died before its first step,
+   * as a self-hosted runner that lost the server does). Absent counts as ran: only a known no-start retries.
+   */
+  smokeRan?: boolean;
+  /**
+   * Whether deploy-production's Worker deploy step ran (its `worker_deploy` output, the step's outcome; false when a
+   * step before it failed: the ordering gate's 53300 on 2026-11-28, roll 46184101136). Absent counts as ran: only a
+   * known no-start retries.
+   */
+  workerDeployRan?: boolean;
   /** Production's first entry in the deployed commit's wrangler.jsonc. */
   deployedFirst: string;
   /** Production's first entry at the feat-cmux-next tip now. */
@@ -285,8 +450,11 @@ export type SettleOutcome = "green" | "superseded" | "rollback" | "verified" | "
 export type Settle = { outcome: SettleOutcome; reason: string; nextAttempt: number };
 
 /**
- * A roll: green only when the deploy and the product create are green and the create booted this image. Anything
- * else (failed, cancelled, timed out, skipped, another image booted) rolls back while the image is in either list
+ * A roll: green only when the deploy and the product create are green and the create booted this image. A deploy
+ * that never ran (skipped: the check before it failed, as a hung checkout did for 6fde033d, 2026-11-26) with no
+ * create is deployed again, up to ROLLBACK_DEPLOYS deploys (so is one that failed before its Worker deploy step), and so is a deploy whose smoke job never ran a step (a
+ * lost runner). Anything else (failed, cancelled, timed out, skipped
+ * past the bound, another image booted) rolls back while the image is in either list
  * at the tip, first or not: a failed image a newer roll sits above would boot again the moment that newer roll is
  * rolled back. Only an image already gone from both lists (superseded) needs nothing. A cancelled deploy alone
  * proves nothing: the production deploy queue never cancels a running deploy, so a cancel is a person or a
@@ -303,6 +471,19 @@ export function settle(s: SettleInput): Settle {
   if (s.kind === "roll") {
     if (smokeGreen && s.bootImage === s.image && s.deployedFirst === s.image) return done("green", `${s.image} booted in production (${seen})`);
     if (!s.tipHas) return done("superseded", `${seen}; ${s.image} is already in neither list at the tip (production's first is ${s.tipFirst || "none"})`);
+    // The production deploy never ran (its check failed or hung first) and no create booted anything: production
+    // still serves the last deploy, so nothing is known about the image. Deploy the roll again, as a rollback's
+    // retry does; only ROLLBACK_DEPLOYS deploys that all never ran roll it back.
+    // So did a deploy job that failed before its Worker deploy step (the ordering gate found the database full,
+    // 53300, roll 46184101136 on 2026-11-28): the Worker was never touched.
+    const neverDeployed = s.deploy === "skipped" || (s.deploy === "failure" && s.workerDeployRan === false);
+    if (neverDeployed && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
+      return done("retry", `${s.image}'s production deploy did not run on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying the roll again`, s.attempt + 1);
+    // The deploy ran but smoke-production never ran a step (99de33e5-45840828684-1, 2026-11-26: its runner lost the
+    // server during setup): the image is live and untested, not red. Deploy and smoke it again within the same bound;
+    // a smoke that started and failed, at any step, still rolls back.
+    if (s.deploy === "success" && s.smokeRan === false && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
+      return done("retry", `${s.image}'s production smoke never started on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying and smoking the roll again`, s.attempt + 1);
     return done("rollback", `${s.image} is not proven in production (${seen})`);
   }
   if (smokeGreen && !s.deployedHas && s.deployedFirst !== "" && s.bootImage === s.deployedFirst)
@@ -371,7 +552,131 @@ function behindTip(pin: string, pinned: string): string {
   return `cmux-tui ${pin.slice(0, 12)} is older than the tip's pinned ${pinned.slice(0, 12)}: a newer roll landed while this one baked`;
 }
 
-async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string }): Promise<Plan> {
+/**
+ * The newest published cmux-tui build (files.cmux.com's latest manifest) when a push roll may pin it: on TIP, newer
+ * than PINNED and carrying other binaries. Otherwise pin "" (keep the lock's), with why. Never throws: a push roll
+ * whose lookup fails still bakes its image change on the pinned build, as before.
+ *
+ * latest/ tracks main, not feat-cmux-next. When it names a build that is not on TIP, the newest feat-cmux-next build
+ * with a published commit manifest is pinned instead (publishedOnTip). 2026-11-27: latest/ named main's 3bb7a878, so
+ * every push roll from 00:28Z to 04:00Z kept the lock's 348e8a8a ("latest build 3bb7a878c526 is not on HEAD") while
+ * feat-cmux-next builds to f7b548a5 were published; only a dispatched roll could move the pin, and the Cloud image
+ * lock sat 182 min behind main (bound 120).
+ */
+async function newestPublished(pinned: string, tip: string, lock: string): Promise<{ pin: string; why: string }> {
+  const keep = (why: string) => ({ pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (${why})` });
+  const r = spawnSync("bun", [path.join(ROOT, "images/cmux-vm/pin-cmux-tui.ts"), "--latest", "--lock", lock], { encoding: "utf8", timeout: 180_000 });
+  if (r.status !== 0) return keep(`latest build unreadable: ${(r.stderr ?? "").trim().split("\n").pop() ?? ""}`);
+  let latest: { commit?: unknown; unchanged?: unknown };
+  try {
+    latest = JSON.parse(r.stdout) as { commit?: unknown; unchanged?: unknown };
+  } catch {
+    return keep("latest build answered no JSON");
+  }
+  const commit = typeof latest.commit === "string" ? latest.commit : "";
+  if (!/^[0-9a-f]{40}$/u.test(commit)) return keep("latest build names no commit");
+  if (commit === pinned || latest.unchanged === true) return keep(`latest build ${commit.slice(0, 12)} carries the pinned binaries`);
+  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") return keep("shallow checkout");
+  if (!gitOk(["cat-file", "-e", `${pinned}^{commit}`]) || !gitOk(["cat-file", "-e", `${commit}^{commit}`])) return keep(`latest build ${commit.slice(0, 12)} or the pin is not in this checkout`);
+  if (!gitOk(["merge-base", "--is-ancestor", commit, tip])) {
+    const onTip = await publishedOnTip(pinned, tip, lock);
+    if (onTip.commit === "") return keep(`latest build ${commit.slice(0, 12)} is not on ${tip}; ${onTip.why}`);
+    if (onTip.unchanged) return keep(`newest build on ${tip}, ${onTip.commit.slice(0, 12)}, carries the pinned binaries`);
+    return { pin: onTip.commit, why: `cmux-tui ${onTip.commit.slice(0, 12)}, the newest build published on ${tip} (pinned ${pinned.slice(0, 12)}; latest build ${commit.slice(0, 12)} is not on ${tip})` };
+  }
+  if (gitOk(["merge-base", "--is-ancestor", commit, pinned])) return keep(`latest build ${commit.slice(0, 12)} is not newer`);
+  return { pin: commit, why: `cmux-tui ${commit.slice(0, 12)}, the newest published build (pinned ${pinned.slice(0, 12)})` };
+}
+
+/**
+ * First-parent commits of TIP after PINNED that publishedOnTip may ask files.cmux.com about, newest first. 2026-11-27:
+ * at 40, push roll 45961450781 (07:52Z) kept cmux-tui f7b548a5 (02:41Z, 516 commits back) because publishing lagged
+ * from 06:26Z: the newest published build, 3894c456, was 185 commits deep, so none of the 40 asked had one and the
+ * guest fix e7dcf033 waited for a build it could not see. The whole range is asked, up to this bound.
+ */
+export const PUBLISHED_PROBE_LIMIT = 2000;
+/** pin-cmux-tui.ts --commit lookups publishedOnTip runs at once. */
+export const PUBLISHED_PROBE_PARALLEL = 16;
+
+/** pin-cmux-tui.ts --commit CANDIDATE's answer when its build is published, else null. Never rejects. */
+function probePublished(candidate: string, lock: string): Promise<{ commit: string; unchanged: boolean } | null> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    const child = spawn("bun", [path.join(ROOT, "images/cmux-vm/pin-cmux-tui.ts"), "--commit", candidate, "--lock", lock], { stdio: ["ignore", "pipe", "ignore"] });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => (stdout += chunk));
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0) return resolve(null);
+      try {
+        const out = JSON.parse(stdout) as { commit?: unknown; unchanged?: unknown };
+        resolve(out.commit === candidate ? { commit: candidate, unchanged: out.unchanged === true } : null);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+/**
+ * The newest first-parent commit of TIP after PINNED whose cmux-tui build files.cmux.com publishes (pin-cmux-tui.ts
+ * --commit reads its manifest, or its Cloud machine build under machine/ (MACHINE_BUILD); a commit with neither
+ * answers non-zero), at most PUBLISHED_PROBE_LIMIT asked, PUBLISHED_PROBE_PARALLEL at a time, newest batch first.
+ * Builds coalesce, so most commits have none. commit "" with why when none is found.
+ */
+async function publishedOnTip(pinned: string, tip: string, lock: string): Promise<{ commit: string; unchanged: boolean; why: string }> {
+  const list = git(["rev-list", "--first-parent", `--max-count=${PUBLISHED_PROBE_LIMIT}`, `${pinned}..${tip}`]);
+  if (list.status !== 0) return { commit: "", unchanged: false, why: `no commit list after the pin: ${list.stderr.trim()}` };
+  const commits = list.stdout.split("\n").filter((c) => /^[0-9a-f]{40}$/u.test(c));
+  for (let i = 0; i < commits.length; i += PUBLISHED_PROBE_PARALLEL) {
+    const batch = await Promise.all(commits.slice(i, i + PUBLISHED_PROBE_PARALLEL).map((c) => probePublished(c, lock)));
+    const hit = batch.find((b) => b !== null);
+    if (hit) return { ...hit, why: "" };
+  }
+  return { commit: "", unchanged: false, why: `none of the ${commits.length} newest commits after the pin has a published build` };
+}
+
+/** Where plan() reads the Cloud machine channel: --channel, else CMUX_CLOUD_MACHINE_CHANNEL, else files.cmux.com. A URL or a file. */
+async function readChannel(where: string): Promise<string> {
+  if (!/^https?:\/\//u.test(where)) return readFileSync(where, "utf8");
+  const res = await fetch(`${where}${where.includes("?") ? "&" : "?"}plan=${Date.now()}`, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+/**
+ * RFD 0224 phase 4, images from the binary's SHA: a push roll pins the commit the Cloud machine channel serves running
+ * VMs, so a new VM boots the same cmux-tui the in-VM updater would install. 2026-11-28 17:48Z: the lock pinned
+ * c6cd14b5 while the channel served 632a901e, 629 commits newer (`auto-roll.ts skew`). The same guards as
+ * newestPublished: on TIP, never older than the pin, published for the image. The channel's commit equal to the pin
+ * keeps the pin (the image already carries the channel's binary). null when the channel is unreadable or its commit
+ * fails a guard, and the caller falls back to the newest published build, as before.
+ */
+async function channelPin(pinned: string, tip: string, lock: string, where: string): Promise<{ pin: string; why: string } | null> {
+  let commit: string;
+  try {
+    commit = channelCommit(await readChannel(where));
+  } catch {
+    return null;
+  }
+  const short = commit.slice(0, 12);
+  if (commit === pinned) return { pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (the Cloud machine channel serves it)` };
+  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") return null;
+  if (!gitOk(["cat-file", "-e", `${commit}^{commit}`]) || !gitOk(["cat-file", "-e", `${pinned}^{commit}`])) return null;
+  if (!gitOk(["merge-base", "--is-ancestor", commit, tip])) return null;
+  if (gitOk(["merge-base", "--is-ancestor", commit, pinned])) return null;
+  const published = await probePublished(commit, lock);
+  if (published === null) return null;
+  if (published.unchanged) return { pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (the Cloud machine channel's ${short} carries the pinned binaries)` };
+  return { pin: commit, why: `cmux-tui ${short}, the commit the Cloud machine channel serves (pinned ${pinned.slice(0, 12)})` };
+}
+
+async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string; channel: string }): Promise<Plan> {
   const mode = modeOf(readFileSync(MODE_FILE, "utf8"));
   const dryRun = opts.dryRun === "true" ? true : opts.dryRun === "false" ? false : mode !== "live";
   const pinned = pinnedCmuxTui(readFileSync(opts.lock, "utf8"));
@@ -379,11 +684,27 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
   if (mode === "off" && opts.event !== "dispatch") return none("images/cmux-vm/auto-roll.json says off");
 
   if (opts.event === "push") {
-    // An image change landed (the trigger's paths); the cmux-tui pin stays.
+    // An image change landed (the trigger's paths). The bake also takes the newest published cmux-tui build when it
+    // is on the tip and newer than the pin: a push roll that kept the pin re-baked a stale build. 2026-11-26: the
+    // lock pinned 99de33e5 (13:23Z) while builds to 97bd0527 (16:35Z) were published, the 16:52Z push roll promoted
+    // 99de33e5 again, and push roll 45862819601 failed its Agent tools probe on that old acpmux; NOW's Cloud
+    // image lag sat past its bound until a dispatch roll re-pinned. Any doubt about the newer build keeps the pin.
     const range = /^[0-9a-f]{40}$/u.test(opts.before) && !/^0+$/u.test(opts.before) ? `${opts.before}..${opts.commit}` : `${opts.commit}~1..${opts.commit}`;
     const fixes = fixCommits(range, IMAGE_PATHS);
     if (fixes.length === 0) return none(`no commit in ${range} changes the image inputs`);
-    return { roll: true, reason: `image inputs changed in ${range}`, pin: "", cmuxTui: pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
+    const newer = (await channelPin(pinned, opts.tip, opts.lock, opts.channel)) ?? (await newestPublished(pinned, opts.tip, opts.lock));
+    const reason = `image inputs changed in ${range}; ${newer.why}`;
+    return { roll: true, reason, pin: newer.pin, cmuxTui: newer.pin || pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
+  }
+  if (opts.event === "newest") {
+    // The cadence tick (main's cloud-vm-image-roll-tick-dispatch.yml, every 20 min): the newest build, picked as a
+    // push roll picks it, then every guard of a build roll below. A roll started only by a build's dispatch or an
+    // image push left the lock where the last good roll put it when a roll failed or a request never came:
+    // 2026-11-28 the lock pinned c6cd14b5 from 09:21Z to 18:48Z (11.2 h behind at promotion) and 11 of 19 rolls
+    // failed with nothing to retry them until the next trigger. Nothing newer: nothing rolls.
+    const newer = (await channelPin(pinned, opts.tip, opts.lock, opts.channel)) ?? (await newestPublished(pinned, opts.tip, opts.lock));
+    if (newer.pin === "") return none(newer.why);
+    opts = { ...opts, commit: newer.pin };
   }
   if (opts.commit === "") {
     if (opts.event !== "dispatch") return none("no commit");
@@ -429,6 +750,15 @@ function arg(argv: string[], name: string, fallback?: string): string {
   return value;
 }
 
+/** --platform-wrangler PATH: cmux-platform's root wrangler.jsonc, whose CLOUD_VM_API_IMAGE pins approve and rollback keep. */
+function pinsFrom(rest: string[]): string[] {
+  const file = rest.includes("--platform-wrangler") ? arg(rest, "--platform-wrangler") : "";
+  if (!file) return [];
+  const pins = platformPins(readFileSync(file, "utf8"));
+  if (pins.length === 0) throw new Error(`${file} names no CLOUD_VM_API_IMAGE: not cmux-platform's wrangler.jsonc`);
+  return pins;
+}
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   const wrangler = arg(rest, "--wrangler", DEFAULT_WRANGLER);
@@ -442,6 +772,7 @@ async function main(argv: string[]): Promise<number> {
       dryRun: arg(rest, "--dry-run", "auto"),
       tip: arg(rest, "--tip", "HEAD"),
       lock,
+      channel: arg(rest, "--channel", process.env.CMUX_CLOUD_MACHINE_CHANNEL || CLOUD_MACHINE_CHANNEL),
     });
     console.log(JSON.stringify(result, null, 2));
     return 0;
@@ -460,16 +791,23 @@ async function main(argv: string[]): Promise<number> {
       console.error(`approve: the lock here (${digest.slice(0, 12)}) is not the lock the image was baked from (${candidate.lock_sha256.slice(0, 12)}); the tip moved its image inputs`);
       return 4;
     }
-    const entry = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"), arg(rest, "--attempt"));
+    const rolled = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"), arg(rest, "--attempt"));
+    // The list is deployed with the Worker source beside it (cmux's, or cmux-platform's copy with --wrangler). A
+    // Worker from before the large image refuses the whole list over one unknown field, so it is listed only there.
+    const takesLarge = workerTakesLarge(wrangler);
+    if (rolled.large !== undefined && !takesLarge) console.error(`approve: ${rolled.id} is listed without its large image: the Worker beside ${wrangler} does not take one`);
+    const { large: _large, ...withoutLarge } = rolled;
+    const entry: BootImage = takesLarge ? rolled : withoutLarge;
     const before = readFileSync(wrangler, "utf8");
-    const { text, previousFirst } = approve(before, entry);
+    const { text, previousFirst, large } = approve(before, entry, pinsFrom(rest));
     writeFileSync(wrangler, text);
-    console.log(JSON.stringify({ image: { id: entry.id, revision: entry.revision, snapshotId: entry.snapshotId }, previousFirst }, null, 2));
+    if (entry.large !== undefined && !large) console.error(`approve: ${entry.id} is listed without its large image: staging's VM_BOOT_IMAGES would pass ${MAX_BYTES} bytes with it`);
+    console.log(JSON.stringify({ image: { id: entry.id, revision: entry.revision, snapshotId: entry.snapshotId }, previousFirst, large }, null, 2));
     return 0;
   }
   if (command === "rollback") {
     const before = readFileSync(wrangler, "utf8");
-    const result = rollback(before, arg(rest, "--image"));
+    const result = rollback(before, arg(rest, "--image"), pinsFrom(rest));
     if (result.rolledBack) writeFileSync(wrangler, result.text);
     console.log(JSON.stringify({ rolledBack: result.rolledBack, reason: result.reason, nowFirst: result.nowFirst }, null, 2));
     return 0;
@@ -492,6 +830,11 @@ async function main(argv: string[]): Promise<number> {
       deploy: arg(rest, "--deploy", ""),
       product: arg(rest, "--product", ""),
       bootImage: arg(rest, "--boot-image", ""),
+      // --smoke-ran is smoke-production's gate output: "true"/"false" when its first step ran, "" when no step did.
+      smokeRan: arg(rest, "--smoke-ran", "unknown") !== "",
+      // --worker-deploy is deploy-production's worker_deploy output (the Worker deploy step's outcome): "" or "skipped"
+      // when the step never ran; absent reads as ran.
+      workerDeployRan: !["", "skipped"].includes(arg(rest, "--worker-deploy", "unknown")),
       deployedFirst: deployed.prod[0] ?? "",
       tipFirst: tip.prod[0] ?? "",
       tipHas: tip.prod.includes(image) || tip.staging.includes(image),
@@ -511,7 +854,26 @@ async function main(argv: string[]): Promise<number> {
       console.error(`check: ${d.env} boots ${d.image || "no image"} (its ${BOOT_ENTRY[d.env]} entry), ${d.behind} rolls behind production's newest; at most ${max}`);
     return drift.every((d) => d.ok) ? 0 : 1;
   }
-  console.error("usage: auto-roll.ts plan|approve|rollback|settle|check ... (see the header)");
+  if (command === "skew") {
+    gitCwd = path.resolve(arg(rest, "--repo", ROOT));
+    const max = Number(arg(rest, "--max-behind", String(MAX_BINARY_SKEW)));
+    if (!Number.isInteger(max) || max < 0) throw new Error("--max-behind must be a non-negative integer");
+    const file = arg(rest, "--channel", "");
+    let text: string;
+    if (file) text = readFileSync(file, "utf8");
+    else {
+      const res = await fetch(`${CLOUD_MACHINE_CHANNEL}?skew=${Date.now()}`, { signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) throw new Error(`${CLOUD_MACHINE_CHANNEL}: HTTP ${res.status}`);
+      text = await res.text();
+    }
+    const pin = pinnedCmuxTui(readFileSync(lock, "utf8"));
+    const chan = channelCommit(text);
+    const skew = binarySkew(pin, chan, pin === chan ? 0 : commitsBehind(pin, chan), max);
+    console.log(JSON.stringify(skew, null, 2));
+    if (!skew.ok) console.error(`skew: ${skew.why}`);
+    return skew.ok ? 0 : 1;
+  }
+  console.error("usage: auto-roll.ts plan|approve|rollback|settle|check|skew ... (see the header)");
   return 2;
 }
 

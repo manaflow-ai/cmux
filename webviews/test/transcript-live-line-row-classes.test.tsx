@@ -5,8 +5,7 @@
 // joins the live line.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { isLiveStep, PENDING_MESSAGES, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ACTIVITY_LINE, THINKING, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -43,6 +42,8 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { isLiveStep, PENDING_MESSAGES } = await import("../src/agent-session/acpmux/model");
+const { THINKING, WORKING } = await import("../src/agent-session/acpmux/conversation/turns");
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 
@@ -109,7 +110,7 @@ const waiting: AcpmuxRow = {
   text: "2 messages from 2 sessions",
 };
 
-for (const kind of [THINKING, WORKING, ACTIVITY_LINE]) {
+for (const kind of [THINKING, WORKING]) {
   test(`the ${kind} live line under a run joins it and the waiting group's head`, async () => {
     const live: AcpmuxRow = { id: "live", version: 1, at: 1, kind, below: true, text: "Sending message to lane" };
     // The layout's own reading of the live line: one more line of the run.

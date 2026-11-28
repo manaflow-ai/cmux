@@ -8,16 +8,37 @@
 export type KeyState = { kind: "setting"; key: string; value: unknown; customized: boolean };
 /** One theme level of the active window (`cmux.settings.theme.set`); null spec is the Ghostty config. */
 export type ThemeState = { kind: "theme"; level: string; spec: string | null };
-export type TargetState = KeyState | ThemeState;
+/** One workspace's own background (`field` "value", null follows appearance.background) or its own
+ * glass tint over art (`field` "opacity", null follows All Workspaces), through
+ * `cmux.settings.backdrop.workspace.set`. `title` is the workspace's name, for the step's label. */
+export type WorkspaceState = {
+  kind: "workspace";
+  workspace: string;
+  title: string;
+  field: "value" | "opacity";
+  value: string | number | null;
+};
+export type TargetState = KeyState | ThemeState | WorkspaceState;
 
 /** One target before and after a change. */
 export type Change = { before: TargetState; after: TargetState };
 
 /** One undoable step: what the buttons' tooltips name ("Wallpaper → Shuffle Paintings"). */
-export type HistoryEntry = { label: string; changes: Change[] };
+export type HistoryEntry = {
+  label: string;
+  changes: Change[];
+  /** The durable history's revisions this step's writes of the settings file produced (durableHistory.ts):
+   * Undo takes them back with settings.undo. Empty or absent: the file holds nothing of the step. */
+  revisions?: number[];
+  /** The durable history's newest revision when the step was recorded, undone or redone. */
+  head?: number;
+  /** On the Redo side: the revision of the step's first settings.undo, which Redo restores. */
+  redoFrom?: number;
+};
 
 /** The identity of a target, so two states of one target compare. */
 export function targetId(state: TargetState): string {
+  if (state.kind === "workspace") return `workspace:${state.workspace}:${state.field}`;
   return state.kind === "setting" ? `setting:${state.key}` : `theme:${state.level}`;
 }
 
@@ -28,6 +49,7 @@ export function sameState(a: TargetState, b: TargetState): boolean {
     return a.customized === b.customized && JSON.stringify(a.value) === JSON.stringify(b.value);
   }
   if (a.kind === "theme" && b.kind === "theme") return a.spec === b.spec;
+  if (a.kind === "workspace" && b.kind === "workspace") return a.value === b.value;
   return false;
 }
 
@@ -105,6 +127,25 @@ export class AppearanceHistory {
     const index = from.lastIndexOf(entry);
     if (index >= 0) from.splice(index, 1);
     to.push(entry);
+    this.emit();
+  }
+
+  /** Puts a step undone outside this stack (another writer's change, through settings.undo) on
+   * the Redo side. */
+  pushUndone(entry: HistoryEntry): void {
+    this.redoStack.push(entry);
+    this.emit();
+  }
+
+  /** Drops every Redo step (a change came after the undo). */
+  clearRedo(): void {
+    if (this.redoStack.length === 0) return;
+    this.redoStack = [];
+    this.emit();
+  }
+
+  /** Tells the bar something it shows changed (the durable history was read again). */
+  changed(): void {
     this.emit();
   }
 

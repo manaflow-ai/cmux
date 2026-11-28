@@ -194,10 +194,10 @@ pub(super) async fn wait(
         })
         .cloned()
         .collect();
-    let _lane_wait = hub.lane_report_wait(
-        if completion && !keys.is_empty() { caller } else { None },
-        &completion_ids,
-    );
+    let named = if completion && !keys.is_empty() { caller } else { None };
+    let _lane_wait = hub.lane_report_wait(named, &completion_ids);
+    // While it waits, what it waits on runs at its class (`hub/wait_edges.rs`, RFD 0182 B9).
+    let _wait_edge = hub.wait_edge(named, &ids);
     // Counted from its subscription until it answers or its request ends.
     let _open = OpenWait::new(&hub.open_waits);
     let deadline = timeout.map(|t| tokio::time::Instant::now() + t);
@@ -213,9 +213,11 @@ pub(super) async fn wait(
         let mut resolved = Vec::new();
         for id in &ids {
             // `get`, not `remove`: two keys can name one chat (its name and its id).
-            let mut s = summaries
-                .get(id)
-                .cloned()
+            // A chat that moved away is waited on where it runs (`hub/moved_forward.rs`),
+            // not by its tombstone here, which is closed.
+            let mut s = hub
+                .moved_row(id)
+                .or_else(|| summaries.get(id).cloned())
                 .unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
             if hub.work_coming(id) {
                 s.set(WORK_COMING, json!(true));
@@ -335,7 +337,7 @@ fn holds_for_retry(
 
 /// Whether `ev` is a record of one of the chats `ids` names, a peer's by its id or its row's.
 fn concerns(ev: &crate::hub::HubEvent, ids: &[String]) -> bool {
-    let row = ev.remote.as_ref().and_then(|r| r.summary.get("sessionId")).and_then(Value::as_str);
+    let row = ev.remote.as_ref().and_then(|r| r.summary.session_id());
     ids.iter().any(|id| *id == ev.session_id || Some(id.as_str()) == row)
 }
 

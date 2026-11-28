@@ -10,22 +10,23 @@ private let theme = CmuxMobileTheme.standard
 /// A Cloud machine's chats (``CloudMachineChatsList``, on the shared ``PagedList``) on fixed chats,
 /// for screenshots and UI tests of every state (verify/paged-list.md), with the lab's measurement
 /// line (`lab.hud`). Launch with `-cmux-mobile-paged-screen cloudchats:SCENARIO`:
-/// - `fast`: 600 chats, all read: a page of 100 more shows as the reader nears the end;
-/// - `slow`: 100 chats while the hub reads older ones: the end spins until `lab.deliver` hands the
-///   list 100 more (as a page of the hub's read lands), up to 300;
-/// - `end`: 150 chats, all read; `empty`: none;
-/// - `connecting`: the machine never answers; `connectfail`: the connect failed (Retry connects,
-///   then as `fast`);
-/// - `reststop`: 100 chats, and the hub's read of older ones stopped short (Try Again reconnects,
-///   then 300 chats, all read);
-/// - `live`: 300 chats, all read; `lab.bump` updates a chat near the top (the 6th, then the 7th…),
-///   which moves to the top, as a chat that just ran does.
+/// - `fast`: 600 chats: a page of 100 more is read as the reader nears the end, and lands at once;
+/// - `slow`: 300 chats: a page more is read slowly, so the end spins until `lab.deliver` answers
+///   the read (as acpmux's page lands);
+/// - `end`: 150 chats; `empty`: none;
+/// - `connecting`: the machine never answers (nothing is drawn); `connectfail`: the connect failed
+///   (it connects again on its own, then as `fast`);
+/// - `olderfail`: 300 chats, and the first read of a page more fails (the end's Try Again reads it);
+/// - `live`: 300 chats; `lab.bump` updates a chat near the top (the 6th, then the 7th…), which
+///   moves to the top, as a chat that just ran does.
 /// `-cmux-mobile-paged-lab-clean` hides the measurement line and the buttons for screenshots.
 struct CloudChatsGallery: View {
     let scheme: ColorScheme?
     let clean: Bool
     @State private var hub: CloudChatsGalleryHub
     @State private var shown = CloudChatList.pageSize
+    /// The connect is made again on its own, as the screen's (a slower first retry, so a test sees the failure).
+    @State private var autoRetry = AutoRetry(backoff: AutoRetryBackoff(first: .seconds(4), cap: .seconds(4)))
     @State private var hud = PagedLabHUD()
     @State private var probe = PagedListProbe()
     @State private var hitchLog = CloudChatsHitchLog()
@@ -37,21 +38,24 @@ struct CloudChatsGallery: View {
     }
 
     var body: some View {
-        let state = CloudChatsListState(newestFirst: hub.chats, listWhole: hub.listWhole, restStopped: hub.restStopped, shown: shown)
+        let state = CloudChatsListState(rows: hub.rows, hasOlder: hub.hasOlder, pageShown: hub.pageShown, shown: shown,
+                                        failure: hub.failure)
         NavigationStack {
             Group {
                 switch hub.state {
                 case .connecting:
-                    CloudChatsConnecting(machine: "Build Box", mac: "Studio Mac", since: hub.since)
+                    CloudChatsConnecting()
                 case .failed:
-                    CloudChatsConnectFailed(cause: "Studio Mac didn't reach Build Box. Check that the Mac is awake and online.") {
-                        Task { await hub.connect() }
-                    }
+                    CloudChatsConnectFailed(cause: "Studio Mac didn't reach Build Box. Check that the Mac is awake and online.",
+                                            autoRetry: autoRetry)
                 case .ready:
                     CloudMachineChatsList(state: state, shown: $shown, select: { _ in },
-                                          reconnect: { Task { await hub.connect() } }, probe: probe)
+                                          retry: { Task { await hub.read(shown: shown, again: true) } }, probe: probe)
                 }
             }
+            .autoRetry(autoRetry, failing: hub.state == .failed) { await hub.connect() }
+            // A page more is read when the list asks for it, as the screen reads acpmux's.
+            .task(id: shown) { await hub.read(shown: shown) }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .navigationTitle("Build Box")
             .navigationBarTitleDisplayMode(.inline)
@@ -166,8 +170,8 @@ final class CloudChatsHitchLog {
     }
 }
 
-/// What the gallery's Cloud machine holds: its chats newest first, whether the hub read them all
-/// or its read stopped short, and the connect's state.
+/// What the gallery's Cloud machine holds (its chats newest first), the page of them read last, and
+/// the connect's state: the screen's acpmux page read, on fixed chats.
 @MainActor
 @Observable
 final class CloudChatsGalleryHub {
@@ -175,64 +179,82 @@ final class CloudChatsGalleryHub {
 
     let scenario: String
     private(set) var state = Phase.connecting
-    private(set) var since = Date.now
-    private(set) var chats: [CloudChatsListItem] = []
-    private(set) var listWhole = false
-    private(set) var restStopped = false
+    /// The chats drawn: the first `pageShown` of the machine's.
+    private(set) var rows: [CloudChatsListItem] = []
+    private(set) var hasOlder = false
+    private(set) var pageShown = 0
+    /// The last read of a page more failed.
+    private(set) var failure: String?
+    @ObservationIgnored private var all: [CloudChatsListItem] = []
     @ObservationIgnored private var connects = 0
     @ObservationIgnored private var bumps = 0
+    @ObservationIgnored private var failedOnce = false
+    /// `slow`: the read of a page more waits here until `deliver`.
+    @ObservationIgnored private var held: CheckedContinuation<Void, Never>?
 
     init(scenario: String) { self.scenario = scenario }
 
     func connect() async {
         connects += 1
         state = .connecting
-        since = .now
         if scenario == "connecting" { return }
         // motion: not an animation; the gallery's machine answers after a network-like delay.
         try? await Task.sleep(for: .milliseconds(600))
-        let again = connects > 1
-        switch scenario {
-        case "connectfail" where !again:
+        if scenario == "connectfail", connects == 1 {
             state = .failed
             return
-        case "empty":
-            load(0, whole: true)
-        case "end":
-            load(150, whole: true)
-        case "slow":
-            load(100, whole: false)
-        case "reststop":
-            if again { load(300, whole: true) } else { load(100, whole: false, stopped: true) }
-        case "live":
-            load(300, whole: true)
-        default:
-            load(600, whole: true)
         }
+        switch scenario {
+        case "empty": all = []
+        case "end": all = (0..<150).map(Self.chat)
+        case "slow", "olderfail", "live": all = (0..<300).map(Self.chat)
+        default: all = (0..<600).map(Self.chat)
+        }
+        page(CloudChatList.pageSize)
         state = .ready
     }
 
-    /// The next page of the hub's read lands (`slow`): 100 older chats, the last of them at 300.
+    /// Reads the first `shown` chats, as the screen reads acpmux's page: a page more is slow in
+    /// `slow` (until `deliver`) and fails once in `olderfail`.
+    func read(shown: Int, again: Bool = false) async {
+        guard state == .ready, shown > pageShown, hasOlder else { return }
+        if again { failure = nil }
+        switch scenario {
+        case "slow":
+            // One read waits at a time: an earlier one answers first.
+            deliver()
+            await withCheckedContinuation { held = $0 }
+        case "olderfail" where !failedOnce:
+            failedOnce = true
+            failure = "Couldn't load older chats."
+            return
+        default:
+            break
+        }
+        page(shown)
+    }
+
+    /// The slow read of a page more answers (`slow`).
     func deliver() {
-        guard !listWhole else { return }
-        let count = chats.count + 100
-        chats += (chats.count..<count).map(Self.chat)
-        listWhole = count >= 300
+        held?.resume()
+        held = nil
     }
 
     /// A chat near the top ran again: it moves to the top with its new prompt.
     func bump() {
         let id = "cc-\(5 + bumps)"
         bumps += 1
-        guard let index = chats.firstIndex(where: { $0.id == id }) else { return }
-        let chat = chats.remove(at: index)
-        chats.insert(CloudChatsListItem(id: chat.id, title: chat.title, prompt: "Ran again (\(bumps)): \(chat.prompt ?? "a new turn")"), at: 0)
+        guard let index = all.firstIndex(where: { $0.id == id }) else { return }
+        let chat = all.remove(at: index)
+        all.insert(CloudChatsListItem(id: chat.id, title: chat.title, prompt: "Ran again (\(bumps)): \(chat.prompt ?? "a new turn")"), at: 0)
+        page(pageShown)
     }
 
-    private func load(_ count: Int, whole: Bool, stopped: Bool = false) {
-        chats = (0..<count).map(Self.chat)
-        listWhole = whole
-        restStopped = stopped
+    private func page(_ shown: Int) {
+        rows = Array(all.prefix(shown))
+        hasOlder = all.count > shown
+        pageShown = shown
+        failure = nil
     }
 
     static func chat(_ n: Int) -> CloudChatsListItem {

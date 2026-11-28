@@ -94,6 +94,29 @@ const github = { rest: {
     },
   },
 } };
+// limitedFor: {'group.method': seconds}. Each named read is rate limited (primary
+// quota dry) for that long after its first call; setTimeout advances the clock.
+const waits = [];
+if (scenario.limitedFor) {
+  global.setTimeout = (resolve, ms) => { waits.push(ms); scenario.nowMs += ms; resolve(); };
+  github.hook = { wrap: (_event, wrapper) => {
+    for (const [name, seconds] of Object.entries(scenario.limitedFor)) {
+      const [group, method] = name.split('.');
+      const original = github.rest[group][method];
+      let resetMs = null;
+      github.rest[group][method] = (...args) => wrapper(async () => {
+        if (resetMs === null) resetMs = Date.now() + seconds * 1000;
+        if (Date.now() < resetMs) {
+          throw Object.assign(new Error('API rate limit exceeded for installation'), {
+            status: 403,
+            response: { headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetMs / 1000) } },
+          });
+        }
+        return original(...args);
+      }, { method: 'GET', url: name });
+    }
+  } };
+}
 // Classify with the real script in the real checkout, so the workflow and this
 // contract cannot disagree about what reaches the app.
 const exec = { getExecOutput: async (command, args, options) => {
@@ -112,7 +135,7 @@ const exec = { getExecOutput: async (command, args, options) => {
 const run = new Function('github', 'context', 'core', 'process', 'exec',
   `return (async () => {\n${scenario.script}\n})();`);
 run(github, context, core, process, exec).then(() => {
-  console.log(JSON.stringify({ outputs, notices, warnings, tables }));
+  console.log(JSON.stringify({ outputs, notices, warnings, tables, waits }));
 }).catch((e) => { console.error(e); process.exit(1); });
 """
 
@@ -145,6 +168,7 @@ def run_decide(
     tag_age_hours: float = 0.5,
     interval: str = "2",
     get_commit_fails: bool = False,
+    limited_for=None,
     schedule: str = "47 8 * * *",
     extra_env=None,
     comparison=None,
@@ -170,6 +194,7 @@ def run_decide(
                 "tagSha": tag_sha,
                 "tagAgeHours": tag_age_hours,
                 "getCommitFails": get_commit_fails,
+                "limitedFor": limited_for,
                 "schedule": schedule,
                 "compare": APP_CHANGE if comparison is None else comparison,
                 "classifier": classifier,
@@ -214,6 +239,26 @@ def ci_scripts():
     finally:
         sys.path[:] = original_path
     return detect, nightly
+
+
+def test_decide_waits_once_through_an_hourly_reset() -> None:
+    # Run 44849687076: the core budget was dry for 29 minutes; the old 20-minute
+    # cap gave up first. One read limited for 50 minutes now waits it out.
+    result = run_decide(event="workflow_dispatch", limited_for={"git.getRef": 3000})
+    assert sum(result["waits"]) >= 3000 * 1000
+    assert should_build(result)
+
+
+def test_decide_rate_limit_waits_share_one_decision_window() -> None:
+    # A push reads the tag, then compares paths. Each read is limited for 50
+    # minutes: 100 minutes of waiting with a cap per request. With one 65-minute
+    # window for the decision, the comparison gives up when it closes, and a
+    # failed lookup builds, as before.
+    result = run_decide(event="push", tag_age_hours=3,
+                        limited_for={"git.getRef": 3000,
+                                     "repos.compareCommitsWithBasehead": 3000})
+    assert sum(result["waits"]) <= 65 * 60 * 1000, result["waits"]
+    assert should_build(result)
 
 
 def test_decision_summary_distinguishes_push_throttle_from_manual_build() -> None:
@@ -421,12 +466,14 @@ def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
         assert checkout["with"]["persist-credentials"] is False
         assert steps.index(checkout) < next(i for i, step in enumerate(steps) if step.get("id") == "decide")
 
-    # Execute from precisely the declared files, without the full checkout on
-    # sys.path. Import-time dependencies must work even when no job is placed.
+    # Execute from precisely the declared files, without the full checkout on sys.path.
     paths = sparse["with"]["sparse-checkout"].split()
-    # The pickers read the declared runner set (.github/runners.json, #30173) as data.
-    assert all(path.startswith("/scripts/ci/") and path.endswith(".py")
-               or path == "/.github/runners.json" for path in paths)
+    # /.gitmodules: actions/checkout's submodule foreach reads it (test_sparse_checkout_keeps_gitmodules.py).
+    # The shadow app-input digest step runs decide-shadow-app-input-digest.sh, which bounds
+    # scripts/ci/app_input_digest.py (stdlib only) through scripts/ci/timeout.sh.
+    assert paths == ["/scripts/ci/nightly-publication-marker.py", "/scripts/ci/app_input_digest.py",
+                     "/scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh", "/scripts/ci/timeout.sh",
+                     "/.gitmodules"]
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         for path in paths:
@@ -440,11 +487,6 @@ def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
             capture_output=True, check=True,
         )
         assert marker.stdout.strip() == HEAD_SHA
-        placement = subprocess.run(
-            [sys.executable, "scripts/ci/portable_job_placement.py"],
-            cwd=root, env={"JOBS": ""}, text=True, capture_output=True, check=True,
-        )
-        assert "portable placement:" in placement.stdout
 
 
 def test_a_failing_classifier_builds() -> None:

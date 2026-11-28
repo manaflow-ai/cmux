@@ -5,8 +5,8 @@
 import { useState, type KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/Tabs";
-import { isPending, plain, type FeedProps } from "./context";
-import { AnswerControls } from "./AnswerControls";
+import { isPending, plain, rowActions, type FeedProps } from "./context";
+import { SnapAnswerControls } from "./AnswerControls";
 import { FeedIcon } from "./icons";
 import { useButtonMenu } from "./menus";
 import {
@@ -22,6 +22,7 @@ import {
   isRequest,
   isUnread,
   moveSelection,
+  relativeTime,
   shownItem,
   type FeedLine,
   type InboxConnection,
@@ -71,8 +72,8 @@ export function InboxView(props: FeedProps) {
               label={t("feed.inboxTitle")}
               compact={compact}
               scrollParent=".feed-inbox-list"
-              onSelect={(id) => store.select(id)}
-              onOpen={(id) => store.open(id)}
+              onSelect={rowActions(store).select}
+              onOpen={rowActions(store).open}
               onKeyDown={keys}
             />
           </div>
@@ -131,7 +132,6 @@ function InboxHeader({ store, snap, strings, hasUnread, onListKeys }: HeaderProp
         <button
           type="button"
           className="feed-add"
-          title={t("feed.addConnection")}
           aria-label={t("feed.addConnection")}
           onClick={() => store.addConnection()}
         >
@@ -215,7 +215,11 @@ function InboxDetail({ store, snap, strings, item }: FeedProps & { item: ViewIte
           <Glyph item={item} />
           <div className="feed-detail-titles">
             <h2 className="feed-detail-title">{item.title}</h2>
-            <PosterLine item={item} strings={strings} now={snap.now} />
+            <PosterLine
+              item={item}
+              strings={strings}
+              time={relativeTime(item.created_at, snap.now, strings.language)}
+            />
           </div>
         </div>
         {item.github ? <GitHubSummary detail={item.github} /> : null}
@@ -224,7 +228,7 @@ function InboxDetail({ store, snap, strings, item }: FeedProps & { item: ViewIte
           <GitHubActions key={item.id} store={store} snap={snap} strings={strings} item={item} />
         ) : null}
         {isRequest(item) && item.poster.kind !== "integration" ? (
-          <AnswerControls item={item} store={store} snap={snap} strings={strings} density="detail" />
+          <SnapAnswerControls item={item} store={store} snap={snap} strings={strings} density="detail" />
         ) : null}
         {thread.length ? (
           <div className="feed-thread">
@@ -242,9 +246,9 @@ function InboxDetail({ store, snap, strings, item }: FeedProps & { item: ViewIte
                   key={member.id}
                   line={line}
                   strings={strings}
-                  now={snap.now}
-                  onSelect={() => store.select(member.id)}
-                  onOpen={() => store.open(member.id)}
+                  time={relativeTime(member.created_at, snap.now, strings.language)}
+                  onSelect={rowActions(store).select}
+                  onOpen={rowActions(store).open}
                 />
               );
             })}

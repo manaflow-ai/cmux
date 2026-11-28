@@ -30,6 +30,11 @@ struct PaneSurfaceStatus {
     /// Content in the pane's window may draw now (``WindowDrawPolicy``): it is
     /// on screen, or `render.drawWhenOccluded` is on.
     var windowDrawable = true
+    /// For Home's docked tab (`home-dock`): whether its dock view is drawn in this pane's window
+    /// (in the window, not hidden, with room). Nil for every other tab. The dock view is the
+    /// content that shows, so Home is judged by it, not by a terminal surface or a page window it
+    /// does not have (a false `blank pane` fault on every Home, air-blue 2026-11-16).
+    var homeDockShown: Bool?
 
     /// The layout gave the pane no room below its tab strip (a split tree
     /// deeper than the window allows). A layout sizing problem, not a
@@ -42,12 +47,21 @@ struct PaneSurfaceStatus {
     /// paused or has no grid. A pane whose window may not draw (occluded,
     /// ``WindowDrawPolicy``) shows nothing by design and is never blank; the
     /// invariant checks it again when the window is visible.
-    var isBlank: Bool {
-        guard isVisible, windowDrawable, selectedTab != nil, !isCollapsed else { return false }
-        guard selectedTab == shownTab, contentInstalled, contentInWindow else { return true }
-        if let terminal { return !terminal.isPresentable }
-        if let page, !page.isVisible { return true }
-        return foreignPages > 0
+    var isBlank: Bool { blankReason != nil }
+
+    /// Why ``isBlank`` holds (`not_shown`, `not_installed`, `not_in_window`, `terminal_not_drawing`,
+    /// `page_hidden`, `foreign_page`, `home_dock_not_shown`), nil when the pane is not blank. The
+    /// fault and `debug.surfaces` name it, so a blank pane says which check it failed.
+    var blankReason: String? {
+        guard isVisible, windowDrawable, selectedTab != nil, !isCollapsed else { return nil }
+        if selectedTab != shownTab { return "not_shown" }
+        // Home's dock is judged by its own view, which is what the pane shows.
+        if let homeDockShown { return homeDockShown ? nil : "home_dock_not_shown" }
+        if !contentInstalled { return "not_installed" }
+        if !contentInWindow { return "not_in_window" }
+        if let terminal { return terminal.isPresentable ? nil : "terminal_not_drawing" }
+        if let page, !page.isVisible { return "page_hidden" }
+        return foreignPages > 0 ? "foreign_page" : nil
     }
 
     /// An off-screen pane in the keep-alive band whose selected tab has no
@@ -73,6 +87,8 @@ struct PaneSurfaceStatus {
             "content_in_window": .bool(contentInWindow),
             "content_size": .string("\(Int(contentSize.width))x\(Int(contentSize.height))"),
             "blank": .bool(isBlank),
+            "blank_reason": blankReason.map(JSONValue.string) ?? .null,
+            "home_dock_shown": homeDockShown.map(JSONValue.bool) ?? .null,
             "collapsed": .bool(isCollapsed),
             "content_visible": .bool(page?.isVisible ?? (terminal?.isPresentable ?? contentInstalled)),
             "foreign_pages": JSONValue(foreignPages),
@@ -120,53 +136,45 @@ struct PaneSurfaceStatus {
 }
 
 extension PaneController {
+    /// The content's kind, as ``surfaceStatus`` and the frame-timing log's `surface` (`WorkspaceContentController`) name it.
+    static func kind(of content: TabContent?) -> String {
+        switch content?.kind {
+        case .chromium, .webkit: "browser"
+        case .placeholder: "remote-placeholder"
+        case .notice: "agent-elsewhere"
+        case let kind?: kind.rawValue
+        case nil: "none"
+        }
+    }
+
+    /// The visibility its own Chromium page reports (a browser tab's; an agent chat's or a page's window), from cheap reads.
+    static func pageVisibility(of content: TabContent?) -> BrowserContentVisibility? {
+        switch content {
+        case .browser(let entry): (entry.tab as? any BrowserContentVisibilityReporting)?.contentVisibility
+        case .agent, .page: (content?.childWindowTab as? any BrowserContentVisibilityReporting)?.contentVisibility
+        default: nil
+        }
+    }
+
     /// Reads the pane's live state without creating any surface.
     var surfaceStatus: PaneSurfaceStatus {
         let content = currentTabKey.flatMap(existingContent(for:))
-        let view = content?.view
-        var terminal: TerminalSurfaceDiagnostics?
+        let view = content?.view, visibility = Self.pageVisibility(of: content)
+        let terminal: TerminalSurfaceDiagnostics? = if case .terminal(let entry) = content { entry.session.diagnostics } else { nil }
         var page: BrowserContentVisibility?
-        var ownPages = 0
-        var kind = "none"
-        switch content {
-        case .agent: // an agent chat or New Tab page, and a cmux page, draw in their own Chromium page window: not foreign
-            (kind, ownPages) = ("agent", (content?.childWindowTab as? any BrowserContentVisibilityReporting)?.contentVisibility.isVisible == true ? 1 : 0)
-        case .page:
-            (kind, ownPages) = ("page", (content?.childWindowTab as? any BrowserContentVisibilityReporting)?.contentVisibility.isVisible == true ? 1 : 0)
-        case .terminal(let entry):
-            kind = "terminal"
-            terminal = entry.session.diagnostics
-        case .placeholder:
-            kind = "remote-placeholder"
-        case .notice:
-            kind = "agent-elsewhere"
-        case .conversation:
-            kind = "conversation"
-        case .browser(let entry):
-            kind = "browser"
-            if let reporting = entry.tab as? any BrowserContentVisibilityReporting {
-                page = reporting.contentVisibility
-                if page?.isVisible == true { ownPages = 1 }
-            } else {
-                page = entry.tab.contentView.window == nil || entry.tab.contentView.isHiddenOrHasHiddenAncestor
-                    ? .hidden("not_in_window") : .visible
-            }
-        case nil:
-            break
+        if case .browser(let entry) = content {
+            page = visibility ?? (entry.tab.contentView.window == nil || entry.tab.contentView.isHiddenOrHasHiddenAncestor ? .hidden("not_in_window") : .visible)
         }
-        let presenceName = switch presence {
-        case .visible: "visible"
-        case .keepAlive: "keep_alive"
-        case .hidden: "hidden"
-        }
+        // An agent chat or New Tab page, a cmux page and a browser tab draw in their own Chromium page window: not foreign.
+        let ownPages = visibility?.isVisible == true ? 1 : 0
         let installed = view != nil && self.view.content === view && self.view.hostsContent
         return PaneSurfaceStatus(
             paneKey: paneKey,
             isVisible: isVisible,
-            presence: presenceName,
+            presence: presence.name,
             selectedTab: stripModel.selectedID?.rawValue,
             shownTab: currentTabKey,
-            kind: kind,
+            kind: Self.kind(of: content),
             contentInstalled: installed,
             contentInWindow: view?.window != nil,
             contentSize: view?.bounds.size ?? .zero,
@@ -175,8 +183,26 @@ extension PaneController {
             page: page,
             foreignPages: isVisible ? max(0, visiblePageWindowsOverContent - ownPages) : 0,
             windowOccluded: self.view.window.map { !WindowDrawPolicy.isOnScreen($0) } ?? false,
-            windowDrawable: WindowDrawPolicy.isDrawable(self.view.window)
+            windowDrawable: WindowDrawPolicy.isDrawable(self.view.window),
+            homeDockShown: homeDockShown
         )
+    }
+
+    /// Whether the selected tab, when it is Home's docked tab, has its dock view drawn in this
+    /// pane's window; nil for any other tab (``PaneSurfaceStatus/homeDockShown``).
+    private var homeDockShown: Bool? {
+        guard let tab = selectedTab, tab.isHomeDockPage else { return nil }
+        guard let provider = services.pages.provider(.homeDock) as? HomeDockTab,
+              let dock = provider.view(forTab: tab.id, services: services) else { return false }
+        return Self.isDrawn(dock, in: view.window)
+    }
+
+    /// `view` is in `window` (or a child window of it), not hidden, and has room.
+    static func isDrawn(_ view: NSView, in window: NSWindow?) -> Bool {
+        // Its own window, or a child window over it (a page the dock floats over the pane).
+        guard let window, let own = view.window, own === window || (own.parent === window && own.isVisible) else { return false }
+        return !view.isHiddenOrHasHiddenAncestor
+            && view.bounds.width >= 1 && view.bounds.height >= 1
     }
 }
 

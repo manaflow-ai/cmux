@@ -37,8 +37,10 @@ struct DividerDrag {
             screen.columnWidths.drop() // a person's drag sets widths on purpose (R3b)
             model.setGestureActive(true)
             catchShown(kind, at: windowPoint)
+            screen.context.frameTiming?.arm(.dividerDrag)
         case let .moved(windowPoint, flags):
             guard screen.activeDrag != nil else { return }
+            screen.context.frameTiming?.input() // the drag's first move is its input; a later one costs one comparison
             screen.activeDrag?.modifiers = DividerDragModifiers(flags)
             screen.activeDrag?.lastWindowPoint = windowPoint
             let point = contentPoint(fromWindow: windowPoint, kind: kind)
@@ -67,6 +69,8 @@ struct DividerDrag {
                 screen.releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime(), drag.sharedEdges)
             }
             apply(at: windowPoint, phase: .ended)
+            screen.noteDragChange() // a move and its release in one frame
+            screen.context.frameTiming?.ended() // the drag's work line: its page detaches, attaches and fence joins
             screen.activeDrag?.hintToast?.dismiss()
             screen.activeDrag = nil
             model.setGestureActive(false)
@@ -79,6 +83,7 @@ struct DividerDrag {
     /// (Escape) lays a row drag's preview out again at once; a handle that left the tree is mid-sync,
     /// which lays out anyway.
     func cancel(redraw: Bool = false) {
+        screen.context.frameTiming?.cancel()
         guard let drag = screen.activeDrag else { return }
         drag.hintToast?.dismiss()
         screen.activeDrag = nil
@@ -121,6 +126,7 @@ struct DividerDrag {
         guard let drag = screen.activeDrag, drag.waiting else { return }
         screen.activeDrag?.waiting = false
         apply(at: drag.lastWindowPoint, phase: .changed)
+        screen.noteDragChange() // the drag's first change: its commit is its first frame, later ones its moves
     }
 
     /// Writes this frame's values. A split or column the drag set before and does not set now goes
@@ -226,7 +232,7 @@ struct DividerDrag {
         }
         guard drag.dockEdge == nil, let strip = drag.strip else { return [.width(id, fraction)] }
         if drag.modifiers.all { return strip.uniform(fraction) }
-        if drag.modifiers.push { return strip.trading(id, to: fraction) }
+        if drag.modifiers.push || drag.tradesAtStripEnd { return strip.trading(id, to: fraction) }
         return [.width(id, fraction)]
     }
 

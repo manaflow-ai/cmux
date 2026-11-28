@@ -52,8 +52,9 @@ import Testing
 
     @Test func theCardIsTheSharedOverlaySurfaceThatFollowsThisMac() {
         let panel = HoverCardPanel()
-        #expect(panel.glass.materialOverride == nil)
-        #expect(panel.glass.material == OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
+        // The shared hover surface (HoverSurfaceLook): solid by default, else the glass that follows this Mac.
+        #expect(panel.glass.materialOverride == HoverSurfaceLook.current.material)
+        #expect(panel.glass.material == HoverSurfaceLook.current.material ?? OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
                                                               reduceTransparency: ReduceTransparency.shared.isEnabled))
         #expect(panel.glass.cornerRadius == HoverCardPanel.cornerRadius)
     }

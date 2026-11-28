@@ -6,11 +6,20 @@ import { readFileSync } from "node:fs";
 import type { HeaderPullRequest } from "../src/agent-session/acpmux/header/headerState";
 import type { NativeRowMenuItem } from "../src/agent-session/acpmux/header/nativeRowTools";
 import { createRoot, type Root } from "react-dom/client";
-import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
-import { HEADER_ACTIONS } from "../src/agent-session/acpmux/header/headerActions";
-import { headerQuickTools, type HeaderQuickToolsInput } from "../src/agent-session/acpmux/header/headerQuickTools";
-import { headerState, setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import {
+import type { HeaderQuickToolsInput } from "../src/agent-session/acpmux/header/headerQuickTools";
+import type { NativeRowTool } from "../src/agent-session/acpmux/header/nativeRowTools";
+import type { TabRow } from "../src/agent-session/acpmux/header/tabRow";
+import { until } from "./support/until";
+import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { ChatHeaderTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/ChatHeaderTools"));
+const { HEADER_ACTIONS } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerActions"));
+const { headerQuickTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerQuickTools"));
+const { headerState, setHeaderState } = await importWithDom(
+  () => import("../src/agent-session/acpmux/header/headerState"),
+);
+const {
   boundedNativeText,
   dispatchNativeRowTool,
   fitNativeRowMenus,
@@ -25,18 +34,20 @@ import {
   NATIVE_MAX_DEPTH,
   NATIVE_MAX_TEXT_BYTES,
   NATIVE_MAX_TEXT_GRAPHEMES,
-  type NativeRowTool,
-} from "../src/agent-session/acpmux/header/nativeRowTools";
-import { configureQuickActions, quickActions } from "../src/agent-session/acpmux/header/quickActions";
-import { setTabRow, useTabRow, type TabRow } from "../src/agent-session/acpmux/header/tabRow";
-import { useNativeRowTools } from "../src/agent-session/acpmux/header/useNativeRowTools";
-import { NeedsYouButton } from "../src/agent-session/acpmux/needsYou/NeedsYou";
-import { applyHostEvent } from "../src/agent-session/acpmux/pageHost";
-import { translate } from "../src/agent-session/acpmux/i18n";
-import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
-import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
-import { until } from "./support/until";
-import { settleReact } from "./support/domTeardown";
+} = await importWithDom(() => import("../src/agent-session/acpmux/header/nativeRowTools"));
+const { configureQuickActions, quickActions } = await importWithDom(
+  () => import("../src/agent-session/acpmux/header/quickActions"),
+);
+const { setTabRow, useTabRow } = await importWithDom(() => import("../src/agent-session/acpmux/header/tabRow"));
+const { useNativeRowTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/useNativeRowTools"));
+const { NeedsYouButton } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/NeedsYou"));
+const { applyHostEvent } = await importWithDom(() => import("../src/agent-session/acpmux/pageHost"));
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { openPicker } = await importWithDom(() => import("../src/agent-session/acpmux/pickerOpeners"));
+const { SummaryButton } = await importWithDom(() => import("../src/agent-session/acpmux/summary/SummaryButton"));
+const { SEARCH_CHATS_ACTION } = await importWithDom(
+  () => import("../src/agent-session/acpmux/header/glassToolbar.experiment"),
+);
 
 function deferred<T = unknown>() {
   let resolve!: (value: T) => void;
@@ -229,6 +240,23 @@ test("native and DOM PR labels retain aggregate failure and pending state withou
       }
     }
   }
+});
+
+test("glass toolbar keeps quick tools and search in the native tab row", async () => {
+  const h = nativeHarness();
+  const searches: string[] = [];
+  await h.render({ glass: "keycaps", onSearch: () => searches.push("search") });
+
+  // The experiment changes the host row's treatment, not its owner. No duplicate web controls
+  // may appear beside the native buttons while the flag is on.
+  expect(h.tool("terminal")).toBeDefined();
+  expect(h.tool(SEARCH_CHATS_ACTION)).toEqual(expect.objectContaining({ symbol: "magnifyingglass", enabled: true }));
+  expect(h.container.querySelector("[data-quick-action]")).toBeNull();
+  expect(h.container.querySelector(".acpmux-glass-search")).toBeNull();
+  expect(h.container.querySelector(".acpmux-header-more")).toBeNull();
+
+  act(() => applyHostEvent({ kind: "tabRowToolInvoked", value: { id: SEARCH_CHATS_ACTION } }));
+  expect(searches).toEqual(["search"]);
 });
 
 test("native worktree uses the DOM refusal, retry, exclusion and removed state machine", async () => {
@@ -743,7 +771,7 @@ test("every native id dispatches the shared handler; invalid, disabled and menu 
   expect(calls.at(-1)).toBe("inspector");
 });
 
-test("conditional quick actions and Browser's preview delegation keep the web behavior", () => {
+test("conditional quick actions keep the web behavior, and Browser never opens the chat's page (issue 49623)", () => {
   const calls: string[] = [];
   const input = quickInput(calls);
   expect(headerQuickTools({ ...input, tabTools: false })).toEqual([]);
@@ -762,9 +790,10 @@ test("conditional quick actions and Browser's preview delegation keep the web be
     actions: [{ id: "browser", mode: "toggle" }],
     lit: [HEADER_ACTIONS.preview],
   });
-  expect(nativeRowToolBindings(browser)[0]!.tool.toggled).toBe(true);
+  // An open preview does not light the globe, and the globe opens a blank browser, not the page.
+  expect(nativeRowToolBindings(browser)[0]!.tool.toggled).toBe(false);
   dispatchNativeRowTool({ id: "browser" }, nativeRowToolBindings(browser));
-  expect(calls).toEqual(["preview:toggle:http://localhost:5173/"]);
+  expect(calls).toEqual(["browser:toggle"]);
 });
 
 test("native row menus normalize labels and share one aggregate budget", () => {

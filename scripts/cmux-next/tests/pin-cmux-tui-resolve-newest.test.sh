@@ -112,6 +112,25 @@ resolve CMUX_TUI_TREE_SEARCH_COMMITS=2
 [[ "$status" != 0 ]] || fail "a bounded search with no published tree must fail, got:" "$out"
 grep -q 'no published cmux-tui tree in the last 2 commits' <<<"$err" || fail "the miss needs a clear message:" "$err"
 
+# The window counts commits, not hours (nightly 46157002388: the newest published tree was 384
+# commits back, past the 300-commit look, under 24 h). CMUX_TUI_TREE_CHANNEL_LOOK=1 ends a miss
+# with the channel's tree, verified like any candidate; without a channel file it still fails.
+resolve CMUX_TUI_TREE_SEARCH_COMMITS=2 CMUX_TUI_TREE_CHANNEL_LOOK=1
+[[ "$status" != 0 ]] || fail "no channel file: the channel look must miss, got:" "$out"
+mkdir -p "$cdn/channels"
+printf '{"commit": "%s", "key": "%s"}\n' "$published" "$(key "$published")" > "$cdn/channels/feat-cmux-next.json"
+resolve CMUX_TUI_TREE_SEARCH_COMMITS=2
+[[ "$status" != 0 ]] || fail "the channel look is off by default, got:" "$out"
+resolve CMUX_TUI_TREE_SEARCH_COMMITS=2 CMUX_TUI_TREE_CHANNEL_LOOK=1
+if ! { [[ "$status" == 0 ]] && grep -qx "key=$(key "$published")" <<<"$out" && grep -qx "commit=$published" <<<"$out" \
+  && grep -qx "source_commit=$published" <<<"$out"; }; then
+  fail "a window miss must take the channel's verified tree (exit $status):" "$out" "$err"
+fi
+printf '{"commit": "%s", "key": "%s"}\n' "$mismatch" "$(key "$mismatch")" > "$cdn/channels/feat-cmux-next.json"
+resolve CMUX_TUI_TREE_SEARCH_COMMITS=2 CMUX_TUI_TREE_CHANNEL_LOOK=1
+[[ "$status" != 0 ]] || fail "a channel tree whose manifest disagrees must not resolve, got:" "$out"
+rm -f "$cdn/channels/feat-cmux-next.json"
+
 # A bad bound is a usage error.
 resolve CMUX_TUI_TREE_SEARCH_COMMITS=x
 [[ "$status" == 2 ]] || fail "CMUX_TUI_TREE_SEARCH_COMMITS=x must exit 2, got $status:" "$err"
@@ -243,5 +262,42 @@ resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48
 [[ "$status" == 0 ]] && grep -qx "key=$lk" <<<"$out" \
   && grep -qx "commit=$legacy_commit" <<<"$out" \
   || fail "a tree published only under its v2-legacy key must resolve with that key (exit $status):" "$out" "$err"
+# macOS curl 8.7.1 over HTTP/2 exits 56, not 22, on a --fail 404. download() took that for a dropped
+# connection and fetched every unpublished key 4 times with 12 s of backoff: the nightly's fallback search
+# spent 6 to 12 min of each build in it (nightly-next runs 44990363506, 44992267457, 44993740115). With a
+# curl that answers a miss that way, each unpublished tree is read once and the search still resolves.
+mkdir -p "$TMP/bin56"
+cat > "$TMP/bin56/curl" <<STUB
+#!/usr/bin/env bash
+out="" url="" fail_flag="" write_out=""
+while [[ \$# -gt 0 ]]; do
+  case "\$1" in
+    -o) out="\$2"; shift 2 ;;
+    -w) write_out="\$2"; shift 2 ;;
+    --proto|--retry|--retry-delay|--connect-timeout|--max-time) shift 2 ;;
+    -*f*) fail_flag=1; shift ;;
+    -*) shift ;;
+    *) url="\$1"; shift ;;
+  esac
+done
+echo "\$url" >> "$TMP/curl56.log"
+path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
+if [[ "\$path" == "\$url" || ! -f "$cdn/\$path" ]]; then
+  [[ -n "\$write_out" ]] && printf 404
+  [[ -n "\$fail_flag" ]] && { echo "curl: (56) The requested URL returned error: 404" >&2; exit 56; }
+  exit 0
+fi
+if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
+[[ -n "\$write_out" ]] && printf 200
+exit 0
+STUB
+chmod +x "$TMP/bin56/curl"
+: > "$TMP/curl56.log"
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 CMUX_TUI_DOWNLOAD_BACKOFF_SECONDS=0 PATH="$TMP/bin56:$PATH"
+[[ "$status" == 0 ]] && grep -qx "key=$lk" <<<"$out" \
+  || fail "with a curl that exits 56 on a 404 the search must still resolve (exit $status):" "$out" "$err"
+repeated=$(sed 's/?.*//' "$TMP/curl56.log" | sort | uniq -d)
+[[ -z "$repeated" ]] || fail "a 404 that curl reports as exit 56 must not be retried; read more than once:" "$repeated"
+if grep -q "retrying" <<<"$err"; then fail "a 404 is not a failed transfer:" "$err"; fi
 : "$old"
 echo "PASS: resolve-newest-published picks the newest verified published tree without waiting"

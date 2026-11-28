@@ -86,12 +86,157 @@ pub fn agent_hook_live_reply(source: &str, native_event: &str, native: &Value) -
                 ],
             )
         })?),
+        // What the approval waits on (the tool, then the command or the file it touches), as a
+        // GUI chat's permission card shows it.
+        "agent.approval.requested" => live_message_text(&approval_text(native)?),
+        // The plan it asks the person to review (Claude's ExitPlanMode `plan`), in full.
+        "agent.plan_review.requested" => live_message_text(first_string_at(
+            native,
+            &[&["tool_input", "plan"][..], &["toolInput", "plan"][..], &["input", "plan"][..]],
+        )?),
         _ => None,
     }
 }
 
+/// What an approval hook waits on: the tool, the command it would run or the file, path or URL
+/// it would touch, and the agent's own description. Read before redaction (`tool_input` is
+/// redacted whole).
+pub(crate) struct Approval<'a> {
+    pub(crate) tool: &'a str,
+    pub(crate) command: Option<String>,
+    pub(crate) target: Option<&'a str>,
+    pub(crate) description: Option<&'a str>,
+}
+
+pub(crate) fn approval(native: &Value) -> Option<Approval<'_>> {
+    let tool = first_string_at(native, &[&["tool_name"][..], &["toolName"][..]])?.trim();
+    if tool.is_empty() {
+        return None;
+    }
+    let input = first_value_at(native, &[&["tool_input"][..], &["toolInput"][..], &["input"][..]]);
+    let field = |key: &str| {
+        input
+            .and_then(|input| input.get(key))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+    };
+    let command = input
+        .and_then(|input| input.get("command").or_else(|| input.get("cmd")))
+        .and_then(|command| match command {
+            Value::String(command) => Some(command.trim().to_owned()),
+            // Codex names a command as its argv.
+            Value::Array(parts) => {
+                Some(parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
+            }
+            _ => None,
+        })
+        .filter(|command| !command.is_empty());
+    let target = if command.is_some() {
+        None
+    } else {
+        ["file_path", "path", "url", "pattern"].into_iter().find_map(field)
+    };
+    Some(Approval { tool, command, target, description: field("description") })
+}
+
+/// What an approval hook waits on, as Feed text: the tool's name, then the command it would run
+/// (in a code block) or the file, path or URL it would touch, then the agent's own description.
+pub(crate) fn approval_text(native: &Value) -> Option<String> {
+    let Approval { tool, command, target, description } = approval(native)?;
+    let mut text = tool.to_owned();
+    if let Some(command) = command {
+        text.push_str("\n\n");
+        text.push_str(&fenced(&command));
+    } else if let Some(target) = target {
+        text.push_str(": `");
+        text.push_str(&target.replace('`', "'"));
+        text.push('`');
+    }
+    if let Some(description) = description {
+        text.push_str("\n\n");
+        text.push_str(description);
+    }
+    Some(text)
+}
+
+/// Longest command, path or description kept on a terminal approval for the phone (characters).
+const APPROVAL_TEXT_CHARS: usize = 2000;
+/// The whole kept approval as JSON text, at most.
+pub const MAX_APPROVAL_JSON_BYTES: usize = 16 * 1024;
+
+/// The approval a terminal agent waits on, for the phone's Allow / Deny card, as compact JSON
+/// text (`session.journal.append` `live_approval`, memory only like `live_question`):
+/// `{"harness":"claude","tool":"Bash","command":"…","target":"…","description":"…"}`.
+///
+/// Only Claude Code's `PermissionRequest` (the hook it fires as its approval screen opens) for a
+/// tool that is neither a question (AskUserQuestion has its own card) nor a plan review: the
+/// phone answers it by typing on that screen (cmux-next-ios `TerminalApprovalKeys`), which is
+/// mapped for Claude Code only. `None` for anything else.
+pub fn agent_hook_live_approval(
+    source: &str,
+    native_event: &str,
+    native: &Value,
+) -> Option<String> {
+    if !matches!(source, "claude" | "claude-code")
+        || semantic_key(native_event) != "permissionrequest"
+    {
+        return None;
+    }
+    let approval = approval(native)?;
+    if matches!(semantic_key(approval.tool).as_str(), "askuserquestion" | "exitplanmode") {
+        return None;
+    }
+    let kept = |text: &str| {
+        live_message_text(text)
+            .map(|text| text.chars().take(APPROVAL_TEXT_CHARS).collect::<String>())
+    };
+    let mut out = Map::new();
+    out.insert("harness".into(), Value::String("claude".into()));
+    out.insert("tool".into(), Value::String(crate::program_status::shown_text(approval.tool, 128)));
+    if let Some(command) = approval.command.as_deref().and_then(kept) {
+        out.insert("command".into(), Value::String(command));
+    }
+    if let Some(target) = approval.target.and_then(kept) {
+        out.insert("target".into(), Value::String(target));
+    }
+    if let Some(description) = approval.description.and_then(kept) {
+        out.insert("description".into(), Value::String(description));
+    }
+    let text = Value::Object(out).to_string();
+    (text.len() <= MAX_APPROVAL_JSON_BYTES).then_some(text)
+}
+
+/// `text` (a `live_approval`) as the approval the daemon keeps: a JSON object naming Claude Code
+/// and a tool, within the byte bound. A hook that skipped `agent_hook_live_approval` cannot
+/// plant anything else.
+pub(crate) fn kept_approval(text: &str) -> Option<Value> {
+    if text.len() > MAX_APPROVAL_JSON_BYTES {
+        return None;
+    }
+    let value: Value = serde_json::from_str(text).ok()?;
+    let named = value.get("harness").and_then(Value::as_str) == Some("claude")
+        && value.get("tool").and_then(Value::as_str).is_some_and(|tool| !tool.trim().is_empty());
+    let strings = value.as_object()?.iter().all(|(key, field)| {
+        matches!(key.as_str(), "harness" | "tool" | "command" | "target" | "description")
+            && field.is_string()
+    });
+    (named && strings).then_some(value)
+}
+
+/// `text` in a code block whose fence is longer than any run of backticks inside it.
+fn fenced(text: &str) -> String {
+    let (mut longest, mut run) = (0, 0);
+    for character in text.chars() {
+        run = if character == '`' { run + 1 } else { 0 };
+        longest = longest.max(run);
+    }
+    let fence = "`".repeat((longest + 1).max(3));
+    format!("{fence}\n{text}\n{fence}")
+}
+
 /// The texts a hook sends beside its journal event, memory only (`session.journal.append`
-/// `live_prompt`, `live_reply`, `live_question`). Read them before the event redacts its payload.
+/// `live_prompt`, `live_reply`, `live_question`, `live_approval`). Read them before the event redacts its payload.
 pub fn agent_hook_live_fields(
     source: &str,
     native_event: &str,
@@ -108,6 +253,9 @@ pub fn agent_hook_live_fields(
         crate::agent_hook_question::agent_hook_live_question(native_event, native)
     {
         fields.insert("live_question".into(), Value::String(question));
+    }
+    if let Some(approval) = agent_hook_live_approval(source, native_event, native) {
+        fields.insert("live_approval".into(), Value::String(approval));
     }
     fields
 }
@@ -219,7 +367,8 @@ pub fn stamp_agent_hook_observed_now(ingress: &mut JournalIngress) {
     }
 }
 
-pub(crate) fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
+/// Stamp the original observation time when a plugin replays an unconfirmed handoff.
+pub fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
     if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
         normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
     }

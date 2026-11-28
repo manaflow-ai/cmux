@@ -29,12 +29,20 @@
 //!   listens on the socket path could be a squatter. Each unix socket or
 //!   proven LocalApp connection gets a random nonce. Its FIRST request must
 //!   be `initialize`, whose result carries `_meta.acpmux.personChallenge`
-//!   `{nonce, connection}`. Its SECOND request may be
-//!   `_acpmux/person_prove {proof}` with `proof` = lowercase hex
+//!   `{nonce, connection, reprove: true}`. Any later request may be
+//!   `_acpmux/person_prove {proof}` (at most [`PROVES_PER_CONNECTION`]; the
+//!   second request as before, or later, so a pane whose key reached a
+//!   restarted daemon after it connected proves on the same connection, with
+//!   no reconnect and nothing shown) with `proof` = lowercase hex
 //!   HMAC-SHA256(key, "acpmux-person-v1" 0 transport 0 nonce 0 connection
 //!   id), where transport is `unix` or `app` as the client knows it
 //!   ([`person_proof`]), compared in constant time. A match makes the
-//!   connection the person for its whole life. The proof is bound to the
+//!   connection the person for its whole life (from that request on: one
+//!   handled before it was not the person's). A prove this run's key does not
+//!   answer yet (none enrolled, or the one the app is replacing) stays pending
+//!   until a key it answers is enrolled or the connection closes
+//!   ([`PersonGate::proves_when_keyed`]), so the order of the app's enroll and
+//!   a pane's first connection does not matter and no clock decides it. The proof is bound to the
 //!   nonce and the connection id, so a proof captured anywhere else (a
 //!   squatter that relayed the challenge, another connection) proves
 //!   nothing. A `personKey` field is stripped and never read. Web and Peer
@@ -349,6 +357,14 @@ pub const HOLDS_LIMIT: &str = "person.holds_limit";
 /// `_acpmux/person_holds` answers per connection. Not a security bound: the
 /// answers count only in their own HMAC domain.
 pub const HOLDS_PER_CONNECTION: u32 = 8;
+/// `_acpmux/person_prove` calls per connection. Not a security bound (the proof is a 256-bit
+/// HMAC bound to the connection's own nonce and id): it keeps a client from parking a pending
+/// prove ([`PersonGate::proves_when_keyed`]) per request.
+pub const PROVES_PER_CONNECTION: u32 = 8;
+/// `personChallenge.reprove`: this daemon takes `_acpmux/person_prove` at any point of a
+/// challenged connection's life, so a client that proved nothing (its key reached the daemon
+/// late) proves again on the same connection instead of reconnecting.
+pub const REPROVE_FIELD: &str = "reprove";
 
 /// At most this many spent decision nonces are kept.
 pub const SPENT_LIMIT: usize = 4096;
@@ -410,6 +426,9 @@ pub enum PersonVerdict {
 #[derive(Default)]
 pub struct PersonGate {
     key: StdMutex<Option<String>>,
+    /// Woken at each key this run takes, so a proof that came before it is checked again
+    /// ([`PersonGate::proves_when_keyed`]).
+    keyed: tokio::sync::Notify,
     /// Set by `--person-key-fd`: a running unsigned daemon takes no other.
     from_spawn: AtomicBool,
     /// This daemon run's id, which a decision proof binds.
@@ -427,6 +446,9 @@ pub struct PersonGate {
     /// there too (`remote_guard::web_roots`, which drops `/`, home and its
     /// ancestors and resolves symlinks).
     pub workspace_roots: StdMutex<Vec<String>>,
+    /// Where the app's workspaces are read for an enrolled browser's sidebar
+    /// (`_acpmux/browser_workspace_source_set`, memory only; `server/browser_workspaces.rs`).
+    pub(crate) browser_workspaces: crate::server::browser_workspaces::Sources,
     /// The agent and model the person's app picked last for a new chat
     /// (`_acpmux/new_chat_picks_set`, memory only), shown in
     /// `_acpmux/harnesses` as `lastPicks`.
@@ -740,7 +762,9 @@ impl PersonGate {
             return Err("this daemon already has a person key".into());
         }
         *slot = Some(key.to_owned());
+        drop(slot);
         self.from_spawn.store(true, Ordering::SeqCst);
+        self.keyed.notify_waiters();
         Ok(())
     }
 
@@ -756,6 +780,7 @@ impl PersonGate {
         }
         *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(key.to_owned());
         self.from_spawn.store(true, Ordering::SeqCst);
+        self.keyed.notify_waiters();
         Ok(json!({"enrolled": true, "via": "provisioner", "personInstance": self.instance()}))
     }
 
@@ -765,6 +790,33 @@ impl PersonGate {
         let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         key.and_then(|k| person_proof(&k, transport, nonce, connection))
             .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
+    }
+
+    /// [`PersonGate::proves`], ordered by the key and not by a clock: a daemon that just
+    /// restarted (an update's take-over, `acpmux daemon restart`) takes the app's key by
+    /// `_acpmux/person_enroll` only after it is up, and a pane may connect and prove in between,
+    /// or prove a key the app is about to enroll in place of the one this run holds. The proof is
+    /// checked now and again at each key this run takes, and resolves true on the key it answers.
+    /// It never resolves false on its own: its caller ends the wait when the connection closes
+    /// ([`Conn::settle_prove`](crate::server)), so the bound is the connection's life (Leo,
+    /// 2026-11-22: "surely we can think of better fixes than random timing").
+    pub async fn proves_when_keyed(
+        &self,
+        transport: &str,
+        nonce: &str,
+        connection: &str,
+        proof: &str,
+    ) {
+        loop {
+            let keyed = self.keyed.notified();
+            tokio::pin!(keyed);
+            // Registered before the check, so a key taken between the check and the wait wakes it.
+            keyed.as_mut().enable();
+            if self.proves(transport, nonce, connection, proof) {
+                return;
+            }
+            keyed.await;
+        }
     }
 
     /// Whether `presented` is this launch's key (constant time).
@@ -786,6 +838,7 @@ impl PersonGate {
         if app_verified {
             *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 Some(key.to_owned());
+            self.keyed.notify_waiters();
             return Ok(json!({"enrolled": true, "via": "signature"}));
         }
         if self.from_spawn.load(Ordering::SeqCst) && self.matches(key) {
@@ -974,6 +1027,14 @@ impl Hub {
                 Err(person_required("changing the workspace folders"))
             }
             method::MUX_NEW_CHAT_PICKS_SET => Err(person_required("changing the new chat picks")),
+            method::MUX_PROMPTS_SAVE | method::MUX_PROMPTS_DELETE => {
+                Err(person_required("changing saved prompts"))
+            }
+            method::MUX_STASH_LIST
+            | method::MUX_STASH_PUSH
+            | method::MUX_STASH_GET
+            | method::MUX_STASH_DROP
+            | method::MUX_STASH_MOVE => Err(person_required("the composer's stashed drafts")),
             method::MUX_PERMISSION_RESPOND => {
                 // Answered already: `respond_permission` tells this one who answered first
                 // (`permission_settled.rs`), and it changes nothing.
@@ -1099,7 +1160,10 @@ impl Hub {
                         params.get("value").and_then(Value::as_str),
                     )
                 };
-                if id.is_some_and(|i| crate::web_modes::FREE_CONFIG_IDS.contains(&i)) {
+                // A model, effort, speed (`fast-mode`), suggestion or collaboration choice
+                // (`web_modes::cli_config_id`): no approval mode, so no person. A Web
+                // connection's set is still held to its table by the remote guard.
+                if id.is_some_and(crate::web_modes::cli_config_id) {
                     return Ok(());
                 }
                 // An unknown session is the handler's not-found; a peer's
@@ -1113,6 +1177,17 @@ impl Hub {
                 // Claude Code (`claude-sr2`) asks in Claude's `default` and `plan` too; an agent
                 // that only names itself Claude Code does not (`Hub::trusted_mode_family`).
                 let family = self.trusted_mode_family(&s.meta());
+                // The built-in Codex bridge validates this option against the model's
+                // service tiers. A CLI speed change cannot select a permission mode.
+                if starts_modes
+                    && id == Some("fast-mode")
+                    && self.any_mode_for_web(&s.meta())
+                    && caller.is_none_or(|owner| {
+                        owner == s.id || self.subsession_is_ancestor(owner, &s.meta())
+                    })
+                {
+                    return Ok(());
+                }
                 if remote_authenticated && self.any_mode_for_web(&s.meta()) {
                     return Ok(());
                 }

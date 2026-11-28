@@ -1,15 +1,15 @@
 // l10n-allow-file: gallery fixtures (sample library entries and a refusal), not shipped UI.
-// Settings > Personalization > Customization Library (CustomizeLibraryCard) on the real page and
+// Settings > Appearance > Customization Library (CustomizeLibraryCard) on the real page and
 // store: everything the person applied, top first, with its switch and order. The route's
 // `focus=card.customizeLibrary` scrolls the page to the card, so each capture shows it. The layouts
 // it was picked from are settings.customize-library-layouts. With nothing applied the page draws no
 // card (opt-in), so its empty state is only in that entry.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import { mockLibrary, mockLongLibrary, relist } from "./mockLibrary";
+import { mockLibrary, mockLongLibrary, relist, mockLibraryWithExperiments } from "./mockLibrary";
 
 const shown: PageFixtureStep = { selector: '[data-card="customizeLibrary"]', action: "wait" };
 const variant = (patch: Partial<SettingsPageVariant> & { note: string }): SettingsPageVariant => ({
-  section: "personalization",
+  section: "appearance",
   focus: "card.customizeLibrary",
   steps: [shown],
   ...patch,
@@ -45,6 +45,15 @@ export default settingsPageEntry({
         "a preview is open: apply or discard it first (`cmux customize apply` or `discard`), then change the library",
       steps: [shown, { selector: '[data-library-entry="night"] [role="switch"]', action: "click" }],
       note: "Turning night off while a preview is open: the CLI refuses, and its words show under the list.",
+    }),
+    experiments: variant({
+      library: mockLibraryWithExperiments(),
+      note: "A PR's web layer is on (cmux customize use pr:43543): number, title, short head, Open pull request, what needs a build; a refresh turned #43496 off and says why; #43410 has nothing a running app can take.",
+    }),
+    "experiments-remove": variant({
+      library: mockLibraryWithExperiments(),
+      steps: [shown, { selector: '[data-library-entry="pr-43543"] [data-library-action="remove"]', action: "click" }],
+      note: "Removing a PR entry asks first, inline, as every entry does.",
     }),
     remove: variant({
       steps: [shown, { selector: '[data-library-entry="paper"] [data-library-action="remove"]', action: "click" }],

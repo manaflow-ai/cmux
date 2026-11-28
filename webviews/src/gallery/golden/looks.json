@@ -115,10 +115,145 @@
       "setup": "examples/looks/paper"
     },
     {
+      "id": "sakura",
+      "title": "Sakura",
+      "note": "A flagship theme file. Cherry blossom: blush glass over a blossoming plum garden, petal pink and plum ink. Drawn in light; the other scheme keeps the default.",
+      "settings": {
+        "agentPane.display.font.ui": "hanken"
+      },
+      "schemes": {
+        "light": {
+          "themeFile": "Resources/theme-files/sakura.json"
+        },
+        "dark": {}
+      }
+    },
+    {
+      "id": "sakura-yoru",
+      "title": "Sakura Yoru",
+      "note": "A flagship theme file. Cherry blossom at night: plum-black glass, lantern pink and moonlit teal. Drawn in dark; the other scheme keeps the default.",
+      "settings": {
+        "agentPane.display.font.ui": "hanken"
+      },
+      "schemes": {
+        "light": {},
+        "dark": {
+          "themeFile": "Resources/theme-files/sakura-yoru.json"
+        }
+      }
+    },
+    {
+      "id": "sumi",
+      "title": "Sumi",
+      "note": "A flagship theme file. Ink on washi over Hokusai's Fuji: one seal-red accent, serif reading, stillness. Drawn in light; the other scheme keeps the default.",
+      "settings": {
+        "agentPane.display.font.ui": "hanken",
+        "agentPane.display.font.preset": "serif"
+      },
+      "schemes": {
+        "light": {
+          "themeFile": "Resources/theme-files/sumi.json"
+        },
+        "dark": {}
+      }
+    },
+    {
+      "id": "frutiger-aero-2027",
+      "title": "Frutiger Aero 2027",
+      "note": "A flagship theme file. Clear glass over a bright sky: sky blue, aqua and leaf green, glossy and quick. Drawn in light; the other scheme keeps the default.",
+      "settings": {
+        "agentPane.display.font.ui": "hanken"
+      },
+      "schemes": {
+        "light": {
+          "themeFile": "Resources/theme-files/frutiger-aero-2027.json"
+        },
+        "dark": {}
+      }
+    },
+    {
+      "id": "one-bit",
+      "title": "1-Bit",
+      "note": "A flagship theme file. Ultra minimal: black, white and one grey, no picture, no glass, monospace, still. Drawn in dark; the other scheme keeps the default.",
+      "settings": {
+        "agentPane.display.font.ui": "hanken",
+        "agentPane.display.font.preset": "mono"
+      },
+      "schemes": {
+        "light": {},
+        "dark": {
+          "themeFile": "Resources/theme-files/one-bit.json"
+        }
+      }
+    },
+    {
+      "id": "earthly-delights",
+      "title": "Earthly Delights",
+      "note": "A flagship theme file. Ultra maximal: Bosch's garden behind jade glass, candy pink and lime, everything moving. Drawn in dark; the other scheme keeps the default.",
+      "settings": {
+        "agentPane.display.font.ui": "hanken",
+        "sidebar.density": "expanded"
+      },
+      "schemes": {
+        "light": {},
+        "dark": {
+          "themeFile": "Resources/theme-files/earthly-delights.json"
+        }
+      }
+    },
+    {
       "id": "tachyon-addon",
       "title": "Tachyon (add-on)",
       "note": "The Tachyon example add-on, drawn from captured references (examples/looks/tachyon/README.md).",
       "setup": "examples/looks/tachyon"
+    },
+    {
+      "id": "plush-addon",
+      "title": "Plush (add-on)",
+      "note": "The Plush example add-on in its cool blue-gray tint: one surface, raised panes and prompt, no borders, no glass (examples/looks/plush/README.md).",
+      "settings": {
+        "agentPane.display.font.ui": "hanken",
+        "agentPane.display.font.size": 15,
+        "agentPane.display.font.lineHeight": 1.6,
+        "agentPane.display.code.scale": 0.9
+      },
+      "themeCSS": "examples/looks/plush/agent-pane/theme.css",
+      "schemes": {
+        "light": { "themeFile": "examples/looks/plush/themes/plush.json" },
+        "dark": { "themeFile": "examples/looks/plush/themes/plush-dark.json" }
+      }
+    },
+    {
+      "id": "plush-dusk-addon",
+      "title": "Plush Dusk (add-on)",
+      "note": "The Plush example add-on in its soft lavender tint: one surface, raised panes and prompt, no borders, no glass (examples/looks/plush/README.md).",
+      "settings": {
+        "agentPane.display.font.ui": "hanken",
+        "agentPane.display.font.size": 15,
+        "agentPane.display.font.lineHeight": 1.6,
+        "agentPane.display.code.scale": 0.9
+      },
+      "themeCSS": "examples/looks/plush/agent-pane/theme.css",
+      "schemes": {
+        "light": { "themeFile": "examples/looks/plush/themes/plush-dusk.json" },
+        "dark": { "themeFile": "examples/looks/plush/themes/plush-dusk-dark.json" }
+      }
+    },
+    {
+      "id": "plush-clay-addon",
+      "title": "Plush Clay (add-on)",
+      "note": "The Plush example add-on in its warm sand tint: one surface, raised panes and prompt, no borders, no glass (examples/looks/plush/README.md).",
+      "settings": {
+        "agentPane.display.font.ui": "hanken",
+        "agentPane.display.font.size": 15,
+        "agentPane.display.font.lineHeight": 1.6,
+        "agentPane.display.code.scale": 0.9
+      },
+      "themeCSS": "examples/looks/plush/agent-pane/theme.css",
+      "schemes": {
+        "light": { "themeFile": "examples/looks/plush/themes/plush-clay.json" },
+        "dark": { "themeFile": "examples/looks/plush/themes/plush-clay-dark.json" }
+      }
     },
     {
       "id": "kerf-addon",
@@ -173,6 +308,24 @@
       "title": "Tandem (add-on)",
       "note": "The Tandem example add-on, drawn from captured references (examples/looks/tandem/README.md).",
       "setup": "examples/looks/tandem"
+    },
+    {
+      "id": "shadcn-addon",
+      "title": "shadcn (add-on)",
+      "note": "The shadcn/ui exemplar look, from its setup folder alone: neutral tokens, hairline cards, Geist, a muted tab track.",
+      "setup": "examples/looks/shadcn"
+    },
+    {
+      "id": "material-addon",
+      "title": "Material (add-on)",
+      "note": "The Material 3 exemplar look, from its setup folder alone: tonal surfaces, Roboto, a 20 px tonal prompt bubble.",
+      "setup": "examples/looks/material"
+    },
+    {
+      "id": "apple-addon",
+      "title": "Apple (add-on)",
+      "note": "The macOS exemplar look, from its setup folder alone: a vibrant source-list sidebar, SF, systemBlue, an 18 px bubble.",
+      "setup": "examples/looks/apple"
     }
   ]
 }

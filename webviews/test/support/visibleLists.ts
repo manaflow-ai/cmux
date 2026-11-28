@@ -112,7 +112,8 @@ export async function startVisibleLists(): Promise<VisibleListsServer> {
   };
 }
 
-const frames = (page: Page) =>
+/** Two painted frames: what a step waits for its renders and measurements to land. */
+export const frames = (page: Page) =>
   page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
 
 async function taskSeconds(cdp: CDPSession): Promise<number> {
@@ -125,8 +126,9 @@ const TYPED = "item 0123";
 async function doStep(page: Page, step: VisibleStep, index: number, rowSelector: string) {
   switch (step) {
     case "type": {
-      // Type the query, then take it back: every step is one key.
-      const forward = index % (TYPED.length * 2);
+      // Type the query, then take it back: every step is one key. Steps count from 1, so the first
+      // step types the query's first key.
+      const forward = (index - 1) % (TYPED.length * 2);
       await page.keyboard.press(forward < TYPED.length ? TYPED[forward]! : "Backspace");
       return;
     }

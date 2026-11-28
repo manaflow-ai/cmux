@@ -110,9 +110,10 @@ pub async fn serve_connection_device(
         origin,
         auth,
         None,
-        false,
+        super::Transport::Messages,
         crate::sender_harness::SocketPeer::Unknown,
         Some(device.id),
+        None,
         None,
         None,
         None,
@@ -277,13 +278,22 @@ pub(super) async fn dispatch(
                     .map_err(|_| RpcError::internal("consent refusal could not be recorded"))
             }
         }
-        method::MUX_MACHINE_CONSENT_GET => Ok(crate::cli::cloud_join::consent_status_for(params)),
+        method::MUX_MACHINE_CONSENT_GET => {
+            let own = crate::cli::consent_grant::OwnGrantor::of(&hub.person.macs.view(&json!({})));
+            let params = params.clone();
+            // The store's reads (and its lock) stay off the async thread.
+            tokio::task::spawn_blocking(move || {
+                crate::cli::cloud_join::consent_status_with_grants(&params, own.as_ref())
+            })
+            .await
+            .map_err(|_| RpcError::internal("consent store unavailable"))
+        }
         method::MUX_MACHINE_ENROLL => super::machine_enroll::enroll(hub, conn, params).await,
         method::MUX_MACHINE_LEAVE_IF_AUTO => {
             super::machine_enroll::leave_if_auto(hub, conn, params).await
         }
         method::MUX_MACHINE_SIGNED_IN => super::sign_in_follow::signed_in(hub, conn, params).await,
-        _ => issue(hub, conn, params),
+        _ => issue(hub, conn, params).await,
     })
 }
 
@@ -302,12 +312,22 @@ fn machine_consent(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
             "changing this machine's consent; use the local cmux app",
         ));
     }
-    let granted = params
-        .get("granted")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| RpcError::invalid_params("granted must be true or false"))?;
-    let consent = crate::cli::cloud_join::set_consent_for_person(surface, granted)
-        .map_err(|_| RpcError::internal("local consent store unavailable"))?;
+    // `granted: null` clears this machine's own setting of screen or control: the grants signed
+    // elsewhere decide again (`consent_grant.rs`).
+    let consent = match params.get("granted") {
+        Some(Value::Null) if matches!(surface, "screen" | "control") => {
+            crate::cli::cloud_join::clear_consent_for_person(surface)
+        }
+        Some(Value::Bool(granted)) => {
+            crate::cli::cloud_join::set_consent_for_person(surface, *granted)
+        }
+        _ => {
+            return Err(RpcError::invalid_params(
+                "granted must be true or false (or null for screen or control)",
+            ));
+        }
+    }
+    .map_err(|_| RpcError::internal("local consent store unavailable"))?;
     // As the account this machine is joined as now reads it (`for_account`), like the get.
     Ok(crate::cli::cloud_join::for_this_account(json!({"consent":consent})))
 }
@@ -330,6 +350,10 @@ async fn set(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcEr
     }
     let device = hub.pairing.set_full_access(key, on)?;
     let held_again = if on { 0 } else { hub.hold_policies_again().await };
+    // A turn the phone started on a peer through this daemon is held there too.
+    if !on && device.role == Role::Phone {
+        super::remote_guard::tell_peers_owner_phone_changed(hub, &device.id, Some(false)).await;
+    }
     tracing::info!(device = %device.id, name = %device.name, on, "a machine's Full-access setting changed");
     Ok(json!({
         "device": device.to_value(),
@@ -418,6 +442,13 @@ async fn revoke(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     if reply.pointer("/revoked/kind").and_then(Value::as_str) == Some("device") {
         hub.hold_policies_again().await;
     }
+    // A removed phone ends on every peer it reached through this daemon too.
+    if reply.pointer("/revoked/kind").and_then(Value::as_str) == Some("device")
+        && reply.pointer("/revoked/role").and_then(Value::as_str) == Some(Role::Phone.as_str())
+        && let Some(id) = reply.pointer("/revoked/id").and_then(Value::as_str)
+    {
+        super::remote_guard::tell_peers_owner_phone_changed(hub, id, None).await;
+    }
     // A machine this daemon drove (role daemon) is also no longer its peer.
     if reply.pointer("/revoked/kind").and_then(Value::as_str) == Some("device")
         && reply.pointer("/revoked/role").and_then(Value::as_str) == Some("daemon")
@@ -428,7 +459,7 @@ async fn revoke(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     Ok(reply)
 }
 
-fn issue(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+async fn issue(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let role = role_param(params)?;
     if role == Role::Daemon {
         return Err(RpcError::invalid_params("issue a client, read-only or phone credential"));
@@ -442,9 +473,15 @@ fn issue(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError>
     if role == Role::Phone && !conn.is_person() {
         return Err(crate::hub::person::person_required("issuing a phone's credential"));
     }
+    let replaced = (role == Role::Phone).then(|| hub.pairing.live_phone_id(name)).flatten();
     let (device, token) = match role {
         Role::Phone => hub.pairing.issue_phone(name)?,
         _ => hub.pairing.issue(name, role)?,
     };
+    // The phone's old credential ends here (the app issues a new one each launch): on every
+    // peer it reached through this daemon too.
+    if let Some(old) = replaced.filter(|old| *old != device.id) {
+        super::remote_guard::tell_peers_owner_phone_changed(hub, &old, None).await;
+    }
     Ok(json!({"deviceId": device.id, "name": device.name, "role": role.as_str(), "token": token}))
 }

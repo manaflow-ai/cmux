@@ -18,9 +18,12 @@ import type { VmHealthInventory } from "./types";
 const PAGE_SIZE = 100;
 /** 50 pages covers 5000 VMs or rules; past that the listing reports itself partial. */
 const MAX_PAGES = 50;
+/** Keep account inventory quick without turning a health sweep into a request burst. */
+const VM_PAGE_CONCURRENCY = 4;
 const LIST_REQUEST_TIMEOUT_MS = 20_000;
 
 type ClientFactory = (timeoutMs?: number, signal?: AbortSignal) => Freestyle;
+type ProbeOptions = { readonly timeoutMs: number; readonly signal?: AbortSignal };
 
 export function freestyleHealthInventory(client: ClientFactory): VmHealthInventory {
   return {
@@ -35,22 +38,45 @@ type ListOptions = { readonly deadlineAtMs: number; readonly signal?: AbortSigna
 async function listAccountVms(client: ClientFactory, options: ListOptions): Promise<ProviderVmInventory> {
   const vms: ProviderInventoryVm[] = [];
   const seen = new Set<string>();
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    if (Date.now() >= options.deadlineAtMs) return { vms, complete: false };
-    const result = await client(LIST_REQUEST_TIMEOUT_MS, options.signal).vms.list({ limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+  if (Date.now() >= options.deadlineAtMs) return { vms, complete: false };
+
+  // Read the first page alone: it supplies the account count that bounds the
+  // remaining requests. Subsequent pages are independent offset reads, so a
+  // small batch cuts wall time while the set de-duplication keeps a changing
+  // inventory conservative.
+  const readPage = (page: number) => client(LIST_REQUEST_TIMEOUT_MS, options.signal).vms.list({
+    limit: PAGE_SIZE,
+    offset: page * PAGE_SIZE,
+  });
+  const first = await readPage(0);
+  const add = (result: Awaited<ReturnType<typeof readPage>>) => {
     for (const vm of result.vms) {
       // Offset paging over a changing list can repeat a VM across pages.
       if (seen.has(vm.id)) continue;
       seen.add(vm.id);
       vms.push(inventoryVm(vm));
     }
-    if (result.vms.length < PAGE_SIZE || (page + 1) * PAGE_SIZE >= result.totalCount) {
-      // A delete during offset paging shifts a VM onto a page already read;
-      // a short count means some VM was never seen, so missing is unknown.
-      return { vms, complete: seen.size >= result.totalCount };
+  };
+  add(first);
+  let totalCount = first.totalCount;
+  let shortPage = first.vms.length < PAGE_SIZE;
+  let nextPage = 1;
+  while (!shortPage && totalCount > nextPage * PAGE_SIZE && nextPage < MAX_PAGES) {
+    if (Date.now() >= options.deadlineAtMs) return { vms, complete: false };
+    const pages = Array.from({ length: Math.min(VM_PAGE_CONCURRENCY, MAX_PAGES - nextPage) }, (_, index) => nextPage + index)
+      .filter((page) => page * PAGE_SIZE < totalCount);
+    if (pages.length === 0) break;
+    const results = await Promise.all(pages.map(readPage));
+    for (const result of results) {
+      add(result);
+      totalCount = Math.max(totalCount, result.totalCount);
+      shortPage ||= result.vms.length < PAGE_SIZE;
     }
+    nextPage += pages.length;
   }
-  return { vms, complete: false };
+  // A delete during offset paging shifts a VM onto a page already read; a
+  // short count means some VM was never seen, so missing is unknown.
+  return { vms, complete: nextPage * PAGE_SIZE >= totalCount && seen.size >= totalCount };
 }
 
 export function inventoryVm(vm: VmData): ProviderInventoryVm {
@@ -117,55 +143,67 @@ export function tlsRuleRef(rule: TlsRuleData): ProviderTlsRuleRef {
 async function probeControl(
   client: ClientFactory,
   vmId: string,
-  options: { readonly timeoutMs: number; readonly signal?: AbortSignal },
+  options: ProbeOptions,
 ): Promise<VmControlProbe> {
   const started = Date.now();
-  const timeout = AbortSignal.timeout(options.timeoutMs);
-  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
-  const api = client(options.timeoutMs, signal);
+  const stateTimeout = AbortSignal.timeout(options.timeoutMs);
+  const stateSignal = options.signal ? AbortSignal.any([options.signal, stateTimeout]) : stateTimeout;
   const elapsed = () => Date.now() - started;
   let stateResponse: Response;
   try {
-    stateResponse = await api.fetch(`/v5/vms/${encodeURIComponent(vmId)}`, { method: "GET", signal });
+    stateResponse = await client(options.timeoutMs, stateSignal).fetch(`/v5/vms/${encodeURIComponent(vmId)}`, { method: "GET", signal: stateSignal });
   } catch (error) {
-    return { outcome: "error", latencyMs: elapsed(), detail: sanitizeDetail(`state read: ${timeout.aborted ? "timeout" : errorName(error)}`) };
+    return { outcome: "error", latencyMs: elapsed(), detail: sanitizeDetail(`state read: ${stateTimeout.aborted ? "timeout" : errorName(error)}`) };
   }
   if (stateResponse.status === 404) return { outcome: "gone", latencyMs: elapsed() };
-  if (!stateResponse.ok) return { outcome: "error", latencyMs: elapsed(), detail: `state read: ${await errorDetail(stateResponse)}` };
+  if (!stateResponse.ok) return { outcome: "error", latencyMs: elapsed(), detail: `state read: ${(await probeErrorResponse(stateResponse)).detail}` };
   const state = await stateResponse.json().then((body: unknown) => (body as { state?: unknown })?.state).catch(() => undefined);
   // Only a known state skips the probe; an unreadable body says nothing about the VM.
   if (typeof state !== "string") return { outcome: "error", latencyMs: elapsed(), detail: "state read: unreadable body" };
   if (state !== "running") return { outcome: "not_running", latencyMs: elapsed() };
+  // The VM gets its full response window after the provider confirms it is running.
+  if (stateSignal.aborted) return { outcome: "error", latencyMs: elapsed(), detail: "state read: interrupted" };
+  return probeGuestFilesystem(client, vmId, options, elapsed);
+}
+
+async function probeGuestFilesystem(
+  client: ClientFactory,
+  vmId: string,
+  options: ProbeOptions,
+  elapsed: () => number,
+): Promise<VmControlProbe> {
+  const guestTimeout = AbortSignal.timeout(options.timeoutMs);
+  const signal = options.signal ? AbortSignal.any([options.signal, guestTimeout]) : guestTimeout;
   let response: Response;
   try {
-    response = await api.fetch(`/v5/vms/${encodeURIComponent(vmId)}/fs/stat?path=${encodeURIComponent("/")}`, { method: "GET", signal });
+    response = await client(options.timeoutMs, signal).fetch(`/v5/vms/${encodeURIComponent(vmId)}/fs/stat?path=${encodeURIComponent("/")}`, { method: "GET", signal });
   } catch (error) {
-    if (timeout.aborted) return { outcome: "hung", latencyMs: elapsed(), detail: `timeout after ${options.timeoutMs}ms` };
-    return { outcome: "error", latencyMs: elapsed(), detail: sanitizeDetail(errorName(error)) };
+    // A local deadline cannot tell whether the provider delivered this request to the guest.
+    const detail = guestTimeout.aborted ? "fs/stat: request timed out" : sanitizeDetail(errorName(error));
+    return { outcome: "error", latencyMs: elapsed(), detail };
   }
   if (response.ok) {
     await response.body?.cancel().catch(() => undefined);
     return { outcome: "ok", latencyMs: elapsed() };
   }
   if (response.status === 404) return { outcome: "gone", latencyMs: elapsed() };
-  const detail = await errorDetail(response);
-  // 409 is the stale-runtime conflict seen in the incident; 5xx is a provider
-  // that reached for the VM and could not get an answer. 401, 403 and 429 say
-  // nothing about the VM, so they are probe errors, not hangs.
-  if (response.status === 409 || response.status >= 500) return { outcome: "hung", latencyMs: elapsed(), detail };
-  return { outcome: "error", latencyMs: elapsed(), detail };
+  const { detail, guestUnresponsive } = await probeErrorResponse(response);
+  return { outcome: guestUnresponsive ? "hung" : "error", latencyMs: elapsed(), detail };
 }
 
 function errorName(error: unknown): string {
   return error instanceof Error ? error.name : "fetch_failed";
 }
 
-async function errorDetail(response: Response): Promise<string> {
+async function probeErrorResponse(response: Response): Promise<{ detail: string; guestUnresponsive: boolean }> {
   const body: unknown = await response.json().catch(() => null);
   const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
   const code = typeof record.code === "string" ? record.code : "";
   const message = typeof record.message === "string" ? record.message : "";
-  return sanitizeDetail([`${response.status}`, code, message].filter(Boolean).join(" "));
+  // Gate on a guest-specific error. Capacity conflicts and provider or proxy outages also use 409 and 5xx.
+  const guestUnresponsive = ((response.status === 409 || response.status >= 500) && code === "VM_NON_RESPONSIVE")
+    || (response.status === 409 && code === "CONFLICT" && /\bstale runtime instance\b.*\bresponsive=false\b/i.test(message));
+  return { detail: sanitizeDetail([`${response.status}`, code, message].filter(Boolean).join(" ")), guestUnresponsive };
 }
 
 function finiteOrNull(value: number | null | undefined): number | null {

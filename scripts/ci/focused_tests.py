@@ -37,9 +37,12 @@ Nothing here is a hand list that rots: the map is derived from the tree at the h
           name plans/cmux-next/action-surfaces.json) and is a doc only when no test names it.
   caps    At most 60 webviews files (nearest by import distance) and 8 Swift test targets per
           car; more, or a CmuxNext route that selects everything, is deferred to the candidate.
-  cargo   The cmux-tui files the change touches. The crates come from cargo_affected.py
-          (owners plus reverse dependencies, from cargo metadata), which the runner calls where
-          cargo is installed; this map does not repeat it.
+  cargo   The cmux-tui files the change touches, and a file outside cmux-tui/ that a crate's
+          source names with a "../" path (include_str!, CARGO_MANIFEST_DIR fixtures: cmux-config's
+          tests read examples/looks/, schemas/ and Swift sources such as BackdropShader.swift;
+          cargo_affected.outside_reads). The crates come from cargo_affected.py (owners plus
+          reverse dependencies, from cargo metadata), which the runner calls where cargo is
+          installed; this map does not repeat it.
   python  A changed tests/test_*.py runs itself. Any other file selects the tests/test_*.py
           that name its repo path, or, for a script or workflow with a distinctive basename,
           that basename (`fast-tier.py`, `cmux-next.yml`). The lane comes from
@@ -189,6 +192,59 @@ def tracked(root: Path, prefix: str) -> list[str]:
     return [p for p in out.stdout.split("\0") if p] if out.returncode == 0 else []
 
 
+PY_IMPORT = re.compile(r"^[ \t]*(?:from[ \t]+([\w.]+)[ \t]+import[ \t]+([\w, \t()]+)|import[ \t]+([\w., \t]+))", re.M)
+
+
+def python_imports(text: str) -> set[str]:
+    """Every module name a Python source imports: `import a.b, c` gives a, b, c; `from a import b`
+    gives a and b (b may be a module of package a)."""
+    names = set()
+    for source, items, plain in PY_IMPORT.findall(text):
+        for dotted in ([source] + items.replace("(", " ").replace(")", " ").split(",")) if source else plain.split(","):
+            words = dotted.split()
+            if words:
+                names.update(words[0].split("."))
+    return names
+
+
+PY_MODULE_DIRS = ("scripts/", "tests/")  # where tests import modules from (scripts/ci, tests/ helpers)
+
+
+class PythonImports:
+    """Which Python tests import a repo script or test helper module, directly or through others.
+    Tests reach scripts by `sys.path.insert(0, ".../scripts/ci")` and `import affected_tests`,
+    which names no path: a change to scripts/ci/gh_expressions.py must still select the tests that
+    import it (a replay of merged PRs found reds the naming scan skipped). Matching is by module
+    name; two scripts with the same stem both count, which only runs more."""
+
+    def __init__(self, root: Path):
+        modules: dict[str, list[str]] = {}
+        for path in tracked(root, "scripts") + tracked(root, "tests"):
+            if path.endswith(".py") and "/node_modules/" not in path:
+                modules.setdefault(Path(path).stem, []).append(path)
+        self.modules = modules
+        self.importers: dict[str, set[str]] = {}
+        for stem, paths in modules.items():
+            for path in paths:
+                file = root / path
+                text = file.read_text(encoding="utf-8", errors="replace") if file.is_file() else ""
+                for name in python_imports(text):
+                    if name in modules and name != stem:
+                        self.importers.setdefault(name, set()).add(stem)
+
+    def reach(self, path: str) -> set[str]:
+        """The module names whose import reaches the script at `path` (itself included)."""
+        if not (path.startswith(PY_MODULE_DIRS) and path.endswith(".py")):
+            return set()
+        seen, pending = {Path(path).stem}, [Path(path).stem]
+        while pending:
+            for parent in self.importers.get(pending.pop(), ()):
+                if parent not in seen:
+                    seen.add(parent)
+                    pending.append(parent)
+        return seen
+
+
 class WebTests:
     """The webviews import graph by relative path, read once. A test file (in test/ or beside its
     source) covers what it imports, transitively: `./ops` from src/pages/settings/x.test.ts is
@@ -253,6 +309,14 @@ def is_doc(path: str) -> bool:
     return path.endswith(".md") or path.startswith("plans/") or path.startswith("docs/")
 
 
+def cargo_outside_reads(root: Path) -> dict[str, set[str]]:
+    """Paths outside cmux-tui/ that a crate's source reads ("../" literals): path -> crates."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cargo_affected  # noqa: E402
+
+    return cargo_affected.outside_reads(root) if (root / cargo_affected.WORKSPACE).is_dir() else {}
+
+
 def cmux_next_tests(root: Path, files: list[str]) -> tuple[list[str] | None, set[str]]:
     """(test targets or None for all, the files the graph owns) from cmux_next_route.py."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -285,11 +349,14 @@ def plan(root: Path, files: list[str]) -> dict:
     python: dict[str, str] = {}
     swift: dict[tuple[str, str], str] = {}
     cargo: list[str] = []
+    outside = None  # cargo_outside_reads(root), read on the first path outside cmux-tui/
     web: dict[str, str] = {}
     native: dict[str, str] = {}
     docs: list[str] = []
     unmapped = []
     corpus_web = None  # WebTests, read on the first webviews change
+    py_imports = PythonImports(root) if any(f.startswith(PY_MODULE_DIRS) and f.endswith(".py") for f in files) else None
+    test_imports = {test: python_imports(text) for test, text in corpus.items()} if py_imports else {}
     next_tests, next_files = cmux_next_tests(root, files)
     next_package = "Packages/macOS/CmuxNext"
     swift_deferred = ""
@@ -345,10 +412,22 @@ def plan(root: Path, files: list[str]) -> dict:
         if path.startswith("cmux-tui/"):
             cargo.append(path)
             hit = True
+        else:
+            if outside is None:
+                outside = cargo_outside_reads(root)
+            if any(path == ref or path.startswith(ref + "/") for ref in outside):
+                cargo.append(path)
+                hit = True
         name = distinctive(path)
         for test, text in corpus.items():
             if test != path and (path in text or (name and name in text)):
                 python.setdefault(test, f"names {path if path in text else name}")
+                hit = True
+        reached = py_imports.reach(path) if py_imports else set()
+        for test, imported in test_imports.items():
+            via = sorted(imported & reached)
+            if test != path and via:
+                python.setdefault(test, f"imports {via[0]} (reaches {path})")
                 hit = True
         if REGISTRY_FRAGMENT.fullmatch(path):
             # A registry fragment selects what the single file did: the tests that read the registry.

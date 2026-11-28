@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import CmuxMobileTransport
 
+// Calls pass `params: [:]` and `resources: []` explicitly: Swift 6.2's region checker rejects a
+// defaulted non-Sendable argument ([String: Any]) sent into the actor (#SendingRisksDataRace).
 @Suite struct OrderedDaemonClientTests {
     private static let before = Data(#"{"event":"title-changed","surface":1,"title":"before"}"#.utf8)
     private static let after = Data(#"{"event":"title-changed","surface":1,"title":"after"}"#.utf8)
@@ -17,7 +19,7 @@ import Testing
             return [Self.before + Data([0x0A]) + reply + Data([0x0A]) + Self.after + Data([0x0A])]
         }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]), orderedEvents: true)
-        let reply = try await client.requestOrdered("list-workspaces")
+        let reply = try await client.requestOrdered("list-workspaces", params: [:])
         await client.close()
         var events = client.orderedEvents.makeAsyncIterator()
         let before = try #require(await events.next())
@@ -48,7 +50,7 @@ import Testing
                 + Self.after + Data([0x0A]) + Self.reply(id: ids[0]) + Data([0x0A])]
         }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]), orderedEvents: true)
-        let results = await client.requestsOrdered([("identify", [:]), ("list-workspaces", [:])])
+        let results = await client.requestsOrdered([("identify", [:]), ("list-workspaces", [:])], resources: [])
         await client.close()
         #expect(writes.value == 1)
         #expect(results.count == 2)
@@ -73,7 +75,7 @@ import Testing
             return [Self.before + Data([0x0A]) + Self.reply(id: id) + Data([0x0A]) + Self.after + Data([0x0A])]
         }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
-        let reply = try await client.request("list-workspaces")
+        let reply = try await client.request("list-workspaces", params: [:])
         await client.close()
         #expect(reply == Self.reply(id: "m1"))
         var events = client.events.makeAsyncIterator()

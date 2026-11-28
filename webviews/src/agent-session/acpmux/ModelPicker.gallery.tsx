@@ -9,11 +9,19 @@ import { topModelsFor } from "./topModels";
 import { setModelMenuWidth } from "./modelMenuWidth";
 import { mergeModelCatalog } from "./modelCatalog";
 import { type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
+import { type HarnessUpdates, HarnessUpdatesContext } from "./harnessUpdateList";
 import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
 import { MODEL_PICKER } from "./composerSelectors";
+import { CloudServedContext, type CloudServed } from "./cloudServed";
 
-/// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.
-type GalleryProps = ModelPickerProps & { update?: UpdateOffer };
+/// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context, and
+/// the outdated agent CLIs the menus' footer lists (harnessUpdateList.ts), which the pane hands the
+/// same way.
+type GalleryProps = ModelPickerProps & {
+  update?: UpdateOffer;
+  harnessUpdates?: HarnessUpdates;
+  cloud?: { served?: CloudServed };
+};
 
 const update: UpdateOffer = {
   harness: "claude",
@@ -22,6 +30,12 @@ const update: UpdateOffer = {
   latest: "2.2.0",
   update: () => undefined,
   skip: () => undefined,
+};
+
+/// One outdated agent CLI, as Lawrence's menu had it (msg 48182, 2026-11-23): Claude Code and its Update.
+const oneHarnessUpdate: HarnessUpdates = {
+  rows: [{ harness: "claude", agent: "Claude Code", version: "2.1.4", latest: "2.2.0", update: () => undefined }],
+  updateAll: () => undefined,
 };
 
 const catalog: ModelPickerProps["catalog"] = [
@@ -67,6 +81,20 @@ const base: ModelPickerProps = {
   onLand: () => undefined,
   onEffort: () => undefined,
 };
+
+const localModel = { id: "local-model", name: "Local model" };
+const cloudHarnesses = [
+  { id: "gemini", name: "Gemini CLI", models: [localModel] },
+  { id: "grok-build", name: "Grok Build", models: [localModel] },
+  { id: "openrouter", name: "OpenRouter", models: [localModel] },
+  { id: "opencode", name: "OpenCode", models: [localModel] },
+  { id: "pi", name: "Pi", models: [localModel] },
+];
+const cloudPicker: ModelPickerProps = { ...base, quick: {}, catalog: [...catalog, ...cloudHarnesses] };
+const cloudState = (families: CloudServed["families"]): GalleryProps["cloud"] => ({
+  served: { runnableFamilies: ["claude", "codex"], families },
+});
+const partiallySetUp = cloudState({ claude: true, codex: false });
 
 /// The bundled catalog's Claude Code and Codex models with their curated top lists (topModels/):
 /// the top models first, everything else under More models (cx-espus).
@@ -391,6 +419,12 @@ const openColumns = async (ctx: Parameters<Play>[0], width?: number) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
 };
 
+const openCloudConnection: Play = async (ctx) => {
+  setModelMenuWidth(undefined);
+  await ctx.click({ selector: MODEL_PICKER });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols-tab[data-off][aria-selected=true]"));
+};
+
 /// Opens the columns at a dragged width on OpenCode's tab, whose provider-prefixed names are the longest.
 const openOpenCodeAt = async (ctx: Parameters<Play>[0], width: number) => {
   await openColumns(ctx, width);
@@ -420,6 +454,28 @@ const openAccountCard =
       ),
     );
   };
+
+/// A chat with no account route here, whose agent signs in on its own (cmux#63167: a chat on SR2):
+/// the card names the sign-in acpmux reports, in the flow over the lists, the checked model shown.
+const reportedSignIn: ModelPickerProps = {
+  ...quick,
+  quick: {
+    ...quick.quick!,
+    signIn: "SR2 token (sr2 claude)",
+    account: {
+      sessionId: "gallery-chat",
+      accounts: { list: async () => ({ accounts: [] }), set: async () => undefined },
+    },
+  },
+};
+
+const openSignInCard: Play = async (ctx) => {
+  await openColumns(ctx);
+  await ctx.click({ selector: ".acpmux-cols-profile" });
+  await ctx.waitFor(
+    () => ctx.document.querySelector(".acpmux-cols-card .acpmux-cols-card-name")?.textContent === "SR2 token",
+  );
+};
 
 /// An OpenCode chat as Lawrence's screenshot showed it (2026-10-22: "spacing + needs search"): one
 /// model offered by several providers, each its own row.
@@ -594,12 +650,67 @@ export default componentEntry<GalleryProps>({
   ],
   styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
   load: () =>
-    import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, ...props }: GalleryProps) => (
-      <UpdateOfferContext.Provider value={offer}>
-        <ModelPicker {...props} />
-      </UpdateOfferContext.Provider>
-    )),
+    import("./ModelPicker").then(
+      ({ ModelPicker }) =>
+        ({ update: offer, harnessUpdates, cloud, ...props }: GalleryProps) => (
+          <UpdateOfferContext.Provider value={offer}>
+            <HarnessUpdatesContext.Provider value={harnessUpdates}>
+              <CloudServedContext.Provider value={cloud && { ...cloud, openSettings: () => undefined }}>
+                <ModelPicker {...props} />
+              </CloudServedContext.Provider>
+            </HarnessUpdatesContext.Provider>
+          </UpdateOfferContext.Provider>
+        ),
+    ),
   variants: {
+    "reasoning-column": { props: { ...quick, reasoningMenu: "column", detail: "Medium" }, play: openPicker },
+    "separate-reasoning": { props: { ...quick, reasoningMenu: "separate", detail: "Medium" }, play: openPicker },
+    "model-only": { props: { ...curated, reasoningMenu: "column" }, play: openPicker },
+    "cloud-partially-set-up": { props: { ...cloudPicker, cloud: partiallySetUp }, play: openColumns },
+    "cloud-needs-connection": {
+      props: { ...cloudPicker, cloud: cloudState({ claude: false, codex: false }) },
+      play: openCloudConnection,
+    },
+    "cloud-runs-soon": {
+      props: { ...cloudPicker, cloud: partiallySetUp, harness: "gemini", model: localModel.id },
+      play: async (ctx) => {
+        await openCloudConnection(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-cloud-coming-soon]"));
+      },
+    },
+    "cloud-setup-unknown": { props: { ...cloudPicker, cloud: {} }, play: openColumns },
+    "this-mac-models": { props: cloudPicker, play: openColumns },
+    "cloud-disconnected-current": {
+      props: {
+        ...cloudPicker,
+        cloud: partiallySetUp,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1-Sol",
+      },
+      play: openCloudConnection,
+    },
+    "cloud-full-models": {
+      props: { ...cloudPicker, quick: undefined, cloud: partiallySetUp },
+      play: async (ctx) => {
+        await ctx.click({ selector: MODEL_PICKER });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp [data-key^='model:']"));
+      },
+    },
+    "cloud-full-needs-connection": {
+      props: {
+        ...cloudPicker,
+        quick: undefined,
+        cloud: partiallySetUp,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1-Sol",
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: MODEL_PICKER });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login"));
+      },
+    },
     idle: {
       props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
       play: async (ctx) => {
@@ -711,6 +822,8 @@ export default componentEntry<GalleryProps>({
     },
     // Its account card lists the signed-in routes, separate from named launch harnesses.
     "started-chat-accounts": { props: startedFork, play: openAccountCard("Anthropic API key") },
+    // The account card on a chat whose sign-in acpmux reports (cmux#63167): a strip above the lists.
+    "quick-menu-reported-sign-in": { props: reportedSignIn, play: openSignInCard },
     // The columns as the model button opens them, and the same on a short harness list.
     "quick-menu": { props: quick, play: openColumns },
     // Lawrence 2026-11-19 (clip 3.37.01 PM): "why does the model disappear briefly". "opus 5.5 m" is
@@ -758,13 +871,13 @@ export default componentEntry<GalleryProps>({
     // line instead of ending in an ellipsis (Lawrence 2026-11-05: "cant see full model name").
     "quick-menu-dragged-narrow": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
-      play: (ctx) => openOpenCodeAt(ctx, 300),
-      note: "Dragged narrower (300px, ships): a name longer than the column wraps; nothing is clipped.",
+      play: (ctx) => openOpenCodeAt(ctx, 318),
+      note: "Dragged to the narrowest (318px, ships): a name longer than the column wraps; nothing is clipped.",
     },
     "quick-menu-dragged-narrow-ellipsis": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
       play: async (ctx) => {
-        await openOpenCodeAt(ctx, 300);
+        await openOpenCodeAt(ctx, 318);
         for (const name of ctx.document.querySelectorAll<HTMLElement>(".acpmux-cols-body .acpmux-cols-name"))
           Object.assign(name.style, { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
       },
@@ -779,6 +892,10 @@ export default componentEntry<GalleryProps>({
     },
     // An agent CLI update on offer: a quiet footer below the columns.
     "quick-update-offer": { props: { ...quick, update }, play: openColumns },
+    // Harness updates available under the columns (Lawrence 2026-11-23, msg 48182: "spacing here is
+    // bad"): one menu row, its mark on the rows' inset, its Update as far from the divider, the
+    // bottom and the end as a row highlight is from the popup's edges.
+    "quick-harness-update": { props: { ...quick, harnessUpdates: oneHarnessUpdate }, play: openColumns },
     // The same footer on a started chat's menu, which has no rail.
     "started-chat-update-offer": {
       props: {
@@ -816,6 +933,9 @@ export default componentEntry<GalleryProps>({
         );
       },
     },
+    // A rail with more harnesses than fit: it scrolls by wheel or trackpad and draws no scrollbar
+    // (Lucas 2026-11-22: "remove this scrollbar when hovering over it").
+    "quick-menu-rail-overflow": { props: { ...quick, catalog: manyHarnesses }, play: openColumns },
     // Search, version A (ships): a search field heads the list and has the keyboard as the menu
     // opens, so the menu says it can search (Lawrence: "needs search").
     "quick-search-field": {

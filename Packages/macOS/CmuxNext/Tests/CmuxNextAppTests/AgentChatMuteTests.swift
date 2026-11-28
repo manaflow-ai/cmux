@@ -32,7 +32,8 @@ struct AgentChatMuteTests {
     }
 
     @Test func muteSetsTheChatsAcpmuxTagAndUnmuteRemovesIt() async throws {
-        let acpmux = try TaggingAcpmux(sessions: ["s1": [:]])
+        // A titled chat, as acpmux lists one: since #46657 a session the watch lists with no fact makes no record.
+        let acpmux = try TaggingAcpmux(sessions: ["s1": [:]], fields: ["s1": ["title": "Mute me"]])
         let turns = AgentTurnStateStore()
         let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns)
         feed.start(localHost: Self.host)
@@ -53,7 +54,7 @@ struct AgentChatMuteTests {
     }
 
     @Test func aChatMutedElsewhereReadsMutedAndAnotherMacsChatIsLeftAlone() async throws {
-        let acpmux = try TaggingAcpmux(sessions: ["s2": ["notifications": "muted"], "s3": [:]])
+        let acpmux = try TaggingAcpmux(sessions: ["s2": ["notifications": "muted"], "s3": [:]], fields: ["s3": ["title": "Left alone"]])
         let turns = AgentTurnStateStore()
         let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns)
         feed.start(localHost: Self.host)
@@ -133,6 +134,8 @@ nonisolated final class TaggingAcpmux {
 
     func tags(_ session: String) -> [String: String] { state.withLock { $0.tags[session] ?? [:] } }
 
+    func name(_ session: String) -> String? { state.withLock { $0.fields[session]?["name"] } }
+
     private static func serve(_ fd: Int32, state: OSAllocatedUnfairLock<State>) {
         var lines: [Data] = []
         var current = Data()
@@ -164,6 +167,20 @@ nonisolated final class TaggingAcpmux {
             if watcher >= 0 {
                 write(watcher, line(["jsonrpc": "2.0", "method": "_acpmux/session_changed",
                                      "params": ["sessionId": session, "session": changed, "kind": "tags"]]))
+            }
+        case "_acpmux/rename":
+            // As acpmux: the new name is the session's given name (`displayName`) and its `name`.
+            let session = params["sessionId"] as? String ?? "", name = params["newName"] as? String ?? ""
+            let (tags, fields, watcher) = state.withLock { current -> ([String: String], [String: String], Int32) in
+                current.fields[session, default: [:]]["name"] = name
+                current.fields[session, default: [:]]["displayName"] = name
+                return (current.tags[session] ?? [:], current.fields[session] ?? [:], current.watcher)
+            }
+            let changed = summary(session, tags: tags, fields: fields)
+            write(fd, initialized + line(["jsonrpc": "2.0", "id": 2, "result": changed]))
+            if watcher >= 0 {
+                write(watcher, line(["jsonrpc": "2.0", "method": "_acpmux/session_changed",
+                                     "params": ["sessionId": session, "session": changed, "kind": "renamed"]]))
             }
         default:
             write(fd, initialized + line(["jsonrpc": "2.0", "id": 2, "error": ["code": -32601, "message": "no such method"]]))

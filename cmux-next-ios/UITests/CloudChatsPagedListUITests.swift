@@ -5,8 +5,8 @@ import XCTest
 /// older chats land as the reader nears the end without moving any row on screen (measured from
 /// outside, every row's frame, and inside, the list's probe); a chat that runs again moves to the
 /// top without moving the reader; flings meet rows with no hitches (CLOUDCHATS lines); and every
-/// state shows: connecting, connect failed and Retry, empty, the end spinning while older chats are
-/// read, the read stopped and Try Again, and the end.
+/// state shows: connecting (nothing drawn), connect failed and connecting again on its own, empty,
+/// the end spinning while a page more is read, that read failed and Try Again, and the end.
 final class CloudChatsPagedListUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -68,20 +68,24 @@ final class CloudChatsPagedListUITests: XCTestCase {
 
     // MARK: States
 
+    /// A machine that has not answered draws nothing: no spinner, no "Connecting to…" line.
     @MainActor func testCloudChatsConnecting() {
         let app = launch("cloudchats:connecting")
-        XCTAssertTrue(app.descendants(matching: .any)["cloudChats.connecting"].waitForExistence(timeout: 5), "no connecting state")
+        XCTAssertTrue(app.navigationBars["Build Box"].waitForExistence(timeout: 10), "the screen did not open")
+        XCTAssertFalse(list(app).waitForExistence(timeout: 3), "a list drew before the machine answered")
+        XCTAssertFalse(app.descendants(matching: .any)["cloudChats.connectFailed"].exists, "a failure before the machine answered")
+        XCTAssertFalse(app.activityIndicators.firstMatch.exists, "a spinner while connecting")
         attach(app, "cloudchats-connecting")
     }
 
-    @MainActor func testCloudChatsConnectFailureThenRetry() {
+    /// A failed connect says why, then connects again on its own (no Retry to tap).
+    @MainActor func testCloudChatsConnectFailureRetriesOnItsOwn() {
         let app = launch("cloudchats:connectfail")
         let failed = app.descendants(matching: .any)["cloudChats.connectFailed"]
         XCTAssertTrue(failed.waitForExistence(timeout: 10), "no connect failure state")
+        XCTAssertFalse(app.buttons["Retry"].exists, "the failure offers a Retry to tap")
         attach(app, "cloudchats-connect-failed")
-        let retry = failed.buttons.firstMatch.exists ? failed.buttons.firstMatch : app.buttons["Retry"]
-        retry.tap()
-        XCTAssertTrue(row(app, 0).waitForExistence(timeout: 10), "Retry did not load chats")
+        XCTAssertTrue(row(app, 0).waitForExistence(timeout: 20), "the connect was not made again on its own")
         attach(app, "cloudchats-connect-recovered")
     }
 
@@ -91,7 +95,7 @@ final class CloudChatsPagedListUITests: XCTestCase {
         attach(app, "cloudchats-empty")
     }
 
-    /// While the hub still reads older chats, the end spins (never a button to tap).
+    /// While a page more is read, the end spins (never a button to tap).
     @MainActor func testCloudChatsEndSpinsWhileOlderChatsAreRead() {
         let app = launch("cloudchats:slow")
         XCTAssertTrue(row(app, 0).waitForExistence(timeout: 10), "no chats")
@@ -102,16 +106,17 @@ final class CloudChatsPagedListUITests: XCTestCase {
         attach(app, "cloudchats-edge-loading")
     }
 
-    @MainActor func testCloudChatsStoppedReadThenTryAgain() {
-        let app = launch("cloudchats:reststop")
+    /// A page more that failed: the end offers Try Again (no alert), which reads it.
+    @MainActor func testCloudChatsOlderReadFailsThenTryAgain() {
+        let app = launch("cloudchats:olderfail")
         XCTAssertTrue(row(app, 0).waitForExistence(timeout: 10), "no chats")
         let failed = edge(app, "failed")
         for _ in 0..<12 where !(failed.exists && failed.isHittable) { list(app).swipeUp(velocity: .fast) }
         XCTAssertTrue(failed.waitForExistence(timeout: 10), "the end did not offer Try Again")
-        XCTAssertFalse(app.alerts.firstMatch.exists, "a stopped read shows an alert")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "a failed read shows an alert")
         attach(app, "cloudchats-edge-failed")
         app.buttons["cloudChats.list.retry"].tap()
-        // The reconnect reads every chat; the list keeps the chats shown, and older ones follow.
+        // The page more is read again; the list keeps the chats shown, and older ones follow.
         let older = row(app, 150)
         XCTAssertTrue(row(app, 0).waitForExistence(timeout: 10) || app.cells.firstMatch.waitForExistence(timeout: 10))
         for _ in 0..<16 where !older.exists { list(app).swipeUp(velocity: .fast) }

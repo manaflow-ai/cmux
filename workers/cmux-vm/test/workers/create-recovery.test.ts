@@ -1,6 +1,7 @@
 import { Effect, Layer } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { LimitsUnavailable, memoryLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
+import { CREATE_BACKGROUND_AFTER_SECS, CREATE_SEND_TIMEOUT_MS } from "../../src/upstream/live-create.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 
@@ -29,6 +30,22 @@ it("recovers a provider create whose response was lost, with one physical VM and
   expect(t.upstream.vms.size).toBe(1);
   expect(t.resources.filter((r) => r.kind === "vm")).toHaveLength(1);
   expect(t.upstream.callsTo("GET", /^\/v5\/vms$/)).toHaveLength(0);
+});
+
+it("answers a create the provider is slow to make with its VM, through a background request, not a lost answer", async () => {
+  // Staging, 2026-11-27 05:51-06:01Z: in a burst the provider held POST /v5/vms past the 120 s cut; 13 creates failed at
+  // createMs 120000 with nothing under the slug yet to recover, and a journey's cold create ran past its 300 s bound.
+  const t = await harness(), key = await t.addKey("team_alpha", ["vm:write"]);
+  t.upstream.faults.slowCreates = 1;
+  const first = await create(t, key, "slow-create");
+  expect(first.status).toBe(201);
+  expect(allocation(t)).toHaveLength(1);
+  expect(t.upstream.callsTo("GET", /^\/v5\/background-requests\//)).toHaveLength(3);
+  // A create the provider works on goes to the background well before the send timeout cuts an unstarted one.
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/).map((call) => call.backgroundAfter)).toEqual([String(CREATE_BACKGROUND_AFTER_SECS)]);
+  expect(CREATE_BACKGROUND_AFTER_SECS * 1000).toBeLessThan(CREATE_SEND_TIMEOUT_MS);
+  expect(t.upstream.vms.size).toBe(1);
+  expect(t.resources.filter((r) => r.kind === "vm")).toHaveLength(1);
 });
 
 it("does not report success until idempotency completion is durable, then repairs the same allocation", async () => {

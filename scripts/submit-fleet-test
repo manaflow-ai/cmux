@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Submit a committed test to the cmux Fast checks workflow."""
+import argparse
+from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import sys
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--setup", choices=("none", "rust", "webviews", "playwright"),
+                        help="remote environment (cargo selects rust, bun and bunx select webviews)")
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="-- command [argument ...]")
+    args = parser.parse_args()
+    command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not command:
+        parser.error("pass a test command after --")
+    if not shutil.which("gh"):
+        parser.exit(2, "Install GitHub CLI 2.87+ from https://cli.github.com, then run gh auth login.\n")
+
+    head = subprocess.run(["git", "rev-parse", "--verify", "HEAD^{commit}"], stdout=subprocess.PIPE, text=True)
+    if head.returncode:
+        parser.exit(2, "Run this command in your cmux checkout.\n")
+    sha = head.stdout.strip()
+    directory = subprocess.check_output(["git", "rev-parse", "--show-prefix"], text=True).rstrip("\n") or "."
+    setup = args.setup or {"cargo": "rust", "bun": "webviews", "bunx": "webviews"}.get(Path(command[0]).name, "none")
+    print(f"Submitting {sha} ({directory}, setup {setup}). GitHub must already have this commit.",
+          file=sys.stderr, flush=True)
+    # gh owns authentication, dispatch and the URL of this specific run.
+    result = subprocess.run(
+        ["gh", "workflow", "run", "fast-checks.yml", "--repo", "github.com/manaflow-ai/cmux", "--ref", "main",
+         "-f", f"source_sha={sha}", "-f", f"directory={directory}", "-f", f"setup={setup}",
+         "-f", "command=" + " ".join(shlex.quote(word) for word in command)],
+        stdout=subprocess.PIPE, text=True,
+    )
+    if result.returncode:
+        print("Check connectivity to github.com and gh auth status --hostname github.com. "
+              "Dispatch requires write access to manaflow-ai/cmux.", file=sys.stderr)
+        return result.returncode
+    if not result.stdout.strip():
+        print(f"GitHub accepted the dispatch for {sha} without returning its run URL. "
+              "Look for the SHA at https://github.com/manaflow-ai/cmux/actions/workflows/fast-checks.yml "
+              "before resubmitting. Use gh 2.87+ for run links.", file=sys.stderr)
+        return 1
+    print(result.stdout.strip())
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

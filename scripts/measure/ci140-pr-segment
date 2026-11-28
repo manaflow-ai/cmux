@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""PR-segment runner minutes per merged PR, ranked by workflow and job (shards folded), with the share that
+ended failure or cancelled and the per-job cost per run, split at the times fixes landed.
+
+Inputs (local, no GitHub calls), the files scripts/measure/ci140-base-branch reads:
+  --feed   job rows (JSONL, .gz ok) from the timing feed: at, seconds, workflow_path, job, conclusion, seg, run
+           (only seg == 'pr' rows count)
+  --prs    {key: {number, mergedAt, ...}} (optional): merged PRs in the window give the per-PR divisor;
+           without it minutes are totals
+  --cut    ISO times to split the window at (repeatable), e.g. a fix's merge time
+
+Run: scripts/measure/ci140-pr-segment --feed recs.jsonl.gz --prs prs.json \
+       --since 2026-11-26T22:00:00Z --until 2026-11-27T05:00:00Z --cut 2026-11-27T04:00:00Z [--top 25]
+"""
+import argparse, collections, gzip, json, re
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--feed", required=True)
+    ap.add_argument("--prs")
+    ap.add_argument("--since", required=True)
+    ap.add_argument("--until", required=True)
+    ap.add_argument("--cut", action="append", default=[])
+    ap.add_argument("--top", type=int, default=25)
+    a = ap.parse_args(argv)
+    bounds = [a.since] + sorted(a.cut) + [a.until]
+    segs = list(zip(bounds, bounds[1:]))
+    merged = [v["mergedAt"] for v in json.load(open(a.prs)).values() if v.get("mergedAt")] if a.prs else []
+    div = [max(1, sum(lo <= m < hi for m in merged)) if merged else 1 for lo, hi in segs]
+    unit = "min per merged PR" if merged else "min (total)"
+    cost = collections.defaultdict(lambda: [0.0] * len(segs))
+    bad, runs, wfm = collections.Counter(), collections.Counter(), collections.Counter()
+    opener = gzip.open if a.feed.endswith(".gz") else open
+    with opener(a.feed, "rt") as f:
+        for line in f:
+            r = json.loads(line)
+            if r.get("seg") != "pr" or not a.since <= r["at"] < a.until:
+                continue
+            i = next(i for i, (lo, hi) in enumerate(segs) if lo <= r["at"] < hi)
+            key = (r.get("workflow_path", "?").rsplit("/", 1)[-1], re.sub(r" \(\d+\)$", "", r["job"]))
+            m = r["seconds"] / 60
+            cost[key][i] += m
+            runs[key] += 1
+            wfm[key[0]] += m
+            if r["conclusion"] in ("failure", "cancelled"):
+                bad[key] += m
+    print(f"PR segment, {unit}; segments: {segs}")
+    print("\nby workflow")
+    for w, m in wfm.most_common(a.top):
+        print(f"  {m / sum(div):8.2f}  {w}")
+    print(f"\ntop {a.top} jobs: per-segment {unit} | runs | min/run | % failed or cancelled")
+    for key, v in sorted(cost.items(), key=lambda kv: -sum(kv[1]))[:a.top]:
+        t = sum(v)
+        print("  " + " ".join(f"{x / d:7.2f}" for x, d in zip(v, div)),
+              f"| {runs[key]:5d} | {t / runs[key]:5.1f} | {100 * bad[key] / t:3.0f}% | {key[0]} / {key[1]}")
+
+
+if __name__ == "__main__":
+    main()

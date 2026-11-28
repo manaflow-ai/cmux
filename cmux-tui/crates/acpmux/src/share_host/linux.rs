@@ -10,11 +10,23 @@
 //! - cmux-rd is `~/.local/bin/cmux-rd`, the path the host's unit runs
 //!   (`ExecStart=%h/.local/bin/cmux-rd linux-host run`) and where the join puts its binaries; no
 //!   other place is looked at, so the binary the daemon sets up is the one the unit runs.
-//! - The enable runs once per join: a host unit already running for this join (the record in
-//!   [`MARK`]) is left alone, so a daemon restart or upgrade never cuts a live share. A new
-//!   join (another machine id or credential generation) runs it again.
-//! - It runs in the background, at most [`ENABLE_WAIT`], and never fails the daemon: one log
-//!   line says how it went, and `acpmux share-host status` says it too.
+//! - The enable runs once per join and cmux-rd build: a host unit already running for this join
+//!   and this cmux-rd (the record in [`MARK`]: the machine id, the credential generation and
+//!   cmux-rd's [`Identity`]) is left alone, so a daemon restart or upgrade never cuts a live
+//!   share. A new join (another machine id or credential generation), or a cmux-rd that is new
+//!   or was replaced (another size, modification time or inode), runs it again: a machine joined
+//!   before the join line installed cmux-rd gets its host once cmux-rd is there.
+//! - Each check reads the join too ([`tick`]): a machine joined while the daemon runs (`acpmux
+//!   machine join` with no restart, as `fleet-screen-enroll` does) is set up on the next check,
+//!   or at once when `share-host status` sees the join first ([`super::recheck`]).
+//! - The daemon looks at cmux-rd every [`CHECK_EVERY`] (one `stat`), so a cmux-rd the join line
+//!   installs or updates while the daemon runs is set up without a restart. One enable per
+//!   cmux-rd identity per daemon run: one that failed or timed out is tried again only when
+//!   cmux-rd changes or the daemon restarts, never in a loop.
+//! - It runs in the background, at most [`ENABLE_WAIT`] an attempt, and never fails the daemon:
+//!   one log line says how it went, and `acpmux share-host status` says it too. Without cmux-rd
+//!   the status says so, with the join line's reason when it could not install it
+//!   ([`INSTALL_FAILED`]).
 
 use super::NotRunning;
 use cmux_hub_host::identity;
@@ -25,6 +37,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
+
+/// How often the daemon looks at cmux-rd (one `stat`) for a new or replaced binary.
+pub(crate) const CHECK_EVERY: Duration = Duration::from_secs(60);
+/// In the share host's folder: the join line's one-line reason, when it could not fetch or
+/// verify cmux-rd (it removes the file once cmux-rd is installed).
+pub(crate) const INSTALL_FAILED: &str = "cmux-rd-install";
 
 /// How long the enable may take: cmux-rd leaves the desktop portal's dialog up for a minute at
 /// most, and signs in, registers and installs the unit after it.
@@ -41,10 +59,82 @@ pub(crate) fn cmux_rd_path(user_home: &Path) -> PathBuf {
     user_home.join(".local/bin/cmux-rd")
 }
 
-/// Whether `path` is a file this user may run.
-pub(crate) fn executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+/// Which cmux-rd build is installed, as cheaply as one `stat` (through a symlink) tells: a new
+/// or replaced binary has another size, modification time or inode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Identity {
+    pub(crate) size: u64,
+    pub(crate) mtime: i64,
+    pub(crate) mtime_nsec: i64,
+    pub(crate) inode: u64,
+}
+
+impl Identity {
+    fn json(&self) -> Value {
+        json!({
+            "size": self.size,
+            "mtime": self.mtime,
+            "mtimeNsec": self.mtime_nsec,
+            "inode": self.inode,
+        })
+    }
+}
+
+/// The identity of the cmux-rd at `path`: None when it is not a file this user may run (not
+/// installed).
+pub(crate) fn identity_of(path: &Path) -> Option<Identity> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.permissions().mode() & 0o111 == 0 {
+        return None;
+    }
+    Some(Identity {
+        size: meta.size(),
+        mtime: meta.mtime(),
+        mtime_nsec: meta.mtime_nsec(),
+        inode: meta.ino(),
+    })
+}
+
+/// What the watcher does on a tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Step {
+    /// cmux-rd is not installed: the status says so.
+    NotInstalled,
+    /// This cmux-rd had its attempt in this daemon run: nothing.
+    Wait,
+    /// A cmux-rd this daemon run has not tried: the enable.
+    Enable(Identity),
+}
+
+/// The tick's step, from the identity this daemon run last tried the enable with
+/// (`last_attempted`) and the one installed `now`.
+pub(crate) fn next_step(last_attempted: Option<&Identity>, now: Option<Identity>) -> Step {
+    match now {
+        None => Step::NotInstalled,
+        Some(id) if last_attempted == Some(&id) => Step::Wait,
+        Some(id) => Step::Enable(id),
+    }
+}
+
+/// The join line's reason it could not install cmux-rd ([`INSTALL_FAILED`] in `folder`): its
+/// first line, plain and short, read from at most 1 KiB. None without the file.
+pub(crate) fn install_failure(folder: &Path) -> Option<String> {
+    use std::io::Read;
+    let file = std::fs::File::open(folder.join(INSTALL_FAILED)).ok()?;
+    let mut bytes = Vec::new();
+    file.take(1024).read_to_end(&mut bytes).ok()?;
+    String::from_utf8_lossy(&bytes).lines().map(plain).find(|l| !l.is_empty())
+}
+
+/// `share-host status`'s detail when cmux-rd is not installed at `rd`.
+pub(crate) fn not_installed_detail(rd: &Path, folder: &Path) -> String {
+    let mut detail = format!("cmux-rd is not installed ({})", rd.display());
+    if let Some(why) = install_failure(folder) {
+        detail.push_str(": the join could not install it: ");
+        detail.push_str(&why);
+    }
+    detail
 }
 
 /// The user manager's variables `systemctl --user` needs, for a daemon started without a login
@@ -77,6 +167,34 @@ pub(crate) fn user_manager_env(
         }
     }
     env
+}
+
+/// cmux-rd's virtual display unit (cmux-rd-host's `linux_host::setup::DISPLAY_UNIT`).
+const DISPLAY_UNIT: &str = "cmux-screen-display.service";
+
+/// The display number the written `cmux-screen-display.service` in `config_home` runs (`Xvfb :N`).
+pub(crate) fn own_virtual_display(config_home: &Path) -> Option<u32> {
+    let text = std::fs::read_to_string(config_home.join("systemd/user").join(DISPLAY_UNIT)).ok()?;
+    let exec = text.lines().find_map(|l| l.strip_prefix("ExecStart="))?;
+    exec.split_whitespace().find_map(|w| w.strip_prefix(':')?.parse().ok())
+}
+
+/// The variables the enable runs without: `DISPLAY` when it names `own`, cmux's own virtual
+/// display. The join puts that display in the user environment so apps land on the shared screen;
+/// a cmux-rd before 0.2.8 then read it as a person's X11 desktop and installed the desktop's host
+/// unit, which never starts on a machine with no graphical session. Unset, cmux-rd finds a real
+/// desktop through logind, and an old cmux-rd heals that host on the daemon's next start.
+pub(crate) fn enable_unset(
+    display: Option<&std::ffi::OsStr>,
+    own: Option<u32>,
+) -> Vec<&'static str> {
+    let names_own = display.and_then(|d| d.to_str()).is_some_and(|d| {
+        let d = d.trim();
+        let rest = d.strip_prefix("unix").unwrap_or(d);
+        own.is_some()
+            && rest.strip_prefix(':').and_then(|n| n.split('.').next()?.parse().ok()) == own
+    });
+    if names_own { vec!["DISPLAY"] } else { Vec::new() }
 }
 
 /// The arguments of the enable for the join at device hub `hub`.
@@ -137,12 +255,15 @@ pub(crate) struct After {
 
 /// After `outcome`, cancelled or not, with the join it ran for still `current` or not.
 /// Only an enable that finished for the join still current, uncancelled, keeps its host: any
-/// other may have started the unit for a join that is gone, so the unit is stopped (cmux-rd's
-/// `run` would also refuse to serve it).
+/// other may have started the unit, for a join that is gone or one the daemon does not record
+/// as set up, so the unit is stopped (review of #45369).
 pub(crate) fn after_enable(outcome: &Outcome, cancelled: bool, current: bool) -> After {
     let finished = matches!(outcome, Outcome::SetUp(_));
     let superseded = cancelled || !current || matches!(outcome, Outcome::Cancelled);
-    After { save_mark: finished && !superseded, stop_host: superseded }
+    let kept = finished && !superseded;
+    // Any enable that did not finish (failed, timed out, not installed, cancelled) may have
+    // started the unit before it ended: its host is stopped, never left running unmarked.
+    After { save_mark: kept, stop_host: !kept }
 }
 
 /// One line of cmux-rd's output, made plain and short for a log line.
@@ -195,10 +316,15 @@ pub(crate) fn run_enable(
     args: &[&str],
     acpmux_home: &Path,
     env: &[(&'static str, OsString)],
+    unset: &[&'static str],
     wait: Duration,
     cancel: &AtomicBool,
 ) -> Outcome {
-    let spawned = cmux_process::Command::new(rd)
+    let mut command = cmux_process::Command::new(rd);
+    for name in unset {
+        command.env_remove(name);
+    }
+    let spawned = command
         .args(args)
         .env("ACPMUX_HOME", acpmux_home)
         .envs(env.iter().map(|(k, v)| (*k, v)))
@@ -242,9 +368,17 @@ pub(crate) fn run_enable(
 /// How often a running enable looks at its cancel flag.
 const CANCEL_CHECK: Duration = Duration::from_millis(200);
 
-/// The join a host was set up for: the machine id and its credential's generation.
-pub(crate) fn mark_of(credential: &crate::machine_record::MachineCredential) -> Value {
-    json!({"machineId": credential.machine_id, "credentialGeneration": credential.credential_generation})
+/// What a host was set up for: the join (the machine id and its credential's generation) and
+/// the cmux-rd build (`rd`). A mark from before the cmux-rd identity was recorded matches none.
+pub(crate) fn mark_of(
+    credential: &crate::machine_record::MachineCredential,
+    rd: &Identity,
+) -> Value {
+    json!({
+        "machineId": credential.machine_id,
+        "credentialGeneration": credential.credential_generation,
+        "cmuxRd": rd.json(),
+    })
 }
 
 /// Whether the host was set up for `mark` (the record in `folder`).
@@ -298,7 +432,9 @@ pub(crate) fn stop_host() -> Result<(), String> {
 pub(crate) fn still_running(pid: Option<u32>, disabled: bool) -> String {
     format!(
         "the screen host may still be running ({}){}; stop it with: {}",
-        pid.map_or("its pid is unknown".into(), |pid| format!("pid {pid}")),
+        pid.map_or("its pid is unknown: a host of an older build records none".into(), |pid| {
+            format!("pid {pid}")
+        }),
         if disabled { "" } else { "; systemctl --user disable --now did not finish" },
         pid.map_or(format!("systemctl --user kill --signal=KILL {HOST_UNIT}"), |pid| {
             format!("kill -KILL {pid}")
@@ -308,12 +444,25 @@ pub(crate) fn still_running(pid: Option<u32>, disabled: bool) -> String {
 
 /// Whether cmux-rd's own record says it signed in for the join `mark` (its `joined.json`):
 /// a unit that runs is that join's only when it says so too.
-pub(crate) fn rd_signed_in_for(rd_config: &Path, mark: &Value) -> bool {
+///
+/// A record from a cmux-rd before joins were named in it (no `machine_id`, cmux-rd-host's
+/// `Joined::unmarked_from`) still says its sign-in came from a join of `acpmux_home`, never from
+/// a person's token. Taken with the mark (this daemon's enable for this join and this cmux-rd
+/// finished) and a running unit, it is this join's. Refusing it re-ran the enable, which restarts
+/// the host and cuts a share, at every daemon start on every machine joined with such a cmux-rd
+/// (27 times a day on a lane VM: hq docs/findings/2026-11-23-screen-host-restart-loop.md).
+pub(crate) fn rd_signed_in_for(rd_config: &Path, mark: &Value, acpmux_home: &Path) -> bool {
     identity::read_private(&rd_config.join("joined.json"))
         .ok()
         .flatten()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         .is_some_and(|joined| {
+            let named =
+                joined.get("machine_id").and_then(Value::as_str).is_some_and(|id| !id.is_empty());
+            if !named {
+                return joined.get("acpmux_home").and_then(Value::as_str).map(Path::new)
+                    == Some(acpmux_home);
+            }
             joined.get("machine_id") == mark.get("machineId")
                 && joined.get("credential_generation") == mark.get("credentialGeneration")
         })
@@ -348,9 +497,48 @@ pub(crate) fn status_json(state: &str, detail: &str, rd: &Path, hub: &str) -> Va
     })
 }
 
+/// What a watcher tick does, from the join read on it ([`tick`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Tick<J> {
+    /// Not joined here (no record, copied, revoked, no device hub): the status says why and the
+    /// next tick reads the join again.
+    NotJoined(NotRunning),
+    /// Joined (`J`, its key): the step for the cmux-rd installed now.
+    Joined(J, Value, Step),
+}
+
+/// The tick for the join read now (`join`, keyed by `key_of`, or why there is none), the cmux-rd
+/// build and join this daemon run last tried (`attempted`, forgotten once the join is gone or is
+/// another) and the cmux-rd installed `now`. A machine that joins while the daemon runs is set
+/// up on the tick after its join, with no restart.
+pub(crate) fn tick<J>(
+    join: Result<J, NotRunning>,
+    key_of: impl FnOnce(&J) -> Value,
+    attempted: &mut Option<(Identity, Value)>,
+    now: Option<Identity>,
+) -> Tick<J> {
+    let join = match join {
+        Ok(join) => join,
+        Err(why) => {
+            *attempted = None;
+            return Tick::NotJoined(why);
+        }
+    };
+    let key = key_of(&join);
+    if attempted.as_ref().is_some_and(|(_, tried)| *tried != key) {
+        *attempted = None;
+    }
+    let step = next_step(attempted.as_ref().map(|(id, _)| id), now);
+    Tick::Joined(join, key, step)
+}
+
 /// Sets up this joined Linux machine's cmux-rd host from the daemon's start, as a task of
-/// `scope` (its blocking work on a thread of its own): nothing when the machine is not joined
-/// (or its record was copied or revoked), or when cmux-rd is not installed; else the enable.
+/// `scope`: a watcher that reads the join on every tick ([`CHECK_EVERY`], or at once when
+/// `share-host status` sees a join the last tick did not, [`super::recheck`]), says why while
+/// the machine is not joined (or its record was copied or revoked), and runs the enable (on a
+/// blocking thread) for each join and cmux-rd build it has not tried in this daemon run, and
+/// says when cmux-rd is not installed. A join made while the daemon runs (`acpmux machine join`
+/// with no restart) is set up without one.
 #[cfg_attr(
     not(target_os = "linux"),
     allow(
@@ -360,9 +548,13 @@ pub(crate) fn status_json(state: &str, detail: &str, rd: &Path, hub: &str) -> Va
 )]
 pub(crate) fn start(scope: &cmux_scope::Scope) {
     let home = crate::config::home();
-    let (credential, hub) = match super::joined() {
-        Ok(joined) => joined,
-        Err(why) => return not_running(why),
+    // Said now, so a status asked before the first tick is right; each tick reads it again.
+    let mut hub = match super::joined() {
+        Ok((_, hub)) => hub,
+        Err(why) => {
+            not_running(why);
+            String::new()
+        }
     };
     let Some(user_home) = dirs::home_dir() else {
         return not_running(NotRunning::new(
@@ -371,16 +563,7 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
         ));
     };
     let rd = cmux_rd_path(&user_home);
-    if !executable(&rd) {
-        tracing::info!("{}: not running: cmux-rd is not installed ({})", super::LOG, rd.display());
-        super::state::not_running(NotRunning::new(
-            "not_installed",
-            &format!("cmux-rd is not installed ({})", rd.display()),
-        ));
-        return;
-    }
     let folder = super::dir(&home);
-    let mark = mark_of(&credential);
     // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
     let env = user_manager_env(
@@ -389,31 +572,117 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
         std::env::var_os("DBUS_SESSION_BUS_ADDRESS"),
         |p| p.exists(),
     );
-    super::state::linux(status_json("setting_up", "cmux-rd linux-host enable runs", &rd, &hub));
-    scope.spawn_named("share-host-linux", async move {
-        // The thread outlives an aborted task: dropping this cancels its enable (stopped with
-        // its process group), and nothing it set up is kept (review F2 of #45369).
-        struct CancelOnDrop(Arc<AtomicBool>);
-        impl Drop for CancelOnDrop {
-            fn drop(&mut self) {
-                self.0.store(true, Ordering::SeqCst);
+    let config_home = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|v| !v.is_empty())
+        .map_or_else(|| user_home.join(".config"), PathBuf::from);
+    // The loop ends with the daemon's scope (a `while`, so the task's output is `()`).
+    let stop = scope.token();
+    scope.spawn_until_cancelled("share-host-linux", async move {
+        // The cmux-rd build tried, and the join it was tried for.
+        let mut attempted: Option<(Identity, Value)> = None;
+        let mut said: Option<String> = None;
+        while !stop.is_cancelled() {
+            // One read of the join per check: its credential's mark and its own deployment's
+            // hub come from the same record (review F2 of #45480), never from what the daemon
+            // read at its start. A leave or a new join since the last enable is set up again.
+            let key_of = |(credential, _): &Joined| join_key_of(credential);
+            let now = identity_of(&rd);
+            let (credential, join_key, step) =
+                match tick(super::joined(), key_of, &mut attempted, now) {
+                    Tick::NotJoined(why) => {
+                        let detail = why.to_string();
+                        if said.as_ref() != Some(&detail) {
+                            tracing::info!("{}: not running: {detail}", super::LOG);
+                            super::state::linux(status_json(why.code, &why.detail, &rd, &hub));
+                            said = Some(detail);
+                        }
+                        super::next_check(CHECK_EVERY).await;
+                        continue;
+                    }
+                    Tick::Joined((credential, now), key, step) => {
+                        hub = now;
+                        (credential, key, step)
+                    }
+                };
+            match step {
+                Step::Wait => {}
+                Step::NotInstalled => {
+                    let detail = not_installed_detail(&rd, &folder);
+                    if said.as_ref() != Some(&detail) {
+                        tracing::info!("{}: not running: {detail}", super::LOG);
+                        super::state::linux(status_json("not_installed", &detail, &rd, &hub));
+                        said = Some(detail);
+                    }
+                }
+                Step::Enable(id) => {
+                    said = None;
+                    attempted = Some((id, join_key));
+                    super::state::linux(status_json(
+                        "setting_up",
+                        "cmux-rd linux-host enable runs",
+                        &rd,
+                        &hub,
+                    ));
+                    let mark = mark_of(&credential, &id);
+                    // Read at each enable: the join writes cmux's own display unit, so the
+                    // first enable after it already runs without that DISPLAY.
+                    let unset = enable_unset(
+                        std::env::var_os("DISPLAY").as_deref(),
+                        own_virtual_display(&config_home),
+                    );
+                    let (home, folder, rd, hub, env) =
+                        (home.clone(), folder.clone(), rd.clone(), hub.clone(), env.clone());
+                    // The thread outlives an aborted task: dropping this cancels its enable
+                    // (stopped with its process group), and nothing it set up is kept (review F2
+                    // of #45369).
+                    let cancel = Arc::new(AtomicBool::new(false));
+                    let _cancel_on_drop = CancelOnDrop(cancel.clone());
+                    let (done, ended) = tokio::sync::oneshot::channel::<()>();
+                    let spawned = std::thread::Builder::new()
+                        .name("share-host-linux".into())
+                        .spawn(move || {
+                            set_up(&home, &folder, &mark, &rd, &hub, &env, &unset, &cancel);
+                            let _ = done.send(());
+                        });
+                    match spawned {
+                        Ok(_) => {
+                            let _ = ended.await;
+                        }
+                        Err(e) => {
+                            tracing::warn!("{}: cmux-rd's enable did not start: {e}", super::LOG)
+                        }
+                    }
+                }
             }
-        }
-        let cancel = Arc::new(AtomicBool::new(false));
-        let _cancel_on_drop = CancelOnDrop(cancel.clone());
-        let (done, ended) = tokio::sync::oneshot::channel::<()>();
-        let spawned =
-            std::thread::Builder::new().name("share-host-linux".into()).spawn(move || {
-                set_up(&home, &folder, &mark, &rd, &hub, &env, &cancel);
-                let _ = done.send(());
-            });
-        match spawned {
-            Ok(_) => {
-                let _ = ended.await;
-            }
-            Err(e) => tracing::warn!("{}: cmux-rd's enable did not start: {e}", super::LOG),
+            super::next_check(CHECK_EVERY).await;
         }
     });
+}
+
+/// A join as [`super::joined`] reads it: its credential and its deployment's device hub.
+type Joined = (Box<crate::machine_record::MachineCredential>, String);
+
+/// Sets a flag when dropped: an enable's cancel, set when its task is dropped.
+struct CancelOnDrop(Arc<AtomicBool>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Which join `credential` is (its machine id and credential generation), whichever cmux-rd
+/// build sets it up.
+fn join_key_of(credential: &crate::machine_record::MachineCredential) -> Value {
+    json!({"machineId": credential.machine_id, "credentialGeneration": credential.credential_generation})
+}
+
+/// Whether `mark` was made for the join `credential` (its machine id and credential
+/// generation), whichever cmux-rd build it names.
+fn same_join(mark: &Value, credential: &crate::machine_record::MachineCredential) -> bool {
+    let join = join_key_of(credential);
+    mark.get("machineId") == join.get("machineId")
+        && mark.get("credentialGeneration") == join.get("credentialGeneration")
 }
 
 /// The enable, unless the host unit already runs for this join; what it did goes to the log and
@@ -425,20 +694,21 @@ fn set_up(
     rd: &Path,
     hub: &str,
     env: &[(&'static str, OsString)],
+    unset: &[&'static str],
     cancel: &AtomicBool,
 ) {
     // A unit that runs is left alone only when cmux-rd's own record says it is this join's: a
     // person's sign-in that replaced it is set up over.
-    let rd_signed_in = identity::config_dir().is_ok_and(|c| rd_signed_in_for(&c, mark));
+    let rd_signed_in = identity::config_dir().is_ok_and(|c| rd_signed_in_for(&c, mark, home));
     if marked(folder, mark) && rd_signed_in && host_active(env) {
         tracing::info!("{}: cmux-rd's host already runs for this join", super::LOG);
         let detail = format!("{HOST_UNIT} runs for this join");
         super::state::linux(status_json("already_set_up", &detail, rd, hub));
         return;
     }
-    let outcome = run_enable(rd, &enable_args(hub), home, env, ENABLE_WAIT, cancel);
+    let outcome = run_enable(rd, &enable_args(hub), home, env, unset, ENABLE_WAIT, cancel);
     // The join it ran for, read again now: a leave or a new join may have come meanwhile.
-    let current = super::joined().is_ok_and(|(credential, _)| &mark_of(&credential) == mark);
+    let current = super::joined().is_ok_and(|(credential, _)| same_join(mark, &credential));
     let after = after_enable(&outcome, cancel.load(Ordering::SeqCst), current);
     if after.save_mark
         && let Err(e) = save_mark(folder, mark)

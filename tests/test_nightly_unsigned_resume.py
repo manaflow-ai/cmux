@@ -182,12 +182,12 @@ class ResumeTests(unittest.TestCase):
                 resume.extract(archive, Path(tmp) / "out")
             self.assertFalse((Path(tmp) / "escape").exists())
 
-    def _app_tarball(self, root, version_name="cmux.app/Contents/Resources/bin/cmux-tui.version"):
+    def _app_tarball(self, root, version_name="cmux.app/Contents/Resources/bin/cmux-tui.version", body=None):
         # A real unsigned app: frameworks carry Versions/Current symlinks
         # (run 41889001795 refused every resume on them).
         app = root / "app"
         app.mkdir(parents=True)
-        body = f"commit={'b' * 40}\n".encode()
+        body = body if body is not None else f"commit={'b' * 40}\n".encode()
         with tarfile.open(app / "cmux-nightly-unsigned.tar.gz", "w:gz") as archive:
             link = tarfile.TarInfo("cmux.app/Contents/Frameworks/Sparkle.framework/Versions/Current")
             link.type, link.linkname = tarfile.SYMTYPE, "B"
@@ -203,6 +203,16 @@ class ResumeTests(unittest.TestCase):
             self.assertEqual(resume.bundled_client_commit(Path(tmp)), "b" * 40)
             # Nothing is unpacked beside the archive the signers download.
             self.assertEqual(sorted(p.name for p in app.iterdir()), ["cmux-nightly-unsigned.tar.gz"])
+
+    def test_bundled_client_version_carries_the_installed_tree_key(self):
+        # A build that bundled a fallback tree records its key; the sign stage's marker gate
+        # reads it as INSTALLED_KEY (RFD 0021).
+        with tempfile.TemporaryDirectory() as tmp:
+            self._app_tarball(Path(tmp), body=f"mode=tree\nkey={'c' * 40}\ncommit={'b' * 40}\n".encode())
+            self.assertEqual(resume.bundled_client_version(Path(tmp)), ("b" * 40, "c" * 40))
+        with tempfile.TemporaryDirectory() as tmp:
+            self._app_tarball(Path(tmp))
+            self.assertEqual(resume.bundled_client_version(Path(tmp)), ("b" * 40, ""))
 
     def test_bundled_client_commit_refuses_a_traversing_version_member(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -244,7 +254,7 @@ class WorkflowRoutingTests(unittest.TestCase):
     def test_only_restore_workloads_take_linux_and_fresh_builds_keep_macos(self):
         # Nightlies never run on Blacksmith: a resume restores on our own nightly Macs, as a fresh build does.
         for name, native_runner, resume_runner in (("build-nightly-app", "glaeda-nightly-only-m4pro", "glaeda-nightly-only-m4pro"),
-                                                   ("build-nightly-ghostty-cli-helper", "glaeda-nightly-std-xcode-26.6", "glaeda-nightly-std-xcode-26.6")):
+                                                   ("build-nightly-ghostty-cli-helper", "mac-nightly", "mac-nightly")):
             with self.subTest(name=name):
                 cells = workflow_jobs.runs_on_cells(self.jobs[name])
                 self.assertIsNotNone(cells, "a runs-on matrix nothing resolves")

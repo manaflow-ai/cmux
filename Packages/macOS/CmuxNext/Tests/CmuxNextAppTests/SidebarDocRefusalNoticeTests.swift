@@ -14,7 +14,7 @@ import Testing
 struct SidebarDocRefusalNoticeTests {
     /// Every code the reducer refuses with (`Refusal::as_str`, cmux-layout-reducer sidebar_doc/model.rs).
     nonisolated static let codes = ["unknown_section", "unknown_item", "duplicate_id", "duplicate_ref", "cross_machine", "provider_owned",
-                        "nesting", "invalid_target", "machine_required", "no_machine", "invalid_title", "invalid_value", "too_many"]
+                        "nesting", "invalid_target", "machine_required", "no_machine", "invalid_title", "invalid_value", "too_many", "pinned"]
 
     /// A daemon whose answers are scripted: each send takes the next one; past the script it answers a no-op.
     @MainActor final class Remote: SidebarDocRemote {

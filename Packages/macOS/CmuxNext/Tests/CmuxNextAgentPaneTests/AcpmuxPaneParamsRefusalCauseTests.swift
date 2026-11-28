@@ -35,21 +35,46 @@ struct AcpmuxPaneParamsRefusalCauseTests {
         return try #require(reply["data"] as? [String: Any])
     }
 
-    @Test func anAttachWithAKeyTheRelayDoesNotKnowNamesTheKey() throws {
-        let data = try Self.refusalData("_acpmux/attach", ["sessionId": "s", "limit": 400, "pinned": true])
-        #expect(data["code"] as? String == "transport.intent_invalid")
-        #expect(data["method"] as? String == "_acpmux/attach")
-        #expect(data["detail"] as? String == #"unknown param "pinned""#)
+    /// The frame the relay sends for `params` on `method`, after its checks.
+    private static func sent(_ method: String, _ params: [String: Any]) throws -> [String: Any] {
+        guard case .frame(_, let box) = AgentPaneTransport.checkOne(try text(method, params), snapshot()),
+              let encoded = box.encoded(id: nil) else {
+            Issue.record("the relay refused \(method) \(params.keys.sorted())")
+            return [:]
+        }
+        let object = try #require(JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: Any])
+        return try #require(object["params"] as? [String: Any])
     }
 
-    @Test func aStartWithAnAcpmuxKeyTheRelayDoesNotKnowNamesTheKey() throws {
+    /// A key the relay does not know is dropped, not refused (P0): a newer page keeps its chats.
+    /// cmux#42185 (`settled`), #42460 (`hold`) and #46563 (`initialize` `peerRowBatches`) each
+    /// refused every chat's open over one such key.
+    @Test func anAttachWithAKeyTheRelayDoesNotKnowGoesWithoutIt() throws {
+        let params = try Self.sent("_acpmux/attach", ["sessionId": "s", "limit": 400, "pinned": true])
+        #expect(params["pinned"] == nil)
+        #expect(params["sessionId"] as? String == "s")
+        #expect(params["limit"] as? Int == 400)
+    }
+
+    @Test func aStartWithAnAcpmuxKeyTheRelayDoesNotKnowGoesWithoutIt() throws {
         let params: [String: Any] = [
             "cwd": "/tmp", "mcpServers": [Any](),
             "_meta": ["acpmux": ["harness": "claude", "launchProfile": "fast"]],
         ]
-        let data = try Self.refusalData("session/new", params)
-        #expect(data["method"] as? String == "session/new")
-        #expect(data["detail"] as? String == #"unknown _meta.acpmux key "launchProfile""#)
+        let sent = try Self.sent("session/new", params)
+        let acpmux = try #require((sent["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])
+        #expect(acpmux["launchProfile"] == nil)
+        #expect(acpmux["harness"] as? String == "claude")
+    }
+
+    @Test func theStripNamesWhatItDropped() throws {
+        let object: [String: Any] = ["method": "initialize", "params": [
+            "protocolVersion": 1, "futureTopLevel": 1,
+            "_meta": ["acpmux": ["someFutureFlag": true], "otherVendor": [String: Any]()],
+        ]]
+        let strip = try #require(AcpmuxPaneMethods.strippingUnknownParams(object, modeFields: nil))
+        #expect(strip.dropped == ["_meta.acpmux.someFutureFlag", "_meta.otherVendor", "futureTopLevel"])
+        #expect(AcpmuxPaneMethods.paramsRuleViolation(strip.object, modeFields: nil) == nil)
     }
 
     @Test func aModeFieldOutsideTheSettingMethodsIsNamedAsOne() throws {

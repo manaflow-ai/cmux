@@ -261,6 +261,17 @@ public nonisolated struct SidebarDocTarget: Hashable, Sendable, Encodable {
     }
 
     enum CodingKeys: String, CodingKey { case section, parent, before, after, index }
+
+    /// The same object `encode(to:)` writes, built field by field for a `sidebar.apply` op: five scalars, no
+    /// encoder or JSON round trip on the main actor.
+    public var jsonObject: [String: Any] {
+        var out: [String: Any] = ["section": section]
+        if let parent { out["parent"] = parent }
+        if let before { out["before"] = before }
+        if let after { out["after"] = after }
+        if let index { out["index"] = index }
+        return out
+    }
 }
 
 /// The records of the confirmed document, by id: what the rows draw.
@@ -381,25 +392,6 @@ nonisolated extension SidebarDocRecords {
     /// Group item `item` sits in Pinned.
     public func isPinned(group item: String) -> Bool {
         items[item].map { $0.body.isGroup && $0.section == SidebarDocStore.pinnedSection } ?? false
-    }
-
-    /// `table` with no drop at Pinned's top level unless every dragged item is in Pinned already:
-    /// a workspace or group dragged from the list never lands between pinned items and so never
-    /// becomes a pin by a drop (Pin is the way in). Pinned items still reorder there, and a pinned
-    /// group still takes workspaces into its header and between its members: that joins the
-    /// group (#22259; refused, nothing could be dragged into a pinned group).
-    public func keepingPinned(_ table: [String: SidebarDocAcceptance], dragging dragged: [String]) -> [String: SidebarDocAcceptance] {
-        let pinned = SidebarDocStore.pinnedSection
-        guard dragged.contains(where: { items[$0]?.section != pinned }) else { return table }
-        var table = table
-        for (key, accepted) in table where key == pinned || items[key]?.section == pinned {
-            // A pinned group's member: its gaps stay in that group.
-            if items[key]?.parent != nil { continue }
-            // A pinned group's header: into it joins the group; beside it is the band.
-            let into = items[key]?.body.isGroup == true && accepted.into
-            table[key] = SidebarDocAcceptance(before: false, into: into, after: false, refusal: "pinned_area")
-        }
-        return table
     }
 
     static let groupItemPrefix = "itm_g_"

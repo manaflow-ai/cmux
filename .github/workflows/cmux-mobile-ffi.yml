@@ -14,10 +14,20 @@
 #   bindings, the AAR, and JUnit tests on the runner's JVM (JNA loads the
 #   host-built libcmux_mobile_ffi.so; no emulator runs here).
 #
-# Artifacts only. Publishing (GitHub release for the xcframework, GitHub
-# Packages for the AAR) comes with slice 1.
+# - release (feat-cmux-next pushes and dispatches of the branch tip only):
+#   dispatches cmux-mobile-ffi-release.yml with this run's id, source sha and
+#   checksum; it publishes the apple job's xcframework and bindings as the
+#   prerelease cmux-mobile-ffi-<source sha> and pins it in
+#   Packages/Shared/CmuxMobileFFI, which ios/CmuxiOS links. The rust job checks
+#   the pin (scripts/cmux-next/check-mobile-ffi-pin.sh) on feat-cmux-next.
+#
+# The AAR is still an artifact only; GitHub Packages for it is a later slice.
 name: cmux-mobile-ffi
 
+#
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 on:
   push:
     branches:
@@ -35,6 +45,9 @@ on:
       - "cmux-tui/crates/cmux-mobile-core/**"
       - "cmux-tui/crates/cmux-mobile-ffi/**"
       - "cmux-tui/crates/cmux-cloud-wire/**"
+      # The rest of the published library's inputs (check-mobile-ffi-pin.sh --list-inputs).
+      - "cmux-tui/crates/cmux-rd-screen/**"
+      - "cmux-tui/crates/cmux-relay-snapshot/**"
       - "schemas/terminal-sizing/**"
       # The generated wire types (cmux-cloud-wire) and their vector gate.
       - "backend/catalog/cloud-operations.json"
@@ -54,25 +67,31 @@ on:
 
 concurrency:
   group: cmux-mobile-ffi-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref != 'refs/heads/feat-cmux-next' }}
 
 permissions: {}
 
 env:
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
+  # keep them errors. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   CARGO_TERM_COLOR: always
   # Every job installs the toolchain pinned in cmux-tui/rust-toolchain.toml.
   CMUX_MOBILE_FFI_CRATE: cmux-mobile-ffi
 
 jobs:
   rust:
-    name: rust (fmt, clippy, tests)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    name: rust (fmt, clippy, tests)${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
@@ -83,19 +102,34 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui
-          key: cmux-mobile-ffi-rust
+          key: cmux-mobile-ffi-rust-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Generated wire types match the catalog
         working-directory: backend/packages/protocol
         run: bun scripts/export-rust-client.ts --check
+
+      # feat-cmux-next only: a pin behind the sources is the normal state for
+      # the hour after an FFI push (this run publishes and re-pins it), so
+      # --stale-grace passes it with a note and fails it once it stays behind.
+      - name: Check the mobile FFI pin
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' && inputs.ref == '' }}
+        run: bash scripts/cmux-next/check-mobile-ffi-pin.sh --verify-release --stale-grace 5400
 
       - name: rustfmt
         working-directory: cmux-tui
@@ -103,7 +137,7 @@ jobs:
 
       - name: clippy
         working-directory: cmux-tui
-        run: cargo clippy --locked -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi -p cmux-cloud-wire --all-targets -- -D warnings
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy --locked -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi -p cmux-cloud-wire --all-targets --keep-going -- -D warnings
 
       - name: Rust tests (fixtures included)
         working-directory: cmux-tui
@@ -111,13 +145,18 @@ jobs:
 
   apple:
     name: apple (xcframework, Swift tests)
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 60
     permissions:
       contents: read
+    outputs:
+      tag: ${{ steps.assemble.outputs.tag }}
+      checksum: ${{ steps.assemble.outputs.checksum }}
+      source: ${{ steps.assemble.outputs.source }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
@@ -142,9 +181,12 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui
-          key: cmux-mobile-ffi-apple
+          key: cmux-mobile-ffi-apple-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Build static libraries
         working-directory: cmux-tui
@@ -183,6 +225,7 @@ jobs:
           cp "$out/CmuxMobileFFI.swift" "$sources/"
 
       - name: Assemble xcframework
+        id: assemble
         run: |
           set -euo pipefail
           # Static frameworks, not bare libraries: bare-library slices copy
@@ -250,8 +293,20 @@ jobs:
           find "$xcf" -exec touch -t 198001010000 {} +
           (cd "$out" && ditto -c -k --keepParent "$name.xcframework" "$name.xcframework.zip")
           checksum="$(shasum -a 256 "$out/$name.xcframework.zip" | awk '{print $1}')"
-          printf '%s  %s\n' "$checksum" "$name.xcframework.zip" > "$out/SHA256SUMS"
+          # The release assets beside the zip: the bindings generated from this
+          # build (they must match the library: uniffi checks its contract
+          # version and checksums at load), and the source commit.
+          cp "$gen/CmuxMobileFFI.swift" "$out/CmuxMobileFFI.swift"
+          source="$(git rev-parse HEAD)"
+          printf '%s\n' "$source" > "$out/SOURCE_SHA"
+          bindings="$(shasum -a 256 "$out/CmuxMobileFFI.swift" | awk '{print $1}')"
+          printf '%s  %s\n%s  %s\n' "$checksum" "$name.xcframework.zip" "$bindings" CmuxMobileFFI.swift > "$out/SHA256SUMS"
           echo "xcframework sha256: $checksum"
+          {
+            echo "tag=cmux-mobile-ffi-$source"
+            echo "checksum=$checksum"
+            echo "source=$source"
+          } >> "$GITHUB_OUTPUT"
           mkdir -p cmux-tui/crates/cmux-mobile-ffi/swift/build
           cp -R "$xcf" cmux-tui/crates/cmux-mobile-ffi/swift/build/
 
@@ -340,7 +395,7 @@ jobs:
           ')"
           echo "simulator $udid, scheme $scheme"
           xcodebuild test -scheme "$scheme" -destination "id=$udid" \
-            -derivedDataPath "$RUNNER_TEMP/dd-sim" CODE_SIGNING_ALLOWED=NO
+            -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP}/dd-sim" CODE_SIGNING_ALLOWED=NO
 
       - name: Link the iOS device slice
         working-directory: cmux-tui/crates/cmux-mobile-ffi/swift
@@ -352,7 +407,7 @@ jobs:
           print("CmuxMobileFFI-Package" if "CmuxMobileFFI-Package" in schemes else "CmuxMobileFFI")
           ')"
           xcodebuild build-for-testing -scheme "$scheme" -destination "generic/platform=iOS" \
-            -derivedDataPath "$RUNNER_TEMP/dd-device" CODE_SIGNING_ALLOWED=NO
+            -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP}/dd-device" CODE_SIGNING_ALLOWED=NO
 
       - name: Upload xcframework
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -362,12 +417,15 @@ jobs:
           path: |
             ${{ runner.temp }}/xcframework/CmuxMobileFFIFFI.xcframework.zip
             ${{ runner.temp }}/xcframework/SHA256SUMS
+            ${{ runner.temp }}/xcframework/SOURCE_SHA
+            ${{ runner.temp }}/xcframework/CmuxMobileFFI.swift
             ${{ runner.temp }}/uniffi-swift
           if-no-files-found: error
 
   android:
     name: android (cargo-ndk, AAR, Kotlin tests)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -379,7 +437,7 @@ jobs:
       ANDROID_PLATFORM: "24"
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
@@ -393,9 +451,12 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui
-          key: cmux-mobile-ffi-android
+          key: cmux-mobile-ffi-android-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -501,3 +562,26 @@ jobs:
             ${{ runner.temp }}/jniLibs
             ${{ runner.temp }}/uniffi-kotlin
           if-no-files-found: error
+
+  release:
+    name: dispatch the release
+    needs: apple
+    # The branch tip only (no `ref` input): the tag names the commit this run is for.
+    if: ${{ !cancelled() && needs.apple.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.ref == '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch cmux-mobile-ffi-release.yml
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE: ${{ needs.apple.outputs.source }}
+          CHECKSUM: ${{ needs.apple.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-mobile-ffi-release.yml --ref feat-cmux-next \
+            -f run_id="$GITHUB_RUN_ID" -f source="$SOURCE" -f checksum="$CHECKSUM"
+          echo "dispatched cmux-mobile-ffi-release.yml for ${SOURCE:0:12} (checksum $CHECKSUM)" | tee -a "$GITHUB_STEP_SUMMARY"

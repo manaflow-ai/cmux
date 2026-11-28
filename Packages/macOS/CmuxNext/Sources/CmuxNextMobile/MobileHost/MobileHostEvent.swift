@@ -15,6 +15,8 @@ public enum MobileHostEvent: Sendable, Equatable {
     case needAcpmux
     /// Fresh app-server carrier facts for one bounded Rust request.
     case needCloudLinks(request: UInt64)
+    /// Read the existing browser tab for one Open on iPhone request.
+    case needSiteData(MobileHostSiteDataRequest)
     /// A phone's link is up.
     case phoneUp(MobileHostPhoneLink)
     /// A phone's link moved to another path (`direct`, `relay`, `turn`).
@@ -24,15 +26,14 @@ public enum MobileHostEvent: Sendable, Equatable {
     case phoneMedia(sessionID: String, mediaPath: String?)
     /// A phone's link ended.
     case phoneDown(sessionID: String, reason: String)
-    /// The host's durable per-chat Remote Control policy, including sessions blocked by a
-    /// malformed or unavailable policy read.
-    case sessionExposureState(available: Bool, configured: Bool, sessions: [String], blockedSessions: [String])
-    /// The host could not apply a per-chat Remote Control intent.
-    case sessionExposureError(sessionID: String, allowed: Bool, reason: String)
     /// A phone proved keys this Mac has not approved: ask the user (``MobileHostPairedDevices``).
     case pairRequest(MobileHostPairRequest)
     /// A paired phone signed out and asks this Mac to forget it.
     case unpaired(phoneDeviceID: String)
+    /// Another of the person's paired devices (`byDeviceID`) answered the waiting request of
+    /// `phoneDeviceID` with these keys (`pair_requests.rs`): answer it as the person's Allow or
+    /// Don't Allow, only while that request with the same keys still waits.
+    case pairAnswer(phoneDeviceID: String, identityKey: String, approvalKey: String, allow: Bool, byDeviceID: String)
     /// A phone opened a streamed browser tab: start a browser host for `tab`
     /// on `url` and answer `request` (``MobileHostLaunch/browserLine(request:port:secret:)``).
     case needBrowser(request: UInt64, tab: String, url: String)
@@ -46,6 +47,9 @@ public enum MobileHostEvent: Sendable, Equatable {
     /// The owner removed this Mac from the account's devices; hostd exits and must not
     /// be restarted until the person allows iPhone connections again.
     case removed
+    /// The service answered `not_owner` for this Mac's device id (another account registered it);
+    /// hostd exits (status 79) so the app can start it again with a new id for this account.
+    case deviceIDTaken
 
     /// Parses one stdout line; nil for anything that is not a known event.
     public init?(line: some StringProtocol) {
@@ -67,6 +71,9 @@ public enum MobileHostEvent: Sendable, Equatable {
         case "need_cloud_links":
             guard let request = wire.request else { return nil }
             self = .needCloudLinks(request: request)
+        case "need_site_data":
+            guard let request = wire.request, let surface = wire.surface, let site = wire.site, let url = wire.url else { return nil }
+            self = .needSiteData(MobileHostSiteDataRequest(request: request, surface: surface, site: site, url: url))
         case "phone_up":
             guard let session = wire.sessionId, let phone = wire.phoneDeviceId else { return nil }
             self = .phoneUp(MobileHostPhoneLink(sessionID: session, phoneDeviceID: phone,
@@ -80,25 +87,20 @@ public enum MobileHostEvent: Sendable, Equatable {
         case "phone_down":
             guard let session = wire.sessionId else { return nil }
             self = .phoneDown(sessionID: session, reason: wire.reason ?? "")
-        case "session_exposure_state":
-            guard let available = wire.available, let configured = wire.configured, let sessions = wire.sessions,
-                  let blockedSessions = wire.blockedSessions else { return nil }
-            self = .sessionExposureState(available: available, configured: configured,
-                                         sessions: sessions,
-                                         blockedSessions: blockedSessions)
-        case "session_exposure_error":
-            guard let sessionID = wire.sessionId, let allowed = wire.allowed else { return nil }
-            self = .sessionExposureError(sessionID: sessionID, allowed: allowed,
-                                         reason: wire.reason ?? "unknown error")
         case "pair_request":
             guard let phone = wire.phoneDeviceId, let identity = wire.identityKey, let approval = wire.approvalKey else { return nil }
             let registered = wire.registeredAtMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
             self = .pairRequest(MobileHostPairRequest(phoneDeviceID: phone, name: wire.name ?? "", identityKey: identity,
-                                               approvalKey: approval, registeredAt: registered, pairToken: wire.pairToken,
+                                               approvalKey: approval, registeredAt: registered,
                                                kind: wire.kind ?? "phone", bundleID: wire.bundleId))
         case "unpaired":
             guard let phone = wire.phoneDeviceId else { return nil }
             self = .unpaired(phoneDeviceID: phone)
+        case "pair_answer":
+            guard let phone = wire.phoneDeviceId, let identity = wire.identityKey, let approval = wire.approvalKey,
+                  let allow = wire.allow, let by = wire.byDeviceId else { return nil }
+            self = .pairAnswer(phoneDeviceID: phone, identityKey: identity, approvalKey: approval, allow: allow,
+                               byDeviceID: by)
         case "need_browser":
             guard let request = wire.request, let tab = wire.tab else { return nil }
             self = .needBrowser(request: request, tab: tab, url: wire.url ?? "about:blank")
@@ -113,6 +115,8 @@ public enum MobileHostEvent: Sendable, Equatable {
             self = .surfaceStop(tab: tab)
         case "removed":
             self = .removed
+        case "device_not_owned":
+            self = .deviceIDTaken
         default:
             return nil
         }
@@ -130,20 +134,18 @@ public enum MobileHostEvent: Sendable, Equatable {
         var transport: String?
         var path: String?
         var mediaPath: String?
-        var configured: Bool?
-        var available: Bool?
-        var allowed: Bool?
-        var sessions: [String]?
-        var blockedSessions: [String]?
         var name: String?
         var identityKey: String?
         var approvalKey: String?
         var registeredAtMs: Int64?
-        var pairToken: String?
         var bundleId: String?
         var kind: String?
         var request: UInt64?
+        var surface: UInt64?
+        var site: String?
         var tab: String?
         var url: String?
+        var allow: Bool?
+        var byDeviceId: String?
     }
 }

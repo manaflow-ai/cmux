@@ -7,9 +7,14 @@ use std::path::PathBuf;
 /// The hosted UniiChat, used when neither `--url` nor `$UNII_URL` names one.
 pub const HOSTED: &str = "https://uniichat.com";
 
-/// How to install the `unii` terminal and sign in, shown when the adapter
-/// has no sign-in to use.
-pub const SETUP: &str = "Install the unii terminal (curl -fsSL https://uniichat.com/install.sh | sh), then sign in with `unii login`";
+/// The command that signs this computer in to UniiChat with no `unii`
+/// program: cmux's own (`uniichat-agent login`, through the harness's ACP
+/// terminal sign-in), on PATH in every cmux terminal (first-run finding 2).
+pub const LOGIN: &str = "cmux harness login unii";
+
+/// How to sign in, shown when the adapter has no sign-in to use.
+pub const SETUP: &str =
+    "Sign in from Settings > Agents, or run `cmux harness login unii` in a cmux terminal";
 
 /// The adapter's command line flags.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -32,7 +37,7 @@ pub struct Endpoint {
     pub ws: String,
     /// `host[:port]`, the folder `unii` keeps this server's token in.
     pub host: String,
-    /// The token file `unii login` writes.
+    /// The token file `unii login` and `uniichat-agent login` write.
     pub token_file: PathBuf,
 }
 
@@ -65,6 +70,8 @@ impl Endpoint {
             return Err(format!("UniiChat url {base} has no host"));
         }
         let base = format!("{scheme}://{host}");
+        // A server the person named (--url or the env), or the listed hosted one.
+        cmux_egress::allow_named(&host);
         let home = options
             .home
             .clone()
@@ -94,13 +101,18 @@ impl Endpoint {
     /// The setup steps for a sign-in the server refused.
     pub fn signed_out(&self) -> String {
         format!(
-            "UniiChat: {} refused this computer's sign-in (signed out or expired). Sign in again with `unii login{}`.",
+            "UniiChat: {} refused this computer's sign-in (signed out or expired). Sign in again with `{LOGIN}`{}.",
             self.host,
             self.login_suffix()
         )
     }
 
+    /// For a server other than uniichat.com: the harness's `UNII_URL` must name it.
     fn login_suffix(&self) -> String {
-        if self.base == HOSTED { String::new() } else { format!(" {}", self.base) }
+        if self.base == HOSTED {
+            String::new()
+        } else {
+            format!(" (with UNII_URL={} in the unii harness)", self.base)
+        }
     }
 }

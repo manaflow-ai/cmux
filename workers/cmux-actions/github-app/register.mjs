@@ -5,7 +5,7 @@
 //
 //   node workers/cmux-actions/github-app/register.mjs
 //
-// It serves an auto-submitting form on 127.0.0.1, GitHub redirects back with a
+// It serves a two-step page on 127.0.0.1 (unlock GitHub, then post the manifest), GitHub redirects back with a
 // one-time code, and the code is exchanged for the App credentials. The
 // credentials (App id, private key, webhook secret, client secret) are written
 // to ~/.secrets/cmux-actions-github-app.json with mode 0600 and never printed.
@@ -38,14 +38,21 @@ const registerUrl = `https://github.com/organizations/${ORG}/settings/apps/new?s
 const escapeHtml = (text) =>
   text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
+// GitHub's "Confirm access" (sudo) page intercepts a manifest POST and, after the passkey, re-GETs
+// the form without its body: "Unable to load App Manifest, please try again." (Leo, 2026-11-27). So the page
+// opens the same settings page by GET first, where sudo is asked with nothing to lose, and posts the manifest
+// when this tab has focus again.
+// An auto-submitted form here always hit that page when sudo had lapsed.
 const formPage = `<!doctype html>
 <meta charset="utf-8">
 <title>Register cmux Actions (experiment)</title>
-<form id="register" method="post" action="${escapeHtml(registerUrl)}">
+<p><a id="c" target="_blank" href="${escapeHtml(registerUrl.split("?")[0])}"><button type="button">1. Unlock GitHub</button></a></p>
+<p>If GitHub asks for your passkey, tap it, then come back to this tab: it registers the App by itself. Leave GitHub's empty form in that tab alone.</p>
+<form id="f" method="post" action="${escapeHtml(registerUrl)}">
   <input type="hidden" name="manifest" value="${escapeHtml(JSON.stringify(manifest))}">
-  <button type="submit">Register the GitHub App on ${ORG}</button>
+  <button type="submit">2. Register the GitHub App on ${ORG}</button>
 </form>
-<script>document.getElementById("register").submit();</script>`;
+<script>var f=document.getElementById('f'),armed=false;document.getElementById('c').addEventListener('click',function(){armed=true});function back(){if(armed&&!document.hidden){armed=false;f.submit()}}window.addEventListener('focus',back);document.addEventListener('visibilitychange',back)</script>`;
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${PORT}`);

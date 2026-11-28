@@ -1,21 +1,17 @@
-// The chat's Messages/Transcript presentation (conversation/presentation.ts): each session may
-// keep its own choice, while sessions without an override follow the global display setting.
+// The chat's Messages/Transcript presentation (conversation/presentation.ts), the old names over the
+// detail ladder (chatDetailChoice.ts): each session may keep its own choice, while sessions without
+// an override follow the global display setting. Writes go to the ladder's key; the old one reads.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  PRESENTATION_KEY,
-  chatDisplayValues,
-  defaultPresentation,
-  setChatDisplay,
-} from "../src/agent-session/acpmux/chatDisplay";
-import {
-  hasOwnPresentation,
-  makePresentationDefault,
-  presentationOf,
-  resetPresentations,
-  setPresentation,
-} from "../src/agent-session/acpmux/conversation/presentation";
+import { DETAIL_KEY } from "../src/agent-session/acpmux/chatDetail";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { PRESENTATION_KEY, chatDisplayValues, defaultPresentation, setChatDisplay } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chatDisplay"),
+);
+const { hasOwnPresentation, makePresentationDefault, presentationOf, resetPresentations, setPresentation } =
+  await importWithDom(() => import("../src/agent-session/acpmux/conversation/presentation"));
 
 let dom: JSDOM | undefined;
 const scope = globalThis as Record<string, unknown>;
@@ -51,9 +47,10 @@ test("a session defaults to Transcript and stores its own Messages choice", () =
   expect(presentationOf("chat-a")).toBe("messages");
   expect(presentationOf("chat-b")).toBe("transcript");
   expect(hasOwnPresentation("chat-a")).toBe(true);
-  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.presentation")!)).toEqual({
+  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.detail")!)).toEqual({
     "chat-a": "messages",
   });
+  expect(dom!.window.localStorage.getItem("cmux.acpmux.presentation")).toBeNull();
 });
 
 test("sessions without an override follow the global presentation setting", () => {
@@ -72,22 +69,25 @@ test("Make … the default clears this session override and writes the setting",
   makePresentationDefault("chat-a", "messages");
   expect(hasOwnPresentation("chat-a")).toBe(false);
   expect(presentationOf("chat-a")).toBe("messages");
-  expect(chatDisplayValues()[PRESENTATION_KEY]).toBe("messages");
-  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.presentation") ?? "{}")).toEqual({});
+  expect(chatDisplayValues()[DETAIL_KEY]).toBe("messages");
+  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.detail") ?? "{}")).toEqual({});
 
   makePresentationDefault("chat-a", "transcript");
-  expect(PRESENTATION_KEY in chatDisplayValues()).toBe(false);
+  expect(DETAIL_KEY in chatDisplayValues()).toBe(false);
   expect(presentationOf("chat-a")).toBe("transcript");
 });
 
 test("a storage event refreshes choices made by another pane", () => {
   setPresentation("chat-a", "messages");
-  dom!.window.localStorage.setItem(
-    "cmux.acpmux.presentation",
-    JSON.stringify({ "chat-a": "transcript", "chat-b": "messages" }),
-  );
-  const event = Object.assign(new Event("storage"), { key: "cmux.acpmux.presentation" });
+  dom!.window.localStorage.setItem("cmux.acpmux.detail", JSON.stringify({ "chat-a": "normal", "chat-b": "messages" }));
+  const event = Object.assign(new Event("storage"), { key: "cmux.acpmux.detail" });
   globalThis.dispatchEvent(event);
   expect(presentationOf("chat-a")).toBe("transcript");
   expect(presentationOf("chat-b")).toBe("messages");
+});
+
+test("an old Messages choice still reads", () => {
+  dom!.window.localStorage.setItem("cmux.acpmux.presentation", JSON.stringify({ "chat-a": "messages" }));
+  expect(presentationOf("chat-a")).toBe("messages");
+  expect(presentationOf("chat-b")).toBe("transcript");
 });

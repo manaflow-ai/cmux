@@ -9,6 +9,8 @@ import { StartedSessionChip } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
 import { splitSkillText } from "./skillWords";
 import { SkillWord } from "./SkillWord";
+import { ToolBadge } from "../chips/ToolBadge";
+import { toolOfHref, toolWords } from "../toolMentions";
 import { TimeHover } from "./timeHover";
 import { splitTimeTokens } from "./timeHoverModel";
 import type { InlineOptions } from "./inlineMarkdown";
@@ -22,7 +24,10 @@ function linkedGithubText(
   enabled = true,
   quietCommits = false,
   bare = true,
+  links = true,
 ): ReactNode[] {
+  // A link's label: its paths and URLs are its text, inside the link's one chip.
+  if (!links) return [text];
   if (!enabled) return linkedText(text, key);
   // Every id the prose names, in reading order (proseIds.ts): a pull request or issue, a commit,
   // a nightly build or an Actions run. An id inside a URL or a path is part of it.
@@ -73,6 +78,22 @@ function linkedGithubText(
 
 /// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
 export function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] {
+  // A sent prompt's `@computer-use` / `@browser-use` draws as its badge (chips/ToolBadge.tsx).
+  if (opts.tools) {
+    const tools = toolWords(text);
+    if (tools.length) {
+      const rest = { ...opts, tools: undefined };
+      const out: ReactNode[] = [];
+      let at = 0;
+      tools.forEach((word, index) => {
+        if (word.start > at) out.push(...proseText(text.slice(at, word.start), `${key}-tw${index}`, rest));
+        out.push(<ToolBadge key={`${key}-tb${index}`} tool={toolOfHref(word.href)!.id} />);
+        at = word.end;
+      });
+      if (at < text.length) out.push(...proseText(text.slice(at), `${key}-twt`, rest));
+      return out;
+    }
+  }
   // A checked claim's phrase draws inside its mark (ClaimMark.tsx), the rest as any prose.
   if (opts.claims?.length) {
     const pieces = splitClaims(text, opts.claims);
@@ -113,6 +134,7 @@ export function proseText(text: string, key: string, opts: InlineOptions): React
                       opts.linkGithubReferences !== false,
                       opts.commits === "quiet",
                       opts.linkBareReferences !== false,
+                      !opts.insideLink,
                     ),
                     `${current}-${at}`,
                   )
@@ -128,6 +150,7 @@ export function proseText(text: string, key: string, opts: InlineOptions): React
                 opts.linkGithubReferences !== false,
                 opts.commits === "quiet",
                 opts.linkBareReferences !== false,
+                !opts.insideLink,
               ),
               current,
             )

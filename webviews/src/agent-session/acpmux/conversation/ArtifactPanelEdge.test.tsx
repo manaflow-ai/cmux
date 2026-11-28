@@ -6,6 +6,7 @@ import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { openDeclarations } from "../../../layout/motionContract";
 import { ArtifactPanel } from "./ArtifactPanel";
 
 let dom: JSDOM | undefined;
@@ -113,4 +114,20 @@ test("the side panel a table opens in drags from its left edge, sizing everythin
   // On the shell, where the Background tasks column and the header's push read the width too.
   expect(shell.style.getPropertyValue("--acpmux-artifact-share")).toBe("60vw");
   expect(localStorage.getItem("cmux.agentPane.artifact.share")).toBe("60");
+});
+
+test("opening and closing the side panel declare the chat's resize beside it, one move of each box", () => {
+  const resizes = (by: string) =>
+    openDeclarations().filter((declaration) => declaration.event === "resize" && declaration.by === by);
+  const panel = (
+    <ArtifactPanel artifact={{ kind: "markdown", lang: "markdown", code: "# Notes" }} onClose={() => undefined} />
+  );
+  // What an earlier test opened or closed has lapsed by now.
+  openDeclarations(performance.now() + 1000);
+  render(<section className="acpmux-shell">{panel}</section>);
+  expect(resizes("side panel opens").map(({ scope, once }) => ({ scope, once }))).toEqual([
+    { scope: "all", once: true },
+  ]);
+  render(<section className="acpmux-shell" />);
+  expect(resizes("side panel closes")).toHaveLength(1);
 });

@@ -14,9 +14,8 @@ run-name: >-
 # it: they depend on the runner (cmux-next-ios/verify/paged-list.md, "Stress bench").
 # The suite's own XCTest hitch assertions are why xcodebuild's exit does not decide it.
 #
-# When: a pull request or push that changes the list, its lab or this check, and each
-# INTERNAL TestFlight build (ios-internal-nightly-trigger.yml dispatches it with the
-# build's commit). Added at Aziz's request (cmux#45778, 2026-11-18).
+# When: a pull request or push that changes the list, its lab or this check, or a
+# dispatch with a commit (`ref`). Added at Aziz's request (cmux#45778, 2026-11-18).
 on:
   pull_request:
     branches: [feat-cmux-next]

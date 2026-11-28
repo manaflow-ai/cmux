@@ -13,7 +13,7 @@ row, module and declaration deltas between two revisions, and exits 0 when the c
 swift-logic-pr-status.py (SwiftLogicPrStatusTests: the pull request status line, against the merge base, fetched
 from a file:// origin) say "not counted" and exit 0 when they cannot count.
 
-Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the script:
+Not a CI job (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to the script:
   python3 -I scripts/cmux-next/tests/test_swift_logic_lines.py
 """
 
@@ -467,8 +467,9 @@ class SwiftLogicDeltaTests(Repo):
         head = self.commit("head")
         text = self.delta(base, head, "--status")
         line, rest = text.split("\n", 1)
-        self.assertEqual(line, f"Swift logic: **+5 lines** (swift_logic +5, mirror +0) against the merge base "
-                               f"`{base[:7]}`; largest: `Wire.swift:1` struct Wire (+4), `Store.swift:1` class Store (+1)")
+        self.assertEqual(line, f"Swift logic + mirror: **+5 lines** (swift_logic +5, mirror +0) "
+                               f"against the merge base `{base[:7]}`; "
+                               "largest: `Wire.swift:1` struct Wire (+4), `Store.swift:1` class Store (+1)")
         self.assertTrue(rest.startswith("<details><summary>"), rest)
         self.assertIn("| CmuxNextCore | +4 | +0 |", rest)
         self.assertIn(f"- `{SRC}/CmuxNextDomain/Store.swift:1` class Store #0: +1 swift_logic_lines", rest)
@@ -480,15 +481,70 @@ class SwiftLogicDeltaTests(Repo):
         base = self.commit("base")
         (self.repo / SRC / "CmuxNextDomain" / "Store.swift").unlink()
         line = self.delta(base, self.commit("cut"), "--status").split("\n", 1)[0]
-        self.assertEqual(line, f"Swift logic: **-3 lines** (swift_logic -3, mirror +0) against the merge base `{base[:7]}`")
+        self.assertEqual(line, f"Swift logic + mirror: **-3 lines** (swift_logic -3, mirror +0) "
+                               f"against the merge base `{base[:7]}`")
 
     def test_status_says_not_counted_and_exits_0_when_it_cannot_count(self):
         self.commit("base")
         text = self.delta("0" * 40, "HEAD", "--status")
-        self.assertTrue(text.startswith("Swift logic: not counted ("), text)
+        self.assertTrue(text.startswith("Swift logic + mirror: not counted ("), text)
         self.assertEqual(text.count("\n"), 1)
         with self.assertRaises(Exception), contextlib.redirect_stdout(io.StringIO()):
             logic_delta.main(["--repo", str(self.repo), "--base", "0" * 40, "--head", "HEAD"])
+
+
+class SwiftLogicRatchetTests(Repo):
+    """swift-logic-delta.py --gate: growth fails without a `Swift-growth:` line; a fall, a reason or no count passes."""
+
+    def gate(self, base, head, body):
+        path = self.repo.parent / "body.md"
+        path.write_text(body)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = logic_delta.main(["--repo", str(self.repo), "--base", base, "--head", head, "--gate",
+                                     "--body-file", str(path)])
+        return code, out.getvalue()
+
+    def grown(self):
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
+        base = self.commit("base")
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n    var m = 0\n}\n")
+        return base, self.commit("grow")
+
+    def test_growth_without_a_reason_fails_naming_the_way_out(self):
+        base, head = self.grown()
+        code, out = self.gate(base, head, "## Summary\nsome change\n")
+        self.assertEqual(code, 1, out)
+        self.assertIn("::error title=Swift logic ratchet::Swift logic + mirror grows by +1 lines", out)
+        self.assertIn("`Store.swift:1` class Store (+1)", out)
+        self.assertIn("Swift-growth: <reason>", out)
+
+    def test_growth_with_a_reason_line_passes(self):
+        base, head = self.grown()
+        for body in ("Swift-growth: the new pane's view state\n", "intro\n- swift-growth:   a mirror until #1 lands \n"):
+            code, out = self.gate(base, head, body)
+            self.assertEqual(code, 0, out)
+            self.assertIn("with the reason", out)
+
+    def test_an_empty_reason_or_a_mention_inside_a_line_is_no_reason(self):
+        base, head = self.grown()
+        for body in ("Swift-growth:\n", "this PR needs no Swift-growth: line\n"):
+            self.assertEqual(self.gate(base, head, body)[0], 1, body)
+
+    def test_a_fall_or_no_change_passes_without_a_reason(self):
+        self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
+        base = self.commit("base")
+        (self.repo / SRC / "CmuxNextDomain" / "Store.swift").unlink()
+        cut = self.commit("cut")
+        self.assertEqual(self.gate(base, cut, "")[0], 0)
+        self.write("README", "docs\n")
+        self.assertEqual(self.gate(cut, self.commit("docs"), "")[0], 0)
+
+    def test_a_count_that_cannot_be_made_passes_with_a_notice(self):
+        self.commit("base")
+        code, out = self.gate("0" * 40, "HEAD", "")
+        self.assertEqual(code, 0)
+        self.assertTrue(out.startswith("::notice title=Swift logic ratchet::not counted"), out)
 
 
 pr_status = load("cmux_next_swift_logic_pr_status_under_test", SCRIPTS / "swift-logic-pr-status.py")
@@ -527,7 +583,7 @@ class SwiftLogicPrStatusTests(Repo):
         self.commit("base moves on")
         text, work = self.run_status(head)
         self.assertTrue(text.startswith(
-            f"Swift logic: **+1 lines** (swift_logic +1, mirror +0) against the merge base `{self.fork[:7]}`; "
+            f"Swift logic + mirror: **+1 lines** (swift_logic +1, mirror +0) against the merge base `{self.fork[:7]}`; "
             "largest: `Store.swift:1` class Store (+1)"), text)
         self.assertNotIn("Big.swift", text)
         caches = list((work / "objects.git" / "cmux-arch-counts").glob("facts-*.sqlite"))
@@ -541,7 +597,7 @@ class SwiftLogicPrStatusTests(Repo):
 
     def test_a_head_it_cannot_fetch_is_not_counted_and_exits_0(self):
         text, _ = self.run_status("1" * 40)
-        self.assertTrue(text.startswith("Swift logic: not counted ("), text)
+        self.assertTrue(text.startswith("Swift logic + mirror: not counted ("), text)
 
 
 if __name__ == "__main__":

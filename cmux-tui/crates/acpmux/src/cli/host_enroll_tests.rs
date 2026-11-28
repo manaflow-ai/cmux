@@ -793,7 +793,7 @@ fn the_harness_scripts_copy_owner_only_and_catch_a_writable_profile() {
     let fixed = harness(&sh, "box", &ids, &local, true);
     assert_eq!(fixed.state, StepState::Fixed, "{fixed:?}");
     assert_eq!(fixed.detail, "pi copied (missing)");
-    let dir = home.join(".config/cmux/harnesses");
+    let dir = home.join(".config").join(cmux_config::NEXT_DIR).join("harnesses");
     let file = dir.join("pi.toml");
     let remote_home = home.to_string_lossy();
     assert_eq!(
@@ -1283,7 +1283,7 @@ fn harness_local_copies_every_profile_this_mac_has() {
     let fixed = harness(&sh, "box", &ids, &local, true);
     assert_eq!(fixed.state, StepState::Fixed, "{fixed:?}");
     assert_eq!(fixed.detail, "pi copied (missing); zed copied (missing)");
-    assert!(home.join(".config/cmux/harnesses/zed.toml").is_file());
+    assert!(home.join(".config").join(cmux_config::NEXT_DIR).join("harnesses/zed.toml").is_file());
     let none = Local { harness_dir: None, home: None };
     let skipped = harness(&sh, "box", &ids, &none, true);
     assert_eq!(skipped.state, StepState::Skip);
@@ -1326,8 +1326,10 @@ fn a_host_without_bwrap_warns_at_the_daemon_step_and_fix_installs_it() {
         Fake::new(move |script, _| {
             if script == probe_script().as_str() {
                 out(probed.clone())
-            } else if script.starts_with("sudo -n apt-get install -y bubblewrap") {
+            } else if script == super::super::host_sandbox::install_script() {
                 RemoteOut { ok: sudo, stdout: String::new(), stderr: String::new() }
+            } else if script == super::super::host_sandbox::fix_script() {
+                out("sudo apt-get install -y bubblewrap\n")
             } else {
                 panic!("unexpected script: {script}")
             }
@@ -1531,4 +1533,19 @@ fn cross_platform_install_bootstraps_a_missing_binary_from_the_checked_channel()
         assert!(fake.pushes.borrow().is_empty(), "never push the caller's binary");
         assert_eq!(fake.fenced.borrow().len(), 3, "manifest, download and readback hold the lock");
     }
+}
+
+#[test]
+fn doctor_says_when_the_hub_already_carries_the_machine() {
+    let peers = vec![
+        json!({"name": "ab", "state": "connected", "via": "hub"}),
+        json!({"name": "down", "state": "down", "via": "hub"}),
+        json!({"name": "direct", "state": "connected", "via": "link"}),
+    ];
+    let note = hub_route_note(&peers, "ab").expect("a hub-carried machine gets a note");
+    assert!(note.contains("connected through the hub"), "{note}");
+    assert!(note.contains("does not mean the hub link is down"), "{note}");
+    assert_eq!(hub_route_note(&peers, "down"), None);
+    assert_eq!(hub_route_note(&peers, "direct"), None);
+    assert_eq!(hub_route_note(&peers, "nobody"), None);
 }

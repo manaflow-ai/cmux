@@ -130,7 +130,8 @@ fn whitespace_before_a_secret_does_not_move_the_scan_cut_into_it() {
 }
 
 /// manaflow-ai/cmux#25230: between turns, work the session started that still runs keeps it
-/// working; a failed last turn, a lost agent and a peer gone unreachable still say so.
+/// working; a failed last turn (unless that work began after it), a lost agent and a peer gone
+/// unreachable still say so.
 #[test]
 fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
     use super::status_indicator;
@@ -151,7 +152,14 @@ fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
     assert_eq!(status_indicator(&at("idle", Some("completed"))), Some("working"));
     assert_eq!(status_indicator(&at("disconnected", Some("completed"))), Some("working"));
     assert_eq!(status_indicator(&at("ready", None)), Some("working"));
-    assert_eq!(status_indicator(&at("ready", Some("failed"))), Some("failed"));
+    // Work started after the failed turn ended (7 > 6) is newer than the failure: working.
+    assert_eq!(status_indicator(&at("ready", Some("failed"))), Some("working"));
+    // Work that was already running when the turn failed keeps the failure showing.
+    let mut older = at("ready", Some("failed"));
+    older["subagentsWorkingSince"] = json!(5);
+    assert_eq!(status_indicator(&older), Some("failed"));
+    older["subagentsWorkingSince"] = Value::Null;
+    assert_eq!(status_indicator(&older), Some("failed"));
     assert_eq!(status_indicator(&at("disconnected", Some("cancelled"))), Some("lost"));
     assert_eq!(status_indicator(&at("unreachable", Some("completed"))), Some("done"));
     assert_eq!(status_indicator(&at("unreachable", None)), None);
@@ -179,11 +187,13 @@ fn a_summary_title_is_at_most_200_characters() {
 /// A peer's row heard as a census row is cut the same, whatever acpmux the peer runs.
 #[test]
 fn a_peers_census_row_cuts_its_title_too() {
-    let row =
-        json!({"sessionId": "p", "title": "x".repeat(5_000), "tools": [], "toolsMutable": true});
+    let row = json!({"sessionId": "p", "title": "x".repeat(5_000), "tools": [], "toolsMutable": true,
+        "timeBreakdown": {"totalMs": 1, "spans": [{"turnId": "t"}]}});
     let census = super::without_summary_tools(row);
     assert_eq!(census["title"].as_str().unwrap().chars().count(), super::TITLE_CHARS + 1);
     assert!(census.get("tools").is_none() && census.get("toolsMutable").is_none());
+    // An older peer lists its chats' time breakdowns; a census row here never carries one.
+    assert!(census.get("timeBreakdown").is_none(), "{census}");
     let short = super::without_summary_tools(json!({"sessionId": "p", "title": "a  b"}));
     assert_eq!(short["title"], "a  b");
 }

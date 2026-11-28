@@ -1,3 +1,4 @@
+import CCmuxScreenKit
 import CmuxVNC
 import CmuxVNCDemoServer
 import CmuxVNCWebRTC
@@ -84,6 +85,12 @@ public final class ScreenSession {
         didSet { if stream !== oldValue { abandonPendingPaste() } }
     }
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
+    #if DEBUG && canImport(UIKit)
+    /// DEBUG only: the screen-stream eval's probe. The viewer has it watch the video view it makes
+    /// (`ScreenPresentProbe.watch`), and each video track gets it after `onVideoTrack` ran, so its
+    /// frame callback follows the view's renderer. Set before the view appears.
+    @ObservationIgnored public var debugVideoProbe: ScreenPresentProbe?
+    #endif
     /// Stream displays (sizes) and the one streaming.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
     /// A screen stream's pointers, as fractions of the streamed display:
@@ -94,6 +101,15 @@ public final class ScreenSession {
     /// the Mac then leaves its cursor out of the video. Set before
     /// connecting; an app that never sets it gets the cursor in the picture.
     @ObservationIgnored public var drawsPointers = false
+    /// Follow mode's camera, which the app supplies (nil: no Follow button).
+    public var camera: (any ScreenCamera)?
+    /// One message of a screen stream's `focus` channel: a JSON focus event
+    /// from the Mac (main actor). The camera reads it.
+    @ObservationIgnored public var onFocus: ((Data) -> Void)?
+    /// The Mac's cursor shape on a screen stream, its own image (nil: none
+    /// yet, or a Mac that sends none). Only with ``drawsPointers`` (main actor).
+    @ObservationIgnored public var onStreamCursor: ((ScreenStreamCursor?) -> Void)?
+    @ObservationIgnored private var streamCursors = ScreenStreamCursorCache()
     /// "Direct" or "Relay" once WebRTC picks a path.
     public private(set) var streamPath = "WebRTC"
     /// What the screen stream's Mac accepts beyond the first protocol, from
@@ -196,8 +212,25 @@ public final class ScreenSession {
     public private(set) var reconnectNoticeDue = false
     /// How long a reconnect stays silent: about the time after which a frozen picture
     /// stops reading as a hiccup. A reattach lands well under it on a short drop.
-    public nonisolated static let reconnectNoticeDelay: Duration = .seconds(10)
+    public nonisolated static let reconnectNoticeDelay: Duration = .seconds(cmux_screen_notice_delay())
     @ObservationIgnored private var reconnectNoticeTask: Task<Void, Never>?
+    /// A first connect has run for ``connectNoticeDelay``: only now does the view say
+    /// "Connecting to …". One that answers within it (the usual case) never flashes the card.
+    public private(set) var connectNoticeDue = false
+    /// How long a first connect stays silent: the shared bound for a connection state the person
+    /// can do nothing about (`schemas/notice-timing/notice-timing.json` `connectionQuietMs`, 10 s;
+    /// hq `docs/handbook/connection-state-with-no-action-or-bound.md`), the same as a reconnect.
+    public nonisolated static let connectNoticeDelay: Duration = reconnectNoticeDelay
+    @ObservationIgnored private var connectNoticeTask: Task<Void, Never>?
+    /// The clock both notice waits run on; tests give it one they control.
+    @ObservationIgnored public var noticeClock: any Clock<Duration> = ContinuousClock()
+    /// Whether the connecting card says anything yet (Leo, 2026-11-14: "i also want all our
+    /// connectivity stuff to shut the f*** up"): a reconnect only past ``reconnectNoticeDelay``,
+    /// a first connect only past ``connectNoticeDelay``. Under them the view draws no card, over
+    /// the last frame on a reconnect. A failure is its own phase and is never held.
+    public var connectingNoticeShown: Bool {
+        cmux_screen_connecting_notice_shown(phaseCode, isReconnecting, reconnectNoticeDue, connectNoticeDue)
+    }
     /// An owner that gets a fresh ticket for a dropped stream (a device hub viewer, whose
     /// `reconnectLimit` is 0): a drop calls it, and when the owner takes the drop (true) the
     /// session stays reconnecting over its last frame instead of showing the failed card first.
@@ -206,8 +239,16 @@ public final class ScreenSession {
     /// Connected, or reconnecting: the toolbar, shortcuts and trackpad keep their places so
     /// the screen does not jump while it comes back.
     public var keepsLiveLayout: Bool {
-        if case .connected = phase { return true }
-        return isReconnecting
+        cmux_screen_keeps_live_layout(phaseCode, isReconnecting)
+    }
+    /// ``phase`` as the screen kit's C ABI numbers it.
+    private var phaseCode: UInt32 {
+        switch phase {
+        case .connecting: 1
+        case .connected: 2
+        case .failed: 3
+        case .ended: 4
+        }
     }
     /// The connection stalled (ICE disconnected): no picture is coming,
     /// though WebRTC has not given up yet. Cleared when it recovers.
@@ -217,7 +258,7 @@ public final class ScreenSession {
     /// When the current run of reconnects started (the give-up clock).
     @ObservationIgnored private var reconnectStarted: Date?
     /// Reconnects stop once they have tried this long, whatever `reconnectLimit` says.
-    public nonisolated static let reconnectDeadline: TimeInterval = 45
+    public nonisolated static let reconnectDeadline: TimeInterval = cmux_screen_reconnect_deadline()
     /// The TURN relays' errors in the current connection (refused
     /// credentials, unreachable), so a failure can say why; cleared on connect.
     public private(set) var relayErrors: [ICECandidateError] = []
@@ -243,6 +284,11 @@ public final class ScreenSession {
     }
     /// The remote pointer in framebuffer pixels.
     @ObservationIgnored public private(set) var pointer = CGPoint(x: 100, y: 100)
+
+    /// The RFB handshake's rules (cmux-vnc) for a VNC connection and the demo desktop: the app
+    /// that makes the session sets its channel (the phone's cmux-mobile-link-ffi `vnc_json`).
+    /// Without one a VNC connection fails; a screen stream does not need them.
+    @ObservationIgnored public var vncRules = VNCRules()
 
     /// A VNC server reached directly (LAN, tailnet).
     public init(title: String, endpoint: VNCEndpoint, credentials: VNCCredentials = VNCCredentials(),
@@ -301,6 +347,7 @@ public final class ScreenSession {
         guard !isClosed else { return }
         disconnect(silently: true)
         phase = .connecting
+        armConnectNotice()
         if let makeSignaling {
             guard let signaling = makeSignaling() else {
                 phase = .failed(message: "There is no session to connect with.", needsSignIn: false)
@@ -317,7 +364,7 @@ public final class ScreenSession {
             guard let self else { return }
             var target = endpoint
             if target == nil {
-                let server = demo ?? VNCDemoServer(configuration: .init(width: 1440, height: 900, name: "cmux VNC demo desktop"))
+                let server = demo ?? VNCDemoServer(configuration: .init(width: 1440, height: 900, name: "cmux VNC demo desktop", rules: vncRules))
                 demo = server
                 guard let port = try? await server.start() else {
                     phase = .failed(message: "The demo desktop could not start.", needsSignIn: false)
@@ -326,7 +373,7 @@ public final class ScreenSession {
                 target = VNCEndpoint(host: "127.0.0.1", port: port)
             }
             guard let target else { return }
-            let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor)
+            let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor, rules: vncRules)
             start(VNCClient(endpoint: target, options: options, transport: pairing.map { WebRTCRFBTransport(pairing: $0) }))
         })
     }
@@ -370,10 +417,18 @@ public final class ScreenSession {
 
     // MARK: Stream
 
+    /// A new or ended stream: its Mac's cursor shapes start over.
+    private func resetStreamCursor() {
+        let had = streamCursors.current != nil
+        streamCursors.reset()
+        if had { onStreamCursor?(nil) }
+    }
+
     private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
         // The last stream's pointers: a new host may send none (it draws its cursor).
         onTelepointers?(nil, nil)
+        resetStreamCursor()
         if let reconnectStarted { viewer.openTimeout = Self.attemptTimeout(elapsed: Date().timeIntervalSince(reconnectStarted)) }
         relayErrors = []
         isStalled = false
@@ -406,7 +461,16 @@ public final class ScreenSession {
             guard error.isTURN else { return }
             Task { @MainActor in self?.relayErrors.append(error) }
         }
-        viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
+        viewer.onVideo = { [weak self] box in
+            Task { @MainActor in
+                self?.onVideoTrack?(box)
+                #if DEBUG && canImport(UIKit)
+                // After the view's own sinks: libwebrtc calls a track's sinks in order, so the
+                // probe sees each frame after the renderer took it.
+                self?.debugVideoProbe?.attach(box)
+                #endif
+            }
+        }
         viewer.onDisplays = { [weak self, weak viewer] message in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
@@ -425,9 +489,25 @@ public final class ScreenSession {
         viewer.onTelepointers = { [weak self, weak viewer] message in
             let point = { (pointer: ScreenHostMessage.Pointer?) in pointer.map { CGPoint(x: $0.x, y: $0.y) } }
             let (person, agent) = (point(message.person), point(message.agent))
+            let shape = message.shape
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
+                if self.streamCursors.select(shape) { self.onStreamCursor?(self.streamCursors.current) }
                 self.onTelepointers?(person, agent)
+            }
+        }
+        viewer.onFocus = { [weak self, weak viewer] message in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.onFocus?(message)
+            }
+        }
+        viewer.onCursorShape = { [weak self, weak viewer] shape in
+            // Decoded here, off the main actor.
+            guard let cursor = ScreenStreamCursor(shape) else { return }
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                if self.streamCursors.add(cursor) { self.onStreamCursor?(self.streamCursors.current) }
             }
         }
         viewer.onState = { [weak self, weak viewer] message in
@@ -467,12 +547,12 @@ public final class ScreenSession {
     /// How long one try may wait: 30 s, or what is left of the reconnect
     /// deadline (at least 1 s), so the last try never runs past it.
     public nonisolated static func attemptTimeout(elapsed: TimeInterval) -> TimeInterval {
-        max(1, min(30, reconnectDeadline - elapsed))
+        cmux_screen_reconnect_attempt_timeout(elapsed)
     }
 
     /// Whether reconnecting stops: after `limit` tries, or once it has tried for ``reconnectDeadline`` seconds.
     public nonisolated static func givesUp(attempts: Int, limit: Int, elapsed: TimeInterval) -> Bool {
-        attempts >= limit || elapsed > reconnectDeadline
+        cmux_screen_reconnect_gives_up(Int64(attempts), Int64(limit), elapsed)
     }
 
     private func streamDropped(_ message: String) {
@@ -497,7 +577,7 @@ public final class ScreenSession {
         reconnectAttempts += 1
         isReconnecting = true
         phase = .connecting
-        let delay = reconnectAttempts == 1 ? 0 : min(pow(2, Double(reconnectAttempts - 2)), 8)
+        let delay = cmux_screen_reconnect_backoff_delay(Int64(reconnectAttempts))
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay)) // reconnect backoff
@@ -512,11 +592,27 @@ public final class ScreenSession {
         reconnectNoticeTask = nil
         if reconnectNoticeDue { reconnectNoticeDue = false }
         guard isReconnecting else { return }
+        let clock = noticeClock
         reconnectNoticeTask = Task { [weak self] in
             // wakeup-allow: one-shot, cancellable notice deadline; a recovered stream cancels it
-            try? await Task.sleep(for: Self.reconnectNoticeDelay)
+            try? await clock.sleep(for: Self.reconnectNoticeDelay)
             guard !Task.isCancelled, let self, isReconnecting else { return }
             reconnectNoticeDue = true
+        }
+    }
+
+    /// Starts the clock after which a first connect is said out loud (a reconnect has its own).
+    private func armConnectNotice() {
+        connectNoticeTask?.cancel()
+        connectNoticeTask = nil
+        if connectNoticeDue { connectNoticeDue = false }
+        guard !isReconnecting else { return }
+        let clock = noticeClock
+        connectNoticeTask = Task { [weak self] in
+            // wakeup-allow: one-shot, cancellable notice deadline; the next connect cancels it
+            try? await clock.sleep(for: Self.connectNoticeDelay)
+            guard !Task.isCancelled, let self, case .connecting = phase else { return }
+            connectNoticeDue = true
         }
     }
 
@@ -623,6 +719,7 @@ public final class ScreenSession {
         }
         stream = nil
         onTelepointers?(nil, nil)
+        resetStreamCursor()
         stats.targetFps = nil
         if !silently { phase = .ended }
     }
@@ -837,14 +934,11 @@ public final class ScreenSession {
     }
 
     static func encodingName(_ raw: Int32) -> String {
-        switch RFBEncoding(rawValue: raw) {
-        case .raw: "Raw"
-        case .copyRect: "CopyRect"
-        case .rre: "RRE"
-        case .hextile: "Hextile"
-        case .zlib: "Zlib"
-        case .zrle: "ZRLE"
-        default: "#\(raw)"
+        // "#-2147483648" is the longest name.
+        withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 16) { buffer in
+            var length = 0
+            guard cmux_screen_encoding_name(raw, buffer.baseAddress, buffer.count, &length) == CMUX_SCREEN_OK else { return "#\(raw)" }
+            return String(decoding: buffer.prefix(length), as: UTF8.self)
         }
     }
 }

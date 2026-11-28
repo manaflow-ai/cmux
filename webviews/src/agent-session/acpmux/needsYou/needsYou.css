@@ -118,8 +118,10 @@
   padding: var(--ds-space-2);
   border-radius: var(--ds-radius-control);
 }
-.acpmux-needs-you-item + .acpmux-needs-you-item {
-  margin-top: 1px;
+/* Rows are placed by the list's window (VirtualList), each measured whole: the 1px between two
+   rows is the lower row's own padding, not a margin the measure would miss. */
+.acpmux-needs-you-slot:not([aria-posinset="1"]) {
+  padding-top: 1px;
 }
 /* The ask a link opened the list on: a wash of the needs-you mark, no ring. */
 .acpmux-needs-you-item[data-focused] {
@@ -433,7 +435,7 @@
   height: var(--ds-control-primary);
   padding: 0 var(--ds-space-3);
   border-radius: var(--ds-radius-popup);
-  color: var(--acpmux-needs-you-mark);
+  color: var(--acpmux-needs-you-ink);
   font-family: var(--font-ui);
   font-size: var(--text-control);
   font-weight: var(--weight-regular);
@@ -586,7 +588,6 @@
 .acpmux-needs-you-answer[data-answer-key] {
   grid-template-columns: 14px minmax(0, 1fr) auto;
 }
-.acpmux-needs-you-answer .acpmux-keycap {
+.acpmux-needs-you-answer .ui-key-hint {
   margin: 0;
-  color: var(--agent-muted);
 }

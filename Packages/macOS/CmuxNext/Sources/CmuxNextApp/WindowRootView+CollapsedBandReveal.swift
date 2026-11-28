@@ -14,8 +14,10 @@ extension WindowRootView {
         collapsedBand.fullWidth = { [weak self] in self?.toolbarBand.slots().width ?? 0 }
         collapsedBand.reveal = titlebarReveal
         titlebarReveal.onStateChange = { [weak self] state in
-            guard let band = self?.collapsedBand else { return }
-            band.setEngaged(band.isEngaged(state))
+            guard let self else { return }
+            let sticky = titlebarRevealIsSticky
+            collapsedBand.setEngaged(collapsedBand.isEngaged(state))
+            if sticky != titlebarRevealIsSticky { needsLayout = true } // the zone grows or shrinks
         }
         collapsedBand.setEngaged(collapsedBand.isEngaged(titlebarReveal.state))
     }

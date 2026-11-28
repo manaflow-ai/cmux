@@ -17,7 +17,6 @@ import { AppSceneMount } from "./appSceneMount";
 
 export type WidgetSize = "small" | "medium" | "large";
 export type WidgetPlace = "newtab" | "sidebar";
-export const WIDGET_SIZES: readonly WidgetSize[] = ["small", "medium", "large"];
 
 /** A widget an installed app offers (`apps.widgets.list`). */
 export type WidgetInfo = {

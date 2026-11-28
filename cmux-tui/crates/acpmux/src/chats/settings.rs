@@ -31,6 +31,11 @@ pub struct ChatSettings {
     /// Session recap (`agents.chats.sessionRecap`): a Claude chat the person comes back to after
     /// 5+ minutes away shows a short recap of where it stands (`hub/away_recap.rs`).
     pub session_recap: bool,
+    /// Write to a chat a terminal runs (`agents.chats.terminalChatWritable`, off by default): a
+    /// chat handed to a cmux terminal (`acpmux resume-here`) stays writable, its prompts going
+    /// into that terminal's harness (`hub/release_to_watch.rs`, `hub/bridge.rs`). Off, such a
+    /// chat is a View Only watch.
+    pub terminal_chat_writable: bool,
 }
 
 impl Default for ChatSettings {
@@ -41,6 +46,7 @@ impl Default for ChatSettings {
             roots: Vec::new(),
             managed_roots: Vec::new(),
             session_recap: true,
+            terminal_chat_writable: false,
         }
     }
 }
@@ -58,9 +64,14 @@ impl ChatSettings {
     /// The most roots one message may carry.
     pub const MAX_ROOTS: usize = 256;
 
-    /// `{enabled?, discovery?, roots?, managedRoots?, sessionRecap?}`; a missing field keeps its
-    /// default.
+    /// `{enabled?, discovery?, roots?, managedRoots?, sessionRecap?, terminalChatWritable?}`; a
+    /// missing field keeps its default.
     pub fn from_params(params: &Value) -> Result<Self, String> {
+        let flag_or = |key: &str, default: bool| match params.get(key) {
+            None | Some(Value::Null) => Ok(default),
+            Some(Value::Bool(on)) => Ok(*on),
+            Some(_) => Err(format!("{key} must be true or false")),
+        };
         let flag = |key: &str| match params.get(key) {
             None | Some(Value::Null) => Ok(true),
             Some(Value::Bool(on)) => Ok(*on),
@@ -91,6 +102,7 @@ impl ChatSettings {
             roots: paths("roots")?,
             managed_roots: paths("managedRoots")?,
             session_recap: flag("sessionRecap")?,
+            terminal_chat_writable: flag_or("terminalChatWritable", false)?,
         })
     }
 
@@ -245,35 +257,5 @@ pub fn probe(path: &Path) -> Vec<RootSpec> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Two pushes of the chat settings may save at once (an off push still ending agents and an
-    /// unset push after it): every save succeeds, and the file holds one of them whole.
-    #[test]
-    fn saves_at_once_all_succeed() {
-        let dir = std::env::temp_dir().join(format!("acpmux-chat-settings-{}", std::process::id()));
-        let path = dir.join("chat-settings.json");
-        let failed: Vec<String> = std::thread::scope(|scope| {
-            let saves: Vec<_> = (0..8)
-                .map(|i| {
-                    let path = &path;
-                    scope.spawn(move || {
-                        let settings = ChatSettings { enabled: i % 2 == 0, ..Default::default() };
-                        (0..100)
-                            .filter_map(|_| settings.save(path).err())
-                            .map(|e| e.to_string())
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .collect();
-            saves.into_iter().flat_map(|s| s.join().unwrap()).collect()
-        });
-        let saved = fs::read(&path).map(|b| serde_json::from_slice::<ChatSettings>(&b).is_ok());
-        let left: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
-        let _ = fs::remove_dir_all(&dir);
-        assert!(failed.is_empty(), "saves at once failed: {failed:?}");
-        assert_eq!(saved.ok(), Some(true), "the file does not hold one save whole");
-        assert_eq!(left.len(), 1, "temp files were left: {left:?}");
-    }
-}
+#[path = "settings_tests.rs"]
+mod tests;

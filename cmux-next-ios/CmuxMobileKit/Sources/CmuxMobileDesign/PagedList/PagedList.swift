@@ -346,6 +346,7 @@ struct PagedListEdgeView: View {
                         .multilineTextAlignment(.center)
                     // The edge turns into a spinner as the read starts, which would cancel a task
                     // owned by the button: the retry runs unowned.
+                    // retry-prompt-ok: a failed page of older rows is read again when the reader asks, never on its own, so a list left open never pages in a loop while the link is down
                     RetryButton("Try Again", style: .inline, action: { [retry] in Task { await retry() } })
                         .accessibilityIdentifier("\(identifier).retry")
                 }

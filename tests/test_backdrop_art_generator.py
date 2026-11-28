@@ -4,6 +4,11 @@ are not art and gives every art string every locale the catalog carries, and the
 brightness range covers the image's real extremes, which the legibility floor relies on."""
 
 import importlib.util
+import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -70,6 +75,21 @@ class BackdropArtGeneratorTests(unittest.TestCase):
         ImageDraw.Draw(night).ellipse((1200, 120, 1212, 132), fill=(250, 248, 235))
         lightest = render.luminance(render.measure(night, "left")["lightest"])
         self.assertGreater(lightest, 0.9)
+
+    def test_the_build_writes_every_works_record_and_leaves_a_current_file_alone(self):
+        # BackdropArtEntriesPlugin runs this on every build; the records are not in git.
+        works = json.loads(GENERATOR.MANIFEST.read_text())["works"]
+        script = ART / "generate_backdrop_art.py"
+        with tempfile.TemporaryDirectory() as out:
+            subprocess.run([sys.executable, "-I", str(script), "--entries-out", out], check=True)
+            path = Path(out) / GENERATOR.ENTRIES_NAME
+            text = path.read_text()
+            for work in works:
+                self.assertIn(f"case .{GENERATOR.case_name(work['id'])}: BackdropArtEntry(", text)
+            os.utime(path, (1, 1))
+            subprocess.run([sys.executable, "-I", str(script), "--entries-out", out], check=True)
+            self.assertEqual(path.stat().st_mtime, 1, "an unchanged file is not rewritten")
+            self.assertEqual(sorted(os.listdir(out)), [GENERATOR.ENTRIES_NAME])
 
 
 if __name__ == "__main__":

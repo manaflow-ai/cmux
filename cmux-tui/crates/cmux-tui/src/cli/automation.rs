@@ -28,7 +28,10 @@ use crate::localization::AutomationMessages;
 mod automation_secret;
 #[path = "automation_webhook.rs"]
 mod automation_webhook;
+#[path = "automation_webhook_fire.rs"]
+mod automation_webhook_fire;
 mod events;
+mod local_webhook;
 mod teleport;
 mod triggers;
 
@@ -53,7 +56,9 @@ fn now() -> i64 {
 
 /// `Some(exit code)` when `args` is `automation …` (or `automations …`).
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (global, command_args) = super::parse_globals(args).ok()?;
+    // A `--machine` after `automation` is the verb's own (`create … --target cloud --machine
+    // vm_…` names the Cloud machine); before it, it is still the global option.
+    let (global, command_args) = super::parse_action_globals(args).ok()?;
     let (first, rest) = command_args.split_first()?;
     if first != "automation" && first != "automations" {
         return None;
@@ -338,7 +343,12 @@ fn dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
         "logs" | "log" => logs(rest, out),
         "seen" | "read" => seen(rest, out),
         "delete" | "rm" => delete(rest, out),
-        "webhook" | "webhooks" => automation_webhook::webhook(rest, global, out),
+        "webhook" | "webhooks" => match rest.split_first() {
+            Some((verb, words)) if local_webhook::VERBS.contains(&verb.as_str()) => {
+                local_webhook::run(verb, words, out)
+            }
+            _ => automation_webhook::webhook(rest, global, out),
+        },
         "teleport" | "move" => teleport::run(rest, global, out, false),
         "import" => teleport::import(rest, out),
         "runner" => runner(rest, out),
@@ -432,12 +442,17 @@ fn parse_trigger(a: &Args, now: i64) -> Result<Option<Trigger>, Failure> {
         .iter()
         .copied()
         .filter(|f| a.value(f).is_some())
-        .chain(["hourly", "manual"].into_iter().filter(|f| a.flag(f)))
+        .chain(["hourly", "manual", local_webhook::FLAG].into_iter().filter(|f| a.flag(f)))
         .collect();
     if chosen.len() > 1 {
         return usage(messages().one_schedule.replace("{flags}", &chosen.join(", --")));
     }
     let Some(kind) = chosen.first() else { return Ok(None) };
+    if *kind != local_webhook::FLAG
+        && let Some(flag) = local_webhook::option_given(a)
+    {
+        return Err(local_webhook::options_need_webhook(flag));
+    }
     let value = a.value(kind).unwrap_or_default();
     let trigger = match *kind {
         "hourly" => Trigger::preset_hourly(zone),
@@ -463,6 +478,7 @@ fn parse_trigger(a: &Args, now: i64) -> Result<Option<Trigger>, Failure> {
         "cron" => Trigger::Cron { expr: value.to_string(), tz: zone.name().to_string() },
         "watch" => triggers::watch_trigger(a, value)?,
         "when" => triggers::event_trigger(a, value)?,
+        "webhook" => local_webhook::trigger(a, None)?,
         _ => return Ok(None),
     };
     trigger.validate().map_err(|e| Failure::Usage(e.0))?;
@@ -584,7 +600,7 @@ fn runner_running(store: &Store) -> bool {
 
 fn create(args: &[String], out: &Out) -> Outcome {
     let output = out.mode;
-    let a = Args::parse(args, SPEC_VALUED, SPEC_FLAGS)?;
+    let a = local_webhook::spec_args(args, SPEC_VALUED, SPEC_FLAGS)?;
     let name = match (a.value("name"), a.words.as_slice()) {
         (Some(n), []) => n.to_string(),
         (None, [n]) => n.clone(),
@@ -594,8 +610,12 @@ fn create(args: &[String], out: &Out) -> Outcome {
         }
     };
     let now = now();
-    let trigger =
-        parse_trigger(&a, now)?.ok_or_else(|| Failure::Usage(messages().need_schedule.into()))?;
+    let Some(trigger) = parse_trigger(&a, now)? else {
+        return Err(match local_webhook::option_given(&a) {
+            Some(flag) => local_webhook::options_need_webhook(flag),
+            None => Failure::Usage(messages().need_schedule.into()),
+        });
+    };
     let folder = folder_arg(&a)?;
     let body = match (a.value("prompt"), a.value("command")) {
         (Some(prompt), None) => Body::Prompt {
@@ -628,6 +648,7 @@ fn create(args: &[String], out: &Out) -> Outcome {
         if let Value::Object(map) = &mut v {
             map.insert("runner_running".into(), json!(runner));
         }
+        local_webhook::after_create(&store, &created, out, &mut v)?;
         out.value(&v);
     } else if output != OutputMode::Quiet {
         println!(
@@ -642,6 +663,7 @@ fn create(args: &[String], out: &Out) -> Outcome {
             println!("{}", messages().next_run.replace("{time}", &when(next)));
         }
         triggers::print_event_source(&created.trigger);
+        local_webhook::after_create(&store, &created, out, &mut Value::Null)?;
         if !runner && !matches!(created.trigger, Trigger::Manual) {
             println!("{}", messages().runner_hint);
         }
@@ -735,6 +757,7 @@ fn show(args: &[String], out: &Out) -> Outcome {
         println!("  {}: {f}", messages().folder_label);
     }
     triggers::show_lines(&x, store.state(&x.id)?.dropped);
+    local_webhook::show_line(&store, &x);
     if let Some(next) = v.get("next_run_at").and_then(Value::as_i64) {
         println!("  {}: {}", messages().next_label, when(next));
     }
@@ -802,7 +825,7 @@ fn set_enabled(args: &[String], enabled: bool, out: &Out) -> Outcome {
 
 fn edit(args: &[String], out: &Out) -> Outcome {
     let output = out.mode;
-    let a = Args::parse(args, SPEC_VALUED, SPEC_FLAGS)?;
+    let a = local_webhook::spec_args(args, SPEC_VALUED, SPEC_FLAGS)?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
     let now = now();
@@ -810,8 +833,19 @@ fn edit(args: &[String], out: &Out) -> Outcome {
     if let Some(name) = a.value("name") {
         spec.name = name.into();
     }
-    if let Some(trigger) = parse_trigger(&a, now)? {
+    if a.flag(local_webhook::FLAG) {
+        // `--webhook` again keeps the filters and window no option replaces.
+        parse_trigger(&a, now)?;
+        spec.trigger = local_webhook::trigger(&a, Some(&x.trigger))?;
+        spec.trigger.validate().map_err(|e| Failure::Usage(e.0))?;
+    } else if let Some(trigger) = parse_trigger(&a, now)? {
         spec.trigger = trigger;
+    } else if let Some(flag) = local_webhook::option_given(&a) {
+        if !matches!(x.trigger, Trigger::Webhook { .. }) {
+            return Err(local_webhook::options_need_webhook(flag));
+        }
+        spec.trigger = local_webhook::trigger(&a, Some(&x.trigger))?;
+        spec.trigger.validate().map_err(|e| Failure::Usage(e.0))?;
     } else if a.value("debounce").is_some() {
         spec.trigger = match &spec.trigger {
             Trigger::Watch { command, .. } => triggers::watch_trigger(&a, &command.clone())?,
@@ -1049,19 +1083,24 @@ fn runner(args: &[String], out: &Out) -> Outcome {
         Some("status") => {
             let store = open_store()?;
             let health = runner_json(&store);
-            let running = health["running"].as_bool().unwrap_or(false);
+            let field = |key: &str| health.get(key).cloned().unwrap_or(Value::Null);
+            let running = health.get("running").and_then(Value::as_bool).unwrap_or(false);
             if output == OutputMode::Json {
                 let mut v = json!({ "running": running, "launchd_label": LAUNCHD_LABEL, "plist": plist_path() });
-                v.set("health", health["health"].clone());
-                v.set("beat_at", health["beat_at"].clone());
-                v.set("pid", health["pid"].clone());
+                v.set("health", field("health"));
+                v.set("beat_at", field("beat_at"));
+                v.set("pid", field("pid"));
                 out.value(&v);
             } else {
-                let line = match health["health"].as_str() {
+                let line = match health.get("health").and_then(Value::as_str) {
                     Some("running") => messages().runner_running.to_string(),
                     Some("stalled") => messages().runner_stalled.replace(
                         "{time}",
-                        &health["beat_at"].as_i64().map(when).unwrap_or_default(),
+                        &health
+                            .get("beat_at")
+                            .and_then(Value::as_i64)
+                            .map(when)
+                            .unwrap_or_default(),
                     ),
                     _ => messages().runner_stopped.to_string(),
                 };
@@ -1091,6 +1130,9 @@ fn serve(once: bool, out: &Out) -> Outcome {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "cmux".to_string());
     let mut watches = Watches::new(store.clone()).with_program(program);
+    // A loopback listener, open only while an enabled automation has `--webhook`.
+    let hooks = watches.sender();
+    let mut listener = local_webhook::Listener::default();
     let mut next_tick_ms = 0i64;
     // The heartbeat (`.runner.json`): at least once a minute, as the loop wakes
     // at least that often, so a hung runner shows as stalled.
@@ -1131,6 +1173,7 @@ fn serve(once: bool, out: &Out) -> Outcome {
             }
             let automations = store.list()?;
             watches.reconcile(&automations, now_ms());
+            listener.reconcile(&store, &automations, &hooks);
             let t = now();
             let next = automations
                 .iter()
@@ -1981,149 +2024,5 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(words: &[&str]) -> Args {
-        Args::parse(
-            &words.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-            SPEC_VALUED,
-            SPEC_FLAGS,
-        )
-        .ok()
-        .unwrap()
-    }
-
-    #[test]
-    fn schedules_parse_to_triggers() {
-        let now = 1_793_350_800;
-        let t = |w: &[&str]| parse_trigger(&args(w), now).ok().flatten();
-        assert_eq!(
-            t(&["--daily", "09:30", "--tz", "UTC"]),
-            Some(Trigger::Cron { expr: "30 9 * * *".into(), tz: "UTC".into() })
-        );
-        assert_eq!(
-            t(&["--weekdays=8:05", "--tz", "UTC"]),
-            Some(Trigger::Cron { expr: "5 8 * * 1-5".into(), tz: "UTC".into() })
-        );
-        assert_eq!(
-            t(&["--weekly", "fri 17:00", "--tz", "UTC"]),
-            Some(Trigger::Cron { expr: "0 17 * * 5".into(), tz: "UTC".into() })
-        );
-        assert_eq!(t(&["--every", "30m"]), Some(Trigger::Every { seconds: 1_800, anchor: now }));
-        assert_eq!(t(&["--in", "2h"]), Some(Trigger::At { at: now + 7_200 }));
-        assert_eq!(
-            t(&["--at", "2026-10-30 10:00", "--tz", "UTC"]),
-            Some(Trigger::At { at: now + 3_600 })
-        );
-        assert_eq!(
-            t(&["--at", "08:00", "--tz", "UTC"]),
-            Some(Trigger::At { at: now + 23 * 3_600 }),
-            "a past clock time means tomorrow"
-        );
-        assert_eq!(t(&["--manual"]), Some(Trigger::Manual));
-        assert_eq!(t(&["--hourly", "--tz", "UTC"]), Some(Trigger::preset_hourly(Zone::Utc)));
-        assert_eq!(t(&[]), None);
-    }
-
-    #[test]
-    fn the_runner_finds_what_the_installing_shell_finds_and_homebrew() {
-        assert_eq!(
-            runner_path(Some("/Users/me/.cargo/bin:/usr/bin:/bin")),
-            "/Users/me/.cargo/bin:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin"
-        );
-        assert_eq!(
-            runner_path(None),
-            "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        );
-    }
-
-    #[test]
-    fn the_systemd_unit_keeps_paths_whole_and_specifiers_literal() {
-        let unit = systemd_unit(
-            "/opt/my cmux/cmux",
-            "/home/a/50%/store",
-            "/usr/bin:/bin",
-            "/l/runner.log",
-        );
-        assert!(unit.contains("ExecStart=\"/opt/my cmux/cmux\" automation runner\n"), "{unit}");
-        assert!(
-            unit.contains("Environment=\"CMUX_AUTOMATIONS_DIR=/home/a/50%%/store\"\n"),
-            "{unit}"
-        );
-        assert!(unit.contains("Environment=\"PATH=/usr/bin:/bin\"\n"), "{unit}");
-        assert!(unit.contains("Restart=always\n"), "{unit}");
-        assert!(unit.contains("StandardOutput=append:/l/runner.log\n"), "{unit}");
-        assert!(unit.ends_with("[Install]\nWantedBy=default.target\n"), "{unit}");
-        assert_eq!(systemd_quote("a\"b\\c"), "\"a\\\"b\\\\c\"");
-    }
-
-    #[test]
-    fn when_names_an_event_with_its_own_debounce_and_guardrails() {
-        let t = |w: &[&str]| parse_trigger(&args(w), 0);
-        assert_eq!(
-            t(&["--when", "pr-opened"]).ok().flatten(),
-            Some(Trigger::Event { event: "pr-opened".into(), debounce_seconds: 5 })
-        );
-        assert_eq!(
-            t(&["--when=agent-idle", "--debounce", "10s"]).ok().flatten(),
-            Some(Trigger::Event { event: "agent-idle".into(), debounce_seconds: 10 })
-        );
-        for bad in [&["--when", "agent-busy"][..], &["--when", "pr-opened", "--daily", "9:00"]] {
-            let Err(Failure::Usage(why)) = t(bad) else { panic!("{bad:?} is a usage error") };
-            assert!(!why.is_empty(), "{bad:?}");
-        }
-        let Err(Failure::Usage(why)) = t(&["--when", "agent-busy"]) else { unreachable!() };
-        assert!(why.contains("agent-idle, agent-needs-input, pr-opened"), "{why}");
-        assert!(why.contains("cmux automation events"), "{why}");
-        // A new automation on an event gets that event's guardrails; flags win.
-        let idle = Trigger::Event { event: "agent-idle".into(), debounce_seconds: 5 };
-        let defaults = triggers::guard_defaults(&idle);
-        assert_eq!(defaults, Some((60, Some(48))));
-        let gate = triggers::gate(&args(&[]), Gate::default(), defaults).ok().unwrap();
-        assert_eq!((gate.cooldown_seconds, gate.max_runs_per_day), (60, Some(48)));
-        let gate =
-            triggers::gate(&args(&["--max-runs", "0"]), Gate::default(), defaults).ok().unwrap();
-        assert_eq!(gate.max_runs_per_day, None);
-        assert_eq!(triggers::guard_defaults(&Trigger::Manual), None);
-        assert_eq!(describe_trigger(&idle), "When an agent goes idle");
-    }
-
-    #[test]
-    fn bad_schedules_are_usage_errors() {
-        let now = 0;
-        for w in [
-            &["--daily", "25:00"][..],
-            &["--every", "30s"],
-            &["--daily", "9:00", "--hourly"],
-            &["--cron", "* * *"],
-            &["--tz", "Europe/Paris", "--daily", "9:00"],
-            &["--weekly", "someday 9:00"],
-        ] {
-            assert!(parse_trigger(&args(w), now).is_err(), "{w:?}");
-        }
-    }
-
-    #[test]
-    fn durations() {
-        assert_eq!(parse_duration("90").ok(), Some(90));
-        assert_eq!(parse_duration("45m").ok(), Some(2_700));
-        assert_eq!(parse_duration("1d").ok(), Some(86_400));
-        assert!(parse_duration("soon").is_err());
-    }
-
-    #[test]
-    fn target_is_taken_out_of_the_words_in_both_forms() {
-        let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let taken = |w: &[&str]| take_target(&words(w)).ok();
-        assert_eq!(taken(&["list"]), Some((false, words(&["list"]))));
-        assert_eq!(
-            taken(&["list", "--target", "cloud", "--json"]),
-            Some((true, words(&["list", "--json"])))
-        );
-        assert_eq!(taken(&["--target=cloud", "list"]), Some((true, words(&["list"]))));
-        assert_eq!(taken(&["list", "--target", "this-mac"]), Some((false, words(&["list"]))));
-        assert!(matches!(take_target(&words(&["list", "--target"])), Err(Failure::Usage(_))));
-        assert!(matches!(take_target(&words(&["--target", "mars"])), Err(Failure::Usage(_))));
-    }
-}
+#[path = "automation_tests.rs"]
+mod tests;

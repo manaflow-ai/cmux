@@ -63,6 +63,17 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
+// These cases read the folded header's names (trayFoldHead.experiment.ts `one`; its default is now
+// `kinds`) and the run's clock (trayHeadClock.experiment.ts `run`; its default is now `none`).
+globalThis.cmuxExperiments = {
+  ...globalThis.cmuxExperiments,
+  "subagent-tray-fold-head": "one",
+  "subagent-tray-head-clock": "run",
+};
+afterAll(() => {
+  const pins = globalThis.cmuxExperiments as Record<string, string> | undefined;
+  if (pins) for (const id of ["subagent-tray-fold-head", "subagent-tray-head-clock"]) delete pins[id];
+});
 
 const now = Date.now();
 const agent = (id: string, task: string, startedAgo: number): Subagent => ({
@@ -122,7 +133,7 @@ describe("the folded running bar names what runs", () => {
       expect(bar.more()).toBe("+1 more");
       // Open, the lines name them and the header goes back to its counts.
       await act(async () => bar.button.click());
-      expect(bar.title()).toBe("1 subagent running · 1 test run");
+      expect(bar.title()).toBe("1 subagent · 1 test run");
     } finally {
       await bar.done();
     }

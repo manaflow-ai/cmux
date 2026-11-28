@@ -1,7 +1,7 @@
 //! cmux automations on one machine (docs/automations-platonic-ideal.md).
 //!
 //! An [`Automation`] is a named prompt or command plus one [`Trigger`]. The
-//! [`Store`] keeps it on disk (`~/.config/cmux/automations/<id>/`), every
+//! [`Store`] keeps it on disk (`~/.config/cmux-next/automations/<id>/`), every
 //! write atomic, run history append-only. The runner calls [`tick`] on a
 //! timer: it works out which scheduled times came due since the last tick,
 //! applies the automation's [`CatchUp`] policy to the ones a sleeping Mac
@@ -15,7 +15,8 @@
 //! cap). A `watch` trigger fires on the lines a long-running command prints;
 //! [`watch::Watches`] keeps those commands alive in the runner. An `event`
 //! trigger (`--when agent-idle`) is a watch whose command cmux supplies
-//! ([`events`]).
+//! ([`events`]). A `webhook` trigger fires on a signed POST to the runner's
+//! loopback listener, with filters and a dedupe window ([`webhook`]).
 //!
 //! No I/O happens outside [`Store`], [`exec`] and [`watch`] (and their
 //! platform seam, `sys`); schedule math takes the
@@ -47,6 +48,7 @@ mod sys;
 mod teleport;
 mod trigger;
 pub mod watch;
+pub mod webhook;
 
 pub use automation::{
     Automation, AutomationSpec, Body, Handoff, LOCAL_HOME, Origin, Tombstone, is_handoff_id,

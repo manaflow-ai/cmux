@@ -25,7 +25,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::ring::Ring;
 use crate::wire::{self, Frame, In, Kind, Out};
@@ -53,8 +53,6 @@ pub const UNSENT_HIGH_WATER: usize = 256 * 1024;
 const READ_PER_TURN: usize = 256 * 1024;
 /// How long a new connection may take to authenticate.
 const HANDSHAKE: Duration = Duration::from_secs(5);
-/// Connections waiting to authenticate at once; the oldest goes first.
-const MAX_PENDING: usize = 8;
 /// A holder with no terminal and no daemon link exits after this long: it
 /// keeps nothing, and the next daemon starts a holder of its own build.
 pub const IDLE_EXIT: Duration = Duration::from_secs(30);
@@ -327,6 +325,31 @@ impl LinkBreak {
     }
 }
 
+/// When a holder's orphan wait began, by two clocks. `Instant` is the awake
+/// clock on a Mac (`CLOCK_UPTIME_RAW`): it stops while the Mac sleeps, so a
+/// laptop that sleeps every night took weeks to count
+/// [`crate::ABANDONED_GRACE`] (cmuxterm-hq#8377, 2026-11-21). The wall clock
+/// counts sleep; a wall clock set back counts nothing, and the awake time
+/// still does. `poll` wakes at least once a minute, so a sleep is seen within
+/// a minute of waking.
+#[derive(Debug, Clone, Copy)]
+struct OrphanSince {
+    awake: Instant,
+    wall: SystemTime,
+}
+
+impl OrphanSince {
+    fn at(awake: Instant) -> Self {
+        Self { awake, wall: SystemTime::now() }
+    }
+
+    /// The longer of the awake and the wall time since the wait began.
+    fn elapsed_at(&self, awake: Instant, wall: SystemTime) -> Duration {
+        let awake = awake.saturating_duration_since(self.awake);
+        awake.max(wall.duration_since(self.wall).unwrap_or_default())
+    }
+}
+
 /// The holder state.
 pub struct Holder {
     listener: UnixListener,
@@ -363,8 +386,41 @@ pub struct Holder {
     /// `None`: never (normal installs, decision D1).
     orphan_grace: Option<Duration>,
     /// Terminals and no daemon link since this time.
-    orphan_since: Option<Instant>,
+    orphan_since: Option<OrphanSince>,
+    /// The session's `holder.token` file ([`crate::TOKEN_FILE_ENV`]): while
+    /// orphaned, a holder whose file is gone or names another token can
+    /// never be linked again, and ends its terminals after
+    /// [`UNADOPTABLE_GRACE`] instead of the orphan grace.
+    token_file: Option<PathBuf>,
+    /// The last read of `token_file`: when, and whether it could still
+    /// adopt this holder. Read at most every [`TOKEN_FILE_RECHECK`].
+    token_checked: Option<(Instant, bool)>,
+    /// Orphaned and unadoptable since this time.
+    unadoptable_since: Option<OrphanSince>,
+    /// [`UNADOPTABLE_GRACE`], or shorter for a test.
+    unadoptable_grace: Duration,
     sigchld: OwnedFd,
+}
+
+/// How long an orphaned holder whose session's token file is gone (or names
+/// another token) keeps its terminals: no daemon can link it again, so it
+/// waits only out a token file being rewritten. CI runs a Nightly from a
+/// state root under the job's temp folder and deletes it; the week of
+/// [`crate::ABANDONED_GRACE`] then kept ~119 shells per run, and five runs
+/// used every pty of a CI Mac (kern.tty.ptmx_max 511, 2026-11-27).
+pub const UNADOPTABLE_GRACE: Duration = Duration::from_secs(60);
+
+/// How often an orphaned holder reads its token file.
+const TOKEN_FILE_RECHECK: Duration = Duration::from_secs(10);
+
+/// Whether the token file at `path` still names `token`: `false` only when
+/// it is gone, or holds another well-formed token. Any other read failure
+/// (a permission, an I/O error) keeps the holder adoptable.
+pub(crate) fn token_file_adopts(path: &Path, token: &[u8; 32]) -> bool {
+    match std::fs::read_to_string(path) {
+        Ok(text) => crate::parse_token(text.trim()).is_none_or(|found| &found == token),
+        Err(error) => error.kind() != io::ErrorKind::NotFound,
+    }
 }
 
 static SIGNAL_WRITE: AtomicI32 = AtomicI32::new(-1);
@@ -459,6 +515,10 @@ impl Holder {
             idle_exit: IDLE_EXIT,
             orphan_grace: None,
             orphan_since: None,
+            token_file: None,
+            token_checked: None,
+            unadoptable_since: None,
+            unadoptable_grace: UNADOPTABLE_GRACE,
             sigchld,
         })
     }
@@ -479,6 +539,32 @@ impl Holder {
     /// default: never).
     pub fn set_orphan_grace(&mut self, grace: Option<Duration>) {
         self.orphan_grace = grace;
+    }
+
+    /// The session's token file ([`crate::TOKEN_FILE_ENV`]); `None`, the
+    /// default: only the orphan grace ends an orphan's terminals.
+    pub fn set_token_file(&mut self, path: Option<PathBuf>) {
+        self.token_file = path;
+    }
+
+    /// A shorter unadoptable grace (a test's); never longer than
+    /// [`UNADOPTABLE_GRACE`].
+    pub fn set_unadoptable_grace(&mut self, grace: Duration) {
+        self.unadoptable_grace = grace.min(UNADOPTABLE_GRACE);
+    }
+
+    /// Whether a daemon can still link this holder: its token file (read at
+    /// most every [`TOKEN_FILE_RECHECK`]) still names its token.
+    fn adoptable(&mut self, now: Instant) -> bool {
+        let Some(path) = &self.token_file else { return true };
+        if let Some((at, adoptable)) = self.token_checked
+            && now.saturating_duration_since(at) < TOKEN_FILE_RECHECK
+        {
+            return adoptable;
+        }
+        let adoptable = token_file_adopts(path, &self.token);
+        self.token_checked = Some((now, adoptable));
+        adoptable
     }
 
     /// Serve until launchd ends the holder or it has been idle for its idle
@@ -631,9 +717,29 @@ impl Holder {
     /// ended ones are forgotten and the holder exits idle.
     fn end_orphans(&mut self, now: Instant) {
         let orphaned = self.link.is_none() && !self.terminals.is_empty();
-        self.orphan_since = if orphaned { Some(self.orphan_since.unwrap_or(now)) } else { None };
-        let (Some(grace), Some(since)) = (self.orphan_grace, self.orphan_since) else { return };
-        if now.saturating_duration_since(since) < grace {
+        self.orphan_since = if orphaned {
+            Some(self.orphan_since.unwrap_or_else(|| OrphanSince::at(now)))
+        } else {
+            None
+        };
+        let unadoptable = orphaned && !self.adoptable(now);
+        if !orphaned {
+            self.token_checked = None;
+        }
+        self.unadoptable_since = if unadoptable {
+            Some(self.unadoptable_since.unwrap_or_else(|| OrphanSince::at(now)))
+        } else {
+            None
+        };
+        let wall = SystemTime::now();
+        let grace_over = self
+            .orphan_grace
+            .zip(self.orphan_since)
+            .is_some_and(|(grace, since)| since.elapsed_at(now, wall) >= grace);
+        let unadoptable_over = self
+            .unadoptable_since
+            .is_some_and(|since| since.elapsed_at(now, wall) >= self.unadoptable_grace);
+        if !grace_over && !unadoptable_over {
             return;
         }
         let open: Vec<u32> = self
@@ -665,8 +771,27 @@ impl Holder {
             .orphan_since
             .zip(self.orphan_grace)
             .filter(|_| self.terminals.values().any(|terminal| !terminal.closing))
-            .map(|(since, grace)| since + grace);
-        kill.into_iter().chain(handshake).chain(idle).chain(orphan).min()
+            .map(|(since, grace)| {
+                let now = Instant::now();
+                now + grace.saturating_sub(since.elapsed_at(now, SystemTime::now()))
+            });
+        // An orphan with a token file wakes to read it again, and once it is
+        // unadoptable, to end its terminals on time.
+        let open = self.terminals.values().any(|terminal| !terminal.closing);
+        let unadoptable = self.unadoptable_since.filter(|_| open).map(|since| {
+            let now = Instant::now();
+            now + self.unadoptable_grace.saturating_sub(since.elapsed_at(now, SystemTime::now()))
+        });
+        let recheck = self.orphan_since.filter(|_| open && self.token_file.is_some()).map(|_| {
+            self.token_checked.map_or_else(Instant::now, |(at, _)| at + TOKEN_FILE_RECHECK)
+        });
+        kill.into_iter()
+            .chain(handshake)
+            .chain(idle)
+            .chain(orphan)
+            .chain(unadoptable)
+            .chain(recheck)
+            .min()
     }
 
     /// Take new connections. They wait in `pending` until they authenticate;
@@ -702,9 +827,8 @@ impl Holder {
                 continue;
             }
             wire::tune_socket(stream.as_raw_fd());
-            if self.pending.len() >= MAX_PENDING {
-                self.pending.remove(0);
-            }
+            // Every connection waits its HANDSHAKE: one descriptor each, on a socket only
+            // this user reaches. A cap that dropped the oldest lost a daemon behind slow ones.
             self.pending.push(Pending {
                 stream,
                 reader: wire::Reader::default(),
@@ -1716,3 +1840,7 @@ fn peer_uid(fd: RawFd) -> Option<libc::uid_t> {
     } == 0;
     ok.then_some(cred.uid)
 }
+
+#[cfg(test)]
+#[path = "holder_orphan_since_tests.rs"]
+mod orphan_since_tests;

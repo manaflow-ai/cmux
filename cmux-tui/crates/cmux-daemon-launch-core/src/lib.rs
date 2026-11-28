@@ -24,14 +24,17 @@
 //!   Ghostty's shell integration and the bundled `cmux` layer;
 //! - [`legacy`]: the one-time adopt of the old shared channel session and the
 //!   launch snapshot lookup in a state directory;
+//! - [`cloud_environment`]: the launch's Cloud environment read, in process;
 //! - [`cloud_link`]: the `cmux-tui link` command lines and environment;
 //! - [`install_key`]: the install key's stored form and its hello proof
 //!   (cmux-local-auth, the bytes the daemon checks);
+//! - [`runtime_scope`]: which socket directory an app on another HOME uses;
 //! - [`lines`]: a child's stderr cut into lines.
 //!
 //! [`ops::call`] is the one JSON entry point; `tests/cases/*.json` are the
 //! golden vectors the Swift tests encoded before the move.
 
+pub mod cloud_environment;
 pub mod cloud_link;
 pub mod ensure;
 pub mod failure;
@@ -43,6 +46,7 @@ pub mod legacy;
 pub mod lines;
 pub mod login_env;
 pub mod ops;
+pub mod runtime_scope;
 pub mod shell_integration;
 pub mod terminal_env;
 pub mod watch;
@@ -84,18 +88,5 @@ pub(crate) fn join(base: &str, component: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn paths_read_as_foundation_reads_them() {
-        assert_eq!(last_component("/bin/zsh"), "zsh");
-        assert_eq!(last_component("zsh"), "zsh");
-        assert_eq!(last_component("/usr/bin/"), "bin");
-        assert_eq!(last_component("/"), "/");
-        assert_eq!(parent_path("/a/b/ghostty"), "/a/b");
-        assert_eq!(parent_path("/ghostty"), "/");
-        assert_eq!(parent_path("ghostty"), "");
-        assert_eq!(join("/s/", "a/b/"), "/s/a/b");
-    }
-}
+#[path = "tests.rs"]
+mod tests;

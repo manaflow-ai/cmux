@@ -39,7 +39,8 @@ pub struct Report {
     /// `restored`, `miss`, `present` (already installed here), `installed`
     /// (skipped under `--if-missing`), `cold_faster` (the last cold install
     /// here beat a restore), `abandoned` (the download's pace showed it would
-    /// be slower than a cold install), `off` (the hub has no dependency
+    /// be slower than a cold install), `stalled` (the hub sent nothing for
+    /// `remote::STALL_MS`; the install ran from the registry), `off` (the hub has no dependency
     /// caches), `not_joined`, `skipped` (the tool is not installed) or `error`.
     pub restore: &'static str,
     /// What the choice expected a restore to take, and the cold install it beat.
@@ -96,9 +97,9 @@ fn restore_into(plan: &Plan, archive_path: &Path, codec: Codec) -> std::io::Resu
         let from = stage.path().join(rel);
         let to = plan.root.join(rel);
         // An empty folder (left by a tool or a sync) is replaced; one with files is never touched.
-        let _ = std::fs::remove_dir(&to);
+        let _ = crate::home_fs::remove_dir(&to);
         if from.exists() && !to.exists() {
-            std::fs::rename(&from, &to)?;
+            crate::home_fs::rename(&from, &to)?;
         }
     }
     Ok(())
@@ -219,6 +220,12 @@ async fn one(
                         s.download_bps = Some(got as f64 * 1000.0 / fetch_ms as f64);
                         s.key_mut(&report.key).archive_bytes = Some(size);
                     });
+                }
+                // No pace to learn from a dead stream: the stats stay as they were.
+                Ok(Fetched::Stalled { got }) => {
+                    report.restore = "stalled";
+                    report.archive_bytes = got;
+                    report.cold_ms = cold_record;
                 }
                 Ok(Fetched::Miss) => {
                     report.restore = "miss";

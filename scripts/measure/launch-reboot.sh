@@ -4,7 +4,7 @@
 # sudo for /sbin/shutdown -r now):
 #   cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
 #     --script scripts/measure/launch-reboot.sh --ref <sha> --arg=phase=before --arg=reboot=N [--arg=dmg=nightly]
-#   cmux-ci run ... --script scripts/measure/launch-reboot.sh --ref <sha> --arg=phase=after --arg=arm=noread|read|residency \
+#   cmux-ci run ... --script scripts/measure/launch-reboot.sh --ref <sha> --arg=phase=after --arg=arm=noread|read|preread|residency \
 #     --arg=reboot=N
 #   phase=before  the copy (installed from dmg= when there is none yet, or on reboot=1) launched once and quit with Keep
 #                 Sessions (SIGTERM), every process of it gone, LB-COPY (path, version, sizes), then LB-REBOOT and
@@ -24,6 +24,9 @@
 #     noread      at login+60 s one measured launch
 #     read        at login+5 s each binary read with `/usr/bin/time -l cat FILE >/dev/null` (LB-READ), then at
 #                 login+60 s the measured launch
+#     preread     at login+5 s run the bundled cmux-launch-preread with its default byte/time caps and priority;
+#                 LB-PREREAD reports its CPU, wall time and maxrss; LB-PREREAD-REPORT preserves its JSON.
+#                 Fails when the build has no reader. This measures the helper, not SMAppService scheduling.
 #     residency   the read at login+5 s, each binary's resident fraction at login+1, +10 and +60 min (LB-RESIDENT),
 #                 then the measured launch at +60 min (give the step a 75 min timeout)
 #   reboot=N      this reboot's number, printed on every row; dmg=nightly|https://...|sha256:HEX as launch-premain.sh.
@@ -57,15 +60,15 @@ main() {
   for arg in "$@"; do
     case "$arg" in
       phase=before|phase=after) PHASE="${arg#phase=}" ;;
-      arm=noread|arm=read|arm=residency) ARM="${arg#arm=}" ;;
+      arm=noread|arm=read|arm=preread|arm=residency) ARM="${arg#arm=}" ;;
       reboot=*) REBOOT="${arg#reboot=}" ;;
       dmg=nightly|dmg=https://*|dmg=sha256:*) dmg="${arg#dmg=}" ;;
-      *) bad "unknown argument: $arg (takes phase=before|after arm=noread|read|residency reboot=N dmg=nightly|URL|sha256:HEX)" ;;
+      *) bad "unknown argument: $arg (takes phase=before|after arm=noread|read|preread|residency reboot=N dmg=nightly|URL|sha256:HEX)" ;;
     esac
   done
   [[ -n "$PHASE" ]] || bad "phase=before or phase=after is required"
   [[ "$REBOOT" =~ ^[1-9][0-9]?$ ]] || bad "reboot= takes 1 to 99"
-  [[ "$PHASE" == before || -n "$ARM" ]] || bad "phase=after needs arm=noread, arm=read or arm=residency"
+  [[ "$PHASE" == before || -n "$ARM" ]] || bad "phase=after needs arm=noread, arm=read, arm=preread or arm=residency"
   [[ "$PHASE" == after || -z "$ARM" ]] || bad "arm= is for phase=after"
   if [[ "$PHASE" == after ]]; then
     # First thing: a host the before step's reboot has not reached yet; then when the step started, against boot and
@@ -132,6 +135,7 @@ boot_time() { sysctl -n kern.boottime | sed -n 's/.*sec = \([0-9]*\),.*/\1/p'; }
 reboot_later() {
   local log="$ROOT/reboot.log" delay="${LB_REBOOT_DELAY:-20}"
   echo "asked=$(date -u +%FT%TZ) delay_s=$delay" >"$log"
+  # sleep-ok: the detached reboot's delay (LB_REBOOT_DELAY) lets this step exit and its worker report before the host goes down
   local later=(/usr/bin/env -i PATH="$PATH" /bin/sh -c 'cd / && sleep "$1" && { sudo -n /sbin/shutdown -r now; echo "shutdown_rc=$?"; } >>"$2" 2>&1' sh "$delay" "$log")
   if command -v perl >/dev/null; then
     (cd / && exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' "${later[@]}" </dev/null >/dev/null 2>&1) &
@@ -150,6 +154,7 @@ after() {
   case "$ARM" in
     noread) at 60 launch ;;
     read) at 5 read; read_all; at 60 launch ;;
+    preread) at 5 preread; read_preread; at 60 launch ;;
     residency)
       at 5 read; read_all
       at 60 +1m; resident_all +1m
@@ -184,6 +189,7 @@ since() { echo $(($(date +%s) - LOGIN)); }
 # at OFFSET WHAT: wait until login + OFFSET seconds; LB-LATE when that time has already passed.
 at() {
   local wait=$((LOGIN + $1 - $(date +%s)))
+  # sleep-ok: the schedule point login + OFFSET is the measurement's own clock, not a state to wait on
   if ((wait > 0)); then sleep "$wait"; else echo "LB-LATE reboot=$REBOOT arm=$ARM what=$2 target_s=$1 s_since_login=$(since)"; fi
 }
 
@@ -221,6 +227,24 @@ read_all() {
       /maximum resident set size/ { rss = $1 }
       END { printf "wall_ms=%d cpu_ms=%d maxrss=%s", wall + 0.5, cpu + 0.5, (rss == "" ? "null" : rss) }' <<<"$out")"
   done
+}
+
+# Measure the shipped reader, including startup and background-priority setup, with no cap overrides.
+# Keep stdout apart from time's stderr: the reader emits its bytes/stop reason as JSON.
+read_preread() {
+  local reader="$APP/Contents/Resources/bin/cmux-launch-preread" out rc report
+  [[ -x "$reader" ]] || fail "no bundled cmux-launch-preread; use a build carrying the Warm at Login reader"
+  report="$ROOT/preread-$REBOOT.json"
+  out="$("$TIME_BIN" -l "$reader" 2>&1 >"$report")"; rc=$?
+  # Redirect time's diagnostics independently from the reader's JSON.
+  echo "LB-PREREAD-REPORT reboot=$REBOOT arm=$ARM $(cat "$report")"
+  [[ $rc == 0 ]] || fail "cmux-launch-preread exited $rc"
+  [[ -s "$report" ]] || fail "cmux-launch-preread emitted no report"
+  echo "LB-PREREAD reboot=$REBOOT arm=$ARM s_since_login=$(since) $(awk '
+    / real / { wall = $1 * 1000; cpu = ($3 + $5) * 1000; timed = 1 }
+    /maximum resident set size/ { rss = $1 }
+    END { printf "wall_ms=%s cpu_ms=%s maxrss=%s", (timed ? wall : "null"),
+      (timed ? cpu : "null"), (rss == "" ? "null" : rss) }' <<<"$out")"
 }
 
 # resident_all T: each binary's resident fraction (launch-premain's mincore reader, which faults nothing in).

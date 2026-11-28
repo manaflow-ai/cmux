@@ -3,7 +3,7 @@ public import CmuxNextDesign
 public import Foundation
 
 /// Everything under `notifications` in cmux.json that the app applies.
-public nonisolated struct NotificationPreferences: Hashable, Sendable {
+public nonisolated struct NotificationPreferences: Hashable, Sendable, Codable {
     /// `focus`, as in cmux classic: attention is one on/off state per pane, cleared when the pane is
     /// selected, including by entering its workspace, and an event on the pane the person looks at
     /// sets none (https://github.com/manaflow-ai/cmux/issues/25662). Under `click` (2026-10-20) a
@@ -26,6 +26,8 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     public var dockBounce: DockBounceMode = Self.dockBounceDefault
     /// `notifications.showPreviews`: when a banner shows the agent's last message.
     public var showPreviews: NotificationPreviews = Self.showPreviewsDefault
+    /// `notifications.toast.style`: the style of every toast while none is picked in the Toast Playground (a theme hook).
+    public var toastStyle: CmuxToastStyle = Self.toastStyleDefault
     /// Workspace ids whose notifications post no banner, sound or ring.
     public var mutedWorkspaces = Set(Self.mutedWorkspacesDefault)
     public var sources: [NotificationSource: NotificationSourceOverrides] = [:]

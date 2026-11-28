@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// or a shell receives the picture as a file. Images of any size are saved:
 /// attachments have no size cap.
 extension TerminalPasteboard {
-    static let imageFilenamePrefix = "clipboard-"
+    static let imageFilenamePrefix = TerminalPastedImageFile.filenamePrefix
 
     /// Directory for pasted images; one per user, under the temp directory.
     static var imageDirectory: URL {
@@ -43,18 +43,31 @@ extension TerminalPasteboard {
     }
 
     /// Writes the pasteboard's image, whatever its size, to `directory`. Nil
-    /// without an image or when the write fails.
+    /// without an image or when the write fails. Blocks on the disk: callers on
+    /// the main thread use ``TerminalPastedImageFile/write(_:fileExtension:directory:)``
+    /// from a detached task instead.
     static func saveImage(from contents: TerminalPasteboardContents, directory: URL = imageDirectory) -> URL? {
         guard let image = imageData(from: contents) else { return nil }
+        return TerminalPastedImageFile.write(image.data, fileExtension: image.fileExtension, directory: directory)
+    }
+}
+
+/// The disk write of a pasted image, free of main-actor state so a detached task can run it:
+/// a synchronous write on the main thread stalls it while the disk does.
+nonisolated enum TerminalPastedImageFile {
+    static let filenamePrefix = "clipboard-"
+
+    /// Writes `data` to a new file under `directory`: nil when the write fails.
+    static func write(_ data: Data, fileExtension: String, directory: URL) -> URL? {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        let name = "\(imageFilenamePrefix)\(formatter.string(from: Date()))-\(UUID().uuidString.prefix(8)).\(image.fileExtension)"
+        let name = "\(filenamePrefix)\(formatter.string(from: Date()))-\(UUID().uuidString.prefix(8)).\(fileExtension)"
         let url = directory.appendingPathComponent(name)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
-            try image.data.write(to: url, options: .atomic)
+            try data.write(to: url, options: .atomic)
         } catch {
             try? FileManager.default.removeItem(at: url)
             return nil

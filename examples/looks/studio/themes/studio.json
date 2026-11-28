@@ -1,0 +1,30 @@
+// Studio: a pure black sidebar beside a near-black chat, white-at-8% hairlines, one bright blue
+// for the send button and links, and nothing else in color.
+{
+  "name": "Studio",
+  "description": "Dark: a black sidebar, a near-black chat, one bright blue.",
+
+  "appearance.theme": "Builtin Dark",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#0b0b0b", "foreground": "#f5f5f5", "selection": "#767676", "accent": "#346bf1" },
+  "appearance.accent": "neutral",
+  // Pending cmux#46516: the selected sidebar row is a gray card, as in the reference; Send and links
+  // keep the accent.
+  // "appearance.selection": "neutral",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#000000",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#0b0b0b",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot",
+
+  "appearance.density": "comfortable"
+}

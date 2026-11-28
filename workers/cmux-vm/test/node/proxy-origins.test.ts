@@ -31,6 +31,16 @@ it("lets staging's machines keep the development and staging API and carrier rel
   ]));
 });
 
+// A gateway-mode team's coderouter.cmux.internal rule targets its platform's CLOUD_INFERENCE_GATEWAY_HOST, and a create
+// whose proxy destination is not listed is refused (src/proofs/vm-network.ts): staging's is the inference edge.
+it("lets staging's gateway-mode machines reach each platform's inference gateway host", () => {
+  expect(originsOf("staging")).toEqual(expect.arrayContaining([
+    "https://cmux-platform-development.debussy.workers.dev",
+    "https://cmux-inference-edge-staging.debussy.workers.dev",
+  ]));
+  expect(originsOf("production")).toContain("https://cmux-platform-production.debussy.workers.dev");
+});
+
 it("lets production's machines keep the production API and carrier relay, and only production's", () => {
   const origins = originsOf("production");
   expect(origins).toEqual(expect.arrayContaining([
@@ -38,4 +48,12 @@ it("lets production's machines keep the production API and carrier relay, and on
     "https://cmux-remote-relay-production.debussy.workers.dev",
   ]));
   expect(origins.filter((o) => /development|staging/u.test(o))).toEqual([]);
+});
+
+// The platform edge rule (cmux-platform PlatformEdge.ts) names each platform's edge host as its destination, and a
+// create whose proxy destination is not listed is refused: every edge team's create answered 400 after
+// cmux-platform#2370 moved the destination to these custom domains (production, 2026-11-27 10:29Z).
+it("lets edge teams' machines reach each platform's edge host", () => {
+  expect(originsOf("staging")).toContain("https://platform-edge-dev.cmux.dev");
+  expect(originsOf("production")).toContain("https://platform-edge.cmux.dev");
 });

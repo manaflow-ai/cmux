@@ -283,6 +283,11 @@ INIT_SUBMODULE_PATHS = {
 }
 
 
+GIT_GLOBAL_OPTIONS_WITH_VALUES = frozenset({"-C", "-c"})
+# `git submodule`, or with global options between: `git -C "$src" submodule`.
+GIT_SUBMODULE = re.compile(r"\bgit\b[^\n;&|]*\bsubmodule\b")
+
+
 def _is_ghostty_init(words: list[str]) -> bool:
     # scripts/ci/init-submodule.sh runs `git submodule update --init --depth 1`
     # with bounded retries, directly or through bash.
@@ -293,9 +298,16 @@ def _is_ghostty_init(words: list[str]) -> bool:
         and script_words[1] in GHOSTTY_SUBMODULES
     ):
         return True
+    if not words or _command_name(words[0]) != "git":
+        return False
+    # `git -C DIR submodule update ...` (auto-journey.yml inits a worktree's submodules this way):
+    # git's global options come before the subcommand.
+    index = 1
+    while index < len(words) and words[index] in GIT_GLOBAL_OPTIONS_WITH_VALUES:
+        index += 2
+    words = [words[0], *words[index:]]
     return (
         len(words) >= 4
-        and _command_name(words[0]) == "git"
         and words[1:3] == ["submodule", "update"]
         and "--init" in words[3:]
         and bool(GHOSTTY_SUBMODULES & set(words[3:]))
@@ -449,11 +461,29 @@ class _ExecutionAnalyzer:
             )
 
 
+def _line_init_events(script: str, step_line: int) -> list[RunEvent]:
+    events: list[RunEvent] = []
+    for offset, line in enumerate(script.splitlines()):
+        if GIT_SUBMODULE.search(line) is None and INIT_SUBMODULE_SCRIPT not in line:
+            continue
+        try:
+            roots = bashlex.parse(line)
+        except (bashlex.errors.ParsingError, NotImplementedError):
+            continue
+        analyzer = _ExecutionAnalyzer(line, step_line + offset)
+        events.extend(
+            event
+            for event in analyzer.analyze(roots, failure_propagates=True)
+            if event.kind == "init"
+        )
+    return events
+
+
 def _run_events(
     script: str, step_line: int, *, failure_propagates: bool = True,
 ) -> tuple[list[RunEvent], str | None]:
     if not any(name in script for name in CONSUMER_NAMES) and (
-        ("git submodule" not in script and INIT_SUBMODULE_SCRIPT not in script)
+        (GIT_SUBMODULE.search(script) is None and INIT_SUBMODULE_SCRIPT not in script)
         or "ghostty" not in script
     ):
         return [], None
@@ -463,9 +493,11 @@ def _run_events(
         roots = bashlex.parse(normalized)
     except (bashlex.errors.ParsingError, NotImplementedError) as error:
         # A step that names no Zig consumer can only add an init. Skipping it can
-        # report a consumer as uninitialized, never hide one, so it is not a failure.
+        # report a consumer as uninitialized, never hide one, so it is not a failure;
+        # its inits are still read line by line, since bashlex rejects some valid bash
+        # (`"$(a || b)"` inside double quotes) on lines other than the init's.
         if not any(name in script for name in CONSUMER_NAMES):
-            return [], None
+            return _line_init_events(normalized, step_line), None
         return [], str(error)
 
     analyzer = _ExecutionAnalyzer(normalized, step_line)

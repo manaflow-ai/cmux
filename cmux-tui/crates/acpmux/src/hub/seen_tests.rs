@@ -237,7 +237,7 @@ async fn coming_back_from_idle_mid_turn_counts_what_the_running_turn_wrote() {
     hub.attach_count(&s, 1, true);
     let last_input = s.seq.load(Ordering::SeqCst);
     hub.look_changed(&s, Look::Attending, Look::Idle, Some(last_input));
-    hub.set_status(&s, SessionStatus::Running);
+    hub.set_status(&s, NotWaiting::Running);
     hub.append(&s, "mux", "note", json!({"seen": false}));
     let back = hub.look_changed(&s, Look::Idle, Look::Attending, None);
     assert_eq!(back.map(|b| b.since), Some(last_input), "the output written while away is new");
@@ -359,4 +359,66 @@ async fn the_cursor_survives_a_restart_of_the_daemon() {
     assert_eq!(restarted.read_through(&s, OWNER_READER), Some(seen));
     assert_eq!(restarted.read_through(&s, ALICE), Some(seen - 1));
     restarted.shutdown_all().await;
+}
+
+/// An idle daemon writes nothing (idle-gpu-disk): a seen cursor set to where it is, read state
+/// set to what it is, saves nothing (each metadata commit bumps the chat's `summary_gen`).
+#[tokio::test]
+async fn seen_state_set_to_what_it_is_saves_once() {
+    let (hub, s) = chat().await;
+    let end = notes(&hub, &s, 3);
+    let saves = || s.summary_gen.load(Ordering::SeqCst);
+    let before = saves();
+    assert_eq!(hub.mark_read_through(&s, OWNER_READER, end), end);
+    assert!(saves() > before, "the first move saves");
+    let before = saves();
+    assert_eq!(hub.mark_read_through(&s, OWNER_READER, end), end);
+    assert_eq!(hub.mark_read_back(&s, OWNER_READER, end), end);
+    assert_eq!(saves(), before, "the cursor set where it is saved");
+
+    hub.mark_unread_answered(&s).expect("marked unread");
+    let (before, seq) = (saves(), s.seq.load(Ordering::SeqCst));
+    hub.mark_unread_answered(&s).expect("still unread");
+    assert_eq!((saves(), s.seq.load(Ordering::SeqCst)), (before, seq), "unread again wrote");
+    hub.mark_read_answered(&s).expect("marked read");
+    let (before, seq) = (saves(), s.seq.load(Ordering::SeqCst));
+    hub.mark_read_answered(&s).expect("still read");
+    assert_eq!((saves(), s.seq.load(Ordering::SeqCst)), (before, seq), "read again wrote");
+}
+
+/// Only a person's client showing the chat, or letting go of it, starts its idle period again
+/// (`idle.rs`): an agent reading it, a peer's link, a hidden hold and the bookkeeping records a
+/// look or a restart writes do not. Every look gave a finished chat's harness a full period
+/// again, so chats other agents read kept their harnesses up for good.
+#[tokio::test]
+async fn only_a_person_showing_the_chat_restarts_its_idle_period() {
+    let (hub, s) = chat().await;
+    hub.append(&s, "mux", "note", json!({"turn": "ended"}));
+    hub.mark_unread_unless_work_below(&s);
+    let idle_since = |v: u64| s.last_active.store(v, Ordering::SeqCst);
+    let held = || s.last_active.load(Ordering::SeqCst);
+    idle_since(1);
+
+    // An agent's look: it marks the chat read (a `status` read record) and lets go.
+    hub.attach_count_from(&s, 1, true, false);
+    assert!(last_read(&hub, &s).is_some(), "the look still marks the chat read");
+    hub.attach_count_from(&s, -1, true, false);
+    // A hidden hold (a peer's link), a person's included.
+    hub.attach_count_from(&s, 1, false, true);
+    hub.attach_count_from(&s, -1, false, true);
+    // A restarted daemon taking its host back, and what the harness spent.
+    hub.append(&s, "mux", "host_adopted", json!({"hostPid": 1}));
+    hub.append(&s, "mux", crate::hub::usage_view::RECORD_KIND, json!({}));
+    assert_eq!(held(), 1, "no look and no bookkeeping restarts the idle period");
+
+    // A person showing it does, and so does letting go of it.
+    hub.attach_count(&s, 1, true);
+    assert!(held() > 1, "a person arriving restarts it");
+    idle_since(1);
+    hub.attach_count(&s, -1, true);
+    assert!(held() > 1, "a person letting go restarts it");
+    // So does anything the chat itself logs, a status change included.
+    idle_since(1);
+    hub.append(&s, "mux", "status", json!({"status": "ready"}));
+    assert!(held() > 1, "a record of its own restarts it");
 }

@@ -1,16 +1,26 @@
+import { intl } from "./intl";
+// Whether the engine has a segmenter is read as the module loads; the segmenter itself is made later.
+const hasSegmenter = typeof Intl !== "undefined" && typeof Intl.Segmenter === "function";
+
 function makeSegmenter(): Intl.Segmenter | undefined {
   try {
-    return typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
-      ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
-      : undefined;
+    return hasSegmenter ? intl.Segmenter(undefined, { granularity: "grapheme" }) : undefined;
   } catch {
     return undefined;
   }
 }
 
-const segmenter = makeSegmenter();
+// Made on the first initials, not while the pane's modules evaluate ahead of its handshake: the
+// first grapheme segmenter a page makes loads the engine's break data, the agent pane's largest
+// single cost in module evaluation (scripts/measure/pane-handshake-eval.mjs --profile).
+let segmenter: Intl.Segmenter | undefined;
+let made = false;
 
 function* characters(text: string): IterableIterator<string> {
+  if (!made) {
+    made = true;
+    segmenter = makeSegmenter();
+  }
   if (segmenter) {
     for (const part of segmenter.segment(text)) yield part.segment;
   } else {

@@ -87,6 +87,13 @@ impl Hub {
                         "cwd": cwd, "error": format!("{result:?}")
                     }),
                 );
+                // Only a git that ran out of time (`subsession_worktree.rs` `output_by`) may do
+                // better on the next try; a missing repository, a branch and commit that are gone
+                // or a refused `worktree add` answer the same until the folder or its record
+                // changes, so retries until then cost one stat (`worktree_care.rs` `gone`).
+                if !matches!(&result, Ok(Err(why)) if why.contains("in time")) {
+                    super::gone::mark(&cwd, &meta.worktree, NOT_RECREATED);
+                }
             }
         }
         Err(folder_missing(&meta))
@@ -112,17 +119,11 @@ impl Hub {
     }
 }
 
+const NOT_RECREATED: &str =
+    "could not be recreated, so its agent cannot start until the worktree is back";
+
 fn folder_missing(meta: &crate::store::SessionMeta) -> RpcError {
-    RpcError::internal(format!(
-        "session.folder_missing: the folder of {} ({}) could not be recreated; retry after the worktree is back",
-        meta.name,
-        meta.cwd.display()
-    ))
-    .with_data(json!({
-        "reason": "session.folder_missing",
-        "folder": meta.cwd,
-        "retryable": true,
-    }))
+    super::folder_missing(&meta.name, &meta.cwd, NOT_RECREATED)
 }
 
 fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {

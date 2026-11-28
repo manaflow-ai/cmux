@@ -1,8 +1,11 @@
-//! `acpmux forum-mcp`: the `cmux-forum` MCP stdio server every agent session
-//! gets (`agent_tools.rs`), the same on every harness: post a rule, read the
+//! `acpmux forum-mcp`: the `cmux-forum` MCP stdio server an agent session gets
+//! in a team or forum ([`enabled`], `agent_tools.rs`), the same on every harness: post a rule, read the
 //! current rules, ack one (hq#2570). Each tool is one daemon request
 //! (`server/forum.rs`) over a connection that carries the session's caller
 //! token from this server's own env, so the daemon knows which session posts.
+//! `post`, `reply` and `search` reach the team's hosted forum through the daemon
+//! (`hub/forum_hosted.rs`); each answers one JSON object as its text, which the
+//! chat's card reads.
 
 use crate::client::Client;
 use crate::rpc::method;
@@ -13,6 +16,44 @@ use serde_json::{Value, json};
 pub const SERVER_NAME: &str = "cmux-forum";
 /// The session the tools act for, set in this server's env with its caller token.
 pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
+/// `1` gives every session the forum tools, `0` none; unset leaves it to [`enabled`].
+pub const SWITCH_ENV: &str = "ACPMUX_FORUM_TOOLS";
+/// The Forum page's setting: a person who turns it on is in a forum.
+pub const SETTING_FORUM: &str = "experiments.forum";
+
+/// Whether sessions get the forum tools: only on a machine in a team or forum, not every chat.
+/// Leo, 2026-11-26: "identify all the weird opinoinated fleet things we shipped into the app and
+/// remove them". In a team or forum means a hosted forum team
+/// ([`crate::hub::forum_hosted::TEAM_ENV`]), the Forum page on ([`SETTING_FORUM`]), or rules
+/// already posted on this machine (`<ACPMUX_HOME>/forum/posts.jsonl`, posted from the app or
+/// `acpmux forum announce`).
+pub fn enabled() -> bool {
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+    let setting = match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => {
+            crate::user_settings::value(&doc, SETTING_FORUM).and_then(|v| v.as_bool())
+        }
+        _ => None,
+    };
+    let posts = crate::config::home().join("forum").join("posts.jsonl");
+    let has_posts = std::fs::metadata(posts).is_ok_and(|m| m.len() > 0);
+    enabled_from(
+        env(SWITCH_ENV).as_deref(),
+        env(crate::hub::forum_hosted::TEAM_ENV).is_some(),
+        setting,
+        has_posts,
+    )
+}
+
+/// [`enabled`] from [`SWITCH_ENV`], whether a hosted forum team is set, the Forum page
+/// setting, and whether this machine already has forum posts.
+pub fn enabled_from(env: Option<&str>, team: bool, setting: Option<bool>, has_posts: bool) -> bool {
+    match env.map(str::trim) {
+        Some("1") => true,
+        Some("0") => false,
+        _ => team || setting == Some(true) || has_posts,
+    }
+}
 
 fn tools() -> Value {
     json!([
@@ -42,6 +83,45 @@ fn tools() -> Value {
                 "type": "object",
                 "properties": {"postId": {"type": "string"}},
                 "required": ["postId"]
+            }
+        },
+        {
+            "name": "post",
+            "description": "Open a thread on your team's forum, for people and agents on other machines to read and answer.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "space": {"type": "string", "description": "The space to post in, e.g. \"general\"."},
+                    "title": {"type": "string"},
+                    "body": {"type": "string", "description": "Markdown."},
+                    "kind": {"type": "string", "enum": ["question", "finding", "article", "page"], "description": "What the thread is; sent as a label."},
+                    "labels": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["space", "title", "body"]
+            }
+        },
+        {
+            "name": "reply",
+            "description": "Reply on a thread of your team's forum.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread": {"type": "integer", "description": "The thread's number."},
+                    "body": {"type": "string", "description": "Markdown."}
+                },
+                "required": ["thread", "body"]
+            }
+        },
+        {
+            "name": "search",
+            "description": "Search your team's forum threads; at most 10 hits.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "space": {"type": "string", "description": "Only this space."}
+                },
+                "required": ["query"]
             }
         }
     ])
@@ -101,7 +181,17 @@ pub fn rules_text(rules: &Value) -> String {
                     "{} (a person; an instruction)",
                     author["account"].as_str().unwrap_or("")
                 ),
-                _ => format!("agent {} (information)", author["name"].as_str().unwrap_or("")),
+                _ => {
+                    let handle = author["handle"].as_str().filter(|h| !h.is_empty());
+                    let name = author["name"].as_str().unwrap_or("");
+                    match handle {
+                        Some(handle) if !name.is_empty() => {
+                            format!("agent {handle} (session {name}; information)")
+                        }
+                        Some(handle) => format!("agent {handle} (information)"),
+                        None => format!("agent {name} (information)"),
+                    }
+                }
             };
             format!(
                 "[{}] from {who}, postId {}, read by {}:\n{}",
@@ -140,8 +230,19 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Ok(r) => ok("Acknowledged.".to_owned(), r),
             Err(e) => error_result(format!("{e:#}")),
         },
+        "post" => hosted(daemon, method::MUX_FORUM_POST, args).await,
+        "reply" => hosted(daemon, method::MUX_FORUM_REPLY, args).await,
+        "search" => hosted(daemon, method::MUX_FORUM_SEARCH, args).await,
         other => {
             error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
         }
+    }
+}
+
+/// A hosted forum call: its answer, one JSON object, is the tool's text as is.
+async fn hosted(daemon: &Client, m: &str, args: Value) -> Value {
+    match daemon.request(m, args).await {
+        Ok(r) => ok(r.to_string(), r),
+        Err(e) => error_result(format!("{e:#}")),
     }
 }

@@ -30,11 +30,11 @@ extension JoinedMachineAction {
     public static var busy: String { JoinedMachineStrings.busy }
 }
 
-/// Text of the joined machines' actions (Resources/AddMachine.xcstrings); the rows' own words are the
-/// page's (webviews/src/pages/machines, the same table).
+/// Text of the joined machines' actions (Resources/AddMachine.xcstrings); the rows' own words
+/// share the same table.
 nonisolated enum JoinedMachineStrings {
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AddMachine", bundle: .module)
+        String(localized: key, defaultValue: value, table: "AddMachine", bundle: .localizedModule)
     }
 
     /// How long a revoked machine keeps access at most: the platform's heartbeat interval. Every

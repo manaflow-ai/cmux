@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import type { PageClient, PageHandler } from "../../pages/shared/pageClient";
 import { pageError } from "../../pages/shared/pageClient";
-import { AppPanelsClient, bundleAssetURL, type AppPanel, type SceneEvent } from "./panelsClient";
+import { AppPanelsClient, bundleAssetURL, sceneRevision, type AppPanel, type SceneEvent } from "./panelsClient";
 import { MOCK_APP_PANELS, MockAppPanelsClient } from "./panelsMock";
+import { VISIBLE_SLICE_OP, VisibleSliceInput } from "../../ui/visibleSlice";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -36,6 +37,10 @@ class Host implements PageClient {
   changedStopped = 0;
   scene?: (event: SceneEvent, seq: number) => void;
   changed?: () => void;
+  /** Whether this host has the visible slice stream (a host before it answers unknown_op). */
+  slices = false;
+  slice?: (event: unknown, seq: number) => void;
+  sliceFilter?: unknown;
   async call<R>(op: string, params: unknown): Promise<R> {
     this.calls.push({ op, params });
     if (op === "cmux.apps.panels.list")
@@ -51,6 +56,12 @@ class Host implements PageClient {
     if (stream === "cmux.apps.panels.changed") {
       this.changed = () => callback(undefined as E, 1);
       return this.changedReady;
+    }
+    if (stream === VISIBLE_SLICE_OP) {
+      if (!this.slices) throw pageError("cmux.protocol.unknown_op", stream);
+      this.slice = callback as (event: unknown, seq: number) => void;
+      this.sliceFilter = filter;
+      return () => (this.slice = undefined);
     }
     expect(filter).toEqual({ mount_id: "mount-a" });
     this.scene = callback as (event: SceneEvent, seq: number) => void;
@@ -386,4 +397,162 @@ test("a height measured before the mount answers reaches the host once it does",
     { mount_id: "mount-a", height: 40 },
   ]);
   owner.stop();
+});
+
+/** A host with the visible slice stream, its one panel mounted and subscribed. `batch` sends a scene batch
+ * with the given `revision` (none: an unrevisioned batch, as a host before revisions sends). */
+async function slicedPanel() {
+  const host = new Host();
+  host.slices = true;
+  const owner = new AppPanelsClient(host, CONTEXT);
+  owner.start();
+  await settled();
+  await settled();
+  await settled();
+  const mounted = owner.getSnapshot()[0]!;
+  const batch = (title: string, revision?: unknown, reset = false) =>
+    host.scene?.(
+      {
+        mount_id: "mount-a",
+        ops: [
+          { op: "create", id: title, type: "Text", props: { text: title } },
+          { op: "root", id: title },
+        ],
+        ...(reset && { reset }),
+        ...(revision !== undefined && { revision }),
+      } as SceneEvent,
+      1,
+    );
+  const send = (event: Record<string, unknown>) =>
+    host.slice?.({ surface: "mount-a", revision: 1, top: 0, height: 400, ...event }, 1);
+  return { host, owner, slice: () => mounted.visibleSlice!.get(), batch, send };
+}
+
+test("the visible slice stream is subscribed with the mount as its surface", async () => {
+  const { host, owner } = await slicedPanel();
+  expect(host.slice).toBeDefined();
+  expect(host.sliceFilter).toEqual({ surface: "mount-a" });
+  owner.stop();
+  expect(host.slice).toBeUndefined();
+});
+
+test("a slice for another surface, or with none, is ignored", async () => {
+  const { owner, batch, send, slice } = await slicedPanel();
+  batch("first", 1);
+  send({ surface: "mount-b" });
+  send({ surface: undefined });
+  send({ surface: 7 });
+  expect(slice()).toBeNull();
+  send({});
+  expect(slice()).toEqual({ revision: 1, top: 0, height: 400 });
+  owner.stop();
+});
+
+test("a slice applies to the scene whose revision the batch event gave, not to a count of batches", async () => {
+  const { owner, batch, send, slice } = await slicedPanel();
+  // The first batch this page sees is the host's revision 5 (the host counts, not the page).
+  batch("first", 5);
+  send({ revision: 1, top: 100 });
+  expect(slice()).toBeNull();
+  send({ revision: 5, top: 100 });
+  expect(slice()).toEqual({ revision: 5, top: 100, height: 400 });
+  owner.stop();
+});
+
+test("a slice for a scene revision older than the drawn one is ignored", async () => {
+  const { owner, batch, send, slice } = await slicedPanel();
+  batch("first", 1);
+  send({ revision: 1, top: 100 });
+  batch("second", 2);
+  // The held slice stays until the host's next; one measured against revision 1 no longer applies.
+  send({ revision: 1, top: 900 });
+  expect(slice()).toEqual({ revision: 1, top: 100, height: 400 });
+  send({ revision: 2, top: 200 });
+  expect(slice()).toEqual({ revision: 2, top: 200, height: 400 });
+  send({ revision: 1, top: 300 });
+  expect(slice()?.top).toBe(200);
+  owner.stop();
+});
+
+test("a gap in the scene's revisions (a dropped batch) never puts an old slice on a newer scene", async () => {
+  const { owner, batch, send, slice } = await slicedPanel();
+  batch("first", 1);
+  // Measured against revision 2, whose batch this page never got: revision 3 arrives next.
+  send({ revision: 2, top: 500 });
+  batch("third", 3);
+  expect(slice()).toBeNull();
+  send({ revision: 2, top: 600 });
+  expect(slice()).toBeNull();
+  send({ revision: 3, top: 700 });
+  expect(slice()).toEqual({ revision: 3, top: 700, height: 400 });
+  owner.stop();
+});
+
+test("a slice that arrives before the first scene windows it only when the revisions match", async () => {
+  const early = await slicedPanel();
+  early.send({ revision: 1, top: 500 });
+  expect(early.slice()).toBeNull();
+  early.batch("first", 1);
+  expect(early.slice()).toEqual({ revision: 1, top: 500, height: 400 });
+  early.owner.stop();
+
+  const ahead = await slicedPanel();
+  ahead.send({ revision: 2, top: 500 });
+  ahead.batch("first", 1);
+  expect(ahead.slice()).toBeNull();
+  ahead.batch("second", 2);
+  expect(ahead.slice()).toEqual({ revision: 2, top: 500, height: 400 });
+  ahead.owner.stop();
+});
+
+test("an unrevisioned scene batch takes no slice", async () => {
+  const { owner, batch, send, slice } = await slicedPanel();
+  batch("old host");
+  send({ revision: 1 });
+  expect(slice()).toBeNull();
+  // Not a revision: zero, fractional, a string, non-finite.
+  for (const revision of [0, 1.5, "1", Number.POSITIVE_INFINITY, -1]) {
+    batch("bad", revision);
+    send({ revision: 1 });
+    expect(slice()).toBeNull();
+  }
+  // A revisioned batch after a shown slice, then an unrevisioned one: the slice no longer applies.
+  batch("revisioned", 4);
+  send({ revision: 4 });
+  expect(slice()?.revision).toBe(4);
+  batch("unrevisioned");
+  expect(slice()).toBeNull();
+  owner.stop();
+});
+
+test("after a re-subscribe that replays revision 7, a slice naming 7 applies", async () => {
+  const { owner, batch, send, slice } = await slicedPanel();
+  batch("first", 1);
+  batch("second", 2);
+  send({ revision: 2, top: 100 });
+  // The host re-subscribes the mount and replays its current scene, revision 7 (no restart at 1).
+  batch("replay", 7, true);
+  send({ revision: 1, top: 300 });
+  expect(slice()?.revision).toBe(2);
+  send({ revision: 7, top: 400 });
+  expect(slice()).toEqual({ revision: 7, top: 400, height: 400 });
+  owner.stop();
+});
+
+test("sceneRevision reads a finite integer of at least 1, else none", () => {
+  expect(sceneRevision(1)).toBe(1);
+  expect(sceneRevision(42)).toBe(42);
+  for (const value of [0, -3, 2.5, Number.NaN, Number.POSITIVE_INFINITY, "3", null, undefined])
+    expect(sceneRevision(value)).toBeNull();
+});
+
+test("a waiting slice whose revision the drawn content skips is dropped, never applied to a newer one", () => {
+  const input = new VisibleSliceInput();
+  input.setDrawn(1);
+  input.show({ revision: 3, top: 500, height: 400 });
+  // Content jumps from 1 to 4: revision 3 was never drawn.
+  input.setDrawn(4);
+  expect(input.get()).toBeNull();
+  input.show({ revision: 4, top: 600, height: 400 });
+  expect(input.get()).toEqual({ revision: 4, top: 600, height: 400 });
 });

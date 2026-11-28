@@ -2,7 +2,8 @@
 //! terminal runs. It shows the chat's running turn as plain text (as `acpmux attach --plain`),
 //! asks the daemon to hand the conversation over (`_acpmux/release_to_watch`, answered once the
 //! chat is idle: the turn is never cut off), then becomes the harness's own resume command in
-//! this terminal. The chat goes on as a watch of this terminal's transcript.
+//! this terminal. The chat goes on as a watch of this terminal's transcript, and what is sent from
+//! it goes into this terminal's harness (`hub/bridge.rs`): two live views of one session.
 
 use crate::client::Client;
 use crate::rpc::method;
@@ -57,7 +58,14 @@ impl Resume {
 pub async fn run(client: Arc<Client>, key: &str, print: bool, json_out: bool) -> Result<()> {
     let id = crate::cli::run::resolve_id(&client, key).await?;
     // The turn shows while it runs; the release answers once it ended.
-    let release = client.request(method::MUX_RELEASE_TO_WATCH, json!({"sessionId": id}));
+    // This process becomes the harness (`exec`, same pid): the chat's prompts go into it while it
+    // runs (`hub/bridge.rs`). `--print` runs nothing here, so it names no process.
+    let params = if print {
+        json!({"sessionId": id})
+    } else {
+        json!({"sessionId": id, "terminalPid": std::process::id()})
+    };
+    let release = client.request(method::MUX_RELEASE_TO_WATCH, params);
     let answer = if print {
         release.await
     } else {
@@ -111,17 +119,5 @@ fn exec(resume: &Resume) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_answer_becomes_the_harness_command() {
-        let answer = json!({"resume": {"argv": ["claude", "--resume", "a b"], "cwd": "/tmp",
-            "env": {"CLAUDE_CONFIG_DIR": "/h/.claude"}}});
-        let r = Resume::from_answer(&answer).unwrap();
-        assert_eq!(r.argv, ["claude", "--resume", "a b"]);
-        assert_eq!(r.cwd.as_deref(), Some("/tmp"));
-        assert_eq!(r.line(), "CLAUDE_CONFIG_DIR=/h/.claude claude --resume 'a b'");
-        assert!(Resume::from_answer(&json!({"resume": {"argv": []}})).is_err());
-    }
-}
+#[path = "resume_here_tests.rs"]
+mod tests;

@@ -7,15 +7,15 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
-import {
-  DEFAULT_NEW_TAB_TEMPLATE,
-  PAGE_STYLES,
-  shownTemplate,
-  type ScreenTemplate,
-} from "../src/agent-session/acpmux/newtab/templates";
+import type { ScreenTemplate } from "../src/agent-session/acpmux/newtab/templates";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { manySessions, noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
+const { DEFAULT_NEW_TAB_TEMPLATE, PAGE_STYLES, shownTemplate } = await importWithDom(
+  () => import("../src/agent-session/acpmux/newtab/templates"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -106,10 +106,10 @@ const parts = () => ({
   strip: host.querySelectorAll(".acpmux-composer-strip").length,
 });
 
-test("Minimal is the default layout and the first dot; no other layout is gone", () => {
+test("Minimal is the default layout and the first dot; Classic is the other shipped one", () => {
   expect(DEFAULT_NEW_TAB_TEMPLATE).toBe("minimal");
   expect(shownTemplate({ layout: "b" })).toBe("minimal");
-  expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "threads", "console", "classic"]);
+  expect(PAGE_STYLES).toEqual(["minimal", "classic"]);
 });
 
 test("by default Minimal shows the composer without fixed create buttons", async () => {

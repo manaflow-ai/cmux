@@ -59,6 +59,11 @@ REGISTRY = """{"entries": [
 
 FILES = {
     ".github/workflows/cmux-next.yml": WORKFLOW,
+    ".github/workflows/cmux-tui-artifacts.yml": "name: cmux-tui artifacts\n",
+    ".github/workflows/cmux-tui-build-package.yml": "name: cmux-tui build package\n",
+    "scripts/cmux-next/cmux-tui-tree-inputs.txt": "tree cmux-tui\n",
+    "scripts/cmux-next/cmux-tui-build-profiles.json": "{}\n",
+    "cmux-tui/Cargo.lock": "# lock\n",
     "scripts/cmux-next/fast-tier.json": REGISTRY,
     "scripts/cmux-next/fast-tier.py": "print('tier')\n",
     "scripts/cmux-next/quarantine.json": '{"entries": []}\n',
@@ -85,6 +90,8 @@ TOOLCHAIN = {
         "macos_build": "25A362",
         "arch": "arm64",
         "pool": "owned",
+        # '' unless it checks the generated files on its build (then the base commit), as swift-test.
+        "generated_base": "",
     },
     "fast-tier-cargo": {
         "runner": "Linux-X64",
@@ -96,6 +103,7 @@ TOOLCHAIN = {
     },
 }
 JOBS = tuple(TOOLCHAIN)
+ARTIFACT_TOOLCHAIN = {"daemon_tests": "false", "include_windows": "false", "macos_runner": ""}
 
 
 def git(repo: Path, *args: str) -> str:
@@ -149,12 +157,18 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertTrue(key.startswith(f"job-pass-{job}-"), stderr[-2000:])
         return key
 
+    def artifact_key(self, **flags: str) -> str:
+        key, stderr = run("cmux-tui-artifacts", self.repo.root, {**ARTIFACT_TOOLCHAIN, **flags})
+        self.assertTrue(key.startswith("job-pass-cmux-tui-artifacts-"), stderr[-2000:])
+        return key
+
     def changes(self, job: str, name: str, text: str | None = None) -> bool:
         """Whether one edit to `name` (appending a line, or `text`) changes the job's key."""
-        before = self.key(job)
+        before = self.artifact_key() if job == "cmux-tui-artifacts" else self.key(job)
         self.repo.write(name, text if text is not None else (self.repo.root / name).read_text() + "// changed\n")
         self.repo.commit()
-        return before != self.key(job)
+        after = self.artifact_key() if job == "cmux-tui-artifacts" else self.key(job)
+        return before != after
 
     def test_the_same_inputs_give_the_same_key(self):
         for job in JOBS:
@@ -208,10 +222,21 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertNotEqual(base, self.key("fast-tier", macos="26.0.2"))
         self.assertNotEqual(base, self.key("fast-tier", macos_build="25A363"))
         self.assertNotEqual(base, self.key("fast-tier", arch="x86_64"))
+        self.assertNotEqual(base, self.key("fast-tier", generated_base="a" * 40))
 
     def test_a_handler_only_pass_cannot_stand_in_for_every_swift_suite(self):
         self.assertNotEqual(self.key("fast-tier", suite_scope="handlers"),
                             self.key("fast-tier", suite_scope="all"))
+
+    def test_cmux_tui_artifact_pass_keys_tree_and_mode_inputs(self):
+        base = self.artifact_key()
+        self.assertEqual(base, self.artifact_key())
+        self.assertNotEqual(base, self.artifact_key(daemon_tests="true"))
+        self.assertNotEqual(base, self.artifact_key(include_windows="true"))
+        self.assertNotEqual(base, self.artifact_key(macos_runner="macos-15"))
+        self.assertTrue(self.changes("cmux-tui-artifacts", "cmux-tui/Cargo.lock"))
+        self.assertTrue(self.changes("cmux-tui-artifacts", "scripts/cmux-next/cmux-tui-build-profiles.json"))
+        self.assertTrue(self.changes("cmux-tui-artifacts", ".github/workflows/cmux-tui-build-package.yml"))
 
     def test_the_runner_pool_counts(self):
         # Owned minis, Blacksmith and hosted Macs differ in settings such as Reduce Motion/Transparency.
@@ -273,7 +298,7 @@ class JobInputFingerprint(unittest.TestCase):
     def test_a_missing_or_empty_toolchain_value_gives_no_key(self):
         for job in JOBS:
             for name in TOOLCHAIN[job]:
-                for value in (None, "", "  "):
+                for value in (None, "", "  ") if name != "generated_base" else ():  # an env flag: '' is a value
                     with self.subTest(job=job, name=name, value=value):
                         key, stderr = self.repo.key(job, **{name: value})
                         self.assertEqual(key, "")
@@ -537,6 +562,74 @@ class MacJobInputs(unittest.TestCase):
                     args += ["--extra", f"{name}={value}"]
                 result = subprocess.run(args, capture_output=True, text=True, timeout=120)
                 self.assertIn(f"key=job-pass-{job}-", result.stdout, result.stderr[-2000:])
+
+
+class IosFastVerdictInputs(unittest.TestCase):
+    """ios-fast-verdict keys the ios-kit step's routed paths (ci/steps.toml at the rev), its own files and the plan."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        git(self.root, "init", "-q")
+        files = {
+            "ci/steps.toml": (ROOT / "ci/steps.toml").read_text(),
+            ".github/workflows/pr-pipeline.yml": "jobs: {}\n",
+            "scripts/ci/ios_fast_verdict.sh": "echo\n",
+            "cmux-next-ios/App/App.swift": "app\n",
+            "cmux-next-ios/verify/note.txt": "evidence\n",
+            "Packages/Shared/CmuxTheme/Sources/Theme.swift": "theme\n",
+            "Packages/macOS/Other/Sources/Other.swift": "mac only\n",
+            "cmux-next-ios/App/README.md": "prose\n",
+            "docs/readme.txt": "docs\n",
+        }
+        for name, text in files.items():
+            self.write(name, text)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, name: str, text: str) -> None:
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "--allow-empty", "-m", "c")
+
+    def key(self, plan: str = '{"app":true,"build":false,"tests":[]}', xcode_app: str = "") -> str:
+        key, stderr = run("ios-fast-verdict", self.root, {"plan": plan, "xcode_app": xcode_app})
+        self.assertTrue(key.startswith("job-pass-ios-fast-verdict-"), stderr[-2000:])
+        return key
+
+    def test_a_routed_ios_input_changes_the_key(self):
+        for name in ("cmux-next-ios/App/App.swift", "Packages/Shared/CmuxTheme/Sources/Theme.swift",
+                     "scripts/ci/ios_fast_verdict.sh", ".github/workflows/pr-pipeline.yml", "ci/steps.toml",
+                     "cmux-next-ios/App/New.swift"):
+            with self.subTest(name=name):
+                before = self.key()
+                current = self.root / name
+                self.write(name, (current.read_text() if current.exists() else "") + "# changed\n")
+                self.assertNotEqual(before, self.key())
+
+    def test_a_path_ios_kit_does_not_route_reuses_the_pass(self):
+        # A base move or push that touches nothing the iOS build reads keeps the key: that is the reuse.
+        for name in ("Packages/macOS/Other/Sources/Other.swift", "docs/readme.txt", "cmux-next-ios/verify/note.txt",
+                     "cmux-next-ios/App/README.md"):
+            with self.subTest(name=name):
+                before = self.key()
+                self.write(name, (self.root / name).read_text() + "changed\n")
+                self.assertEqual(before, self.key())
+
+    def test_the_plan_and_xcode_app_are_keyed(self):
+        base = self.key()
+        self.assertNotEqual(base, self.key(plan='{"app":false,"build":false,"tests":["CmuxThemeTests"]}'))
+        self.assertNotEqual(base, self.key(xcode_app="/Applications/Xcode-beta.app"))
+
+    def test_no_steps_table_is_no_key(self):
+        git(self.root, "rm", "-q", "ci/steps.toml")
+        git(self.root, "commit", "-q", "-m", "c")
+        key, stderr = run("ios-fast-verdict", self.root, {"plan": "{}", "xcode_app": ""})
+        self.assertEqual(key, "")
+        self.assertIn("No reuse for ios-fast-verdict", stderr)
 
 
 if __name__ == "__main__":

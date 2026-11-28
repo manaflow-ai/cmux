@@ -56,12 +56,32 @@ export const SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const;
 
 /**
  * The window's background (`appearance.background`, "Set Background…"): `none` is an opaque window,
- * the app's default; the others are synthetic pictures behind the window's glass, as the app draws
- * a picture the user picked (frame/background.ts): a light photo-like gradient, a dark one, and a
- * busy high-contrast one, the worst case for text.
+ * the app's default; the others are pictures behind the window's glass, as the app draws a picture
+ * the user picked (frame/background.ts): `painting`, a bundled public-domain painting, then
+ * synthetic ones: a light photo-like gradient, a dark one, and a busy high-contrast one, the worst
+ * case for text; then real photographs: a light one (snowy dunes), a dark one (a city at night) and a
+ * busy one (a market stall), as glass is judged over the photos people set.
  */
-export const BACKGROUNDS = ["none", "light", "dark", "busy"] as const;
+export const BACKGROUNDS = [
+  "painting",
+  "none",
+  "light",
+  "dark",
+  "busy",
+  "photo-light",
+  "photo-dark",
+  "photo-busy",
+] as const;
 export type GalleryBackground = (typeof BACKGROUNDS)[number];
+
+/**
+ * The background the gallery shell shows when its link names none: every preview opens over a
+ * painting, as most people's windows sit over a picture (Leo, 2026-10-20: "Give me like a good pretty
+ * painting to be putting as the placeholder"). `background=none` in the shell's link is the opaque
+ * window. A stage frame's own link (frame.html, the goldens and the browser tests) keeps absent as
+ * `none`; the shell always names its background in the frame's link (frameQuery).
+ */
+export const SHELL_DEFAULT_BACKGROUND: GalleryBackground = "painting";
 
 /**
  * The machine's load (frame/load.ts): `none` is an idle Mac, the app's best case; `busy` and
@@ -88,8 +108,9 @@ export type GalleryEnv = {
   /** `appearance.accent`: where the chrome's accent comes from; absent is neutral. Web only for
    * now (outside the shared vectors: the native gallery has no accent control yet). */
   accent?: AppAccent;
-  /** The picture behind the window (BACKGROUNDS); absent is `none`, an opaque window. Web only for
-   * now (outside the shared vectors: the native gallery has no background control yet). */
+  /** The picture behind the window (BACKGROUNDS); absent is `none`, an opaque window, in a stage
+   * frame's link, and SHELL_DEFAULT_BACKGROUND in the shell's. Web only for now (outside the shared
+   * vectors: the native gallery has no background control yet). */
   background?: GalleryBackground;
   /** The machine's load (LOADS); absent is `none`, an idle machine. Web only. */
   load?: GalleryLoad;
@@ -193,8 +214,7 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   if (accent !== "neutral" && (APP_ACCENTS as readonly string[]).includes(accent ?? ""))
     env.accent = accent as AppAccent;
   const background = params.get("background");
-  if (background !== "none" && (BACKGROUNDS as readonly string[]).includes(background ?? ""))
-    env.background = background as GalleryBackground;
+  if ((BACKGROUNDS as readonly string[]).includes(background ?? "")) env.background = background as GalleryBackground;
   const load = params.get("load");
   if (load !== "none" && (LOADS as readonly string[]).includes(load ?? "")) env.load = load as GalleryLoad;
   if (params.get("titleAreaTone") === "subtle-tone") env.titleAreaTone = "subtle-tone";
@@ -227,8 +247,13 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   return env;
 }
 
-/** The query for `env`, without the defaults. */
-export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSearchParams {
+/** The query for `env`, without the defaults. `background` is the background the link's reader
+ * takes when it names none: `none` for a stage frame, SHELL_DEFAULT_BACKGROUND for the shell. */
+export function writeEnv(
+  env: GalleryEnv,
+  params = new URLSearchParams(),
+  background: GalleryBackground = "none",
+): URLSearchParams {
   for (const key of KEYS) {
     params.delete(key);
     const value = env[key];
@@ -237,7 +262,7 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
       value === fallback ||
       value === undefined ||
       (key === "accent" && value === "neutral") ||
-      (key === "background" && value === "none") ||
+      (key === "background" && value === background) ||
       (key === "load" && value === "none") ||
       (key === "titleAreaTone" && value === "one-color")
     )
@@ -246,6 +271,16 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
   }
   return params;
 }
+
+/** The controls the shell's link names: as readEnv, and absent background is the painting. */
+export function readShellEnv(params: URLSearchParams): GalleryEnv {
+  const env = readEnv(params);
+  return { ...env, background: env.background ?? SHELL_DEFAULT_BACKGROUND };
+}
+
+/** The shell's link for `env`: as writeEnv, short over the painting and naming `background=none`. */
+export const writeShellEnv = (env: GalleryEnv, params?: URLSearchParams): URLSearchParams =>
+  writeEnv(env, params, SHELL_DEFAULT_BACKGROUND);
 
 /**
  * What a stage frame renders: one variant of one entry, under the controls. `tune` is the web

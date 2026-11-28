@@ -52,7 +52,7 @@ export interface FilesView {
   entries?: FsEntry[];
   loading: boolean;
   preview?: FilePreview;
-  /** The last push or pull was refused as busy (`transfer_busy`); Retry runs it again. */
+  /** The last push or pull was refused as busy (`transfer_busy`); Retry runs it again (retry-prompt-ok). */
   busy?: { direction: "push" | "pull"; path: string };
   /** This machine's daemon has no file ops yet (`cmux.cloud.unsupported`, capability `fs-v1`). */
   unavailable?: boolean;
@@ -128,7 +128,9 @@ export class FilesReader {
     try {
       const result = await this.client!.call<FsListResult>(CloudOps.fsList, { machine, path });
       if (generation !== this.generation || epoch !== this.host.epoch()) return;
-      this.update(machine, { path: result.path ?? path, entries: result.entries ?? [], loading: false });
+      // A relisting of the same folder keeps the entries that read the same, so only changed rows draw.
+      const entries = keepUnchanged(kept, result.entries ?? []);
+      this.update(machine, { path: result.path ?? path, entries, loading: false });
     } catch (error) {
       if (generation !== this.generation || epoch !== this.host.epoch()) return;
       // A daemon without file ops keeps no rows: "Not available yet", never a stale folder.
@@ -252,7 +254,11 @@ export class FilesReader {
     if (machine) await this.transfer(machine, "pull", path);
   }
 
-  /** Runs the push or pull that `transfer_busy` refused again (the host asks for the file again). */
+  /**
+   * Runs the push or pull that `transfer_busy` refused again (the host asks for the file again).
+   * retry-prompt-ok: not run on its own when a transfer ends, since it opens a native file panel the
+   * person did not just ask for; the busy line says when it can go.
+   */
   async retryTransfer(): Promise<void> {
     const machine = this.machine();
     const busy = this.host.get()?.files?.busy;
@@ -356,4 +362,19 @@ export class FilesReader {
     if (isUnsupported(error)) this.host.unsupported(op);
     else this.host.fail(error);
   }
+}
+
+/** `next`, with each entry that reads the same as one in `previous` (by name) kept as that object. */
+function keepUnchanged(previous: readonly FsEntry[] | undefined, next: FsEntry[]): FsEntry[] {
+  if (!previous?.length) return next;
+  const held = new Map(previous.map((entry) => [entry.path ?? entry.name, entry]));
+  return next.map((entry) => {
+    const old = held.get(entry.path ?? entry.name);
+    return old && sameEntry(old, entry) ? old : entry;
+  });
+}
+
+function sameEntry(a: FsEntry, b: FsEntry): boolean {
+  const keys = Object.keys(a) as (keyof FsEntry)[];
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
 }

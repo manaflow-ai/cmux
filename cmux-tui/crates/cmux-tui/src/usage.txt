@@ -54,10 +54,16 @@ START OPTIONS
                     config (issuer, machine, team, keyset). Off without it.
   --iroh            Publish an Iroh route for NAT traversal and mobile use.
   --advertise <url> Add a non-secret route hint to enrollment invitations.
+  --remote-local-socket <path>
+                    Let the owner's remote session open this local Unix socket
+                    (absolute path; repeatable). Off without it.
   --term <value>     TERM for child shells (default: keep the outer terminal's
                      xterm-ghostty, else xterm-256color).
   --terminal-reap-grace-seconds <seconds>
                      End a terminal with no tab after this long unless it is
                      kept (default: never; 0 ends it at once; at most 604800).
+  --freeing-idle-seconds <seconds>
+                     Turn the idle freeing timer on: park a terminal idle at its
+                     prompt with no client for this long (workspaces.freeing.*).
   -h, --help         Show this help.
   -V, --version      Print the cmux version.

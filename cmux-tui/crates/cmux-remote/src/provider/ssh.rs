@@ -18,6 +18,7 @@ use crate::provider::{
     sanitized_route,
 };
 use crate::ssh_args::background_ssh_arguments;
+use crate::ssh_control::{SshConnectionShare, SshTarget};
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 /// ssh's ConnectTimeout for a redial (any open after the first). Short, so a
@@ -68,6 +69,9 @@ pub struct SshProviderConfig {
     /// as one line, and an ended link's error carries it after
     /// [`SSH_STDERR_MARK`]. Off, ssh speaks to the person directly.
     pub capture_stderr: bool,
+    /// One authenticated connection per host, shared by the bootstrap and
+    /// every carrier link of this connect (issue 38157). Off by default.
+    pub connection_share: SshConnectionShare,
 }
 
 impl Default for SshProviderConfig {
@@ -82,6 +86,7 @@ impl Default for SshProviderConfig {
             maximum_frame_bytes: 65_535,
             agent_hooks: Vec::new(),
             capture_stderr: false,
+            connection_share: SshConnectionShare::disabled(),
         }
     }
 }
@@ -290,6 +295,7 @@ impl LinkGroup for SshLinkGroup {
                 kind: TransportPathKind::Direct,
                 remote: Some(self.description.clone()),
                 rtt_micros: None,
+                outer: None,
             }),
         }
     }
@@ -298,14 +304,26 @@ impl LinkGroup for SshLinkGroup {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
-        let mut ssh_args = self.connect_timeout_args(request.generation).await;
-        ssh_args.extend(self.config.extra_args.iter().cloned());
+        // With a shared connection the link is a client of its master (no
+        // second authentication). Otherwise forwarding stays as configured
+        // unless `extra_args` pin `ControlMaster=no`: this run can become the
+        // shared master that interactive sessions reuse.
+        let mut extra_args = self
+            .config
+            .connection_share
+            .client_arguments(&SshTarget {
+                ssh_binary: self.config.ssh_binary.clone(),
+                destination: self.destination.clone(),
+                port: self.port,
+                extra_args: self.config.extra_args.clone(),
+            })
+            .await
+            .map_err(|error| ProviderError::Transport(error.to_string()))?;
+        extra_args.extend(self.connect_timeout_args(request.generation).await);
+        extra_args.extend(self.config.extra_args.iter().cloned());
         let mut command = Command::new(&self.config.ssh_binary);
-        // Forwarding stays as configured unless `extra_args` pin
-        // `ControlMaster=no`: otherwise this run can become the shared master
-        // that interactive sessions reuse.
         command
-            .args(background_ssh_arguments(self.port, &ssh_args, &self.destination))
+            .args(background_ssh_arguments(self.port, &extra_args, &self.destination))
             .args(remote_link_command(&self.config));
         // stderr is always read, for the banner timeout; uncaptured, every
         // byte still goes on to this process's stderr as ssh wrote it.
@@ -461,23 +479,75 @@ impl SshProcessLink {
         }
     }
 
-    /// An ended link's error, with what ssh said when it was captured.
+    /// An ended link's error, with what ssh said and how it exited when
+    /// it was captured. A quiet run that exited 0 (the remote command
+    /// ended cleanly) keeps the plain end; a quiet run that exited
+    /// otherwise names its exit, so a Nightly row says `ssh_exit_255`
+    /// (ssh itself failed) or `ssh_exit_1` (the remote command failed)
+    /// instead of `ssh_link_closed`.
     async fn with_stderr(&self, error: Option<LinkError>) -> Option<LinkError> {
         let said = match &self.stderr {
             Some(stderr) => stderr.settled().await,
             None => None,
         };
+        let exit = self.exit().await;
+        let ended = match &exit {
+            Some(exit) => format!("the ssh link ended ({exit})"),
+            None => "the ssh link ended".to_owned(),
+        };
         match (said, error) {
+            (None, None | Some(LinkError::Closed)) if exit.as_deref().is_some_and(failed) => {
+                Some(LinkError::Transport(ended))
+            }
             (None, error) => error,
-            (Some(said), None | Some(LinkError::Closed)) => Some(LinkError::Transport(format!(
-                "the ssh link ended; {SSH_STDERR_MARK}\"{said}\""
-            ))),
+            (Some(said), None | Some(LinkError::Closed)) => {
+                Some(LinkError::Transport(format!("{ended}; {SSH_STDERR_MARK}\"{said}\"")))
+            }
             (Some(said), Some(LinkError::Transport(detail))) => {
+                let detail = match &exit {
+                    Some(exit) => format!("{detail} ({exit})"),
+                    None => detail,
+                };
                 Some(LinkError::Transport(format!("{detail}; {SSH_STDERR_MARK}\"{said}\"")))
             }
             (Some(_), Some(error)) => Some(error),
         }
     }
+
+    /// How the ssh run exited (`ssh exit 255`, `ssh signal 9`), waiting at
+    /// most [`STDERR_SETTLE`]; `None` while it still runs or when a close
+    /// holds it.
+    async fn exit(&self) -> Option<String> {
+        let mut child = self.child.try_lock().ok()?;
+        let child = child.as_mut()?;
+        let status = match child.try_wait() {
+            Ok(Some(status)) => status,
+            Ok(None) => tokio::time::timeout(STDERR_SETTLE, child.wait()).await.ok()?.ok()?,
+            Err(_) => return None,
+        };
+        exit_words(status)
+    }
+}
+
+/// An exit status as words a why code is read from: `ssh exit N`, or
+/// `ssh signal N` for a run a signal ended.
+fn exit_words(status: std::process::ExitStatus) -> Option<String> {
+    if let Some(code) = status.code() {
+        return Some(format!("ssh exit {code}"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt as _;
+        if let Some(signal) = status.signal() {
+            return Some(format!("ssh signal {signal}"));
+        }
+    }
+    None
+}
+
+/// True for an exit that is not a clean `ssh exit 0`.
+fn failed(exit: &str) -> bool {
+    exit != "ssh exit 0"
 }
 
 impl fmt::Debug for SshProcessLink {
@@ -499,12 +569,9 @@ impl FrameLink for SshProcessLink {
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
         match self.inner.send(frame).await {
             Ok(()) => Ok(()),
-            Err(error) if self.stderr.is_some() => {
-                Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
-            }
             Err(error) => {
                 self.forwarded().await;
-                Err(error)
+                Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
             }
         }
     }
@@ -512,12 +579,17 @@ impl FrameLink for SshProcessLink {
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
         match self.inner.receive().await {
             Ok(Some(frame)) => Ok(Some(frame)),
-            ended if self.stderr.is_none() => {
+            ended => {
+                // A forwarded stderr is written out first; a captured one
+                // (and the run's exit, either way) goes into the error.
                 self.forwarded().await;
-                ended
+                match ended {
+                    Ok(_) => self.with_stderr(None).await.map_or(Ok(None), Err),
+                    Err(error) => {
+                        Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
+                    }
+                }
             }
-            Ok(None) => self.with_stderr(None).await.map_or(Ok(None), Err),
-            Err(error) => Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed)),
         }
     }
 
@@ -583,179 +655,5 @@ fn validate_remote_word(value: &str) -> Result<(), ProviderError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn close_lets_the_remote_command_observe_eof_before_reaping_ssh() {
-        let directory = tempfile::tempdir().unwrap();
-        let outcome = directory.path().join("outcome");
-        let mut command = Command::new("/bin/sh");
-        command
-            .args(["-c", "cat >/dev/null; printf graceful > \"$CMUX_TEST_OUTCOME\""])
-            .env("CMUX_TEST_OUTCOME", &outcome)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        let mut child = command.spawn().unwrap();
-        let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let link = SshProcessLink {
-            inner: LengthDelimitedLink::new("ssh://test", 1024, stdout, stdin),
-            child: Mutex::new(Some(child)),
-            stderr: None,
-            forwarding: None,
-        };
-
-        link.close().await.unwrap();
-
-        assert_eq!(std::fs::read_to_string(outcome).unwrap(), "graceful");
-    }
-
-    /// A fake `ssh` that appends its arguments, one run per line, to
-    /// `args`, says `stderr` on its stderr and exits.
-    #[cfg(unix)]
-    fn fake_ssh(directory: &std::path::Path, stderr: &str) -> (String, std::path::PathBuf) {
-        use std::os::unix::fs::PermissionsExt as _;
-        let args = directory.join("args");
-        let script = directory.join("ssh");
-        std::fs::write(
-            &script,
-            format!(
-                "#!/bin/sh\necho \"$*\" >> '{}'\nprintf '%s\\n' '{stderr}' >&2\nexit 255\n",
-                args.display()
-            ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        (script.to_str().unwrap().to_owned(), args)
-    }
-
-    #[cfg(unix)]
-    async fn group_with(ssh_binary: String, extra_args: &[&str]) -> Arc<dyn LinkGroup> {
-        let provider = SshProvider::new(SshProviderConfig {
-            ssh_binary,
-            extra_args: extra_args.iter().map(|argument| (*argument).to_owned()).collect(),
-            ..SshProviderConfig::default()
-        })
-        .unwrap();
-        provider
-            .connect(ConnectRequest {
-                endpoint: url::Url::parse("ssh://host.example").unwrap(),
-                session: cmux_remote_protocol::SessionId::ZERO,
-                lane_policy: cmux_remote_protocol::LanePolicy::Single,
-                routing: std::collections::BTreeMap::new(),
-            })
-            .await
-            .unwrap()
-    }
-
-    /// Opens one link of `generation` and waits for its ssh run to end.
-    #[cfg(unix)]
-    async fn open_and_end(group: &Arc<dyn LinkGroup>, generation: u64) {
-        let link = group
-            .open(LinkRequest { lane: cmux_remote_protocol::Lane::Interactive, generation })
-            .await
-            .unwrap();
-        assert!(matches!(link.receive().await, Ok(None) | Err(_)));
-        link.close().await.unwrap();
-    }
-
-    /// Each run's ConnectTimeout as ssh reads it: the first one given.
-    #[cfg(unix)]
-    fn connect_timeouts(args: &std::path::Path) -> Vec<String> {
-        std::fs::read_to_string(args)
-            .unwrap()
-            .lines()
-            .map(|run| {
-                let words: Vec<&str> = run.split_whitespace().collect();
-                words
-                    .windows(2)
-                    .find_map(|pair| {
-                        (pair[0] == "-o" && pair[1].starts_with("ConnectTimeout="))
-                            .then(|| pair[1].to_owned())
-                    })
-                    .or_else(|| {
-                        words.iter().find_map(|word| {
-                            word.strip_prefix("-o")
-                                .filter(|option| option.starts_with("ConnectTimeout="))
-                                .map(str::to_owned)
-                        })
-                    })
-                    .unwrap_or_default()
-            })
-            .collect()
-    }
-
-    /// The probe's 10 s drops: a redial with the caller's 15 s ConnectTimeout
-    /// sat in TCP's SYN backoff when the network came back. A redial gets 3 s;
-    /// the first connect keeps the caller's.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_redial_gives_up_on_a_dead_network_within_three_seconds() {
-        let directory = tempfile::tempdir().unwrap();
-        let (ssh, args) = fake_ssh(directory.path(), "ssh: connect to host: Operation timed out");
-        let group = group_with(ssh, &["-oBatchMode=yes", "-oConnectTimeout=15"]).await;
-
-        open_and_end(&group, 0).await;
-        open_and_end(&group, 1).await;
-        open_and_end(&group, 2).await;
-
-        assert_eq!(
-            connect_timeouts(&args),
-            ["ConnectTimeout=15", "ConnectTimeout=3", "ConnectTimeout=3"]
-        );
-    }
-
-    /// A host slow to send its banner is not a dead network: once ssh says
-    /// so, redials keep the caller's timeout, as acpmux's peer does.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_banner_timeout_gives_later_redials_the_callers_timeout() {
-        let directory = tempfile::tempdir().unwrap();
-        let (ssh, args) = fake_ssh(directory.path(), "Connection timed out during banner exchange");
-        let group = group_with(ssh, &["-oConnectTimeout=15"]).await;
-
-        open_and_end(&group, 1).await;
-        open_and_end(&group, 2).await;
-        open_and_end(&group, 3).await;
-
-        assert_eq!(
-            connect_timeouts(&args),
-            ["ConnectTimeout=3", "ConnectTimeout=15", "ConnectTimeout=15"]
-        );
-    }
-
-    /// Lanes of one generation open while the first lane's ssh still runs:
-    /// its stderr stays open, and a later lane must not wait for it.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn another_lane_of_the_same_redial_does_not_wait_for_a_live_stderr() {
-        use std::os::unix::fs::PermissionsExt as _;
-        let directory = tempfile::tempdir().unwrap();
-        let script = directory.path().join("ssh");
-        std::fs::write(&script, "#!/bin/sh\nexec sleep 30\n").unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let group = group_with(script.to_str().unwrap().to_owned(), &[]).await;
-        let request =
-            || LinkRequest { lane: cmux_remote_protocol::Lane::Interactive, generation: 1 };
-
-        let first = group.open(request()).await.unwrap();
-        let started = std::time::Instant::now();
-        let second = group.open(request()).await.unwrap();
-
-        assert!(started.elapsed() < STDERR_SETTLE, "waited {:?}", started.elapsed());
-        first.close().await.unwrap();
-        second.close().await.unwrap();
-    }
-
-    #[test]
-    fn a_callers_shorter_connect_timeout_stays() {
-        assert_eq!(caller_connect_timeout(&["-oConnectTimeout=2".into()]), Some(2));
-        assert_eq!(caller_connect_timeout(&["-o".into(), "connecttimeout=7".into()]), Some(7));
-        assert_eq!(caller_connect_timeout(&["-oBatchMode=yes".into()]), None);
-        assert_eq!(caller_connect_timeout(&["--".into(), "-oConnectTimeout=2".into()]), None);
-    }
-}
+#[path = "ssh_tests.rs"]
+mod tests;

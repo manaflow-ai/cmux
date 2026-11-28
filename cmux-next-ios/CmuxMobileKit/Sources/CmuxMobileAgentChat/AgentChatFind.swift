@@ -75,7 +75,7 @@ public final class AgentChatFind {
     public nonisolated static func blocks(of turns: [AgentTurn]) -> [Block] {
         var out: [Block] = []
         for turn in turns {
-            out.append(Block(key: promptKey(turn.id), text: turn.prompt))
+            out.append(Block(key: promptKey(turn.rowKey), text: turn.prompt))
             for row in turn.rows {
                 // A message steered into the turn, where it went in.
                 if case .steer(let message) = row {

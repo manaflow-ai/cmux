@@ -235,6 +235,30 @@
           ]
         },
         {
+          "key": "agentPane.composerVimKeys",
+          "title": {
+            "key": "settings.agentPane.composerVimKeys",
+            "text": "Vim Keys in the Composer"
+          },
+          "help": {
+            "key": "settings.agentPane.composerVimKeys.help",
+            "text": "Esc for normal mode, i to type again; h j k l, w b e, 0 $, x, dd and u edit. Return still sends."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "vim",
+            "modal",
+            "normal mode",
+            "insert mode",
+            "keyboard",
+            "hjkl",
+            "composer",
+            "message box",
+            "prompt"
+          ]
+        },
+        {
           "key": "agentPane.attachmentView",
           "note": "How the composer and sent messages show attachments (agentPane.attachmentView). Only the look: a draft's text, its attachments and their order are the same in all.",
           "title": {
@@ -272,7 +296,7 @@
               "note": "In the text and in the row too, so every attachment shows in one place with its remove (Leo, 2026-10-24: \"ALSO show the top displayed attachments alongside the inline attachments\")."
             }
           ],
-          "default": "inline",
+          "default": "strip",
           "keywords": [
             "attachment",
             "attachments",
@@ -381,6 +405,241 @@
           "swift_enum": {
             "name": "AgentPaneNewChatPlace"
           }
+        },
+        {
+          "key": "agentPane.sessionWorktrees",
+          "title": {
+            "key": "settings.agentPane.sessionWorktrees",
+            "text": "Session Worktrees"
+          },
+          "help": {
+            "key": "settings.agentPane.sessionWorktrees.help",
+            "text": "Choose where to keep worktrees for local chats and forks."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "shared",
+              "title": {
+                "key": "settings.choice.sessionWorktreesShared",
+                "text": "Shared Worktree Folder"
+              }
+            },
+            {
+              "value": "project",
+              "title": {
+                "key": "settings.choice.sessionWorktreesProject",
+                "text": "Inside Project"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "git",
+            "worktree",
+            "fork",
+            "folder"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneSessionWorktrees"
+          }
+        },
+        {
+          "key": "agentPane.composerLook",
+          "note": "The composer's look in every chat (agentPane.composerLook; composerLook.ts): auto is the app's own composer; studio (opt-in) lays the model, effort and access chips inside the box with an attach paperclip and a round accent Send on the right, as a coding studio's composer does (composerLook.css data-composer-variant). The New Tab page always draws its own. Leo: \"the composer doesn't even look remotely similar\".",
+          "title": {
+            "key": "settings.agentPane.composerLook",
+            "text": "Composer Look"
+          },
+          "help": {
+            "key": "settings.agentPane.composerLook.help",
+            "text": "Where the mode, model and effort sit: under the box or inside it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.composerLookAuto",
+                "text": "Automatic"
+              },
+              "note": "The app's own composer (as before)."
+            },
+            {
+              "value": "studio",
+              "title": {
+                "key": null,
+                "text": "Studio"
+              },
+              "note": "The model, effort and access chips inside the box on the left, the attach paperclip and a round accent Send on the right. The name of a look, not translated."
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "composer",
+            "look",
+            "style",
+            "studio",
+            "message box",
+            "model",
+            "mode",
+            "effort",
+            "agent"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneComposerLook"
+          }
+        },
+        {
+          "key": "agentPane.emptyChatComposerPosition",
+          "note": "Where an empty chat's composer sits (agentPane.emptyChatComposerPosition): bottom, docked as always, or center, the middle of the pane with the hero over it, as the New Tab page sets it (styles.css, [data-empty-chat-composer=\"center\"]).",
+          "title": {
+            "key": "settings.agentPane.emptyChatComposerPosition",
+            "text": "Empty Chat Message Box"
+          },
+          "help": {
+            "key": "settings.agentPane.emptyChatComposerPosition.help",
+            "text": "Where the message box sits in a chat with no messages yet."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "bottom",
+              "title": {
+                "key": "settings.choice.bottom",
+                "text": "Bottom"
+              },
+              "note": "Docked at the bottom, as before."
+            },
+            {
+              "value": "center",
+              "title": {
+                "key": "settings.choice.emptyChatComposerCenter",
+                "text": "Center"
+              },
+              "note": "In the middle of the pane until the first message."
+            }
+          ],
+          "default": "bottom",
+          "keywords": [
+            "composer",
+            "message box",
+            "empty",
+            "new chat",
+            "center",
+            "centered",
+            "middle",
+            "bottom",
+            "position",
+            "agent"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneEmptyChatComposerPosition"
+          }
+        },
+        {
+          "key": "agentPane.composerPlaceholder",
+          "note": "The idle prompt's placeholder in every chat (agentPane.composerPlaceholder; Composer.tsx): empty (the default) keeps cmux's own 'Type / for commands'; any other text replaces it while no turn runs, so a profile can say what its reference app's composer says. The mid-turn, Esc and stopping hints still win, since they say what a key does now.",
+          "title": {
+            "key": "settings.agentPane.composerPlaceholder",
+            "text": "Message Box Placeholder"
+          },
+          "help": {
+            "key": "settings.agentPane.composerPlaceholder.help",
+            "text": "The text shown in an empty message box. Empty uses cmux's own."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "composer",
+            "message box",
+            "placeholder",
+            "prompt",
+            "hint",
+            "text",
+            "agent"
+          ]
+        },
+        {
+          "key": "agentPane.followUpMode",
+          "note": "What Return (and Send) does with a message sent while the agent is mid-turn, for an agent that steers (Composer.tsx, followUpMode.ts): steer (as always) takes it into the running turn and Command-Return queues it; queue holds it until the turn ends and Command-Return steers. An agent that cannot steer queues either way; queueing off (a queued row's menu) steers on every key either way.",
+          "title": {
+            "key": "settings.agentPane.followUpMode",
+            "text": "Follow-Up Messages"
+          },
+          "help": {
+            "key": "settings.agentPane.followUpMode.help",
+            "text": "What Return does with a message sent while the agent is working. Command-Return does the other."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "steer",
+              "title": {
+                "key": "settings.choice.followUpModeSteer",
+                "text": "Steer"
+              },
+              "note": "Into the running turn: the agent reads it when its current step ends (as before)."
+            },
+            {
+              "value": "queue",
+              "title": {
+                "key": "settings.choice.followUpModeQueue",
+                "text": "Queue"
+              },
+              "note": "Waits until the turn ends, then runs as its own turn."
+            }
+          ],
+          "default": "steer",
+          "keywords": [
+            "follow-up",
+            "follow up",
+            "steer",
+            "queue",
+            "queued",
+            "mid-turn",
+            "return",
+            "enter",
+            "send",
+            "message",
+            "agent"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneFollowUpMode"
+          }
+        },
+        {
+          "key": "agentPane.savedPrompts",
+          "name": "savedPrompts",
+          "note": "Saved prompts by name (webviews/src/agent-session/acpmux/savedPrompts.ts). acpmux reads them at each list (crates/acpmux/src/prompts.rs) beside the ones Save as Prompt keeps in its own store; a saved one of the same name wins.",
+          "title": {
+            "key": "settings.agentPane.savedPrompts",
+            "text": "Saved Prompts"
+          },
+          "help": {
+            "key": "settings.agentPane.savedPrompts.help",
+            "text": "Prompts every chat's / menu offers: a name and its text. Typing /name writes the text into the composer, with {{date}}, {{time}}, {{folder}} and {{branch}} filled in."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "prompt",
+            "prompts",
+            "saved",
+            "snippet",
+            "template",
+            "library",
+            "slash",
+            "composer",
+            "agent"
+          ]
         }
       ]
     }

@@ -48,7 +48,7 @@
 .compare-matrix-heading h2 small { margin-left: 7px; color: var(--compare-muted); font-size: var(--text-caption); font-weight: 450; letter-spacing: 0; }
 .compare-capture-receipt { max-width: min(590px, 50%); color: var(--compare-muted); font-size: var(--text-caption); line-height: 1.45; text-align: right; letter-spacing: var(--text-caption--letter-spacing); }
 .compare-matrix { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin: 0; padding: 0; list-style: none; }
-.compare-candidate { min-width: 0; overflow: hidden; border: 1px solid var(--compare-line); border-radius: 10px; background: var(--cmux-surface-solid, Canvas); transition: border-color 120ms ease, box-shadow 120ms ease; }
+.compare-candidate { min-width: 0; overflow: hidden; border: 1px solid var(--compare-line); border-radius: 10px; background: var(--cmux-surface-solid, Canvas); transition: border-color var(--cmux-motion-micro, 120ms) ease, box-shadow var(--cmux-motion-micro, 120ms) ease; }
 .compare-candidate[data-selected]:not([data-selected=""]) { border-color: color-mix(in srgb, var(--compare-ink) 45%, var(--compare-line)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--compare-ink) 10%, transparent); }
 .compare-candidate-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 14px 11px; }
 .compare-candidate-select { display: flex; align-items: center; gap: 9px; min-width: 0; border: 0; background: transparent; padding: 0; text-align: left; cursor: default; }
@@ -69,7 +69,6 @@
 .compare-preview-bar { display: flex; align-items: center; justify-content: space-between; gap: 7px; min-height: 30px; border-bottom: 1px solid var(--compare-line); padding: 7px 10px; color: var(--compare-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .compare-preview-bar strong { color: var(--compare-ink); font-size: var(--text-caption); font-weight: 600; letter-spacing: var(--text-caption--letter-spacing); }
 .compare-preview-bar strong span { color: var(--compare-green); }
-.compare-preview-key { padding: 2px 5px; border: 1px solid var(--compare-line); border-radius: 3px; font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .compare-preview-body { display: flex; min-height: 128px; }
 .compare-preview-body aside { display: flex; flex: 0 0 92px; flex-direction: column; gap: 10px; border-right: 1px solid var(--compare-line); padding: 12px 9px; color: var(--compare-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .compare-preview-body aside b { color: var(--compare-ink); font-size: var(--text-caption); font-weight: 600; letter-spacing: var(--text-caption--letter-spacing); }

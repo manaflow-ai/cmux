@@ -919,6 +919,7 @@ pub enum Refusal {
     InvalidTitle,
     InvalidValue,
     TooMany,
+    Pinned,
 }
 
 impl Refusal {
@@ -937,6 +938,7 @@ impl Refusal {
             Refusal::InvalidTitle => "invalid_title",
             Refusal::InvalidValue => "invalid_value",
             Refusal::TooMany => "too_many",
+            Refusal::Pinned => "pinned",
         }
     }
 }
@@ -949,7 +951,7 @@ impl std::fmt::Display for Refusal {
 
 impl Refusal {
     /// Every refusal, in `as_str` order: the text table's tests walk it.
-    pub const ALL: [Refusal; 13] = [
+    pub const ALL: [Refusal; 14] = [
         Refusal::UnknownSection,
         Refusal::UnknownItem,
         Refusal::DuplicateId,
@@ -963,6 +965,7 @@ impl Refusal {
         Refusal::InvalidTitle,
         Refusal::InvalidValue,
         Refusal::TooMany,
+        Refusal::Pinned,
     ];
 
     /// The refusal a wire reason names; None for one this build does not know.
@@ -989,6 +992,9 @@ impl Refusal {
             Refusal::InvalidTitle => "A name needs 1 to 80 characters.",
             Refusal::InvalidValue => "The sidebar doesn’t take that setting.",
             Refusal::TooMany => "The sidebar is full: 64 sections and 20,000 items at most.",
+            Refusal::Pinned => {
+                "Pinned workspaces stay pinned. Use Pin or Unpin in the workspace’s menu."
+            }
         }
     }
 }

@@ -86,10 +86,21 @@ pub enum Fetched {
         size: u64,
         got: u64,
     },
+    /// The hub sent nothing for [`STALL_MS`] (before its answer or between
+    /// bytes): the whole download is dropped and the install runs from the
+    /// package registry, never a retry of the cache. The bytes read.
+    Stalled {
+        got: u64,
+    },
 }
 
 /// Time a download's pace is measured over before `give_up` is asked.
 const PACE_AFTER_MS: u64 = 300;
+
+/// How long a download may go without a byte (or the hub without an answer)
+/// before it is [`Fetched::Stalled`]. A pace check needs bytes to run, so a
+/// stream that stops dead would otherwise wait out the 600 s client timeout.
+pub const STALL_MS: u64 = 5_000;
 
 /// What an upload did.
 #[derive(Debug, PartialEq, Eq)]
@@ -125,11 +136,22 @@ pub struct Remote {
     origin: String,
     bearer: String,
     client: reqwest::Client,
+    /// [`STALL_MS`]; tests shorten it.
+    stall: Duration,
 }
 
 impl Remote {
     /// The joined machine's hub and credential, or None when this machine is not joined.
     pub fn joined() -> Result<Option<Remote>> {
+        let Some((origin, credential)) = Remote::joined_bearer()? else {
+            return Ok(None);
+        };
+        Ok(Some(Remote::new(origin, credential)?))
+    }
+
+    /// The joined machine's hub origin and credential (`install_share.rs` calls
+    /// the same hub with it), or None when this machine is not joined.
+    pub fn joined_bearer() -> Result<Option<(String, String)>> {
         let Some(record) = crate::cli::cloud_join::machine_credential()? else {
             return Ok(None);
         };
@@ -137,12 +159,12 @@ impl Remote {
             return Ok(None);
         }
         let origin = crate::cli::cloud_join::hub_origin(&record.hub_origin)?;
-        Ok(Some(Remote::new(origin, record.credential)?))
+        Ok(Some((origin, record.credential)))
     }
 
     pub fn new(origin: String, bearer: String) -> Result<Remote> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
+        let client = crate::happy_dial::http_client()
             .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
@@ -150,7 +172,7 @@ impl Remote {
             .timeout(Duration::from_secs(600))
             .build()
             .context("build dependency cache client")?;
-        Ok(Remote { origin, bearer, client })
+        Ok(Remote { origin, bearer, client, stall: Duration::from_millis(STALL_MS) })
     }
 
     fn url(&self, key: &str, rest: &str) -> String {
@@ -167,13 +189,11 @@ impl Remote {
         give_up: impl Fn(u64, u64, u64) -> bool,
     ) -> Result<Fetched> {
         let started = std::time::Instant::now();
-        let mut response = self
-            .client
-            .get(self.url(key, ""))
-            .bearer_auth(&self.bearer)
-            .send()
-            .await
-            .context("dependency cache unreachable")?;
+        let request = self.client.get(self.url(key, "")).bearer_auth(&self.bearer).send();
+        let Ok(response) = tokio::time::timeout(self.stall, request).await else {
+            return Ok(Fetched::Stalled { got: 0 });
+        };
+        let mut response = response.context("dependency cache unreachable")?;
         let status = response.status().as_u16();
         if status == 404 {
             let body: Value = response.json().await.unwrap_or_default();
@@ -199,7 +219,11 @@ impl Remote {
         let mut file = std::io::BufWriter::new(std::fs::File::create(out)?);
         let mut hasher = TreeHasher::new(part_bytes);
         let mut got = 0u64;
-        while let Some(chunk) = response.chunk().await.context("dependency cache download")? {
+        loop {
+            let Ok(chunk) = tokio::time::timeout(self.stall, response.chunk()).await else {
+                return Ok(Fetched::Stalled { got });
+            };
+            let Some(chunk) = chunk.context("dependency cache download")? else { break };
             got += chunk.len() as u64;
             if got > size {
                 bail!("archive is longer than its size");
@@ -311,45 +335,5 @@ fn code(body: &Value) -> &str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sha(data: &[u8]) -> [u8; 32] {
-        Sha256::digest(data).into()
-    }
-
-    #[test]
-    fn a_timing_record_has_a_key_of_its_own() {
-        let key = format!("bun-{}", "a".repeat(64));
-        let meta = meta_key(&key).unwrap();
-        assert!(meta.starts_with("bun-"));
-        assert_eq!(meta.len(), key.len());
-        assert_ne!(meta, key);
-        assert!(meta[4..].bytes().all(|b| b.is_ascii_hexdigit()));
-        assert_eq!(meta_key(&key), Some(meta));
-        assert_eq!(meta_key("nodash"), None);
-    }
-
-    #[test]
-    fn tree_digest_is_the_hash_of_part_hashes_however_it_is_fed() {
-        let data: Vec<u8> = (0..2500u32).map(|i| (i % 251) as u8).collect();
-        let mut expected = Sha256::new();
-        for part in data.chunks(1000) {
-            expected.update(sha(part));
-        }
-        let expected = hex(&expected.finalize());
-        for step in [1, 7, 1000, 2500] {
-            let mut h = TreeHasher::new(1000);
-            for piece in data.chunks(step) {
-                h.update(piece);
-            }
-            assert_eq!(h.finish(), (expected.clone(), 3), "step {step}");
-        }
-        // Exactly one full part: no empty trailing part.
-        let mut h = TreeHasher::new(1000);
-        h.update(&data[..1000]);
-        let mut one = Sha256::new();
-        one.update(sha(&data[..1000]));
-        assert_eq!(h.finish(), (hex(&one.finalize()), 1));
-    }
-}
+#[path = "remote_tests.rs"]
+mod tests;

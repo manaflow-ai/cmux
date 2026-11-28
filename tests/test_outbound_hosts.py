@@ -25,6 +25,11 @@ Reserved names (RFC 2606 and 6761: .example, .test, .invalid, .localhost, exampl
 the row, saying what the app sends there), when a row's host is no longer in the code (remove it, so the list stays
 exact), on a row with an unknown kind or no reason, and on a host listed twice.
 
+On a pull request (CMUX_GUARDS_BASE_SHA set) the scan reads only the files the change touched, at the base and at
+the head (tests/guard_delta.py): a host they name with no row fails, and a host they stopped naming, or a row the
+change added or removed, is looked up across the tree with a git grep for its fixed text. A change to RULES scans
+everything, as a run with no base does.
+
 Run it: python3 tests/test_outbound_hosts.py. List the hosts and where they are: python3 tests/test_outbound_hosts.py --print
 """
 
@@ -37,6 +42,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import guard_delta  # noqa: E402
 from test_classic_cloud_routes import clean, in_scope  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,6 +79,8 @@ URL_BUILT = re.compile(rf"(?<![\w.+-])(?:https?|wss?)://(?:[^\s/@\"'`<>()\\]+@)?
 BARE_BUILT = re.compile(rf"""(["'`])((?=[a-z0-9.-]*{HOLE})(?:{PART}+\.)+{LABEL}\.(?:{"|".join(BARE_TLDS)}))(?:\1|[/:])""")
 RESERVED = re.compile(r"(^|\.)(example|test|invalid|localhost|local|lan|internal|home\.arpa)$"
                       r"|(^|\.)example\.(com|net|org)$|^\d+(\.\d+){3}$")
+# A change to one of these scans everything: the scanner's own rules (guard_delta.py adds itself).
+RULES = ["tests/test_outbound_hosts.py", "tests/test_classic_cloud_routes.py"]
 ROW = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*([\w-]+)\s*\|\s*(.*?)\s*\|\s*$")
 PREFILTER = ("://", *(f".{tld}" for tld in BARE_TLDS))
 
@@ -126,6 +134,52 @@ def scan(root: Path = ROOT) -> dict[str, dict[str, list[int]]]:
     return found
 
 
+def found_in(texts: dict[str, str]) -> dict[str, dict[str, list[int]]]:
+    """``scan`` of the given {file: text}, the files outside SCAN left out."""
+    found: dict[str, dict[str, list[int]]] = {}
+    for rel, text in sorted(texts.items()):
+        if in_scope(rel, SCAN):
+            for host, lines in hosts_in(text, rel).items():
+                found.setdefault(host, {})[rel] = lines
+    return found
+
+
+def named_anywhere(hosts: set[str], root: Path = ROOT) -> dict[str, dict[str, list[int]]]:
+    """``scan`` for just `hosts`. A found host is text in its file (any case): a URL or bare host as written, a
+    built one (`*.atlassian.net`) as the part after its last placeholder. So a git grep for that text finds every
+    file that can name it, and the scan of those files says which do."""
+    if not hosts:
+        return {}
+    argv = ["git", "-C", str(root), "grep", "-I", "-l", "-z", "-i", "-F"]
+    for host in sorted(hosts):
+        argv += ["-e", host.rsplit("*", 1)[-1]]
+    p = subprocess.run([*argv, "--", *SCAN["include"]], capture_output=True)
+    if p.returncode not in (0, 1):
+        raise RuntimeError(p.stderr.decode(errors="replace"))
+    rels = [rel for rel in p.stdout.decode().split("\0") if rel and in_scope(rel, SCAN)]
+    return {h: where for h, where in found_in(guard_delta.text_at_head(rels, root)).items() if h in hosts}
+
+
+def change_problems(base: str, paths: list[str], doc: str, root: Path = ROOT) -> list[str] | None:
+    """``problems`` for what the change since `base` added, reading only the files it touched (None: no base doc).
+
+    A host a changed file names now is found. Any other host is named or not as on the base, except a host the
+    changed files named there and no longer do, and a row the doc added or removed: those are looked up
+    (``named_anywhere``). A problem the base already had in a file the change left alone is not reported."""
+    rel_doc = DOC.relative_to(ROOT).as_posix()
+    base_doc = guard_delta.blobs_at(base, [rel_doc], root).get(rel_doc)
+    if base_doc is None:
+        return None
+    rows, _ = listed(doc)
+    base_rows, _ = listed(base_doc)
+    scoped = [p for p in paths if in_scope(p, SCAN)]
+    head = found_in(guard_delta.text_at_head(scoped, root))
+    was = found_in(guard_delta.blobs_at(base, scoped, root))
+    unsure = (set(was) | (set(rows) ^ set(base_rows))) - set(head)
+    found = {**named_anywhere(unsure, root), **head}
+    return problems(found, doc, stale_of=unsure)
+
+
 def listed(doc: str) -> tuple[dict[str, tuple[str, str]], list[str]]:
     """({host: (kind, reason)}, problems) from the doc's table rows."""
     rows: dict[str, tuple[str, str]] = {}
@@ -145,16 +199,31 @@ def listed(doc: str) -> tuple[dict[str, tuple[str, str]], list[str]]:
     return rows, bad
 
 
-def problems(found: dict[str, dict[str, list[int]]], doc: str) -> list[str]:
+def problems(found: dict[str, dict[str, list[int]]], doc: str, stale_of: set[str] | None = None) -> list[str]:
+    """Every host in `found` needs a row, and a row whose host is not in `found` is stale. `stale_of`: `found` is
+    not every host the code names but every one of these it names, so only rows for these can be stale."""
     rows, out = listed(doc)
     for host, where in sorted(found.items()):
         if host not in rows:
             rel, lines = sorted(where.items())[0]
             more = f" (and {len(where) - 1} more files)" if len(where) > 1 else ""
             out.append(f"{host}: not in docs/privacy.md, named at {rel}:{lines[0]}{more}")
-    for host in sorted(set(rows) - set(found)):
+    stale = set(rows) - set(found)
+    for host in sorted(stale if stale_of is None else stale & stale_of):
         out.append(f"{host}: listed in docs/privacy.md but no longer in NEXT's code; remove its row")
     return out
+
+
+def check(root: Path = ROOT) -> list[str]:
+    """The guard: the changed files only on a pull request, else the whole scan."""
+    base = guard_delta.base_commit(root)
+    paths = guard_delta.changed(RULES, root, base) if base else None
+    if paths is not None:
+        bad = change_problems(base, paths, DOC.read_text(), root)
+        if bad is not None:
+            guard_delta.note("outbound hosts", base, paths)
+            return bad
+    return problems(scan(root), DOC.read_text())
 
 
 HOW = ("every host NEXT's code names has a row in docs/privacy.md: `| `host` | kind | what the app sends there |`, "
@@ -163,7 +232,7 @@ HOW = ("every host NEXT's code names has a row in docs/privacy.md: `| `host` | k
 
 class OutboundHosts(unittest.TestCase):
     def test_every_host_is_listed(self):
-        bad = problems(scan(), DOC.read_text())
+        bad = check()
         self.assertEqual(bad, [], f"outbound host guard ({HOW}):\n  " + "\n  ".join(bad))
 
     def test_scanned_paths_exist(self):
