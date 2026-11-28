@@ -547,8 +547,51 @@ class Scenario:
                           "the chats back on the dev server", timeout=60, interval=0.25, raise_on_timeout=False):
             log(f"GSW-FLEET the chats did not come back with their drafts in 60 s: {self.chat_pages()}")
         self.settle_pages("the pages on the dev server", timeout=60)
-        self.results["setup"]["dev_server"] = {"status": self.overlay_status(), "pages": self.page_sources()}
+        # Every save below needs each chat page served by the dev server and its HMR socket answering: wait for
+        # both, then stop with the one that failed named (a film of a page no save can reach draws nothing).
+        wait_until(lambda: all(m.get("hmr") == "connected" for m in self.hmr_marks().values()),
+                   "the chat pages' HMR sockets connected", timeout=30, interval=0.25, raise_on_timeout=False)
+        marks, pages = self.hmr_marks(), self.page_sources()
+        self.results["setup"]["dev_server"] = {"status": self.overlay_status(), "pages": pages, "hmr": marks}
         log(f"GSW-FLEET dev server check: {json.dumps(self.results['setup']['dev_server'])[:1500]}")
+        cause = self.dev_server_miss(pages, marks)
+        if cause:
+            self.results["setup"]["dev_server"]["cause"] = cause
+            self.keep_dev_log()
+            log(f"GSW-FLEET dev server check failed: {cause}\n  dev-server.log tail:\n{self.dev_log_tail()}")
+            raise RuntimeError(cause)
+
+    def hmr_marks(self) -> dict:
+        """{chat key: {origin, hmr}} from `<html data-cmux-hmr-origin data-cmux-hmr>`, which the dev server's
+        hot-swap client sets (webviews/dev-server/hotSwapTiming.ts): hmr is "connected" once the server answered
+        the page's hello on its socket, "connecting" before, "disconnected" after it dropped; none on a page the
+        dev server did not serve. The origin is the app's own scheme: the app proxies the dev server through its
+        scheme handler, so a page on the dev server is told by its Vite client, not by 127.0.0.1:4200."""
+        out = {}
+        for k in ("a", "b"):
+            if k not in self.chats:
+                continue
+            got = self.rpc("debug.agent_pane", {"action": "query", "pane": self.chats[k]["pane"],
+                                                "selector": "html"}, 30) or {}
+            elements = got.get("elements") if isinstance(got.get("elements"), list) else []
+            data = (elements[0].get("data") or {}) if elements and isinstance(elements[0], dict) else {}
+            out[k] = {"origin": data.get("cmuxHmrOrigin"), "hmr": data.get("cmuxHmr"),
+                      **({"error": got["error"]} if "error" in got else {})}
+        return out
+
+    @staticmethod
+    def dev_server_miss(pages, marks) -> str | None:
+        """The named reason no save can reach a chat page, else None."""
+        for k, n in pages.items():
+            if not (isinstance(n, int) and n > 0):
+                return f"chat-{k} is not on the dev server (no /@vite/client script: {n})"
+        for k, m in marks.items():
+            if m.get("hmr") is None:
+                return (f"chat-{k} has the Vite client but no hot-swap client mark (CMUX_HOT_SWAP_TIMING=off, or the "
+                        f"dev server predates it): {m}")
+            if m["hmr"] != "connected":
+                return f"chat-{k}'s HMR socket is {m['hmr']} after 30 s (origin {m.get('origin')}): no save can reach it"
+        return None
 
     def overlay_status(self) -> str:
         """`web-overlay.sh status` for the measured app: where it loads its web UI from, and why."""
@@ -613,8 +656,6 @@ class Scenario:
         out = {"version": GS.VERSION, "label": f"fleet-{series}", "runs": len(runs), "watch": watch, "surface": surface,
                "sample": sample, "window_ms": round(LATENCY_WINDOW_S * 1000),
                "fps": [r.get("video", {}).get("fps") for r in runs], "regions": {}}
-        if f"{series}-cause" in self.results["latency"]:  # warm run 0 drew nothing: the series stopped, this says why
-            out["cause"] = self.results["latency"][f"{series}-cause"]["cause"]
         out["regions"][watch] = {"n": len(seen), "missed": len(rows) - len(seen), "p50_ms": GS.percentile(seen, 50),
                                  "p95_ms": GS.percentile(seen, 95), "max_ms": max(seen) if seen else None,
                                  "samples_ms": seen}
