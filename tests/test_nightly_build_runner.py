@@ -818,7 +818,7 @@ class Workflow(unittest.TestCase):
                     self.assertEqual(label, SIDE)
                 else:
                     # The owned nightly pool, never the picker's Blacksmith label nor a dropped pick.
-                    self.assertEqual(label, "glaeda-nightly-std-xcode-26.6")
+                    self.assertEqual(label, "mac-nightly")
 
     def test_the_pickers_never_block_their_job(self) -> None:
         for job, pick in GUARDED.items():

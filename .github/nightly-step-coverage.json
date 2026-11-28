@@ -4,9 +4,10 @@
     "note": "nightly-next-one publishes the nightly; every blocking step before the Final publication gate stops it. pr_grandfathered: gating steps whose pr counterpart predates the rule; it only shrinks (tests/test_nightly_step_coverage.py gate_problems)",
     "job": "nightly-next-one",
     "until": "Final publication gate",
-    "every_tier": ["cmux-next-compile-preflight.yml"],
+    "every_tier": [],
     "pr_grandfathered": [
       "Build immutable SSH daemon assets once for every app variant",
+      "Build the web bundles (cmux-next)",
       "Bundle the OptChat Chief and the iPhone host",
       "Bundle the cmux-tui client",
       "Check node is on PATH (cmux-next web bundles)",
@@ -442,12 +443,14 @@
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and its dSYM artifacts; a pull request has no published nightly build"},
         "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the published build's dSYMs to Sentry with the Sentry token, in the tail run outside the push group"}},
+      "restore-historical-notes": {
+        "Take the nightly-next publish lease": {"nightly_only": "takes the nightly-next publish lease on a manual restore dispatch (#62726); a pull request publishes nothing"},
+        "Restore and verify the public signed pair": {"nightly_only": "restores archived release notes and verifies the published signed pair with release credentials; a pull request has no publication"},
+        "Release the nightly-next publish lease": {"nightly_only": "releases the publish lease the restore took; a pull request takes none"}},
       "keep-published-dsyms": {
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Download the published build's dSYMs from the run that compiled it (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
-        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
-        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
