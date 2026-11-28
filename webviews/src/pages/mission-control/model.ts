@@ -53,7 +53,11 @@ export interface MissionGridLayout {
 }
 
 /** Columns and tile size for `count` tiles in `width` CSS px. */
-export function gridLayout(count: number, width: number, metrics: MissionGridMetrics = DEFAULT_METRICS): MissionGridLayout {
+export function gridLayout(
+  count: number,
+  width: number,
+  metrics: MissionGridMetrics = DEFAULT_METRICS,
+): MissionGridLayout {
   const { minTileWidth, aspect, caption, gap } = metrics;
   const inner = Math.max(0, width);
   const columns = Math.max(1, Math.floor((inner + gap) / (minTileWidth + gap)));
