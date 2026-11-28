@@ -896,6 +896,7 @@ jobs:
 
   # Why: note-368
   path_route:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     if: ${{ (always() && !cancelled() && inputs.same_tree_sha == '') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next path routing
     # Why: note-358
@@ -4851,6 +4852,7 @@ jobs:
 
   # Why: 2026-11-24-daemon-test-2.md, note-556
   generated-files-base-red:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     needs: [path_route]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.path_route.outputs.generated_host == 'generated-files' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(needs.path_route.outputs.labels, ',full-ci,') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
