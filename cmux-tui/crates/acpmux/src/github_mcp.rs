@@ -120,8 +120,25 @@ pub fn refusal_result(repo: Option<&str>, e: &Refused) -> Value {
     let connect =
         matches!(code.as_str(), "integration.not_found" | "needs_reauth" | "policy.denied");
     let subject = repo.map_or_else(|| "GitHub".to_owned(), |r| format!("GitHub for {r}"));
+    let reason = e.reason.as_deref().filter(|r| {
+        !r.is_empty() && r.len() <= 64 && r.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+    });
+    // An owner with no installation for the team: say whose grant leaves it out, in the line.
+    let not_installed = match (reason, repo) {
+        (Some("owner_not_connected"), Some(repo)) => {
+            let owner = repo.split_once('/').map_or(repo, |(owner, _)| owner);
+            format!(
+                ": the team's GitHub grant does not cover {owner}; the cmux GitHub App is not \
+                 installed on {owner} for this cmux team"
+            )
+        }
+        _ => String::new(),
+    };
     let text = match &next {
-        Some(next) => format!("cmux could not get a token for {subject} ({code}). Next: {next}."),
+        Some(next) => format!(
+            "cmux could not get a token for {subject} ({code}{}){not_installed}. Next: {next}.",
+            reason.map(|r| format!(" {r}")).unwrap_or_default()
+        ),
         None => format!("cmux could not get a token for {subject} ({code})."),
     };
     let mut error = json!({
@@ -133,6 +150,11 @@ pub fn refusal_result(repo: Option<&str>, e: &Refused) -> Value {
         "detail": code,
         "retryable": github_cli::retryable(&code),
     });
+    if let Some(reason) = reason
+        && let Some(fields) = error.as_object_mut()
+    {
+        fields.insert("reason".into(), json!(reason));
+    }
     if connect && let Some(fields) = error.as_object_mut() {
         fields.insert(
             "connect".into(),

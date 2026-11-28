@@ -112,8 +112,12 @@ nonisolated extension SidebarLayout {
             return SidebarAgentState.of(ws, lane: live?.laneStates[ws.id] ?? live?.states[ws.id])
         }
         // Agent-started sessions hide (`hidesStarted`) but for the ones that need the person or are selected; a filter
-        // finds them all. The rows that stay draw under their parents, open: no fold, no roll-up of hidden rows.
+        // finds them all. Nothing nests while they hide: every row that draws is top level, in the model's order, with no
+        // fold and no roll-up (Leo 2026-11-27: no subagent session nests under its parent in any workspace).
         let skipped = filtering ? [] : live?.hiddenStarted(ids, state: state) ?? []
+        if live?.hidesStarted == true {
+            return ids.indices.filter { !skipped.contains($0) }.map { TreeRow(index: $0, depth: 0) }
+        }
         let tree = live.map { shown in
             var tree = shown
             if filtering || shown.hidesStarted { (tree.collapsed, tree.foldsDeep) = ([], false) }

@@ -113,5 +113,84 @@ class CacheSeedMatchesRestores(unittest.TestCase):
                 self.assertGreater(i, drift, name)
 
 
+R2_URL = "https://ci-cache-next.cmux.com"
+FLEET = "cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}"
+
+
+def r2_restores():
+    """(workflow, job, key template, namespace, public URL) for every R2 restore of the xcframework."""
+    for wf in sorted(WORKFLOWS.glob("*.yml")):
+        if wf == SEED or XCF not in wf.read_text():
+            continue
+        jobs = load(wf).get("jobs") or {}
+        for job, body in jobs.items():
+            for step in body.get("steps") or []:
+                with_ = step.get("with") or {}
+                if step.get("uses") != "./.github/actions/cache-restore" or with_.get("path") != XCF:
+                    continue
+                env = step.get("env") or {}
+                yield (wf.name, job, step, template(jobs, job, str(with_["key"])), env.get("CI_CACHE_R2_NAMESPACE"),
+                       env.get("CI_CACHE_R2_PUBLIC_URL"), with_.get("backend"))
+
+
+class R2CopyMatchesRestores(unittest.TestCase):
+    """The Blacksmith Macs miss the GitHub-store entry (their actions/cache reads another store), so the seed copies
+    it to R2 and every hosted reader restores that copy: the same key, the `any` namespace, the public URL."""
+
+    def setUp(self):
+        self.seed = load(SEED)
+        self.restores = list(r2_restores())
+
+    def test_seed_copies_the_fleet_entry_to_r2(self):
+        jobs = self.seed["jobs"]
+        r2 = jobs["r2"]
+        self.assertEqual(set(r2["needs"]), {"key", "fleet", "mac"})
+        self.assertIn("!cancelled()", r2["if"])
+        self.assertIn("needs.key.outputs.r2_hit != 'true'", r2["if"])
+        self.assertIn("refs/heads/feat-cmux-next", r2["if"])
+        self.assertIn("next-cache-writer", r2["environment"])
+        self.assertEqual(self.seed["env"]["CI_CACHE_R2_NAMESPACE"], "any")
+        self.assertEqual(self.seed["env"]["CI_CACHE_R2_PUBLIC_URL"], R2_URL)
+        restore, save = r2["steps"][1], r2["steps"][2]
+        self.assertEqual(template(jobs, "r2", restore["with"]["key"]), FLEET)
+        self.assertTrue(restore["with"]["enableCrossOsArchive"])
+        self.assertIn("r2-cache.sh save", save["run"])
+        self.assertIn(XCF, save["run"])
+        self.assertEqual(save["env"]["KEY"], "${{ needs.key.outputs.key }}")
+        self.assertIn("steps.restore.outputs.cache-hit == 'true'", save["if"])
+        lookup = next(s for s in jobs["key"]["steps"] if s.get("id") == "r2-lookup")
+        self.assertIn("/v1/${CI_CACHE_R2_NAMESPACE}/objects/${KEY}.${ext}", lookup["run"])
+
+    def test_every_hosted_reader_restores_the_r2_copy(self):
+        found = {(wf, job) for wf, job, *_ in self.restores}
+        self.assertEqual(found, {("pr-pipeline.yml", "ios-fast"), ("cmux-next-ios-kit.yml", "kit-tests"),
+                                 ("swift-linux-packages.yml", "mac-fallback")},
+                         found)
+        for wf, job, step, key, ns, url, backend in self.restores:
+            with self.subTest(workflow=wf, job=job):
+                self.assertEqual((key, ns, url, backend), (FLEET, "any", R2_URL, "r2"))
+                self.assertIn("steps.xcf-fleet-restore.outputs.cache-hit != 'true'", step["if"])
+
+    def test_a_build_or_wait_skips_on_an_r2_hit(self):
+        """Every step that ran on a fleet-restore miss (build, wait, save) also skips on an R2 hit."""
+        for wf in sorted({wf for wf, *_ in self.restores}):
+            jobs = load(WORKFLOWS / wf)["jobs"]
+            for job, body in jobs.items():
+                for step in body.get("steps") or []:
+                    cond = str(step.get("if") or "")
+                    if step.get("id") == "xcf-r2-restore" or "steps.xcf-fleet-restore.outputs.cache-hit != 'true'" not in cond:
+                        continue
+                    with self.subTest(workflow=wf, job=job, step=step.get("name")):
+                        self.assertIn("steps.xcf-r2-restore.outputs.cache-hit != 'true'", cond)
+
+    def test_ios_fast_marks_an_r2_copy_as_its_own(self):
+        steps = load(WORKFLOWS / "pr-pipeline.yml")["jobs"]["ios-fast"]["steps"]
+        names = [s.get("name") for s in steps]
+        r2 = names.index("Restore the fleet-built CmuxMobileLinkFFI.xcframework from R2")
+        mark = names.index("Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy")
+        self.assertLess(r2, mark)
+        self.assertIn("steps.xcf-r2-restore.outputs.cache-hit == 'true'", steps[mark]["if"])
+
+
 if __name__ == "__main__":
     sys.exit(0 if unittest.main(exit=False).result.wasSuccessful() else 1)

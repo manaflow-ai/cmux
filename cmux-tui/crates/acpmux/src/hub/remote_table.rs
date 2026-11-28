@@ -14,6 +14,9 @@
 use super::remote_rows::RemoteRows;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+/// Takings of any table's writer lock that found it held ([`RemoteTable::contended`]).
+static CONTENDED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Default)]
 pub(crate) struct RemoteTable {
     /// One writer at a time; also the ordering fence.
@@ -67,8 +70,30 @@ impl RemoteTable {
     /// The writer lock with no change: waits for writers in flight (each has published when it
     /// returns) and keeps others out while held. For a step ordered against row writes that
     /// changes no row (a peer registered, a purge tombstone retired, a capture kept).
+    ///
+    /// A taken lock is waited for off the runtime's worker ([`crate::qos::off_worker`]): the
+    /// worker hands its other tasks on first. Waited for in place, each of ~200 peers' notice
+    /// loops parked a worker on this mutex while a holder sat preempted (cosmic-gray,
+    /// 2026-11-27: load 187 on 15 CPUs, "std mutex held long" on this lock 1646 times), and with
+    /// every worker parked nothing else ran: `acpmux session inbox` hung 60 s and prompt
+    /// admission leases lapsed. A free lock is taken in place, as before.
     pub(crate) fn fence(&self) -> MutexGuard<'_, ()> {
-        self.writer.lock().unwrap_or_else(PoisonError::into_inner)
+        match self.writer.try_lock() {
+            Ok(lock) => lock,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                CONTENDED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                crate::qos::off_worker(|| {
+                    self.writer.lock().unwrap_or_else(PoisonError::into_inner)
+                })
+            }
+        }
+    }
+
+    /// How many takings of the writer lock found it held and waited off the worker, since
+    /// start (a gauge for `daemon status`-style reads and the tests).
+    pub(crate) fn contended() -> u64 {
+        CONTENDED.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
