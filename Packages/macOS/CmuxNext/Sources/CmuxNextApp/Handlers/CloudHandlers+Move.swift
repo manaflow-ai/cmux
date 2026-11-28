@@ -286,6 +286,7 @@ extension AppServices: CloudPlaceHost {
     }
 
     func placeIdentityChangedReason() -> String { CloudMoveStrings.identityChanged }
+    // timeout: one AutoCloud pass reads the local daemon's host verdict; a miss decides on no verdict and the next pass reads again
     func placeVerdict() async -> Data? { await QuitAgents.environment(self)?.hostPressure(deadline: .seconds(5)) }
     func placeShadow(_ line: String) { QuitAgents.environment(self).map { CloudPlaceShadowLog.appendDetached(line, home: $0.home) } }
 }
