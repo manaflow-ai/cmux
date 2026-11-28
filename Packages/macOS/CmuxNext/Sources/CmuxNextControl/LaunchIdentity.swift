@@ -194,6 +194,10 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// The daemon's Chrome trace file (acpmux perf_trace.rs, cmux#55505): a launch that sets it keeps it, so the
     /// acpmux daemon this app starts writes the user actions' spans there (scripts/measure/action-trace.sh).
     public static let traceFileKey = "CMUX_TRACE_FILE"
+    /// A harness's "never update this copy" switch (CmuxNextUpdater `ManagedUpdatePolicy.environmentKey`, cmux#50783):
+    /// it survives the launch strip whoever set it, since it only ever turns this one process's updater off. Stripped,
+    /// a fresh-home capture of an older NIGHTLY updated itself mid-run and quit between steps.
+    public static let disableAutoUpdateKey = "CMUX_DISABLE_AUTO_UPDATE"
     /// The egress gate's mode (`enforce`, `log`, `off`) for this app and every Rust child
     /// (docs/privacy.md, cmux-egress): a value the launch passed wins; else NIGHTLY, DEV and
     /// staging builds enforce, and a release or rc build keeps the gate's own default (log).
@@ -218,7 +222,8 @@ public struct LaunchIdentity: Sendable, Equatable {
 
     /// Keys of cmux variables this process inherited rather than received
     /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs,
-    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey``, ``traceFileKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
+    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey``, ``traceFileKey`` (and, in a DEBUG build, ``captureShellHomeKey``),
+    /// and ``disableAutoUpdateKey`` always.
     /// When another cmux started this process (``otherCmuxMarkers``), also
     /// the ``stateRootKnobs`` and that build's files (``BuildStatePaths/environmentKeys``), every `MUX_*` but `MUX_HARNESS`, and every
     /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots. Its
@@ -232,6 +237,7 @@ public struct LaunchIdentity: Sendable, Equatable {
         let namesThisApp = bundleID.map { !$0.isEmpty && processEnvironment["CMUX_BUNDLE_ID"] == $0 } ?? false
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
+            if key == disableAutoUpdateKey { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
             if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey || key == traceFileKey, !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
