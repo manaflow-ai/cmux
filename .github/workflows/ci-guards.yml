@@ -1193,6 +1193,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_swift_linux_packages.py
 
+      - name: Every literal home-rules op the Mac app sends is one Rust answers
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_swift_home_rule_op_names.py
+
       - name: Validate the Linux Swift target ratchet (count only goes up)
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_swift_linux_targets.py

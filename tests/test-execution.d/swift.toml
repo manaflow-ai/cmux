@@ -6,6 +6,10 @@ path = "tests/test_swift_cloud_http.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_swift_home_rule_op_names.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_swift_incremental_diagnostics.py"
 lane = "linux-guard"
 
