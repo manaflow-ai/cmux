@@ -174,7 +174,7 @@ own_run() { printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":$2,\"st
 failed_jobs='{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-linux / build aarch64-unknown-linux-musl","status":"completed","conclusion":"failure","runner_name":"bs-1","created_at":"2023-11-14T22:00:00Z"}]}'
 reset_cdn; set_runs "$no_runs"; own_run "$own" 3 3; jobs_file 3 "$failed_jobs"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed on its last attempt fails fast, not at the limit (took $took s)"
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed on its last attempt fails fast, at its first check, not at the limit (took $took s)"
 
 # Before the last attempt cmux-tui-artifacts-retry re-runs the failed job (tree 453a2f94
 # published on such a retry): the wait goes on.
@@ -231,7 +231,7 @@ check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "stalled 
 preflight_failed='{"jobs":[{"name":"cmux-tui tree preflight","status":"completed","conclusion":"failure","runner_name":"linux-1","created_at":"2023-11-14T22:00:00Z"}]}'
 reset_cdn; set_runs "$no_runs"; own_run "$own" 11 3; jobs_file 11 "$preflight_failed"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a terminal preflight failure fails fast with its state and run (took $took s)"
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a terminal preflight failure fails fast with its state and run (took $took s)"
 
 # A completed workflow must retain the preflight error, not only an active workflow.
 completed_run() {
@@ -247,7 +247,7 @@ JSON
 }
 reset_cdn; set_runs "$no_runs"; completed_run "$own" 11; jobs_file 11 "$preflight_failed"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a completed publisher retains its terminal preflight failure (took $took s)"
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a completed publisher retains its terminal preflight failure (took $took s)"
 
 # Let the automatic retry become active between the two idle observations.
 reset_cdn; set_runs "$no_runs"; completed_run "$own" 12 1; jobs_file 12 "$preflight_failed"
