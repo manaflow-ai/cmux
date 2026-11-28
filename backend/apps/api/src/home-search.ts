@@ -1,6 +1,7 @@
 import { isDevSpace, spaceOfEnv, spacedName, unspacedName } from "./build-space.ts"
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
+import { readResendingOnLostConnection } from "./lost-connection.ts"
 import { projectionReadMode, shadowRead } from "./projection-reads.ts"
 import type { Env } from "./env.ts"
 import { foldedMatch, isDroppedMark } from "./home-search-fold.ts"
@@ -164,15 +165,20 @@ const homeSearchPostgres = async (env: Env, principal: Principal, params: Search
   // Loaded on first search only (as in projection.ts): pg is CommonJS with node:net.
   const { default: pg } = await import("pg")
   // Bounded: a short query cannot use the trigram index, so the server stops it after 3 s.
-  const client = new pg.Client({ connectionString: env.HYPERDRIVE_RO.connectionString, statement_timeout: 3000, query_timeout: 4000, connectionTimeoutMillis: 5000 })
-  try {
-    const connected = await client.connect().then(() => true, () => false)
-    const res = connected ? await client.query(sql, args).catch(() => null) : null
-    if (!res) return { ok: false, code: "search.unavailable", message: "search failed or timed out; try a longer query" }
-    // A dev build's projected ids carry its space (build-space-projection.ts); its clients see their own ids.
-    const hits = res.rows.map((r) => hitOf({ ...r, conversation_id: unspacedName(space, r.conversation_id) }, q))
-    return { ok: true, value: { hits, ...(hits.length === limit ? { cursor: encodeCursor(hits[hits.length - 1]!) } : {}) } }
-  } finally {
-    await client.end().catch(() => {})
+  const connectionString = env.HYPERDRIVE_RO.connectionString
+  // Each attempt opens its own client, so a resend after a lost connection never reuses the dead one.
+  const read = async () => {
+    const client = new pg.Client({ connectionString, statement_timeout: 3000, query_timeout: 4000, connectionTimeoutMillis: 5000 })
+    try {
+      await client.connect()
+      return await client.query(sql, args)
+    } finally {
+      await client.end().catch(() => {})
+    }
   }
+  const res = await readResendingOnLostConnection(read).catch(() => null)
+  if (!res) return { ok: false, code: "search.unavailable", message: "search failed or timed out; try a longer query" }
+  // A dev build's projected ids carry its space (build-space-projection.ts); its clients see their own ids.
+  const hits = res.rows.map((r) => hitOf({ ...r, conversation_id: unspacedName(space, r.conversation_id) }, q))
+  return { ok: true, value: { hits, ...(hits.length === limit ? { cursor: encodeCursor(hits[hits.length - 1]!) } : {}) } }
 }

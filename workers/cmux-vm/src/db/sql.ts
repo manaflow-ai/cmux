@@ -18,7 +18,7 @@ export class SqlClient extends Context.Tag("cmux-vm/SqlClient")<SqlClient, SqlCl
 
 /** The connection a request's queries share; opened by the first query, closed when the request ends. */
 interface RequestConnection {
-  sql: postgres.Sql | null;
+  sql: Connection | null;
   /** Work queued by `afterResponse`, run in order on this connection once the request has answered. */
   readonly tail: Array<Effect.Effect<void>>;
   /** Keeps the request alive for that work; null when the caller cannot, and the work then runs inline. */
@@ -32,10 +32,16 @@ const CurrentConnection = FiberRef.unsafeMake<RequestConnection | null>(null);
 // jsonb with JSON.stringify, so a JSON string would be stored as a jsonb
 // string (staging: every create failed resources_labels_check). PGlite in the
 // tests does not do this, so the cast is the guard.
-const connect = (connectionString: string) =>
+/** The two driver calls this file makes; tests stand one in for a connection that drops. */
+export interface Connection {
+  readonly unsafe: (text: string, params: Array<SqlParam>) => PromiseLike<Iterable<unknown>>;
+  readonly end: (options: { readonly timeout: number }) => PromiseLike<void>;
+}
+
+const connect = (connectionString: string): Connection =>
   postgres(connectionString, { max: 1, fetch_types: false, prepare: false, connect_timeout: 5 });
 
-const disconnect = (sql: postgres.Sql) => Effect.tryPromise(() => sql.end({ timeout: 1 })).pipe(Effect.ignore);
+const disconnect = (sql: Connection) => Effect.tryPromise(() => sql.end({ timeout: 1 })).pipe(Effect.ignore);
 
 /**
  * Runs one request with a shared connection slot: every query in it uses one
@@ -125,10 +131,10 @@ const readsOnly = (text: string): boolean => /^\s*select\b/i.test(text);
  * failed" log followed by "cmux-vm dependency unavailable" with cause_class
  * connection_lost.
  */
-export const hyperdriveSqlLayer = (connectionString: string, open: (connectionString: string) => postgres.Sql = connect): Layer.Layer<SqlClient> =>
+export const hyperdriveSqlLayer = (connectionString: string, open: (connectionString: string) => Connection = connect): Layer.Layer<SqlClient> =>
   Layer.succeed(SqlClient, {
     query: (operation, text, params) => {
-      const run = (sql: postgres.Sql) =>
+      const run = (sql: Connection) =>
         Effect.tryPromise({
           try: async (): Promise<ReadonlyArray<unknown>> => Array.from(await sql.unsafe(text, [...params])),
           catch: (cause) => new StoreError({ operation, cause }),
