@@ -47,6 +47,22 @@ async fn request_inner(vsock_uds: &Path, req: &GuestRequest) -> Result<GuestResp
     Ok(serde_json::from_slice(&body)?)
 }
 
+/// Step the guest's realtime clock to the host's ([`GuestRequest::SetClock`]); returns how far
+/// it moved, in nanoseconds. The host time is read as the request is built, so the guest ends up
+/// within one vsock round trip of the host.
+pub async fn set_clock(vsock_uds: &Path, timeout: Duration) -> Result<i64> {
+    let unix_ns = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("host clock before 1970")?
+        .as_nanos();
+    let unix_ns = u64::try_from(unix_ns).context("host clock past 2554")?;
+    match request(vsock_uds, &GuestRequest::SetClock { unix_ns }, timeout).await? {
+        GuestResponse::Clock { stepped_ns } => Ok(stepped_ns),
+        GuestResponse::Error { message } => bail!("guest: {message}"),
+        other => bail!("unexpected set-clock reply: {other:?}"),
+    }
+}
+
 /// Ping the agent until it answers or `deadline` passes; returns the guest's uptime in ms.
 pub async fn wait_ready(vsock_uds: &Path, deadline: Duration) -> Result<u64> {
     let start = Instant::now();
