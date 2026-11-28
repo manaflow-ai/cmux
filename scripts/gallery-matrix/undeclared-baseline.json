@@ -305,10 +305,6 @@
       "count": 1,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
     },
-    "agent-pane.composer#agent-home": {
-      "count": 2,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
-    },
     "agent-pane.composer#attach-screenshot": {
       "count": 1,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"

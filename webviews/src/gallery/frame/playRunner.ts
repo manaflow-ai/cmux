@@ -126,6 +126,17 @@ const noteClick = (event: Event) => {
   if (element instanceof Element) clicked.push(element);
 };
 
+/** Whether the play dropped or pasted something itself (a plain `dispatchEvent`, no ctx act) since
+ *  the last step started. A drop or a paste is the person's act, as the app's own audit reads it
+ *  (layout/motionAudit.ts): what it adds (an attachment's chip, a paste card) grows the composer,
+ *  and that growth lands in the next measured step, often the `waitFor` for the chip. That step
+ *  declares the composer's growth as a key or typing does; it declared nothing, so every drop and
+ *  paste state counted the composer and the rows it lifts as undeclared moves. */
+let handedIn = false;
+const noteHandIn = () => {
+  handedIn = true;
+};
+
 /** Two frames, then every running animation and transition finished: the step has settled. */
 async function settle(): Promise<void> {
   await nextFrame();
@@ -442,12 +453,16 @@ async function measured(
   // A scroll moves every row on purpose; its box shift is not scored, but its moves are still judged
   // against the layout-motion contract, as a declared user scroll.
   const declared = stepDeclarations(action);
+  const handedInDeclared: JudgeDeclaration[] = [
+    ...declared,
+    { key: -1_000_000 - ++declarationKey, event: "composer-growth", scope: "all", by: "play drop or paste" },
+  ];
   const boxes = startBoxTracker(document, {
     target: targets,
     extra: () => resolve().flatMap(({ element }) => (element ? [element] : [])),
     firstMoveFree: action === "resize",
     restedAtStart: true,
-    declared: () => declared,
+    declared: () => (handedIn ? handedInDeclared : declared),
   });
   const shifts: Shift[] = [];
   const longFrames: number[] = [];
@@ -530,6 +545,7 @@ async function measured(
   await settle();
   performance.mark(endMark);
   clicked = [];
+  handedIn = false;
   const timing = performance.measure(mark, startMark, endMark);
   const settleMs = Math.round(timing.duration * 10) / 10;
   performance.clearMarks(startMark);
@@ -580,7 +596,10 @@ export async function runPlay(
   // A play starts with the pointer up, whatever the last one left.
   pointerHeld = false;
   clicked = [];
+  handedIn = false;
   document.addEventListener("click", noteClick, true);
+  document.addEventListener("drop", noteHandIn, true);
+  document.addEventListener("paste", noteHandIn, true);
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
@@ -763,6 +782,9 @@ export async function runPlay(
   } finally {
     for (const end of declarations) end();
     document.removeEventListener("click", noteClick, true);
+    document.removeEventListener("drop", noteHandIn, true);
+    document.removeEventListener("paste", noteHandIn, true);
     clicked = [];
+    handedIn = false;
   }
 }

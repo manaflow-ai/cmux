@@ -142,6 +142,11 @@ export function sampleBoxes(doc: Document, target: StepTargets, extra: Element[]
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
     if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= height || rect.left >= width) continue;
+    // A box no frame paints (`visibility: hidden`, its own or inherited) moves unseen: a New Tab page's
+    // chat dock is hidden and inert until the page is a chat, and its composer took its place at the
+    // bottom under New Tab, a 446 px "jump" the reader never saw (gallery-health auth-health, sign-in-party).
+    const visibility = view?.getComputedStyle(element).visibility;
+    if (visibility === "hidden" || visibility === "collapse") continue;
     const row = element.hasAttribute("data-row-id");
     const box = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     const { shown, port } = view ? shownBox(element, box, view, !row, clips) : { shown: box, port: undefined };

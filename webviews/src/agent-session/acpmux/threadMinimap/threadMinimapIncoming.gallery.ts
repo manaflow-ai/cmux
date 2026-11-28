@@ -3,6 +3,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { incomingPrompt } from "../conversation/incomingMessage";
+import { RAIL_SHOW_KEY } from "./railShow";
 
 // Messages from other sessions on the compact rail: each keeps its row and the person's tick (one
 // column at rest, Leo 2026-11-02: "WTF ARE THESE" about #31681's set-in ticks), and its card names the
@@ -30,7 +31,11 @@ const rows = Array.from({ length: 16 }, (_, index) => [
   ),
   summary(299.6 - index * 2, { status: "completed" }),
 ]).flat();
-const INCOMING_TICK = '[data-tick="7"][data-incoming]';
+// Since #63508 the rail ticks other sessions' messages only when it shows "Received" (railShow.ts,
+// model.ts `railEntries`; Leo, 2026-11-27: "honestly non-user messages shouldnt appear in the scroll
+// rail anymore"), so each state shows the rail that way: its ticks are the five messages, 0 to 4.
+const RECEIVED = { [RAIL_SHOW_KEY]: "received" };
+const INCOMING_TICK = '[data-tick="2"][data-incoming]';
 /// The looks compared for other sessions' ticks, all in one column (one x, one width): none (shipped:
 /// every resting tick at one weight, so the ticks read evenly spaced), a faint step at rest, the
 /// 25% tint at rest (shipped until 2026-11-06), or a tint only while the pointer is on the rail. Drawn by a style tag so the
@@ -65,50 +70,55 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap"],
   variants: {
     states: {
-      note: "Shipped look, at rest mid-thread: every third prompt is another session's message; every tick shares one column, one x and one width. At rest other sessions' ticks draw at the person's weight, so every tick is one pitch from the next and none reads as a gap (incoming.experiment.ts; runs of them fold, threadMinimapIncomingFold.gallery.ts).",
+      note: "Shipped look, the rail showing Received (other sessions' messages tick only there since #63508), at rest mid-thread: every third prompt is another session's message; every tick shares one column, one x and one width. At rest other sessions' ticks draw at the person's weight, so every tick is one pitch from the next and none reads as a gap (incoming.experiment.ts; runs of them fold, threadMinimapIncomingFold.gallery.ts).",
+      display: RECEIVED,
       snapshot: chat(rows, { title: "Messages from other sessions at rest" }),
       play: async (ctx) => {
         look(ctx.document, "none");
-        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        if (!ctx.document.querySelector(".acpmux-minimap__tick")) return;
         await midThread(ctx);
       },
     },
     "incoming-hovered": {
       note: "The pointer on a message from review-router: its card names the sender above the words; its tick stays in the column.",
+      display: RECEIVED,
       snapshot: chat(rows, { title: "A hovered message from another session" }),
       play: async (ctx) => {
         look(ctx.document, "none");
-        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        if (!ctx.document.querySelector(".acpmux-minimap__tick")) return;
         await midThread(ctx);
         await ctx.hover({ selector: INCOMING_TICK });
       },
     },
     "faint-at-rest": {
       note: "Compared, not shipped (incoming.experiment.ts `folded-faint`): one column, other sessions' ticks a small step dimmer at rest (32% against 40%). Still reads as a lighter beat in the rhythm.",
+      display: RECEIVED,
       snapshot: chat(rows, { title: "Other sessions a faint step dimmer at rest" }),
       play: async (ctx) => {
         look(ctx.document, "faint");
-        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        if (!ctx.document.querySelector(".acpmux-minimap__tick")) return;
         await midThread(ctx);
       },
     },
     "tint-at-rest": {
       note: "Compared, shipped until 2026-11-06 (incoming.experiment.ts `secondary` and `folded-secondary`): one column, other sessions' ticks a step dimmer at rest (25% against 40%). On a dark rail they read as gaps, so the ticks look unevenly spaced.",
+      display: RECEIVED,
       snapshot: chat(rows, { title: "Other sessions tinted at rest" }),
       play: async (ctx) => {
         look(ctx.document, "tint");
-        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        if (!ctx.document.querySelector(".acpmux-minimap__tick")) return;
         await midThread(ctx);
       },
     },
     "tint-on-hover": {
-      note: "Compared, not shipped: one column, equal at rest; while the pointer is on the rail, other sessions' ticks dim (here hovering prompt 6).",
+      note: "Compared, not shipped: one column, equal at rest; while the pointer is on the rail, other sessions' ticks dim (here hovering the fourth message).",
+      display: RECEIVED,
       snapshot: chat(rows, { title: "Other sessions marked while the rail is hovered" }),
       play: async (ctx) => {
         look(ctx.document, "hover-only");
-        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        if (!ctx.document.querySelector(".acpmux-minimap__tick")) return;
         await midThread(ctx);
-        await ctx.hover({ selector: '[data-tick="5"]' });
+        await ctx.hover({ selector: '[data-tick="3"]' });
       },
     },
   },
