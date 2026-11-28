@@ -154,7 +154,6 @@ pub mod install_share;
 pub mod key_check;
 pub mod memory_follow;
 pub mod model_router;
-pub mod model_router;
 pub mod spec_exec;
 mod subscription_store;
 mod subscriptions;
