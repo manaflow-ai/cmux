@@ -13334,6 +13334,9 @@
       }
     },
     "request:_acpmux/here": {
+      "/includeSync": {
+        "ty": "boolean"
+      },
       "/scope": {
         "ty": "string",
         "nullable": true
@@ -35023,6 +35026,29 @@
       },
       "/data/here/*/working": {
         "ty": "boolean",
+        "required": true
+      },
+      "/data/sync": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/sync/*": {
+        "ty": "object"
+      },
+      "/data/sync/*/acknowledged": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sync/*/connected": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sync/*/peer": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/sync/*/unacknowledgedEdits": {
+        "ty": "uint64",
         "required": true
       }
     },

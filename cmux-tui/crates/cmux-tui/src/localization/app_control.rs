@@ -168,6 +168,18 @@ pub(crate) struct ChatPerfMessages {
     pub owner_animation: &'static str,
     pub owners_none: &'static str,
     pub owners_unsupported: &'static str,
+    /// `--page-source`: how the chat pages made since launch got their page (`{spare}`, `{kept}`, `{cold}`).
+    pub page_source: &'static str,
+    /// `--page-source`: opens whose spare was not used (`{empty}`, `{unready}`, `{refused}`).
+    pub page_source_spare: &'static str,
+    /// `--page-source`: cold builds by reason (`{reasons}`, `reason count, ...`).
+    pub page_source_cold_why: &'static str,
+    /// `--page-source`: the spare's refusals by reason (`{reasons}`).
+    pub page_source_refused_why: &'static str,
+    /// `--page-source`: the pages the app holds now and has let go (`{chat}`, `{frozen}`, `{new_tab}`, `{released}`).
+    pub page_source_pages: &'static str,
+    /// `--page-source` against an app that answered without the counts.
+    pub page_source_unsupported: &'static str,
 }
 
 /// `cmux live start|stop|status`: run a checkout's web UI dev server and point the running app at it.
@@ -583,7 +595,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         abi_mismatch: "nothing started or written: this checkout's web UI needs web ABI {tree_abi}, {app} has web ABI {app_abi} (it would refuse it and reload every page); try it in a side copy instead: `cmux app try .`, or use a checkout at web ABI {app_abi}",
     },
     chat_perf: ChatPerfMessages {
-        usage: "usage: cmux app chat perf --tab <tab> [--seconds <1-60>]\n  Measures the chat in <tab> as it runs, without focusing or showing it: frames, long tasks, layout\n  shift, and how long each record the chat receives takes to reach a painted frame, by kind. Default\n  5 seconds. A hidden or covered chat draws no frames, and the result says so. --json prints the report.",
+        usage: "usage: cmux app chat perf --tab <tab> [--seconds <1-60>]\n       cmux app chat perf --page-source\n  Measures the chat in <tab> as it runs, without focusing or showing it: frames, long tasks, layout\n  shift, and how long each record the chat receives takes to reach a painted frame, by kind. Default\n  5 seconds. A hidden or covered chat draws no frames, and the result says so. --json prints the report.\n  --page-source reads, without a tab and without measuring, how each chat page made since launch got\n  its page: the warm spare, a kept page, or a cold build and why. Read-only; an unloaded chat is fine.",
         seconds: "--seconds must be a whole number from 1 to 60",
         header: "Chat {tab}: {seconds} s, page {visibility}",
         page_hidden: "Measured nothing: the chat's page was hidden for most of the window. Show the chat, then run this again.",
@@ -602,6 +614,12 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         owner_animation: "  animation {name} on {target}: {count} running, {iterations} iterations",
         owners_none: "  no page code asked for frames, short timers or animations",
         owners_unsupported: "Frame owners: this chat page does not report them (a build from before they were added)",
+        page_source: "Chat pages made since launch: {spare} took the warm spare, {kept} reused a kept page, {cold} built cold",
+        page_source_spare: "  Spare not used: {empty} none parked, {unready} not ready, {refused} refused",
+        page_source_cold_why: "  Built cold because: {reasons}",
+        page_source_refused_why: "  Spare refused because: {reasons}",
+        page_source_pages: "Pages now: {chat} chat pages built ({frozen} asleep), {new_tab} New Tab pages; {released} chat pages let go while hidden since launch",
+        page_source_unsupported: "This cmux does not count how chat pages were made (a build from before the count was added)",
     },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",

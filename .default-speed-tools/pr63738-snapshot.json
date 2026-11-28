@@ -1,0 +1,7 @@
+{
+ "pr": "63738",
+ "status": "manaflow-ai/cmux#63738 OPEN draft  mergeable=UNKNOWN (UNKNOWN)  review=None  head e2e5d19785\nchecks SUCCESS: 15 passed, 0 failed, 0 pending (of 15, 0 required)\nhttps://github.com/manaflow-ai/cmux/pull/63738\ndata 10s ago, read over REST\n",
+ "land": "glaeda land: nothing queued for 63738\nsteps taken today: live 32, explain 31, hand_off 25, wait_pr 3, explain_unmoved 2, merge 1; last 7 days: live 439, explain 394, hand_off 163, wait_pr 113, explain_unmoved 87, merge 71, refresh_held 63, feed_norefresh 14, update_branch 12, feed_fresh 7, retry 6, wait_run 6, ready 3, no_data_held 2, rollup_ready 1, checks_done_event 1\njudgments that moved nothing today: 2 of 31; 2 a bound of the queue's own running out (its backoff, its wake: the design), 0 on a change the verdict does not depend on: none skippable\nstopped by cause: none\n",
+ "checkout_head": "7b420e548b6cd20c3c2fbbf561681412a6951c40",
+ "errors": {}
+}

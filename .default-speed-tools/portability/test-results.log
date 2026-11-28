@@ -1,0 +1,18 @@
+cargo_target_strip: removed 1 workspace entries, 0 MiB
+.....source-mtimes: recorded 2 files and directories
+source-mtimes: same CPU as the snapshot; native build output kept
+source-mtimes: restored 1 files and directories, 1 changed since the snapshot stay fresh, 0 entries skipped
+.....{
+  "mode": "producer",
+  "source_sha": "1111111111111111111111111111111111111111",
+  "source_job": "study-test",
+  "request_key": "portability-producer-7ea150793565058768ca3469",
+  "script": "/tmp/acpmux-1001/t/8ca84dc7/01a21d90-08a3-7631-915c-b0ab9306e994/tmp9i0277ce/plan/producer.sh",
+  "commands": "/tmp/acpmux-1001/t/8ca84dc7/01a21d90-08a3-7631-915c-b0ab9306e994/tmp9i0277ce/plan/commands.sh"
+}
+{"name": "sleep-tree", "argv": ["/opt/freestyle/python/bin/python3", "-c", "import json, os, pathlib, subprocess, sys, time\nchild = subprocess.Popen([sys.executable, '-c', 'import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(60)'])\nstat = pathlib.Path('/proc') / str(child.pid) / 'stat'\npathlib.Path(sys.argv[1]).write_text(json.dumps({'child': child.pid, 'start': stat.read_text().rsplit(')',1)[1].split()[19], 'pgid': os.getpgrp()}))\ntime.sleep(60)\n", "/tmp/acpmux-1001/t/8ca84dc7/01a21d90-08a3-7631-915c-b0ab9306e994/tmpo3xuz7uq/owned.json"], "exit_code": 124, "process_exit_code": -9, "timeout": true, "cancelled_signal": null, "cleanup_error": null, "wall_seconds": 1.6758150309906341, "user_seconds": 0.17355600000000004, "system_seconds": 0.235541, "cpu_complete": false}
+.
+----------------------------------------------------------------------
+Ran 11 tests in 12.176s
+
+OK

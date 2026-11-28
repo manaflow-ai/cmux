@@ -131,6 +131,8 @@ pub mod forum;
 mod forum_held_turn_tests;
 pub mod forum_hosted;
 mod forward_wait;
+/// RFD 0158 §5: a fresh-context reviewer of a task's diff before "done" (harness magic).
+mod fresh_review;
 pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod gemini_plan;
@@ -171,6 +173,7 @@ mod hunk_summary;
 mod hybrid_hold;
 pub(super) mod idle;
 mod idle_census;
+mod idle_digest;
 mod idle_governor;
 pub(crate) mod image_size;
 pub(crate) mod inactive_archive;
@@ -443,6 +446,7 @@ mod task_names;
 pub(crate) mod tasks;
 mod team_directory;
 pub use team_directory::{TeamView, view_of_book};
+mod best_of_n;
 mod team_information;
 mod team_sent;
 mod team_settings;
@@ -488,6 +492,8 @@ pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
 mod turn_rules;
+// RFD 0158 §2: rules over whole turns that steer with no tokens: spin, done without push.
+mod sidecars_turn;
 pub(crate) mod turn_shots;
 mod turn_usage;
 mod turns;
@@ -504,6 +510,7 @@ mod update_repeats;
 mod usage_answer;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
 mod sidecars;
+mod speculative;
 mod usage_share;
 mod usage_view;
 pub(crate) mod usage_warnings;
@@ -517,7 +524,7 @@ pub mod vm_boundary;
 pub mod vm_host;
 #[cfg(test)]
 mod wait_reason_tests;
-mod wake_place;
+pub(crate) mod wake_place;
 mod warm;
 mod watch;
 pub(crate) mod watch_events;
@@ -1385,6 +1392,9 @@ pub struct Hub {
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
     pub(super) cold_wake: Arc<Notify>,
+    /// When each chat came back from its cold archive lately, so the automatic passes do not
+    /// archive it again right away (`cold_archive.rs` `Recent`): bounded, oldest let go first.
+    pub(super) cold_recent: Arc<StdMutex<cold_archive::Recent>>,
     /// Chats whose log sealed a segment since the cold segments' worker last looked, and its wake
     /// (`cold_segments.rs`).
     pub(super) cold_sealed: Arc<StdMutex<std::collections::BTreeSet<String>>>,
@@ -1948,6 +1958,7 @@ impl Hub {
             lifecycle_wake: Arc::new(Notify::new()),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
+            cold_recent: Default::default(),
             cold_sealed: Default::default(),
             cold_sealed_wake: Arc::new(Notify::new()),
             pack_grown: Default::default(),
@@ -2285,6 +2296,7 @@ impl Hub {
             }
             return;
         };
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store listed");
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
         let read = Self::read_live_host_sessions();
         // Records that can not be read may hide a host whose lines adoption holds again: an off
@@ -3266,6 +3278,8 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
         turn_frames::record(&session.id, kind, &msg);
+        // A check red twice in a row marks the turn for best-of-N (`best_of_n.rs`, RFD 0158 §3).
+        best_of_n::record(&session.id, kind, &msg);
         // The turn's artifact card gathers its edits, tests and PRs (`turn_artifacts.rs`).
         turn_artifacts::record(&session.id, kind, &msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

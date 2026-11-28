@@ -4,6 +4,7 @@ import sys
 import importlib.util
 import os
 import select
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -25,6 +26,48 @@ spec.loader.exec_module(measure)
 class PhoneDefaultSpeedTest(unittest.TestCase):
     def context(self):
         return Context(bench=BENCH, build={"channel": "local"}, host_role="fleet")
+
+    def test_compilers_stay_pinned_in_dependency_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "cmux-tui"
+            workspace.mkdir()
+            dependency = root / "registry/quote"
+            dependency.mkdir(parents=True)
+            (dependency / "rust-toolchain.toml").write_text('[toolchain]\ncomponents = ["rust-src"]\n')
+            binaries = root / "toolchain"
+            proxies = root / "proxies"
+            binaries.mkdir()
+            proxies.mkdir()
+
+            def executable(path, script):
+                path.write_text("#!/bin/sh\nset -eu\n" + script)
+                path.chmod(0o755)
+
+            for name in ("rustc", "rustdoc"):
+                executable(binaries / name, f"echo pinned-{name}\n")
+                executable(proxies / name, "echo unexpected-rustup-proxy >&2\nexit 91\n")
+            executable(binaries / "cargo", '"$RUSTC" -vV\n"$RUSTDOC" --version\n')
+            executable(proxies / "cargo", 'exec "$PINNED_BIN/cargo" "$@"\n')
+            executable(proxies / "rustup", 'test "$PWD" = "$EXPECTED_WORKSPACE"\n'
+                       'test "$1" = which\nprintf "%s/%s\\n" "$PINNED_BIN" "$2"\n')
+            identities = []
+            for study in (False, True):
+                with self.subTest(study=study):
+                    env = dict(os.environ, PATH=str(proxies), PINNED_BIN=str(binaries),
+                               EXPECTED_WORKSPACE=str(workspace), RUSTC="wrong-rustc",
+                               RUSTDOC="wrong-rustdoc", RUSTC_WRAPPER="cache-wrapper",
+                               RUSTC_WORKSPACE_WRAPPER="workspace-wrapper")
+                    with mock.patch.object(measure, "ROOT", root):
+                        command, identity = measure.rust_build_tools(env, study)
+                    output = subprocess.check_output(command, cwd=dependency, env=env, text=True)
+                    self.assertEqual(output, "pinned-rustc\npinned-rustdoc\n")
+                    self.assertEqual(command[0], str(binaries / "cargo") if study else "cargo")
+                    self.assertEqual("RUSTC_WRAPPER" in env, not study)
+                    self.assertEqual("RUSTC_WORKSPACE_WRAPPER" in env, not study)
+                    self.assertEqual(identity["rustc_verbose_version"], "pinned-rustc")
+                    identities.append(identity)
+            self.assertEqual(identities[0], identities[1])
 
     @unittest.skipUnless(sys.platform == "linux", "process ownership uses Linux proc")
     def test_timeout_stops_owned_descendant_and_inherits_outer_group(self):

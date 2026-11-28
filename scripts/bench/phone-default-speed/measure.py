@@ -19,6 +19,32 @@ CARGO = ["cargo", "build", "--locked", "--profile", "dev", "-p", "ghostty-vt",
          "--features", "phone-speed", "--example", "phone_default_speed", "-vv"]
 
 
+def rust_build_tools(env, study):
+    """Resolve in the workspace before Cargo changes into dependency directories."""
+    tools = {
+        name: subprocess.check_output(["rustup", "which", name],
+                                      cwd=ROOT / "cmux-tui", env=env, text=True).strip()
+        for name in ("cargo", "rustc", "rustdoc")
+    }
+    for name, path in tools.items():
+        if not Path(path).is_absolute() or not os.access(path, os.X_OK):
+            raise RuntimeError(f"rustup resolved no executable {name}: {path}")
+    # A dependency can ship its own rust-toolchain.toml (quote requests rust-src).
+    # Bare rustc proxies then install components concurrently in the shared rustup
+    # home, even though Cargo itself was resolved from our workspace's toolchain.
+    env.update(RUSTC=tools["rustc"], RUSTDOC=tools["rustdoc"])
+    command = list(CARGO)
+    if study:
+        # Count compiler CPU, bypassing both compiler wrappers and the Cargo shim
+        # that can re-export sccache. The gate retains its normal Cargo cache shim.
+        env.pop("RUSTC_WRAPPER", None)
+        env.pop("RUSTC_WORKSPACE_WRAPPER", None)
+        command[0] = tools["cargo"]
+    tools["rustc_verbose_version"] = subprocess.check_output(
+        [tools["rustc"], "-vV"], cwd=ROOT / "cmux-tui", env=env, text=True).strip()
+    return command, tools
+
+
 
 def stop_tree(pid):
     """Stop only this child tree; retain the CI step's group for outer cancellation."""
@@ -146,14 +172,8 @@ def main():
     # merely because a new CI_TOOLS directory was allocated.
     env.pop("ZIG", None)
     env.pop("CMUX_ZIG", None)
-    cargo_command = list(CARGO)
+    cargo_command, rust_tools = rust_build_tools(env, args.study)
     if args.study:
-        # Cold-study CPU includes rustc itself rather than an external compiler cache daemon.
-        env.pop("RUSTC_WRAPPER", None)
-        env.pop("RUSTC_WORKSPACE_WRAPPER", None)
-        # ci/run can install a cargo shim that re-exports sccache unconditionally.
-        cargo_command[0] = subprocess.check_output(["rustup", "which", "cargo"],
-            cwd=ROOT / "cmux-tui", env=env, text=True).strip()
         target = ROOT / ".build" / f"phone-default-speed-study-{os.getpid()}"
         target.mkdir(parents=True, exist_ok=False)
         env["CARGO_TARGET_DIR"] = str(target)
@@ -165,6 +185,7 @@ def main():
         "head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "ghostty": subprocess.check_output(["git", "rev-parse", "HEAD:ghostty-next"], cwd=ROOT, text=True).strip(),
         "target": str(target), "profile": "dev", "cpu": "baseline", "study": args.study,
+        "rust_tools": rust_tools,
     }, indent=2) + "\n")
     first = run("cold-build" if args.study else "setup-build", cargo_command, output, env, timeout=1800 if args.study else 900)
     print(f"initial native artifact fresh: {'Fresh ghostty-vt-sys v' in first}", flush=True)

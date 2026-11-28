@@ -1,0 +1,8 @@
+cmux-ci: waiting for job 55af4cd7af9b3d422894ff17 up to 900 s (deadline 2026-11-28T03:41Z) at http://100.89.225.106:18765
+55af4cd7af9b3d422894ff17 state=running worker=cmux-linux-pool-1128-031315-1b7f8156 total_seconds=41.09 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+cmux-ci: job 55af4cd7af9b3d422894ff17 running on cmux-linux-pool-1128-031315-1b7f8156 after 1m00s; still waiting (deadline 2026-11-28T03:41Z)
+55af4cd7af9b3d422894ff17 state=failed worker=cmux-linux-pool-1128-031315-1b7f8156 total_seconds=118.63 queue_and_setup_seconds=3.57 execution_seconds=115.07 free_gib=120.22->120.13
+error=exit status 124
+  phase=admission seconds=0.00 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=input_restore seconds=6.12 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=build seconds=108.44 state=failed cache_hit=unknown hits=unknown misses=unknown error="exit status 124"
