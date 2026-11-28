@@ -189,9 +189,19 @@ impl AppError {
         self.data.as_ref()?.get("recovery")?.as_str()
     }
 
-    /// The text-mode report: `acpmux: <code>: <message>`, then what to do on its own line.
+    /// The text-mode report, then what to do on its own line, as the command the caller typed.
     pub fn text(&self) -> String {
-        let mut text = format!("acpmux: {}: {}", self.code.name(), self.message);
+        self.text_as(crate::cli::entry::program())
+    }
+
+    /// `acpmux: <code>: <message>` for acpmux itself; the cmux front door (`cmux harness …` in an app
+    /// terminal) says `cmux: <message>`: no engine name and no code word in a person's terminal.
+    pub fn text_as(&self, program: &str) -> String {
+        let mut text = if program == "acpmux" {
+            format!("acpmux: {}: {}", self.code.name(), self.message)
+        } else {
+            format!("{program}: {}", self.message)
+        };
         if let Some(recovery) = self.recovery() {
             text.push_str(&format!("\n  {recovery}"));
         }
@@ -338,7 +348,7 @@ fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     AppError::new(Code::Runtime, detail, msg)
 }
 
-/// Print and exit. Text mode prints `acpmux: <code>: <message>` and what to do; JSON mode
+/// Print and exit. Text mode prints `AppError::text` and what to do; JSON mode
 /// prints the envelope, both on stderr, nothing on stdout.
 pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
     let app = classify(e);
