@@ -3343,6 +3343,7 @@ inputs = [
   "cmux-tui/crates/cmux-tui-core/src/holder_runtime/service/*",
   "cmux-tui/crates/cmux-tui-core/src/journal_ingress/*",
   "cmux-tui/crates/cmux-tui-core/src/language_packs/*",
+  "cmux-tui/crates/cmux-tui-core/src/live_auto/*",
   "cmux-tui/crates/cmux-tui-core/src/model/*",
   "cmux-tui/crates/cmux-tui-core/src/mux/*",
   "cmux-tui/crates/cmux-tui-core/src/mux/notifications/*",
