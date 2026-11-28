@@ -4,9 +4,9 @@
 //! which lived only in memory. The owner's Mac sends it again when its link to the machine comes
 //! back (`agent/credentials.update`); until then a turn waits for it, then names why it cannot run.
 
-use super::*;
 use crate::agent_credentials::{AgentCredential, CLAUDE_OAUTH};
 use crate::config::{Config, StoreMode};
+use crate::hub::*;
 use std::path::Path;
 use std::time::Duration;
 
@@ -102,7 +102,7 @@ async fn a_turn_after_resume_runs_on_the_credential_the_mac_sends_when_its_link_
     };
     // The Mac's link to the machine returns: it sends the chat's credential again.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    hub.update_credential(&session.id, credential()).await.unwrap();
+    hub.update_credential(&session.id, credential(), false).await.unwrap();
     let answer = tokio::time::timeout(Duration::from_secs(30), turn).await.unwrap().unwrap();
     assert!(answer.is_ok(), "the turn after resume failed: {answer:?}");
     assert_eq!(
@@ -131,7 +131,7 @@ async fn a_turn_after_resume_with_the_mac_offline_names_why() {
     assert_eq!(e.data.as_ref().unwrap()["errorKind"], "credentials.needs_mac");
     assert!(launched(&session).is_empty(), "no agent started on the machine's own route");
     // The Mac comes back later: the next turn runs.
-    hub.update_credential(&session.id, credential()).await.unwrap();
+    hub.update_credential(&session.id, credential(), false).await.unwrap();
     hub.prompt(&session, text("again"), "test", false).await.unwrap();
     assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(TOKEN));
     hub.shutdown_all().await;
