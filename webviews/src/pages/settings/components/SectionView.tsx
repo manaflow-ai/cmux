@@ -28,7 +28,8 @@ import {
 } from "../cardRows";
 import { arrangeGroups } from "../rowLevels";
 import { Card } from "./cardModules";
-import { LinkMissing, useLinkLanding } from "./LinkLanding";
+import { LinkMissing } from "./LinkLanding";
+import { useLinkLanding } from "./linkLandingModel";
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
 export function SectionView({

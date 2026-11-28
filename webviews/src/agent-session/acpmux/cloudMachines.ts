@@ -8,7 +8,7 @@
 import { useSyncExternalStore } from "react";
 import { environmentReady, type Environment } from "./environments";
 import { postNative } from "./native";
-import { activeTeamFromReply, type ActiveTeamTag } from "./TeamTag";
+import { activeTeamFromReply, type ActiveTeamTag } from "./teamTagModel";
 import { cloudPlanFromReply, type CloudPlanView } from "./cloudPlans";
 
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
