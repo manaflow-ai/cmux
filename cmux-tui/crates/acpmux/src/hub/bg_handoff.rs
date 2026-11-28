@@ -31,11 +31,16 @@ pub(super) fn handed_off(output: &str) -> bool {
 
 /// Whether task `id`'s end in `dir` is dropped rather than sent: it went well (`ok`), its chat is
 /// `idle`, and its output ends with [`HANDED_OFF`].
-pub(super) fn drops_end(dir: &Path, id: &str, ok: bool, idle: bool) -> bool {
-    ok && idle && {
+/// A dropped end is marked sent at `mark`, so no restart owes it.
+pub(super) fn drops_end(dir: &Path, id: &str, ok: bool, idle: bool, mark: &Path) -> bool {
+    let drops = ok && idle && {
         let read = bg_run::read_output(dir, id, None, TAIL).unwrap_or_default();
         handed_off(&String::from_utf8_lossy(&read.data))
+    };
+    if drops && let Err(e) = crate::home_fs::write(mark, b"") {
+        tracing::warn!(mark = %mark.display(), "a handed-off task end was not marked: {e}");
     }
+    drops
 }
 
 #[cfg(test)]
@@ -55,11 +60,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut out = bg_run::Spool::create(dir.path(), "t1", 0).unwrap();
         out.write(b"o/r#1 requested\nacpmux: handed off: the land queue tells you\n").unwrap();
-        assert!(drops_end(dir.path(), "t1", true, true));
-        assert!(!drops_end(dir.path(), "t1", false, true), "a failure is news");
-        assert!(!drops_end(dir.path(), "t1", true, false), "a running turn takes it");
+        let mark = dir.path().join("t1.notified");
+        assert!(!drops_end(dir.path(), "t1", false, true, &mark), "a failure is news");
+        assert!(!drops_end(dir.path(), "t1", true, false, &mark), "a running turn takes it");
+        assert!(!mark.exists());
+        assert!(drops_end(dir.path(), "t1", true, true, &mark));
+        assert!(mark.exists(), "a dropped end counts as sent");
         let mut plain = bg_run::Spool::create(dir.path(), "t2", 0).unwrap();
         plain.write(b"done\n").unwrap();
-        assert!(!drops_end(dir.path(), "t2", true, true));
+        assert!(!drops_end(dir.path(), "t2", true, true, &dir.path().join("t2.notified")));
     }
 }

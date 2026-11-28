@@ -252,25 +252,16 @@ comes to you."
         if let Some(display) = display {
             provenance.set(DISPLAY, json!(display));
         }
-        // A task end that went well starts no turn of its own when it is a coordinator's, or
-        // when the subagent that started it ended before it ([`holds_end`]): it waits in the
-        // chat's inbox and goes with the next turn it takes (`inbox_page_rule.rs`), or its
-        // deadline brings it. One that failed wakes the chat, as does the lead's own end in a
-        // chat not on the list. Left in the inbox it counts as sent: the log restores it, and a
-        // send again finds it there.
+        // An ok end starts no turn when it is a coordinator's or its subagent ended first
+        // ([`holds_end`]): it waits in the inbox for the next turn or its deadline, and counts
+        // as sent there. A failed one wakes the chat, as does the lead's own end off the list.
         let prompt_id = format!("{PROMPT_PREFIX}{id}");
         let ok = notice.get("severity").and_then(Value::as_str) == Some("info");
         let listed = self.page_rule_lists(&session.meta().name);
-        // The lead's own exit-0 end in an idle plain chat that ran a turn waits too, but only
-        // [`OWN_END_HOLD_MS`]: ends that come close together, or with another message, wake the
-        // chat once ([`end_hold`]). Into a running turn it steers at the next tool step as
-        // before, and a chat that never ran a turn takes it as its first work.
+        // The lead's own exit-0 end in an idle chat waits [`OWN_END_HOLD_MS`] ([`end_hold`]),
+        // unless its command handed off (`bg_handoff.rs`); into a running turn it steers in.
         let idle = session.turn().is_none() && session.meta().turn_count > 0;
-        // A command that handed its work on (`bg_handoff.rs`): another notice brings the news.
-        if super::bg_handoff::drops_end(dir, id, ok, idle) {
-            if let Err(e) = crate::home_fs::write(&mark, b"") {
-                tracing::warn!(mark = %mark.display(), "a handed-off task end was not marked: {e}");
-            }
+        if super::bg_handoff::drops_end(dir, id, ok, idle, &mark) {
             return;
         }
         let hold = end_hold(ok, listed, ended.is_some(), idle);
