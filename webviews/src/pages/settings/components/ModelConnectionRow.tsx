@@ -12,6 +12,7 @@ import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import type { ModelConnection } from "../ops";
 import { endpointPresetId, providerById, type CatalogProvider, ENDPOINT_MARK } from "../providerCatalog";
+import { useConnectionQuiet } from "../../../ui/lasting";
 import { locale, t } from "../strings";
 import { ModelAccess, useModelAccess } from "./ModelConnectionFields";
 import { ModelProviderMark } from "./ModelProviderMark";
@@ -94,7 +95,7 @@ export function ModelConnectionRow({
     ? undefined
     : (renewal ??
       (kimiOtherBuild
-        ? t("settingsWindow.models.kimi.keychainOtherBuild")
+        ? t("settingsWindow.models.kimi.keychainOtherBuild.error")
         : failure
           ? t("settingsWindow.models.status.refused")
           : !connection.signedIn && !endpoint
@@ -412,8 +413,14 @@ export function ModelRow({
   checking?: boolean;
   children?: ReactNode;
 }) {
+  // The spinner shows at once; its "Connecting" words wait out the shared quiet bound.
+  const connectingLasting = useConnectionQuiet(!!loading && !checking);
   const iconLabel = loading
-    ? t(checking ? "settingsWindow.models.status.checking" : "settingsWindow.models.status.connecting")
+    ? checking
+      ? t("settingsWindow.models.status.checking")
+      : connectingLasting
+        ? t("settingsWindow.models.status.connecting")
+        : undefined
     : warning;
   return (
     <div className="row-main">

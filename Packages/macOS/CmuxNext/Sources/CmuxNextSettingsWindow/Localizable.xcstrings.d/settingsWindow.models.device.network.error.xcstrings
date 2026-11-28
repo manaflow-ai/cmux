@@ -1,7 +1,7 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "settingsWindow.models.device.network" : {
+    "settingsWindow.models.device.network.error" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {

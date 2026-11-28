@@ -1,7 +1,7 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "settingsWindow.models.kimi.keychainOtherBuild" : {
+    "settingsWindow.models.kimi.keychainOtherBuild.error" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {

@@ -212,7 +212,7 @@ function deviceFailure(provider: ModelDeviceProvider, state: Extract<ChatGPTDevi
     case "keychain_other_build":
       return t(
         provider === "kimi"
-          ? "settingsWindow.models.kimi.keychainOtherBuild"
+          ? "settingsWindow.models.kimi.keychainOtherBuild.error"
           : "settingsWindow.models.keychainOtherBuild",
       );
     case "no_copilot_access":
@@ -230,7 +230,7 @@ function deviceFailure(provider: ModelDeviceProvider, state: Extract<ChatGPTDevi
       if (provider !== "chatgpt") return t("settingsWindow.models.device.denied", providerNames[provider]);
       break;
     case "network":
-      if (provider !== "chatgpt") return t("settingsWindow.models.device.network", providerNames[provider]);
+      if (provider !== "chatgpt") return t("settingsWindow.models.device.network.error", providerNames[provider]);
       break;
     case "storage":
       return t("settingsWindow.models.device.storage");
