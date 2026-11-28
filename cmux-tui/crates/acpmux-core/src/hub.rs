@@ -229,7 +229,11 @@ impl UpdateQueue {
     /// At most `limit` updates, and units of at most `unit_changes` changes
     /// together (one unit at least): an origin's unit past that count waits in
     /// its slot, with what queued behind it, for the next turn. Origin records
-    /// go first; the origins' slots start after the one whose unit the last
+    /// go first, then the rows of origins with no unit or takeover queued, so
+    /// a local row waits on no unit (decision 300), then the origins' slots and
+    /// the rest of the rows: a unit and what queued behind it keep their order,
+    /// so an origin's rows stay behind its queued unit or takeover (decision
+    /// 451). The slots start after the one whose unit the last
     /// turn took last, so a unit the cap passed over is taken before any unit
     /// queued after it (decision 279), and once the cap passes over a unit no
     /// later unit is taken in that turn.
@@ -253,35 +257,59 @@ impl UpdateQueue {
             .map_or(0, |after| sources.partition_point(|key| key <= after));
         // `partition_point` is at most the length, so the rotation stays in bounds.
         sources.rotate_left(split);
-        let order = records.into_iter().chain(sources);
-        for key in order {
-            if batch.len() >= limit {
-                break;
-            }
-            let Some(updates) = pending.controls.get_mut(&key) else { continue };
-            while batch.len() < limit {
-                if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
-                    if passed_over || (changes > 0 && changes + unit.changes.len() > unit_changes) {
-                        passed_over = true;
-                        break;
-                    }
-                    changes += unit.changes.len();
-                    last = Some(key.clone());
+        let mut take_controls = |keys: Vec<UpdateKey>, batch: &mut Vec<_>| {
+            for key in keys {
+                if batch.len() >= limit {
+                    break;
                 }
-                let Some(update) = updates.pop_front() else { break };
-                batch.push((key.clone(), update));
+                let Some(updates) = pending.controls.get_mut(&key) else { continue };
+                while batch.len() < limit {
+                    if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
+                        if passed_over
+                            || (changes > 0 && changes + unit.changes.len() > unit_changes)
+                        {
+                            passed_over = true;
+                            break;
+                        }
+                        changes += unit.changes.len();
+                        last = Some(key.clone());
+                    }
+                    let Some(update) = updates.pop_front() else { break };
+                    batch.push((key.clone(), update));
+                }
+                if updates.is_empty() {
+                    pending.controls.remove(&key);
+                }
             }
-            if updates.is_empty() {
-                pending.controls.remove(&key);
-            }
-        }
+        };
+        // An origin with a queued unit or takeover keeps its rows behind them: a takeover
+        // changes which source's rows the writer takes.
+        let queued: std::collections::HashSet<Arc<str>> = sources
+            .iter()
+            .filter_map(|key| match key {
+                UpdateKey::Source(origin) => Some(origin.clone()),
+                _ => None,
+            })
+            .collect();
+        take_controls(records, &mut batch);
+        let mut take_rows = |behind: bool, batch: &mut Vec<_>| {
+            let keys: Vec<_> = pending
+                .rows
+                .keys()
+                .filter(|(row, _)| behind || !queued.contains(row.origin.as_ref()))
+                .take(limit.saturating_sub(batch.len()))
+                .cloned()
+                .collect();
+            batch.extend(keys.into_iter().filter_map(|key| {
+                pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
+            }));
+        };
+        take_rows(false, &mut batch);
+        take_controls(sources, &mut batch);
+        take_rows(true, &mut batch);
         if last.is_some() {
             pending.turn_after = last;
         }
-        let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
-        batch.extend(keys.into_iter().filter_map(|key| {
-            pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
-        }));
         batch
     }
 }
@@ -591,6 +619,9 @@ pub struct HubWriter {
     hydrated: tokio::sync::watch::Sender<disk::HydrationState>,
     #[cfg(test)]
     turn_measure: disk::TurnMeasure,
+    /// Index publishes since the turn began (`TurnMeasure::publishes`).
+    #[cfg(test)]
+    publishes: std::cell::Cell<usize>,
     /// Runs in a turn after the index is published and before its op is in
     /// the histories: where a wake can reach a reader first.
     #[cfg(test)]
@@ -883,6 +914,8 @@ impl Hub {
             hydrated: hydrated_tx,
             #[cfg(test)]
             turn_measure: disk::TurnMeasure::default(),
+            #[cfg(test)]
+            publishes: std::cell::Cell::new(0),
             #[cfg(test)]
             before_record: Mutex::new(None),
             compaction: None,
@@ -2048,6 +2081,10 @@ impl HubWriter {
         self.publish_folder_index(next, &folder_ops);
         self.record_history(ListItem::Summary(event.clone()));
         self.publish(event.clone());
+        #[cfg(test)]
+        if source == Source::Local {
+            self.turn_measure.local_published = Some(std::time::Instant::now());
+        }
         Ok(event)
     }
 
