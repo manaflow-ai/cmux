@@ -12,6 +12,7 @@
 //! key never opens as another kind.
 
 pub mod linux_release;
+pub mod patch_bundle;
 
 use base64::Engine as _;
 use ring::signature::{ED25519, UnparsedPublicKey};
