@@ -261,7 +261,7 @@ def profile_manifest(items, constants):
 def jamf_schema(items, constants):
     properties = {}
     for e in items:
-        p = {"title": e["title"], "description": e["help"] if e["help"] else e["name"]}
+        p = {"title": e["title"], "description": e["help"] if e["help"] else e["title"]}
         if isinstance(e["shape"], dict):
             for rule, value in e["shape"].items():
                 converted = property_list(value)

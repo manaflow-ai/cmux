@@ -45,6 +45,15 @@
     "appearance.metrics.chromeFontSize": 13,
     "tabs.hideLoneChatTab": true,
     "agentPane.display.presentation": "transcript",
+    // Tool calls draw as quiet text rows with no icons, as in the reference app's Code tab.
+    "agentPane.display.transcriptTokens": {"toolCards": "minimal"},
+    // The working mark: four accent dots that light up clockwise while the agent runs a tool and
+    // breathe while it thinks, played before the live line and in Jump to latest. Two other takes sit
+    // beside it in agent-pane/ (thinking-glyph-row.json, thinking-glyph-pulse.json).
+    "agentPane.display.thinking.glyph": { "$file": "agent-pane/thinking-glyph.json" },
+    "agentPane.display.thinking.jumpButton": "glyph",
+    // The live line rotates through short -ing verbs, as the reference app does, instead of staying on Thinking.
+    "agentPane.display.statusVerbs.mode": "rotate",
     "agentPane.display.transcriptView": "normal",
     "agentPane.display.font.size": 14,
     "agentPane.display.font.preset": "system",
@@ -54,6 +63,8 @@
     "agentPane.display.harnessPlacement": "compact",
     // The app's model picker is a short menu (models, then effort), not a searchable list.
     "agentPane.display.modelPickerStyle": "menu",
+    // The app's model menu offers only Claude Code's own update, never another agent's (Codex).
+    "agentPane.display.ownHarnessUpdatesOnly": true,
     "agentPane.showContextUsage": true,
     "agentPane.composerRing": "context",
     // Claude's look: the computer, folder, mode and model chips sit in the quiet row under the box,
