@@ -8,7 +8,7 @@ set -u
 export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC= CMUX_GHOSTTY_VT_ZIG_CPU=baseline
 bash scripts/ci/init-submodule.sh ghostty-next >/dev/null || exit 1
 if [ -z "${ZIG:-}${CMUX_ZIG:-}" ] && ! command -v zig >/dev/null; then
-  ./scripts/install-zig-ci.sh >/dev/null || exit 1
+  ZIG_FORCE_LOCAL_INSTALL=1 ZIG_INSTALL_ROOT="$HOME/.local/zig-ci" ./scripts/install-zig-ci.sh >/dev/null || exit 1
 fi
 fail=0
 cd cmux-tui
