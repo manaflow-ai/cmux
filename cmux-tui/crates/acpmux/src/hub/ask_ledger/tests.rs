@@ -178,3 +178,89 @@ fn six_thousand_asks_fold_once_and_read_in_constant_pages() {
     assert!(fold < std::time::Duration::from_secs(5), "fold took {fold:?}");
     assert!(read < std::time::Duration::from_millis(500), "a page took {read:?}");
 }
+
+const H: u64 = 60 * 60 * 1000;
+
+/// An ask nobody picks up past the bound gets one `stalled` event; a picked-up, answered or
+/// purged one never does, and the numbers on the page count it.
+#[test]
+fn ask_ledger_sweep_surfaces_only_asks_with_no_pickup_past_the_bound() {
+    let ledger = AskLedger::default();
+    assert_eq!(ledger.sweep(10 * H, H), 0, "an empty ledger sweeps nothing");
+    for (id, sid) in [("idle", "s"), ("routed", "s"), ("answered", "s"), ("purged", "p")] {
+        assert!(ledger.record(captured(id, sid, 0, id), None));
+    }
+    assert!(
+        ledger.record(event("routed", "s", 1, "lane", Kind::Routed { to: "lane".into() }), None)
+    );
+    assert!(ledger.record(event("answered", "s", 1, "agent", Kind::Answered), None));
+    ledger.purge("p");
+    assert!(ledger.record(captured("young", "s", 2 * H, "young"), None));
+
+    assert_eq!(ledger.sweep(H / 2, H), 0, "nothing is past the bound yet");
+    assert_eq!(ledger.sweep(2 * H, H), 1);
+    assert_eq!(ledger.sweep(2 * H, H), 0, "an ask stalls once");
+    let page = ledger.page();
+    let status = |id: &str| {
+        page["entries"].as_array().unwrap().iter().find(|r| r["id"] == id).unwrap()["status"]
+            .clone()
+    };
+    assert_eq!(status("idle"), "stalled");
+    assert_eq!(status("routed"), "routed");
+    assert_eq!(status("answered"), "answered");
+    assert_eq!(status("young"), "open");
+    assert_eq!(page["sweep"]["stalled"], 1);
+    assert_eq!(page["sweep"]["boundMs"], sweep::BOUND_MS);
+
+    // Picked up after the sweep found it: counted as rescued.
+    assert!(ledger.record(event("idle", "s", 3 * H, "lane", Kind::Picked), None));
+    assert_eq!(ledger.page()["sweep"]["pickedUpAfterStall"], 1);
+    assert_eq!(ledger.sweep(10 * H, H), 1, "the young ask stalls in its turn");
+}
+
+/// A reopened ask's bound counts from the reopen, not from its capture.
+#[test]
+fn ask_ledger_sweep_counts_a_reopened_ask_from_its_reopen() {
+    let ledger = AskLedger::default();
+    assert!(ledger.record(captured("a", "s", 0, "a"), None));
+    assert!(ledger.record(event("a", "s", 1, "lane", Kind::Picked), None));
+    assert!(ledger.record(event("a", "s", 5 * H, "leo@test", Kind::Reopened), None));
+    assert_eq!(ledger.sweep(5 * H + H / 2, H), 0);
+    assert_eq!(ledger.sweep(6 * H, H), 1);
+    let row = ledger.page()["entries"][0].clone();
+    assert_eq!(row["status"], "stalled");
+    assert_eq!(row["events"].as_array().unwrap().last().unwrap()["afterMs"], H);
+}
+
+/// One pass looks at a bounded number of queue entries, however many asks wait.
+#[test]
+fn ask_ledger_sweep_pass_is_bounded() {
+    let ledger = AskLedger::default();
+    let n = sweep::PASS_MAX * 3 + 7;
+    for i in 0..n {
+        assert!(ledger.record(captured(&i.to_string(), "s", 0, "t"), None));
+    }
+    assert_eq!(ledger.sweep(H, H), sweep::PASS_MAX);
+    assert_eq!(ledger.sweep(H, H), sweep::PASS_MAX);
+    assert_eq!(ledger.sweep(H, H), sweep::PASS_MAX);
+    assert_eq!(ledger.sweep(H, H), 7);
+    assert_eq!(ledger.page()["sweep"]["stalled"], n);
+}
+
+/// `stalled` is durable: a restart folds it back, and the sweep does not stall the ask again.
+#[test]
+fn ask_ledger_stalled_survives_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(DIR);
+    {
+        let ledger = AskLedger::open(Some(path.clone()));
+        assert!(ledger.record(captured("a", "s", 0, "a"), None));
+        assert_eq!(ledger.sweep(2 * H, H), 1);
+        ledger.flush();
+    }
+    assert!(file(&path).contains("\"stalled\""));
+    let ledger = AskLedger::open(Some(path));
+    assert_eq!(ledger.page()["entries"][0]["status"], "stalled");
+    assert_eq!(ledger.page()["sweep"]["stalled"], 1);
+    assert_eq!(ledger.sweep(9 * H, H), 0);
+}

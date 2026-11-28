@@ -11,8 +11,12 @@
 //! first event, so a machine that never opts in has no file, folder or thread; folded once when
 //! the hub is built. A purge drops the chat's asks and rewrites the file without them, so the
 //! words leave the disk with the chat. A memory store keeps the events in memory only.
+//!
+//! An ask open past a bound with no pickup is never left to an audit: the sweep (`sweep.rs`)
+//! records a `stalled { afterMs }` event for it, so "dropped" is a number on the board.
 
 mod store;
+mod sweep;
 
 use super::{Hub, Session};
 use serde::{Deserialize, Serialize};
@@ -43,6 +47,7 @@ pub(crate) enum Kind {
     Answered,
     Reopened,
     Dropped { reason: String },
+    Stalled { after_ms: u64 },
 }
 
 /// One line of the file: an event on an ask, or a purged chat's asks leaving.
@@ -68,6 +73,8 @@ pub(crate) enum Line {
 struct Ask {
     sid: String,
     events: Vec<(u64, String, Kind)>,
+    /// When it was last opened (captured or reopened): what the sweep's bound counts from.
+    since: u64,
 }
 
 impl Ask {
@@ -82,6 +89,7 @@ impl Ask {
                 Kind::PrMerged { .. } => "landed",
                 Kind::Answered => "answered",
                 Kind::Dropped { .. } => "dropped",
+                Kind::Stalled { .. } => "stalled",
             };
         }
         status
@@ -138,6 +146,11 @@ struct State {
     order: Vec<String>,
     /// A purge was folded, so the file still holds that chat's words until it is rewritten.
     stale: bool,
+    /// Open asks waiting for a pickup, in the order they opened: the sweep reads only the front.
+    waiting: std::collections::VecDeque<(String, u64)>,
+    /// `stalled` events folded, and how many of those asks were picked up after.
+    stalled: u64,
+    rescued: u64,
 }
 
 impl State {
@@ -146,12 +159,25 @@ impl State {
             Line::Event { ask, sid, ts, by, kind } => {
                 if let Some(known) = self.asks.get_mut(&ask) {
                     // A second capture of a known id (a retry, a second path) adds nothing.
-                    if !matches!(kind, Kind::Captured { .. }) {
-                        known.events.push((ts, by, kind));
+                    if matches!(kind, Kind::Captured { .. }) {
+                        return;
                     }
+                    match &kind {
+                        Kind::Stalled { .. } => self.stalled += 1,
+                        Kind::Routed { .. } | Kind::Picked if known.status() == "stalled" => {
+                            self.rescued += 1;
+                        }
+                        Kind::Reopened => {
+                            known.since = ts;
+                            self.waiting.push_back((ask.clone(), ts));
+                        }
+                        _ => {}
+                    }
+                    known.events.push((ts, by, kind));
                 } else if matches!(kind, Kind::Captured { .. }) {
                     self.order.push(ask.clone());
-                    self.asks.insert(ask, Ask { sid, events: vec![(ts, by, kind)] });
+                    self.waiting.push_back((ask.clone(), ts));
+                    self.asks.insert(ask, Ask { sid, events: vec![(ts, by, kind)], since: ts });
                 }
             }
             Line::Purge { sid } => {
@@ -292,7 +318,7 @@ impl AskLedger {
             .take(LIMIT)
             .filter_map(|id| state.asks.get(id).map(Ask::row))
             .collect();
-        json!({"entries": entries})
+        json!({"entries": entries, "sweep": state.sweep_numbers()})
     }
 
     /// Shutdown: closes the writer's queue and waits up to `within` for it to write what it
