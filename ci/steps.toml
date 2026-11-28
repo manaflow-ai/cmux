@@ -492,6 +492,36 @@ git -C "$repo" checkout -q FETCH_HEAD
 python3 -I scripts/ci/workflow_twins.py --other-dir "$repo"
 '''
 
+# The ci group's runner-policy guards, which a feat-cmux-next pull request also reached only through
+# ci-guard-group (skipped there, cdn-user-agent above): a workflow change that broke them went red only on the
+# feat-cmux-next push, and the push's reds were left standing (the twin drift cmux#64088 fixes, a sweep job that
+# went red on main's fast guards after the merge). A change to a workflow, the pool rescue or these tests now runs
+# them before the merge: every owned-pool workflow is watched by the rescue, main twins keep their twin's runs-on
+# and token floor (MainTwinsAgree), and stalled CI paths take the runner set. test_ci_fork_runner_routing.py and
+# test_ci_paid_queue_pin.py join this step once they are green on feat-cmux-next (31 base reds on 11-28).
+[step.workflow-runner-guards]
+job = "linux"
+# 22 s on the pool (11-28), the main tip fetched at depth 1.
+timeout = 120
+title = "Workflow runner guards (owned-pool rescue, main twins, runner set)"
+about = "every owned-pool workflow is one the persistent-pool rescue watches or names why not, each main twin keeps its twin's runs-on and token floor, and stalled CI paths take the runner set"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/owned_pool_rescue.py",
+  "scripts/ci/owned_pool_sources.py",
+  "scripts/ci/check_runs_on_pools.py",
+  "tests/test_ci_owned_pool_sources.py",
+  "tests/test_ci_runner_set.py",
+  "tests/workflow_jobs.py",
+  "tests/git_fixture_env.py",
+]
+run = '''
+status=0
+python3 tests/test_ci_owned_pool_sources.py || status=1
+python3 tests/test_ci_runner_set.py || status=1
+exit "$status"
+'''
+
 [step.skill-contracts]
 job = "linux"
 timeout = 300
@@ -2682,6 +2712,36 @@ bun run typecheck || rc=1
 exit "$rc"
 '''
 
+# The webviews check:* ratchets (scripts/ci/fast_gate_webviews_checks.py: surface-bypass, catalog-unused,
+# fixed-waits, design-tokens, ...) on a landing head of the affected tier. Before this they ran only in ci-web's
+# react-apps-check, which a cheap-tier head skips (ci.yml's `web` output is false there), while the PR tier of the
+# fast gates defers them to ci-web (cmux_next_fast_gates.PR_TIER_DEFERRED): so nothing ran them before a webviews
+# pull request merged. cmux#57668 (webviews-only, landed 2026-11-28 00:10Z) routed `web`, `web layer` and
+# `pr web pipeline` all skipped, and its new raw buttons and design-token findings first showed as the post-merge
+# batch's react-apps-check (1) red, red on all 60 feat-cmux-next pushes then. land_gate: its whole route on the
+# landing head. --base HEAD^1: only the findings this merge adds fail; a red the base has warns. The type check is
+# webviews-typecheck's (its nightly gate), so --skip typecheck. About 90 s on an idle runner.
+[step.webviews-checks]
+job = "linux"
+tier = "push"
+land_gate = true
+timeout = 600
+title = "Webviews checks (check:*, new findings only)"
+about = "webviews' check:* ratchets (surface-bypass, catalog keys, fixed waits, design tokens, layers, ...) add no finding the base lacks"
+needs = ["bun", "node"]
+# cmux_next_fast_gates.CHECK_INPUTS: webviews/, the string catalogs (check:catalog-keys) and the acpmux protocol spec.
+inputs = [
+  "webviews/**",
+  "**/*.xcstrings",
+  "cmux-tui/crates/acpmux/spec/**",
+  "scripts/ci/fast_gate_webviews_checks.py",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+python3 -I scripts/ci/fast_gate_webviews_checks.py --base "$base" --skip typecheck
+'''
+
 # acpmux's hot paths in instructions, not time (Leo: "are we also doing more work on perf while we're here? for the
 # app especially?"): Callgrind counts each case of cmux-tui/crates/acpmux/benches/icount.rs (an MCP connect to the
 # chat's tool servers, the chat pane's client core on v2 chat frames, a JSON-RPC parse and serialize) and the step
@@ -3849,6 +3909,10 @@ inputs = [
   "cmux-tui/crates/cmux-wg/**",
   "cmux-tui/crates/cmux-transport/**",
   "cmux-tui/vendor/smoltcp/**",
+  # The phone API contract (cmux-mobile-host tests/phone_api_contract.rs) is cut from these.
+  "cmux-tui/spec/sdk-schema.json",
+  "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+  "cmux-tui/crates/cmux-api-compat/**",
   "scripts/ci/ios_reliability_matrix.py",
 ]
 run = '''
