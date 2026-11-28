@@ -2760,6 +2760,9 @@ struct PushedTurn {
     seq: u64,
     first_output_ms: Option<u64>,
     turn_ms: Option<u64>,
+    /// The prompt's own `at` (unix ms, the machine's clock), which the Cloud probe sets against the inference
+    /// gateway's call line (`at`) to split first output into before the model call and the provider's wait.
+    prompt_at: Option<u64>,
     /// A failed turn's record (`turn_error`, or a failed `turn_result`): its `msg`.
     failure: Option<Value>,
 }
@@ -2816,6 +2819,7 @@ impl PushedTurn {
             seq,
             first_output_ms: since(first_at),
             turn_ms: since(end_at),
+            prompt_at,
             failure,
         })
     }
@@ -2826,7 +2830,10 @@ impl PushedTurn {
         answer.set("turn", json!({"seq": self.seq, "status": status, "stop_reason": self.stop}));
         answer.set("wait_route", json!("link"));
         // Felt time on the machine's clock: the prompt to the agent's first output, and to the turn's end.
-        answer.set("turn_ms", json!({"first_output": self.first_output_ms, "end": self.turn_ms}));
+        answer.set(
+            "turn_ms",
+            json!({"first_output": self.first_output_ms, "end": self.turn_ms, "prompt_at": self.prompt_at}),
+        );
         if let Some(failure) = self.failure {
             // The agent's own error, typed as acpmux types it (`errorKind`, `recovery`) when it is.
             let message = failure
