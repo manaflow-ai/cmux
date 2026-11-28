@@ -441,8 +441,11 @@ def start_agent_turn(work):
     fifo = os.path.join(work, "agent-gate")
     os.mkfifo(fifo)
     acp.prompt(session, f"gate: {fifo}")
-    if not wait(lambda: "before-gate" in acp.text(session), 30):
-        return session, fifo, None
+    # The agent's first start on a fresh CI Mac can pass 30 s (before-gate streamed
+    # only after that, so the pid was never looked up); wait longer, and look the
+    # pid up either way so a miss logs what was running.
+    if not wait(lambda: "before-gate" in acp.text(session), 120):
+        print(f"before-gate not streamed in 120 s; session text: {acp.text(session)!r}")
     pid = wait(lambda: agent_pids(work)[:1], 10)
     if not pid:
         print(f"agent pid not found under {work}; fake_agent processes: {agent_candidates()}")
