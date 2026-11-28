@@ -240,7 +240,8 @@ impl ClickTrace {
         let ordered: Vec<Entry> = if self.ring.len() < CAPACITY {
             self.ring.clone()
         } else {
-            self.ring[self.head..].iter().chain(&self.ring[..self.head]).cloned().collect()
+            let (older, newer) = self.ring.split_at(self.head.min(self.ring.len()));
+            newer.iter().chain(older).cloned().collect()
         };
         suffix(ordered, limit)
     }
@@ -260,7 +261,9 @@ impl ClickTrace {
             self.ring.len() - 1
         } else {
             let index = self.head;
-            self.ring[index] = entry;
+            if let Some(slot) = self.ring.get_mut(index) {
+                *slot = entry;
+            }
             self.head = (self.head + 1) % CAPACITY;
             index
         };
@@ -279,7 +282,7 @@ fn suffix(all: Vec<Entry>, limit: Option<i64>) -> Vec<Entry> {
     match limit {
         Some(limit) if limit >= 0 && (limit as usize) < all.len() => {
             let start = all.len() - limit as usize;
-            all[start..].to_vec()
+            all.into_iter().skip(start).collect()
         }
         _ => all,
     }

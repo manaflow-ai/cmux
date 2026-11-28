@@ -41,7 +41,7 @@ impl WindowTargeting {
         let current =
             self.target().and_then(|t| self.shells.iter().position(|w| *w == t)).unwrap_or(0)
                 as i64;
-        Some(self.shells[((current + offset) % n + n).rem_euclid(n) as usize])
+        self.shells.get(((current + offset) % n + n).rem_euclid(n) as usize).copied()
     }
 }
 

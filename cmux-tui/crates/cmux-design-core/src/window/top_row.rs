@@ -244,31 +244,35 @@ pub fn slots(side: f64, gap: f64, glyphs: &[Glyph]) -> Slots {
     let Some(first) = glyphs.first() else {
         return Slots { frames: Vec::new(), width: 0.0, leading_ink: 0.0 };
     };
-    let mut centers = vec![side / 2.0 + first.center_offset()];
-    for pair in glyphs.windows(2) {
-        let last = centers[centers.len() - 1];
-        centers.push(last + pair[0].width() / 2.0 + gap + pair[1].width() / 2.0);
+    let first_center = side / 2.0 + first.center_offset();
+    let mut centers = vec![first_center];
+    let mut last = first_center;
+    for (left, right) in glyphs.iter().zip(glyphs.iter().skip(1)) {
+        last = last + left.width() / 2.0 + gap + right.width() / 2.0;
+        centers.push(last);
     }
     let edges: Vec<f64> =
         centers.iter().zip(glyphs).map(|(c, g)| c + g.width() / 2.0 + gap / 2.0).collect();
     let mut frames: Vec<Slot> = Vec::with_capacity(glyphs.len());
-    for (index, glyph) in glyphs.iter().enumerate() {
-        let middle = centers[index] - glyph.center_offset();
+    for (index, (glyph, center)) in glyphs.iter().zip(&centers).enumerate() {
+        let middle = center - glyph.center_offset();
         let mut half = side / 2.0;
-        if index > 0 {
-            half = half.min(middle - edges[index - 1]);
+        if let Some(previous) = index.checked_sub(1).and_then(|i| edges.get(i)) {
+            half = half.min(middle - previous);
         }
-        if index < glyphs.len() - 1 {
-            half = half.min(edges[index] - middle);
+        if glyphs.get(index + 1).is_some() {
+            if let Some(edge) = edges.get(index) {
+                half = half.min(edge - middle);
+            }
         }
         half = half.max(0.0);
         frames.push(Slot { x: middle - half, width: half * 2.0 });
     }
-    let shift = frames[0].x;
+    let shift = frames.first().map_or(0.0, |f| f.x);
     for frame in &mut frames {
         frame.x -= shift;
     }
-    let leading_ink = centers[0] - first.width() / 2.0 - shift;
+    let leading_ink = first_center - first.width() / 2.0 - shift;
     let width = frames.last().map_or(0.0, |f| f.x + f.width);
     Slots { frames, width, leading_ink }
 }
