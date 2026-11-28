@@ -195,12 +195,39 @@ def cargo_env(args) -> dict:
     env.setdefault("CARGO_PROFILE_RELEASE_DEBUG", "line-tables-only")
     if args.target_dir:
         env["CARGO_TARGET_DIR"] = args.target_dir
-    # The store refuses a state folder under a writable, non-sticky shared folder: a private TMPDIR.
-    tmp = Path(args.out) / "tmp"
+    env["TMPDIR"] = str(private_tmp(Path(args.out)))
+    return env
+
+
+def ancestor_refused(path: Path) -> str | None:
+    """Why acpmux's private store would refuse a state folder under `path`, by the rule of its
+    `validate_private_state_ancestors` (config.rs): every ancestor is this user's or root's, and a
+    writable one is sticky. None when it would take it."""
+    uid = os.getuid()
+    for p in [path, *path.parents, *path.resolve().parents]:
+        st = p.lstat()
+        if st.st_uid not in (uid, 0):
+            return f"{p} is owned by uid {st.st_uid}, not {uid} or root"
+        if p.is_dir() and st.st_mode & 0o022 and not st.st_mode & 0o1000:
+            return f"{p} is a non-sticky writable folder"
+    return None
+
+
+def private_tmp(out: Path) -> Path:
+    """A private TMPDIR the store takes. Under the run's out folder when its ancestors pass; a
+    shared self-hosted runner puts the workspace under another user's home (runner28 in
+    /home/runner/work), which the store refuses, so then a private folder in /tmp."""
+    tmp = out / "tmp"
     tmp.mkdir(mode=0o700, parents=True, exist_ok=True)
     tmp.chmod(0o700)
-    env["TMPDIR"] = str(tmp)
-    return env
+    why = ancestor_refused(tmp)
+    if why is None:
+        return tmp
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="degenerate-lab-", dir="/tmp"))
+    print(f"[lab] TMPDIR {tmp}: {why}", file=sys.stderr, flush=True)
+    return tmp
 
 
 def missing(path: Path, what: str) -> str | None:
