@@ -73,6 +73,20 @@ struct CloudStartSessionTests {
         #expect(deleted == 1, "a found machine or a cancelled start's machine was deleted")
         let kept = await run(made: true, failure) { throw ActionFailure(message: "delete refused") } as? ActionFailure
         #expect(kept?.message.hasPrefix(failure.message) == true && kept?.message.contains("kill-machine --target machine:vm-chat-1") == true, "\(String(describing: kept))")
+        // Production, 2026-11-28 (cmuxterm-hq#36372): the start's retry named the machine it had just deleted.
+        let retry = ActionFailure(message: CloudStartSessionStrings.agentFailed("chat-1", id: "vm-chat-1", agent: "claude", reason: "timed out: identify (no reply within 10.0 seconds)"))
+        let gone = await run(made: true, retry) as? ActionFailure
+        #expect(gone?.message == "Machine `chat-1` started but its agent didn't (timed out: identify (no reply within 10.0 seconds)). " + CloudStartSessionStrings.newMachineDeleted("chat-1"), "\(String(describing: gone))")
+        #expect(gone?.message.contains("machine:vm-chat-1") == false)
+    }
+
+    /// The steps cut from a deleted machine's error: the first sentence naming it, in any language's punctuation.
+    @Test func aDeletedMachinesStepsAreCut() {
+        let connect = CloudStartSessionStrings.notConnected("chat-1", id: "vm-1", agent: "codex")
+        #expect(!CloudStartSession.withoutSteps(on: "vm-1", connect).contains("vm-1"))
+        #expect(CloudStartSession.withoutSteps(on: "vm-1", "a (x). Run `cmux cloud start-session --target machine:vm-1` again.") == "a (x).")
+        #expect(CloudStartSession.withoutSteps(on: "vm-1", "ก (x) เรียกใช้ `cmux cloud start-session --target machine:vm-1` อีกครั้ง") == "ก (x) เรียกใช้")
+        #expect(CloudStartSession.withoutSteps(on: "vm-1", "no steps here") == "no steps here")
     }
 
     @Test func aTargetlessStartChecksTheResolvedMachinesComputerHold() async throws {

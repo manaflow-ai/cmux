@@ -409,17 +409,36 @@ struct CloudStartSession {
 
     /// `body`, the start past its machine. A failure that strands the start (``CloudMoveCLI/StartChatPlan/strands(_:)``) on a
     /// machine this run made (`made`), in the account that asked, deletes that machine; a delete that fails says how to.
+    /// Once it is deleted, the error no longer says to run the start again on it: production starts on 2026-11-28
+    /// (05:20Z-07:45Z, cmuxterm-hq#36372) said "Run `cmux vm start-session --target vm:…` again" for a machine already
+    /// gone, which `cmux` then refuses ("No Cloud machine has the id"); it says the machine was deleted and to start a
+    /// new chat instead.
     func releasing<T>(made: Bool, name: String, id: String, account: [String?], delete: () async throws -> Void, _ body: () async throws -> T) async throws -> T {
         do {
             return try await body()
         } catch let ended {
             guard made, CloudMoveCLI.StartChatPlan.strands(ended), account == services.cloud.account else { throw ended }
+            let failure = ended as? ActionFailure
             do { try await delete() } catch {
-                let kept = CloudStartSessionStrings.newMachineKept(name, id: id), failure = ended as? ActionFailure
+                let kept = CloudStartSessionStrings.newMachineKept(name, id: id)
                 throw ActionFailure(message: (failure?.message ?? CloudStrings.errorText(ended)) + " " + kept, isNotFound: failure?.isNotFound ?? false, isQuiet: failure?.isQuiet ?? false)
             }
-            throw ended
+            guard let failure, failure.message.contains("machine:\(id)") else { throw ended }
+            let deleted = CloudStartSessionStrings.newMachineDeleted(name)
+            throw ActionFailure(message: Self.withoutSteps(on: id, failure.message) + " " + deleted, isNotFound: failure.isNotFound, isQuiet: failure.isQuiet)
         }
+    }
+
+    /// `message` up to its first sentence that names machine `id` (`machine:ID` in a `cmux` command): the steps that
+    /// only work on that machine. A message with no sentence end before it is cut before the command's backtick.
+    nonisolated static func withoutSteps(on id: String, _ message: String) -> String {
+        guard let named = message.range(of: "machine:\(id)") else { return message }
+        let before = message[..<named.lowerBound]
+        if let end = before.lastIndex(where: { ".。".contains($0) }) {
+            return String(message[...end])
+        }
+        guard let tick = before.lastIndex(of: "`") else { return message }
+        return message[..<tick].trimmingCharacters(in: .whitespaces)
     }
 
     /// How recent the machine list must be before `--name` takes or creates a machine.

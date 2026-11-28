@@ -150,6 +150,11 @@ public struct CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.newMachineKept", defaultValue: "Its new machine `%1$@` still runs. Delete it with `cmux cloud kill-machine --target machine:%2$@ --confirm true`.", table: "CloudSessions", bundle: .module), name, id)
     }
 
+    /// A failed start deleted the machine it made for itself: a new chat starts on a new machine.
+    public static func newMachineDeleted(_ name: String) -> String {
+        String(format: String(localized: "cloud.startSession.newMachineDeleted", defaultValue: "Its new machine `%1$@` was deleted. Start a new chat to try again on a new machine.", table: "CloudSessions", bundle: .localizedModule), name)
+    }
+
     /// The person closed the new chat's tab before its session started.
     public static func tabClosed(_ name: String, id: String, agent: String) -> String {
         String(format: String(localized: "cloud.startSession.tabClosed", defaultValue: "The new chat's tab on machine `%1$@` was closed before its agent started, so %3$@ didn't start there. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .localizedModule), name, id, agent)
