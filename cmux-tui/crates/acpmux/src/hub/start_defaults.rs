@@ -416,7 +416,7 @@ impl Hub {
         }
         let pinned = profile.model.clone();
         let (model, effort) = self.start_defaults(agent, profile, &saved, pinned.as_deref());
-        let model = match pinned {
+        let model = match pinned.clone() {
             Some(value) => Some(StartValue { value, source: StartSource::Profile }),
             None => model,
         };
@@ -435,6 +435,29 @@ impl Hub {
         if let Some(e) = effort {
             v.set("effort", json!(e.value));
             v.set("effortSource", json!(e.source.as_str()));
+        }
+        // New Tab's own start model (Leo 2026-11-27: "it should purely just be new tab"): the one
+        // above without the saved default a pick in a chat rewrites (`note_pick`), so a chat's pick
+        // never becomes New Tab's model. Settings rows and the profile still decide it. Sent only
+        // when it differs; the page then asks for it by name.
+        if pinned.is_none() && saved.model.is_some() {
+            let own = crate::config::SessionDefaults {
+                model: None,
+                effort: None,
+                ..saved.clone()
+            };
+            let (new_tab, _) = self.start_defaults(agent, profile, &own, None);
+            let shown = v.get("model").and_then(Value::as_str);
+            match new_tab {
+                Some(m) if shown == Some(m.value.as_str()) => {}
+                Some(m) => {
+                    v.set("newTab", json!({"model": m.value, "modelSource": m.source.as_str()}));
+                }
+                // Nothing below the saved pick names a model: New Tab names none either.
+                None => {
+                    v.set("newTab", json!({}));
+                }
+            }
         }
         Some(v)
     }
