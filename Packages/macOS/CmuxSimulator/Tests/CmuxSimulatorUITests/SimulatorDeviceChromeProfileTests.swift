@@ -244,10 +244,7 @@ struct SimulatorDeviceChromeProfileTests {
 
     @Test("Installed iPhone Air uses the measured DeviceKit screen opening")
     func installedPhoneAirScreenRadius() async throws {
-        let profileURL = URL(fileURLWithPath:
-            "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone Air.simdevicetype"
-        )
-        guard FileManager.default.fileExists(atPath: profileURL.path) else { return }
+        guard installedChromeArtworkExists(forDeviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-Air") else { return }
 
         let profile = await SimulatorDeviceChromeLoader().load(
             deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-Air"
@@ -259,10 +256,7 @@ struct SimulatorDeviceChromeProfileTests {
 
     @Test("Installed M5 iPad resolves compatible DeviceKit chrome artwork")
     func installedM5IPadChromeFallback() async throws {
-        let profileURL = URL(fileURLWithPath:
-            "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPad Pro 13-inch (M5).simdevicetype"
-        )
-        guard FileManager.default.fileExists(atPath: profileURL.path) else { return }
+        guard installedChromeArtworkExists(forDeviceType: "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB") else { return }
 
         let profile = await SimulatorDeviceChromeLoader().load(
             deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB"
@@ -369,5 +363,52 @@ struct SimulatorDeviceChromeProfileTests {
             options: 0
         )
         try data.write(to: url)
+    }
+}
+
+/// Whether this host has the simulator device type and the DeviceKit chrome
+/// artwork it names, found in the same roots and order as
+/// SimulatorDeviceChromeLoader (the active developer directory first, then
+/// /Library). CI Macs can pin DEVELOPER_DIR to an Xcode whose device type
+/// names chrome artwork that is not installed; these tests check the loader
+/// against installed artwork, so they run only where it is present, and still
+/// fail if loading returns nothing there.
+private func installedChromeArtworkExists(forDeviceType identifier: String) -> Bool {
+    let fileManager = FileManager.default
+    let environment = ProcessInfo.processInfo.environment
+    let developerDirectory: URL? = {
+        if let override = environment["DEVELOPER_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        let selection = URL(fileURLWithPath: "/var/db/xcode_select_link", isDirectory: true).resolvingSymlinksInPath()
+        return fileManager.fileExists(atPath: selection.path) ? selection : nil
+    }()
+    var deviceTypeRoots = [URL(fileURLWithPath: "/Library/Developer/CoreSimulator/Profiles/DeviceTypes", isDirectory: true)]
+    var chromeRoots = [URL(fileURLWithPath: "/Library/Developer/DeviceKit/Chrome", isDirectory: true)]
+    if let developerDirectory {
+        deviceTypeRoots.insert(developerDirectory.appendingPathComponent(
+            "Platforms/iPhoneSimulator.platform/Library/Developer/CoreSimulator/Profiles/DeviceTypes", isDirectory: true), at: 0)
+        deviceTypeRoots.insert(developerDirectory.appendingPathComponent(
+            "Library/Developer/CoreSimulator/Profiles/DeviceTypes", isDirectory: true), at: 0)
+        chromeRoots.insert(developerDirectory.appendingPathComponent("Library/Developer/DeviceKit/Chrome", isDirectory: true), at: 0)
+    }
+    func plist(_ url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
+    }
+    let deviceType = deviceTypeRoots.lazy.compactMap { root -> URL? in
+        let entries = (try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        return entries.first { entry in
+            entry.pathExtension == "simdevicetype"
+                && plist(entry.appendingPathComponent("Contents/Info.plist"))?["CFBundleIdentifier"] as? String == identifier
+        }
+    }.first
+    guard let deviceType,
+          let chromeIdentifier = plist(deviceType.appendingPathComponent("Contents/Resources/profile.plist"))?["chromeIdentifier"] as? String
+    else { return false }
+    let suffix = chromeIdentifier.split(separator: ".").last.map(String.init) ?? chromeIdentifier
+    return chromeRoots.contains { root in
+        fileManager.fileExists(atPath: root
+            .appendingPathComponent("\(suffix).devicechrome/Contents/Resources/chrome.json").path)
     }
 }
