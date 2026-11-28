@@ -14,6 +14,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod abi_hello;
 pub mod accept_errors;
 pub(crate) mod acp_key_auth;
 pub mod acpmux_mcp;
@@ -386,6 +387,7 @@ mod session_handle;
 pub mod session_icon;
 pub mod session_identity;
 pub mod session_liveness;
+pub mod session_manifest;
 pub mod session_name;
 pub mod session_order;
 mod session_scope;
