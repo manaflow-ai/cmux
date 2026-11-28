@@ -24,6 +24,7 @@ use prompt_sender::{app_pane_unproven, owner_terminal};
 mod presets;
 mod queued;
 mod session_open;
+mod session_resources;
 mod signature;
 mod start_reason;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
@@ -2234,9 +2235,8 @@ async fn dispatch_method(
                 restricted,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
-                // Purged by its creator right after its work (the Chief compactor's nodes): its
-                // prompts' bodies are not kept (`hub/ephemeral.rs`). An `ephemeral` run keeps
-                // them, so a failed first send can still be resent.
+                // Purged by its creator after its work (Chief compactor nodes): its prompt
+                // bodies are not kept (`hub/ephemeral.rs`); an `ephemeral` run keeps them.
                 throwaway: !adopting
                     && mux_meta(&params).and_then(|m| m.get("throwaway")).and_then(Value::as_bool)
                         == Some(true),
@@ -2245,6 +2245,7 @@ async fn dispatch_method(
                 create_key,
                 placed_by: pick("placedBy")
                     .filter(|p| p == crate::autocloud_enroll::PLACED_BY_AUTOCLOUD),
+                priority: crate::subrouter_priority::asked_tag(meta), // fleet-only-ok: Cloud
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -2262,12 +2263,11 @@ async fn dispatch_method(
             if remote_start {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
-                // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
-                // session the owner's peer daemon starts with no policy runs
-                // approve-all, as vmHost's did. Web clients still ask. Before the
-                // mode settles, so a Codex chat there settles in full access
-                // (`policy_mode.rs` `bridge_settle_modes`), not the asking mode a
-                // narrower policy needs.
+                // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a session the
+                // owner's peer daemon starts with no policy runs approve-all, as vmHost's did. Web
+                // clients still ask. Before the mode settles, so a Codex chat there settles in full
+                // access (`policy_mode.rs` `bridge_settle_modes`), not the asking mode a narrower
+                // policy needs.
                 let vm_boundary = s.meta().vm_boundary && hub.takes_vm_boundary().await;
                 if !asked_policy
                     && crate::hub::vm_boundary_peer_approves(
@@ -3496,6 +3496,8 @@ async fn dispatch_method(
         method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
         // A pure function of the ids asked, the same for every origin (`requests/signature.rs`).
         method::SESSION_SIGNATURE => signature::handle(params),
+        // Read on request from the OS, nothing kept (`requests/session_resources.rs`).
+        method::MUX_SESSION_RESOURCES => session_resources::handle(hub, &params).await,
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;

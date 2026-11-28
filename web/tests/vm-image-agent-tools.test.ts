@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, DAEMON_TERMINAL_TRIES, workspaceEnsureCommand, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, RECORD_TRIES, recorderScript, recordSteps, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, DAEMON_TERMINAL_TRIES, stallEvidenceCommand, workspaceEnsureCommand, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, RECORD_TRIES, recorderScript, recordSteps, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -1092,5 +1092,20 @@ describe("the probe asks a slow clone's daemon for its workspace again (roll 461
     expect(DAEMON_TERMINAL_TRIES).toBe(2);
     const cmd = workspaceEnsureCommand("/x/cmux-tui --session cloud");
     expect(cmd).toMatch(/^\/x\/cmux-tui --session cloud workspace name:\S+ show >\/dev\/null 2>&1 \|\| \/x\/cmux-tui --session cloud workspace create --name \S+ >\/dev\/null && echo ok$/);
+  });
+
+  test("a stalled daemon's machine is read without the daemon's socket", async () => {
+    const cmd = stallEvidenceCommand();
+    expect(cmd).not.toContain("cmux-tui --session");
+    for (const part of ["/proc/loadavg", "/proc/pressure/$r", "--sort=-pcpu", "cmux-tui server [s]tart"]) expect(cmd).toContain(part);
+    const out = await new Promise<{ code: number | null; stdout: string }>((resolve) => {
+      const child = spawn("bash", ["-c", cmd]);
+      let stdout = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.on("close", (code) => resolve({ code, stdout }));
+    });
+    expect(out.code).toBe(0);
+    expect(out.stdout).toMatch(/^uptime: \S+s load: /);
+    expect(out.stdout).toMatch(/daemon(: no cmux-tui server process| \d+ threads: )/);
   });
 });
