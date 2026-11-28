@@ -128,6 +128,28 @@ impl Hub {
         }
     }
 
+    /// Turn `turn_id` ended with steers its agent had not read, `carried` (their prompt ids):
+    /// Claude Code reads them in turn `next_turn` (`carried_turn.rs`), so the replies due under
+    /// them are that turn's. Before, they stayed this turn's, and its end sent the asker this
+    /// turn's words, often "(no reply)" (a turn that only compacted), while the answer, in the
+    /// next turn, reached nobody (2026-11-28: one chat sent five such "(no reply)" answers to
+    /// the sessions that asked it, and nine of the eleven "(no reply)" rows it saw that day came
+    /// from such turns).
+    pub(super) fn question_replies_carried(
+        &self,
+        session: &Session,
+        turn_id: &str,
+        carried: &[String],
+        next_turn: &str,
+    ) {
+        let mut inbox = session.inbox();
+        for d in inbox.replies_due.iter_mut() {
+            if d.turn.as_deref() == Some(turn_id) && carried.contains(&d.prompt_id) {
+                d.turn = Some(next_turn.to_owned());
+            }
+        }
+    }
+
     /// Prompt `prompt_id` (a notice, or a prompt of its own) ended: `went_in`, the replies due
     /// under it that reached no turn go; not in (refused, or a Stop took its steer back unread),
     /// they all go, also one tied to the turn its steer was written into. Its messages come again
