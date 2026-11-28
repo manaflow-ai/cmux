@@ -2,13 +2,10 @@
 
 import posthog from "posthog-js";
 
-// Website analytics are off until the visitor turns them on (Leo: "whatever we
-// do, we need to make sure it's opt out by defautl"). Until the visitor accepts
-// in the consent banner, `posthog.init` never runs: no PostHog cookie or
-// localStorage entry is written, no identify, no capture, no autocapture and no
-// pageview. Calls such as `posthog.capture` on the uninitialized client are
-// no-ops in posthog-js. Declining later opts the client out and clears what it
-// stored.
+// Website analytics run for every visitor with PostHog's normal cookie
+// persistence, and the site shows no consent banner (Lawrence, 2026-11-25:
+// "enable cookies and still no popup banner"). A visitor who declined earlier,
+// in the old banner, keeps analytics off.
 
 /** The site's public PostHog project key (it is in every page's bundle). */
 export const POSTHOG_PROJECT_KEY = "phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP";
@@ -118,7 +115,7 @@ export function setAnalyticsConsent(consent: AnalyticsConsent | null) {
   window.dispatchEvent(new Event(ANALYTICS_CONSENT_CHANGED_EVENT));
 }
 
-if (typeof window !== "undefined" && readAnalyticsConsent() === "granted") {
+if (typeof window !== "undefined" && readAnalyticsConsent() !== "denied") {
   initAnalytics();
 }
 
@@ -130,7 +127,7 @@ const analyticsGate = new Promise<void>((resolve) => {
 /**
  * Resolves once the route tracker buffers captures instead of the initial
  * `before_send` dropping them. Captures sent before this are discarded. It
- * never resolves for a visitor who has not accepted analytics.
+ * never resolves for a visitor who declined analytics.
  */
 export function whenAnalyticsCaptureBuffered(): Promise<void> {
   return analyticsGate;
