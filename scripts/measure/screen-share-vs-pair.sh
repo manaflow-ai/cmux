@@ -38,11 +38,16 @@
 #             the two halves of one `--pair KEY` job, as screen-stream-eval.sh stage-table= does: the viewing
 #             Mac's step (role=viewer) serves `screen-share-vs.py peer-serve` on its LAN address, port 4181, and
 #             this one drives it with --via peer, so it needs partner-ip= (the viewer's LAN address):
-#   cmux-ci run ... --pair KEY --target-worker HOST_MAC --pin-strict --arg=mode=run --arg=partner=VIEWER_MAC \
+#   cmux-ci run ... --label screen-eval-granted --pair KEY --target-worker HOST_MAC --pin-strict --arg=mode=run --arg=partner=VIEWER_MAC \
 #     --arg=partner-ip=VIEWER_IP --arg=peer-token=$token [the run args]
-#   cmux-ci run ... --pair KEY --target-worker VIEWER_MAC --pin-strict --arg=role=viewer --arg=peer-token=$token \
+#   cmux-ci run ... --label screen-eval-granted --pair KEY --target-worker VIEWER_MAC --pin-strict --arg=role=viewer --arg=peer-token=$token \
 #     --artifact artifacts/screen-share-vs-pair/report.tgz
 #             The viewer half ends at the host half's /done, or after hold-s= (default 3600) seconds.
+#             --label screen-eval-granted on both halves: both run inside CmuxScreenEvalLauncher.app (host-ip=), and
+#             the controller gives that label only to a Mac whose launcher is granted, so submit refuses a pin to an
+#             ungranted one instead of the half failing later (2026-11-28: a host half on cmux21, launcher present but
+#             ungranted, ended 10 min in with `SSVP tcp ...:22 errno=65 EHOSTUNREACH`). Grant one at its console with
+#             cmuxterm-hq build-fleet/mini-ops/ops/screen-share-grant.sh (share_grant.py status reads it).
 # host-ip=lan|tailnet  the address the viewer dials for the clock probe and the stream (--host-ip). lan (default)
 #             is this Mac's en0/en1 address. tailnet is its 100.64.0.0/10 address. A launchd step's own sockets to
 #             an office-LAN address get EHOSTUNREACH (`No route to host`) from macOS Local Network privacy, so both
