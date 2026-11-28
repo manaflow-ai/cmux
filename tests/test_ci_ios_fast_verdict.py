@@ -296,10 +296,10 @@ class RouterStatusTest(unittest.TestCase):
         self.assertEqual(self.status(self.event(), [KIT + "Package.swift"], ["pr-pipeline.yml"], "success")[0],
                          "pending")
 
-    def test_a_cheap_ios_head_waits_for_the_land(self) -> None:
+    def test_a_ready_ios_head_runs_before_the_land(self) -> None:
         state, desc = self.status(self.event(), ["cmux-tui/crates/cmux-wg/src/a.rs"], [], "pending")
         self.assertEqual(state, "pending")
-        self.assertIn("ready-to-land", desc)
+        self.assertIn("before merge", desc)
 
     def test_a_carried_ios_head_carries(self) -> None:
         self.assertEqual(self.status(self.event(), [KIT + "Package.swift"], [], "success")[0], "success")
@@ -351,7 +351,7 @@ class LandAffectedRouteTest(unittest.TestCase):
     def route(self, files: list[str] | None, decided: tuple[str, str] | None = None) -> tuple[list[str], dict]:
         return self.router.route(self.event(), self.callees, files, decided=decided or self.affected)
 
-    def test_an_ios_landing_head_starts_the_verdict(self) -> None:
+    def test_an_ios_ready_head_starts_the_verdict(self) -> None:
         start, why = self.route([KIT + "Tests/CmuxMobileKitTests/A.swift"])
         self.assertIn("pr-pipeline.yml", start)
         self.assertIn("ios fast verdict", why["pr-pipeline.yml"])
@@ -369,9 +369,9 @@ class LandAffectedRouteTest(unittest.TestCase):
     def test_a_landing_head_off_ios_starts_nothing(self) -> None:
         self.assertNotIn("pr-pipeline.yml", self.route(["web/app/page.tsx"])[0])
 
-    def test_a_cheap_head_not_landing_still_waits(self) -> None:
+    def test_a_ready_head_not_landing_starts_the_verdict(self) -> None:
         start, why = self.route([KIT + "Package.swift"], decided=("cheap", "ready head before ready-to-land"))
-        self.assertNotIn("pr-pipeline.yml", start)
+        self.assertIn("pr-pipeline.yml", start)
 
     def test_the_switch_off_starts_nothing(self) -> None:
         old = os.environ.get("CI_IOS_FAST_VERDICT")
