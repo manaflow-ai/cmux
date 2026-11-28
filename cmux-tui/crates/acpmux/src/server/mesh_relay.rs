@@ -1121,8 +1121,12 @@ async fn run_control(
             match held {
                 Some(prompt_id) => {
                     // Keep the same server-derived provenance on the write after the read.
-                    params["promptId"] = serde_json::json!(prompt_id);
-                    params["op"] = serde_json::json!("resume");
+                    if let Some(fields) = params.as_object_mut() {
+                        fields.insert("promptId".into(), serde_json::json!(prompt_id));
+                    }
+                    if let Some(fields) = params.as_object_mut() {
+                        fields.insert("op".into(), serde_json::json!("resume"));
+                    }
                     rpc_call(&tx, &mut rx, 3, crate::rpc::method::MUX_QUEUE_EDIT, params).await
                 }
                 None => Ok(serde_json::json!({"resumed": false})),

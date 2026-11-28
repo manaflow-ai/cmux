@@ -438,12 +438,12 @@ pub(super) async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
             {
                 login::check_claude_login_available(&cli).await.map_err(error)?;
                 let status = login::claude_status(&machine(hub), &cli).await.map_err(error)?;
-                if status["signedIn"] == true {
+                if status.get("signedIn") == Some(&serde_json::Value::Bool(true)) {
                     login::check_claude_login_available(&cli).await.map_err(error)?;
                     signed_in(hub, agent, params, &cli.store(agent), recovery).await?;
                     return Ok(status);
                 }
-                api_key = status["apiKey"].as_bool();
+                api_key = status.get("apiKey").and_then(serde_json::Value::as_bool);
             }
             let s = login::start(&machine(hub), &cli, agent, recovery.map(str::to_owned))
                 .await

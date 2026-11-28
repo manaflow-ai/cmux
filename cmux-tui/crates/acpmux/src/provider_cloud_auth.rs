@@ -118,7 +118,7 @@ impl Provider {
 
     /// The native CLI key owned by a saved Google or xAI API-key route.
     pub(crate) fn api_key(self) -> &'static str {
-        self.key_vars()[0]
+        self.key_vars().first().copied().unwrap_or_default()
     }
 
     pub(crate) fn direct_env(self) -> impl Iterator<Item = &'static str> {

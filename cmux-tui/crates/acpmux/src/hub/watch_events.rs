@@ -163,11 +163,14 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
             .map_err(|_| RpcError::internal("peer watch page timed out"))?;
             let page = match answer {
                 Ok(page) => {
-                    s["missing"] = json!(false);
+                    if let Some(fields) = s.as_object_mut() {
+                        fields.insert("missing".into(), json!(false));
+                    }
                     page
                 }
                 Err(error)
-                    if error.code == RpcError::not_found("").code && s["missing"] == true =>
+                    if error.code == RpcError::not_found("").code
+                        && s.get("missing") == Some(&serde_json::Value::Bool(true)) =>
                 {
                     json!({"events": []})
                 }
@@ -196,10 +199,10 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                 &remote_page(id, c.seq, w.match_text.as_deref()),
             )
             .await?;
-            end = page["lastSeq"].as_u64();
-            more = page["hasMore"] == true;
+            end = page.get("lastSeq").and_then(serde_json::Value::as_u64);
+            more = page.get("hasMore") == Some(&serde_json::Value::Bool(true));
             through = page.get("pageThrough").and_then(Value::as_u64);
-            serde_json::from_value(page["events"].clone())
+            serde_json::from_value(page.get("events").cloned().unwrap_or_default())
                 .map_err(|e| RpcError::internal(format!("hub watch events: {e}")))?
         } else {
             Vec::new()
@@ -280,10 +283,13 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                     c.turn_mark = format!("turn:{}", e.msg["turnId"]);
                     c.unread = e.msg.get("unread").unwrap_or(&s["unread"]) == &Value::Bool(true);
                     let blocked = w.until.iter().any(|u| u == "blocked")
-                        && (e.msg["status"] == "failed"
+                        && (e.msg.get("status").and_then(serde_json::Value::as_str)
+                            == Some("failed")
                             || crate::session_liveness::blocked_reply(&c.reply).is_some());
                     if blocked {
-                        if let Some(error) = e.msg["errorText"].as_str() {
+                        if let Some(error) =
+                            e.msg.get("errorText").and_then(serde_json::Value::as_str)
+                        {
                             c.reply = error.to_owned();
                         }
                         candidates.push(("blocked", c.turn_mark.clone()));

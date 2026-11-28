@@ -318,15 +318,19 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         "via": "hub",
         "stale": false,
     });
-    if failed {
-        // Existing summary views derive their failed indicator from the last turn. Keep that
-        // projection even when an older peer omitted the optional reason.
-        row["lastTurn"] = json!({"status": "failed"});
+    // Existing summary views derive their failed indicator from the last turn. Keep that
+    // projection even when an older peer omitted the optional reason.
+    if failed && let Some(fields) = row.as_object_mut() {
+        fields.insert("lastTurn".into(), json!({"status": "failed"}));
     }
     if let Some(reason) = stuck_reason {
-        row["stuckReason"] = json!(reason);
-        if failed {
-            row["lastTurn"]["errorText"] = json!(reason);
+        if let Some(fields) = row.as_object_mut() {
+            fields.insert("stuckReason".into(), json!(reason));
+        }
+        if failed
+            && let Some(turn) = row.get_mut("lastTurn").and_then(serde_json::Value::as_object_mut)
+        {
+            turn.insert("errorText".into(), json!(reason));
         }
     }
     row

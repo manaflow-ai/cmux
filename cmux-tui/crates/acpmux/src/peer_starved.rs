@@ -54,10 +54,11 @@ impl Starved {
         }
         let second = self.second(at);
         let i = (second % KEPT as u64) as usize;
-        if self.epochs[i].swap(second, Relaxed) != second {
-            self.millis[i].store(0, Relaxed);
+        let (Some(epoch), Some(slot)) = (self.epochs.get(i), self.millis.get(i)) else { return };
+        if epoch.swap(second, Relaxed) != second {
+            slot.store(0, Relaxed);
         }
-        self.millis[i].fetch_add(late.as_millis() as u64, Relaxed);
+        slot.fetch_add(late.as_millis() as u64, Relaxed);
     }
 
     /// The time this process was starved in the `window` before `now` (to the second, one
@@ -68,8 +69,10 @@ impl Starved {
         let mut millis = 0;
         for second in last.saturating_sub(seconds)..=last {
             let i = (second % KEPT as u64) as usize;
-            if self.epochs[i].load(Relaxed) == second {
-                millis += self.millis[i].load(Relaxed);
+            if let (Some(epoch), Some(slot)) = (self.epochs.get(i), self.millis.get(i))
+                && epoch.load(Relaxed) == second
+            {
+                millis += slot.load(Relaxed);
             }
         }
         Duration::from_millis(millis).min(window)

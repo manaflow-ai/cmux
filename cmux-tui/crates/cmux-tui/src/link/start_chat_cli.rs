@@ -1056,12 +1056,14 @@ impl Ensure {
         }
         let mut line = ensure_answer(self.post(credential.trim()));
         if let Some(environment) = &self.environment
-            && line["ok"] == true
+            && line.get("ok") == Some(&serde_json::Value::Bool(true))
         {
             if !ensured_in_environment(&line, environment) {
                 return environment_mismatch();
             }
-            line["selected_environment"] = json!(environment);
+            if let Some(fields) = line.as_object_mut() {
+                fields.insert("selected_environment".into(), json!(environment));
+            }
         }
         line
     }

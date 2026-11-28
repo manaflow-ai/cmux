@@ -235,7 +235,7 @@ impl Ring {
         }
         let mut buf = vec![0u8; max.min(64 << 10)];
         let n = read_pipe(pipe, &mut buf)?;
-        self.append(&buf[..n], at)
+        self.append(buf.get(..n).unwrap_or_default(), at)
     }
 
     fn append(&self, buf: &[u8], at: u64) -> std::io::Result<usize> {

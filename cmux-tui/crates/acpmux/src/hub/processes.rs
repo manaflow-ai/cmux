@@ -541,7 +541,7 @@ impl ProcessTable {
     /// the harness's shell (a rare case, so its scan is too).
     fn find_harness_tool(&self, tool: &str) -> Option<usize> {
         match self.find_tool(tool) {
-            Some(i) if self.processes[i].daemon_task => {
+            Some(i) if self.processes.get(i).is_some_and(|p| p.daemon_task) => {
                 self.processes.iter().position(|p| p.tool_call_id == tool && !p.daemon_task)
             }
             found => found,

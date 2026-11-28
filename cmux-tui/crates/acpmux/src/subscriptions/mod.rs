@@ -151,11 +151,17 @@ impl Provider {
 
     pub(crate) fn login(self, home: &Path, id: &str) -> Option<String> {
         let metadata = self.store(home).metadata(id)?;
-        metadata["login"].as_str().or_else(|| metadata["email"].as_str()).map(str::to_owned)
+        metadata
+            .get("login")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| metadata.get("email").and_then(serde_json::Value::as_str))
+            .map(str::to_owned)
     }
 
     pub fn signed_in(self, home: &Path, id: &str) -> bool {
-        self.store(home).metadata(id).is_some_and(|record| record["signed_in"] == true)
+        self.store(home)
+            .metadata(id)
+            .is_some_and(|record| record.get("signed_in") == Some(&serde_json::Value::Bool(true)))
     }
 }
 
@@ -657,7 +663,11 @@ fn save(
     if provider == Provider::Kimi {
         let subject =
             record.sub.as_deref().filter(|subject| !subject.is_empty()).ok_or("bad_reply")?;
-        if replace && !store.metadata(id).is_some_and(|prior| prior["sub"] == subject) {
+        if replace
+            && !store.metadata(id).is_some_and(|prior| {
+                prior.get("sub").and_then(serde_json::Value::as_str) == Some(subject)
+            })
+        {
             return Err("different_account");
         }
     }
@@ -667,15 +677,16 @@ fn save(
                 continue;
             }
             let Some(metadata) = store.metadata(&route.id) else { continue };
-            let prior = metadata["sub"].as_str();
+            let prior = metadata.get("sub").and_then(serde_json::Value::as_str);
             if route.id == id && replace && prior.is_some_and(|prior| prior != sub) {
                 return Err("different_account");
             }
             if route.id != id
-                && metadata["signed_in"] == true
+                && metadata.get("signed_in") == Some(&serde_json::Value::Bool(true))
                 && prior == Some(sub.as_str())
                 && (provider != Provider::Kimi
-                    || metadata["region"] == serde_json::json!(record.region))
+                    || *metadata.get("region").unwrap_or(&serde_json::Value::Null)
+                        == serde_json::json!(record.region))
             {
                 return Err("already_signed_in");
             }

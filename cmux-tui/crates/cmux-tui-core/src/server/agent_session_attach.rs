@@ -718,7 +718,9 @@ fn login_request(session: Option<&str>, params: LoginParams) -> Option<(String, 
     if let Some(session) = params.recovery_session {
         // Older acpmux daemons ignore unknown fields on start and finish. Distinct
         // recovery methods let them refuse before signing in to the machine.
-        body["recoverySession"] = json!(session);
+        if let Some(fields) = body.as_object_mut() {
+            fields.insert("recoverySession".into(), json!(session));
+        }
     }
     Some((format!("_acpmux/agent_login/{}", params.op), body, timeout))
 }
@@ -1094,8 +1096,10 @@ fn run_machine_login(
     let Some((method, mut body, timeout)) = login_request(None, params) else {
         return refuse(writer, id, Refusal::BadRequest);
     };
-    if let Some(reuse) = reuse_existing {
-        body["reuseExisting"] = json!(reuse);
+    if let Some(reuse) = reuse_existing
+        && let Some(fields) = body.as_object_mut()
+    {
+        fields.insert("reuseExisting".into(), json!(reuse));
     }
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
@@ -1228,9 +1232,11 @@ fn credentials(
         return refuse(writer, id, Refusal::UnknownTab);
     };
     let mut params = credential.as_ref().map_or_else(|| json!({}), |c| c.wire());
-    params["sessionId"] = json!(session);
-    if legacy_refresh {
-        params["legacyRefresh"] = json!(true);
+    if let Some(fields) = params.as_object_mut() {
+        fields.insert("sessionId".into(), json!(session));
+    }
+    if legacy_refresh && let Some(fields) = params.as_object_mut() {
+        fields.insert("legacyRefresh".into(), json!(true));
     }
     forward_credential_update(mux, id, writer, Some(surface), params)
 }
@@ -1285,7 +1291,7 @@ fn forward_credential_update(
                 let mut reply =
                     link.call("agent/credentials.update", params.clone(), CREDENTIALS_TIMEOUT);
                 // The merge-base acpmux only accepted sessionId and env and had no bound chats.
-                if params["legacyRefresh"] == true
+                if params.get("legacyRefresh") == Some(&serde_json::Value::Bool(true))
                     && matches!(&reply, Err(LinkError::Rpc(message, _))
                         if message == "agent/credentials.update takes sessionId and env")
                 {

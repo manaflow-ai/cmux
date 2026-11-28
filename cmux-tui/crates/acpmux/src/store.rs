@@ -1538,7 +1538,7 @@ impl Store for LocalStore {
     fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
         let mut bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
         let nl = bytes.iter().position(|&b| b == b'\n')?;
-        if bytes[..nl] != *self.compaction_digest(id).as_bytes() {
+        if bytes.get(..nl) != Some(self.compaction_digest(id).as_bytes()) {
             return None;
         }
         // In place: a long chat's checkpoint is tens of MB, which a copy held twice.

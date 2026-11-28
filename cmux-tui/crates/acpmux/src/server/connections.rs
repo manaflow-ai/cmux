@@ -437,7 +437,8 @@ fn endpoint_fields(profile: &HarnessProfile) -> Option<EndpointFields> {
         Kind::OpenAi => {
             config =
                 serde_json::from_str::<Value>(profile.env.get("OPENCODE_CONFIG_CONTENT")?).ok()?;
-            config["provider"][byo_endpoint::OPENCODE_PROVIDER]["options"]["baseURL"].as_str()?
+            let pointer = format!("/provider/{}/options/baseURL", byo_endpoint::OPENCODE_PROVIDER);
+            config.pointer(&pointer).and_then(Value::as_str)?
         }
     };
     let base_url = byo_endpoint::check_base_url(base_url).ok()?;
@@ -753,8 +754,10 @@ fn state(dir: Option<&Path>, home: &Path, sources: &ProfileSources) -> Value {
         "spread": b.spread.unwrap_or(false),
         "order_explicit": !b.connection_order.is_empty(),
     });
-    if !b.disconnected_credentials.is_empty() {
-        state["disconnected_credentials"] = json!(b.disconnected_credentials);
+    if !b.disconnected_credentials.is_empty()
+        && let Some(fields) = state.as_object_mut()
+    {
+        fields.insert("disconnected_credentials".into(), json!(b.disconnected_credentials));
     }
     state
 }
@@ -888,7 +891,9 @@ fn replace_key(
                 .iter()
                 .any(|route| route.file.secret.as_ref() == Some(reference))
     }) {
-        result["replaced_secret"] = json!(reference);
+        if let Some(fields) = result.as_object_mut() {
+            fields.insert("replaced_secret".into(), json!(reference));
+        }
     }
     Ok(result)
 }
@@ -1132,7 +1137,9 @@ async fn include_native_sign_ins(hub: &Hub, mut state: Value) -> Value {
                 connections.push(json!(row));
             }
         }
-        state["claude_code_available"] = json!(claude_available);
+        if let Some(fields) = state.as_object_mut() {
+            fields.insert("claude_code_available".into(), json!(claude_available));
+        }
     }
     state
 }
@@ -1422,7 +1429,9 @@ pub(super) async fn handle(
                             .iter()
                             .any(|route| route.file.secret.as_ref() == Some(reference))
                 }) {
-                    result["replaced_secret"] = json!(reference);
+                    if let Some(fields) = result.as_object_mut() {
+                        fields.insert("replaced_secret".into(), json!(reference));
+                    }
                 }
                 Ok::<_, RpcError>(result)
             })
@@ -1566,8 +1575,12 @@ pub(super) async fn handle(
                 let added = routes::add_claude_token(dir.as_deref(), &secret, label.as_deref())
                     .map_err(|e| route_error(&e))?;
                 let mut reply = state(dir.as_deref(), &home, &sources);
-                reply["added_connection"] =
-                    json!({"id": added.id, "credential_instance": added.file.credential_instance});
+                if let Some(fields) = reply.as_object_mut() {
+                    fields.insert(
+                        "added_connection".into(),
+                        json!({"id": added.id, "credential_instance": added.file.credential_instance}),
+                    );
+                }
                 Ok::<_, RpcError>(reply)
             })
             .await??;
@@ -1646,7 +1659,7 @@ pub(super) async fn handle(
             let wire = json!({"env": {var: value}});
             AgentCredential::parse(&wire)?;
             Ok(
-                json!({"family": family, "kind": kind, "env": wire["env"], "expires_at": expires_at, "credential_instance": instance}),
+                json!({"family": family, "kind": kind, "env": wire.get("env").unwrap_or(&serde_json::Value::Null), "expires_at": expires_at, "credential_instance": instance}),
             )
         }
         method::MUX_CONNECTIONS_CHATGPT_IMPORT => {

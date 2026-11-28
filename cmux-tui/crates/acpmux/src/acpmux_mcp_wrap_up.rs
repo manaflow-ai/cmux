@@ -286,7 +286,7 @@ pub(super) fn call(args: &Value) -> Value {
     match check(args) {
         Ok((shown, mut notes)) => {
             notes.splice(0..0, said);
-            let text = if shown["ask"].is_string() {
+            let text = if shown.get("ask").is_some_and(serde_json::Value::is_string) {
                 "Shown to the person under your answer, with the question. End your turn now; their answer comes as their next message."
             } else {
                 "Shown to the person under your answer. End your turn now."
@@ -305,8 +305,8 @@ pub(super) fn call(args: &Value) -> Value {
             // trims are named in the text above.
             let receipt = json!({
                 "drawn": true,
-                "question": shown["ask"].is_string(),
-                "answers": shown["actions"].as_array().map_or(0, Vec::len),
+                "question": shown.get("ask").is_some_and(serde_json::Value::is_string),
+                "answers": shown.get("actions").and_then(serde_json::Value::as_array).map_or(0, Vec::len),
                 "facts": shown.get("learned").and_then(Value::as_array).map_or(0, Vec::len),
             });
             ok(text, receipt)

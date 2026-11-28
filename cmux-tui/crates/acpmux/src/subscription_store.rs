@@ -309,9 +309,11 @@ impl<'a> Store<'a> {
             {
                 return Err(Error::ReauthRequired);
             }
-            if value.is_none() && index["signed_in"] == true {
+            if value.is_none() && index.get("signed_in") == Some(&serde_json::Value::Bool(true)) {
                 let mut index = index;
-                index["signed_in"] = json!(false);
+                if let Some(fields) = index.as_object_mut() {
+                    fields.insert("signed_in".into(), json!(false));
+                }
                 let _ = self.write_index(id, &service, generation, &index);
             }
             return value.as_deref().map(decode).transpose();
@@ -332,7 +334,9 @@ impl<'a> Store<'a> {
                     if legacy_item_provider(&current) != Some(self.provider) {
                         // A refused delete can leave a bare account after its index is gone.
                         Some(Uuid::new_v4())
-                    } else if index["expires_at"].as_i64() <= current["expires_at"].as_i64() {
+                    } else if index.get("expires_at").and_then(serde_json::Value::as_i64)
+                        <= current.get("expires_at").and_then(serde_json::Value::as_i64)
+                    {
                         let stored = decode(&value)?;
                         self.write_index(id, &service, None, &current)?;
                         let parent = path.parent().ok_or(Error::Storage)?;
@@ -433,9 +437,16 @@ impl<'a> Store<'a> {
     ) -> Result<(), Error> {
         let mut index = metadata(self.provider, id, record);
         let account = account(id, generation);
-        index["keychain"] = json!(format!("keychain:cmux-vault/.subscription/{service}/{account}"));
-        if let Some(generation) = generation {
-            index["keychain_generation"] = json!(generation.to_string());
+        if let Some(fields) = index.as_object_mut() {
+            fields.insert(
+                "keychain".into(),
+                json!(format!("keychain:cmux-vault/.subscription/{service}/{account}")),
+            );
+        }
+        if let Some(generation) = generation
+            && let Some(fields) = index.as_object_mut()
+        {
+            fields.insert("keychain_generation".into(), json!(generation.to_string()));
         }
         let bytes = serde_json::to_vec(&index).map_err(|_| Error::Storage)?;
         crate::chatgpt::store::write_atomic(&self.path(id)?, &bytes).map_err(|_| Error::Storage)
@@ -607,23 +618,34 @@ fn remove_file(path: &Path) -> Result<(), Error> {
 fn metadata(provider: &str, id: &str, record: &Value) -> Value {
     let mut out = json!({"route_id": id, "provider": provider});
     for key in ["client_id", "sub", "email", "login", "plan", "label", "expires_at", "region"] {
-        if let Some(value) = record.get(key) {
-            out[key] = value.clone();
+        if let Some(value) = record.get(key)
+            && let Some(fields) = out.as_object_mut()
+        {
+            fields.insert(key.into(), value.clone());
         }
     }
     let token_field = if provider == "chatgpt" { "refresh_token" } else { "access_token" };
     if provider == "chatgpt" {
         if record.get("keychain").is_some() {
-            if let Some(workspace) = record.get("workspace") {
-                out["workspace"] = workspace.clone();
+            if let Some(workspace) = record.get("workspace")
+                && let Some(fields) = out.as_object_mut()
+            {
+                fields.insert("workspace".into(), workspace.clone());
             }
-        } else {
-            out["workspace"] = json!(chatgpt_workspace(record));
+        } else if let Some(fields) = out.as_object_mut() {
+            fields.insert("workspace".into(), json!(chatgpt_workspace(record)));
         }
     }
-    out["signed_in"] = json!(record["signed_in"].as_bool().unwrap_or_else(|| {
-        record[token_field].as_str().is_some_and(|token| !token.is_empty())
-    }));
+    let signed_in =
+        record.get("signed_in").and_then(serde_json::Value::as_bool).unwrap_or_else(|| {
+            record
+                .get(token_field)
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|t| !t.is_empty())
+        });
+    if let Some(fields) = out.as_object_mut() {
+        fields.insert("signed_in".into(), json!(signed_in));
+    }
     out
 }
 

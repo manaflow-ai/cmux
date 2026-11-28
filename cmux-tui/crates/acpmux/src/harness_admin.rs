@@ -690,12 +690,14 @@ fn edit_endpoint_profile(
 
     let mut doc = old.parse::<DocumentMut>().map_err(failed)?;
     let update = generated.parse::<DocumentMut>().map_err(failed)?;
-    let name_changed = doc.get("name").and_then(Item::as_str) != update["name"].as_str();
+    let name_changed =
+        doc.get("name").and_then(Item::as_str) != update.get("name").and_then(Item::as_str);
     fn model_id(value: &toml_edit::Value) -> Option<&str> {
         value.as_str().or_else(|| value.as_inline_table()?.get("id")?.as_str())
     }
     let old_list = doc.get("models").and_then(|models| models.get("list")).and_then(Item::as_array);
-    let next_list = update["models"]["list"].as_array();
+    let next_list =
+        update.get("models").and_then(|models| models.get("list")).and_then(Item::as_array);
     let models_changed = match (old_list, next_list) {
         (Some(before), Some(after)) => !before.iter().map(model_id).eq(after.iter().map(model_id)),
         _ => true,
@@ -715,7 +717,7 @@ fn edit_endpoint_profile(
     };
     if update.get("cloud_enabled").and_then(Item::as_bool) == Some(false) {
         if doc.get("cloud_enabled").and_then(Item::as_bool) != Some(false) {
-            doc["cloud_enabled"] = toml_edit::value(false);
+            doc.insert("cloud_enabled", toml_edit::value(false));
         }
     } else {
         doc.remove("cloud_enabled");
@@ -723,20 +725,30 @@ fn edit_endpoint_profile(
     if let Some(preset) = update.get("endpoint_preset").and_then(Item::as_str)
         && doc.get("endpoint_preset").and_then(Item::as_str) != Some(preset)
     {
-        doc["endpoint_preset"] = toml_edit::value(preset);
-    }
-    if name_changed {
-        doc["name"] = update["name"].clone();
-    }
-    if let Some(models) = next_models {
-        doc["models"]["list"] = toml_edit::value(models);
-        doc["defaults"]["model"] = update["defaults"]["model"].clone();
+        doc.insert("endpoint_preset", toml_edit::value(preset));
     }
     let unable = || AdminError::Invalid("the saved endpoint profile could not be edited".into());
+    if name_changed && let Some(name) = update.get("name") {
+        doc.insert("name", name.clone());
+    }
+    if let Some(models) = next_models {
+        doc.entry("models")
+            .or_insert(toml_edit::table())
+            .as_table_like_mut()
+            .ok_or_else(unable)?
+            .insert("list", toml_edit::value(models));
+        if let Some(model) = update.get("defaults").and_then(|defaults| defaults.get("model")) {
+            doc.entry("defaults")
+                .or_insert(toml_edit::table())
+                .as_table_like_mut()
+                .ok_or_else(unable)?
+                .insert("model", model.clone());
+        }
+    }
     let env = doc.get_mut("env").and_then(Item::as_table_like_mut).ok_or_else(unable)?;
     if credential_changed {
         let key = kind.secret_key();
-        if let Some(item) = update["env"].get(key) {
+        if let Some(item) = update.get("env").and_then(|prepared| prepared.get(key)) {
             env.insert(key, item.clone());
         } else {
             env.remove(key);
@@ -747,9 +759,13 @@ fn edit_endpoint_profile(
             if base_url_changed {
                 env.remove("ANTHROPIC_API_KEY");
                 env.remove("ANTHROPIC_CUSTOM_HEADERS");
-                env.insert("ANTHROPIC_BASE_URL", update["env"]["ANTHROPIC_BASE_URL"].clone());
+                if let Some(url) =
+                    update.get("env").and_then(|prepared| prepared.get("ANTHROPIC_BASE_URL"))
+                {
+                    env.insert("ANTHROPIC_BASE_URL", url.clone());
+                }
             }
-            let prepared = update["env"].as_table_like().ok_or_else(unable)?;
+            let prepared = update.get("env").and_then(Item::as_table_like).ok_or_else(unable)?;
             if models_changed {
                 for (name, value) in prepared.iter().filter(|(name, _)| {
                     *name == "ANTHROPIC_MODEL"
@@ -766,9 +782,12 @@ fn edit_endpoint_profile(
                 serde_json::from_str(item.as_str().ok_or_else(unable)?).map_err(failed)
             };
             let mut config = parse(env.get(key).ok_or_else(unable)?)?;
-            let next = parse(&update["env"][key])?;
+            let next = parse(
+                update.get("env").and_then(|prepared| prepared.get(key)).ok_or_else(unable)?,
+            )?;
             let provider = byo_endpoint::OPENCODE_PROVIDER;
-            let next_provider = &next["provider"][provider];
+            let next_provider =
+                next.pointer(&format!("/provider/{provider}")).unwrap_or(&Value::Null);
             let old_provider = config
                 .get_mut("provider")
                 .and_then(|providers| providers.get_mut(provider))
@@ -782,7 +801,10 @@ fn edit_endpoint_profile(
                 .and_then(Value::as_object_mut)
                 .ok_or_else(unable)?;
             if base_url_changed {
-                options.insert("baseURL".into(), next_provider["options"]["baseURL"].clone());
+                options.insert(
+                    "baseURL".into(),
+                    next_provider.pointer("/options/baseURL").cloned().unwrap_or_default(),
+                );
                 options.remove("headers");
                 if let Some(headers) = next_provider["options"].get("headers") {
                     options.insert("headers".into(), headers.clone());
@@ -820,8 +842,13 @@ fn edit_endpoint_profile(
                     })
                     .collect();
                 old_provider.insert("models".into(), Value::Object(revised));
-                config["model"] = next["model"].clone();
-                config["small_model"] = next["small_model"].clone();
+                if let Some(fields) = config.as_object_mut() {
+                    fields.insert("model".into(), next.get("model").cloned().unwrap_or_default());
+                    fields.insert(
+                        "small_model".into(),
+                        next.get("small_model").cloned().unwrap_or_default(),
+                    );
+                }
             }
             env.insert(key, toml_edit::value(config.to_string()));
         }

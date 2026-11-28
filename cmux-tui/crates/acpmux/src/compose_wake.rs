@@ -122,7 +122,7 @@ impl Ledger {
                 return None;
             }
             let i = ((leads.len() as f64 * q).ceil() as usize).clamp(1, leads.len()) - 1;
-            Some(leads[i])
+            leads.get(i).copied()
         };
         let ended = self.sent + self.unsent;
         json!({

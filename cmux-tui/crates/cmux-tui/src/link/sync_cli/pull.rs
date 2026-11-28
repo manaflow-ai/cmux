@@ -500,7 +500,9 @@ fn pull_based(
     if let Some(Err(error)) = saved {
         // The edits already landed. Keep their result, but say why the base did not advance:
         // silently losing this error makes a later sync conflict look like an edit conflict.
-        answer["manifest_save_error"] = json!(format!("{error:#}"));
+        if let Some(fields) = answer.as_object_mut() {
+            fields.insert("manifest_save_error".into(), json!(format!("{error:#}")));
+        }
     }
     if per_file && let Some(fields) = answer.as_object_mut() {
         fields.insert("written_files".into(), json!(written_files));

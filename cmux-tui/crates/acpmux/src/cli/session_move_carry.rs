@@ -209,8 +209,10 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
     let mut recovery = paths.clone();
     for path in &paths {
         for (offset, byte) in path.iter().enumerate() {
-            if *byte == b'/' {
-                recovery.insert(&path[..offset]);
+            if *byte == b'/'
+                && let Some(parent) = path.get(..offset)
+            {
+                recovery.insert(parent);
             }
         }
     }
@@ -257,17 +259,19 @@ fn intent_payload(mut data: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     let mut archive = tar::Builder::new(Vec::new());
     while !data.is_empty() {
         let nul = data.iter().position(|b| *b == 0).context("unterminated index entry")?;
-        let entry = &data[..nul];
-        data = &data[nul + 1..];
+        let (entry, rest) = data.split_at_checked(nul).context("unterminated index entry")?;
+        data = rest.get(1..).unwrap_or_default();
         let tab = entry.iter().position(|b| *b == b'\t').context("index entry without a path")?;
-        let path = &entry[tab + 1..];
-        let metadata = std::str::from_utf8(&entry[..tab])?;
+        let (metadata, path) = entry.split_at_checked(tab).context("index entry without a path")?;
+        let path = path.get(1..).unwrap_or_default();
+        let metadata = std::str::from_utf8(metadata)?;
         let mut metadata = metadata.split_whitespace();
         let mode = u32::from_str_radix(metadata.next().context("index entry without a mode")?, 8)?;
         let mut flags = 0;
         for prefix in ["  ctime:", "  mtime:", "  dev:", "  uid:", "  size:"] {
             let end = data.iter().position(|b| *b == b'\n').context("truncated index flags")?;
-            let line = std::str::from_utf8(&data[..end])?;
+            let (line, rest) = data.split_at_checked(end).context("truncated index flags")?;
+            let line = std::str::from_utf8(line)?;
             if !line.starts_with(prefix) {
                 bail!("unrecognized Git index debug format: cannot preserve intent-to-add");
             }
@@ -275,7 +279,7 @@ fn intent_payload(mut data: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
                 let (_, value) = line.split_once("flags:").context("missing index flags")?;
                 flags = u32::from_str_radix(value.trim(), 16)?;
             }
-            data = &data[end + 1..];
+            data = rest.get(1..).unwrap_or_default();
         }
         if flags & (1 << 29) == 0 || !seen.insert(path.to_vec()) {
             continue;

@@ -684,7 +684,8 @@ impl Hub {
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
             let mut meta = session.meta.lock().unwrap();
-            if last["errorCode"] == "claude_cloud_token_rejected"
+            if last.get("errorCode").and_then(serde_json::Value::as_str)
+                == Some("claude_cloud_token_rejected")
                 && meta.claude_token_recovery.is_none()
             {
                 meta.claude_token_recovery =

@@ -136,7 +136,7 @@ fn reasons(map: &Value) -> Option<String> {
 /// counts answers with a capture refusal or an object without `page_source`; that says so.
 pub(super) fn page_source_human(report: &Value, catalog: &AppControlMessages) -> String {
     let messages = &catalog.chat_perf;
-    let counts = &report["page_source"];
+    let counts = report.get("page_source").unwrap_or(&serde_json::Value::Null);
     let mut out = String::new();
     if !counts.is_object() {
         let _ = writeln!(out, "{}", messages.page_source_unsupported);
@@ -166,14 +166,14 @@ pub(super) fn page_source_human(report: &Value, catalog: &AppControlMessages) ->
             ],
         )
     );
-    if let Some(list) = reasons(&counts["cold_why"]) {
+    if let Some(list) = reasons(counts.get("cold_why").unwrap_or(&serde_json::Value::Null)) {
         let _ = writeln!(out, "{}", fill(messages.page_source_cold_why, &[("reasons", list)]));
     }
-    if let Some(list) = reasons(&counts["refused_why"]) {
+    if let Some(list) = reasons(counts.get("refused_why").unwrap_or(&serde_json::Value::Null)) {
         let _ = writeln!(out, "{}", fill(messages.page_source_refused_why, &[("reasons", list)]));
     }
     // The pages held now and let go (an app from before them answers the counts alone).
-    let pages = &report["pages"];
+    let pages = report.get("pages").unwrap_or(&serde_json::Value::Null);
     if pages.is_object() {
         let _ = writeln!(
             out,

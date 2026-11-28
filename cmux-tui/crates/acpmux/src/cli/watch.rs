@@ -162,8 +162,10 @@ pub async fn run(cmd: WatchCmd, json_out: bool) -> Result<()> {
                 anyhow::bail!("--prompt is for a time watch: add --at or --every");
             }
             let mut params = add_params(sessions, to, until, match_text);
-            if let Some(m) = match_in {
-                params["matchIn"] = json!(m);
+            if let Some(m) = match_in
+                && let Some(fields) = params.as_object_mut()
+            {
+                fields.insert("matchIn".into(), json!(m));
             }
             (method::MUX_WATCH_ADD, params)
         }

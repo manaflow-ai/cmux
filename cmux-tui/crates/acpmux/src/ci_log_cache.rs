@@ -80,8 +80,7 @@ pub(crate) fn rewrite(command: &str, prefix: &str) -> Option<String> {
     let mut at_start = true;
     let mut i = 0;
     let mut changed = false;
-    while i < bytes.len() {
-        let c = bytes[i];
+    while let Some(&c) = bytes.get(i) {
         if let Some(q) = quote {
             if c == q {
                 quote = None;
@@ -329,10 +328,11 @@ fn fill(gh: &str, args: &[String], dir: &Path, path: &Path) -> i32 {
             }
         };
         bytes += n as u64;
-        if stored && file.write_all(&buf[..n]).is_err() {
+        let read = buf.get(..n).unwrap_or_default();
+        if stored && file.write_all(read).is_err() {
             stored = false;
         }
-        if !reader_gone && stdout.write_all(&buf[..n]).is_err() {
+        if !reader_gone && stdout.write_all(read).is_err() {
             reader_gone = true;
         }
     }
