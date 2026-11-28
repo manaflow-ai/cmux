@@ -306,9 +306,9 @@ class ReadFailureTest(unittest.TestCase):
                                                       "GH_TOKEN": "secret"}), \
                             mock.patch.object(module, target, side_effect=error), \
                             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                        # proof_record's gate exits UNREAD so its status job fails red (#62363); ui_proof_verdict's
-                        # gate prints error and exits 0 (the status step posts it).
-                        self.assertEqual(module.main(argv), proof_record.UNREAD if module is proof_record else 0)
+                        # proof_record's gate exits UNREAD so its job fails red (#62363); ui_proof_verdict's exits 0 (status posts).
+                        want = proof_record.UNREAD if module is proof_record else 0
+                        self.assertEqual(module.main(argv), want)
                     self.assertTrue(stdout.getvalue().startswith("error\t"))
                     self.assertIn(f"HTTPError {code}", stdout.getvalue())
                     self.assertIn("see job log", stdout.getvalue())

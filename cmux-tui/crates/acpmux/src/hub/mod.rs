@@ -117,6 +117,7 @@ mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
 mod fork_model;
+mod fork_own_process;
 mod fork_replay;
 mod fork_request;
 #[cfg(test)]
@@ -2654,6 +2655,7 @@ impl Hub {
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(fork_from),
+            agent_fork: StdMutex::new(None),
             applied: Default::default(),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
