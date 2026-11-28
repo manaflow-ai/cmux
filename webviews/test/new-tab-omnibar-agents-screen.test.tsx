@@ -234,7 +234,9 @@ test("a folder listed once is read again when the path comes back, so a new fold
   await until(() => options().map(label).includes("Codex in ~/fun/gallery"));
 });
 
-test("a press on a start row starts an empty chat there; the staged files stay for the prompt", async () => {
+// A staged file goes to an agent, so with one the rows are its Ask rows only (#60565, screenModel.ts
+// `attachedRows`): a start row would open an empty chat and leave the file behind.
+test("with a staged file a start row is not offered; the file stays for the prompt", async () => {
   const calls: unknown[][] = [];
   const file: ComposerAttachment = {
     id: "f1",
@@ -249,11 +251,8 @@ test("a press on a start row starts an empty chat there; the staged files stay f
   await render(calls, undefined, () => ({ text: "", attachments: [file] }));
   await type("codex cmux");
   await until(() => host.querySelectorAll(".acpmux-attachments .acpmux-attachment").length === 1);
-  const start = options().find((row) => label(row) === "Codex in ~/fun/cmux")!;
-  await act(async () => start.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
-  expect(calls).toHaveLength(1);
-  expect(calls[0]!.slice(0, 4)).toEqual(["ask", "codex", "", "/Users/me/fun/cmux"]);
-  const sent = calls[0]![6] as ComposerAttachment[] | undefined;
-  expect(sent ?? []).toEqual([]);
-  setComposerSettings({ attachmentView: "inline" });
+  await until(() => options().length > 0);
+  expect(options().map(label)).not.toContain("Codex in ~/fun/cmux");
+  expect(calls).toHaveLength(0);
+  expect(host.querySelectorAll(".acpmux-attachments .acpmux-attachment").length).toBe(1);
 });

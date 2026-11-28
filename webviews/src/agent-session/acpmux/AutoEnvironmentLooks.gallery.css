@@ -43,16 +43,11 @@
   transform-box: fill-box;
   transform-origin: center;
 }
-/* Picked: the small spark breathes, slowly. */
-[data-auto-look="constellation"] .auto-env-spark-small { animation: auto-env-breathe calc(var(--cmux-spinner-period) * 1.4) var(--cmux-ease-out) infinite; }
+/* Picked: the small spark holds still (no breathing loop). */
 /* Hover: the big spark turns a quarter and back once (a twinkle). */
 .acpmux-location-button:is(:hover, [data-gallery-hover]) .auto-env-icon[data-look="constellation"] .auto-env-spark,
 .acpmux-menu-item:is(:hover, [data-highlighted]) .auto-env-icon[data-look="constellation"] .auto-env-spark {
   animation: auto-env-twinkle var(--cmux-motion-large) var(--cmux-ease-out) 1;
-}
-@keyframes auto-env-breathe {
-  0%, 100% { opacity: 0.45; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.1); }
 }
 @keyframes auto-env-twinkle {
   0% { transform: rotate(0) scale(1); }

@@ -358,6 +358,9 @@ function writePending(): void {
 /// waited out its window merges with what the store holds then. Merged to the text the store holds
 /// already, it writes nothing, as an unchanged whole list does.
 function write(sessions: Sessions, at: number, windowed: boolean): void {
+  // A window lays over the rows the store holds now: another page's write this page has not parsed
+  // yet (`unparsed`) is those rows, so read it first, or the window drops every chat older than it.
+  if (windowed) materialize();
   // The kept entries are this page's own (unchanged ones reused), not a parse of the text it stores.
   const { sessions: kept, listed } = keptList(windowed ? overWindow(sessions, current?.sessions) : sessions);
   // The list the store already holds (this page's or another's): no write, no event elsewhere.
@@ -455,6 +458,7 @@ export const CHAT_STORE_KEY_FOR_TESTS = KEY;
 /// page's store holds now, as the other page would lay it over the same store.
 export function encodeChatStoreForTests(sessions: Sessions, at: number, windowed = false): string {
   load();
+  if (windowed) materialize();
   return encode(windowed ? overWindow(sessions, current?.sessions) : sessions, at);
 }
 

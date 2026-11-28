@@ -81,6 +81,9 @@ function folder(name: string): File {
 test("a folder and a zip dropped on the New Tab page go with the prompt as links to where they are", async () => {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  // The inline view places a drop in the field (the default view is the strip since #55723).
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ attachmentView: "inline" });
   const asked: unknown[][] = [];
   const looked: [DroppedKind, string[]][] = [];
   const localPaths = async (kind: DroppedKind, files: File[]): Promise<LinkItem[]> => {
@@ -124,7 +127,7 @@ test("a folder and a zip dropped on the New Tab page go with the prompt as links
   await act(async () => {
     window.document.body.dispatchEvent(drop);
   });
-  // In the default inline view a drop goes in the field at the caret, each as a chip naming where it is.
+  // In the inline view a drop goes in the field at the caret, each as a chip naming where it is.
   const chips = () => [...field.querySelectorAll<HTMLElement>(".acpmux-md-inline-chip")];
   for (let tries = 0; tries < 500 && chips().length < 2; tries += 1)
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -156,4 +159,5 @@ test("a folder and a zip dropped on the New Tab page go with the prompt as links
     ["link", "/Users/you/src/app/assets"],
     ["link", "/Users/you/Downloads/build.zip"],
   ]);
+  setComposerSettings({ attachmentView: "strip" });
 });
