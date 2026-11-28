@@ -149,6 +149,45 @@ fn the_watch_takes_head_and_dot_git_writes_and_rescans() {
     assert!(fired.all, "a watcher error");
 }
 
+/// Linux's watch (`quiet_watch.rs`) sends nothing for reads of a watched git dir (notify's woke
+/// for each open), and sends git's write of HEAD (`HEAD.lock` renamed over it), a plain write of
+/// HEAD and the git dir's removal, each as an event `Fired` takes.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_linux_watch_sends_head_writes_and_no_reads() {
+    let dir = std::env::temp_dir().join(format!("cmux-head-watch-{}", std::process::id()));
+    let git = dir.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let watch = quiet_watch::QuietWatch::start(tx, "git-head-inotify-test").unwrap();
+    watch.add(&git).unwrap();
+    let burst = |rx: &Receiver<notify::Result<notify::Event>>| {
+        let mut fired = Fired::default();
+        let mut events = 0;
+        while let Ok(event) = rx.recv_timeout(Duration::from_millis(300)) {
+            fired.add(event);
+            events += 1;
+        }
+        (events, fired)
+    };
+    for _ in 0..20 {
+        std::fs::read(git.join("HEAD")).unwrap();
+        let _ = std::fs::read_dir(&git).unwrap().count();
+    }
+    assert_eq!(burst(&rx).0, 0, "reads of the git dir sent events");
+    std::fs::write(git.join("HEAD.lock"), "ref: refs/heads/other\n").unwrap();
+    std::fs::rename(git.join("HEAD.lock"), git.join("HEAD")).unwrap();
+    assert_eq!(burst(&rx).1.dirs, HashSet::from([git.clone()]), "git's write of HEAD");
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    assert_eq!(burst(&rx).1.dirs, HashSet::from([git.clone()]), "a plain write of HEAD");
+    std::fs::remove_dir_all(&git).unwrap();
+    assert!(burst(&rx).1.dirs.contains(&git), "the git dir removed");
+    watch.remove(&git);
+    drop(watch);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A worker thread that panics ends the refresh: no directory stays `refreshing` and the next
 /// reply can start a worker.
 #[test]

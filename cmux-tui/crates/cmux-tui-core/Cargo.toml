@@ -144,6 +144,11 @@ ring.workspace = true
 # The worker's control channel in-process, for the Computer Use supervisor's tests.
 cmux-computer-use = { workspace = true, features = ["server"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# The git HEAD watch's change-only inotify watch (mux/presentation/git_heads/quiet_watch.rs);
+# `notify` asks for every open. Already in the tree through `notify` and acpmux.
+inotify = { version = "0.11", default-features = false }
+
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
