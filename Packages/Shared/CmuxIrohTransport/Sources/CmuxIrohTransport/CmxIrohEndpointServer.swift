@@ -53,6 +53,9 @@ public actor CmxIrohEndpointServer {
         let remoteIdentity: CmxIrohPeerIdentity
         let connection: any CmxIrohConnection
         let handlerTask: Task<Void, Never>
+        /// Awaits the transport's terminal signal and releases the admission
+        /// slot when the connection dies, even if the handler is still parked.
+        let closeWatcherTask: Task<Void, Never>
         let sequence: UInt64
         var isUsable: Bool
     }
@@ -161,6 +164,7 @@ public actor CmxIrohEndpointServer {
         }
         for connection in connections {
             connection.handlerTask.cancel()
+            connection.closeWatcherTask.cancel()
             await connection.connection.close(
                 errorCode: 1,
                 reason: "server_stopped"
@@ -261,13 +265,13 @@ public actor CmxIrohEndpointServer {
         let activeForIdentity = activeConnections.values.lazy.filter {
             $0.remoteIdentity == remoteIdentity
         }.count
-        let hasReplaceableConnection = activeConnections.values.contains {
-            $0.remoteIdentity == remoteIdentity && !$0.isUsable
-        }
+        // A TLS-authenticated peer may run one replacement admission against
+        // its own connections. This lets a dead predecessor stop pinning the
+        // slot before the transport idle timeout reports its loss. The
+        // pending-per-identity bound keeps this reservation to one in flight,
+        // and an identity with no active connection cannot preempt anyone.
         let canReserveReplacement = pendingForIdentity == 0
-            && maximumConnectionsPerIdentity > 1
-            && activeForIdentity >= maximumConnectionsPerIdentity
-            && hasReplaceableConnection
+            && activeForIdentity > 0
         guard pendingAdmissions.count + activeConnections.count < maximumConnections
                 || canReserveReplacement else {
             await connection.close(errorCode: 1, reason: "connection_capacity")
@@ -343,23 +347,29 @@ public actor CmxIrohEndpointServer {
                 .filter { !$0.value.isUsable }
                 .min { $0.value.sequence < $1.value.sequence }
             : nil
-        if requiresReplacement, replaced == nil {
+        if requiresReplacement, replaced == nil, activeForIdentity.isEmpty {
             return false
         }
         if let replaced {
             activeConnections[replaced.key] = nil
         }
         nextConnectionSequence &+= 1
+        let closeWatcherTask = Task { [weak self] in
+            await admission.connection.waitUntilClosed()
+            await self?.releaseClosedConnection(id)
+        }
         activeConnections[id] = ActiveConnection(
             generation: generation,
             remoteIdentity: admission.remoteIdentity,
             connection: admission.connection,
             handlerTask: admission.handlerTask,
+            closeWatcherTask: closeWatcherTask,
             sequence: nextConnectionSequence,
             isUsable: false
         )
         if let replaced {
             replaced.value.handlerTask.cancel()
+            replaced.value.closeWatcherTask.cancel()
             await replaced.value.connection.close(
                 errorCode: 0,
                 reason: "superseded_unready_connection"
@@ -388,6 +398,7 @@ public actor CmxIrohEndpointServer {
         activeConnections[id] = promoted
         for connection in superseded.values {
             connection.handlerTask.cancel()
+            connection.closeWatcherTask.cancel()
             await connection.connection.close(
                 errorCode: 0,
                 reason: "superseded_connection"
@@ -408,12 +419,25 @@ public actor CmxIrohEndpointServer {
         guard let active = activeConnections.removeValue(forKey: id) else {
             return
         }
-        if error != nil {
-            await active.connection.close(
-                errorCode: 1,
-                reason: "connection_failed"
-            )
+        // A handler that completes has relinquished the connection even when
+        // the transport has not reported its own close yet. Close first so a
+        // non-cancellation-aware waitUntilClosed implementation can finish
+        // before the watcher task is released.
+        await active.connection.close(
+            errorCode: error == nil ? 0 : 1,
+            reason: error == nil ? "handler_complete" : "connection_failed"
+        )
+        active.closeWatcherTask.cancel()
+    }
+
+    /// Releases the slot from the transport's terminal signal rather than
+    /// waiting for a parked application handler to unwind.
+    private func releaseClosedConnection(_ id: UUID) {
+        guard let active = activeConnections.removeValue(forKey: id) else {
+            return
         }
+        active.handlerTask.cancel()
+        active.closeWatcherTask.cancel()
     }
 
     private func timeOutAdmission(_ id: UUID) async {
@@ -446,6 +470,7 @@ public actor CmxIrohEndpointServer {
         for id in active.keys { activeConnections[id] = nil }
         for connection in active.values {
             connection.handlerTask.cancel()
+            connection.closeWatcherTask.cancel()
             await connection.connection.close(errorCode: 1, reason: reason)
         }
     }
