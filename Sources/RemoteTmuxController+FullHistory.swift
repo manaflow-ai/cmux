@@ -2,15 +2,14 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxController {
-    /// Repaints the mirrored pane behind `surfaceId` with its whole tmux history.
-    ///
-    /// `.failed` when the surface is not a connected mirror pane.
-    func reseedFullHistory(forSurfaceId surfaceId: UUID) async -> RemoteTmuxFullHistorySeedOutcome {
-        for sessionMirror in sessionMirrors.values where sessionMirror.connection.connectionState == .connected {
+    /// The full-history load for the mirrored pane behind `surfaceId`, or nil when the
+    /// surface is not a mirror pane.
+    func fullHistorySearch(forSurfaceId surfaceId: UUID) -> RemoteTmuxFullHistorySearch? {
+        for sessionMirror in sessionMirrors.values {
             if let paneId = sessionMirror.paneId(forSurfaceId: surfaceId) {
-                return await sessionMirror.connection.reseedPaneWithFullHistory(paneId: paneId)
+                return sessionMirror.fullHistorySearch(forPane: paneId)
             }
         }
-        return .failed
+        return nil
     }
 }

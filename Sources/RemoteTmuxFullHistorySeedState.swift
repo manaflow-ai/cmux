@@ -15,4 +15,7 @@ struct RemoteTmuxPaintedFullHistory: Equatable {
     let historyRows: Int
     /// Oldest rows left out to stay within the byte budget.
     let droppedRows: Int
+    /// Whether the pane was on the alternate screen when tmux ran the load's queue, so
+    /// only its screen was painted.
+    var onAlternateScreen = false
 }

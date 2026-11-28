@@ -94,6 +94,51 @@ import Testing
         }
     }
 
+    @Test func aByteBudgetReadsOnlyTheNewestRowsItHolds() {
+        // A 200-column row where every cell changes its 24-bit colors takes about 7,400
+        // bytes; 12 MiB holds 1,700 of them, not the 100,000 tmux has.
+        let budget = 12 * 1_024 * 1_024
+        let plan = RemoteTmuxPaneHistoryPlan(
+            historySize: 100_000, paneWidth: 200, maximumCommandBlockBytes: Self.commandBlockBytes,
+            maximumBytes: budget, bytesPerRow: 7_400)
+        #expect(plan.historyRows == budget / 7_400)
+        #expect(plan.isTruncated)
+        #expect(plan.chunks.first?.start == "-\(plan.historyRows)")
+        #expect(plan.chunks.last?.end == "-1")
+    }
+
+    @Test func plainTextHistoryFitsTheByteBudgetWhole() {
+        // 100,000 rows of 80-column text are about 8 MB, so the row cap binds first.
+        let plan = RemoteTmuxPaneHistoryPlan(
+            historySize: 100_000, paneWidth: 80, maximumCommandBlockBytes: Self.commandBlockBytes,
+            maximumBytes: 12 * 1_024 * 1_024, bytesPerRow: 82)
+        #expect(plan.historyRows == 100_000)
+        #expect(!plan.isTruncated)
+        #expect(plan.chunks.first?.start == "-")
+    }
+
+    @Test func theSampleOfTheDensestOutputStaysWithinItsBudget() {
+        for width in [1, 80, 200, 1_000, 10_000, 100_000] {
+            let rows = RemoteTmuxPaneHistoryPlan.sampleRows(historySize: 1_000_000, paneWidth: width)
+            #expect(rows >= 1)
+            #expect(rows <= RemoteTmuxPaneHistoryPlan.maximumSampleRows)
+            // One row is always read, so only a pane wider than the budget can pass it.
+            if width * RemoteTmuxPaneHistoryPlan.maximumEncodedBytesPerCell <= RemoteTmuxPaneHistoryPlan.maximumSampleBytes {
+                #expect(rows * width * RemoteTmuxPaneHistoryPlan.maximumEncodedBytesPerCell
+                    <= RemoteTmuxPaneHistoryPlan.maximumSampleBytes, "width \(width): \(rows) rows")
+            }
+        }
+        #expect(RemoteTmuxPaneHistoryPlan.sampleRows(historySize: 3, paneWidth: 80) == 3)
+        #expect(RemoteTmuxPaneHistoryPlan.sampleRows(historySize: 0, paneWidth: 80) == 0)
+    }
+
+    @Test func aSampledRowCountsItsLineEnding() {
+        // The seed holds each row with a CR LF; the average rounds up.
+        #expect(RemoteTmuxPaneHistoryPlan.bytesPerRow(sampledRows: ["abc", "", "abcd"]) == 5)
+        #expect(RemoteTmuxPaneHistoryPlan.bytesPerRow(sampledRows: ["\u{1b}[31mé"]) == 9)
+        #expect(RemoteTmuxPaneHistoryPlan.bytesPerRow(sampledRows: []) == nil)
+    }
+
     @Test func aPaneWithNoHistoryNeedsNoChunk() {
         let plan = RemoteTmuxPaneHistoryPlan(
             historySize: 0, paneWidth: 80, maximumCommandBlockBytes: Self.commandBlockBytes)

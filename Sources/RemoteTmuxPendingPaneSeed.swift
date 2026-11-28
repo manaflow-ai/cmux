@@ -6,6 +6,12 @@ struct RemoteTmuxPendingPaneSeed {
     let kind: RemoteTmuxPaneSeedKind
     var discardedOutput: [Data] = []
     var snapshot: Data
+    /// Whether this seed is a full-history load, which reads history rows ahead of its
+    /// screen capture.
+    var loadsHistory = false
+    /// Set when a full-history load found the pane on the alternate screen; its history
+    /// rows are then left out (see `leavePaneSeedHistoryOutForAlternateScreen`).
+    var isOnAlternateScreen = false
     /// History rows read before the screen capture, oldest first, one entry per row
     /// and each ending in CR LF. They are painted after the screen clear and before
     /// the screen rows.

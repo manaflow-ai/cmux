@@ -535,7 +535,7 @@ final class RemoteTmuxControlConnection {
     /// mirrored pane, so the chunk cap absorbs pipe delivery jitter while the byte
     /// cap keeps worst-case memory bounded if parsing falls behind or the remote
     /// floods output. Parser byte budgets remain the control-stream corruption guard.
-    private static let maxPendingStdoutBytes = 32 * 1024 * 1024
+    static let maxPendingStdoutBytes = 32 * 1024 * 1024
     private static let maxPendingStdoutChunks = 4096
     private static let maxPendingStderrBytes = 1024 * 1024
     private static let maxPendingStderrChunks = 256

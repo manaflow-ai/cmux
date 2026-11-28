@@ -41,3 +41,22 @@ final class RemoteTmuxFindWindowJumper {
         return task
     }
 }
+
+extension RemoteTmuxFullHistorySearch {
+    /// Loads the full history for a find-window jump through this pane's own load, so the
+    /// find bar shows the load and a load already running is not started a second time.
+    ///
+    /// - Returns: how the load ended. A load that was already running reports `.failed`,
+    ///   so the jump opens the find bar at once and the bar shows that load until it ends.
+    func loadForFindWindowJump() async -> RemoteTmuxFullHistorySeedOutcome {
+        _ = await load()
+        switch state {
+        case let .loaded(historyRows, truncated):
+            return .loaded(historyRows: historyRows, truncated: truncated)
+        case .alternateScreen:
+            return .alternateScreen
+        case .notLoaded, .loading, .failed:
+            return .failed
+        }
+    }
+}

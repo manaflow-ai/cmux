@@ -89,7 +89,8 @@ extension AppDelegate {
         jumper.jump(
             loadsFullHistoryFirst: hit.isBeyondAttachSeed,
             reseed: { [weak self] in
-                await self?.remoteTmuxController.reseedFullHistory(forSurfaceId: surfaceId) ?? .failed
+                await self?.remoteTmuxController.fullHistorySearch(forSurfaceId: surfaceId)?
+                    .loadForFindWindowJump() ?? .failed
             },
             isStillTarget: { [weak tabManager, weak workspace] in
                 guard let tabManager, let workspace else { return false }
