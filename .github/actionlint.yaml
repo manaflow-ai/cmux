@@ -37,6 +37,11 @@ self-hosted-runner:
     # cmux-gcp-*-jit-x64 labels appear only inside expressions, which
     # actionlint does not check.
     - cmux-gcp-repair-jit-x64
+    # The nightly JIT pool, named bare by nightly.yml's base-only jobs.
+    - cmux-gcp-nightly-jit-x64
+    # The unified Mac labels (RFD 0185 phase 2, #61222); frozen-label jobs name them bare (#54437).
+    - mac-gateway
+    - mac-nightly
     - warp-ubuntu-latest-x64-4x
     # GitHub-hosted, not self-hosted (1.7.12 knows this label; the entry stays
     # for older local actionlint builds). actionlint 1.7.7 shipped a fixed list of

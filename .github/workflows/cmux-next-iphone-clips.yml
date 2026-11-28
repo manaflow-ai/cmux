@@ -140,7 +140,8 @@ jobs:
           # ahead of every agent and person step.
           printf '%s\n' "$CLIPS_PLAN" > "$RUNNER_TEMP/clips-plan.json"
           record_one() {
-            local id="$1" roles="$2" before="$3" log="$RUNNER_TEMP/iphone-$id.log" rc step
+            local id="$1" roles="$2" before="$3" rc step
+            local log="$RUNNER_TEMP/iphone-$id.log"
             local args=(--arg clips --arg "id=$id" --arg "roles=$roles")
             [ "$before" = - ] || args+=(--arg "base=$before")
             "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD" \
