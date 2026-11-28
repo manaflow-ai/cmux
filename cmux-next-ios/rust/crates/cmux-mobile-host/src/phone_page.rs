@@ -197,8 +197,8 @@ fn gone() -> PageRefusal {
     PageRefusal::new(cmux_phone_page::GONE, "the iPhone left before it answered")
 }
 
-/// A phone-page line outgrew its limit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A phone-page line longer than its limit.
+#[derive(Debug, PartialEq, Eq)]
 pub struct LineTooLong;
 
 /// Splits a byte stream into `\n`-ended lines, at most `max` bytes each.
