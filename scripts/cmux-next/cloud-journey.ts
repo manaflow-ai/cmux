@@ -136,11 +136,12 @@ import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { codeword, deviceHome as memoryDeviceHome, follow as memoryFollow, PROMPT as MEMORY_PROMPT, push as memoryPush, PUSH_STEP as MEMORY_PUSH_STEP, REPLY_STEP as MEMORY_REPLY_STEP, replyNamesCodeword } from "./cloud-memory-codeword.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
-import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoStart, execConformanceCargoWait, execConformanceCase, execConformanceOn, execConformanceProbe, JOURNEY_ACPMUX_DIR, JOURNEY_ACPMUX_MAX_BYTES, journeyAcpmuxAssemble, journeyAcpmuxPieces, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
+import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoStart, execConformanceCargoWait, execConformanceCase, execConformanceOn, execConformanceProbe, JOURNEY_ACPMUX_DIR, JOURNEY_ACPMUX_MAX_BYTES, journeyAcpmuxAssemble, journeyAcpmuxPieces, journeyAcpmuxWrite, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
+import { allSpentDetail, claudeLoginCandidates, type LoginPick, pickClaudeLogin, probeClaudeLogin, rotationLine } from "./claude-login-pool.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
@@ -416,6 +417,9 @@ export function preclaimPublicMeta(): Record<string, string> {
   return { mode: "preclaim" };
 }
 
+/** The step a throw outside every step is recorded as (Journey.unrecorded). */
+export const UNRECORDED_THROW_STEP = "journey stopped outside a step";
+
 export class Journey {
   readonly steps: Step[] = [];
   readonly guestDiagnostics: GuestDiagnostics[] = [];
@@ -438,8 +442,21 @@ export class Journey {
       return value;
     } catch (error) {
       this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: withNotes(String((error as Error)?.message ?? error)).slice(0, 1000) });
+      if (error !== null && typeof error === "object") this.recordedThrows.add(error);
       throw error;
     }
+  }
+  /** Errors a step recorded as its fail before rethrowing: the run's catch records any other throw (unrecorded). */
+  private readonly recordedThrows = new WeakSet<object>();
+  /**
+   * A throw that ended the run outside every step (a raw call between steps): a failed step of its own, so the run
+   * is red and names it. Without it the run read PASS with exit 0 and its later checks unrun (run 46134450737,
+   * kill-dst: the journey stopped after "GitHub connection (team status)" and the move drills never started).
+   */
+  unrecorded(error: unknown): void {
+    if (error !== null && typeof error === "object" && this.recordedThrows.has(error)) return;
+    const at = String((error as Error)?.stack ?? "").split("\n").find((l) => /cloud-journey[^/]*\.ts:\d+/.test(l))?.match(/[\w.-]+\.ts:\d+/)?.[0];
+    this.record({ step: UNRECORDED_THROW_STEP, status: "fail", ms: 0, detail: `${String((error as Error)?.message ?? error)}${at ? ` (at ${at})` : ""}`.slice(0, 1000) });
   }
   skip(name: string, why: string): void {
     this.record({ step: name, status: "skip", ms: 0, detail: why });
@@ -2549,6 +2566,105 @@ finally:
 CMUX_FIRST_TEXT`;
 }
 
+/**
+ * Where a first turn's model_ms went, from the chat's own log on the guest (one `acp tail --since 0`, read after the
+ * reply, so it costs the first-reply clock nothing). Every time is the daemon's record clock from the turn's
+ * `turn_started`: `agent_first` the agent's first line of any kind, `agent_init` Claude Code's `system/init` (its
+ * deferred start work, MCP servers and settings, done on the first message), `request` the model request going out
+ * (`_meta.acpmux.timing.requestAt` on the first call's usage_update, model_calls.rs), `first_token` its
+ * `message_start` and `ttft` the two apart: the API's own wait. `retries` counts Claude Code's `system/api_retry`
+ * before the first token (a refused call, its last status), and `cache_write`/`cache_read` the first call's prompt
+ * tokens, the size the API reads before it answers. goal: "fix the largest stage of the 17 s" (shadow-leo).
+ */
+export type FirstTurnSplit = { agent_first?: number; agent_init?: number; request?: number; first_token?: number; ttft?: number; first_text?: number; retries: number; retry_status?: string; cache_write?: number; cache_read?: number };
+
+export function firstTurnSplitCommand(session: string): string {
+  return `timeout 60 "$c" acp tail ${shq(session)} --since 0 2>/dev/null | python3 -c ${shq(FIRST_TURN_SPLIT_PY)}`;
+}
+
+const FIRST_TURN_SPLIT_PY = [
+  "import json, sys",
+  "out = {'retries': 0}",
+  "t0 = None",
+  "def put(k, at):",
+  "    if t0 is not None and k not in out and isinstance(at, (int, float)):",
+  "        out[k] = int(at - t0)",
+  "for line in sys.stdin:",
+  "    try:",
+  "        e = json.loads(line)",
+  "    except ValueError:",
+  "        continue",
+  "    if not isinstance(e, dict):",
+  "        continue",
+  "    kind = str(e.get('kind') or '')",
+  "    at = e.get('at')",
+  "    if kind == 'turn_started':",
+  "        if t0 is None and isinstance(at, (int, float)):",
+  "            t0 = at",
+  "        continue",
+  "    if t0 is None:",
+  "        continue",
+  "    if kind in ('turn_result', 'turn_error', 'turn_end'):",
+  "        break",
+  "    if e.get('dir') == 'in':",
+  "        put('agent_first', at)",
+  "    if kind == 'claude.system.init':",
+  "        put('agent_init', at)",
+  "    if kind == 'claude.system.api_retry' and 'first_token' not in out:",
+  "        out['retries'] += 1",
+  "        m = e.get('msg') if isinstance(e.get('msg'), dict) else {}",
+  "        m = m.get('params') if isinstance(m.get('params'), dict) else m",
+  "        st = m.get('error_status') or m.get('error')",
+  "        if st is not None:",
+  "            out['retry_status'] = str(st)[:40]",
+  "    m = e.get('msg') if isinstance(e.get('msg'), dict) else {}",
+  "    p = m.get('params') if isinstance(m.get('params'), dict) else {}",
+  "    u = p.get('update') if isinstance(p.get('update'), dict) else {}",
+  "    meta = p.get('_meta') if isinstance(p.get('_meta'), dict) else {}",
+  "    if isinstance(meta.get('acpmux'), dict) and meta['acpmux'].get('subagent'):",
+  "        continue",
+  "    su = u.get('sessionUpdate')",
+  "    if su == 'agent_message_chunk' and isinstance(u.get('content'), dict) and u['content'].get('text'):",
+  "        put('first_text', at)",
+  "    if su == 'usage_update' and 'first_token' not in out:",
+  "        a = (u.get('_meta') or {}).get('acpmux') or {}",
+  "        tm = a.get('timing') if isinstance(a, dict) else None",
+  "        if isinstance(tm, dict) and isinstance(tm.get('firstTokenAt'), (int, float)):",
+  "            put('first_token', tm['firstTokenAt'])",
+  "            if isinstance(tm.get('requestAt'), (int, float)):",
+  "                put('request', tm['requestAt'])",
+  "                out['ttft'] = int(tm['firstTokenAt'] - tm['requestAt'])",
+  "            for k, f in (('cache_write', 'cachedWriteTokens'), ('cache_read', 'cachedReadTokens')):",
+  "                if isinstance(u.get(f), (int, float)):",
+  "                    out[k] = int(u[f])",
+  "print('@@split ' + json.dumps(out if t0 is not None else {'retries': 0, 'none': 'no turn_started'}))",
+].join("\n");
+
+/** The `@@split` line of firstTurnSplitCommand, or null. */
+export function parseFirstTurnSplit(stdout: string): (FirstTurnSplit & { none?: string }) | null {
+  const line = stdout.split("\n").find((l) => l.startsWith("@@split "));
+  if (!line) return null;
+  try {
+    const v = JSON.parse(line.slice(8));
+    return v && typeof v === "object" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One line a person reads: the parts in time order, then what the first call held. */
+export function describeFirstTurnSplit(s: FirstTurnSplit & { none?: string }): string {
+  if (s.none) return `no split: ${s.none}`;
+  const at = (k: keyof FirstTurnSplit, label: string) => (typeof s[k] === "number" ? [`${label} +${s[k]} ms`] : []);
+  const parts = [...at("agent_first", "agent's first line"), ...at("agent_init", "Claude Code init"), ...at("request", "model request out"), ...at("first_token", "first token"), ...at("first_text", "first text")];
+  const extra = [
+    ...(typeof s.ttft === "number" ? [`API wait ${s.ttft} ms`] : []),
+    `${s.retries} retried call(s)${s.retry_status ? ` (last ${s.retry_status})` : ""}`,
+    ...(typeof s.cache_write === "number" ? [`prompt ${s.cache_write} written + ${s.cache_read ?? 0} read from cache`] : []),
+  ];
+  return `from turn start: ${parts.join(", ") || "no marks"}; ${extra.join("; ")}`;
+}
+
 /** A machine answer that clears on its own: staging's VM API answers 502/503 vm_unavailable for a minute or two at a
  * time (cloud-journey-ci.sh), and the CLI marks it retryable:false, so the reason is read from the text. */
 export function transientMachineError(text: string): boolean {
@@ -3577,6 +3693,10 @@ export type ProbeExtra = {
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
   login_path?: "receipt" | "copy" | "launch";
+  /** The Claude login pool's chosen slot (an index, never a token); null when every slot was spent. */
+  login_slot?: number | null;
+  /** Each asked pool slot's preflight answer, in order (claude-login-pool.ts). */
+  login_rotation?: { slot: number; status: string; reason: string }[];
   /** The Cloud scroll-stress probe's counts (SCROLL_PROBE_STEP), only when it measured. */
   terminal_scroll?: TerminalScroll;
   failure_facts?: FailureFacts;
@@ -5691,8 +5811,9 @@ async function surgeMode(backend: Backend, outDir: string | null, email: string 
         return { value: null, detail };
       }).catch(() => undefined);
     }
-  } catch {
-    // The failed step is recorded; cleanup still runs.
+  } catch (error) {
+    // The failed step is recorded (a throw outside every step, here); cleanup still runs.
+    J.unrecorded(error);
   } finally {
     await cleanup();
     if (!surgeMachineIds(...receipts).length) J.skip("surge delete", "no slot named a machine_id");
@@ -5912,9 +6033,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // With the gateway and the stub, the stub's nonce reply is checked as --model stub does, but it runs on the gateway.
   const gatewayStub = Boolean(gatewayCmux) && gatewayUpstream === "stub";
   const nonce = randomBytes(6).toString("hex");
+  // A real Claude run takes the first login of its pool (claude-login-pool.ts) whose account still has quota: one
+  // tiny messages request per candidate, before any machine exists. Only the slot index and the answers are written.
+  const claudeCandidates = modelStub ? [] : claudeLoginCandidates(process.env, creds);
+  if (process.env.GITHUB_ACTIONS === "true") for (const token of claudeCandidates) console.log(`::add-mask::${token}`);
+  const claudeRotates = !modelStub && agent.split("/")[0] === "claude" && !gatewayAny && !only.has("chat") && !only.has("login")
+    && !argv.includes("--app-cli") && claudeCandidates.length > 0;
+  const claudePick: LoginPick | null = claudeRotates
+    ? await pickClaudeLogin(claudeCandidates, (token) => probeClaudeLogin(token, globalThis.fetch, process.env.CMUX_JOURNEY_LOGIN_PREFLIGHT_URL || undefined))
+    : null;
   const claudeLogin = modelStub
     ? `sk-ant-oat01-journeystub-${randomBytes(24).toString("hex")}`
-    : (process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "").trim();
+    : claudePick ? claudePick.login ?? "" : claudeCandidates[0] ?? "";
   // Codex's login is its auth.json (a ChatGPT sign-in), as the app copies it; CODEX_AUTH_JSON for a real run.
   const codexLogin = modelStub ? stubCodexAuth() : (process.env.CODEX_AUTH_JSON || creds.CODEX_AUTH_JSON || "").trim();
   // `claude/claude-sonnet-5-5` is the claude harness on that model (`acp ensure -m`): the same login and lifecycle legs.
@@ -5997,6 +6127,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
   const probeExtra: ProbeExtra = {};
   J.warm = () => spareTaken(probeExtra);
+  if (claudePick) {
+    probeExtra.login_slot = claudePick.slot;
+    probeExtra.login_rotation = claudePick.rotation;
+    if (claudePick.login === null) {
+      // Every slot is spent or refused: an infra row (the limit words cmuxterm-hq's agent_quota reads), not a product
+      // failure, and no machine is made for a reply that cannot come.
+      J.record({ step: loginStep, status: "fail", ms: 0, detail: allSpentDetail(claudePick) });
+      J.skip("login rotation", rotationLine(claudePick));
+      if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, probeRun, new Date(), probeContext, probeExtra))}\n`);
+      console.log(`\nFAIL ${allSpentDetail(claudePick)}`);
+      return 1;
+    }
+    J.skip("login rotation", rotationLine(claudePick));
+  }
   let factsRead = false;
   // --preclaim-login's warm-spare state dir, removed by the cleanup.
   let preclaimStateDir: string | null = null;
@@ -6569,10 +6713,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const meta: Record<string, unknown> = { backend: backend.name, machine: created.id, asked: wakeEchoN };
       const write = () => {
         if (!outDir) return;
-        writeFileSync(path.join(outDir, "wake-echo.json"), `${scrub(JSON.stringify({ ...meta, summary: wakeEchoSummary(cycles), cycles }, null, 2), J.secrets)}\n`);
+        writeFileSync(path.join(outDir, "wake-echo.json"), `${scrub(JSON.stringify({ ...meta, summary: wakeEchoSummary(cycles, wakeEchoN), cycles }, null, 2), J.secrets)}\n`);
         writeFileSync(path.join(outDir, "wake-echo.md"), wakeEchoMarkdown(cycles, meta));
       };
       let k = 0;
+      const readDeploy = async () => {
+        const api_before = await api.raw("GET", "/v1/health", undefined, 30_000).then(preclaimHealthSnapshot, (e): PreclaimHealthSnapshot => ({ http_status: 0, outcome: "error", commit: null, commit_unavailable: `api /v1/health failed: ${short(String((e as Error)?.message ?? e))}` }));
+        const platform_before = await platformDeploy();
+        return { api_before, platform_before } as Record<string, PreclaimHealthSnapshot>;
+      };
+      const platformDeploy = async (): Promise<PreclaimHealthSnapshot> => {
+        try {
+          const origin = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+          return preclaimHealthSnapshot(await http("GET", `${origin}/v1/health`, undefined, {}, 30_000));
+        } catch (e) {
+          return { http_status: 0, outcome: "error", commit: null, commit_unavailable: `platform /v1/health failed: ${short(String((e as Error)?.message ?? e))}` };
+        }
+      };
       try {
         await J.step("wake-echo machine size", async () => {
           const m = await row();
@@ -6589,6 +6746,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const netHost = new URL(backend.api).hostname;
         const setup = await J.step("wake-echo probe setup", async () => ({ value: await setupProbe({ exec, guest: GUEST, netHost, netPort: 443, log }), detail: "daemon socket, terminal and dry run ok" }));
         meta.probe = { daemon: setup.daemon, version: setup.version, protocol: setup.protocol, dry_run: setup.dry_run };
+        // The deploy the run measured, by commit (the API's /v1/health names only API_VERSION "0.1.0"), and the guest
+        // daemon at both ends: run 46158958288's updater swapped it mid-run (c6cd14b5 -> d788eb8c).
+        meta.deploy = await readDeploy();
+        meta.daemon_before = bound.image?.daemon_version ?? null;
         cycles = await runWakeEcho({
           exec, guest: GUEST, netHost, netPort: 443, holdMs: wakeEchoHoldMs, log,
           deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
@@ -6629,8 +6790,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.record({ step: "wake-echo", status: "fail", ms: 0, detail: String((e as Error).message ?? e) });
         meta.setup_error = String((e as Error).message ?? e);
       }
+      if (meta.deploy) (meta.deploy as Record<string, PreclaimHealthSnapshot>).platform_after = await platformDeploy();
+      meta.daemon_after = (await row().catch(() => null))?.image?.daemon_version ?? null;
       write();
-      const sum = wakeEchoSummary(cycles);
+      const sum = wakeEchoSummary(cycles, wakeEchoN);
       const table = wakeEchoMarkdown(cycles, meta);
       console.log(table);
       if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## Wake to first echo (${backend.name}, ${created.id})\n\n${table}${meta.setup_error ? `\nSetup failed: ${meta.setup_error}\n` : ""}`);
@@ -6742,7 +6905,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (execConformanceOn(process.env.CMUX_JOURNEY_EXEC_CONFORMANCE)) {
         await J.step(EXEC_CONFORMANCE_STEP, async () => {
           // The acpmux this job built from journey_ref, not the image's (cloud-journey-exec-conformance.ts).
-          let binNote = "";
           // The toolchain installs while the acpmux uploads; the wait below proves it before any case runs.
           const cargoStart = await exec(execConformanceCargoStart(), 60_000).catch((e: unknown) => ({ code: -1, stdout: "", stderr: String((e as Error)?.message ?? e) }));
           console.log(`[exec-conformance] ${cargoStart.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ")} ${cargoStart.code ? cargoStart.stderr.slice(-200) : ""}`);
@@ -6759,12 +6921,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             const pieces = journeyAcpmuxPieces(gz);
             await exec(`mkdir -p ${shq(JOURNEY_ACPMUX_DIR)}`, 30_000);
             // Four writes at a time: one after another, 22 pieces took 532 s of the step's 25 minutes (run 46159895648).
+            // Each write is tried up to JOURNEY_ACPMUX_WRITE_TRIES times: run 46172370728's first piece got one 502
+            // vm_unavailable, the upload gave up, and the image's acpmux (c6cd14b59, older than the fork route fix
+            // #64491) answered every fork with the owner API's empty 404.
             let next = 0;
             const writer = async () => {
               while (next < pieces.length) {
                 const p = pieces[next++];
-                const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: p.path, dataBase64: Buffer.from(p.data).toString("base64"), mode: 0o644 }, 120_000);
-                if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${p.path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+                await journeyAcpmuxWrite(p.path, () => api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: p.path, dataBase64: Buffer.from(p.data).toString("base64"), mode: 0o644 }, 120_000));
               }
             };
             await Promise.all(Array.from({ length: Math.min(4, pieces.length) }, writer));
@@ -6773,8 +6937,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (a.code !== 0) throw new Error(`assemble exit ${a.code}: ${line} ${a.stderr.slice(-200)}`);
             console.log(`[exec-conformance] ${line} (${raw.length} bytes, ${pieces.length} pieces, ${Date.now() - t0} ms)`);
           } catch (e) {
-            binNote = `the journey's acpmux is NOT on the machine (${String((e as Error)?.message ?? e).slice(0, 200)}): the image's acpmux ran, so this run does not test journey_ref`;
-            console.log(`::warning::[exec-conformance] ${binNote}`);
+            // No row from the image's acpmux: it is not journey_ref's, so its rows prove nothing about the commit under
+            // test (run 46172370728 read a stale fork route's 404 and an old notice as differences).
+            const why = `journey acpmux not uploaded (${String((e as Error)?.message ?? e).slice(0, 300)}): no case ran, the image's acpmux is not journey_ref's`;
+            console.log(`::error::[exec-conformance] ${why}`);
+            throw new Error(why);
           }
           const probe = await exec(execConformanceProbe(), 60_000);
           const facts = probe.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ");
@@ -6812,12 +6979,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (!got.length) console.log(`[exec-conformance] ${name}: no row (exit ${r.code}) ${r.stdout.slice(-400)} ${r.stderr.slice(-400)}`);
             rows.push(...got);
           }
+          // A fork that failed: say where it went, for which machine, and what that machine's own platform route
+          // answers with the same token (a 404 there too means the id; a 200 means the fork route).
+          const forkFailed = rows.find((row) => row.routedCause?.startsWith("fork:"));
+          if (forkFailed) {
+            let platform = "(client-config unread)";
+            let probe = "";
+            try {
+              platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+              const g = await http("GET", `${platform}/v1/machines/${encodeURIComponent(created.id)}`, undefined, { authorization: `Bearer ${await forkToken()}`, ...(forkTeam ? { "x-cmux-team": forkTeam } : {}) }, 15_000);
+              probe = `GET ${platform}/v1/machines/${created.id} -> HTTP ${g.status} ${short(g.body).slice(0, 300)}`;
+            } catch (e) {
+              probe = `probe failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`;
+            }
+            console.log(`[exec-conformance] fork failed: machine=${created.id} CMUX_CLOUD_API_URL=${api.origin} team=${forkTeam ?? "(none)"} platform=${platform}; ${probe}; cause ${forkFailed.routedCause?.slice(0, 400)}`);
+          }
           const v = verdict(cases, rows);
           console.log(`[exec-conformance] summary: ${v.line}`);
           console.log(`[exec-conformance] ${EXEC_CONFORMANCE_CARGO_CASE}: ${v.cargo}`);
-          const tail = binNote ? `; ${binNote}` : "";
-          if (!v.ok) throw new Error(`${v.line}${tail}`);
-          return { value: { total: v.total, identical: v.identical, onRunVm: v.onRunVm }, detail: `${v.line}; ${v.cargo}${tail}` };
+          if (!v.ok) throw new Error(v.line);
+          return { value: { total: v.total, identical: v.identical, onRunVm: v.onRunVm }, detail: `${v.line}; ${v.cargo}` };
         });
       }
       // A person's own create that no spare serves: the create above asks the chat start size and claims a ready spare,
@@ -7664,6 +7845,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           });
         }
       }
+      // Where the first turn's model_ms went (agent init, request out, the API's wait, retries), read after the reply.
+      await J.step("first turn split", async () => {
+        const r = await exec(`${GUEST}${firstTurnSplitCommand(session)}`, 90_000);
+        const split = parseFirstTurnSplit(r.stdout);
+        if (!split) return { value: null, detail: `no split: exit ${r.code}; ${(r.stderr || r.stdout).slice(-200)}` };
+        if (!split.none) for (const k of ["agent_init", "request", "ttft"] as const) J.firstText.guest(`split_${k}`, split[k] ?? null);
+        return { value: null, detail: describeFirstTurnSplit(split) };
+      });
       if (!lifecycle) {
         J.skip("turn 2 (same session)", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
         J.skip("daemon restart keeps the session", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
@@ -8086,13 +8275,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `${created.id} ${m?.status ?? "gone"}` };
       });
     }
-  } catch {
-    // The failed step is recorded. What the machine says, then the journey-only checks the failure cut off; cleanup below.
+  } catch (error) {
+    // The failed step is recorded (a throw outside every step, here). What the machine says, then the journey-only
+    // checks the failure cut off; cleanup below.
+    J.unrecorded(error);
     await readFailureFacts();
     // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
     await saveSendTraceOnce();
-    await runJourneyOnly?.().catch(() => undefined);
-    await runScrollProbe?.().catch(() => undefined);
+    // Each may throw between its own steps too (run 46134450737's fs/write): recorded, never dropped.
+    await runJourneyOnly?.().catch((e) => J.unrecorded(e));
+    await runScrollProbe?.().catch((e) => J.unrecorded(e));
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
   }

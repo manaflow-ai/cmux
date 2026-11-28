@@ -446,18 +446,20 @@ mod surge_triage;
 mod urgent_steer;
 // A task's spend burn-rate warnings during its turn.
 mod spend_burn;
-// Mask old tool output instead of summarizing it (harness magic).
+// Mask old tool output instead of summarizing it.
 pub(crate) mod surgery;
 mod surgery_codex;
 pub mod synced;
 mod tags;
 mod tailnet_controller;
+mod taint;
 mod tap;
 mod task_names;
 pub(crate) mod tasks;
 mod team_directory;
 pub use team_directory::{TeamView, view_of_book};
 mod best_of_n;
+pub(crate) mod cache_rebuild;
 mod team_information;
 mod team_sent;
 mod team_settings;
