@@ -522,7 +522,7 @@ pub mod vm_boundary;
 pub mod vm_host;
 #[cfg(test)]
 mod wait_reason_tests;
-mod wake_place;
+pub(crate) mod wake_place;
 mod warm;
 mod watch;
 pub(crate) mod watch_events;
