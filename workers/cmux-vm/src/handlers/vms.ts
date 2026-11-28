@@ -23,10 +23,10 @@ import { retireVm } from "./retire.ts";
 import { VmInstanceIdentity } from "../api/instance-identity.ts";
 import { INSTANCE_IDENTITY_SCHEME } from "../../../../libs/vm-instance-identity/src/identity.ts";
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Effect, Either, Exit, Option, Schema } from "effect";
+import { Cause, Clock, Effect, Either, Exit, FiberRef, Option, Schema } from "effect";
 import { idempotent, requestFingerprint } from "./idempotency.ts";
 import type { VmCreationProbe, RetainedVmCreation } from "../domain/vm-creation.ts";
-import { CREATE_SEND_GRACE_MS, type IdempotencyProgress, type ForkCaptureProgress } from "../limits/ledger.ts";
+import { CREATE_SEND_GRACE_MS, createSendOpen, type IdempotencyProgress, type ForkCaptureProgress } from "../limits/ledger.ts";
 import { resizeVm } from "./resize.ts";
 import { toVm } from "./vm-view.ts";
 import { replaceVmHttpsProxy } from "./https-proxies.ts";
@@ -56,6 +56,7 @@ import {
 } from "../errors.ts";
 import { newSnapshotId, newVmId, parseMeshId, parseSnapshotId, parseVmId, TenantId, type MeshId, type SnapshotId } from "../lib/ids.ts";
 import { logTimedEvent, timedPhase, type TimedPhases } from "../lib/timing.ts";
+import { UpstreamTime } from "../upstream/timing.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { resolveIdleTimeout, TenantPolicy } from "../policy.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
@@ -209,11 +210,30 @@ const createRecorded = <C, S, M = never>(
       Effect.onExit((exit) => "recoverMs" in phases || "verifyImageMs" in phases || "admitWaitMs" in phases || "createMs" in phases
         ? Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_create", vmCreateLine(phases, {
             ok: Exit.isSuccess(exit), enteredAt: attempt.entered ?? started, preMs: started - (attempt.entered ?? started),
-            totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null,
+            totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null, failure: createFailureOf(exit, providerFailures.get(phases)),
           })))
         : Effect.void),
     );
   });
+
+/** The create path's UpstreamError, by its phases, kept before it is mapped to the API error the caller gets. */
+const providerFailures = new WeakMap<TimedPhases, UpstreamError>();
+
+/**
+ * Which step failed a create, for its vm_create line: the UpstreamError's operation (an internal name, never provider
+ * text) and the provider's HTTP status, kept before onCreate maps it, or else the error's tag. Production 2026-11-28 17:25-17:55Z logged 111 admitted
+ * creates failing in under a second with no field naming why; the send fence (createSendUncertain) was read off code.
+ */
+const createFailureOf = (exit: Exit.Exit<unknown, unknown>, provider: UpstreamError | undefined): { readonly step: string; readonly status: number | null } | null => {
+  if (Exit.isSuccess(exit)) return null;
+  if (provider !== undefined) return { step: provider.operation, status: provider.status };
+  const failure = Cause.failureOption(exit.cause);
+  if (Option.isNone(failure)) return { step: Cause.isInterruptedOnly(exit.cause) ? "interrupted" : "defect", status: null };
+  const error = failure.value;
+  if (error instanceof UpstreamError) return { step: error.operation, status: error.status };
+  const tag = typeof error === "object" && error !== null ? Reflect.get(error, "_tag") : undefined;
+  return { step: typeof tag === "string" ? tag : "unknown", status: null };
+};
 
 /**
  * The vm_create line: one per create that reached the provider. A phase that made no provider call is null
@@ -228,8 +248,10 @@ const createRecorded = <C, S, M = never>(
  * `failKind` its classification (capacity_overloaded), `createCut` given up unanswered at CREATE_SEND_TIMEOUT_MS, and
  * `send` what the provider answered the POST (live-http.ts CallTrail: first status and ms, a cut's timeout or network
  * error, a 202's polls). A recovered create keeps the failure it recovered from.
+ * A failed create also names the step that failed: `failedStep` (createSendUncertain, createQueueFull, createVm, ...)
+ * and `failedStatus`, including a failure before any provider call.
  */
-const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null }) => ({
+const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null; readonly failure: ReturnType<typeof createFailureOf> }) => ({
   vmId: phases["vmId"] ?? null,
   ok: request.ok,
   recovered: phases["recovered"] ?? null,
@@ -255,6 +277,7 @@ const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; read
   providerTotalMs: phases["providerTotalMs"] ?? null,
   providerTimingsMs: phases["providerTimingsMs"] ?? null,
   totalMs: request.totalMs,
+  ...(request.failure === null ? {} : { failedStep: request.failure.step, failedStatus: request.failure.status }),
 });
 
 /** A mesh of the caller's tenant that a create joins, with the proofs an attach of an existing VM needs. */
@@ -291,22 +314,34 @@ const createRecordedTimed = <C, S, M>(
     const createdAt = attempt.prior?.phase === "capturing" ? new Date(attempt.prior.createdAt) : new Date(yield* Clock.currentTimeMillis);
     let intent: RetainedVmCreation | undefined = attempt.prior?.phase === "creating" ? attempt.prior.intent : undefined;
     const dispatch = attempt.prior?.phase === "creating" ? attempt.prior.dispatch : { state: "ready" as const, token: crypto.randomUUID() };
+    const priorSendFence = Effect.gen(function* () {
+      // A recorded allocation is never sent again. Nothing at its exact slug may only be propagation until the
+      // send's grace window has passed; after it, the recorded upstream id is checked before the VM counts as gone.
+      if (attempt.prior?.phase === "creating") {
+        const recorded = yield* store.allocationStatus(caller.value.tenantId, cmuxId).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
+        if (recorded !== "absent") {
+          const sent = attempt.prior.dispatch, now = yield* Clock.currentTimeMillis;
+          const settled = recorded === "pending" && sent !== undefined && (sent.state !== "sent" || (sent.at !== undefined && now - sent.at >= CREATE_SEND_GRACE_MS));
+          return yield* Effect.fail(new UpstreamError({ operation: settled ? "createGone" : "createSendUncertain", status: null }));
+        }
+      }
+    });
     const journal = {
       active: limits.creationActive(caller.value.tenantId, attempt.key, cmuxId).pipe(
         Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })),
         Effect.flatMap((active) => active ? Effect.void : Effect.fail(new UpstreamError({ operation: "createCancelled", status: null }))),
       ),
+      checkSend: () => Effect.gen(function* () {
+        yield* priorSendFence;
+        // The read-only half of beginCreateSend's gate, before the provider create slot is taken (live-create.ts): a
+        // retry whose send the gate would refuse answers createSendUncertain at once and holds no slot. Production
+        // 2026-11-28 17:25-17:55Z: 111 of 153 admitted creates failed here within a second of taking a slot, behind 35
+        // provider sends cut at 45 s, while people's creates were refused queue_full.
+        const record = yield* limits.inspect(caller.value.tenantId, attempt.key).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
+        if (!createSendOpen(record, cmuxId, yield* Clock.currentTimeMillis)) return yield* Effect.fail(new UpstreamError({ operation: "createSendUncertain", status: null }));
+      }),
       beginSend: () => Effect.gen(function* () {
-        // A recorded allocation is never sent again. Nothing at its exact slug may only be propagation until the
-        // send's grace window has passed; after it, the recorded upstream id is checked before the VM counts as gone.
-        if (attempt.prior?.phase === "creating") {
-          const recorded = yield* store.allocationStatus(caller.value.tenantId, cmuxId).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
-          if (recorded !== "absent") {
-            const sent = attempt.prior.dispatch, now = yield* Clock.currentTimeMillis;
-            const settled = recorded === "pending" && sent !== undefined && (sent.state !== "sent" || (sent.at !== undefined && now - sent.at >= CREATE_SEND_GRACE_MS));
-            return yield* Effect.fail(new UpstreamError({ operation: settled ? "createGone" : "createSendUncertain", status: null }));
-          }
-        }
+        yield* priorSendFence;
         const token = crypto.randomUUID();
         const allowed = yield* limits.beginCreateSend(caller.value.tenantId, attempt.key, cmuxId, token).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
         if (!allowed) return yield* Effect.fail(new UpstreamError({ operation: "createSendUncertain", status: null }));
@@ -353,6 +388,7 @@ const createRecordedTimed = <C, S, M>(
       .pipe(Effect.either);
     if (Either.isLeft(attempted)) {
       const error = attempted.left;
+      providerFailures.set(phases, error);
       if (error.operation === "createGone") {
         // The uncommitted VM was deleted provider-side (e.g. by autoDeleteSeconds) only if its recorded id is gone
         // too; any other answer keeps it pending. Then tombstone it and settle its intent once, so the retry
@@ -653,11 +689,19 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
  * ownMs is entry to proven ownership (scope, rate limit, ownership read); gateMs is a budgeted key's running and spend
  * check (it reads the VM and the key's live VMs only when the key sets a cap), so totalMs - startMs names its step.
  */
-/** Records ownMs: the time from the handler's entry to proven ownership, once the route is inside withOwnedVm. */
+/**
+ * Records ownMs: the time from the handler's entry to proven ownership, once the route is inside withOwnedVm. Its two
+ * halves, which withOwnedVm runs at once, go on the line too: rateMs the tenant limits object's rate spend, ownReadMs
+ * the Postgres ownership read (the request's `rate` and `read` steps). Staging 2026-11-28 18:51-19:10Z: ownMs was
+ * ~0.1 s in 12 of 19 starts and 0.9-1.7 s in 7, and the line could not say which read held it.
+ */
 const ownedAt = (phases: TimedPhases) =>
-  Effect.flatMap(Clock.currentTimeMillis, (at) => Effect.sync(() => {
+  Effect.flatMap(Clock.currentTimeMillis, (at) => Effect.flatMap(FiberRef.get(UpstreamTime), (tally) => Effect.sync(() => {
     if (typeof phases["enteredAt"] === "number") phases["ownMs"] = at - phases["enteredAt"];
-  }));
+    const steps = tally?.steps;
+    if (steps?.["rate"] !== undefined) phases["rateMs"] = Math.round(steps["rate"]);
+    if (steps?.["read"] !== undefined) phases["ownReadMs"] = Math.round(steps["read"]);
+  })));
 
 const timedStart = <A, E, R>(route: "start" | "resume", run: (phases: TimedPhases) => Effect.Effect<A, E, R>) =>
   Effect.flatMap(Clock.currentTimeMillis, (entered) => {
@@ -667,6 +711,7 @@ const timedStart = <A, E, R>(route: "start" | "resume", run: (phases: TimedPhase
           vmId: phases["vmId"] ?? null, route, ok: Exit.isSuccess(exit), stateBefore: phases["stateBefore"] ?? null, stateAfter: phases["stateAfter"] ?? null,
           ...("readMs" in phases ? { readMs: phases["readMs"] } : {}),
           ...("ownMs" in phases ? { ownMs: phases["ownMs"] } : {}), ...("gateMs" in phases ? { gateMs: phases["gateMs"] } : {}),
+          ...("rateMs" in phases ? { rateMs: phases["rateMs"] } : {}), ...("ownReadMs" in phases ? { ownReadMs: phases["ownReadMs"] } : {}),
           startMs: phases["startMs"], totalMs: at - entered,
         }))
       : Effect.void));

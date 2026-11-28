@@ -870,6 +870,15 @@ const report: Record<string, unknown> = {
   load1: os.loadavg()[0],
 };
 const ratios: Record<string, number> = {};
+// The judged ratio: a metric's interval high end where it has one (ratioInterval, +-SIGMAS se), else its point ratio.
+// One run's point estimate is two noises divided (the CPU_WINDOWS note: one head read 1.44, 1.01 and 1.00, CI 4.0), so a
+// ladder that reads 1.0 by luck must not read met: perf labs judge a change on its interval over repeats (Chromium
+// Pinpoint, LLVM LNT), never on one sample. A metric no rung could read leaves the judged row unpublished (UNMEASURED).
+const judged: Record<string, number> = {};
+const unread: string[] = [];
+// sim_ladder.ratio_max's version, one ahead of the rest: its p95 became the interval high end (the point ratio is now
+// p50), so the cron rebases it instead of calling the change a regression; a later VERSION bump keeps it ahead.
+const RATIO_MAX_VERSION = VERSION + 1;
 
 /// The resident set of one process, MB.
 function rssMB(pid: number): number {
@@ -1148,6 +1157,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
       console.log(
         `SIM-LADDER ${axis} ${metric} ${values.map((v) => (Number.isFinite(v) ? v : "?")).join(" / ")} | ratio ? (unread at a rung)`,
       );
+      unread.push(`${axis}.${metric}`);
       continue;
     }
     // The CPU and script readings carry their standard error (whole cycles, or a rung's windows) where the run had one
@@ -1161,6 +1171,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     const high = (values[2]! - values[1]!) / (RUNGS[2]! - RUNGS[1]!);
     const ci = se && metric !== "frame_p95_ms" ? ratioInterval(metric, RUNGS, values, se) : undefined;
     const r2 = (n: number) => Math.round(n * 100) / 100;
+    judged[`${axis}.${metric}`] = ci ? Math.max(ratio, r2(ci.hi)) : ratio;
     console.log(
       `SIM-LADDER ${axis} ${metric} ${values.join(" / ")} | per item ${low.toFixed(2)} then ${high.toFixed(2)} | ratio ${ratio}` +
         (ci
@@ -1332,15 +1343,26 @@ try {
           );
       }
   }
-  if (!PROFILE) console.log(`SIM-LADDER ratio_max ${worst?.[1]} (${worst?.[0]})`);
-  if (worst)
+  const worstJudged = PROFILE ? undefined : Object.entries(judged).sort((a, b) => b[1] - a[1])[0];
+  if (!PROFILE) {
+    report.ratio_max_judged = worstJudged?.[1] ?? null;
+    report.worst_judged = worstJudged?.[0] ?? null;
+    report.unread = unread;
+  }
+  if (!PROFILE)
+    console.log(
+      `SIM-LADDER ratio_max ${worst?.[1]} (${worst?.[0]}) | judged (interval high end) ${worstJudged?.[1]} (${worstJudged?.[0]})` +
+        (unread.length ? ` | UNMEASURED, unread: ${unread.join(", ")}` : ""),
+    );
+  if (worst && worstJudged && !unread.length)
     perfRow({
       name: "sim_ladder.ratio_max",
-      p95: worst[1],
+      p50: worst[1],
+      p95: worstJudged[1],
       unit: "x",
       target: 1.2,
       floor: 0.1,
-      version: VERSION,
+      version: RATIO_MAX_VERSION,
     });
   console.log(`SIM-LADDER-JSON ${JSON.stringify(report)}`);
   if (JSON_OUT) fs.writeFileSync(JSON_OUT, JSON.stringify(report, null, 2));

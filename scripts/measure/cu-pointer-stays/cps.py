@@ -37,6 +37,7 @@ LOG = os.path.join(OUT, "target.log")
 # so main() derives it from `cpsprobe screen`, and each gesture's sample is measured from the
 # position the park read back, never from the asked-for point.
 PARK = (1700.0, 900.0)
+VIDEO_S = 60  # the ten gestures take about 20 s; the movie covers them with room to spare
 RESULTS = os.path.join(OUT, "results.jsonl")
 T0 = time.time()
 
@@ -45,6 +46,34 @@ def note(**kw):
     kw.setdefault("t", round(time.time() - T0, 3))
     with open(RESULTS, "a") as f:
         f.write(json.dumps(kw) + "\n")
+
+
+def allow_capture_prompt(wait_s=15):
+    """Runs a 4 s warm-up capture and presses the picker-bypass alert's Allow if it shows up."""
+    warm = os.path.join(D, "warm.mov")
+    cap = subprocess.Popen(["screencapture", "-v", "-x", "-V", "4", warm],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    seen = {"pressed": False, "owner": ""}
+    t0 = time.time()
+    while time.time() - t0 < wait_s:
+        try:
+            r = subprocess.run([PROBE, "allow-capture"], capture_output=True, text=True, timeout=20)
+            seen = json.loads(r.stdout.strip() or "{}") or seen
+        except (subprocess.TimeoutExpired, ValueError) as e:
+            seen = {"pressed": False, "owner": "", "error": str(e)[:200]}
+        if seen.get("pressed"):
+            seen["after_s"] = round(time.time() - t0, 1)
+            break
+        time.sleep(0.5)
+    try:
+        cap.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        cap.kill()
+    seen["warm_bytes"] = os.path.getsize(warm) if os.path.exists(warm) else 0
+    approvals = os.path.expanduser("~/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist")
+    dump = subprocess.run(["plutil", "-p", approvals], capture_output=True, text=True)
+    open(os.path.join(OUT, "capture-approvals.txt"), "w").write(dump.stdout + dump.stderr)
+    return seen
 
 
 def probe(*args, timeout=30):
@@ -238,8 +267,17 @@ def main():
         ("move_pointer", "", {"x": mx, "y": my}, lambda ev: "moved" in ev),
     ]
 
+    # macOS 26 still asks "bash is requesting to bypass the system private window picker" on the first
+    # capture, past the TCC grant and the pre-seeded ScreenCaptureApprovals.plist (step 8b5c1c82: the
+    # alert sat over the target for the whole movie). A short warm-up capture raises it before the
+    # movie, and cpsprobe presses its Allow through Accessibility, which never moves the pointer; the
+    # approval macOS then stores is saved next to the movie.
+    allowed = allow_capture_prompt()
+    print("CPS-SETUP capture prompt %s" % json.dumps(allowed), flush=True)
+    note(phase="capture-prompt", **allowed)
+
     video = os.path.join(OUT, "cps.mov")
-    rec = subprocess.Popen(["screencapture", "-v", "-C", "-k", "-x", "-V", "900", video],
+    rec = subprocess.Popen(["screencapture", "-v", "-C", "-k", "-x", "-V", str(VIDEO_S), video],
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=open(os.path.join(OUT, "screencapture.err"), "w"))
     video_t0 = time.time()
     time.sleep(3)
@@ -285,11 +323,16 @@ def main():
                  call_s=round(call_s, 3), video_s=round(t_call - video_t0, 2), ok=resp.get("ok"), is_error=is_error,
                  error=resp.get("error"), body=json.dumps(rbody)[:1500] if rbody is not None else None)
     time.sleep(2)
-    rec.send_signal(signal.SIGINT)
+    # screencapture -v writes its movie when its -V time runs out; a SIGINT ends it without one (the
+    # first runs' 0-byte cps.mov, rc -2). So let it finish, and interrupt only one that overruns.
     try:
-        rec.wait(timeout=30)
+        rec.wait(timeout=VIDEO_S + 30)
     except subprocess.TimeoutExpired:
-        rec.kill()
+        rec.send_signal(signal.SIGINT)
+        try:
+            rec.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            rec.kill()
     try:
         rec_err = open(os.path.join(OUT, "screencapture.err")).read()[-1500:]
     except OSError:

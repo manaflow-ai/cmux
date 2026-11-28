@@ -16,8 +16,11 @@ import {
 import { settleReact } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
 
-const { RowShimmer, ShimmerEnabledContext, ShimmerText } = await importWithDom(
+const { RowShimmer, ShimmerText } = await importWithDom(
   () => import("../src/agent-session/acpmux/conversation/ShimmerText"),
+);
+const { ShimmerEnabledContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/shimmerEnabledContext"),
 );
 const { startShimmerCadence } = await importWithDom(
   () => import("../src/agent-session/acpmux/conversation/shimmerCadence"),

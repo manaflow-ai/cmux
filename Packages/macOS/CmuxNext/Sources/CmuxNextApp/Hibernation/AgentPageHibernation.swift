@@ -76,9 +76,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         let parsed = AgentTabKey(relaunchStorageKey: storageKey)
         return parsed.machine.isEmpty ? tabs.tabKey(parsed.key) : parsed
     }
-    init(tabs: @escaping () -> AgentTabStore?) {
-        store = tabs
-    }
+    init(tabs: @escaping () -> AgentTabStore?) { store = tabs }
 
     /// Wired to the App: never makes the agent tab store (that starts acpmux), follows the panes'
     /// presentation changes, and lets the pane holding a released page go.
@@ -140,10 +138,12 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func sync(_ changed: Set<String>? = nil, _ isRendering: (String) -> Bool) {
         let changed = changed.map { ids in
             let pages = hibernationPages() ?? [:]
-            return Set(pages.keys.filter { ids.contains(AgentTabKey(relaunchStorageKey: $0).key) })
+            return Set(pages.keys.filter { ids.contains(AgentTabKey(relaunchStorageKey: $0).key) || ids.contains(drawnTab($0)) })
         }
-        pages.sync(changed) { let scoped = AgentTabKey(relaunchStorageKey: $0); return !scoped.machine.isEmpty || isRendering(scoped.key) } // the cache keys renderers by tab id: a page whose id two machines share stays awake
+        pages.sync(changed) { !AgentTabKey(relaunchStorageKey: $0).machine.isEmpty || isRendering(drawnTab($0)) } // the cache keys renderers by tab id: a page whose id two machines share stays awake
     }
+    /// The tab that draws page `storageKey`: the Mac tab showing its Cloud chat in place (CloudFrontedChats; that chat's own tab is in no window and never draws, so its page froze for good, cmux#57188), else `own` (default its own id).
+    func drawnTab(_ storageKey: String, own: String? = nil) -> String { store().flatMap { tabs in tabs.frontedChats.isEmpty ? nil : tabs.frontedChats.mac(showing: tabs.resolvedKey(scopedKey(storageKey, in: tabs)))?.key } ?? own ?? AgentTabKey(relaunchStorageKey: storageKey).key }
     func replan() { pages.replan() }
     func keepsPage(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? { pages.keepsPage(key, onScreen: onScreen) }
     func keepsAwake(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? { pages.keepsAwake(key, onScreen: onScreen) }
@@ -160,7 +160,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         let scoped = scopedKey(key, in: tabs)
         return tabs.existingView(scoped.key, machine: scoped.machine)
     }
-    func pageDraws(_ key: String) -> Bool { !AgentTabKey(relaunchStorageKey: key).machine.isEmpty || (store().map { isRendering(scopedKey(key, in: $0).key) } ?? true) }
+    func pageDraws(_ key: String) -> Bool { !AgentTabKey(relaunchStorageKey: key).machine.isEmpty || (store().map { isRendering(drawnTab(key, own: scopedKey(key, in: $0).key)) } ?? true) }
     func pageClock() -> ContinuousClock.Instant { now() }
     func pagePinned(_ key: String) -> Bool { isPinned(key) }
     func pageTurnsKnown() -> Bool { turnsWatched() }

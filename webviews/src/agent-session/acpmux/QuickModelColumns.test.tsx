@@ -1029,7 +1029,7 @@ test("the account card opens above the lists, never over them, and keeps the che
   expect(popup().querySelector(".acpmux-cols-card")).toBeNull();
 });
 
-test("the menu grows by the open card's height, so the lists keep theirs, and goes back as it closes (#63167)", async () => {
+test("the open card never grows the menu: it takes its room from the lists (#63167)", async () => {
   fakeLayout = (window) => {
     installFakeLayout(window);
     Object.defineProperty(window.HTMLElement.prototype, "scrollHeight", {
@@ -1044,17 +1044,18 @@ test("the menu grows by the open card's height, so the lists keep theirs, and go
   const fixed = Number(frame.dataset.fitHeight);
   expect(fixed).toBeGreaterThan(0);
   expect(frame.style.height).toContain(`${fixed}px`);
+  const closed = frame.style.height;
   await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
-  expect(frame.style.height).toContain(`${fixed + 120}px`);
-  // Never past the room the popup has.
-  expect(frame.style.height).toContain("var(--available-height");
+  expect(popup().querySelector(".acpmux-cols-card")).not.toBeNull();
+  expect(frame.style.height).toBe(closed);
+  expect(frame.style.maxHeight).toBe(closed);
+  expect(frame.style.height).not.toContain(`${fixed + 120}px`);
   expect(Number(frame.dataset.fitHeight)).toBe(fixed);
   await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
-  expect(frame.style.height).toContain(`${fixed}px`);
-  expect(frame.style.height).not.toContain(`${fixed + 120}px`);
+  expect(frame.style.height).toBe(closed);
 });
 
-test("the menu follows the open card as its content grows, through the card body's observer (#63167)", async () => {
+test("the menu keeps its height as the open card's content grows (#63167)", async () => {
   let body = 120;
   const observers: (() => void)[] = [];
   fakeLayout = (window) => {
@@ -1082,13 +1083,15 @@ test("the menu follows the open card as its content grows, through the card body
     await openMenu();
     const frame = popup().querySelector<HTMLElement>(".acpmux-cols-frame")!;
     const fixed = Number(frame.dataset.fitHeight);
+    const closed = frame.style.height;
+    expect(closed).toContain(`${fixed}px`);
     await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
-    expect(frame.style.height).toContain(`${fixed + 120}px`);
+    expect(frame.style.height).toBe(closed);
     expect(observers.length).toBeGreaterThan(0);
-    // The accounts load and the card's content grows: the menu grows with it.
+    // The accounts load and the card's content grows: the menu stays put, the lists give the room.
     body = 200;
     await act(async () => observers.forEach((run) => run()));
-    expect(frame.style.height).toContain(`${fixed + 200}px`);
+    expect(frame.style.height).toBe(closed);
   } finally {
     if (saved === undefined) delete (globalThis as Record<string, unknown>).ResizeObserver;
     else (globalThis as Record<string, unknown>).ResizeObserver = saved;

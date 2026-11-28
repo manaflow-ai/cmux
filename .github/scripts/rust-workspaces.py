@@ -439,6 +439,54 @@ def short_tmpdir():
     raise last if last else RuntimeError("no scratch directory")
 
 
+GIB = 1024 ** 3
+# One cargo job (a rustc, or a GNU ld linking a test binary) per this many GiB of memory budget.
+GIB_PER_JOB = 2
+
+
+def cgroup_mem_bytes(proc_self_cgroup: Path = Path("/proc/self/cgroup"),
+                     cgroup_root: Path = Path("/sys/fs/cgroup")) -> int | None:
+    """The smallest memory.max on this process's cgroup v2 path, or None when none is set."""
+    try:
+        line = next((l for l in proc_self_cgroup.read_text().splitlines() if l.startswith("0::")), None)
+    except OSError:
+        return None
+    if line is None:
+        return None
+    path = cgroup_root
+    limits = []
+    for part in [""] + [p for p in line[3:].strip().split("/") if p]:
+        path = path / part if part else path
+        try:
+            value = (path / "memory.max").read_text().strip()
+        except OSError:
+            continue
+        if value.isdigit():
+            limits.append(int(value))
+    return min(limits) if limits else None
+
+
+def mem_available_bytes(meminfo: Path = Path("/proc/meminfo")) -> int | None:
+    try:
+        for line in meminfo.read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def cargo_jobs(cores: int, cgroup_bytes: int | None, available_bytes: int | None) -> int:
+    """Cargo jobs that fit memory: cores, capped at one per GIB_PER_JOB GiB of the smaller of memory.max and
+    MemAvailable. cmux-app-ffi's 122 cmux-layout-reducer-ffi test binaries linked at once with GNU ld lost
+    `ld terminated with signal 9 [Killed]` on a pool runner (post-merge batch run 46181076635, 2026-11-28);
+    scripts/ci/cargo-groups.sh caps its builds the same way (cmux#65281)."""
+    budgets = [b for b in (cgroup_bytes, available_bytes) if b]
+    if not budgets:
+        return max(1, cores)
+    return max(1, min(cores, min(budgets) // (GIB_PER_JOB * GIB)))
+
+
 def run(repo: Path, root: str) -> int:
     entry = next((entry for entry in load_list(repo) if entry.get("root") == root and entry.get("run") is True), None)
     if entry is None:
@@ -454,6 +502,15 @@ def run(repo: Path, root: str) -> int:
     # Tests that bind Unix sockets under TMPDIR need a path shorter than SUN_LEN.
     with short_tmpdir() as short_tmp:
         env = {**os.environ, "TMPDIR": short_tmp}
+        if not env.get("CARGO_BUILD_JOBS"):
+            cgroup_bytes, available_bytes = cgroup_mem_bytes(), mem_available_bytes()
+            cores = os.cpu_count() or 1
+            jobs = cargo_jobs(cores, cgroup_bytes, available_bytes)
+            env["CARGO_BUILD_JOBS"] = str(jobs)
+            def gib(b: int | None) -> str:
+                return f"{b / GIB:.1f}" if b else "none"
+            print(f"{root}: CARGO_BUILD_JOBS={jobs} ({cores} cores, memory.max {gib(cgroup_bytes)} GiB, "
+                  f"MemAvailable {gib(available_bytes)} GiB, {GIB_PER_JOB} GiB per job)", flush=True)
         for name, command in commands:
             print(f"::group::{root}: {' '.join(command)}", flush=True)
             # From the workspace so rustup uses the nearest rust-toolchain.toml.

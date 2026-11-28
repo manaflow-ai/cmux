@@ -150,3 +150,46 @@ fn the_create_step_keeps_the_callers_session() {
         ])
     );
 }
+
+/// One trace id per start: the caller's when it gave a valid one, else a fresh 32-hex id.
+#[test]
+fn a_start_takes_the_callers_trace_id_or_mints_one() {
+    let given = "4bf92f3577b34da6a3ce929d0e0e4736";
+    assert_eq!(super::trace_id(Some(given), None), given);
+    assert_eq!(super::trace_id(Some(&given.to_uppercase()), None), given);
+    assert_eq!(
+        super::trace_id(None, Some("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")),
+        given
+    );
+    let minted =
+        super::trace_id(Some("not-an-id"), Some("00-00000000000000000000000000000000-0-01"));
+    assert_eq!(minted.len(), 32);
+    assert!(minted.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()));
+    assert_ne!(minted, super::trace_id(None, None));
+}
+
+/// The spans run end to end from the tap, by the owner's phases; a mark not reached is left out.
+#[test]
+fn the_trace_spans_are_the_start_phases() {
+    let stages = json!({"created": 900, "running": 3622, "session_start": 4078, "session_ready": 11242,
+                        "send": 11250, "sent": 11570, "first_text": 13801, "total": 14000});
+    let trace = super::trace("4bf92f3577b34da6a3ce929d0e0e4736", Some(&stages));
+    assert_eq!(trace["trace_id"], "4bf92f3577b34da6a3ce929d0e0e4736");
+    assert_eq!(
+        trace["phases_ms"],
+        json!({"select": 0, "vm_running": 3622, "session_start": 456, "session_ready": 7164, "sent": 328,
+               "first_text": 2231})
+    );
+    assert_eq!(
+        trace["spans"][4],
+        json!({"name": "sent", "start_ms": 11242, "end_ms": 11570, "ms": 328})
+    );
+    // A machine already running: `vm_running` ends at the create; a start that never sent stops at its last mark.
+    let short = super::trace(
+        "4bf92f3577b34da6a3ce929d0e0e4736",
+        Some(&json!({"created": 50, "session_start": 80})),
+    );
+    let names: Vec<_> =
+        short["spans"].as_array().unwrap().iter().map(|span| span["name"].clone()).collect();
+    assert_eq!(names, vec![json!("select"), json!("vm_running"), json!("session_start")]);
+}

@@ -112,7 +112,10 @@ DECLARED_NONE = re.compile(r"^\s*Visual:\s*none\b[\s:(—-]*(?P<why>.*)$", re.M 
 DECLARED_COMPLETE = re.compile(r"^\s*Visible-UI:\s*complete\b", re.M | re.I)
 # Leo, 2026-11-28 (ask c-601949839a): don't wait for screenshots when a fix logically does what you expect, and
 # don't hold a fix as "UI". A PR titled as a fix that adds no new view lands without a look; a failed look still fails.
-FIX_TITLE = re.compile(r"^\s*(?:fix|hotfix|bugfix)(?:\([^)]*\))?!?:|^\s*fix(?:es|ed)?\b", re.I)
+# An area before the fix counts too ("Update cards: fix ...", "Gallery health fix: ..."): cmux#60966 and #65178 are
+# fixes to an existing surface that the bare form held for a look.
+FIX_TITLE = re.compile(r"^\s*(?:fix|hotfix|bugfix)(?:\([^)]*\))?!?:|^\s*fix(?:es|ed)?\b"
+                       r"|^[^:\n]{1,60}:\s*(?:fix|hotfix|bugfix)(?:es|ed)?\b|^[^:\n]{1,60}\b(?:fix|hotfix|bugfix):", re.I)
 FIX_NO_LOOK = "Fix to an existing surface, no new UI: lands without a look (Leo 2026-11-28)"
 DECLARED_NOT_NEW = re.compile(r"^\s*Visible-UI:\s*none\b", re.M | re.I)
 PREVIEW = "preview: cmux app try {pr} | cmux customize use pr:{pr} | try-pr.sh {pr}"
@@ -124,6 +127,13 @@ LOOK_WAIT = "Visual change, "
 # bounded by the controller (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go: submit 30 min, queue 3 h,
 # run 45 min). A pending older than this has no look coming: the controller never saw the request or never reported.
 STALE_HOURS = 6
+# When verdict()'s rules last changed (bump it with them). A pending posted before it was judged by older rules and
+# nothing re-judges an unchanged head: cmux#62573 ("Fix New Tab first-use refresh ...", no new view) sat pending
+# "Visual change, no look" from 16:01Z on 2026-11-28 though FIX_NO_LOOK (18:26Z) passes it, and the sweep would only
+# have turned it a look failure at 6 h. The sweep reruns such a gate once (rerun_gate_rest's AFTER skips a gate job
+# that completed after RULES_AT), REJUDGE_MAX per pass, newest-updated PRs first.
+RULES_AT = "2026-11-28T23:00:00Z"  # area-prefixed fix titles (FIX_TITLE)
+REJUDGE_MAX = 25
 
 
 def _match(path: str, patterns) -> bool:
@@ -661,7 +671,7 @@ def rerun_gate_rest(repo: str, sha: str, tokens: list[str], after: str = "") -> 
 
 
 def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = None, post=None,
-          answered=None, rerun=None) -> list[dict]:
+          answered=None, rerun=None, rules_at: str = RULES_AT) -> list[dict]:
     """Every open PR whose cmux/ui-proof waits on a look: a trusted record posted after the pending re-runs the gate
     (the look answered, the gate never read it); else a pending past HOURS turns the look failure. A look failure
     with a trusted record posted after it re-runs the gate too (answered_failures).
@@ -674,8 +684,16 @@ def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = 
     rerun = rerun or (lambda sha, after="": rerun_gate_rest(repo, sha, tokens, after))
     now = now or dt.datetime.now(dt.timezone.utc)
     prs = proof_record.with_tokens(lambda token: open_prs(repo, token), tokens)
-    out = []
+    out, rejudged = [], 0
     for s in stale_pending(prs, now, 0):
+        # Judged by older rules (RULES_AT): the gate judges it again first, once, before any look failure.
+        if rules_at and s["since"] < rules_at and rejudged < REJUDGE_MAX:
+            why = rerun(s["sha"], rules_at)
+            if why.startswith("reran"):
+                rejudged += 1
+                s["rerun"], s["rejudged"] = why, True
+                out.append(s)
+                continue
         try:
             at = answered(s["pr"], s["sha"])
         except Exception as e:  # noqa: BLE001 - an unread record is no record: the bound still holds
@@ -965,7 +983,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"#{s['pr']} {s['sha'][:12]} pending since {s['since']}: "
                   + (f"record found, {s['rerun']}" if "rerun" in s else f"failure posted={s['posted']}"))
         failed = [s for s in stale if "posted" in s]
-        print(f"{STATUS_CONTEXT} sweep: {len(failed)} pending past {args.hours:g} h, {len(stale) - len(failed)} re-gated")
+        again = sum(1 for s in stale if s.get("rejudged"))
+        print(f"{STATUS_CONTEXT} sweep: {len(failed)} pending past {args.hours:g} h, {len(stale) - len(failed)} re-gated"
+              f" ({again} judged by rules older than {RULES_AT})")
         return 0 if all(s["posted"] for s in failed) else 1
     if args.cmd == "gate":
         repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", ""), os.environ.get("SHA", "")

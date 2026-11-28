@@ -333,8 +333,12 @@ impl Timing {
 
 /// Keep the ticket and session alive while a viewer reattaches after a network
 /// drop. The viewer's reconnect path can take longer than a short transport
-/// blip, including a phone waking from sleep; the session is still bounded.
-const REATTACH_GRACE_NS: u64 = 90_000_000_000;
+/// blip, including a phone waking from sleep or a 5 min full outage
+/// (cmuxterm-hq goals/screen-share-netem-1s-nightly.md: the probe's drop-300s
+/// row). At 90 s every 5 min drop ended the session ("viewer silent for 90 s")
+/// and needed Connect Again. The session is still bounded: 10 min of silence
+/// ends it, and a viewer that leaves sends Stop.
+const REATTACH_GRACE_NS: u64 = 600_000_000_000;
 
 /// How often a session whose screen is still (no new frame since the last stats line) still
 /// sends one: the viewer's proof that the host is alive and sent nothing new.
@@ -347,6 +351,17 @@ fn stats_due(frames: u64, frames_sent: u64, now_ns: u64, sent_at_ns: u64) -> boo
     frames != frames_sent
         || sent_at_ns == 0
         || now_ns.saturating_sub(sent_at_ns) >= STILL_STATS_EVERY_NS
+}
+
+/// How long a viewer may be silent before the host holds its stats lines ([`stats_held`]).
+/// Well past a live viewer's feedback gap, and short enough that a drop of any length queues
+/// only a few: at most `STATS_HOLD_AFTER_US / stats period` records, far under the link's
+/// window of 128 unacknowledged records.
+const STATS_HOLD_AFTER_US: u64 = 5_000_000;
+
+/// Whether the host holds stats lines because the viewer has been silent too long to hear them.
+fn stats_held(silent_us: u64) -> bool {
+    silent_us >= STATS_HOLD_AFTER_US
 }
 
 fn viewer_silent_too_long(silent_us: u64) -> bool {
@@ -652,7 +667,7 @@ impl MediaSession {
             // The viewer sends feedback at least every second. Keep the ticket
             // alive through a full network drop so the viewer can reattach.
             if viewer_silent_too_long(self.engine.silent_for_us(now_us())) {
-                return "viewer silent for 90 s".into();
+                return format!("viewer silent for {} s", REATTACH_GRACE_NS / 1_000_000_000);
             }
             let now = now_us();
             if let Some(req) = self.engine.poll(now) {
@@ -1171,6 +1186,13 @@ impl MediaSession {
         // Every period while frames flow; on a still screen (damage-driven capture sends no
         // frame) a heartbeat every STILL_STATS_EVERY_NS, so the viewer can tell a screen that
         // did not change (host `frames` equal to what it decoded) from a stall.
+        // A viewer that hears nothing gets no stats: each one is a reliable control record
+        // that waits for an ack, and a 5 min drop queued past the link's window (128), which
+        // ended the session ("the peer stopped acknowledging control messages"). The first
+        // line after the viewer is back carries the current numbers.
+        if stats_held(self.engine.silent_for_us(now / 1000)) {
+            return;
+        }
         let stats = self.engine.stats();
         if !stats_due(stats.frames, self.stats_frames_sent, now, self.stats_sent_ns) {
             return;
@@ -1224,7 +1246,8 @@ fn idr_reason(req: &EncodeRequest, cause: Option<&'static str>) -> &'static str 
 #[cfg(test)]
 mod tests {
     use super::{
-        idr_reason, stats_due, viewer_silent_too_long, wants_ladder, STILL_STATS_EVERY_NS,
+        idr_reason, stats_due, stats_held, viewer_silent_too_long, wants_ladder,
+        STILL_STATS_EVERY_NS,
     };
     use cmux_rd_core::flow::Rect;
     use cmux_rd_engine::{EncodeRequest, IdrReason};
@@ -1242,9 +1265,30 @@ mod tests {
     }
 
     #[test]
-    fn viewer_silence_allows_the_ninety_second_reattach_window() {
-        assert!(!viewer_silent_too_long(90_000_000));
-        assert!(viewer_silent_too_long(90_000_001));
+    fn viewer_silence_outlasts_a_five_minute_drop() {
+        // The netem probe's drop-300s row: 5 min of nothing, then the link is back.
+        assert!(!viewer_silent_too_long(90_000_001));
+        assert!(!viewer_silent_too_long(300_000_000 + 30_000_000));
+        // Still bounded: 10 min of silence ends the session.
+        assert!(!viewer_silent_too_long(600_000_000));
+        assert!(viewer_silent_too_long(600_000_001));
+    }
+
+    #[test]
+    fn a_silent_viewer_gets_no_stats_so_a_long_drop_cannot_fill_the_control_window() {
+        assert!(!stats_held(0));
+        assert!(!stats_held(4_999_999));
+        assert!(stats_held(5_000_000));
+        assert!(stats_held(300_000_000));
+        // At most one line per 100 ms (`send_stats`' floor) before the hold: under the window.
+        assert!(super::STATS_HOLD_AFTER_US / 100_000 < 128);
+    }
+
+    #[cfg(feature = "link")]
+    #[test]
+    fn host_grace_matches_the_viewer_links_peer_lost_bound() {
+        // Either side ending first loses the session, so the two bounds move together.
+        assert_eq!(REATTACH_GRACE_NS, cmux_rd_link::PEER_LOST_US * 1_000);
     }
 
     #[test]
