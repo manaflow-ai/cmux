@@ -272,6 +272,15 @@
         "ty": "string",
         "required": true
       },
+      "/quality": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"good\"",
+          "\"poor\"",
+          "\"slow\""
+        ]
+      },
       "/reason": {
         "ty": "untagged_union|literal",
         "nullable": true,
