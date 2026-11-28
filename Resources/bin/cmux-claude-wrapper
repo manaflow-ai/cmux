@@ -638,15 +638,14 @@ cmux_claude_config_dir_has_session() {
     local root="$1" sid="$2"
     [[ -n "$root" && -d "$root/projects" ]] || return 1
     local transcript
-    for transcript in \
-        "$root"/projects/*/"$sid".jsonl \
-        "$root"/projects/*/*/"$sid".jsonl \
-        "$root"/projects/*/*/*/"$sid".jsonl \
-        "$root"/projects/*/*/*/*/"$sid".jsonl \
-        "$root"/projects/*/*/*/*/*/"$sid".jsonl; do
+    # Claude writes the transcript one level under projects/. Bash expands a glob
+    # in full before testing a match, and the deeper levels hold every session's
+    # subagents/ and tool-results/ folders, so only this level uses one.
+    # https://github.com/manaflow-ai/cmux/issues/26908
+    for transcript in "$root"/projects/*/"$sid".jsonl; do
         [[ -f "$transcript" && -s "$transcript" ]] && return 0
     done
-    return 1
+    [[ -n "$(CDPATH= cd -- "$root/projects" 2>/dev/null && /usr/bin/find -L . -maxdepth 6 ! -name . -type d -name '.*' -prune -o -type f -name "$sid.jsonl" -size +0c -path './*/*' -print -quit 2>/dev/null)" ]]
 }
 
 claude_option_consumes_value() {
