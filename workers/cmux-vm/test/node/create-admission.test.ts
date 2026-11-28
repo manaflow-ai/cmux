@@ -172,7 +172,7 @@ describe("CreateAdmissionQueue", () => {
     expect(await waiting).toMatchObject({ admitted: true, waitedMs: 10_000 });
   });
 
-  it("keeps a slot whose create is still polled as a background request (cmux#61044, up to the 240 s budget): no fourth create in", async () => {
+  it("keeps a slot whose create is still polled as a background request (cmux#61044, up to its whole budget): no fourth create in", async () => {
     expect(CREATE_SLOT_LEASE_MS).toBeGreaterThan(PROVIDER_CREATE_BUDGET_MS);
     const queue = new CreateAdmissionQueue(memoryLedgerStorage());
     for (const holder of ["a", "b", "c"]) expect(await queue.admit(holder, SETTINGS)).toMatchObject({ admitted: true });

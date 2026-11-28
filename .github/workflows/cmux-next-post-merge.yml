@@ -535,6 +535,8 @@ jobs:
           GALLERY_REDS_DIR: ${{ runner.temp }}/gallery-reds
           # 0: a culprit's confirm round renders again even when the same round already finished (earlier_confirm_round).
           POST_MERGE_CONFIRM_REUSE: ${{ vars.POST_MERGE_CONFIRM_REUSE }}
+          # Daily probe cap per suite job (job_probes_per_day): over it a red is named only, no new bisect. 0: no cap.
+          POST_MERGE_JOB_PROBES_PER_DAY: ${{ vars.POST_MERGE_JOB_PROBES_PER_DAY }}
         run: |
           python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \

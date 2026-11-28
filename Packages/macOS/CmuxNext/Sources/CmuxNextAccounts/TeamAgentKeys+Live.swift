@@ -17,7 +17,6 @@ extension TeamAgentKeys {
     /// The active team's scope and its owner API call (`v1/read`, or `v1/ops` with a mutation key),
     /// shared by the team settings Settings changes as the person (agent keys, the models policy).
     public static func ownerAPICall(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> (scope: @MainActor () -> Scope?, call: Call) {
-        let transport = InstallHTTPTransport(baseURL: ownerAPI, buildSpace: auth.configuration.buildSpace)
         let current: @MainActor () -> Scope? = {
             guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
             return GitHubConnections.signedInScope(project: auth.configuration.stackProjectID, user: user, team: auth.teamID, managedTeam: auth.managedTeamID)
@@ -32,7 +31,7 @@ extension TeamAgentKeys {
             }
             var headers: [String: String] = [:]
             if let team = GitHubConnections.backendTeam(project: auth.configuration.stackProjectID, stackTeam: bound.team) { headers["x-cmux-team"] = team }
-            let response = try await transport.post(mutationKey != nil ? "v1/ops" : "v1/read", json: Data(JSONValue.object(body).compactText.utf8), bearer: access, headers: headers)
+            let response = try await InstallHTTPTransport(baseURL: ownerAPI, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO).post(mutationKey != nil ? "v1/ops" : "v1/read", json: Data(JSONValue.object(body).compactText.utf8), bearer: access, headers: headers)
             guard current() == bound else { throw Failure.changedAccount }
             return try reply(status: response.status, body: response.body)
         })
