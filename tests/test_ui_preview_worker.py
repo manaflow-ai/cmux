@@ -110,6 +110,12 @@ class RequestTests(unittest.TestCase):
                 w.check_request(request(**bad))
 
 
+def plan_of(entries, inputs=None, base_inputs=None, everything=("^webviews/src/gallery/",)):
+    """What Gallery.scene_plan returns: ENTRIES, and the inputs touched.ts --inputs names (none: nothing cached)."""
+    return {"entries": list(entries), "inputs": inputs or {}, "base_inputs": base_inputs or {},
+            "everything": list(everything)}
+
+
 class FakeWorker(w.Worker):
     """The look with the clone and the shell faked: each side is a PNG named by its commit."""
 
@@ -124,10 +130,10 @@ class FakeWorker(w.Worker):
     def gallery_for(self, sha, avoid=()):
         g = self.web
         g.install = lambda: False
-        g.scenes = lambda files: ["entry.a"]
+        g.scene_plan = lambda files=None, entries=None, base=None: plan_of(["entry.a"])
         return g
 
-    def web_side(self, sha, entries, gallery=None):
+    def web_side(self, sha, entries, gallery=None, keys=None):
         out = self.state / "shots" / "web" / sha
         out.mkdir(parents=True, exist_ok=True)
         self.shot.append(f"web:{sha}")
@@ -735,6 +741,10 @@ GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT
            "GIT_COMMITTER_EMAIL": "t@t"}
 
 
+def git_out(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
 def commit(repo: Path, files: dict, message: str = "m") -> str:
     for name, text in files.items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
@@ -868,7 +878,7 @@ class StallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
 
-            def web_side(sha, entries, gallery=None):
+            def web_side(sha, entries, gallery=None, keys=None):
                 out = worker.state / "shots" / "web" / sha
                 out.mkdir(parents=True, exist_ok=True)
                 name = (w.ABSENT_PREFIX if sha == BASE else "") + "entry.a.png"
@@ -909,7 +919,7 @@ class ConfigPushTests(unittest.TestCase):
             self.assertEqual(worker.gallery_key(head), worker.gallery_key(head2))
             both_shooting = threading.Barrier(2, timeout=10)
             events = []
-            saved = {k: getattr(w.Gallery, k) for k in ("install", "start", "stop", "scenes", "shoot")}
+            saved = {k: getattr(w.Gallery, k) for k in ("install", "start", "stop", "scene_plan", "shoot")}
 
             def shoot(g, entries, out, absent=None):
                 events.append(("shoot", g.name, g.key))
@@ -923,7 +933,7 @@ class ConfigPushTests(unittest.TestCase):
             w.Gallery.install = lambda g: False
             w.Gallery.start = lambda g: events.append(("start", g.name))
             w.Gallery.stop = lambda g: events.append(("stop", g.name))
-            w.Gallery.scenes = lambda g, files: ["entry.a"]
+            w.Gallery.scene_plan = lambda g, files=None, entries=None, base=None: plan_of(["entry.a"])
             w.Gallery.shoot = shoot
             try:
                 first = worker.look(request(head_sha=head, base_sha=base, ui_files=["webviews/src/a.tsx"]))
@@ -940,6 +950,153 @@ class ConfigPushTests(unittest.TestCase):
             self.assertNotIn("stop", [e[0] for e in events], events)
             self.assertEqual(len(worker.galleries), 2)
             self.assertNotEqual(worker.galleries[0].port, worker.galleries[1].port)
+
+
+class ContentCacheTests(unittest.TestCase):
+    """The base side keyed by what it is made of (owner, 11-28: "cache the before shots, keyed by content hash ... On a
+    hit, skip web_before entirely and render only after. Also prewarm: when feat-cmux-next moves, render the hot
+    entries in the background off the push path")."""
+
+    INPUTS = {"entry.a": ["webviews/src/a.tsx"]}
+
+    def worker(self, tmp: str):
+        class CacheWorker(FakeWorker):
+            web_side = w.Worker.web_side
+            gallery_for = w.Worker.gallery_for
+            ensure_tree = w.Worker.ensure_tree
+            web_sides = w.Worker.web_sides
+
+            def on_branch_tip_or_landed(self, head, branch):
+                return True
+
+        worker = CacheWorker(Path(tmp))
+        worker.clone.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(worker.clone)], check=True)
+        return worker
+
+    def patched(self, shots: list, inputs=None):
+        saved = {k: getattr(w.Gallery, k) for k in ("install", "start", "stop", "scene_plan", "shoot")}
+        w.Gallery.install = lambda g: False
+        w.Gallery.start = lambda g: None
+        w.Gallery.stop = lambda g: None
+        w.Gallery.scene_plan = lambda g, files=None, entries=None, base=None: plan_of(
+            entries or ["entry.a"], inputs or self.INPUTS, (inputs or self.INPUTS) if base else {})
+
+        def shoot(g, entries, out, absent=None):
+            sha = git_out(g.tree, "rev-parse", "HEAD")
+            shots.append(sha)
+            out.mkdir(parents=True, exist_ok=True)
+            for e in entries:
+                (out / f"{e}.png").write_bytes(b"png-" + sha.encode())
+            return {e: f"{e}.png" for e in entries}
+
+        w.Gallery.shoot = shoot
+        self.addCleanup(lambda: [setattr(w.Gallery, k, v) for k, v in saved.items()])
+
+    def look(self, worker, head, base):
+        receipt = worker.look(request(head_sha=head, base_sha=base, ui_files=["webviews/src/a.tsx"]))
+        self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+        return receipt
+
+    def test_a_base_that_draws_the_entry_alike_is_not_shot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = self.worker(tmp)
+            shots = []
+            self.patched(shots)
+            base1 = commit(worker.clone, {"webviews/src/a.tsx": "1", "webviews/src/other.ts": "x"})
+            head1 = commit(worker.clone, {"webviews/src/a.tsx": "2"})
+            subprocess.run(["git", "-C", str(worker.clone), "checkout", "-q", base1], check=True)
+            base2 = commit(worker.clone, {"webviews/src/other.ts": "y"})  # outside entry.a's inputs
+            head2 = commit(worker.clone, {"webviews/src/a.tsx": "3"})
+            first = self.look(worker, head1, base1)
+            self.assertEqual(sorted(shots), sorted([head1, base1]))
+            self.assertEqual(first["web_cache"]["before_misses"], 1)
+            shots.clear()
+            second = self.look(worker, head2, base2)
+            self.assertEqual(shots, [head2], "the base drawn alike was shot again")
+            self.assertEqual((second["web_cache"]["before_hits"], second["web_cache"]["before_misses"]), (1, 0))
+            self.assertNotIn("web_before", second["stages"])
+            shown = worker.state / "looks" / second["look"] / "before" / "web-entry.a.png"
+            self.assertEqual(shown.read_bytes(), b"png-" + base1.encode())
+
+    def test_a_changed_input_an_everything_file_or_a_new_config_misses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = self.worker(tmp)
+            shots = []
+            self.patched(shots)
+            base1 = commit(worker.clone, {"webviews/src/a.tsx": "1", "webviews/vite.config.ts": "a"})
+            head1 = commit(worker.clone, {"webviews/src/a.tsx": "2"})
+            self.look(worker, head1, base1)
+            for change in ({"webviews/src/a.tsx": "9"}, {"webviews/src/gallery/frame.ts": "f"},
+                           {"webviews/vite.config.ts": "b"}):
+                with self.subTest(change=change):
+                    subprocess.run(["git", "-C", str(worker.clone), "checkout", "-q", base1], check=True)
+                    base = commit(worker.clone, change)
+                    head = commit(worker.clone, {"webviews/src/a.tsx": "4" + base[:6]})
+                    shots.clear()
+                    receipt = self.look(worker, head, base)
+                    self.assertIn(base, shots, "a base drawn differently came from the cache")
+                    self.assertEqual(receipt["web_cache"]["before_misses"], 1)
+
+    def test_an_entry_git_cannot_say_or_a_file_the_base_lacks_gets_no_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = self.worker(tmp)
+            sha = commit(worker.clone, {"webviews/src/a.tsx": "1", "webviews/vite.config.ts": "a"})
+            everything = ["^webviews/src/gallery/"]
+            keys = worker.content_keys(sha, {"a": ["webviews/src/a.tsx"], "b": None, "c": ["webviews/src/gone.ts"]},
+                                       everything)
+            self.assertEqual(set(keys), {"a"})
+            self.assertEqual(worker.content_keys(sha, {"a": ["webviews/src/a.tsx"]}, []), {})
+
+    def test_a_head_with_an_older_touched_ts_is_not_passed_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = self.worker(tmp)
+            worker.bun = lambda: "bun"
+            ranker = worker.web.tree / w.GALLERY_RANKER
+            ranker.parent.mkdir(parents=True)
+            argvs = []
+            saved = w.run
+            w.run = lambda argv, **kw: argvs.append(argv) or json.dumps({"ranked": [{"id": "entry.a"}]})
+            self.addCleanup(setattr, w, "run", saved)
+            for text, flags in (("parseArgs({ changed })", False), ("export function entryInputs(", True)):
+                ranker.write_text(text)
+                argvs.clear()
+                got = worker.web.scene_plan(["webviews/src/a.tsx"], base=BASE)
+                self.assertEqual(got["entries"], ["entry.a"])
+                self.assertEqual("--inputs" in argvs[0], flags)
+                self.assertEqual("--base" in argvs[0], flags)
+
+
+    def test_feat_cmux_next_moving_prewarms_the_hot_entries_and_the_next_base_hits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = self.worker(tmp)
+            shots = []
+            self.patched(shots)
+            base1 = commit(worker.clone, {"webviews/src/a.tsx": "1", "webviews/src/other.ts": "x"})
+            head1 = commit(worker.clone, {"webviews/src/a.tsx": "2"})
+            self.look(worker, head1, base1)  # entry.a is hot now (the receipts' web_entries)
+            self.assertEqual(worker.hot_entries(), ["entry.a"])
+            subprocess.run(["git", "-C", str(worker.clone), "checkout", "-q", base1], check=True)
+            tip = commit(worker.clone, {"webviews/src/a.tsx": "5"})
+            subprocess.run(["git", "-C", str(worker.clone), "update-ref", f"refs/remotes/origin/{w.BASE_BRANCH}", tip],
+                           check=True)
+            worker.web.proc = SameConfigSidesTests.Alive()
+            with worker.looks_lock:
+                worker.looks_running = 1
+            self.assertIsNone(worker.prewarm(), "the prewarm ran beside a look")
+            with worker.looks_lock:
+                worker.looks_running = 0
+            shots.clear()
+            done = worker.prewarm()
+            self.assertEqual((done["tip"], done["shot"]), (tip, 1))
+            self.assertEqual(shots, [tip])
+            self.assertIsNone(worker.prewarm(), "one tip prewarmed twice")
+            later = commit(worker.clone, {"webviews/src/other.ts": "z"})  # the tip's child: entry.a drawn alike
+            head = commit(worker.clone, {"webviews/src/a.tsx": "6"})
+            shots.clear()
+            receipt = self.look(worker, head, later)
+            self.assertEqual(shots, [head])
+            self.assertEqual(receipt["web_cache"]["before_hits"], 1)
 
 
 class SameConfigSidesTests(unittest.TestCase):
@@ -975,12 +1132,12 @@ class SameConfigSidesTests(unittest.TestCase):
         return worker, base, head, twin
 
     def run_look(self, worker, base, head, shoot):
-        saved = {k: getattr(w.Gallery, k) for k in ("install", "start", "stop", "scenes", "shoot")}
+        saved = {k: getattr(w.Gallery, k) for k in ("install", "start", "stop", "scene_plan", "shoot")}
         stops = []
         w.Gallery.install = lambda g: False
         w.Gallery.start = lambda g: None
         w.Gallery.stop = lambda g: stops.append(g.name)
-        w.Gallery.scenes = lambda g, files: ["entry.a"]
+        w.Gallery.scene_plan = lambda g, files=None, entries=None, base=None: plan_of(["entry.a"])
         w.Gallery.shoot = shoot
         try:
             receipt = worker.look(request(head_sha=head, base_sha=base, ui_files=["webviews/src/a.tsx"]))
@@ -1260,7 +1417,7 @@ class ErrorNoteTests(unittest.TestCase):
         def gallery_for(sha, avoid=()):
             g = worker.web
             g.install = lambda: False
-            g.scenes = scenes
+            g.scene_plan = lambda files=None, entries=None, base=None: scenes(files)
             return g
 
         worker.gallery_for = gallery_for
