@@ -653,12 +653,15 @@ class RequiredGateTest(unittest.TestCase):
         self.assertEqual(self.gate.plan(None), {"ios": True, "pair": True})
         self.assertEqual(self.gate.plan(["docs/a.md"], {}), {"ios": True, "pair": True})
 
-    def test_package_path_source_agrees_with_fast_build_path_source(self):
+    def test_package_path_source_agrees_with_fast_build_path_table(self):
         import ios_app_package_paths
+        # The fast verdict may skip Rust internals after consulting file contents. Its
+        # underlying app path table remains shared; the pair gate covers the transport.
+        step = fv.kit_step()
         for path in ("docs/a.md", "cmux-next-ios/App/A.swift", "cmux-next-ios/verify/a.md",
                      "cmux-tui/crates/cmux-wg/src/lib.rs", "Packages/Shared/CmuxTheme/A.swift"):
             with self.subTest(path=path):
-                self.assertEqual(ios_app_package_paths.affects([path]), fv.affects([path]))
+                self.assertEqual(ios_app_package_paths.affects([path]), fv.routes_ios(step, path))
 
     def test_pair_route_is_the_existing_connection_workflow_map(self):
         manifest = {"callees": {"ios-link-ffi-linux.yml": {
