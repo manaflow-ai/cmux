@@ -1,7 +1,7 @@
 import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { writeConfig } from "../chief-brain/brain-store.ts"
 import { CcError, freestyle } from "./vm.ts"
-import { BACKGROUND_AFTER, settleBackground } from "../providers/freestyle/background.ts"
+import { BackgroundLost, BACKGROUND_AFTER, settleBackground } from "../providers/freestyle/background.ts"
 
 /**
  * Client sessions for the Chief's sandboxes (Lawrence, 2026-10-21; freestyle.sh/docs/vms/client-sessions): one
@@ -113,8 +113,8 @@ export const asChief = async (b: ChiefBrainDO, vm: string, method: string, path:
     throw new CcError(`${method} ${path}: no answer`)
   }
   if (!background) return sent
-  const settled = await settleBackground(sent, base(b), { [HEADER]: t }, deadlineAt).catch(() => {
-    throw new CcError(`${method} ${path}: no answer by the deadline (the command may have run)`)
+  const settled = await settleBackground(sent, base(b), { [HEADER]: t }, deadlineAt).catch((e: unknown) => {
+    throw new CcError(e instanceof BackgroundLost && e.outage ? `${method} ${path}: ${e.message}` : `${method} ${path}: no answer by the deadline (the command may have run)`)
   })
   // A stored answer the token can no longer read: the command ran, so it is not sent again with a new token.
   if (settled.polled && (settled.res.status === 401 || settled.res.status === 403)) {

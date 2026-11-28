@@ -1190,6 +1190,10 @@ impl ClientRegistry {
                 .clients
                 .iter()
                 .map(|(client, record)| {
+                    // What it declared in `set-client-info` and the daemon kept, sorted:
+                    // e.g. whether a phone opted into `agent-cli-hybrid-v1`/`-v2`.
+                    let mut capabilities = record.capabilities.iter().collect::<Vec<_>>();
+                    capabilities.sort();
                     json!({
                         "client": client,
                         "transport": record.transport.as_str(),
@@ -1217,6 +1221,7 @@ impl ClientRegistry {
                             })
                         }).collect::<Vec<_>>(),
                         "self": *client == requesting_client,
+                        "capabilities": capabilities,
                     })
                 })
                 .collect::<Vec<_>>()
