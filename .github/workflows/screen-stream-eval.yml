@@ -144,8 +144,11 @@ jobs:
           # A console session worker (gui-session-v1): the hosts capture the screen and post input.
           # Unpinned, the controller took any such Mac, and most hold no Screen Recording or Accessibility:
           # run 46043765418 (2026-11-27) landed on one without them and measured nothing. So an empty
-          # worker resolves to one whose heartbeat reports both granted (screen_share), cmux20-bench first:
-          # the Mac whose eval launcher holds both grants (the 2026-11-26 18:06Z run measured there).
+          # worker resolves to one labelled screen-eval-granted, cmux20-bench first. The controller grants
+          # that label only when CmuxScreenEvalLauncher.app itself holds Screen Recording and Accessibility
+          # on an unlocked console (worker screen_share.eval_launcher); the top-level screen_share grants are
+          # the Computer Use helper's, and Macs read as granted from them failed the eval's preflight (exit 3).
+          # The iPhone viewer target boots an iOS simulator, so it also needs the simulator label.
           if [ -z "$WORKER" ]; then
             WORKER=$("$client" workers --online --label gui-session-v1 2>/dev/null | python3 -I -c '
           import json, sys
@@ -153,14 +156,15 @@ jobs:
               rows, _ = json.JSONDecoder().raw_decode(sys.stdin.read())
           except ValueError:
               sys.exit(0)
+          iphone = ",iphone-sim," in "," + sys.argv[1] + ","
           def ok(w):
-              s = w.get("screen_share") or {}
-              return ("measure" in w.get("labels", []) and s.get("screen_recording") == "yes"
-                      and s.get("accessibility") == "yes" and s.get("console_locked") != "yes")
+              labels = w.get("labels", [])
+              return ("measure" in labels and "screen-eval-granted" in labels
+                      and (not iphone or "simulator" in labels))
           names = sorted((n for n, w in rows.items() if ok(w)),
                          key=lambda n: (n != "cmux20-bench", bool(rows[n].get("claim_paused")), n))
           print(names[0] if names else "")
-          ' || true)
+          ' "$TARGETS" || true)
             [ -n "$WORKER" ] || WORKER=cmux20-bench
             echo "screen-stream-eval: no worker named; resolved the granted worker $WORKER"
           fi

@@ -97,6 +97,7 @@ test("the sheet lists the / list's commands, then skills, then keys, without /he
       .sort((a, b) => ["commands", "skills", "keys"].indexOf(a) - ["commands", "skills", "keys"].indexOf(b)),
   );
   expect(rows.some((row) => row.kind === "key" && row.keys === "⌘↩")).toBe(true);
+  expect(rows.find((row) => row.kind === "key" && row.keys === "⌥↩")?.title).toBe("help.key.newline");
 });
 
 test("a host shortcut shows only with its keycap", () => {
