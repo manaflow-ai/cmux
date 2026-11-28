@@ -635,6 +635,7 @@ pub(crate) fn apply(
             return Err(refusal);
         }
     };
+    // retry-prompt-ok: lock_waiting already waited its bound; a consent change is the caller's own act to rerun
     let _lock = lock_waiting(authority)
         .map_err(|_| Refusal::new(BUSY, "a consent change is in progress here; try again"))?;
     let mut grantors = read_grantors_for_write(root).map_err(|_| store())?;

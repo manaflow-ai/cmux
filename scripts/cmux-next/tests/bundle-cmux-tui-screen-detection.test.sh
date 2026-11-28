@@ -60,7 +60,9 @@ cmp -s "$bin/cmux-agent-screen-detection" "$TMP/build/one/cmux-agent-screen-dete
 pin_commit=$(printf '1%.0s' {1..40})
 src="$TMP/src"
 mkdir -p "$src/scripts/cmux-next"
-cp "$ROOT/scripts/cmux-next/write-daemon-capabilities.sh" "$src/scripts/cmux-next/"
+for helper in write-daemon-capabilities.sh write-cmux-tui-build-stamp.sh link-folded-hosts.sh; do
+  cp "$ROOT/scripts/cmux-next/$helper" "$src/scripts/cmux-next/"
+done
 pinned_dir="$src/cmux-tui/target/hosted/$pin_commit"
 mkdir -p "$pinned_dir"
 printf '#!/bin/sh\necho "cmux-tui 0.1.0 (%s)"\n' "$pin_commit" > "$pinned_dir/cmux-tui"

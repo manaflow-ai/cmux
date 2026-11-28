@@ -168,6 +168,7 @@ public struct CloudMoveStrings {
                               table: "Cloud", bundle: .localizedModule), machine, detail)
     }
     /// The move can read the chosen connection, but cannot carry it to the machine.
+    /// retry-prompt-ok: the person must choose another connection first; a retry alone fails the same way
     package static var loginUnsupported: String {
         String(localized: "cloud.move.loginUnsupported",
                defaultValue: "This chat stays on your Mac because Move to Cloud can't carry its model connection. Choose a different connection and try again.",

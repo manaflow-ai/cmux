@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextDevices
 import Foundation
 
@@ -139,12 +140,17 @@ struct MacScreenHomeSnapshot: Equatable {
                 // hub was unreachable (run 45954248647: socket connect timeouts, no This Mac section).
                 let registered = hub.thisDevice != nil || hub.status == .ready
                 let hubHost = source.hubHost
+                // Connecting is a state the person can do nothing about: its note waits the shared bound; a failure
+                // says why at once.
+                var failed = false
+                if case .failed = hub.status { failed = true }
+                let joiningLasted = home.hubJoiningLasted(!registered && !failed, bound: NoticeTiming.connectionQuiet)
                 sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy || !registered,
                                   screenRecordingGranted: home.host.screenRecordingGranted,
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                                  hubNote: registered || !(failed || joiningLasted) ? nil : Self.hubNote(hub.status))
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)

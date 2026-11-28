@@ -124,7 +124,7 @@ public final class TryPullRequestModel {
         case loading
         case loaded(TryPullRequestList)
         case failed(String)
-        /// The Mac's link is down; the page offers Try Again.
+        /// The Mac's link is down; the page reads again when it connects.
         case unreachable
     }
 

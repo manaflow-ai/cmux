@@ -1869,6 +1869,7 @@ fn fail(writer: &MessageWriter, id: Option<Value>, code: &str) -> bool {
         "share.not_a_chat" => "not an agent chat with a session",
         "share.chat_moved" => "the surface shows another chat now; name the chat again",
         "share.not_trusted" => "only the owner's own local connection manages shares",
+        // retry-prompt-ok: an RPC refusal to the client, which owns when to send its change again
         "share.moving" => {
             "the chat is moving; retry sharing changes after the move finishes or is cancelled"
         }

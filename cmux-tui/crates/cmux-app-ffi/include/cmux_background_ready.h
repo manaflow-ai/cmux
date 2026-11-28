@@ -146,21 +146,6 @@ uint8_t cmux_background_ready_hidden_plan(uint8_t mode, bool started_at_login, c
 bool cmux_background_ready_registers_login_item(uint8_t mode);
 
 /*
- The owner of the login-time pre-read agent: registered only for mode 3
- (WarmAtLogin); every other mode, Off included, unregisters it, so
- switching away removes the agent. Mode 2 needs none: its login item starts
- the app, which reads the same pages.
- */
-bool cmux_background_ready_registers_preread_agent(uint8_t mode);
-
-/*
- The owner of whether Quit Completely is offered: only for modes 1 and 2,
- which keep a hidden copy after a quit. Off and 3 (WarmAtLogin) keep
- nothing running, so a quit is already complete.
- */
-bool cmux_background_ready_offers_quit_completely(uint8_t mode);
-
-/*
  The owner of what a launch does. A launch the user made is 0 (Normal)
  whatever the mode: the setting changes quits and logins, never an open. A
  login launch with mode 2 is 1 (start hidden: no window and no Chromium

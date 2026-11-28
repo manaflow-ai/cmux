@@ -19,6 +19,15 @@ fn on_quit(mode: u8, origin: u8, update_installs: bool, quit_completely: bool) -
     cmux_background_ready_on_quit(mode, origin, update_installs, quit_completely)
 }
 
+// Rust-only answers (no C export until a Swift caller exists).
+fn cmux_background_ready_registers_preread_agent(mode: u8) -> bool {
+    cmux_background_ready::registers_preread_agent(cmux_background_ready::Mode::from_u8(mode))
+}
+
+fn cmux_background_ready_offers_quit_completely(mode: u8) -> bool {
+    cmux_background_ready::offers_quit_completely(cmux_background_ready::Mode::from_u8(mode))
+}
+
 fn plan(mode: u8, at_login: bool) -> u8 {
     let none: *const c_char = ptr::null();
     unsafe { cmux_background_ready_hidden_plan(mode, at_login, none) }

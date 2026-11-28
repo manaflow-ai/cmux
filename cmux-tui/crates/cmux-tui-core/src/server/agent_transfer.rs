@@ -630,6 +630,7 @@ impl Refusal {
             Self::UnknownTransfer => "no such move on this daemon",
             Self::Unguarded => "acpmux did not apply the receive guard",
             Self::SharesUnsupported => "update the move client to move a shared chat",
+            // retry-prompt-ok: an RPC refusal to the client, which owns when to send its move again
             Self::Busy => {
                 "another move operation for this chat is still running; retry when it answers"
             }

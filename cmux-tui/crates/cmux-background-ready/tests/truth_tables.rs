@@ -163,7 +163,13 @@ fn registers_login_item_only_for_mode_two() {
 #[test]
 fn registers_preread_agent_only_for_mode_three() {
     for mode in 0..=u8::MAX {
-        assert_eq!(cmux_background_ready_registers_preread_agent(mode), mode == 3, "mode {mode}");
+        assert_eq!(
+            cmux_background_ready::registers_preread_agent(cmux_background_ready::Mode::from_u8(
+                mode
+            )),
+            mode == 3,
+            "mode {mode}"
+        );
     }
 }
 
@@ -171,7 +177,9 @@ fn registers_preread_agent_only_for_mode_three() {
 fn offers_quit_completely_only_for_the_modes_that_stay() {
     for mode in 0..=u8::MAX {
         assert_eq!(
-            cmux_background_ready_offers_quit_completely(mode),
+            cmux_background_ready::offers_quit_completely(cmux_background_ready::Mode::from_u8(
+                mode
+            )),
             mode == 1 || mode == 2,
             "mode {mode}"
         );
@@ -248,8 +256,12 @@ fn off_changes_nothing() {
         }
     }
     assert!(!cmux_background_ready_registers_login_item(0));
-    assert!(!cmux_background_ready_registers_preread_agent(0));
-    assert!(!cmux_background_ready_offers_quit_completely(0));
+    assert!(!cmux_background_ready::registers_preread_agent(cmux_background_ready::Mode::from_u8(
+        0
+    )));
+    assert!(!cmux_background_ready::offers_quit_completely(cmux_background_ready::Mode::from_u8(
+        0
+    )));
     assert_eq!(cmux_background_ready_at_launch(0, false), 0);
     assert!(!cmux_background_ready_exits_for_update(0, false, true));
 }

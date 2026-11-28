@@ -18635,6 +18635,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "swift-acpmux-protocol.yml", "swift-linux-packages.yml",
             "terminal-hang-diagnostics.yml", "test-ios.yml", "web-complexity.yml",
             "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
+            # The iPhone DEV build ahead of a tap (advisory, never required): its red is the app's own build.
+            "cmux-next-ios-try-ahead.yml",
             "agent-brands.yml",
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
             "cmux-next-react-doctor.yml",

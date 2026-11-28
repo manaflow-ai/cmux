@@ -173,8 +173,9 @@ public struct CloudStartSessionStrings {
     public static let namedRefusals: Set<String> = ["agent_session.sign_in_required", "agent_session.harness_missing", "agent_session.route_unavailable"]
 
     /// A team launch would expose a credential from the machine's Claude settings file.
+    /// retry-prompt-ok: the person must remove the credential first; a retry alone is refused the same way
     package static var claudeSettingsSecret: String {
-        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again.", table: "CloudSessions", bundle: .localizedModule)
+        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude's settings file holds a credential the team route would copy into the launch. Remove it from the file and try again.", table: "CloudSessions", bundle: .localizedModule)
     }
 
     /// A named refusal (`namedRefusals`) in the run's words. `agentName`: the agent as a person reads it; `expired`:

@@ -1072,6 +1072,7 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
         let text = if code == "keychain_locked" {
             "Unlock your Mac's keychain to use GitHub Copilot."
         } else {
+            // retry-prompt-ok: a sign-in the person must redo; no retry can do it for them
             "Reconnect GitHub Copilot in Settings > Models."
         };
         r.push("auth", StepStatus::Fail, text, None);
