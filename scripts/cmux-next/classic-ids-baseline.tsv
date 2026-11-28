@@ -99,7 +99,6 @@ cmux-tui/crates/cmux-hub-host/src/identity.rs	join("cmux")	2	move	lane A: Classi
 cmux-tui/crates/cmux-link/src/sign_clone.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-rd-host/src/portal.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-rd-host/src/webrtc_child.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-rd-host/src/webrtc_child.rs	com.cmuxterm.appx	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-remote/src/identity.rs	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-remote/src/secrets/files.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-server-core/src/layout.rs	join("cmux")	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
