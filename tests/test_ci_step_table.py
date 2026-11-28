@@ -348,6 +348,30 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("--skip typecheck", step.run)
         self.assertEqual(step.tier, "push", "a full-tier head's ci-web react-apps-check runs them; no second run")
 
+    def test_hook_tests_keep_their_gate_without_spending_the_typecheck_timeout(self) -> None:
+        table = ci_steps.load()
+        hooks = table.steps["web-lint-hook-tests"]
+        types = table.steps["webviews-typecheck"]
+        self.assertEqual(hooks.run, "python3 tests/test_web_lint_prepush.py")
+        self.assertNotIn("test_web_lint_prepush.py", types.run)
+        self.assertIn("bun run typecheck", types.run)
+        # The real-push fixture suite exhausted 360 s alongside the routed checks (run 46167738798).
+        # Keep it out of their shared pool, as the other integration suites already are.
+        self.assertTrue(hooks.alone)
+        self.assertFalse(types.alone)
+        for step in (hooks, types):
+            self.assertTrue(step.blocks)
+            self.assertEqual((step.job, step.tier, step.timeout), ("linux", "push", 360))
+            self.assertEqual(step.needs, ("bun", "node"))
+        self.assertEqual(hooks.inputs, types.inputs)
+        self.assertEqual(hooks.nightly, types.nightly)
+        for path in ("webviews/src/App.tsx", "scripts/web_lint_prepush.py",
+                     "tests/test_web_lint_prepush.py", ".github/workflows/cmux-next-web-lint.yml"):
+            with self.subTest(path=path):
+                for name in (hooks.name, types.name):
+                    self.assertIn(name, ci_steps.route(table, [path])["linux"])
+                    self.assertIn(name, self.landing([path])[2][1])
+
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
         start, _, (jobs, only) = self.landing(["web/app/page.css"])
         self.assertNotIn("pr-pipeline.yml", start)
@@ -2008,10 +2032,10 @@ class PipelineTest(unittest.TestCase):
         table = ci_steps.load()
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
-                     "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
+                     "web-typecheck", "webviews-typecheck", "web-lint-hook-tests", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
                      "web-tests-4", "web-tests-affected", "web-production-build", "cmux-vm-cloud", "webviews-checks"}
         wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "page-strings", "web-complexity",
-                      "webviews-typecheck", "cmux-vm-cloud", "webviews-checks"}
+                      "webviews-typecheck", "web-lint-hook-tests", "cmux-vm-cloud", "webviews-checks"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":

@@ -32,7 +32,11 @@ os.makedirs(OUT, exist_ok=True)
 PROBE = os.path.join(D, "cpsprobe")
 RD = os.path.join(D, "cmux-rd")
 LOG = os.path.join(OUT, "target.log")
-PARK = (1700.0, 900.0)  # global points, far from the target window (200..1000 x 200..~830)
+# Where "the person" leaves the pointer: the main display's bottom-right corner, 24 pt in, which is
+# outside the target window (x 200..1000). A fixed point off a smaller display clamps to the edge,
+# so main() derives it from `cpsprobe screen`, and each gesture's sample is measured from the
+# position the park read back, never from the asked-for point.
+PARK = (1700.0, 900.0)
 RESULTS = os.path.join(OUT, "results.jsonl")
 T0 = time.time()
 
@@ -181,6 +185,13 @@ def main():
         time.sleep(0.1)
     note(phase="setup", what="target", ready=os.path.exists(LOG), pid=target.pid)
 
+    global PARK
+    screen = probe("screen")
+    if screen.get("w") and screen.get("h"):
+        PARK = (max(1010.0, float(screen["w"]) - 24.0), float(screen["h"]) - 24.0)
+    note(phase="setup", what="screen", screen=screen, park=PARK)
+    print("CPS-SETUP screen %s park %s" % (json.dumps(screen), PARK), flush=True)
+
     worker = Worker()
     worker.ready.wait(90)
     note(phase="setup", what="worker", control=worker.control[:3])
@@ -240,8 +251,11 @@ def main():
             args = dict(args, window_id=wid, delivery=delivery)
             parked = probe("park", PARK[0], PARK[1])
             time.sleep(0.3)
+            # The baseline is where the pointer is now (the park's readback), not where it was asked to go.
+            base = probe("pos")
+            bx, by = float(base.get("x", PARK[0])), float(base.get("y", PARK[1]))
             stop = os.path.join(D, "stop-%s-%s" % (name, delivery))
-            sampler = subprocess.Popen([PROBE, "sample", str(PARK[0]), str(PARK[1]), stop], stdout=subprocess.PIPE, text=True)
+            sampler = subprocess.Popen([PROBE, "sample", str(bx), str(by), stop], stdout=subprocess.PIPE, text=True)
             time.sleep(0.1)
             offset = log_size()
             t_call = time.time()
@@ -266,7 +280,7 @@ def main():
             line = "CPS %s %s moved_pt=%.2f landed=%s" % (name, delivery, moved, "true" if landed else "false")
             lines.append(line)
             print(line, flush=True)
-            note(phase="gesture", tool=tool, variant=variant, delivery=delivery, args=args, parked=parked,
+            note(phase="gesture", tool=tool, variant=variant, delivery=delivery, args=args, parked=parked, base=[bx, by],
                  sample=sample, landed=landed, events=[" ".join(e) for e in events][:40], kinds=sorted(kinds),
                  call_s=round(call_s, 3), video_s=round(t_call - video_t0, 2), ok=resp.get("ok"), is_error=is_error,
                  error=resp.get("error"), body=json.dumps(rbody)[:1500] if rbody is not None else None)
@@ -276,7 +290,13 @@ def main():
         rec.wait(timeout=30)
     except subprocess.TimeoutExpired:
         rec.kill()
-    note(phase="video", path=video, bytes=os.path.getsize(video) if os.path.exists(video) else 0, rc=rec.returncode)
+    try:
+        rec_err = open(os.path.join(OUT, "screencapture.err")).read()[-1500:]
+    except OSError:
+        rec_err = ""
+    vbytes = os.path.getsize(video) if os.path.exists(video) else 0
+    note(phase="video", path=video, bytes=vbytes, rc=rec.returncode, stderr=rec_err)
+    print("CPS-SETUP video %d bytes rc %s %s" % (vbytes, rec.returncode, rec_err.strip().replace("\n", " | ")[:600]), flush=True)
     with open(os.path.join(OUT, "cps.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")
     worker.stop()

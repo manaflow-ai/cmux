@@ -2877,7 +2877,7 @@ job = "linux"
 tier = "push"
 timeout = 360
 title = "Webviews typecheck (whole tree)"
-about = "the pre-push web lint hook's tests pass, webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
+about = "webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
 needs = ["bun", "node"]
 nightly = ["nightly.yml:check-nightly-webviews:Webview checks on the build commit"]
 inputs = [
@@ -2887,13 +2887,32 @@ inputs = [
   ".github/workflows/cmux-next-web-lint.yml",
 ]
 run = '''
-rc=0
-python3 tests/test_web_lint_prepush.py || rc=1
 cd webviews
 BUN_CONFIG_HTTP_IDLE_TIMEOUT=30 BUN_CONFIG_HTTP_RETRY_COUNT=5 flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile || exit 1
-bun run typecheck || rc=1
-exit "$rc"
+bun run typecheck
 '''
+
+# Run 46141015841: the hook tests took 303 s before typechecking even started, consuming the shared
+# 360 s budget. They use temporary repos, so run independently with the same route and landing gate.
+[step.web-lint-hook-tests]
+job = "linux"
+tier = "push"
+# The shared routed pool exhausted its 360 s (run 46167738798). In one-CPU contention,
+# shared fixtures timed out at 180 s; isolated fixtures passed in 110 s (run 46172262835).
+# Finish the other steps before starting its own budget.
+alone = true
+timeout = 360
+title = "Web lint hook tests"
+about = "the pre-push web lint hook's integration tests pass independently of whole-tree typechecking"
+needs = ["bun", "node"]
+nightly = ["nightly.yml:check-nightly-webviews:Webview checks on the build commit"]
+inputs = [
+  "webviews/**",
+  "scripts/web_lint_prepush.py",
+  "tests/test_web_lint_prepush.py",
+  ".github/workflows/cmux-next-web-lint.yml",
+]
+run = "python3 tests/test_web_lint_prepush.py"
 
 # The webviews check:* ratchets (scripts/ci/fast_gate_webviews_checks.py: surface-bypass, catalog-unused,
 # fixed-waits, design-tokens, ...) on a landing head of the affected tier. Before this they ran only in ci-web's
