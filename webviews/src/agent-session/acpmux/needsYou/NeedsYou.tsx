@@ -16,13 +16,13 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type RefObject,
+  useLayoutEffect,
   type CSSProperties,
   type FocusEvent,
-  type RefObject,
 } from "react";
 import { useStableCallback } from "../stableCallback";
 import { SessionMark } from "../../shared/AgentMark";
@@ -46,15 +46,15 @@ import { RowMemory, RowMemoryContext, useRowState } from "./rowMemory";
 import { reply as questionReply, selection, type AgentQuestion, type QuestionReply } from "../question/model";
 import "./needsYou.css";
 import {
-  answerButton,
   answerKey,
   askText,
-  keyedLetter,
-  lettered,
   sideQuestionPrompt,
   type NeedsYouActions,
   type NeedsYouMode,
   type NeedsYouPlace,
+  answerButton,
+  keyedLetter,
+  lettered,
 } from "./needsYouModel";
 
 export type { NeedsYouActions, NeedsYouPlace } from "./needsYouModel";
