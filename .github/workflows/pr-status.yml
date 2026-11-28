@@ -54,4 +54,5 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be a number"; exit 2; }
-          python3 scripts/ci/pr_status.py field --repo "$REPO" --pr "$PR" --bead "$BEAD" --preview "$PREVIEW"
+          # Every input given reaches field, which refuses --bead with --preview instead of dropping one.
+          python3 scripts/ci/pr_status.py field --repo "$REPO" --pr "$PR" ${BEAD:+--bead "$BEAD"} ${PREVIEW:+--preview "$PREVIEW"}
