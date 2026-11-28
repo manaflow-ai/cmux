@@ -91,15 +91,20 @@ jobs:
           TARGETS: ${{ inputs.targets || 'rd,webrtc' }}
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
-          import json, os, urllib.request
+          import json, os, subprocess
           # The daily runs: main's screen-stream-eval-dispatch.yml starts them (scheduled workflows run only
           # from the default branch), so they are workflow_dispatch runs by github-actions[bot]. A run the
           # budget gate failed still measured, so the newest completed run with the same targets (its
           # name, this workflow's run-name) whose results artifact is still kept counts, whatever its conclusion.
-          api = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions"
+          # Through `gh api`, as the other mac-gateway jobs read the API: a bare urllib request from this
+          # runner got "HTTP Error 403: Forbidden" on every daily run of 2026-11-28 (46180501019,
+          # 46180773625, 46196062879) and dropped the body that names why; gh's error keeps it.
+          api = f"repos/{os.environ['GITHUB_REPOSITORY']}/actions"
           def get(path):
-              request = urllib.request.Request(f"{api}/{path}", headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json"})
-              return json.load(urllib.request.urlopen(request, timeout=30))
+              done = subprocess.run(["gh", "api", f"{api}/{path}"], capture_output=True, text=True, timeout=60)
+              if done.returncode != 0:
+                  raise RuntimeError(f"gh api {path.split('?')[0]}: {(done.stderr or done.stdout).strip()[:300]}")
+              return json.loads(done.stdout)
           targets = os.environ["TARGETS"]
           title = "screen stream eval" if targets == "rd,webrtc" else f"screen stream eval ({targets})"
           found = ""
