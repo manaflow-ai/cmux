@@ -246,7 +246,6 @@ mod vnc;
 pub(crate) use app::spawn_daemon_updates;
 #[cfg(unix)]
 pub(crate) use auth_token::{app_token, app_token_in};
-
 /// The app's Cloud machines (`cloud.machines` rows), best effort: `None` with no app or a failed
 /// read (`cmux spill`'s Cloud place).
 #[cfg(unix)]
@@ -313,10 +312,10 @@ mod machine_request;
 mod mobile_pair_requests;
 #[cfg(unix)]
 pub(crate) use machine_join::{
-    Auth as PlatformAuth, CallError as PlatformCallError, Platform,
-    device_credential as joined_machine_credential, platform_origin,
-    read_credential as read_platform_credential, refusal_reason as platform_refusal_reason,
-    rows_for_devices as joined_machine_rows,
+    Auth as PlatformAuth, CallError as PlatformCallError, DEFAULT_INVITE_CHANNEL, Platform,
+    check_channel as check_invite_channel, device_credential as joined_machine_credential,
+    mint_invite, parse_ttl, platform_origin, read_credential as read_platform_credential,
+    refusal_reason as platform_refusal_reason, rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 mod server_remote;
@@ -592,7 +591,7 @@ pub(super) struct GlobalArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct UsageError(pub String);
+pub(crate) struct UsageError(pub String);
 
 #[derive(Debug)]
 struct ParseFailure {
