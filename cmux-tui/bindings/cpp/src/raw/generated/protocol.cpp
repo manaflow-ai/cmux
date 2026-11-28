@@ -1633,6 +1633,11 @@ Result<Json> Codec<ClientInfo>::encode(const ClientInfo& value) {
     auto encoded_attached = encode_value(value.attached);
     if (!encoded_attached) return std::move(encoded_attached).error();
     object.emplace("attached", std::move(encoded_attached).value());
+    if (value.capabilities) {
+        auto encoded = encode_value(*value.capabilities);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("capabilities", std::move(encoded).value());
+    }
     auto encoded_client = encode_value(value.client);
     if (!encoded_client) return std::move(encoded_client).error();
     object.emplace("client", std::move(encoded_client).value());
@@ -1677,6 +1682,12 @@ Result<ClientInfo> Codec<ClientInfo>::decode(const Json& value) {
         auto decoded = decode_value<std::vector<Id>>(*field_attached);
         if (!decoded) return std::move(decoded).error();
         result.attached = std::move(decoded).value();
+    }
+    const Json* field_capabilities = value.find("capabilities");
+    if (field_capabilities) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_capabilities);
+        if (!decoded) return std::move(decoded).error();
+        result.capabilities = std::move(decoded).value();
     }
     const Json* field_client = value.find("client");
     if (!field_client) {

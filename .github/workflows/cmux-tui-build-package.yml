@@ -91,6 +91,18 @@ on:
         required: false
         default: ""
         type: string
+      # A Linux leg (a musl target, or a macOS target cross-linked on Linux) that failed on
+      # attempt 1 takes this label from attempt 2 on, so a retry leaves the pool that just failed
+      # it. 2026-11-28 02:30-04:00Z every hetzner-2 runner in cmux-linux failed the aarch64 musl
+      # leg in seconds (cargo registry cache EACCES) and cmux-runner-pool VMs were shut down mid
+      # leg; each retry drew cmux-linux again, no tree published, and nightly-next stalled 3.8 h.
+      # Leo, 2026-11-27: "YOU CANNOT HAVE A SINGLE LANE THAT IS UNRELIABLE FOR NIGHTLIES."
+      # Empty (the default, and every PR caller) keeps the matrix runner on every attempt.
+      linux_retry_runner:
+        description: "Optional Linux runner label for a Linux leg's attempt 2 and later"
+        required: false
+        default: ""
+        type: string
       linux_arm64_runner:
         description: "Optional Linux ARM64 runner label override"
         required: false
@@ -352,7 +364,7 @@ jobs:
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     # target_set=windows selects no Unix target (an empty matrix is an error).
     if: needs.plan-build.outputs.unix_targets == 'true'
-    runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && !matrix.darwin_on_linux && inputs.macos_retry_runner || matrix.runner }}
+    runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && !matrix.darwin_on_linux && inputs.macos_retry_runner || github.run_attempt > 1 && inputs.linux_retry_runner != '' && (matrix.darwin_on_linux || !endsWith(matrix.target, '-apple-darwin')) && inputs.linux_retry_runner || matrix.runner }}
     # 60 fit the 16 vCPU Blacksmith legs with a warm sticky disk; a 4 vCPU
     # GitHub-hosted runner builds every fat-LTO cargo group cold (see "Make
     # room on a GitHub-hosted Linux runner").
