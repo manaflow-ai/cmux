@@ -1286,9 +1286,7 @@ HOT_WEB_NEEDS_APP = ("webviews/src/web-abi.json",)
 # The Route fields hot_only turns off: every app compile and package test tier. `daemon` stays.
 HOT_ONLY_OFF = ("native", "scheme", "webview", "swift", "generated", "mac_release", "swift_canary", "cmuxnext_swift",
                 "package_build", "fast_reads", "fast_package", "fast_registry", "all_tests", "ffi_repin")
-# What `--hot-only` writes. On a hot-only pull request cmux-next-guards.yml keeps tooling-tests off the minis (it
-# still runs, on Linux) and fleet-test-compile.yml compiles no Swift test target: both read this router's verdict on
-# the same merge-commit diff, never a copy of its rule.
+# What `--hot-only` writes for consumers of this router's verdict on the merge-commit diff.
 HOT_ONLY_OUTPUTS = ("hot_only", "hot_layers")
 # A part of the rest that keeps hot_only off: any of these tiers.
 APP_TIERS = ("native", "scheme", "webview", "swift", "generated", "mac_release", "swift_canary", "cmuxnext_swift")

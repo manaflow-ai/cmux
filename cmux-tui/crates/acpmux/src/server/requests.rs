@@ -22,6 +22,7 @@ mod presets;
 mod queued;
 mod session_open;
 mod signature;
+mod start_reason;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
@@ -1019,6 +1020,11 @@ async fn new_on_peer(
     }
     let report_to = super::lane_parent::remote_report_target(hub, conn, params)?;
     let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
+    if let Some(registry) = mux_meta(params).and_then(|m| m.get("cloudRegistryId"))
+        && !registry.as_str().is_some_and(|id| hub.peer_has_cloud_registry(&peer, id))
+    {
+        return Err(RpcError::no_peer(peer_name));
+    }
     // A new chat started while the peer's link is coming back (a network that just returned)
     // waits for it, as a prompt does (`wait_for_prompt_link`), instead of being refused in a few
     // ms as not sent: its ask makes the next attempt come within a second (`peer_wanted.rs`).
@@ -1133,6 +1139,23 @@ pub(super) async fn handle_request(
     params: Value,
     sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
+    let mut reply = Box::pin(handle_request_unstamped(hub, conn, m, params, sender_token)).await;
+    // Every `session/new` refusal says why in a short code (`requests/start_reason.rs`).
+    if m == method::SESSION_NEW
+        && let Err(error) = &mut reply
+    {
+        start_reason::stamp(error);
+    }
+    reply
+}
+
+async fn handle_request_unstamped(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
+) -> Result<Value, RpcError> {
     // Freed memory goes back to the system once requests stop (malloc_quiet_trim.rs).
     cmux_tui_platform::malloc_quiet_trim::note_activity();
     if conn.is_trigger() && !m.starts_with("trigger/chat.") {
@@ -1173,6 +1196,9 @@ pub(super) async fn handle_request(
     // here, before any name routing or peer forward can send it elsewhere (`agent_credentials.rs`).
     if m == crate::agent_credentials::UPDATE_METHOD {
         return agent_credentials_update(hub, conn, &params).await;
+    }
+    if super::agent_login::METHODS.contains(&m) {
+        super::agent_login::authorize(conn, &params)?;
     }
     let received = tokio::time::Instant::now();
     let checks = heap(|| prepare_request(hub, conn, m, params, sender_token));
@@ -2039,8 +2065,27 @@ async fn dispatch_method(
             }
             // The owner's Cloud credential (`agent_credentials.rs`): this socket's, never an agent's.
             let credential = crate::agent_credentials::requested(meta)?;
-            if credential.is_some() {
+            let claude_machine_login =
+                meta.and_then(|meta| meta.get("claudeMachineLogin")) == Some(&Value::Bool(true));
+            let claude_team_route =
+                meta.and_then(|meta| meta.get("claudeTeamRoute")) == Some(&Value::Bool(true));
+            if credential.is_some() || claude_machine_login || claude_team_route {
                 crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+            }
+            if (claude_machine_login || claude_team_route) && credential.is_some() {
+                return Err(RpcError::invalid_params(
+                    "an explicit Claude auth choice cannot carry a delivered credential",
+                ));
+            }
+            if claude_machine_login && claude_team_route {
+                return Err(RpcError::invalid_params("conflicting Claude auth choices"));
+            }
+            if claude_machine_login || claude_team_route {
+                let auth = if claude_machine_login { "own" } else { "team" };
+                env.insert("CMUX_CLAUDE_AUTH".into(), auth.into());
+            }
+            if claude_team_route {
+                env.insert(crate::claude_cloud_auth::REQUIRED_TEAM.into(), "1".into());
             }
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
@@ -3267,7 +3312,8 @@ async fn dispatch_method(
             let vm_boundary = params.get("vmBoundary") == Some(&Value::Bool(true));
             let (lease, mut settled) = {
                 let cfg = hub.config.read().await;
-                hub.lease_peer(&name, &url, token, text("peerToken"), vm_boundary, &cfg)?
+                let registry = text("cloudRegistryId").filter(|id| id.len() <= 128);
+                hub.lease_peer(&name, &url, token, text("peerToken"), vm_boundary, registry, &cfg)?
             };
             conn.hold_peer_lease(hub, lease);
             let waited = if wait {
@@ -3598,7 +3644,7 @@ async fn dispatch_method(
             super::harness_enable::disable(hub, conn.origin, &params).await
         }
         name if super::agent_login::METHODS.contains(&name) => {
-            super::agent_login::handle(hub, conn, name, &params).await
+            super::agent_login::handle(hub, name, &params).await
         }
         name if super::harness_admin::METHODS.contains(&name) => {
             heap(|| super::harness_admin::handle(hub, conn.origin, name, &params)).await
@@ -3612,6 +3658,9 @@ async fn dispatch_method(
         | method::MUX_ROUTE_TEST
         | method::MUX_ROUTE_DEFAULT_SET
         | method::MUX_CHAT_ROUTE_SET => {
+            if m == method::MUX_ROUTE_TEST && params["listModels"] == true && !conn.is_person() {
+                return Err(conn.person_only("checking a model connection"));
+            }
             let reply = heap(|| super::routes::handle(hub, conn.origin, m, &params)).await;
             if reply.is_ok() && super::connections::changes_connections(m) {
                 super::connections::announce_later(hub);
@@ -3628,6 +3677,7 @@ async fn dispatch_method(
             }
             reply
         }
+        method::MUX_CONNECTIONS_GROK_HOOK => Err(RpcError::method_not_found(m)),
         name if super::connections::METHODS.contains(&name) => {
             // A connection's token goes to the person's app, never to an agent acpmux runs: only a
             // connection that proved the person reads one (`connections::reads_token`).
@@ -3834,19 +3884,18 @@ async fn dispatch_method(
                         .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
                 }
                 method::MUX_INBOX_THREADS => {
-                    // Its held count reads the surge journal's tail from the log.
-                    let hub = Arc::clone(hub);
-                    tokio::task::spawn_blocking(move || Ok(hub.inbox_threads(&s)))
-                        .await
-                        .map_err(|e| RpcError::internal(format!("inbox listing stopped: {e}")))?
+                    // Its held count reads the surge journal's tail from the log: read here, off
+                    // the worker, not queued on the blocking pool. Under load the pool's queue
+                    // held this read behind every other blocking job (cosmic-gray, 2026-11-27:
+                    // `acpmux session inbox` 60 s+); the read itself takes no hub-wide lock.
+                    Ok(crate::qos::off_worker(|| hub.inbox_threads(&s)))
                 }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
-                    let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
-                    // Held messages that left memory are read from the log (`inbox_surge.rs`).
-                    tokio::task::spawn_blocking(move || hub.inbox_thread_whole(&s, &thread, mark))
-                        .await
-                        .map_err(|e| RpcError::internal(format!("inbox read stopped: {e}")))?
+                    let thread = thread()?;
+                    // Held messages that left memory are read from the log (`inbox_surge.rs`),
+                    // off the worker and not behind the blocking pool's queue, as above.
+                    crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))
                 }
                 _ => {
                     let text = text_of("text")
@@ -4229,7 +4278,10 @@ async fn dispatch_method(
         | method::MUX_TEAM_LISTEN
         | method::MUX_TEAM_NAVIGATOR
         | method::MUX_TEAM_PICK
-        | method::MUX_TEAM_SESSION_INFO => super::team::handle(hub, conn, m, &params).await,
+        | method::MUX_TEAM_SESSION_INFO
+        | method::MUX_TEAM_CUSTOMIZATION
+        | method::MUX_TEAM_CUSTOMIZE
+        | method::MUX_TEAM_HANDOFF => super::team::handle(hub, conn, m, &params).await,
         method::MUX_REGISTER => {
             // Only a process of this machine, by the pid the kernel gave at accept: the session
             // registered is the one that process runs under, never one it names.
@@ -5071,17 +5123,60 @@ async fn agent_credentials_update(
     params: &Value,
 ) -> Result<Value, RpcError> {
     crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+    if let Some(bindings) = params.get("withdrawBindings") {
+        let invalid =
+            || RpcError::invalid_params("withdrawBindings takes scoped connection bindings only");
+        if !params.as_object().is_some_and(|params| params.len() == 1) {
+            return Err(invalid());
+        }
+        let bindings =
+            bindings.as_array().filter(|bindings| !bindings.is_empty()).ok_or_else(invalid)?;
+        let bindings = bindings
+            .iter()
+            .map(|binding| {
+                binding
+                    .as_str()
+                    .filter(|binding| {
+                        binding.contains(':') && crate::agent_credentials::valid_connection(binding)
+                    })
+                    .ok_or_else(invalid)
+            })
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        return hub.withdraw_credential_bindings(&bindings).await;
+    }
     let id = params
         .get("sessionId")
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
         .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
-    if params.as_object().is_some_and(|o| o.keys().any(|k| k != "sessionId" && k != "env")) {
-        return Err(RpcError::invalid_params("agent/credentials.update takes sessionId and env"));
+    if params.as_object().is_some_and(|o| {
+        o.keys().any(|k| !matches!(k.as_str(), "sessionId" | "env" | "endpoint" | "legacyRefresh"))
+    }) {
+        return Err(RpcError::invalid_params(
+            "agent/credentials.update takes sessionId, env, and endpoint",
+        ));
     }
-    let env = params.get("env").cloned().unwrap_or(Value::Null);
-    let credential = crate::agent_credentials::AgentCredential::parse(&json!({"env": env}))?;
-    hub.update_credential(id, credential).await
+    let legacy_refresh = params["legacyRefresh"] == true;
+    if params.get("legacyRefresh").is_some()
+        && (!legacy_refresh || params.get("endpoint").is_some() || params.get("env").is_none())
+    {
+        return Err(RpcError::invalid_params(
+            "agent/credentials.update takes sessionId, env, and endpoint",
+        ));
+    }
+    let Some(env) = params.get("env") else {
+        return hub.credential_status(id).await;
+    };
+    if !legacy_refresh && env.as_object().is_some_and(|env| env.is_empty()) {
+        return hub.revoke_credential(id).await;
+    }
+    let mut wire = json!({"env": env});
+    if let Some(endpoint) = params.get("endpoint") {
+        wire["endpoint"] = endpoint.clone();
+    }
+    let credential = crate::agent_credentials::AgentCredential::parse(&wire)?;
+    credential.check_launch_destination()?;
+    hub.update_credential(id, credential, legacy_refresh).await
 }
 
 /// A request forwarded to a peer failed: what was forwarded and why, keeping the peer's

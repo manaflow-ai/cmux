@@ -5,19 +5,44 @@ extension AcpmuxEnvironment {
     /// This Mac's connections in order (`_acpmux/connections`, cmux-tui/docs/model-connections.md), for
     /// Cloud first use (``CloudSetup``); nil when no daemon answers or it predates the method. Never
     /// starts a daemon.
-    public nonisolated func cloudConnections(deadline: Duration = .seconds(3)) async -> [CloudSetup.Connection]? {
+    fileprivate nonisolated func cloudCredentialConnections(deadline: Duration?) async -> CloudAgentCredentials.ConnectionState? {
         guard let result = try? await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/connections", deadline: deadline),
               let rows = result["connections"] as? [[String: Any]] else { return nil }
-        return rows.compactMap(CloudSetup.Connection.init(json:))
+        return .init(connections: rows.compactMap(CloudSetup.Connection.init(json:)),
+                     disconnected: result["disconnected_credentials"] as? [String: [String]] ?? [:])
     }
 
-    /// Connection `id`'s credential as acpmux answers it (`_acpmux/connections/credential {id}`, asked as
-    /// the person; model-connections.md Revision 2): the reply's JSON, or nil when no acpmux answers, the
-    /// person proof is refused, or acpmux refuses the read. Read for one Cloud agent launch and dropped.
-    @MainActor public func connectionCredential(id: String) async -> Data? {
-        guard let line = await AcpmuxPersonLine.open(self) else { return nil }
+    /// Reads a connection's launch credential as the person. Only a typed refusal
+    /// reason crosses to the UI when acpmux denies the read.
+    @MainActor public func connectionCredential(id: String, model: String? = nil) async throws -> Data {
+        guard let line = await AcpmuxPersonLine.open(self) else {
+            throw CloudAgentCredentials.Failure.unavailable(connection: id)
+        }
         defer { line.close() }
-        guard line.isPerson, let reply = await line.call("_acpmux/connections/credential", ["id": id]) else { return nil }
-        return try? JSONSerialization.data(withJSONObject: reply)
+        var params = ["id": id]
+        params["model"] = model
+        guard line.isPerson else { throw CloudAgentCredentials.Failure.unavailable(connection: id) }
+        guard let reply = await line.call("_acpmux/connections/credential", params) else {
+            if let reason = line.lastErrorReason {
+                throw CloudAgentCredentials.Failure.refused(reason: reason)
+            }
+            throw CloudAgentCredentials.Failure.unavailable(connection: id)
+        }
+        return try JSONSerialization.data(withJSONObject: reply)
+    }
+}
+
+extension AcpmuxHost {
+    /// Joins the Settings startup path and gives readiness plus the connection read five seconds
+    /// together. Cancellation ends only this caller's wait on shared daemon startup.
+    public func readyCloudConnections() async -> [CloudSetup.Connection]? {
+        await readyCloudCredentialConnections()?.connections
+    }
+
+    package func readyCloudCredentialConnections() async -> CloudAgentCredentials.ConnectionState? {
+        try? await withAgentPaneDeadline(.seconds(5), label: "cloud connections") {
+            let environment = try await self.readyEnvironment()
+            return await environment.cloudCredentialConnections(deadline: nil)
+        }
     }
 }
