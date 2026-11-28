@@ -331,6 +331,41 @@ jobs:
           run="$(python3 -I scripts/ci/cmux_machine_channel_twin.py wait "$TWIN_RUN" --target x86_64-unknown-linux-musl)" || run=""
           echo "from_run=$run" >> "$GITHUB_OUTPUT"
 
+  # POINT_AT_UPLOAD (scripts/ci/cmux_machine_channel_twin.py): this run's own x86_64 artifact, so point-x86_64 starts
+  # at the upload, not at the end of the build job, whose workspace delta pack and save took 266-356 s more
+  # (4 builds, 09:00-10:18Z 2026-11-28). The wait covers the lane's queue too: 0.5-24.5 min, 12 runs.
+  self-x86_64:
+    name: wait for this run's x86_64 build
+    needs: plan
+    if: ${{ github.event_name == 'push' && needs.plan.outputs.build == 'true' && needs.plan.outputs.from_run == '' && needs.plan.outputs.twin_run == '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      from_run: ${{ steps.wait.outputs.from_run }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+      - name: Mint the wait's App token
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+      - name: Wait for this run's artifact
+        id: wait
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          run="$(python3 -I scripts/ci/cmux_machine_channel_twin.py wait "$GITHUB_RUN_ID" --target x86_64-unknown-linux-musl --wait 3300)" || run=""
+          echo "from_run=$run" >> "$GITHUB_OUTPUT"
+
   # TWIN_BUILD: both Linux artifacts for point-linux, as twin-x86_64.
   twin-linux:
     name: wait for the earlier push's Linux builds
@@ -374,14 +409,18 @@ jobs:
       name: artifacts
       deployment: false
     name: point the Cloud machine channel at this commit's x86_64 Linux build
-    needs: [plan, build-x86_64, twin-x86_64]
+    needs: [plan, twin-x86_64, self-x86_64]
     # One channel writer of this workflow at a time on a push (both points share it); a pull request's run is already one group of its own.
     concurrency:
       group: cmux-machine-channel-point-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
-    # This run's build, or the merged PR head's (PR_HEAD_FAST_LANE); a pull request run points nothing.
-    if: ${{ !cancelled() && github.event_name == 'push' && (needs.build-x86_64.result == 'success' || needs.plan.outputs.from_run != '' || needs.twin-x86_64.outputs.from_run != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # This run's build at its upload (self-x86_64, POINT_AT_UPLOAD), the merged PR head's (PR_HEAD_FAST_LANE) or the twin's; a pull request run points nothing.
+    if: ${{ !cancelled() && github.event_name == 'push' && (needs.self-x86_64.outputs.from_run != '' || needs.plan.outputs.from_run != '' || needs.twin-x86_64.outputs.from_run != '') }}
+    # A pool runner, never Freestyle: `cmux-has-netem` is on every pool VM and on no fsr-* VM (docs/ci/cmux-next-workflow-notes.md
+    # note-206). Run 46098698250 (139abf15, 2026-11-28): on fsr-1795834231-bc4fc1 this job took 7 min of the merge's 25,
+    # checkout 103 s (77,525 files) and the 315 MB artifact 202 s (about 1.5 MB/s); point-linux on cmux-runner-pool-e4a-0261-2
+    # checked out in 13 s and downloaded both 315 MB and 321 MB artifacts in 7 s.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON('["cmux-linux","cmux-has-netem"]') }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -421,7 +460,7 @@ jobs:
           path: assets/cmux-tui
           merge-multiple: true
           # PR_HEAD_FAST_LANE: the merged PR head's pr-router run when the plan found one; else this run.
-          run-id: ${{ needs.plan.outputs.from_run || needs.twin-x86_64.outputs.from_run || github.run_id }}
+          run-id: ${{ needs.plan.outputs.from_run || needs.twin-x86_64.outputs.from_run || needs.self-x86_64.outputs.from_run || github.run_id }}
           # A token only for another run's artifacts: with one, download-artifact lists them through the
           # REST API, here on the App's budget above: on the shared GITHUB_TOKEN quota, run 45730730942 (c0374e0b,
           # 01:29Z 2026-11-26) failed both points on "API rate limit exceeded for installation". Empty, it reads
@@ -464,7 +503,7 @@ jobs:
       group: cmux-machine-channel-point-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
     if: ${{ !cancelled() && github.event_name == 'push' && ((needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success') || needs.plan.outputs.from_run != '' || needs.twin-linux.outputs.from_run != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON('["cmux-linux","cmux-has-netem"]') }}  # a pool runner, as point-x86_64
     timeout-minutes: 10
     permissions:
       contents: read
