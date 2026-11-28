@@ -6,7 +6,8 @@
 // `hostSelfRetrying`). The page drew its chat screen with no rows and nothing naming the chat, and the
 // host's loading state gave up on it and showed it (AgentPaneView+Loading.swift): to the person,
 // their chat was gone and an empty one stood in its place. These hold, while the handshake fails:
-// - the page draws no empty chat: no composer, no chips, no new chat, only the loading mark;
+// - the page draws no empty chat: no composer, no chips, no new chat, only the loading mark, both
+//   while the first handshake hangs and while it fails and is asked again;
 // - once acpmux answers, the chat the tab names opens with its rows.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -103,7 +104,9 @@ async function until(check: () => boolean, what: string, within = 15_000) {
 /// The chat page the host builds again for a tab bound to `session` (its document names the chat,
 /// AgentPaneChatSnapshots `__cmuxRestoredChat`, with no copy or tail kept of it), on a host whose
 /// handshake fails as a stalled acpmux makes it fail until `answering()` is true.
-async function mountRebuilt(answering: () => boolean) {
+/// `pending`: the handshake hangs instead (the host's lookup waits on the stalled daemon, up to its
+/// deadline) until `answering()` is true.
+async function mountRebuilt(answering: () => boolean, pending = false) {
   const { WORKED_SESSION } = await import("../src/agent-session/acpmux/mockFixture");
   Object.assign(dom.window, { __cmuxRestoredChat: WORKED_SESSION, __cmuxChatSnapshot: null });
   const ready = { protocolVersion: 1, transport: "mock", sessionId: WORKED_SESSION, sessionMustExist: true, machineName: "Mac" };
@@ -117,6 +120,11 @@ async function mountRebuilt(answering: () => boolean) {
       messageHandlers: {
         agentSession: {
           postMessage: (message: { method: string }) => {
+            if ((message.method === "ready" || message.method === "reconnect") && pending)
+              return (async () => {
+                while (!answering()) await new Promise((done) => setTimeout(done, 50));
+                return { ok: true, value: ready };
+              })();
             if (message.method === "ready" || message.method === "reconnect")
               return Promise.resolve(answering() ? { ok: true, value: ready } : { ok: false, error: stalled });
             return Promise.resolve({
@@ -159,5 +167,18 @@ test("a rebuilt chat page whose handshake acpmux stalls shows the loading mark, 
   // acpmux answers: the tab's chat opens with its rows.
   answering = true;
   await act(async () => dom.window.dispatchEvent(new dom.window.Event("online")));
+  await until(() => rows() > 0, "the chat draws once acpmux answers", 30_000);
+}, 60_000);
+
+test("a rebuilt chat page whose first handshake hangs on a stalled acpmux shows the loading mark, never an empty chat", async () => {
+  let answering = false;
+  await mountRebuilt(() => answering, true);
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    await tick();
+    expect(drawsEmptyChat(), "the page drew an empty chat while its handshake hung").toBe(false);
+  }
+  expect(loadingMark(), "the page shows it is loading the chat").toBe(true);
+  answering = true;
   await until(() => rows() > 0, "the chat draws once acpmux answers", 30_000);
 }, 60_000);
