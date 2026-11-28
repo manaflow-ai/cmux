@@ -98,12 +98,60 @@ export function causeOf(c: Pick<WakeCycle, "error" | "guest">): string {
   const e = c.error;
   if (c.guest?.surface_lost || /unknown surface/.test(e)) return c.guest?.surface_lost?.same_daemon === false ? "daemon restarted across the wake (product)" : "daemon lost the terminal across the wake (product)";
   if (/before the cycle|not_paused|pause did not land|operation_in_flight|did not settle/.test(e)) return "machine state";
-  if (/before wake_at\b.*not this wake/.test(e)) return "probe fired before the wake (harness)";
+  if (/the pause did not hold/.test(e)) return "pause did not hold (machine)";
+  if (/before wake_at\b.*not this wake/.test(e)) return "guest ran before the start (machine or clock)";
   if (/no probe result|clock offset|^exec: |vm_unavailable/.test(e)) return "guest unreachable";
   if (/guest probe: net|no TCP connect/.test(e)) return "guest network";
   if (/guest probe/.test(e)) return "guest probe";
   if (/cloud\.machine\.start|cloud\.machine\.pause/.test(e)) return "platform op";
   return "other";
+}
+
+/**
+ * Causes that say the cycle measured no wake at all (the guest never stopped for the hold, or ran again before the
+ * start), not that waking is broken: they do not count toward the failure streak, which stops a run whose wakes fail.
+ * Run 46176743563 stopped after 3 of 50 cycles on two pauses that did not hold and one early run, so it measured
+ * nothing; a run of them still stops at `IDLE_STREAK` in a row.
+ */
+export const NO_WAKE_CAUSES = new Set(["pause did not hold (machine)", "guest ran before the start (machine or clock)"]);
+export const IDLE_STREAK = 8;
+
+/** Whether the run stops after these cycles: `streakMax` counting failures in a row, or IDLE_STREAK of any failure. */
+export function streakStop(cycles: Pick<WakeCycle, "ok" | "error" | "guest">[], streakMax: number): string {
+  let counting = 0;
+  let any = 0;
+  for (let k = cycles.length - 1; k >= 0 && !cycles[k]!.ok; k--) {
+    any++;
+    if (!NO_WAKE_CAUSES.has(causeOf(cycles[k]!))) counting++;
+  }
+  // counting failures in a row, skipping no-wake ones between them
+  if (counting >= streakMax) return `${streakMax} failed cycles in a row`;
+  if (any >= IDLE_STREAK) return `${any} cycles in a row measured no wake`;
+  return "";
+}
+
+/**
+ * The guest's tick gaps since the arm (gaps.log lines, guest wall ms): did the guest stop for the hold? A pause that
+ * held shows one gap of at least `minGapMs` after `armedAt`. Run 46176743563 cycle #0: the machine read paused in
+ * 7.07 s, yet the guest's only gap after the arm was 1112 ms, ending about 5 s before the start, and no result came:
+ * the guest ran through the hold, so there was no wake to time. Returns the failure, or "" when a held gap is there
+ * or the log cannot say (unread).
+ */
+export function pauseHeld(gapsLog: string, armedAt: number | null, minGapMs: number): string {
+  if (armedAt === null) return "";
+  const gaps: { resumed_wall: number; wall_gap: number }[] = [];
+  for (const line of gapsLog.split("\n")) {
+    if (!line.trim().startsWith("{")) continue;
+    try {
+      const g = JSON.parse(line.trim());
+      if (typeof g.resumed_wall === "number" && typeof g.wall_gap === "number" && g.resumed_wall > armedAt) gaps.push(g);
+    } catch { /* a torn line */ }
+  }
+  if (gaps.some((g) => g.wall_gap >= minGapMs)) return "";
+  const longest = gaps.length ? Math.round(Math.max(...gaps.map((g) => g.wall_gap))) : 0;
+  return gaps.length
+    ? `the pause did not hold: since the arm the guest's longest tick gap was ${longest} ms (${gaps.length} gaps), under the hold's ${minGapMs} ms`
+    : `the pause did not hold: the guest ticked through the hold with no gap over 1 s since the arm`;
 }
 
 export function summarize(cycles: WakeCycle[]) {
@@ -415,8 +463,11 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
     try {
       // A machine still pausing (or starting) from the last cycle settles first; one that settled paused is woken.
       await ensureRunning(d, sleep);
-      const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}","min_gap_ms":${Math.max(0, d.holdMs - 500)}}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 120_000, sleep);
+      const minGap = Math.max(0, d.holdMs - 500);
+      const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}","min_gap_ms":${minGap}}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}; echo "@@armed_at $(date +%s%3N)"`, 120_000, sleep);
       if (!arm.stdout.includes("@@probe")) throw new Error(`arm: ${short(arm.stderr || arm.stdout)}`);
+      const armedAtRaw = Number(/@@armed_at (\d+)/.exec(arm.stdout)?.[1]);
+      const armedAt = Number.isFinite(armedAtRaw) && armedAtRaw > 0 ? armedAtRaw : null;
       c.offset_pre_ms = (await clockOffset(d.exec, 2))?.offset ?? null;
       const pause = await d.pause();
       if (typeof pause === "number") c.paused_ms = pause;
@@ -432,16 +483,28 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       // Read the result back: exec polls (the guest may not answer yet) until the probe's file is there.
       const end = wakeAt + 150_000;
       let out = "";
+      let heldChecked = false;
       for (;;) {
         const r = await d.exec(`cat ${WAKE_DIR}/result.${i}.json 2>/dev/null; echo; echo "@@done"`, 20_000).catch(() => null);
         if (r && c.first_exec_ms === null) c.first_exec_ms = Date.now() - wakeAt;
         if (r && r.stdout.includes("{")) { out = r.stdout; break; }
+        // The guest answers but no result yet: once it has run 15 s (a 50 ms tick logs any gap at once), a log with
+        // no held gap since the arm means the guest never stopped, and waiting out the 150 s finds nothing more.
+        if (r && !heldChecked && c.first_exec_ms !== null && Date.now() - wakeAt > c.first_exec_ms + 15_000) {
+          heldChecked = true;
+          const gl = await d.exec(`${d.guest}tail -n 50 ${WAKE_DIR}/gaps.log 2>/dev/null; echo "@@gaps"`, 20_000).catch(() => null);
+          const again = await d.exec(`cat ${WAKE_DIR}/result.${i}.json 2>/dev/null; echo`, 20_000).catch(() => null);
+          if (again && again.stdout.includes("{")) { out = again.stdout; break; }
+          const held = gl && gl.stdout.includes("@@gaps") ? pauseHeld(gl.stdout, armedAt, minGap) : "";
+          if (held) throw new Error(`${held} (machine read paused in ${c.paused_ms ?? "?"} ms, start answered in ${c.answered_ms} ms)`);
+        }
         if (Date.now() > end) break;
         await sleep(1000);
       }
       if (!out) {
-        const tail = await d.exec(`${d.guest}tail -n 5 ${WAKE_DIR}/probe.log ${WAKE_DIR}/gaps.log 2>&1`, 20_000).catch(() => null);
-        throw new Error(`no probe result 150 s after wake_at (exec first answered ${c.first_exec_ms ?? "never"} ms); probe/gap logs: ${short(tail?.stdout ?? "unread")}`);
+        // The newest lines first: run 46176743563 showed only the oldest gap, cut at 300 chars.
+        const tail = await d.exec(`${d.guest}tail -n 3 ${WAKE_DIR}/gaps.log 2>&1 | tac; tail -n 3 ${WAKE_DIR}/probe.log 2>&1`, 20_000).catch(() => null);
+        throw new Error(`no probe result 150 s after wake_at (exec first answered ${c.first_exec_ms ?? "never"} ms); newest gaps, then probe log: ${short(tail?.stdout ?? "unread")}`);
       }
       const g: GuestMarks = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1));
       c.guest = g;
@@ -481,7 +544,8 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
     }
     d.log(`wake-echo #${i}: ${c.ok ? "ok" : "FAIL"} ${JSON.stringify(c.phases)}${c.warnings.length ? ` warnings ${c.warnings.join("; ")}` : ""}`);
     d.onCycle(cycles);
-    if (cycles.length >= streakMax && cycles.slice(-streakMax).every((x) => !x.ok)) { d.log(`wake-echo: ${streakMax} failed cycles in a row, stopping`); d.onStop?.(`${streakMax} failed cycles in a row after ${cycles.length} of ${n}`); break; }
+    const stop = streakStop(cycles, streakMax);
+    if (stop) { d.log(`wake-echo: ${stop}, stopping`); d.onStop?.(`${stop} after ${cycles.length} of ${n}`); break; }
   }
   return cycles;
 }

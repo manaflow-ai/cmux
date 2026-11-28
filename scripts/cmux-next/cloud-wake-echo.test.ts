@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { causeOf, earlyResume, pauseWithReconciliation, phasesOf, restoreParts, restoreSplit, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
+import { causeOf, pauseHeld, streakStop, IDLE_STREAK, earlyResume, pauseWithReconciliation, phasesOf, restoreParts, restoreSplit, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
 
 const cycle = (i: number, ok: boolean, marks: WakeCycle["marks_ms"]): WakeCycle => ({
   i, ok, error: ok ? "" : "boom", at: "", paused_ms: 1, answered_ms: 1, first_exec_ms: 1, offset_ms: 0, offset_rtt_ms: 1, offset_pre_ms: 0,
@@ -152,7 +152,7 @@ test("pause reconciliation keeps indeterminate evidence when status readback fai
 });
 
 test("a probe gap that ended before wake_at fails the cycle as the harness's, never counted as an echo", () => {
-  expect(causeOf({ error: "the probe's gap ended 9517 ms before wake_at: not this wake", guest: null })).toBe("probe fired before the wake (harness)");
+  expect(causeOf({ error: "the probe's gap ended 9517 ms before wake_at: not this wake", guest: null })).toBe("guest ran before the start (machine or clock)");
 });
 
 test("wake on intent: the key lands lead ms after the wake; before ready it waits for echo, after it takes the echo phase", async () => {
@@ -191,7 +191,7 @@ test("restore splits into the start's answer and the wait after it; failed cycle
 test("a resume before wake_at is early only past the clock offset's error, half the round trip (run 46160527086)", () => {
   // Cycle #0: -5582 ms at a 2184 ms round trip (start answered not_paused): the guest ran before the start.
   expect(earlyResume(-5582, 2184)).toContain("not this wake");
-  expect(causeOf({ error: earlyResume(-5582, 2184), guest: null })).toBe("probe fired before the wake (harness)");
+  expect(causeOf({ error: earlyResume(-5582, 2184), guest: null })).toBe("guest ran before the start (machine or clock)");
   // Cycle #4: -1246 ms at 1937 ms: past the 969 ms error, so not an echo (the old fixed -2000 ms bound counted it).
   expect(earlyResume(-1246, 1937)).toContain("969 ms error");
   // Inside the error, or after wake_at: the offset's error, not an early resume.
@@ -207,4 +207,30 @@ test("a restore under 0 (inside the offset's error) counts in no part of the spl
   const neg = { ...cycle(0, true, { resumed: -300, net_up: -200, pty_attach: -250, input: -250, echo: -247 }), answered_ms: 551 };
   expect(restoreParts(neg)).toEqual({});
   expect(restoreSplit([neg]).find((r) => r.part === "after_answer")).toMatchObject({ n: 0, p50: null });
+});
+
+test("a pause held shows a gap of the hold since the arm; run 46176743563 cycle #0 shows none (the machine's)", () => {
+  const armedAt = 1_000_000;
+  const old = JSON.stringify({ resumed_wall: armedAt - 60_000, wall_gap: 13_550 });
+  const short = JSON.stringify({ resumed_wall: armedAt + 3_000, wall_gap: 1_112 });
+  // The 13.55 s gap is an older cycle's: only gaps after the arm count, and the newest is 1.1 s, under 4500 ms.
+  expect(pauseHeld([old, short].join("\n"), armedAt, 4_500)).toMatch(/did not hold.*longest tick gap was 1112 ms \(1 gaps\), under the hold's 4500 ms/);
+  expect(causeOf({ error: pauseHeld(short, armedAt, 4_500), guest: null })).toBe("pause did not hold (machine)");
+  expect(pauseHeld(old, armedAt, 4_500)).toMatch(/no gap over 1 s since the arm/);
+  // A held pause, a torn line, or no arm time (unread): no failure.
+  expect(pauseHeld([short, "{torn", JSON.stringify({ resumed_wall: armedAt + 9_000, wall_gap: 6_000 })].join("\n"), armedAt, 4_500)).toBe("");
+  expect(pauseHeld(short, null, 4_500)).toBe("");
+});
+
+test("no-wake cycles do not count toward the failure streak; a long run of them still stops", () => {
+  const f = (error: string) => ({ ok: false, error, guest: null });
+  const nohold = f("the pause did not hold: x");
+  const early = f(earlyResume(-5582, 2184));
+  const down = f("no probe result 150 s after wake_at");
+  // Run 46176743563: two pauses that did not hold and one early run stopped it at 3 of 50; now it goes on.
+  expect(streakStop([nohold, early, nohold], 3)).toBe("");
+  // Counting failures in a row stop it, skipping no-wake ones between them; a success resets.
+  expect(streakStop([down, nohold, down, early, down], 3)).toBe("3 failed cycles in a row");
+  expect(streakStop([down, down, { ok: true, error: "", guest: null }, down], 3)).toBe("");
+  expect(streakStop(Array(IDLE_STREAK).fill(nohold), 3)).toBe(`${IDLE_STREAK} cycles in a row measured no wake`);
 });
