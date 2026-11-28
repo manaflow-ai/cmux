@@ -471,6 +471,41 @@
    "affects_why": "cmux-bench for-paths --run measures only the areas of docs/benches/relevance-map.toml with a Linux `run` bench: New Tab (web), Diff view and Model picker search under webviews/src (benches in webviews/bench, run with the webviews packages), and Bench tooling (scripts/bench, docs/benches). A change touching none of those has no bench to compare with its nightly baseline.",
    "skip_docs_only": true,
    "land_affected": true
+  },
+  "first-run-setup-check.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView+SetupCard.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards/ClassicImportPrompt.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstRunSetupTests.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SkipOnboardingLaunchTests.swift",
+    "scripts/measure/first-run-setup-walk.sh",
+    "scripts/measure/first-run-setup-walk.swift",
+    "scripts/cmux-next/side-instance.sh",
+    ".github/workflows/first-run-setup-check.yml"
+   ],
+   "affects": [
+    "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView+SetupCard.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards/ClassicImportPrompt.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstRunSetupTests.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SkipOnboardingLaunchTests.swift",
+    "scripts/measure/first-run-setup-walk.sh",
+    "scripts/measure/first-run-setup-walk.swift",
+    "scripts/cmux-next/side-instance.sh",
+    ".github/workflows/first-run-setup-check.yml"
+   ],
+   "affects_why": "The walk launches the head's built app and reads the first-run setup card (CmuxNextOnboarding, the app's Onboarding service, the Home setup card and the Classic import prompt it hosts); the harness is the measure script, its Accessibility reader and side-instance.sh. A change elsewhere that breaks first run is still the nightly onboarding walk's to catch."
   }
  }
 }
