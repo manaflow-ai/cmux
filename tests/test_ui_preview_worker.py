@@ -754,6 +754,26 @@ class SpeedTests(unittest.TestCase):
             self.assertIn("no scene shows", rows["e" * 40]["error"])
             self.assertIsNotNone(rows["d" * 40]["stages"])
 
+    def test_a_needs_build_file_beside_a_scene_module_still_gets_that_scene(self):
+        # An App file beside a Mac Screen file was a skip ("needs an app build"), the most common skip in 24 h of
+        # receipts: the Mac Screen host builds only its own module, so the scene shows and the receipt still names the
+        # App file it does not show. A push of App or Daemon files alone stays a needs_build, counted in the denominator.
+        src = "Packages/macOS/CmuxNext/Sources/"
+        app = src + "CmuxNextApp/AppDelegate.swift"
+        mixed = w.plan([app, src + "CmuxNextMacScreen/MacScreenPane.swift"])
+        self.assertEqual((mixed["swift"], mixed["needs_build"]), (["mac-screen-home"], [app]))
+        self.assertIsNone(w.skip_reason(mixed))
+        for alone in ([app], [src + "CmuxNextDaemon/X.swift"]):
+            self.assertIn("needs an app build", w.skip_reason(w.plan(alone)))
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = True
+            receipt = worker.look(request(ui_files=[app, src + "CmuxNextMacScreen/MacScreenPane.swift"]))
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual([s["scene"] for s in receipt["scenes"]], ["mac-screen-home"])
+            self.assertIn("needs an app build", receipt["error"])
+            self.assertIn(app, receipt["error"])
+
     def test_a_needs_build_file_beside_a_web_file_still_gets_the_web_look(self):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))

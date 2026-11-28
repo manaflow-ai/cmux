@@ -1438,9 +1438,9 @@ class Worker:
                                     f"(a branch off main, not {BASE_BRANCH})")
         pairs: list[tuple[str, str, Path | None, Path | None]] = []  # (kind, scene, before, after)
         errors = []
-        if planned["needs_build"]:
-            pass  # The web side still shows; the shell is not built over Swift it does not hold (said below).
-        elif planned["swift"] and not self.swift_on and not self.swift_peer:
+        # A needs_build file beside a scene's module still gets that scene (said below): each host builds only its own
+        # module's closure, never the app, so the other file is not built here, and the receipt names it.
+        if planned["swift"] and not self.swift_on and not self.swift_peer:
             errors.append(f"swift: {', '.join(planned['swift'])} not shot: this worker ({self.host}) shoots web "
                           "scenes only")
         elif planned["swift"]:
@@ -1758,8 +1758,9 @@ def needs_build_reason(planned: dict) -> str:
 
 def skip_reason(planned: dict) -> str | None:
     """Why a plan gets no look at all (said in the receipt at once, nothing fetched): every file needs an app build or
-    shows in no scene. A needs_build file beside a web file still gets the web look."""
-    if planned["web"]:
+    shows in no scene. A needs_build file beside a web file or a Swift scene's module still gets that look, and the
+    receipt's error names the file it does not show."""
+    if planned["web"] or planned["swift"]:
         return None
     if planned["needs_build"]:
         return needs_build_reason(planned)
