@@ -29,7 +29,7 @@ async fn asked_agent(
     HostRecord,
     std::fs::File,
     Arc<acpmux::agent::ChildAgent>,
-    tokio::sync::mpsc::Receiver<acpmux::agent::Inbound>,
+    tokio::sync::mpsc::Receiver<Box<acpmux::agent::Inbound>>,
 ) {
     let dir = scratch(name);
     let mut launch = spec(&dir, &format!("s-{name}"));
