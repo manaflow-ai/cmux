@@ -1363,22 +1363,8 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // up starts on a fresh one (fresh.rs), a machine still starting is started on again within the deadline, and
     // `--make-room` frees a machine at a cap. A class with no action is the person's, unchanged.
     let outcome = recover::recover(runner, request, began, outcome);
-    explain_account_limit(outcome, &request.agent)
-}
-
-/// A turn that failed on its agent's account (out of usage, or turned off) answers what
-/// happened and the way on, not the agent's bare words (account_limit.rs, cmux#55066).
-fn explain_account_limit(outcome: Outcome, agent: &str) -> Outcome {
-    match outcome {
-        Outcome::Failed { mut error, exit }
-            if at(&error, "code").as_str() == Some("chat.turn_failed") =>
-        {
-            let said = at(&error, "message").as_str().unwrap_or_default().to_owned();
-            super::account_limit::explain(&mut error, &said, agent);
-            Outcome::Failed { error, exit }
-        }
-        outcome => outcome,
-    }
+    // One trace id per start, from tap to first text (start_stages.rs `traced`).
+    super::start_stages::traced(super::account_limit::explain_outcome(outcome, &request.agent))
 }
 
 /// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A
@@ -2739,7 +2725,7 @@ enum Pushed {
 }
 
 /// A pushed turn's end: stop reason, last reply, and when (records' `at`, ms) its prompt went in (`prompt_at`,
-/// set against the gateway call line's `at`), its first output came and it ended.
+/// set against the gateway call line's `at`), its first output came and it ended; [`PRE_REQUEST_MARKS`] after the prompt.
 #[derive(Debug)]
 struct PushedTurn {
     stop: String,
@@ -2748,6 +2734,7 @@ struct PushedTurn {
     first_output_ms: Option<u64>,
     turn_ms: Option<u64>,
     prompt_at: Option<u64>,
+    marks: serde_json::Map<String, Value>,
     /// A failed turn's record (`turn_error`, or a failed `turn_result`): its `msg`.
     failure: Option<Value>,
 }
@@ -2756,7 +2743,8 @@ impl PushedTurn {
     /// The turn read from a fresh chat's records, oldest first: None until one ended.
     fn read(records: &[Value]) -> Option<Self> {
         let mut transcript = acpmux::transcript::Transcript::default();
-        let (mut prompt_at, mut first_at, mut end) = (None, None, None);
+        let (mut prompt_at, mut first_at, mut end, mut marks) =
+            (None, None, None, serde_json::Map::new());
         for record in records {
             transcript.apply_event(record);
             let at = record.get("at").and_then(Value::as_u64);
@@ -2764,6 +2752,12 @@ impl PushedTurn {
             let kind = record.get("kind").and_then(Value::as_str);
             if prompt_at.is_none() && dir == Some("mux") && kind == Some("user_message") {
                 prompt_at = at;
+            }
+            if let Some((.., name)) =
+                PRE_REQUEST_MARKS.iter().find(|(d, k, _)| dir == Some(d) && kind == Some(k))
+                && prompt_at.is_some()
+            {
+                marks.entry(*name).or_insert(json!(at));
             }
             if first_at.is_none()
                 && prompt_at.is_some()
@@ -2805,6 +2799,7 @@ impl PushedTurn {
             first_output_ms: since(first_at),
             turn_ms: since(end_at),
             prompt_at,
+            marks,
             failure,
         })
     }
@@ -2815,10 +2810,9 @@ impl PushedTurn {
         answer.set("turn", json!({"seq": self.seq, "status": status, "stop_reason": self.stop}));
         answer.set("wait_route", json!("link"));
         // Felt time (machine clock): prompt to first output and to the turn's end.
-        answer.set(
-            "turn_ms",
-            json!({"first_output": self.first_output_ms, "end": self.turn_ms, "prompt_at": self.prompt_at}),
-        );
+        let mut turn_ms = json!({"first_output": self.first_output_ms, "end": self.turn_ms, "prompt_at": self.prompt_at});
+        turn_ms.as_object_mut().map(|t| t.extend(self.marks));
+        answer.set("turn_ms", turn_ms);
         if let Some(text) = &self.reply {
             answer.set("reply", json!(text));
         }
@@ -2889,29 +2883,6 @@ fn turn_failure_message(turn: &Turn) -> String {
 const FAILED_STOPS: &[&str] = &["cancelled", "error", "failed", "refusal"];
 
 /// An agent's own output in an `in` record: a message chunk, a thought or a tool call (never a status the app draws).
-fn is_agent_output(record: &Value) -> bool {
-    let replay =
-        record.get("kind").and_then(Value::as_str).is_some_and(|kind| kind.ends_with(".replay"));
-    let kind = record.pointer("/msg/params/update/sessionUpdate").and_then(Value::as_str);
-    !replay && matches!(kind, Some("agent_message_chunk" | "agent_thought_chunk" | "tool_call"))
-}
-
-/// The prompt (`mux` `user_message`) to the agent's first output (an `in` record, [`is_agent_output`]) in a fresh
-/// chat's records, oldest first, on their own `at` clock: None until both are there.
-fn first_output_ms(records: &[Value]) -> Option<u64> {
-    let at = |record: &Value| record.get("at").and_then(Value::as_u64);
-    let prompt = records.iter().position(|record| {
-        record.get("dir").and_then(Value::as_str) == Some("mux")
-            && record.get("kind").and_then(Value::as_str) == Some("user_message")
-    })?;
-    let mut after = records.iter().skip(prompt);
-    let from = at(after.next()?)?;
-    let first = after.find(|record| {
-        record.get("dir").and_then(Value::as_str) == Some("in") && is_agent_output(record)
-    })?;
-    at(first).map(|to| to.saturating_sub(from))
-}
-
 /// A fresh chat's turn over the machine's link: the app answers the link's stream socket
 /// (`cloud.machine_stream`), and [`Runner::observe`] reads the tab's records there, in slices of at most
 /// [`PUSH_SLICE`] within `deadline`, each after the newest seq the one before read. A turn that failed on capacity
@@ -3781,7 +3752,9 @@ mod start_fault;
 use folder::local_folder;
 use internal::link_wait;
 mod support;
+mod turn_records;
 use support::{Turn, at, folder_kind, last_turn, reply, session_cwd, words};
+use turn_records::{PRE_REQUEST_MARKS, first_output_ms, is_agent_output};
 // `cmux chat cd` reads the same guest script sections.
 pub(in crate::cli) use support::sections;
 
