@@ -678,6 +678,23 @@ class WorkspaceRefTests(unittest.TestCase):
         with self.assertRaisesRegex(BindingError, "workspace_ref is true or false"):
             self.source(workspace_ref="yes")
 
+    def test_workspace_ref_cannot_share_a_property_or_wire_with_generic_flatten(self) -> None:
+        for name, wires, message in (
+            ("workspace", ["title"], "already named workspace"),
+            ("other", ["key"], "overlap another flattened value"),
+        ):
+            bindings = mutation_bindings()
+            bindings["flatten"] = {"Other": {"wire": wires, "encode": "try {value}.encode(to: encoder)"}}
+            request = bindings["families"]["Layout"]["requests"]["rename-pane"]
+            request.update(workspace_ref=True, flatten={name: {"type": "Other"}})
+            with self.subTest(name), self.assertRaisesRegex(BindingError, message):
+                rendered(workspace_ref_document(), bindings)
+
+    def test_workspace_ref_cannot_hide_an_omitted_wire(self) -> None:
+        for wire in ("workspace", "key"):
+            with self.subTest(wire), self.assertRaisesRegex(BindingError, "cannot remove a field written by workspace_ref"):
+                self.source(omit=[wire])
+
 
 def read_bindings(objects: dict[str, Any]) -> dict[str, Any]:
     bindings = layout_bindings()

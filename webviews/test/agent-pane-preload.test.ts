@@ -34,11 +34,13 @@ function staticImports(file: string): string[] {
 describe.skipIf(!built)("agent pane page", () => {
   test("loads pane.js as one classic script and preloads nothing else", () => {
     const html = fs.readFileSync(page, "utf8");
-    expect(html).toContain('<script src="pane.js"></script>');
+    // Named by its content (pane.js?h=, agent-pane-styles.test.ts), the same URL in both places.
+    expect(html).toMatch(/<script src="pane\.js\?h=[0-9a-f]{16}"><\/script>/);
     expect(html).not.toContain('type="module"');
     expect(html).not.toContain("modulepreload");
+    const script = html.match(/<script src="(pane\.js\?h=[0-9a-f]{16})"><\/script>/)?.[1];
     expect([...html.matchAll(/<link rel="preload"[^>]*>/g)].map((match) => match[0])).toEqual([
-      '<link rel="preload" as="script" href="pane.js" />',
+      `<link rel="preload" as="script" href="${script}" />`,
     ]);
   });
 

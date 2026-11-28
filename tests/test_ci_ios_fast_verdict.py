@@ -713,8 +713,26 @@ class WorkflowTest(unittest.TestCase):
         run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
         self.assertIn("hung_test_watchdog.py", run)
         self.assertIn('--timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-900}"', run)
-        self.assertLess(run.index("hung_test_watchdog.py"), run.index("xcodebuild test"))
+        self.assertLess(run.index("hung_test_watchdog.py"), run.index("xcodebuild test-without-building"))
 
+    def test_the_kit_build_is_outside_the_test_bound(self) -> None:
+        # cmux#59376 run 46168068598: the bound covered the build too; the kit was still compiling at 900 s.
+        text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
+        run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
+        self.assertLess(run.index("xcodebuild build-for-testing"), run.index("hung_test_watchdog.py"))
+        self.assertNotIn("xcodebuild test \"", run)
+
+
+    def test_the_kit_test_run_streams_so_a_hang_is_named(self) -> None:
+        # cmux#59376 run 46185679058: -quiet left the watchdog "Testing started" only, 15 min, no test named.
+        text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
+        run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
+        test_run = run[run.index("hung_test_watchdog.py"):]
+        self.assertIn('"${test_common[@]}"', test_run)
+        self.assertNotIn('"${common[@]}"', test_run)
+        self.assertIn('[[ "$arg" == -quiet ]] ||', run)
+        self.assertIn("--stall-seconds", test_run)
+        self.assertIn("--sample-also", test_run)
 
 if __name__ == "__main__":
     unittest.main()
