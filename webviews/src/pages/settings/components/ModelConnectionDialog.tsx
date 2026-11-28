@@ -155,7 +155,7 @@ export function ModelConnectionDialog({
         if (!open) dismiss();
       }}
       className="models-dialog ui-glass ui-glass-floats"
-      blurBackdrop
+      backdropClassName="models-dialog-backdrop"
       initialFocus={heading}
       finalFocus={returnFocus}
       onKeyDown={(event) => {

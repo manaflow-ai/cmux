@@ -23,9 +23,6 @@ export interface DialogProps {
   disablePointerDismissal?: boolean;
   className?: string;
   backdropClassName?: string;
-  /** The page behind blurs through the backdrop (the lens blur), as the settings model dialogs draw it;
-   * none under Reduce Transparency. */
-  blurBackdrop?: boolean;
   /** The popup's own style (a custom property it reads). */
   style?: CSSProperties;
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
@@ -44,7 +41,6 @@ export function Dialog({
   disablePointerDismissal = false,
   className,
   backdropClassName,
-  blurBackdrop = false,
   style,
   initialFocus,
   finalFocus,
@@ -71,10 +67,7 @@ export function Dialog({
   return (
     <Root open={open} onOpenChange={(next) => onOpenChange(next)} {...dismissal}>
       <BaseDialog.Portal container={container}>
-        <BaseDialog.Backdrop
-          className={cx("ui-backdrop", backdropClassName)}
-          data-blur={blurBackdrop ? "" : undefined}
-        />
+        <BaseDialog.Backdrop className={cx("ui-backdrop", backdropClassName)} />
         <BaseDialog.Popup
           className={cx("ui-dialog", className)}
           data-host-glass={glass ? "popover" : undefined}

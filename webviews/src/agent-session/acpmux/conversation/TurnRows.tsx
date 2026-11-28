@@ -89,7 +89,6 @@ import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
 import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds, runLinks } from "./turnRowsModel";
 import { WithFacts } from "../chips/FactsHoverCard";
-import { Button } from "../../../ui/Button";
 
 /// Parts of a closed line after a " · ", failures in the failure red (workedOutcome.ts).
 function WorkedParts({ parts }: { parts: readonly WorkedPart[] }) {
@@ -867,9 +866,9 @@ function TurnFailure({
         )}
         {teamAccountKey && <CloudSignIn signIn={teamAccountKey} rowId={retryRowId} prompt={prompt} keyOnly />}
         {renewClaude && (
-          <Button bare type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={renewClaude}>
+          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={renewClaude}>
             {t("turn.action.claudeCloudSetup")}
-          </Button>
+          </button>
         )}
         {accessButtons}
         {switchFirst && switchButton}
