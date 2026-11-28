@@ -125,7 +125,10 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// top, then the row jumped into the group, Leo 2026-11-22, cmux#50539).
     public func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
         guard let slot = slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp) else { return nil }
-        if !named, placement != .afterCurrent, current != nil, slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
+        // `top` is always sent too: the daemon places by its own active workspace, which can be one an agent opened
+        // (Chief's workspaces group) while the window shows another, so its top landed in that group (Lawrence 2026-11-23:
+        // "i am focused on an arbitrary workspace, and do cmd n, and it makes it in chief's group regardless").
+        if !named, placement == .bottom, slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
         return slot
     }
 
