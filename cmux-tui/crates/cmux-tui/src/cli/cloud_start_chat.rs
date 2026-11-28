@@ -1363,46 +1363,8 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // up starts on a fresh one (fresh.rs), a machine still starting is started on again within the deadline, and
     // `--make-room` frees a machine at a cap. A class with no action is the person's, unchanged.
     let outcome = recover::recover(runner, request, began, outcome);
-    let outcome = explain_account_limit(outcome, &request.agent);
-    // One trace id per start, from tap to first text (start_stages.rs `trace`): a probe or a move that passes its
-    // own in `CMUX_TRACE_ID` or `TRACEPARENT` joins its rows on it.
-    let id = super::start_stages::trace_id(
-        std::env::var("CMUX_TRACE_ID").ok().as_deref(),
-        std::env::var("TRACEPARENT").ok().as_deref(),
-    );
-    with_trace(outcome, &id)
-}
-
-/// `trace_id` and the `trace` spans on a start's answer; `trace_id` in a failure's `details`.
-fn with_trace(mut outcome: Outcome, id: &str) -> Outcome {
-    match &mut outcome {
-        Outcome::Done(answer) => {
-            let trace = super::start_stages::trace(id, answer.get("stages"));
-            answer.set("trace_id", json!(id));
-            answer.set("trace", trace);
-        }
-        Outcome::Failed { error, .. } => {
-            if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
-                details.entry("trace_id").or_insert_with(|| json!(id));
-            }
-        }
-    }
-    outcome
-}
-
-/// A turn that failed on its agent's account (out of usage, or turned off) answers what
-/// happened and the way on, not the agent's bare words (account_limit.rs, cmux#55066).
-fn explain_account_limit(outcome: Outcome, agent: &str) -> Outcome {
-    match outcome {
-        Outcome::Failed { mut error, exit }
-            if at(&error, "code").as_str() == Some("chat.turn_failed") =>
-        {
-            let said = at(&error, "message").as_str().unwrap_or_default().to_owned();
-            super::account_limit::explain(&mut error, &said, agent);
-            Outcome::Failed { error, exit }
-        }
-        outcome => outcome,
-    }
+    // One trace id per start, from tap to first text (start_stages.rs `traced`).
+    super::start_stages::traced(super::account_limit::explain_outcome(outcome, &request.agent))
 }
 
 /// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A

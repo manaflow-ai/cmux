@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+use super::cloud_start_chat::Outcome;
+
 /// The flag that prints the table.
 pub(super) const FLAG: &str = "--timings";
 
@@ -318,6 +320,30 @@ pub(super) fn trace_id(given: Option<&str>, traceparent: Option<&str>) -> String
         bytes = nanos.to_be_bytes();
     }
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// `trace_id` and the `trace` spans on a start's answer, `trace_id` in a failure's `details`. One id per start: a
+/// probe or a move that passes its own in `CMUX_TRACE_ID` or `TRACEPARENT` joins its rows on it.
+pub(super) fn traced(mut outcome: Outcome) -> Outcome {
+    let id = trace_id(
+        std::env::var("CMUX_TRACE_ID").ok().as_deref(),
+        std::env::var("TRACEPARENT").ok().as_deref(),
+    );
+    match &mut outcome {
+        Outcome::Done(answer) => {
+            let trace = trace(&id, answer.get("stages"));
+            if let Some(answer) = answer.as_object_mut() {
+                answer.insert("trace_id".to_owned(), json!(id));
+                answer.insert("trace".to_owned(), trace);
+            }
+        }
+        Outcome::Failed { error, .. } => {
+            if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
+                details.entry("trace_id").or_insert_with(|| json!(id));
+            }
+        }
+    }
+    outcome
 }
 
 /// The `trace` object of a start's answer, from its `stages` marks: `spans` (`{name, start_ms, end_ms, ms}`, each
