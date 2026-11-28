@@ -1,0 +1,29 @@
+{
+  "host": {
+    "web": {},
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "android": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "ios": "0"
+    }
+  },
+  "$schema": ".exact/checkout/scripts/app.schema.json",
+  "name": "CmuxExact",
+  "short_name": "CmuxExact",
+  "id": "dev.cmux.exact",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "dev.cmux.exact",
+    "name": "CmuxExact"
+  }
+}
