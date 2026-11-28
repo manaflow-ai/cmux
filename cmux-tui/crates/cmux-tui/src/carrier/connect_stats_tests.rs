@@ -71,3 +71,54 @@ fn all_failed_has_no_percentiles() {
     assert_eq!(groups[0].steps, [None; 6]);
     assert!(render_json(&groups)["groups"][0]["ms"]["total"].is_null());
 }
+
+#[test]
+fn first_byte_counts_with_the_attempt_before_it() {
+    let log = [
+        line("connect", "relay", 0, 15_000),
+        "carrier.first_byte machine=vm_b service=mux ms=999\n".to_owned(),
+        line("connect", "ok", 4_000, 5_000),
+        "carrier.phases machine=vm_a phase=stream carrier=relay:0 outcome=ok ticket_ms=0 relay_ms=0 parked_ms=0 handshake_ms=0 mux_ms=0 lanes=1 ms=20".to_owned(),
+        // The line the dial writes, from `first_byte::line`.
+        super::super::first_byte::line("vm_a", "mux", std::time::Duration::from_millis(5_300)),
+        "carrier.first_byte machine=vm_a service=mux ms=7000\n".to_owned(),
+        line("connect", "ok", 3, 200),
+    ]
+    .join("\n");
+    let attempts = parse_log(&log);
+    assert_eq!(attempts.len(), 4);
+    // vm_b's line has no attempt; the failed one gets none; the second line on vm_a is not the first.
+    assert_eq!(
+        attempts.iter().map(|a| a.first_byte).collect::<Vec<_>>(),
+        [None, Some(5_300), None, None]
+    );
+    let groups = summarize(&attempts);
+    let cold = groups.iter().find(|g| g.start == "cold").unwrap();
+    assert_eq!(cold.first_byte, Some((5_300, 5_300)));
+    let warm = groups.iter().find(|g| g.start == "warm" && g.phase == "connect").unwrap();
+    assert_eq!(warm.first_byte, None);
+    assert_eq!(render_json(&groups)["groups"][0]["first_byte"]["p95"], 5_300);
+    assert!(render_text(&groups).contains("5300/5300"));
+}
+
+#[test]
+fn first_byte_wrapper_fires_once_on_the_first_write() {
+    use tokio::io::AsyncWriteExt as _;
+    let fired = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = fired.clone();
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    let written = runtime.block_on(async move {
+        let mut out = super::super::first_byte::FirstByte::new(
+            Vec::<u8>::new(),
+            std::time::Instant::now(),
+            move |elapsed| seen.lock().unwrap().push(elapsed),
+        );
+        out.write_all(b"").await.unwrap();
+        out.write_all(b"ab").await.unwrap();
+        out.write_all(b"cd").await.unwrap();
+        out.flush().await.unwrap();
+        out.into_inner()
+    });
+    assert_eq!(written, b"abcd");
+    assert_eq!(fired.lock().unwrap().len(), 1);
+}
