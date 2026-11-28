@@ -32,9 +32,9 @@ on:
 permissions: {}
 
 concurrency:
-  # The scheduled tick shares 'feed' (each tests the feed's newest build when it starts, so a waiting tick
-  # does the work of one it replaced); a dispatch (maybe for one from_build) has its own run id.
-  group: nightly-next-update-e2e-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'schedule' && 'feed' || github.run_id }}
+  # A pull request supersedes its own older run; every scheduled or dispatched run has its own group (a 6-hourly tick
+  # never meets the last one's 45-minute job, and tests/test_ci_cron_concurrency.py keeps cron groups per run).
+  group: nightly-next-update-e2e-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -46,7 +46,9 @@ jobs:
   update:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     # No secrets and no environment: it runs the published app.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # An ephemeral Mac (tests/test_ci_paid_queue_pin.py PAID_ONLY_JOBS): the run installs a Nightly into /Applications
+    # and has Sparkle replace and relaunch it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     permissions:
       contents: read
