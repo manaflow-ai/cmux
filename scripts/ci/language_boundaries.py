@@ -13,7 +13,10 @@ language there. A loss is a port only with a possible destination: at least one 
 another language among them). A pull request that only deletes, and edits files that already exist, is a removal and
 passes: Leo, 2026-11-17, on the ceremony audit, "go remove this", and the chat notice it removed (cmux#45562, four web
 files deleted, nothing added) was refused as a port. Mechanical on purpose: a quote in a PR body can be typed by
-anyone. A `minimal` area fails when the pull request adds a Swift file there. The header of
+anyone. A `minimal` area fails when the pull request adds a Swift file there. A new Swift file outside every area
+fails too: as little Swift as possible, new logic goes to Rust or React, so new Swift sits only in a declared Swift
+area (a new file, a copy, or a rename from another language; Swift that already exists, edited or moved as Swift, is
+grandfathered). Before, a Swift file no area covered was never judged. The header of
 .github/language-boundaries.toml is the schema and the rules in full.
 
 Leo's approval, the only way through, needs all three:
@@ -367,6 +370,27 @@ def violations(areas: list[Area], records: list[Record]) -> list[str]:
         for path in new_swift:
             out.append(f"{area.name}: adds Swift file {path}; Swift stays minimal here, new logic is "
                        f"{area.language}")
+    out.extend(f"adds Swift file {shown} outside every area; {OUTSIDE_NEXT}"
+               for shown in new_swift_outside(areas, records))
+    return out
+
+
+OUTSIDE_NEXT = ("put it in an existing Swift area, or move the logic to Rust/React; a new Swift area needs its own "
+                "line in .github/language-boundaries.toml")
+
+
+def new_swift_outside(areas: list[Area], records: list[Record]) -> list[str]:
+    """New Swift that no area covers: an added or copied `.swift` file, or a file renamed to Swift from another
+    language, whose path is in no area. Swift inside an area is that area's to judge (a foreign or `minimal` area
+    already refuses it); Swift that already exists, edited or moved as Swift, is grandfathered."""
+    out = []
+    for rec in records:
+        if rec.status == "removed" or language_of(rec.path) != "swift" or any(a.covers(rec.path) for a in areas):
+            continue
+        if rec.status == "added":
+            out.append(rec.path)
+        elif rec.status == "copied" or (rec.status == "renamed" and language_of(rec.old) != "swift"):
+            out.append(f"{rec.old} -> {rec.path}")
     return out
 
 
@@ -504,6 +528,8 @@ def check(areas: list[Area], records: list[Record], labels: list[str], events: l
         "acpmux/cmux-tui lives in rust, cmux cloud core should be rust (together with cmux-tui/acpmux) and should "
         "have very minimal in swift.\" Keep each area in its language (.github/language-boundaries.toml). Only Leo "
         f"lets a port through: the `{LABEL}` label plus his `{LABEL}:` comment. Not approved: {why}.")
+    if new_swift_outside(areas, records):
+        out.append(f"next: {OUTSIDE_NEXT}")
     out.append("next: restore the deleted or moved files and drop the foreign-language ones; if the port is wanted, "
                f"ask Leo for `{LABEL}`")
     return 1, out
