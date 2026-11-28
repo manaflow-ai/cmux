@@ -6,6 +6,8 @@
 #     --ref <sha on feat-cmux-next> [--arg=--build-at=<sha>] --artifact artifacts/pane-compile-cef/runs.json [--arg=--runs=5]
 # --build-at=SHA builds the app at SHA (a pull request's head: scripts/measure/app-at-commit.sh), the bench stays this checkout's:
 # one step per arm of an A/B on one Mac.
+# --cold-open runs scripts/measure/chat-cold-open.py instead: a new chat's parse+compile ms and script bytes after a
+# launch with the Code Cache cleared and after a launch with it warm, --runs pairs (--artifact artifacts/pane-compile-cef/summary.json).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 . scripts/measure/app-at-commit.sh
@@ -16,10 +18,11 @@ scratch="$(mktemp -d)"
 trap 'measure_remove_scratch "$scratch"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-build_at="" bench_args=()
+build_at="" driver="pane-compile-cef.py" bench_args=()
 for arg in "$@"; do
   case "$arg" in
     --build-at=*) build_at="${arg#--build-at=}" ;;
+    --cold-open) driver="chat-cold-open.py" ;;
     *) bench_args+=("$arg") ;;
   esac
 done
@@ -44,4 +47,4 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   echo "pane-compile-cef: the tagged reload printed no app path" >&2
   exit 1
 fi
-python3 scripts/measure/pane-compile-cef.py --app "$app" --out "$out" "$@"
+python3 "scripts/measure/$driver" --app "$app" --out "$out" "$@"
