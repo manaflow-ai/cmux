@@ -22,10 +22,41 @@
    first only once they are at their floor. The cap is 28em, not 16em: at 16em a lone name cut at a
    third of a 660px chat with the rest of the line empty ("Resolve cmux#61365 conflict, l…": Leo,
    ask-31a1e4b192, "this isn't great"); a short line still ends at the sentence's ellipsis. */
+/* The floor is the name's own width up to 6em, never more: a floor of min(6em, 30%) held a short name
+   ("Foxtrot", "Golf") wider than its words, and its 30% was of a sentence sized from those same chips
+   before the floor, so two chips grew past the line and cut its end to "Foxtrot ▯ and Golf ▯ starte"
+   (Leo, 2026-11-22, on that line over his steer: it should not draw like this). The chip is a one-cell grid: its words add no width of their own (contain), a hidden copy
+   of the name capped at 6em is its min-content, and a hidden copy that can break anywhere is its
+   max-content, so the line's flex shrinks each name from its whole width down to min(name, 6em). A
+   plain name (no chat to open, so no label or `data-name`) shrinks with the line, its own ellipsis. */
 .cv-subagent-started .cv-agent-tag.cv-subagent-started__name {
   flex: 0 1 auto;
-  min-width: min(6em, 30%);
+  min-width: 0;
   max-width: var(--cv-started-name-max, 28em);
+}
+.cv-subagent-started .cv-agent-tag.cv-subagent-started__name.is-open {
+  display: inline-grid;
+  min-width: min-content;
+}
+.cv-subagent-started .cv-subagent-started__name > .cv-agent-tag__label {
+  grid-area: 1 / 1;
+  contain: inline-size;
+}
+.cv-subagent-started .cv-subagent-started__name.is-open::before,
+.cv-subagent-started .cv-subagent-started__name.is-open::after {
+  content: attr(data-name);
+  grid-area: 1 / 1;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+.cv-subagent-started .cv-subagent-started__name.is-open::before {
+  max-width: 6em;
+  white-space: nowrap;
+}
+.cv-subagent-started .cv-subagent-started__name.is-open::after {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .cv-subagent-started .cv-agent-tag.cv-subagent-started__name[data-at]:not([data-at="0"]) {
   flex-shrink: 1000;

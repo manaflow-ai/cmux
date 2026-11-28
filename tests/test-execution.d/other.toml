@@ -417,6 +417,11 @@ path = "tests/test_hosted_queue_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_hot_apply_abi_read_error.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_hot_apply_abi_read_error.py"
+
+[[test]]
 path = "tests/test_hung_test_watchdog.py"
 lane = "linux-guard"
 
@@ -729,6 +734,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pairing_scheme_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pattern_download_layout_hint.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1209,10 +1218,6 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 path = "tests/test_unittest_shard.py"
 lane = "manual"
 reason = "Run by the lane that changes tests/unittest_shard.py (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 -I tests/test_unittest_shard.py; needs only python3."
-
-[[test]]
-path = "tests/test_update_release_tag.py"
-lane = "linux-guard"
 
 [[test]]
 path = "tests/test_vendored_cmux_agent_cursor.py"
