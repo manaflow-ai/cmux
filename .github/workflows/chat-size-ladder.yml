@@ -1,4 +1,4 @@
-name: chat-size ladder
+name: chat-size ladder (advisory)
 
 # The infinite-chats goal's ratio (cmuxterm-hq goals/infinite-chats.md: the 1 GB chat within 1.2x of the 1 MB chat on
 # idle RSS, promptPage, sendFirstToken, scroll and restart), before and after in one job:
