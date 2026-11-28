@@ -227,7 +227,7 @@ fn a_folder_holding_a_never_delete_child_stays() {
     let idle = derived(&home, "Old-abc");
     std::fs::create_dir_all(idle.join("Logs/keep-this")).unwrap();
     age(&idle, 10);
-    let never = crate::never_delete::NeverDelete::from_globs(["keep-this".to_string()]);
+    let never = NeverDelete::from_globs(["keep-this".to_string()]);
     let mut opts =
         options(&home, Pressure::Normal, crate::inventory::now_ms(), true, &no_uses, &not_open);
     opts.never = &never;

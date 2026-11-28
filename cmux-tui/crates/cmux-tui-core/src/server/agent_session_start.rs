@@ -1271,11 +1271,26 @@ fn start_and_bind(
     let family = if phone {
         settle_phone_mode(link, until, &session).map_err(end)?
     } else if owner_cloud {
-        if picked.is_none() && permission_mode == Some("standard") {
-            settle_standard_mode(link, &session);
+        // The standard level's table names the session's family too: no second read for it.
+        let standard = (picked.is_none() && permission_mode == Some("standard"))
+            .then(|| settle_standard_mode(link, &session))
+            .flatten();
+        // The Auto move goes out with the family read, on the family the catalog resolved before
+        // the start (`start_family`), so the two round trips overlap; it is still answered before
+        // the bind, so the chat's first prompt runs in Auto. A session whose own family differs
+        // gets the move its family takes, after the read, as before.
+        let before = cloud_default_mode(picked, permission_mode, &family);
+        let early = before.and_then(|mode| begin_cloud_default_mode(link, &session, mode));
+        let read = match standard {
+            Some(family) => Ok(family),
+            None => session_family(link, until, &session),
+        };
+        if let Some(pending) = early {
+            let _ = pending.wait(CALL_TIMEOUT);
         }
-        let family = session_family(link, until, &session).map_err(end)?;
-        if let Some(mode) = cloud_default_mode(picked, permission_mode, &family) {
+        let family = read.map_err(end)?;
+        let own = cloud_default_mode(picked, permission_mode, &family);
+        if let Some(mode) = own.filter(|mode| before != Some(*mode)) {
             settle_cloud_default_mode(link, &session, mode);
         }
         family
@@ -1358,14 +1373,22 @@ fn settle_cloud_default_mode(link: &AcpmuxLink, session: &str, mode: &str) {
     let _ = link.call("session/set_mode", params, CALL_TIMEOUT);
 }
 
+/// [`settle_cloud_default_mode`], sent now and answered later ([`AcpmuxLink::begin`]); none when the
+/// link is closed (the family read then refuses the start).
+fn begin_cloud_default_mode<'a>(
+    link: &'a AcpmuxLink,
+    session: &str,
+    mode: &str,
+) -> Option<super::agent_session_link::InFlight<'a>> {
+    link.begin("session/set_mode", json!({"sessionId": session, "modeId": mode})).ok()
+}
+
 /// `standard` on the caller's own Cloud VM: the harness's own start mode, which for a session that
 /// started in a mode that does not ask (the machine's start level) is its family's asking default.
-/// Soft, as acpmux's start level is: a refusal leaves the session as it started.
-fn settle_standard_mode(link: &AcpmuxLink, session: &str) {
-    let Ok(table) = link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
-    else {
-        return;
-    };
+/// Soft, as acpmux's start level is: a refusal leaves the session as it started. Returns the
+/// session's family when the table named one ([`session_family`] reads it otherwise).
+fn settle_standard_mode(link: &AcpmuxLink, session: &str) -> Option<String> {
+    let table = link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT).ok()?;
     let family = table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default();
     let modes: Vec<&str> = table
         .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
@@ -1379,6 +1402,7 @@ fn settle_standard_mode(link: &AcpmuxLink, session: &str) {
         let params = json!({"sessionId": session, "modeId": default});
         let _ = link.call("session/set_mode", params, CALL_TIMEOUT);
     }
+    (!family.is_empty()).then(|| family.to_owned())
 }
 
 /// acpmux `trust::session_level` is `trusted`: its own decision for the
