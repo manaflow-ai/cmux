@@ -83,6 +83,7 @@ const drawn = (line: AcpmuxRow, now: number) =>
         phaseAt={line.phaseAt}
         heardAt={line.heardAt}
         heardKey={line.heardKey}
+        liveWait={line.liveWait}
         turnTotal={line.turnTotal}
         untimed={line.untimed}
         quietKey={line.quietKey}
@@ -256,11 +257,15 @@ test("once the reply has stopped, the line's clock and token count stop with it"
   expect(drawn(after, after.at + 20_000)).toMatch(/\d+s$/);
 });
 
-test("before the turn's first output it still reads Thinking with the turn's time", () => {
+// #62398 (Leo: "mango has been "thinking" for an inordinate amount of time. i think they're bugged and we need to fix
+// this bug"): a prompt with nothing heard yet reads Thinking for SILENT_MS, then names its wait on the model.
+test("before the turn's first output it reads Thinking, then names its wait on the model's first reply", () => {
   const user = row("u", "user");
   const line = codex([user]).at(-1)!;
-  expect(line.turnTotal).toBeUndefined();
-  expect(drawn(line, user.at + 18_000)).toBe("Thinking 18s");
+  expect(line.turnTotal).toBe(true);
+  expect(line.liveWait).toEqual({ kind: "prompt" });
+  expect(drawn(line, user.at + 6_000)).toBe("Thinking 6s");
+  expect(drawn(line, user.at + 18_000)).toBe("Waiting on the model's first reply 18s · turn 18s");
 });
 
 test("the long-wait gallery entry's live line draws its subagents' mark and the turn's total", () => {
@@ -268,9 +273,10 @@ test("the long-wait gallery entry's live line draws its subagents' mark and the 
   const line = codex(rows).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 3 });
   expect(drawn(line, GALLERY_NOW)).toBe("3 1h 24m 7s");
-  // Its finished step ended 1m 33s before the gallery's now, with nothing heard since: Waiting.
+  // Its finished step ended 1m 33s before the gallery's now, with nothing heard since: Waiting, after the step it
+  // last finished, as the app draws it (rows/ThinkingRow.tsx passes liveWait; #50146: "a quiet line says what it waits on").
   const step = codex(longWait.variants["finished-step"]!.snapshot.rows).at(-1)!;
-  expect(drawn(step, GALLERY_NOW)).toBe("Waiting on the model's next step 1m 33s · turn 1h 24m 7s");
+  expect(drawn(step, GALLERY_NOW)).toBe("Waiting on the model after: Opened 1 agent session 1m 33s · turn 1h 24m 7s");
 });
 
 test("a running call reads the turn's clock as its total, never a clock that starts at the call", () => {

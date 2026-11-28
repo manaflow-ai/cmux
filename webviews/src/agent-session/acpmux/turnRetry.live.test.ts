@@ -125,6 +125,13 @@ test("the live line carries the retry, and leaves the retries' time out of its T
   expect(withRetry([retryRow({ retriedMs: 540_000 })], [line()]).at(-1)!.at).toBe(541_000);
   // Past the first step the clock is the turn's total, which the retries are part of.
   expect(withRetry([retryRow({ retriedMs: 540_000 })], [line({ turnTotal: true })]).at(-1)!.at).toBe(1_000);
+  // A line with nothing after its prompt has turnTotal for its silence clock (#62398), and is still
+  // timed from the prompt: the retries leave its clock and its silence.
+  const firstReply = withRetry(
+    [retryRow({ retriedMs: 540_000 })],
+    [line({ turnTotal: true, heardKey: "0:u:1", phaseAt: 1_000, heardAt: 1_000 })],
+  ).at(-1)!;
+  expect([firstReply.at, firstReply.phaseAt, firstReply.heardAt]).toEqual([541_000, 541_000, 541_000]);
   const shaped = [line()];
   expect(withRetry([], shaped)).toBe(shaped);
 });

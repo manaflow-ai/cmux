@@ -79,6 +79,7 @@ const drawn = (line: AcpmuxRow, now: number) =>
           phaseAt={line.phaseAt}
           heardAt={line.heardAt}
           heardKey={line.heardKey}
+          liveWait={line.liveWait}
           turnTotal={line.turnTotal}
           untimed={line.untimed}
           quietKey={line.quietKey}
@@ -161,9 +162,12 @@ test("after SILENT_MS with nothing heard the line says Waiting, under the same s
   expect(html).toContain('class="cv-thinking is-shimmer"');
 });
 
-test("before the turn's first output it stays Thinking, however long the model takes", () => {
+// #62398 (Leo: "mango has been "thinking" for an inordinate amount of time. i think they're bugged and we need to fix
+// this bug"): before the turn's first output the line reads Thinking for SILENT_MS, then names its wait.
+test("before the turn's first output it reads Thinking, then names its wait on the model's first reply", () => {
   const line = liveLine([prompt]);
-  expect(drawn(line, T0 + 40_000)).toBe("Thinking 40s");
+  expect(drawn(line, T0 + 6_000)).toBe("Thinking 6s");
+  expect(drawn(line, T0 + 40_000)).toBe("Waiting on the model's first reply 40s · turn 40s");
 });
 
 test("a call that runs long is never called Waiting", () => {
@@ -214,7 +218,10 @@ test("a notice that set the agent going again after its reply starts the turn's 
   expect(continuationStart([prompt, reply, followUp], T0)).toBe(T0);
   const line = liveLine([prompt, reply, notice]);
   expect(line.at).toBe(notice.at);
-  expect(drawn(line, notice.at + 24_000)).toBe("Thinking 24s");
+  // Nothing heard since the notice: past SILENT_MS the line names its wait on the model (#62398), on the
+  // notice's clock.
+  expect(drawn(line, notice.at + 6_000)).toBe("Thinking 6s");
+  expect(drawn(line, notice.at + 24_000)).toBe("Waiting on the model's first reply 24s · turn 24s");
   // A call after the reply: the agent was still at work, so a notice steered in then (acpmux
   // who-else) set nothing going and the clock keeps the prompt's start. A thought is not a call.
   const ran = activity("r", T0 + 61_000, [shell("bun run typecheck", "completed", T0 + 61_000, T0 + 70_000)]);

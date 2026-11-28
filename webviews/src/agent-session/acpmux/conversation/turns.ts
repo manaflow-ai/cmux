@@ -3733,11 +3733,18 @@ export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[], clock
   const at = shaped.length - 1;
   const line = shaped[at];
   if (line?.kind !== THINKING) return shaped;
-  const timedFromPrompt = line.doing === undefined && line.liveState === undefined && !line.turnTotal;
+  // A line with nothing after its prompt (`heardKey` "0:…", codexLiveTurn) carries `turnTotal` for
+  // its silence clock since #62398, yet still times the turn from its prompt: the retries leave its
+  // clock, and its silence counts from when the model answered, not from the prompt.
+  const firstReply = line.heardKey?.startsWith("0:") === true;
+  const timedFromPrompt = line.doing === undefined && line.liveState === undefined && (!line.turnTotal || firstReply);
+  const retried = !retryRow.retry && retryRow.retriedMs && timedFromPrompt ? retryRow.retriedMs : 0;
   const next: AcpmuxRow = {
     ...line,
     ...(retryRow.retry && { retry: retryRow.retry, retryAt: retryRow.at + clockOffset }),
-    ...(!retryRow.retry && retryRow.retriedMs && timedFromPrompt && { at: line.at + retryRow.retriedMs }),
+    ...(retried && { at: line.at + retried }),
+    ...(retried && firstReply && line.phaseAt !== undefined && { phaseAt: line.phaseAt + retried }),
+    ...(retried && firstReply && line.heardAt !== undefined && { heardAt: line.heardAt + retried }),
   };
   return [...shaped.slice(0, at), next];
 }
