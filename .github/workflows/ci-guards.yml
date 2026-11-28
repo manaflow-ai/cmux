@@ -1418,6 +1418,11 @@ jobs:
         # check_runs_on_pools: same-repo Linux jobs read fromJSON(vars.RUNNER_POOLS), never a literal label.
         run: python3 tests/test_runner_label_policy.py && python3 scripts/ci/tests/test_check_runs_on_pools.py
 
+      - name: Fail on a repository script a step runs before its job's checkout
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        # Incident general/1114: a pre-checkout script ran only on a reused self-hosted workspace, exit 127 on a fresh one.
+        run: python3 scripts/ci/tests/test_check_pre_checkout_scripts.py
+
       - name: Validate side-lane runs-on reads the capability label array
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_capability_labels.py
