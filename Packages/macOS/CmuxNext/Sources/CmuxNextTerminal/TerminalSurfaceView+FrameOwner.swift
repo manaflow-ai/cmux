@@ -35,6 +35,11 @@ struct TerminalFrameOwnership {
     /// (``TerminalSurfaceView/drawAhead(_:)``): a held snap's bound starts one refresh later when the size's grid went in
     /// a later refresh than this (``TerminalSurfaceView/aheadAwaitsProgram(refreshesWaited:)``, RESIZE P0 24).
     var aheadAskedEpoch: UInt64?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.motion` trace: the last change of the view's size, with the calls that made it (cmuxterm-hq#19032: which
+    /// path gives a terminal its new size before the snap that shows its pane's).
+    var debugSizeAsks: [String] = []
+    #endif
 }
 
 /// FRAME OWNER REFACTOR S4, cmux-ad m18, m19 (no switch) and m26 (draw ahead): a terminal's bounds change only in the
@@ -48,6 +53,10 @@ extension TerminalSurfaceView {
     /// refresh, and the view keeps its size, its old frame on the `anchor` edge of `frame`, until its window's commit
     /// shows the frame drawn at the new size with the new bounds. One size waits at a time; the newest goes next.
     func place(_ frame: CGRect, anchor: PaneMotionAnchor) { // perf-hot: 1ms motion-frame (each frame of a key resize)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        framePresenter?.placeHook?(self, frame)
+        if frame.size != bounds.size, isShown, MotionDebug.isTracing { noteSizeAskForTrace("place", frame.size) }
+        #endif
         guard frameOwnership.embedderPresents, isShown, window != nil, surface != nil else {
             // A size or a scale that waits gives way: the view takes this frame now (hidden, parked, no window).
             let cancels = frameOwnership.inFlight != nil || frameOwnership.scale != nil || frameOwnership.ahead != nil
