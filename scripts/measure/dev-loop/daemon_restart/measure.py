@@ -28,6 +28,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -109,6 +110,42 @@ class TimedSwapper(rl.Swapper):
         result = super().swap(built)
         self.timed["swap_end"] = time.time()
         return result
+
+
+def first_exec_probe(binary: Path, folder: Path) -> dict:
+    """ms of `BINARY --version` on a fresh copy (first, then second run), and on a `strip -S` copy; sizes in bytes;
+    the Mach-O segment sizes from `size -m` on macOS. Errors are kept in the result, never raised."""
+    folder.mkdir(parents=True, exist_ok=True)
+    result: dict = {"bytes": binary.stat().st_size}
+
+    def timed(path: Path) -> float:
+        t0 = time.perf_counter()
+        subprocess.run([str(path), "--version"], capture_output=True, timeout=120)
+        return round((time.perf_counter() - t0) * 1000, 1)
+
+    try:
+        copy = folder / "copy"
+        shutil.copyfile(binary, copy)
+        copy.chmod(0o755)
+        result["copy_first_ms"] = timed(copy)
+        result["copy_second_ms"] = timed(copy)
+        stripped = folder / "stripped"
+        res = subprocess.run(["strip", "-S", "-o", str(stripped), str(binary)], capture_output=True, text=True, timeout=300)
+        if res.returncode == 0:
+            if sys.platform == "darwin":
+                subprocess.run(["codesign", "-f", "-s", "-", str(stripped)], capture_output=True, timeout=300)
+            result["stripped_bytes"] = stripped.stat().st_size
+            result["stripped_first_ms"] = timed(stripped)
+            result["stripped_second_ms"] = timed(stripped)
+        else:
+            result["strip_error"] = (res.stderr or res.stdout).strip()[-300:]
+        if sys.platform == "darwin":
+            seg = subprocess.run(["size", "-m", str(binary)], capture_output=True, text=True, timeout=60).stdout
+            result["segments"] = {m.group(1): int(m.group(2))
+                                  for m in re.finditer(r"^Segment (\S+): (\d+)", seg, re.M)}
+    except (OSError, subprocess.SubprocessError) as error:
+        result["error"] = f"{type(error).__name__}: {error}"
+    return result
 
 
 def main() -> int:
@@ -394,6 +431,13 @@ def main() -> int:
                      "both CLI calls timed together; after each, every shell checked to be the same process. The "
                      "real swap is rust-live's Swapper.swap: it also asks `server status` and finds the owner's "
                      "executable (lsof on macOS) before `server restart` (or stop + ensure).")
+
+        # first_exec: what a new copy of this very build costs to start on this host, apart from the restart. The
+        # swap runs a just-linked file and its floor one already started; on macOS a new executable's first exec
+        # waits for a malware scan that scales with its size (scripts/measure/macos-first-exec.sh). Also a copy
+        # without its debug symbols (strip -S), to size what shrinking the file would save.
+        log("first_exec probe")
+        report["first_exec"] = first_exec_probe(Path(current), work / "first-exec")
 
         # first_answer: one identify round trip on the idle daemon.
         log("first_answer floor")

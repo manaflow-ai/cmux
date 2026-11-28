@@ -7,7 +7,11 @@ stays forever, a rerun of that run replays its broken workflow file, and the onl
 or a label cycle. ios-fast-verdict-dispatch.yml is the supported path: dispatched with a PR and its head SHA, it runs
 pr-pipeline.yml's ios fast verdict on the PR's merge commit from the current workflow files and posts the real result.
 
-    python3 -I scripts/ci/ios_fast_dispatch.py resolve   (env REPO, PR, SHA, GH_TOKEN)
+    python3 -I scripts/ci/ios_fast_dispatch.py resolve   (env REPO, PR, SHA, GH_TOKEN, TOKENS)
+
+A read tries GH_TOKEN (the run's github.token), then each TOKENS pool token, as proof_record.py's gate does: the run
+token 403s once the repo's shared budget is spent, and a wait for its reset never fits this 5-min job (cmux#62219's
+dispatch run 46112802526 slept toward 900 s on `pulls/62219` HTTP 403 and was cancelled at the job's timeout).
 
 prints the merge commit and writes `merge` and `base` to $GITHUB_OUTPUT, or fails naming why: the PR is closed, its
 head moved past SHA, it is a fork, or GitHub has no merge commit with SHA as its second parent yet.
@@ -47,11 +51,33 @@ def check_pr(pr: dict, repo: str, sha: str) -> str:
     if head.get("sha") != sha:
         raise Refused(f"the PR's head is {head.get('sha')}, not {sha}: its own pr router run answers that head")
     merge = pr.get("merge_commit_sha") or ""
-    if pr.get("mergeable") is False:
+    if pr.get("mergeable") is False or pr.get("mergeable_state") == "dirty":
         raise Refused("the PR conflicts with its base: no merge commit to test (merge the base first)")
     if not SHA_RE.match(merge):
-        raise Refused("GitHub has no test merge commit for the PR yet (mergeability is computing): dispatch again")
+        raise Refused(f"GitHub has no test merge commit for the PR after {SETTLE_READS} reads "
+                      f"(mergeability still computing): dispatch again")
     return merge
+
+
+# GitHub answers `mergeable: null` while it computes, and a busy base (feat-cmux-next moves every few minutes) keeps
+# a PR recomputing, so one read of a conflicting PR said "computing: dispatch again" and every redispatch said it again
+# (cmux#39420 at 1a96014d, run 46165116783: GraphQL said CONFLICTING/DIRTY). Re-read until GitHub settles, bounded.
+SETTLE_READS = 6
+SETTLE_WAIT_S = 5
+
+
+def read_settled(read, sleep=None) -> dict:
+    """The PR once GitHub has decided its mergeability, or its last read after SETTLE_READS."""
+    import time
+    sleep = time.sleep if sleep is None else sleep
+    for i in range(SETTLE_READS):
+        pr = read()
+        if pr.get("mergeable") is not None or i == SETTLE_READS - 1:
+            return pr
+        print(f"mergeability still computing (read {i + 1} of {SETTLE_READS}); reading again in {SETTLE_WAIT_S}s",
+              file=sys.stderr)
+        sleep(SETTLE_WAIT_S)
+    return pr
 
 
 def check_merge(commit: dict, merge: str, sha: str) -> str:
@@ -62,11 +88,29 @@ def check_merge(commit: dict, merge: str, sha: str) -> str:
     return parents[0]
 
 
-def get(path: str, token: str) -> dict:
-    req = urllib.request.Request(f"https://api.github.com/{path}", headers={
-        "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"})
-    status, body, headers = gh_http.request(req, 20)
+# GitHub refusing this token (spent, or not allowed here), not the read: the next token may get it.
+TOKEN_REFUSED = (401, 403, 429)
+
+
+def read_tokens(env: dict | None = None) -> list[str]:
+    """GH_TOKEN first, then the TOKENS pool, each once."""
+    env = os.environ if env is None else env
+    return list(dict.fromkeys(t for t in [env.get("GH_TOKEN", ""), *env.get("TOKENS", "").split()] if t))
+
+
+def get(path: str, token: str | list[str]) -> dict:
+    tokens = [token] if isinstance(token, str) else list(token)
+    for i, one in enumerate(tokens):
+        last = i == len(tokens) - 1
+        req = urllib.request.Request(f"https://api.github.com/{path}", headers={
+            "Accept": "application/vnd.github+json", "Authorization": f"Bearer {one}",
+            "X-GitHub-Api-Version": "2022-11-28"})
+        # A token with another behind it waits out no rate limit: the next token reads it now.
+        status, body, headers = gh_http.request(req, 20, **({} if last else {"rate_budget_s": 0}))
+        if status in TOKEN_REFUSED and not last:
+            print(f"GET {path}: HTTP {status} with token {i + 1} of {len(tokens)}; trying the next", file=sys.stderr)
+            continue
+        break
     if status != 200:
         until = gh_http.limited_until(headers) if status in (403, 429) else None
         if until:
@@ -81,11 +125,11 @@ def main(argv: list[str] | None = None) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", "").strip().lstrip("#"), os.environ.get("SHA", "").strip()
-    token = os.environ.get("GH_TOKEN", "")
+    token = read_tokens()
     try:
         if not (repo and pr.isdigit() and token):
             raise Refused("REPO, PR (a number) and GH_TOKEN are needed")
-        merge = check_pr(get(f"repos/{repo}/pulls/{pr}", token), repo, sha)
+        merge = check_pr(read_settled(lambda: get(f"repos/{repo}/pulls/{pr}", token)), repo, sha)
         base = check_merge(get(f"repos/{repo}/commits/{merge}", token), merge, sha)
     except Refused as e:
         print(f"::error title=ios fast verdict dispatch::{e}")

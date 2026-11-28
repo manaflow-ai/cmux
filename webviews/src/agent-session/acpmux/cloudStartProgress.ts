@@ -120,6 +120,10 @@ export type CloudStartProgress = {
   /// What failed and the step the card offers (the host's `details.surface`, cmux-cloud-start-core
   /// `surface::surface`; ask-17e4ae3662): the card's headline and next line above the failure's words.
   surface?: CloudStartSurface;
+  /// The host opened the chat on its machine (`cloud.startChat` answered ok) while this page carries it (a start in
+  /// place re-homes the page, cmux-cloud-start-core `one_pane`): the card, with the sent prompt, stays until the
+  /// Cloud chat's first page is drawn, so the pane never blanks between the two (cloudStartOpened.ts).
+  opened?: true;
 };
 
 /// The failed card's headline and next step (cmux-cloud-start-core `surface::What` and `surface::Next`), each

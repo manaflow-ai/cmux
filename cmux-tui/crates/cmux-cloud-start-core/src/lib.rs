@@ -30,6 +30,7 @@ pub mod one_pane;
 pub mod recover;
 pub mod sequence;
 pub mod spare_shapes;
+pub mod spending_write;
 pub mod start;
 pub mod start_session;
 pub mod surface;

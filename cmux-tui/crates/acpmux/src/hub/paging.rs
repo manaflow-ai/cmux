@@ -685,6 +685,17 @@ impl Hub {
         filter: &EventFilter,
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
+        // A subagent's page starts where its records start, once a read proved where
+        // (`subagent_starts.rs`): a subagent that began late in a long chat no longer reads
+        // the chat before it.
+        let start = self.subagent_start(id, filter);
+        let after = match start.as_ref().and_then(|s| s.seq) {
+            Some(first) => after.max(first.saturating_sub(1)),
+            None => after,
+        };
+        // Whether this read covers the log from its start: its first match is the subagent's.
+        let proves = start.as_ref().is_some_and(|s| s.seq.is_none()) && after == 0;
+        let mut first_match: Option<u64> = None;
         let bounded = max_bytes.is_some();
         let over = filter.stub_over(bounded);
         // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
@@ -713,6 +724,7 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
+                first_match.get_or_insert(rec.seq);
                 let mut rec = rec;
                 self.display_logged(session.as_deref(), &mut rec);
                 let (rec, rec_bytes) = filter.shape(rec, None, over);
@@ -724,6 +736,9 @@ impl Hub {
                 page.events.push(rec);
                 true
             })?;
+            if proves && let (Some(start), Some(first)) = (start, first_match) {
+                self.page_replies.starts.put(id, &start.subagent, &start.kinds, start.stamp, first);
+            }
             return Ok(page);
         }
         // Newest first; a slot a later (older) record made moot is empty.
@@ -743,16 +758,28 @@ impl Hub {
         // for one (`turn_opener.rs`), 4 s for a 1 GB chat. The superseded fold below touches tool
         // calls only, so it changes nothing on such a page.
         let indexed = filter.reads_indexed_kinds();
+        // A subagent's page passes the chat's other lines on a byte search, unparsed, as its
+        // forward page does; a line that starts a prompt is still read for the superseded fold.
+        let needle = filter.line_needle();
+        let may_match = |line: &[u8], dir: &[u8], kind: &[u8]| {
+            needle.as_deref().is_none_or(|needle| memchr::memmem::find(line, needle).is_some())
+                || (omit && crate::store::starts_prompt(dir, kind))
+        };
         let back = |skip: &dyn Fn(&[u8], &[u8]) -> bool,
                     visit: &mut dyn FnMut(EventRecord) -> bool| {
             if indexed {
                 self.store.scan_back_indexed(id, after, before, skip, visit)
+            } else if needle.is_some() {
+                self.store.scan_back_matching(id, after, before, skip, &may_match, visit)
             } else {
                 self.store.scan_back(id, after, before, skip, visit)
             }
         };
         back(&skip, &mut |rec| {
             let matches = filter.matches(&rec);
+            if matches {
+                first_match = Some(rec.seq);
+            }
             let mut rec = rec;
             if matches {
                 self.display_logged(session.as_deref(), &mut rec);
@@ -792,8 +819,34 @@ impl Hub {
             true
         })?;
         page.events = found.into_iter().rev().flatten().map(|(rec, _)| rec).collect();
+        // Read back to the log's start with nothing left: the oldest match is the subagent's first.
+        if proves
+            && !page.has_more
+            && let (Some(start), Some(first)) = (start, first_match)
+        {
+            self.page_replies.starts.put(id, &start.subagent, &start.kinds, start.stamp, first);
+        }
         Ok(page)
     }
+
+    /// For a page of one subagent's records: the key its start is kept under,
+    /// the log's stamp, and the kept start under that stamp, if any.
+    fn subagent_start(&self, id: &str, filter: &EventFilter) -> Option<SubagentStart> {
+        let subagent = filter.subagent.clone()?;
+        let stamp = self.store.log_stamp(id).ok()?;
+        let kinds = serde_json::to_string(&filter.kinds).ok()?;
+        let seq = self.page_replies.starts.get(id, &subagent, &kinds, stamp);
+        Some(SubagentStart { subagent, kinds, stamp, seq })
+    }
+}
+
+/// A subagent page's start, as `Hub::subagent_start` reads it.
+struct SubagentStart {
+    subagent: String,
+    kinds: String,
+    stamp: u64,
+    /// The kept first seq; None when no read proved it yet under this stamp.
+    seq: Option<u64>,
 }
 
 /// How much of a prompt's text an entry of the prompt index keeps: the rail's hover card title
@@ -801,7 +854,9 @@ impl Hub {
 pub const PROMPT_INDEX_TEXT_CHARS: usize = 240;
 
 /// A prompt's record as the prompt index carries it: its id, whether it was a steer or went on
-/// with a turn, and the start of its text. Nothing else (images, pastes, `_meta`).
+/// with a turn, the start of its text, and `others` when the person did not type it
+/// (`prompt_provenance::persons_prompt_record`): the scroll rail ticks only the person's prompts.
+/// Nothing else (images, pastes, `_meta`).
 pub fn prompt_index_msg(msg: &Value) -> Value {
     let mut out = serde_json::Map::new();
     for key in ["promptId", "steer", "turnId", "continues"] {
@@ -812,6 +867,9 @@ pub fn prompt_index_msg(msg: &Value) -> Value {
     if let Some(text) = msg.get("text").and_then(Value::as_str) {
         let cut: String = text.chars().take(PROMPT_INDEX_TEXT_CHARS).collect();
         out.insert("text".to_owned(), Value::String(cut));
+    }
+    if !crate::prompt_provenance::persons_prompt_record(msg) {
+        out.insert("others".to_owned(), Value::Bool(true));
     }
     Value::Object(out)
 }
@@ -895,6 +953,9 @@ impl Hub {
         Ok(page)
     }
 }
+
+#[path = "subagent_starts.rs"]
+pub(crate) mod subagent_starts;
 
 #[cfg(test)]
 #[path = "paging_tests.rs"]
