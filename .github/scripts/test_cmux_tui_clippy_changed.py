@@ -91,12 +91,32 @@ if sys.argv[1:] == ["--flags"]:
     sys.exit(0)
 with open(os.environ["RATCHET_LOG"], "a") as log:
     log.write(" ".join(sys.argv[1:]) + "\\n")
-if "--untouched-is-base" in sys.argv:
+if "--untouched-is-base" in sys.argv and "--base-clippy-json" not in sys.argv:
+    sys.stdout.write(os.environ.get("RATCHET_UNTOUCHED_OUT", ""))
     sys.exit(int(os.environ.get("RATCHET_UNTOUCHED_RC", os.environ.get("RATCHET_RC", "0"))))
 sys.exit(int(os.environ.get("RATCHET_RC", "0")))
 """
 # After `--` the clippy run passes the ratchet's flags and cap exactly as the ratchet's run does, so the
 # ratchet's lib and bin units are fresh in the shared target (clippy keeps its arguments in each unit's fingerprint).
+def lock(serde: str = "1.0.1", itoa: str = "1.0.0", version: int = 4, b_deps: tuple = ("serde",)) -> str:
+    """The scratch workspace's Cargo.lock: pkg-b uses serde, which uses itoa; pkg-c uses pkg-a; pkg-d uses pkg-c."""
+    registry = '"registry+https://github.com/rust-lang/crates.io-index"'
+    deps = {"cmux-root": [], "pkg-a": [], "pkg-b": list(b_deps), "pkg-c": ["pkg-a"], "pkg-d": ["pkg-c"]}
+    out = [f"version = {version}\n"]
+    for name, uses in deps.items():
+        out.append(f'\n[[package]]\nname = "{name}"\nversion = "0.1.0"\n'
+                   + (f"dependencies = [{', '.join(repr(u).replace(chr(39), chr(34)) for u in uses)}]\n" if uses else ""))
+    out.append(f'\n[[package]]\nname = "serde"\nversion = "{serde}"\nsource = {registry}\nchecksum = "s{serde}"\n'
+               f'dependencies = ["itoa"]\n')
+    out.append(f'\n[[package]]\nname = "itoa"\nversion = "{itoa}"\nsource = {registry}\nchecksum = "i{itoa}"\n')
+    return "".join(out)
+
+
+MANIFEST = ('[package]\nname = "cmux-root"\n\n[workspace]\nmembers = ["crates/a", "crates/b", "crates/c", "crates/d"]\n'
+            'exclude = ["crates/ffi"]\n\n[workspace.dependencies]\nserde = "1"\n\n[workspace.lints.clippy]\nall = "warn"\n'
+            '\n[profile.dev]\nopt-level = 1\n\n[profile.release]\nlto = true\n')
+
+
 SHARED = ["--", "-W", "clippy::unwrap_used", "-W", "clippy::indexing_slicing", "--cap-lints", "warn"]
 LINT = ["--all-targets", "--message-format=json", *SHARED]
 PANIC = ["--message-format=json", *SHARED]
@@ -108,7 +128,7 @@ class ClippyChangedTests(unittest.TestCase):
         self.repo = self.tmp / "repo"
         # The workspace root is a package too, as in the real tree.
         self.write("cmux-tui/Cargo.toml", '[package]\nname = "cmux-root"\n\n[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/ffi"]\n')
-        self.write("cmux-tui/Cargo.lock", "# lock\n")
+        self.write("cmux-tui/Cargo.lock", lock())
         self.write("cmux-tui/src/main.rs", "fn main() {}\n")
         self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "pkg-a"\n')
         self.write("cmux-tui/crates/a/src/lib.rs", "pub fn a() {}\n")
@@ -415,8 +435,13 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertIn("cmux-tui/crates/ffi is not a cmux-tui workspace member", result.stdout)
 
     def test_workspace_wide_inputs_lint_the_whole_workspace(self) -> None:
-        for path, text in (("cmux-tui/Cargo.lock", "# lock 2\n"), ("cmux-tui/clippy.toml", "msrv = \"1.91\"\n"),
-                           ("cmux-tui/rust-toolchain.toml", "[toolchain]\n")):
+        # A lockfile format change, a clippy config, the toolchain pin, and a workspace lint, dev profile or patch.
+        self.change("cmux-tui/Cargo.toml", MANIFEST)
+        for path, text in (("cmux-tui/Cargo.lock", lock(version=5)), ("cmux-tui/clippy.toml", "msrv = \"1.91\"\n"),
+                           ("cmux-tui/rust-toolchain.toml", "[toolchain]\n"), ("cmux-tui/Cargo.lock", "not = toml = [\n"),
+                           ("cmux-tui/Cargo.toml", MANIFEST.replace('all = "warn"', 'all = "deny"')),
+                           ("cmux-tui/Cargo.toml", MANIFEST.replace("opt-level = 1", "opt-level = 2")),
+                           ("cmux-tui/Cargo.toml", MANIFEST + '\n[patch.crates-io]\nserde = { path = "vendor/up" }\n')):
             with self.subTest(path=path):
                 base = self.git("rev-parse", "HEAD").strip()
                 self.log.unlink(missing_ok=True)
@@ -424,6 +449,69 @@ class ClippyChangedTests(unittest.TestCase):
                 result = self.run_check("--base", base)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "--workspace", *LINT]])
+
+    # Post-merge windows: 74 of the 3,302 feat-cmux-next commits on 11-25..27 touched Cargo.lock and 38 the workspace
+    # manifest, so 18 of 22 batch windows linted all 225 members (job 140499897736: 15.8 min). Read, they reach 32-79.
+    def test_a_lock_bump_lints_the_members_using_the_crate_and_their_dependents(self) -> None:
+        # itoa is pkg-b's only through serde; nothing else uses either.
+        self.change("cmux-tui/Cargo.lock", lock(itoa="1.0.9"))
+        result = self.run_check("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-b", *LINT]])
+        self.assertIn("the workspace manifest or Cargo.lock change reaches pkg-b", result.stdout)
+
+    def test_a_members_own_lock_entry_reaches_it_and_its_dependents(self) -> None:
+        # pkg-a gained serde (its Cargo.toml changed too, so it is selected either way); pkg-c and pkg-d use pkg-a.
+        text = lock().replace('name = "pkg-a"\nversion = "0.1.0"\n', 'name = "pkg-a"\nversion = "0.1.0"\ndependencies = ["serde"]\n')
+        self.change("cmux-tui/Cargo.lock", text)
+        result = self.run_check("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", *LINT]])
+
+    def test_the_panic_ratchet_follows_the_lock_change_too(self) -> None:
+        self.change("cmux-tui/Cargo.lock", lock(serde="1.0.2"))
+        result, _ = self.run_ratchet("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "pkg-b", "--lib", "--bins", *PANIC]])
+
+    def test_a_new_member_lints_that_member_not_the_workspace(self) -> None:
+        self.change("cmux-tui/Cargo.toml", MANIFEST)
+        base = self.head()
+        self.write("cmux-tui/crates/e/Cargo.toml", '[package]\nname = "pkg-e"\n')
+        self.write("cmux-tui/crates/e/src/lib.rs", "pub fn e() {}\n")
+        self.members["crates/e"] = "pkg-e"
+        self.change("cmux-tui/Cargo.toml", MANIFEST.replace('"crates/d"]', '"crates/d", "crates/e"]'))
+        result = self.run_check("--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-e", *LINT]])
+
+    def test_a_workspace_dependency_change_lints_its_users(self) -> None:
+        # Every scratch member uses serde (write_metadata); only pkg-b uses itoa.
+        self.uses["pkg-b"] = [("itoa", None)]
+        self.change("cmux-tui/Cargo.toml", MANIFEST.replace('serde = "1"', 'serde = "1"\nitoa = "1"'))
+        base = self.head()
+        self.change("cmux-tui/Cargo.toml", MANIFEST.replace('serde = "1"', 'serde = "1"\nitoa = { version = "1", features = ["std"] }'))
+        result = self.run_check("--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-b", *LINT]])
+
+    def test_default_members_and_the_release_profile_lint_nothing(self) -> None:
+        # Neither changes a unit `cargo clippy -p ...` checks with the dev profile (2c789b93f17f..5af1e1c79eb2).
+        self.change("cmux-tui/Cargo.toml", MANIFEST)
+        base = self.head()
+        self.change("cmux-tui/Cargo.toml", MANIFEST.replace("lto = true", "lto = false").replace(
+            'exclude = ["crates/ffi"]', 'exclude = ["crates/ffi"]\ndefault-members = ["crates/a"]'))
+        result = self.run_check("--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_root_packages_own_tables_lint_the_root_package(self) -> None:
+        self.change("cmux-tui/Cargo.toml", MANIFEST)
+        base = self.head()
+        self.change("cmux-tui/Cargo.toml", MANIFEST.replace('name = "cmux-root"\n', 'name = "cmux-root"\nbuild = "b.rs"\n'))
+        result = self.run_check("--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "cmux-root", *LINT]])
 
     def test_no_usable_base_lints_the_whole_workspace(self) -> None:
         for base in ([], ["--base", ""], ["--base", "0" * 40], ["--base", "f" * 40]):
@@ -513,7 +601,7 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "cmux-root", "--bins", *PANIC]])
 
     def test_the_panic_ratchet_covers_the_whole_workspace_for_workspace_wide_inputs(self) -> None:
-        self.change("cmux-tui/Cargo.lock", "# lock 2\n")
+        self.change("cmux-tui/Cargo.lock", lock(version=5))
         result, _ = self.run_ratchet("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", *PANIC]])
@@ -586,6 +674,39 @@ class ClippyChangedTests(unittest.TestCase):
         strict = self.judged(out)
         self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--untouched-is-base", "--diff-base", self.base]])
         self.assertIn("files this change does not touch, so the base", result.stdout)
+
+    def test_compare_base_lints_only_the_crates_still_red_at_the_base(self) -> None:
+        # 2026-11-27: the base lint re-checked every selected package (dependents such as cmux-tui too), 1.5-2.8 min,
+        # though only a crate the untouched pass still names red reads the base run. pkg-c and pkg-d are judged as
+        # that pass judged them (--untouched-is-base stays on the final judge).
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        head = self.git("rev-parse", "HEAD").strip()
+        heads = self.tmp / "heads.log"
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1",
+                                           "RATCHET_UNTOUCHED_OUT": "rust-panic-ratchet: RED\n"
+                                           "  pkg-a: clippy::unwrap_used 2 > baseline 1\n      crates/a/src/lib.rs:7:5\n"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        base_lint = ["clippy", "--locked", "-p", "pkg-a", "--lib", "--bins", *PANIC]
+        self.assertEqual(self.calls(), [lint, base_lint])
+        self.assertEqual(heads.read_text().split(), [head, self.base])
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), head, "the checkout is back on HEAD")
+        base_out = out.with_name(out.name + ".base")
+        strict = self.judged(out)
+        untouched = [*strict, "--untouched-is-base", "--diff-base", self.base]
+        self.assertEqual(self.ratchet_calls(), [strict, untouched, [*untouched, "--base-clippy-json", str(base_out)]])
+
+    def test_compare_base_lints_every_package_when_a_red_crate_was_not_selected(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"RATCHET_RC": "1",
+                                           "RATCHET_UNTOUCHED_OUT": "  pkg-b: clippy::unwrap_used 2 > baseline 1\n"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        self.assertEqual(self.calls(), [lint, lint])
 
     def test_compare_base_returns_to_head_when_the_base_lint_cannot_start(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")

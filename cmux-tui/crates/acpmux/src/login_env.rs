@@ -351,8 +351,8 @@ pub(crate) async fn await_child_env(
         return Ok(true);
     }
     Err(format!(
-        "{} from the login shell is not available yet: the shell did not answer within {} s. \
-         Retry in a moment, or set it in the agent's profile",
+        "{} from the login shell is not available: the shell did not answer within {} s \
+         (a slow shell profile). Set it in the agent's profile",
         missing.join(", "),
         TIMEOUT.as_secs()
     ))

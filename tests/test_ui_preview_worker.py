@@ -324,6 +324,16 @@ class FollowTests(unittest.TestCase):
         self.assertEqual(ran[0][:3], ["lane-gh", "call", "ui_preview_requests"])
         self.assertEqual(ran[1][3:], ["manaflow-ai/cmuxterm-hq", "-"])
 
+    def test_a_state_put_that_wrote_its_commit_201_is_a_success(self):
+        # 2026-11-27: state_put answers 201 with the commit it wrote; read as a refusal, every census publish that
+        # landed logged "publish exited 1".
+        from unittest import mock
+        body = {"ok": True, "status": 201, "data": {"name": "now-census", "changed": True, "commit": "fcf0949"}}
+        with mock.patch.object(w.subprocess, "run",
+                               lambda argv, **kw: mock.Mock(returncode=0, stdout=json.dumps(body), stderr="")):
+            self.assertEqual(w.lane_gh_call("state_put", {"name": "now-census"}, 5, repo="manaflow-ai/cmuxterm-hq"),
+                             body["data"])
+
     def test_a_host_taking_the_lease_over_posts_nothing_its_predecessor_had(self):
         # Host A led and posted 7614..7616; host B, last leading at 7613, takes the lease over and resumes there.
         with tempfile.TemporaryDirectory() as tmp:

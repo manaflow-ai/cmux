@@ -280,7 +280,10 @@ impl Hub {
             // After the agent's own reason: its fallback could not take the turn, and why.
             super::fallback_start::say_fallback(e);
         }
-        let git = super::turn_git::turn_git(session).await;
+        let mut git = super::turn_git::turn_git(session).await;
+        // The folder as this turn left it, for a rewind or a fork (`turn_checkpoint.rs`; off by
+        // default).
+        git.extend(super::turn_checkpoint::turn_checkpoint(session, turn_id).await);
         // The folder's work leaves this machine at each turn end (`wip_ref.rs`; off by default).
         self.save_wip_in_background(session);
         // The end is written from here with no wait, under the shutdown's lock: a shutdown that
@@ -378,6 +381,8 @@ impl Hub {
                     if status == "completed" {
                         self.continue_goal(session, spent);
                     }
+                    // A Codex chat's open goal left idle is nudged, then told (`goal_watch.rs`).
+                    self.goal_turn_ended(session, prompt_id, status == "completed");
                     // The chat works again: agent messages a failed turn held go in (`digest.rs`).
                     // Not while a person's Stop that came after this turn began holds them
                     // (`cancel.rs`): only a turn begun under that hold, or a resume, ends it.
@@ -395,6 +400,7 @@ impl Hub {
                     }
                     self.append(session, "mux", "turn_error", record);
                     self.note_model_refusal(session, &e.message);
+                    self.goal_turn_ended(session, prompt_id, false);
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }

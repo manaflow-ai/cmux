@@ -203,6 +203,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&sidebar_launch_order::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_feeds" => {
+                use cmux_layout_reducer::sidebar_feeds;
+                let request: sidebar_feeds::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_feeds::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_list_rules" => {
                 use cmux_layout_reducer::sidebar_list_rules;
                 let request: sidebar_list_rules::Request =
@@ -222,6 +228,20 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_drag_geometry::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_drag_geometry::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_region_layout" => {
+                use cmux_layout_reducer::sidebar_region_layout;
+                let request: sidebar_region_layout::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_region_layout::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_band_heights" => {
+                use cmux_layout_reducer::sidebar_region_layout;
+                let request: sidebar_region_layout::BandHeights =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_region_layout::band_heights(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_nav" => {
@@ -434,6 +454,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     request.list_current,
                 );
                 serde_json::to_vec(&serde_json::json!({ "check": check }))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_start_pane_recovery" => {
+                let failure: cmux_cloud_start_core::recover::PaneFailure =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_cloud_start_core::recover::pane_step(&failure))
                     .map_err(|_| ERR_INVALID)?
             }
             b"cloud_start_list_wait" => {

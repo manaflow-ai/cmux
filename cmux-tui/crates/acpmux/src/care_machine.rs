@@ -240,13 +240,23 @@ pub fn launch_agent(exe: &Path) -> String {
 
 /// Writes `content` to `path` unless it already holds it; whether it wrote.
 fn write_if_changed(path: &Path, content: &str) -> Result<bool, String> {
-    if std::fs::read_to_string(path).is_ok_and(|old| old == content) {
+    let same = crate::home_fs::OpenOptions::new()
+        .read(true)
+        .open(path)
+        .ok()
+        .and_then(|mut file| {
+            use std::io::Read as _;
+            let mut old = String::new();
+            file.read_to_string(&mut old).ok().map(|_| old == content)
+        })
+        .unwrap_or(false);
+    if same {
         return Ok(false);
     }
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        crate::home_fs::create_dirs(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    std::fs::write(path, content).map_err(|e| format!("{}: {e}", path.display()))?;
+    crate::home_fs::write(path, content).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(true)
 }
 
@@ -358,5 +368,40 @@ mod tests {
         assert!(!write_if_changed(&path, "x").unwrap());
         assert!(write_if_changed(&path, "y").unwrap());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writing_a_timer_stays_in_the_held_home_after_replacement() {
+        crate::lost_home_race_tests::isolated(
+            module_path!(),
+            "writing_a_timer_stays_in_the_held_home_after_replacement",
+            |home| {
+                let path = home.join(".config/systemd/user/cmux-care.timer");
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, "old").unwrap();
+                crate::config::hold_home();
+                crate::lost_home_race_tests::replace(home);
+
+                assert!(!write_if_changed(&path, "old").unwrap());
+                assert!(
+                    home.with_extension("old")
+                        .join(".config/systemd/user/cmux-care.timer")
+                        .exists()
+                );
+                assert!(!path.exists(), "the replacement home stays untouched");
+
+                assert!(write_if_changed(&path, "new").unwrap());
+                assert_eq!(
+                    std::fs::read_to_string(
+                        home.with_extension("old").join(".config/systemd/user/cmux-care.timer")
+                    )
+                    .unwrap(),
+                    "new"
+                );
+                assert!(!path.exists(), "the replacement home stays untouched");
+            },
+            |_, _| {},
+        );
     }
 }

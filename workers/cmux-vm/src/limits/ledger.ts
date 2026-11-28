@@ -14,7 +14,7 @@ import { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-cr
 import { VmCreationReceipt } from "../api/creations.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
-import { Reservation, type LedgerStorage } from "./storage.ts";
+import { deleteMany, getMany, Reservation, type LedgerStorage } from "./storage.ts";
 import { meshCreation, type MeshCreationCommand, type MeshCreationResult } from "./mesh-creation.ts";
 import { admitAgentSlot, bindAgentCreation, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
 export type { LedgerStorage } from "./storage.ts";
@@ -124,6 +124,8 @@ const isGeneratedRecord = Schema.is(GeneratedRecord);
 const readRecord = (value: unknown): IdempotencyRecord | undefined => isGeneratedRecord(value)
   ? { ...value, progress: value.progress.value }
   : checked(isRecord, value);
+/** Decodes a stored idempotency record (plain or generated); exported for the scan oracle in test/support. */
+export const readIdempotencyRecord = readRecord;
 const putRecord = (storage: LedgerStorage, key: string, record: IdempotencyRecord) => storage.put(key,
   record.generated === undefined ? record : { ...record, progress: { phase: "generated", value: record.progress } },
 );
@@ -365,11 +367,13 @@ export class TenantLedger {
   private async admit(storage: LedgerStorage, kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string, retained: boolean): Promise<boolean> {
     const live = await storage.list({ prefix: "reserve:" });
     let inFlight = 0;
+    const expired: string[] = [];
     for (const [key, value] of live) {
       const reservation = checked(isReservation, value);
-      if (reservation === undefined || (reservation.retained !== true && reservation.expiresMs <= nowMs)) await storage.delete(key);
+      if (reservation === undefined || (reservation.retained !== true && reservation.expiresMs <= nowMs)) expired.push(key);
       else if (reservation.kind === kind && key !== `reserve:${reservationId}`) inFlight += 1;
     }
+    await deleteMany(storage, expired);
     if (liveCount + inFlight >= limit) return false;
     await storage.put(`reserve:${reservationId}`, { kind, expiresMs: nowMs + RESERVATION_TTL_MS, ...(retained ? { retained: true } : {}) });
     return true;
@@ -575,9 +579,11 @@ export class TenantLedger {
         if (p?.phase === "creating" && slots.has(p.reservationId)) keys.add(key.slice("idem:".length));
       }
     }
+    // One storage call per 128 intents, not one per slot: a CI principal's sweep reads every retained slot's intent.
+    const records = await getMany(this.storage, [...keys].map((key) => `idem:${key}`));
     const found: RetainedCreationSlot[] = [];
     for (const key of keys) {
-      const p = readRecord(await this.storage.get(`idem:${key}`))?.progress;
+      const p = readRecord(records.get(`idem:${key}`))?.progress;
       if (p?.phase !== "creating" || !slots.has(p.reservationId) || p.createdBy !== createdBy || p.intent === undefined || p.dispatch === undefined) continue;
       const startedMs = p.dispatch.at ?? Date.parse(p.intent.createdAt);
       if (!Number.isFinite(startedMs)) continue;
@@ -624,6 +630,12 @@ export function memoryLedgerStorage(): LedgerStorage {
   const view = (read: (key: string) => unknown, write: (key: string, value: unknown) => void, remove: (key: string) => boolean, entries: () => Map<string, unknown>, atomic: LedgerStorage["transaction"]): LedgerStorage => ({
     transaction: atomic,
     get: async (key) => structuredClone(read(key)),
+    getMany: async (keys) => {
+      const out = new Map<string, unknown>();
+      for (const key of keys) { const value = read(key); if (value !== undefined) out.set(key, structuredClone(value)); }
+      return out;
+    },
+    deleteMany: async (keys) => keys.filter((key) => remove(key)).length,
     put: async (key, value) => {
       write(key, structuredClone(value));
     },

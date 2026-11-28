@@ -1141,6 +1141,8 @@ impl Hub {
             started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
+        // Its first adoption resumes from a checkpoint, not the whole log (`checkpoint.rs`).
+        self.prime_adoption_checkpoint(session, &p.record.incarnation);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and
         // none of its reports waits (`full_access_bound.rs`).
         session.floor.left_host_read.store(false, Ordering::SeqCst);

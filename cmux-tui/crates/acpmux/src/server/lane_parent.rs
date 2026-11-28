@@ -9,6 +9,45 @@ use crate::rpc::RpcError;
 use serde_json::Value;
 use std::sync::Arc;
 
+pub(super) fn mark_forwarded_boundary(
+    hub: &Hub,
+    conn: &Conn,
+    original: &Value,
+    peer: &crate::peer::Peer,
+    forwarded: &mut Value,
+) {
+    if let Some(meta) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        meta.remove(crate::hub::vm_boundary::FIELD);
+    }
+    let owner = crate::hub::vm_boundary::owner(
+        conn.auth,
+        super::remote_guard::control_of(conn.origin, conn.auth, original),
+        original,
+    );
+    if owner
+        && (peer.vm_boundary() || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
+    {
+        crate::hub::merge_mux_meta(
+            forwarded,
+            serde_json::json!({crate::hub::vm_boundary::FIELD: true}),
+        );
+    } else if hub.is_leased(&peer.name) {
+        crate::hub::merge_mux_meta(
+            forwarded,
+            serde_json::json!({crate::hub::vm_boundary::FIELD: false}),
+        );
+    }
+}
+
+pub(super) fn mark_control_boundary(params: &mut Value, same_person: bool) {
+    if !same_person {
+        crate::hub::merge_mux_meta(
+            params,
+            serde_json::json!({"via": crate::hub::vm_boundary::VIA_DEVICE, crate::hub::vm_boundary::FIELD: false}),
+        );
+    }
+}
+
 /// The parent's exact id, or none.
 pub(super) fn lane_parent(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Option<String> {
     let root = matches!(
@@ -31,6 +70,56 @@ pub(super) fn asked_to_report(params: &Value) -> bool {
         .and_then(|m| m.get(crate::hub::lineage::successor::REPORT_TO_FIELD))
         .and_then(Value::as_str)
         .is_some_and(|to| !to.is_empty())
+}
+
+/// Keep the report on the starter's daemon: a refused tool in the child must not
+/// also prevent it from reporting the refusal. The existing durable watch/outbox
+/// owns delivery, including reconnects and daemon restarts.
+pub(super) fn remote_report_target(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    params: &Value,
+) -> Result<Option<String>, RpcError> {
+    // A forwarded caller cannot borrow this daemon's sender authority.
+    if !matches!(conn.origin, super::Origin::Local | super::Origin::LocalApp) {
+        return Ok(None);
+    }
+    let explicit = super::mux_meta(params)
+        .and_then(|m| m.get(crate::hub::lineage::successor::REPORT_TO_FIELD))
+        .and_then(Value::as_str)
+        .filter(|to| !to.is_empty());
+    let parent = lane_parent(hub, conn, params);
+    explicit.or(parent.as_deref()).map(|to| crate::hub::watches::resolve(hub, to)).transpose()
+}
+
+pub(super) fn report_remote_created(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    to: Option<String>,
+    peer: &str,
+    id: &str,
+) -> Result<(), RpcError> {
+    use crate::hub::watches::Watch;
+    let Some(to) = to else { return Ok(()) };
+    let key = format!("{peer}/{id}");
+    hub.watches.add(Watch {
+        // Session ids are scoped to their owning daemon, not globally unique.
+        id: format!("remote-start-{}", uuid::Uuid::now_v7()),
+        to,
+        sessions: vec![key.clone()],
+        // Normal turns and permission prompts must not consume the failure report.
+        until: vec!["closed".into(), "blocked".into()],
+        match_text: None,
+        once: true,
+        caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
+        active: true,
+        // No initial ready verdict: the new chat has not received its prompt.
+        // Read its journal from the start so a fast spawn refusal is not lost.
+        cursors: [(key, Default::default())].into_iter().collect(),
+        offline: Default::default(),
+        ..Default::default()
+    })?;
+    Ok(())
 }
 
 /// The person wrote to `s`: a lane is theirs now, and its turns stop showing in its parent's chat

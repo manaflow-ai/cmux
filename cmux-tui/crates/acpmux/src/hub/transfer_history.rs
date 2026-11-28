@@ -106,6 +106,11 @@ struct Prepacked {
     ms: u64,
 }
 
+/// The most records one scan of [`Hub::write_lines`] writes before it lets the store's
+/// fork-view lock go and scans on from the last one. Three in tests, so every export and pack
+/// test writes its lines in several passes and checks they are the bytes one pass wrote.
+const WRITE_LINES_PASS: usize = if cfg!(test) { 3 } else { 2_000 };
+
 /// The calling thread at the lowest CPU priority, and the threads it starts after: nice 19 on
 /// Linux (a thread's own, inherited by the threads it starts), the background band on macOS.
 /// Best effort: a refusal leaves it as it was.
@@ -463,26 +468,46 @@ impl Hub {
         use std::io::Write as _;
         let mut out = std::io::BufWriter::new(crate::home_fs::create_file(lines)?);
         let (mut last, mut digest, mut failed) = (after, String::new(), None::<anyhow::Error>);
-        self.store.scan(&session.id, after, &mut |mut e: EventRecord| {
-            if e.seq > through {
-                return false;
-            }
-            let at_end = e.seq == through;
-            let step = (|| -> anyhow::Result<()> {
-                if at_end {
-                    digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+        // In passes of at most WRITE_LINES_PASS records, each a scan of its own: a scan holds the
+        // store's fork-view lock (`store/fork_view.rs` `dropping`, one for every chat) shared for
+        // its whole run, a cold archive commit waits for it exclusively, and every read of any
+        // chat queues behind that waiting commit. A whole 30 MB log written in one scan, on the
+        // pack worker's background-priority thread (`pack_as_it_grows.rs`) of a loaded host, held
+        // it for minutes (the coordinator Mac, 2026-11-27: every acpmux delivery there timed out).
+        loop {
+            let (mut seen, mut ended) = (0usize, true);
+            let from = last;
+            self.store.scan(&session.id, from, &mut |mut e: EventRecord| {
+                if e.seq > through {
+                    return false;
                 }
-                last = e.seq;
-                self.display_logged(Some(session), &mut e);
-                serde_json::to_writer(&mut out, &e)?;
-                out.write_all(b"\n")?;
-                Ok(())
-            })();
-            if let Err(e) = step {
-                failed = Some(e);
+                let at_end = e.seq == through;
+                let step = (|| -> anyhow::Result<()> {
+                    if at_end {
+                        digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+                    }
+                    last = e.seq;
+                    self.display_logged(Some(session), &mut e);
+                    serde_json::to_writer(&mut out, &e)?;
+                    out.write_all(b"\n")?;
+                    Ok(())
+                })();
+                if let Err(e) = step {
+                    failed = Some(e);
+                }
+                seen += 1;
+                let more = failed.is_none() && !at_end;
+                if more && seen >= WRITE_LINES_PASS {
+                    // This pass ends here; the next one starts after `last`.
+                    ended = false;
+                    return false;
+                }
+                more
+            })?;
+            if failed.is_some() || ended || last == from {
+                break;
             }
-            failed.is_none() && !at_end
-        })?;
+        }
         if let Some(e) = failed {
             return Err(e);
         }

@@ -21,6 +21,8 @@ impl Peer {
         let mut backoff = Backoff::default();
         // Refused ssh logins in a row (`Backoff::login_refused`).
         let mut login_refusals = 0u32;
+        // Refused host keys in a row (`Backoff::host_key_refused`).
+        let mut host_key_refusals = 0u32;
         let Some(mut out_rx) = self.out_rx.lock().await.take() else {
             // A second run: the first owns the outbound queue and the link.
             tracing::warn!(peer = %self.name, "peer link already running");
@@ -74,6 +76,11 @@ impl Peer {
             } else {
                 0
             };
+            host_key_refusals = if self.host_key_refused.load(Ordering::SeqCst) {
+                host_key_refusals.saturating_add(1)
+            } else {
+                0
+            };
             // A peer down for a day or more is parked on an hourly retry (`PeerLink::retry_delay`).
             // Scheduled before the notice goes out: the hub saves `next_retry_at` to the peer
             // cache while handling it, so a daemon restart mid-wait keeps the parked deadline.
@@ -84,6 +91,13 @@ impl Peer {
                     if login_refusals > 0 {
                         let least =
                             Backoff::login_refused(login_refusals, crate::peer_link::jitter());
+                        delay = delay.max(least);
+                    }
+                    if host_key_refusals > 0 {
+                        let least = Backoff::host_key_refused(
+                            host_key_refusals,
+                            crate::peer_link::jitter(),
+                        );
                         delay = delay.max(least);
                     }
                     // Reported only (`nextRetryAt`): the wait below keeps its own delay.
@@ -240,9 +254,15 @@ impl Peer {
         use crate::peer_paths::Via;
         self.facts.lock_or_recover().refused = false;
         self.login_refused.store(false, Ordering::SeqCst);
+        self.host_key_refused.store(false, Ordering::SeqCst);
         self.link_timed_out.store(false, Ordering::SeqCst);
         #[cfg(test)]
         if test_dial::refused() {
+            if test_dial::host_key_refused() {
+                let reason = ssh_errors::reason(b"Host key verification failed.");
+                self.note_ssh_failure(reason);
+                return Err(ssh_errors::describe("ssh to box failed (test)".into(), reason));
+            }
             if test_dial::login_refused() {
                 let reason =
                     ssh_errors::reason(b"leo@box: Permission denied (publickey,password).");
@@ -710,14 +730,24 @@ impl Peer {
                 >,
             >,
         > = None;
-        // Dial a replacement for a link silent `$silent` while it still reads. The hub dial in it
-        // skips a kept circuit as silent (`REPLACING_SILENT`): that circuit is the stalled one.
+        // Dial a replacement for a link silent `$silent` of its `$silence` budget while it still
+        // reads. The hub dial in it skips a kept circuit as silent (`REPLACING_SILENT`): that
+        // circuit is the stalled one. Past the budget it gets a probe's wait (`probe_wait`: 2 s,
+        // or this peer's measured round trip): a peer that answers opens one by then (#56587's
+        // blackout is over), and a dead or stopped host never does, so its link drops at 8 s,
+        // not twice the budget (12 s, fleet-recovery-bench N=100 detect 10.4 s, p50 12.4 s).
         macro_rules! dial_replacement {
-            ($silent:expr, $why:expr) => {{
-                let silent: Duration = $silent;
+            ($silent:expr, $silence:expr, $why:expr) => {{
+                let (silent, silence): (Duration, Duration) = ($silent, $silence);
                 tracing::info!(peer = %self.name, "silent {}ms, {}; dialing a replacement while this link still reads", silent.as_millis(), $why);
                 let gate = crate::peer_dial_gate::global();
-                replacing = Some(Box::pin(gate.pass(self.is_wanted(), crate::peer_link::jitter(), REPLACING_SILENT.scope(silent, self.open_first()))));
+                let within = silence.saturating_sub(silent) + self.probe_wait();
+                let dial = gate.pass(self.is_wanted(), crate::peer_link::jitter(), REPLACING_SILENT.scope(silent, self.open_first()));
+                replacing = Some(Box::pin(async move {
+                    tokio::time::timeout(within, dial).await.unwrap_or_else(|_| {
+                        Err(format!("the peer did not answer it within {}ms", within.as_millis()))
+                    })
+                }));
                 replacing_since = Some(std::time::Instant::now());
                 heard_while_replacing = false;
             }};
@@ -731,6 +761,7 @@ impl Peer {
                 if replacing.is_none() && self.may_replace() {
                     dial_replacement!(
                         silent,
+                        silence,
                         format!(
                             "past its {}ms replace setting",
                             timings.replace_at(silence).as_millis()
@@ -748,7 +779,11 @@ impl Peer {
                     ($silent, $silence, $now);
                 let cap = silence.saturating_mul(2);
                 if replacing.is_none() && silent < cap && self.may_replace() {
-                    dial_replacement!(silent, format!("past its {}s budget", silence.as_secs()));
+                    dial_replacement!(
+                        silent,
+                        silence,
+                        format!("past its {}s budget", silence.as_secs())
+                    );
                 }
                 if replacing.is_some() && silent < cap {
                     silence_due = Some(now + (cap - silent));
@@ -837,6 +872,12 @@ impl Peer {
         // Each chat's last row this link heard, which the peer's patches apply to
         // (`peer_row_patch.rs`): the peer forgets what it sent at each `initialize`, so this does too.
         let mut held_rows = crate::peer_row_patch::HeldRows::default();
+        // Attach baselines and live presence are ordered on this reader, not on the tasks
+        // awaiting replies. A late attach cannot replace a live snapshot already read.
+        let _ = self
+            .notices
+            .send((self.name.clone(), self.generation, PeerNotice::PresenceReset { link }))
+            .await;
         // A reply to this daemon's request: a watch list's (`watch_key`) is published here, before
         // the next frame is read.
         macro_rules! watch_reply {
@@ -928,7 +969,7 @@ impl Peer {
                 let (id, params): (Value, Option<Value>) = ($id, $params);
                 // Refused here, before anything is spawned, unless this Mac lends the peer
                 // GitHub, the handshake on this link finished, and a slot is free.
-                let admitted = crate::github_broker::admit_owner(&self.name, self.github_ready(link), &self.github_slots);
+                let admitted = crate::github_broker::admit_owner(&self.name, self.github_ready(link), &self.github_slots, params.as_ref().unwrap_or(&Value::Null));
                 match admitted {
                     Ok(slot) => self.serve_github_action(id, params.unwrap_or(Value::Null), slot, link),
                     Err(e) => {
@@ -1255,6 +1296,20 @@ impl Peer {
                                 continue;
                             };
                             let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
+                            if let Ok(page) = &reply
+                                && let Some(params) = attach_presence_baseline(page)
+                            {
+                                let mut params = params;
+                                params.as_object_mut().map(|object| object.insert(
+                                    crate::hub::presence::BASELINE_MARKER.into(), Value::Bool(true),
+                                ));
+                                let notice = PeerNotice::Notification {
+                                    method: method::MUX_PRESENCE.to_owned(), params, link,
+                                };
+                                if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
+                                    break Ok(LinkEnd::Stopped);
+                                }
+                            }
                             // A watch sent with `initialize` waits for the handshake to read that
                             // reply, and the changes after it wait with it (`paged`).
                             if self.pipelined_key.lock_or_recover().as_deref() == Some(key.as_str()) {
@@ -1613,4 +1668,13 @@ async fn pending_or<F: std::future::Future + Unpin>(fut: &mut Option<F>) -> F::O
         Some(fut) => fut.await,
         None => std::future::pending().await,
     }
+}
+
+/// Only the first snapshot on a link supplies an attach baseline. Later live frames win,
+/// including a withdrawal read before an older attach reply reaches its waiting task.
+fn attach_presence_baseline(page: &Value) -> Option<Value> {
+    let note = page.get("presence")?;
+    note.get("sessionId")?.as_str()?;
+    note.get("participants")?.as_array()?;
+    Some(note.clone())
 }

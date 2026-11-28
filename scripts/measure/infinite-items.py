@@ -227,6 +227,10 @@ def file_groups(disks):
     return groups
 
 
+# The kernel's own mappings in a process: what smaps_kinds files as "vdso".
+KERNEL_MAPPINGS = {"[vdso]", "[vvar]", "[vsyscall]", "[uprobes]"}
+
+
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
     where a role's per-process memory sits. Anonymous memory is split three ways: a thread's stack (the mapping
@@ -245,7 +249,11 @@ def smaps_kinds(pid):
                             "arena" if start % (64 << 20) == 0 else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
                             "stack" if path.startswith("[stack") else anon if not path else
-                            "vdso" if path.startswith("[") else "file:" + os.path.basename(path))
+                            "vdso" if path in KERNEL_MAPPINGS or path.startswith("[vvar") else
+                            # A named anonymous mapping (`[anon:NAME]`, prctl PR_SET_VMA_ANON_NAME): an
+                            # allocator's heap, mimalloc's arenas above all, not the kernel's pages.
+                            "heap:" + path[6:-1] if path.startswith("[anon:") else
+                            anon if path.startswith("[") else "file:" + os.path.basename(path))
                     prev_end, prev_guard = end, not path and head[1].startswith("---")
                 elif head and head[0] == "Pss:" and name:
                     kinds[name] = kinds.get(name, 0) + int(head[1])
@@ -417,12 +425,11 @@ class Run:
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
         if self.args.evict_idle_secs is not None:
             env["ACPMUX_EVICT_IDLE_SECS"] = str(self.args.evict_idle_secs)
-        # Lazy start under test (cmux-tui mux/terminal_respawn/lazy.rs, CMUX_TUI_LAZY_START, off by default),
-        # never the caller's: with it on, a plain shell created in a workspace no client shows, and a lost one
-        # restored there, gets no shell or terminal host until its first need.
-        env.pop("CMUX_TUI_LAZY_START", None)
-        if self.args.lazy_start == "on":
-            env["CMUX_TUI_LAZY_START"] = "1"
+        # Lazy start under test (cmux-tui mux/terminal_respawn/lazy.rs, CMUX_TUI_LAZY_START, on by default in
+        # cmux-tui), never the caller's: with it on, a plain shell created in a workspace no client shows, and a
+        # lost one restored there, gets no shell or terminal host until its first need. Both arms set it
+        # explicitly, so "off" stays the all-live arm whatever the binary's default.
+        env["CMUX_TUI_LAZY_START"] = "1" if self.args.lazy_start == "on" else "0"
         # The caller's cap never leaks into an arm that did not ask for one.
         env.pop("ACPMUX_RESIDENT_CAP", None)
         if self.args.resident_cap:
@@ -666,6 +673,21 @@ class Run:
               f"{json.dumps(out)}", flush=True)
         return out
 
+    def heap_profile(self):
+        """--heap-profile: a dhat-heap acpmux (ACPMUX_DHAT_OUT) writes its profile now, after the last sample, and
+        answers its live bytes then and at the peak (`_acpmux/heap_profile`): a daemon stopped by a signal can be
+        killed before it writes. Prints INFINITE-HEAPPROFILE."""
+        try:
+            c = Acp(self.acp_sock, timeout=600)
+            out = c.call("_acpmux/heap_profile", {})
+            c.close()
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.error("heap profile", exc)
+            return
+        chats = len([x for x in getattr(self, "sessions", []) if x])
+        print(f"INFINITE-HEAPPROFILE {self.count} cap={self.args.resident_cap} chats={chats} {json.dumps(out)}",
+              flush=True)
+
     @staticmethod
     def drain(conn):
         try:
@@ -865,6 +887,12 @@ def run_count(args, count):
     result = {"count": count, "samples": []}
     try:
         run.start()
+        if args.heap_profile_at:
+            # A dhat-heap acpmux records slowly (job 0ce0131a: 1,000 chats not open after 28 min): past the
+            # deadline it writes what it holds so far rather than nothing when the job's cap kills it.
+            timer = threading.Timer(max(0.0, args.heap_profile_at - time.time()), run.heap_profile)
+            timer.daemon = True
+            timer.start()
         settle(args, run.top)
         empty = idle_window(run.top, args.window, run.disks)
         result["empty"] = empty
@@ -898,6 +926,8 @@ def run_count(args, count):
                 dhat_mark(number)
         if args.open_probe > 0:
             result["open_ms"] = run.open_probe(args.open_probe)
+        if args.heap_profile:
+            run.heap_profile()
     finally:
         result["errors"] = run.errors
         run.stop()
@@ -1024,12 +1054,16 @@ def main():
                    help="start cmux-tui with --freeing-idle-seconds N: the daemon's own freeing timer parks every "
                         "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, off by "
                         "default), with no park-tabs request; 0 (default) leaves it off")
-    p.add_argument("--lazy-start", choices=("off", "on"), default="off",
+    p.add_argument("--lazy-start", choices=("off", "on"), default="on",
                    help="CMUX_TUI_LAZY_START for cmux-tui: on, a never-shown plain shell (new-workspace, new-tab, "
                         "create-terminal in a workspace no client shows) gets no shell or host until its first need "
-                        "(show, input, attach); off (default) is the product default")
+                        "(show, input, attach); on (default) is the product default; off is the all-live arm")
     p.add_argument("--dhat-mark-days", default="",
                    help="days after whose sample a dhat-heap cmux-tui ends a heap window (comma list; heap_profile.rs)")
+    p.add_argument("--heap-profile", action="store_true",
+                   help="after the last sample, ask a dhat-heap acpmux to write its profile (_acpmux/heap_profile)")
+    p.add_argument("--heap-profile-at", type=float, default=0.0,
+                   help="a Unix time at which to ask for the heap profile even if the run has not ended (dhat is slow)")
     p.add_argument("--out")
     args = p.parse_args()
     args.dhat_mark_days = sorted({int(d) for d in args.dhat_mark_days.split(",") if d})

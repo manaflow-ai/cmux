@@ -35,9 +35,10 @@
 //!    `~/Projects/checkouts`), the chat's subfolder checked out in it; any other folder under the
 //!    home is made at the same path under the target's home; `--cwd` names it outright. With
 //!    `--carry-changes` the checkout's uncommitted work is read once the branch is pushed and
-//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` has
-//!    nowhere to push: its branches and tags go as a `git bundle` over the move's ssh and become
-//!    a fresh repository at the same path under the target's home (`BUNDLE_SCRIPT`,
+//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` (or one
+//!    that is not an owner/name remote) has nowhere to push: its branches and tags go as a `git
+//!    bundle` over the move's ssh and become a fresh repository at the same path under the
+//!    target's home (`BUNDLE_SCRIPT`,
 //!    `UNBUNDLE_SCRIPT`), with no remote added anywhere; its changes go the same way.
 //! 5. The rest of the move is `session transfer`'s (`transfer.rs`, `hub/transfer_out.rs`), with
 //!    the target daemon's own local socket reached through an `ssh -L` forward
@@ -975,7 +976,7 @@ async fn move_steps(
                 sub_text(subdir)
             ),
             Folder::Bundle { top, branch, subdir, .. } => format!(
-                "{top} on {branch}{} (no origin to push to: its branches go as a git bundle)",
+                "{top} on {branch}{} (no owner/name origin to push to: its branches go as a git bundle)",
                 sub_text(subdir)
             ),
         });
@@ -1171,8 +1172,9 @@ async fn prepare(
         base = Some((commit, *dirty, c.top.clone()));
     }
     if let Some((commit, dirty, top)) = base {
-        if dirty && args.carry_changes {
-            // Read after the freeze and the push: what the agent left, against what was pushed.
+        if args.carry_changes {
+            // Read after the freeze and push even when display status looks clean:
+            // submodule.<name>.ignore can hide work the carry must refuse.
             let read = tokio::task::spawn_blocking({
                 let (top, ssh) = (top.clone(), source.ssh().map(str::to_owned));
                 move || match ssh {
@@ -1229,7 +1231,9 @@ async fn prepare(
         .await;
     }
     let there = there??;
-    if let Some(carry) = carry.filter(|c| !c.patch.is_empty()) {
+    if let Some(carry) = carry.filter(|c| {
+        !c.patch.is_empty() || !c.staged_patch.is_empty() || !c.intent_to_add.is_empty()
+    }) {
         tokio::task::spawn_blocking({
             let (host, there) = (target.ssh.clone(), there.clone());
             move || apply_carry(&host, &there, &carry)
@@ -1381,7 +1385,7 @@ fn push_branch_on(ssh: &str, top: &Path, dest: &str) -> Result<String> {
 /// Applies `carry` in the chat's new folder `there` on the ssh host `host` (this machine when
 /// empty), through [`carry::APPLY_SCRIPT`].
 fn apply_carry(host: &str, there: &str, carry: &Carry) -> Result<()> {
-    let input = carry::apply_input(there, carry);
+    let input = carry::apply_input(there, carry)?;
     let out = if host.is_empty() {
         run_here(carry::APPLY_SCRIPT, &input)?
     } else {

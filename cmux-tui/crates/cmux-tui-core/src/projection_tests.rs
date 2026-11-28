@@ -742,3 +742,21 @@ fn a_head_dial_holds_the_barrier_at_head_ready_until_the_extend() {
         crate::platform::workspace_state_dir().unwrap().join("projections").join("test-extend");
     let _ = std::fs::remove_dir_all(&state);
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_swap_link_out_of_the_served_home_keeps_the_projected_git() {
+    let home = Path::new("/h/me");
+    let at = Path::new("/h/me/work/chats/c/app");
+    // The default state folder is under HOME: fs-v1 follows the link.
+    assert!(swap_link_served(
+        at,
+        Path::new("/h/me/.local/state/cmux-tui/projections/c"),
+        Some(home)
+    ));
+    // A state folder outside HOME: fs-v1 would refuse `.git/cmux-sync.json`, so no swap.
+    assert!(!swap_link_served(at, Path::new("/var/state/projections/c"), Some(home)));
+    // A folder fs-v1 does not serve, or no HOME: nothing to refuse.
+    assert!(swap_link_served(Path::new("/srv/app"), Path::new("/var/state/p"), Some(home)));
+    assert!(swap_link_served(at, Path::new("/var/state/p"), None));
+}

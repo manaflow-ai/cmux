@@ -59,3 +59,40 @@ fn the_encoders_ask_for_tcp() {
     answer[1] = 129; // a UDP answer is not this mapping's
     assert_eq!(natpmp_map_answer(&answer, 40123), None);
 }
+
+/// Every parser reads a short or empty packet (or route dump) as nothing, never a panic:
+/// the gateway, or anything answering from its address, chooses the bytes.
+#[test]
+fn short_answers_read_as_nothing() {
+    let mut pcp = pcp_request(Ipv4Addr::new(192, 168, 1, 5), [7; 12], 40123, 60);
+    pcp[1] = 0x80 | PCP_MAP;
+    assert!(pcp_answer(&pcp, &[7; 12], 40123).is_some());
+    let mut natpmp = [0u8; 16];
+    natpmp[1] = 130;
+    natpmp[8..10].copy_from_slice(&40123u16.to_be_bytes());
+    let mut address = [0u8; 12];
+    address[1] = 128;
+    address[8..12].copy_from_slice(&[203, 0, 113, 7]);
+    assert_eq!(natpmp_address_answer(&address), Some(Ipv4Addr::new(203, 0, 113, 7)));
+    let mut error = [0u8; 4];
+    error[1] = 0x80 | PCP_MAP;
+    error[3] = 1;
+    assert!(refused(&pcp_request(Ipv4Addr::LOCALHOST, [0; 12], 1, 1), &error));
+    for len in 0..pcp.len() {
+        assert_eq!(pcp_answer(&pcp[..len], &[7; 12], 40123), None, "pcp at {len}");
+    }
+    for len in 0..natpmp.len() {
+        assert_eq!(natpmp_map_answer(&natpmp[..len], 40123), None, "nat-pmp at {len}");
+    }
+    for len in 0..address.len() {
+        assert_eq!(natpmp_address_answer(&address[..len]), None, "address at {len}");
+    }
+    for len in 0..error.len() {
+        assert!(!refused(&[0, PCP_MAP], &error[..len]), "refusal at {len}");
+    }
+    assert!(!refused(&[], &error));
+    for header in [0, 4, 16, 92] {
+        assert_eq!(rt_dump_gateway(&[], header), None);
+        assert_eq!(rt_dump_gateway(&[200, 0, 0, 0], header), None);
+    }
+}

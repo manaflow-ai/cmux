@@ -338,6 +338,7 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
             stubs = {
                 "scripts/ci/ensure-system-chrome.sh":
                     '#!/bin/sh\nprintf "CMUX_CHROME_HEADLESS_SHELL=%s\\n" "$TEST_BROWSER" >> "$GITHUB_ENV"\n',
+                "scripts/ci/pin-browser-test-font.sh": "#!/bin/sh\nexit 0\n",
                 "bin/git": '#!/bin/sh\nprintf "%s\\n" "$GITHUB_WORKSPACE"\n',
                 "bin/bun": '#!/bin/sh\nif [ "$1" = health.ts ]; then\n'
                     '  printf "%s\\n" "${CMUX_CHROME_HEADLESS_SHELL:-chrome}" >> "$TEST_LAUNCHES"\nfi\n',
@@ -616,6 +617,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         touched = {"all": False, "entries": ["a"], "reasons": {"a": [
             "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/cancelled.json"]}}
         for path in ("Resources/ghostty/themes/Token Dark", "webviews/bun.lock", "scripts/ci/test_reds.py",
+                     "scripts/ci/pin-browser-test-font.sh",
                      "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"):
             self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [path])
         # An imported fixture renders only the entries that import it; an unreached webviews/src file and an

@@ -74,10 +74,8 @@ fn is_git_pack(path: &str) -> bool {
         })
 }
 
-/// The most files one readahead batch asks for.
-const BATCH_FILES: usize = 256;
-/// The most bytes one readahead batch asks for.
-const BATCH_BYTES: u64 = 16 * 1024 * 1024;
+/// The most files one readahead batch asks for, by default ([`crate::tune::readahead_files`]).
+const BATCH_FILES: usize = crate::tune::DEFAULT_READAHEAD_FILES;
 /// The most entries one readahead pick looks at, skipped ones included, so a fault never walks a
 /// big folder for nothing.
 const BATCH_SCAN: usize = 4096;
@@ -345,6 +343,15 @@ fn load_restated(file: &Path) -> HashMap<u32, (Restat, u64)> {
         .collect()
 }
 
+/// The names in `inos` that start with `prefix` (a folder's `<path>/`), in order: they sort
+/// together, so the walk starts at the prefix and stops at the first name past it.
+fn names_below(inos: &BTreeMap<String, u64>, prefix: &str) -> Vec<(String, u64)> {
+    inos.range::<str, _>((std::ops::Bound::Included(prefix), std::ops::Bound::Unbounded))
+        .take_while(|(path, _)| path.starts_with(prefix))
+        .map(|(path, ino)| (path.clone(), *ino))
+        .collect()
+}
+
 /// Where a path lives now.
 enum Node {
     Upper(Stat),
@@ -357,7 +364,9 @@ struct Inner {
     /// Numbers whose path is not the manifest's own: upper-only paths, lower paths moved by a
     /// rename, and a hard-linked file's surviving name.
     paths: HashMap<u64, String>,
-    inos: HashMap<String, u64>,
+    /// Ordered, so a rename finds the names below the moved path by one range walk
+    /// ([`names_below`]), not a walk of every upper-only name (a build tree holds 100k).
+    inos: BTreeMap<String, u64>,
     /// The number of each upper file (by device and inode), so every name of a hard-linked file
     /// and a lower file copied up keep one number.
     by_upper: HashMap<(u64, u64), u64>,
@@ -597,7 +606,8 @@ fn marked(manifest: &Lower, folder: u32) -> bool {
 /// a project (its sources) are left for their own faults, as most are never read.
 ///
 /// `skip` names what is not to be read (a hidden path, and for a file a cached one); a skipped
-/// folder is not looked into. The faulting file's size counts against [`BATCH_BYTES`], the batch
+/// folder is not looked into. The faulting file's size counts against
+/// [`crate::tune::readahead_bytes`], the batch
 /// holds at most [`BATCH_FILES`] files with the faulting one, and a pick looks at most
 /// [`BATCH_SCAN`] entries. Each folder is looked into once, so no file is picked twice.
 fn read_ahead(manifest: &Lower, index: u32, skip: impl Fn(u32, &Entry) -> bool) -> Vec<u32> {
@@ -639,7 +649,7 @@ struct Pick<'a, F> {
 
 impl<F: Fn(u32, &Entry) -> bool> Pick<'_, F> {
     fn full(&self) -> bool {
-        self.picked.len() + 1 >= BATCH_FILES || self.scanned >= BATCH_SCAN
+        self.picked.len() + 1 >= crate::tune::readahead_files() || self.scanned >= BATCH_SCAN
     }
 
     /// Looks at the children of `folder` in name order and takes its small files.
@@ -655,7 +665,7 @@ impl<F: Fn(u32, &Entry) -> bool> Pick<'_, F> {
             if child.kind == Kind::File
                 && other != self.index
                 && child.size <= CHUNK
-                && self.bytes + child.size <= BATCH_BYTES
+                && self.bytes + child.size <= crate::tune::readahead_bytes()
             {
                 self.bytes += child.size;
                 self.picked.push(other);
@@ -2453,12 +2463,7 @@ impl Overlay {
     fn move_names(&self, from: &str, to: &str, moved: u64) {
         let mut inner = self.lock();
         let prefix = format!("{from}/");
-        let below: Vec<(String, u64)> = inner
-            .inos
-            .iter()
-            .filter(|(path, _)| path.starts_with(&prefix))
-            .map(|(path, ino)| (path.clone(), *ino))
-            .collect();
+        let below = names_below(&inner.inos, &prefix);
         inner.inos.remove(from);
         inner.paths.insert(moved, to.to_owned());
         inner.inos.insert(to.to_owned(), moved);
@@ -2643,6 +2648,10 @@ pub use extend::Extended;
 #[cfg(test)]
 #[path = "overlay_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "overlay_names_tests.rs"]
+mod names_tests;
 
 #[cfg(test)]
 #[path = "remanifest_tests.rs"]

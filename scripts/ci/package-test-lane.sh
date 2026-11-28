@@ -299,8 +299,6 @@ PY
 # compile only on Apple platforms run in auth-refresh-tests.yml on a Mac.
 select_packages() {
   PACKAGES=(
-    CmuxIrohTransport
-    CmuxIrxTransport
     CmuxUpdater
     CmuxHomeRender
     CmuxMobileBilling
@@ -657,7 +655,7 @@ run_package_tests() {
     # share global process resources (CmuxPushRegistration: its URLProtocol
     # stubs, as when it was part of CmuxAuthRuntime); run each suite in its
     # own Swift Testing process.
-    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport|CmuxPushRegistration)
+    CmuxAuthRuntime|CmuxPushRegistration)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
     *)
@@ -829,6 +827,14 @@ expand_each_filters() {
   SWIFT_BACKTRACE=enable=no python3 scripts/ci/run_with_timeout.py --timeout-seconds "${CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS:-300}" \
     -- swift test list ${configuration[@]+"${configuration[@]}"} --package-path "$package" --skip-build \
     < /dev/null > "$list" 2> "$discovery_log" || discovery_status=$?
+  # A toolchain/SDK mismatch first shows in discovery, whatever its exit: name it, as the test step does, before
+  # its lines read as "unrecognized Swift test discovery record" (base run 46008833629).
+  if cat "$list" >> "$discovery_log" && toolchain_mismatch "$discovery_log" "$package (swift test list)"; then
+    cat "$discovery_log" >&2
+    [ "$discovery_status" -ne 0 ] || discovery_status=1
+    record_suite_outcome discovery "$discovery_status" "$discovery_log"
+    exit "$discovery_status"
+  fi
   if [ "$discovery_status" -ne 0 ]; then
     cat "$discovery_log" >&2
     exit "$discovery_status"

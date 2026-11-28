@@ -353,7 +353,7 @@ impl Peer {
     /// The paths this peer has, before any is dialed.
     pub(super) fn path_vias(&self) -> Vec<Via> {
         let mut vias: Vec<Via> =
-            direct_via(self.wireguard.get().is_some(), self.link_host.get().is_some())
+            direct_via(self.wireguard_route().is_some(), self.link_host.get().is_some())
                 .into_iter()
                 .collect();
         vias.push(if self.ssh_parts().is_some() { Via::Ssh } else { Via::Url });
@@ -592,9 +592,9 @@ impl Peer {
         match via {
             Via::Wireguard => {
                 let (transport, address) =
-                    self.wireguard.get().ok_or_else(|| "no WireGuard route".to_owned())?;
+                    self.wireguard_route().ok_or_else(|| "no WireGuard route".to_owned())?;
                 let stream = transport
-                    .connect(*address)
+                    .connect(address)
                     .await
                     .map_err(|e| DialError::new(fail_of_chain(&e), e.to_string()))?;
                 Ok((Box::new(stream), format!("ws://localhost:{}", address.port())))
@@ -801,6 +801,9 @@ impl Peer {
         mut ssh_tokens: Option<(tokens::Tokens, bool)>,
     ) -> Result<Opened, DialError> {
         let mut restarted = false;
+        // The forward was refused once and the machine's listener record read again: at most
+        // one more tunnel per connect, to the port it names.
+        let mut repointed = false;
         loop {
             // A first connect with nothing read: the tunnel logs in first and the read rides its
             // master (`peer_ssh_master.rs`). A later one (a redial, a restarted remote that may not
@@ -905,6 +908,20 @@ impl Peer {
                 }
             }
             let reason = errors.finish().await;
+            // ssh logged in but nothing listens at the port it forwarded to: the machine's daemon
+            // may serve on another one (its port was taken as it started). Read its record and,
+            // when it names another port, dial that now, with the same tokens.
+            if reason == Some(ssh_errors::FORWARD_REFUSED) && !repointed {
+                repointed = true;
+                if let Some(moved) = self.reread_listener(remote_port).await
+                    && !self.stop.load(Ordering::SeqCst)
+                {
+                    tracing::info!(peer = %self.name, from = remote_port, to = %moved,
+                        "the machine's daemon listens on another port; dialing it");
+                    ssh_tokens = Some(((token, peer_token), kept));
+                    continue;
+                }
+            }
             // A WebSocket timeout can be specific to one remote daemon. OpenSSH's
             // transport keepalives retire a dead master without ending healthy siblings.
             self.note_ssh_failure(reason);

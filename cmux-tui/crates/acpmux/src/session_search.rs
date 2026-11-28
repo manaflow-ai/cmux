@@ -254,11 +254,15 @@ pub(crate) fn search_messages(
         {
             return;
         }
+        // A peer's text is matched as masked: the mask's labels are words too.
         let text = if view == TextView::PeerConversation {
             crate::secret_scan::mask(&entry.text)
         } else {
             entry.text
         };
+        if !query.needle.may_match(&text) {
+            return;
+        }
         let flat = flatten(&text);
         if let Some(at) = query.needle.find(&flat) {
             if hits.len() >= query.limit {
@@ -291,3 +295,7 @@ pub(crate) fn search_messages(
 #[cfg(test)]
 #[path = "session_search_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "session_search_bench_tests.rs"]
+mod bench_tests;

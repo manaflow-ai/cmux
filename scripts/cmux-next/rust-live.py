@@ -87,8 +87,8 @@ APP_OWNER_SECS = 35
 # package -> (binary cargo builds, the name the app bundles it under)
 DAEMONS = {"cmux-tui": ("cmux-tui", "cmux-tui"), "acpmux": ("acpmux", "cmux-tui-acpmux")}
 # The measurement's one-line edit: a field in the daemon's `identify` answer,
-# in cmux-tui-core (a library crate, not the binary's own).
-EDIT_FILE = "cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"
+# which lives in the cmux-tui binary crate, a leaf (cmux-tui-core server/identify_reply.rs).
+EDIT_FILE = "cmux-tui/crates/cmux-tui/src/bin/cmux-tui/identify.rs"
 EDIT_ANCHOR = '        "daemon_handoff": 1,\n'
 
 
@@ -546,7 +546,9 @@ class Builder:
                 if result.returncode != 0:
                     raise RuntimeError(f"strip on {self.host}: {result.stderr.strip()}")
                 source = f"{self.host}:{built_file}.live"
-                result = run(["rsync", "-z", "-e", rsh, source, str(staged)])
+                # No -z: the delta is a few hundred KB, but zlib still reads all 263 MB, which took
+                # 13.7 s of a 1 s copy (scripts/measure/rust-live-fetch.py, 2026-11-27).
+                result = run(["rsync", "-e", rsh, source, str(staged)])
                 if result.returncode != 0:
                     raise RuntimeError(f"rsync from {self.host}: {result.stderr.strip()}")
             else:

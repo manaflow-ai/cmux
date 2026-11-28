@@ -47,6 +47,7 @@
           "tests/test_egress_gate.py",
           "tests/test_outbound_hosts.py",
           "tests/test_classic_cloud_routes.py",
+          "tests/guard_delta.py",
           "backend/apps/api/"
         ],
         "push_cover": [

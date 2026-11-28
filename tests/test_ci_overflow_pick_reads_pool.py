@@ -48,11 +48,10 @@ PICK = re.compile(
 
 # workflow file -> Linux jobs that still pick one Blacksmith size. Never raise a count.
 PICKS: dict[str, int] = {
-    "actions-artifact-prune.yml": 1,
+    "storage-maintenance.yml": 7,
     "app-ffi-release.yml": 3,
     "backend.yml": 1,
     "chief-evals.yml": 1,
-    "ci-artifact-canary.yml": 1,
     "ci-compile-attribution.yml": 1,
     "ci-health-report.yml": 1,
     "ci-macos.yml": 2,
@@ -126,12 +125,8 @@ PICKS: dict[str, int] = {
     "macos-cross-parity.yml": 1,
     "merge-group-policy-checks.yml": 2,
     "pr-checks.yml": 4,
-    "pr-media-prune.yml": 1,
     "pr-red-checks-comment.yml": 1,
     "presence.yml": 2,
-    "r2-binaries-prune.yml": 1,
-    "r2-cache-prune.yml": 1,
-    "r2-storage-census.yml": 3,
     "relay-publish-npm.yml": 1,
     "release-rails.yml": 2,
     "release.yml": 2,
