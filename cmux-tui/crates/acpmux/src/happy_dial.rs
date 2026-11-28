@@ -168,9 +168,21 @@ pub async fn connect_ws(request: impl IntoClientRequest) -> Result<(Socket, Resp
         _ => return Err(WsError::Url(UrlError::UnsupportedUrlScheme)),
     };
     let tcp = connect_tcp(&host, port).await.map_err(WsError::Io)?;
-    // The platform's roots, read once per process, not at every connect.
-    let tls = cmux_hub_host::net::native_tls_config().map(tokio_tungstenite::Connector::Rustls);
-    tokio_tungstenite::client_async_tls_with_config(request, tcp, None, tls).await
+    tokio_tungstenite::client_async_tls_with_config(request, tcp, None, tls_connector()).await
+}
+
+/// The platform's roots as a WebSocket TLS connector, read once per process.
+///
+/// cmux-hub-host is a unix-only dependency (Cargo.toml); elsewhere (the Windows
+/// check build) `None` lets tokio-tungstenite build its default connector.
+#[cfg(unix)]
+pub(crate) fn tls_connector() -> Option<tokio_tungstenite::Connector> {
+    cmux_hub_host::net::native_tls_config().map(tokio_tungstenite::Connector::Rustls)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn tls_connector() -> Option<tokio_tungstenite::Connector> {
+    None
 }
 
 /// reqwest's resolver for the daemon's HTTP clients: the system lookup, then [`interleave`].
