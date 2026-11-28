@@ -1,37 +1,84 @@
 #if canImport(UIKit)
+import AVFoundation
+import CoreMedia
 import UIKit
 import WebRTC
 
-/// The streamed screen on iOS: libwebrtc's Metal renderer (hardware-decoded
-/// frames go straight to the GPU). `onSize` reports the video's pixel size.
+/// The streamed screen on iOS. `onSize` reports the video's pixel size.
+///
+/// Two renderers, chosen once per view by ``usesSampleBufferLayer``:
+/// - libwebrtc's `RTCMTLVideoView` (the default): hardware-decoded frames go to the GPU, drawn by its
+///   `MTKView` on the main thread's display link.
+/// - An `AVSampleBufferDisplayLayer` fed from the decode thread (the macOS path, ``SampleBufferSink``),
+///   behind a flag until it is tested on a real iPhone. The fleet iphone-sim eval at c443ab92 measured
+///   42 ms decode to present (p50) through the Metal view: it drew 230 times while the display ticked
+///   449 times, so a decoded frame waited on the main thread's draw loop. The layer shows a frame on
+///   the next refresh with no main-thread work.
 public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate {
     public var onSize: ((CGSize) -> Void)?
     /// Called on the main queue with each rendered frame's arrival time (perf).
     public var onFrame: (() -> Void)?
-    private let metal = RTCMTLVideoView(frame: .zero)
-    private let stamper: MetalStamper
+    /// Whether new views render through the sample buffer layer: `CMUX_MOBILE_SS_RENDERER=layer`
+    /// (or `metal`) in the environment, else the `cmux.screenShare.sampleBufferLayer` default (off).
+    public static var usesSampleBufferLayer: Bool {
+        switch ProcessInfo.processInfo.environment["CMUX_MOBILE_SS_RENDERER"] {
+        case "layer": true
+        case "metal": false
+        default: UserDefaults.standard.bool(forKey: "cmux.screenShare.sampleBufferLayer")
+        }
+    }
+
+    private let metal: RTCMTLVideoView?
+    private let display: AVSampleBufferDisplayLayer?
+    /// What the track feeds: ``MetalStamper`` in front of `metal`, or ``SampleBufferSink`` into `display`.
+    private let renderer: any RTCVideoRenderer
     private let tap = FrameTap()
     private var track: VideoTrackBox?
 
     public override init(frame: CGRect) {
-        stamper = MetalStamper(metal: metal)
-        super.init(frame: frame)
-        metal.videoContentMode = .scaleToFill
-        metal.delegate = self
-        metal.frame = bounds
-        metal.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        addSubview(metal)
+        if Self.usesSampleBufferLayer {
+            let display = AVSampleBufferDisplayLayer()
+            let sink = SampleBufferSink(renderer: display.sampleBufferRenderer)
+            self.metal = nil
+            self.display = display
+            renderer = sink
+            super.init(frame: frame)
+            display.videoGravity = .resize
+            display.backgroundColor = UIColor.black.cgColor
+            layer.addSublayer(display)
+            sink.onSize = { [weak self] size in DispatchQueue.main.async { self?.onSize?(size) } }
+        } else {
+            let metal = RTCMTLVideoView(frame: .zero)
+            self.metal = metal
+            self.display = nil
+            renderer = MetalStamper(metal: metal)
+            super.init(frame: frame)
+            metal.videoContentMode = .scaleToFill
+            metal.delegate = self
+            metal.frame = bounds
+            metal.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            addSubview(metal)
+        }
         tap.onFrame = { [weak self] in DispatchQueue.main.async { self?.onFrame?() } }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let display else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        display.frame = bounds
+        CATransaction.commit()
+    }
+
     public func attach(_ box: VideoTrackBox) {
-        track?.track.remove(stamper)
+        track?.track.remove(renderer)
         track?.track.remove(tap)
         track = box
-        box.track.add(stamper)
+        box.track.add(renderer)
         box.track.add(tap)
     }
 
@@ -40,7 +87,7 @@ public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate
     }
 
     deinit {
-        track?.track.remove(stamper)
+        track?.track.remove(renderer)
         track?.track.remove(tap)
     }
 }
@@ -140,6 +187,9 @@ public final class ScreenVideoView: NSView {
     }
 }
 
+#endif
+
+#if canImport(UIKit) || canImport(AppKit)
 /// libwebrtc's renderer callback (decode thread): each frame as a sample
 /// buffer for the display layer, shown at once. Frames are pushed, not
 /// pulled on a display link, and `DisplayImmediately` puts each one on the
@@ -229,9 +279,7 @@ private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sen
         return out
     }
 }
-#endif
 
-#if canImport(UIKit) || canImport(AppKit)
 /// Counts frames without rendering them.
 // crash-allow: `onFrame` is set once in the view's init, before the tap is attached to a track, and only read after.
 private final class FrameTap: NSObject, RTCVideoRenderer, @unchecked Sendable {
