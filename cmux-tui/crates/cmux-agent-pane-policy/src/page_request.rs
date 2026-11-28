@@ -73,13 +73,15 @@ pub fn is_cloud_environment_id(id: &str) -> bool {
 /// An editor id of cmux-window-rules' table (`vscode`, `rustrover`): 1 to 32 lowercase ASCII
 /// letters, digits or dashes, so it names a table row and carries nothing itself.
 pub fn is_editor_id(id: &str) -> bool {
-    (1..=32).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    (1..=32).contains(&id.len())
+        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// A page's one-time hand-off token (webviews commandPlace.ts: a UUID): 16 to 64 ASCII letters,
 /// digits and dashes, so it names a stored entry and carries nothing itself.
 pub fn is_handoff_token(token: &str) -> bool {
-    (16..=64).contains(&graphemes(token)) && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    (16..=64).contains(&graphemes(token))
+        && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 /// `action.run`'s `sessions`: Evacuate and Bring Back name 1...500 chats; a chat-list row's place
@@ -129,12 +131,15 @@ fn is_chief_id(chief: &str) -> bool {
 
 /// A harness id (a profile file name), never a command.
 fn is_harness_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 128 && id.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    !id.is_empty()
+        && id.len() <= 128
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
 }
 
 /// One of the store's session ids (`SESSION` in backend handoffs/routes.ts).
 fn is_store_session(id: &str) -> bool {
-    (1..=128).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+    (1..=128).contains(&id.len())
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
 /// A folder the app may run in: absolute and at most [`MAXIMUM_PATH`] bytes, else none.
@@ -202,7 +207,8 @@ fn bare(name: &str) -> Option<Value> {
 
 /// The answer to one page request; `None` refuses it (`unsupported`).
 fn decode(method: &str, p: &Params) -> Option<Option<Value>> {
-    let session_id = |key: &str, limit: usize| p.text(key).filter(|s| !s.is_empty() && graphemes(s) <= limit);
+    let session_id =
+        |key: &str, limit: usize| p.text(key).filter(|s| !s.is_empty() && graphemes(s) <= limit);
     let chat_key = |key: &str| p.text(key).filter(|k| k.contains(':') && graphemes(k) <= 512);
     let answer = match method {
         "ready" => bare(if p.on("reconnect") { "reconnect" } else { "ready" }),
@@ -487,11 +493,14 @@ fn decode(method: &str, p: &Params) -> Option<Option<Value>> {
 fn run_action(p: &Params) -> Option<Value> {
     let id = p.text("id").filter(|id| !id.is_empty() && graphemes(id) <= 128)?;
     let session = p.optional("session", |s| !s.is_empty() && graphemes(s) <= 256)?;
-    let environment = p.optional("environment", |e| id == "newCloudMachine" && is_cloud_environment_id(e))?;
+    let environment =
+        p.optional("environment", |e| id == "newCloudMachine" && is_cloud_environment_id(e))?;
     let handoff = p.optional("handoff", |h| id == "palette.newCloudChat" && is_handoff_token(h))?;
     let app = p.optional("app", |a| EDITOR_ACTIONS.contains(&id) && is_editor_id(a))?;
-    let mode = p.optional("mode", |m| id == "chatPlace.set" && ["local", "cloud", "auto"].contains(&m))?;
-    let priority = p.optional("priority", |m| id == "chatPriority.set" && ["high", "normal"].contains(&m))?;
+    let mode =
+        p.optional("mode", |m| id == "chatPlace.set" && ["local", "cloud", "auto"].contains(&m))?;
+    let priority =
+        p.optional("priority", |m| id == "chatPriority.set" && ["high", "normal"].contains(&m))?;
     let cargo = ["chatPlace.set", "chatMove.retry"].contains(&id);
     let queued = match p.get("queued") {
         None => None,

@@ -190,6 +190,9 @@ impl Pane {
 ///   "busy"|"starting"|"down", "restart": bool}`, what the pane's line says
 ///   while it waits and whether it offers Restart agent service (only when
 ///   down) ([`crate::service_wait`]).
+/// - `page_request` `{method, params}`: `{"case": name|"unsupported"|null,
+///   ..fields}`, the request a page message asks the host for, its params
+///   checked ([`crate::page_request`]); null when the host decodes it itself.
 pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
     let text = |key: &str| request.get(key).and_then(Value::as_str);
     match op {
@@ -227,6 +230,7 @@ pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
             Ok(json!({"json": canonical_json(value)}))
         }
         "service_wait" => crate::service_wait::call(request).ok_or(ERR_INVALID),
+        "page_request" => crate::page_request::call(request).ok_or(ERR_INVALID),
         "session_routing" => crate::session_routing::call(request).ok_or(ERR_INVALID),
         // A pane's own op without a pane.
         op if PANE_OPS.contains(&op) => Err(ERR_NULL),
