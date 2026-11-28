@@ -1,8 +1,10 @@
 use super::*;
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
 
 /// A daemon on a unix socket that answers every method `{"ok": true}`, and
 /// `_acpmux/transfer_interrupts` with `interrupts` (None: an older acpmux, method not found).
+#[cfg(unix)]
 async fn holder(interrupts: Option<Value>) -> (tempfile::TempDir, std::sync::Arc<Client>) {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("d.sock");
@@ -36,6 +38,7 @@ async fn holder(interrupts: Option<Value>) -> (tempfile::TempDir, std::sync::Arc
     (dir, client)
 }
 
+#[cfg(unix)]
 fn v1() -> Value {
     json!({"schema": SCHEMA, "sessionId": "s1", "nothing": false,
            "lines": ["a running turn: it moves at its next tool call, or is cut with --interrupt",

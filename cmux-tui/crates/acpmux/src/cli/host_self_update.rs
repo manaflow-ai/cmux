@@ -550,39 +550,42 @@ pub(super) async fn prepare(
         None => NO_CONTROLLER.to_owned(),
         Some(ctl) => match ctl.marker(channel, paths.target).await {
             Err(why) => why,
-            Ok(marker)
+            Ok(marker) => {
                 if let Some(why) = feed
                     .as_ref()
                     .ok()
-                    .and_then(|f| f.revokes(&marker.sha256, Some(marker.commit.as_str()))) =>
-            {
-                format!("the marker names a revoked build ({why})")
-            }
-            Ok(marker) => {
-                let picked = Picked {
-                    source: Source::Controller,
-                    marker_skipped: None,
-                    kept_installed: None,
-                };
-                let sha = marker.sha256.clone();
-                let from = Origin::Controller(ctl);
-                match choose(paths, fetch, &downloads, installed.as_deref(), &sha, from).await? {
-                    Ok(Some(step)) => {
-                        return Ok(Prepared::Ready(Plan {
-                            commit: marker.commit,
-                            sha256: sha,
-                            step,
-                            rd,
-                            picked,
-                            allow_downgrade,
-                            revoked_installed,
-                            tui_source,
-                            dir: downloads.join(&marker.sha256),
-                            lease,
-                        }));
+                    .and_then(|f| f.revokes(&marker.sha256, Some(marker.commit.as_str())))
+                {
+                    format!("the marker names a revoked build ({why})")
+                } else {
+                    let picked = Picked {
+                        source: Source::Controller,
+                        marker_skipped: None,
+                        kept_installed: None,
+                    };
+                    let sha = marker.sha256.clone();
+                    let from = Origin::Controller(ctl);
+                    match choose(paths, fetch, &downloads, installed.as_deref(), &sha, from).await?
+                    {
+                        Ok(Some(step)) => {
+                            return Ok(Prepared::Ready(Plan {
+                                commit: marker.commit,
+                                sha256: sha,
+                                step,
+                                rd,
+                                picked,
+                                allow_downgrade,
+                                revoked_installed,
+                                tui_source,
+                                dir: downloads.join(&marker.sha256),
+                                lease,
+                            }));
+                        }
+                        Ok(None) => {
+                            return Ok(Prepared::RolledBackBefore(marker.commit, rd, picked));
+                        }
+                        Err(why) => why,
                     }
-                    Ok(None) => return Ok(Prepared::RolledBackBefore(marker.commit, rd, picked)),
-                    Err(why) => why,
                 }
             }
         },
