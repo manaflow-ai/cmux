@@ -7,7 +7,8 @@
 // ShimmerPacing.gallery.css (band width, lit and resting tones) under `data-pace`. Nothing here changes
 // the shipped default: the app never provides another cadence.
 import { componentEntry } from "../../../gallery/format";
-import { ShimmerCadenceContext, ShimmerText } from "./ShimmerText";
+import { ShimmerText } from "./ShimmerText";
+import { ShimmerCadenceContext } from "./shimmerEnabledContext";
 import { DEFAULT_SHIMMER_CADENCE, type ShimmerCadence } from "./shimmerCadence";
 
 type Pace = "current" | "word-band" | "mid-band" | "letter-band";

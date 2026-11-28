@@ -2,7 +2,7 @@
   "sourceLanguage" : "en",
   "strings" : {
     "composer.queueingOff" : {
-      "comment" : "Agent pane: item in a queued message's ⋯ menu; from then on a message sent while a turn runs goes into the turn (steers) instead of waiting in the queue, in every chat",
+      "comment" : "Agent pane: item in a queued message's right-click menu; from then on a message sent while a turn runs goes into the turn (steers) instead of waiting in the queue, in every chat",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
