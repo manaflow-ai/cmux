@@ -33,7 +33,7 @@ jobs:
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
     name: Record per-area bench baselines
     # The same label as pr-checks.yml's advisory job: a baseline is only comparable on its own machine class.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
     environment: next-cache-writer
     permissions:
