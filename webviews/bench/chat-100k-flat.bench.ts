@@ -897,10 +897,6 @@ try {
         // A launch of many chats profiles every page (the hidden ones too), and names the sites that ran by their
         // source, summed over the pages.
         const profiled = profile && round === 0 ? (count > 1 ? pages.map((p) => p.cdp) : [shownProfiler]) : [];
-        for (const cdp of profiled) {
-          await cdp.send("Profiler.enable");
-          await cdp.send("Profiler.start");
-        }
         const wakesFrom = WAKES ? { ...(await pageWakes()), switches: switches() } : undefined;
         // WAKES=1: the renderers' CPU in the window by thread name (main, compositor, V8 workers, ...), so a cost that
         // is not JavaScript (GC helpers, raster, IPC) is named too.
@@ -933,7 +929,18 @@ try {
             mutations: (to.mutations - wakesFrom.mutations) / IDLE_S,
           });
         }
+        // The profilers sample in a window of their own after the measured one: 20 pages each sampling its main
+        // thread read 17.1 % idle at 1k rows and 14.9 % at 100k (PROFILE=DIR, fast-checks runner, 8 CPUs), against
+        // 0.40 % for the same launch unprofiled (run 46135479092), which made long_x20.idle_cpu_ratio read 17x.
         if (profiled.length) {
+          for (const cdp of profiled) {
+            await cdp.send("Profiler.enable");
+            await cdp.send("Profiler.start");
+          }
+          const profiledPct = await window(IDLE_S);
+          console.log(
+            `  ${name}: profiled idle window ${profiledPct.toFixed(2)} % cpu (not a reading: the profilers' own cost)`,
+          );
           fs.mkdirSync(profile!, { recursive: true });
           const self = new Map<string, number>();
           const entries = new Map<string, number>();
