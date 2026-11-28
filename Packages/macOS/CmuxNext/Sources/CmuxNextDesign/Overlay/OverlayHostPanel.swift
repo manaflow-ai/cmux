@@ -4,7 +4,7 @@ public import AppKit
 /// transparent and borderless, the size of its parent, ordered above every
 /// page window. It ignores the mouse except over interactive overlays, and
 /// becomes key only while a modal overlay shows.
-public final class OverlayHostPanel: NSPanel {
+public final class OverlayHostPanel: NSPanel, FullScreenFollowingChild {
     /// The layout overlay planes (focus rings, drop zones) live here, below the presented overlays.
     public let planeContainer = NSView()
     /// Presented overlays, above the planes, one container per layer (bottom to top).

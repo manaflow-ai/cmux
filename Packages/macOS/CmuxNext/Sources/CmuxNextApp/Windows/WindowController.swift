@@ -561,8 +561,8 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     /// frame with the page over the focus ring; the notifications that
     /// follow the page would come a frame late.
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
-        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
-        ChildWindowPolicy.check(childWin, parent: self)
+        // Only the overlay host panel and page windows belong here (debug and test builds record the rest); a panel joins full screen Spaces only with this window.
+        ChildWindowPolicy.admit(childWin, parent: self)
         ChromiumPageWindowMissionControl.keepOut(childWin) // a parked page's input window, 100 000 pt off, shrank Mission Control to nothing (cmux#48535)
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }

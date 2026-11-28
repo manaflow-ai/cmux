@@ -64,12 +64,15 @@ extension Motion {
 /// ``Motion/fullScreenTransitionFailed(_:)``, AppKit posts nothing for it).
 /// Observes every window from the creation of the app's first main window
 /// (``Motion/startLiveResizeTracking()``), before that window is ordered in.
+/// It also tells each window's child panels when the window enters or leaves
+/// full screen (``ChildWindowSpaces``): the transitions are observed once, here.
 final class LiveResizeWindows {
     /// The app's tracker. Tests put one on a private center here, instead of posting AppKit's
     /// notifications to the process-wide center (check-test-notification-centers.sh), and put the app's back.
     static var shared = LiveResizeWindows()
     private var resizing: Set<ObjectIdentifier> = []
     private var transitioning: Set<ObjectIdentifier> = []
+    private let childSpaces = ChildWindowSpaces()
     /// Goes up with each start and each end that this tracker sees (``Motion/liveResizeChanges``).
     private(set) var changes = 0
 
@@ -82,6 +85,12 @@ final class LiveResizeWindows {
     func endTransition(of window: NSWindow) {
         transitioning.remove(ObjectIdentifier(window))
         changes += 1
+        childSpaces.window(window, isInFullScreen: window.styleMask.contains(.fullScreen)) // a failed exit stays in full screen
+    }
+
+    /// `child` comes under the main window `parent` (``ChildWindowPolicy/admit(_:parent:)``).
+    func adopt(_ child: NSWindow, parent: NSWindow) {
+        childSpaces.adopt(child, inFullScreen: parent.styleMask.contains(.fullScreen) || isTransitioning(parent))
     }
 
     init(center: NotificationCenter = .default) {
@@ -115,6 +124,8 @@ final class LiveResizeWindows {
                 MainActor.assumeIsolated { // main-proof: AppKit posts window notifications on the main thread
                     if starts { self?.transitioning.insert(id) } else { self?.transitioning.remove(id) }
                     self?.changes += 1
+                    // In full screen from willEnter (before AppKit moves the window to its new Space) until didExit.
+                    self?.childSpaces.window(window, isInFullScreen: name != NSWindow.didExitFullScreenNotification)
                 }
             }
         }
