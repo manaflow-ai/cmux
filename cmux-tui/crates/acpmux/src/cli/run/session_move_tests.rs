@@ -1244,6 +1244,17 @@ fn a_moving_chats_lane_is_its_names_last_part() {
 }
 
 #[test]
+fn a_lane_refusal_keeps_every_line_and_others_their_last() {
+    let refusal = "git push: ux-trust is not under lane/ and no PR this lane adopted has it\n\
+                   as its head: name it lane/<name>: git push origin HEAD:lane/ux-trust\n";
+    assert!(push_refusal(refusal).contains(OUTSIDE_LANE));
+    assert!(push_refusal(refusal).ends_with("HEAD:lane/ux-trust"));
+    let other =
+        "To origin\n ! [rejected] feat -> feat (fetch first)\nerror: failed to push some refs\n";
+    assert_eq!(push_refusal(other), "error: failed to push some refs");
+}
+
+#[test]
 fn a_branch_outside_lane_moves_as_its_lane_branch() {
     assert_eq!(lane_branch_for("ux-trust").as_deref(), Some("lane/ux-trust"));
     assert_eq!(lane_branch_for("feat/ux trust").as_deref(), Some("lane/ux-trust"));

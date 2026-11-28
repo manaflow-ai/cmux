@@ -80,7 +80,7 @@ mod files;
 mod lane;
 #[cfg(test)]
 use lane::OUTSIDE_LANE;
-pub(crate) use lane::{lane_branch_for, lane_of, push_or_lane_branch};
+pub(crate) use lane::{lane_branch_for, lane_of, push_or_lane_branch, push_refusal};
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
 #[path = "session_move_target_ask.rs"]
@@ -1443,8 +1443,8 @@ fn push_branch_on(ssh: &str, top: &Path, dest: &str, lane: Option<&str>) -> Resu
     )?;
     let head = out.stdout.lines().last().unwrap_or_default().trim().to_owned();
     if !out.ok || head.len() < 40 {
-        let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
-        bail!("pushing {branch} to origin on {ssh} failed (it may have moved on there): {last}");
+        let why = push_refusal(&out.stderr);
+        bail!("pushing {branch} to origin on {ssh} failed (it may have moved on there): {why}");
     }
     Ok(head)
 }
@@ -1650,8 +1650,8 @@ fn push_branch(top: &Path, dest: &str, lane: Option<&str>) -> Result<String> {
     let out = push.output().context("git push")?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        let last = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
-        bail!("pushing {branch} to origin failed (it may have moved on there): {last}");
+        let why = push_refusal(&err);
+        bail!("pushing {branch} to origin failed (it may have moved on there): {why}");
     }
     Ok(head)
 }

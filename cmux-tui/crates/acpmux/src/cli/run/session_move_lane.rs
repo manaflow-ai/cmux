@@ -59,3 +59,17 @@ pub(crate) fn push_or_lane_branch(
         }
     }
 }
+
+/// What a failed push says, for the move's error: git's last line, or, when the refusal is
+/// [`OUTSIDE_LANE`], every line of it. That refusal wraps over several lines and its last
+/// ("... name it lane/<name>: git push ...") lacks the words [`push_or_lane_branch`] matches,
+/// so with only the last line kept the move never retried and a lane VM's census showed the
+/// refusal cut mid-sentence.
+pub(crate) fn push_refusal(stderr: &str) -> String {
+    let lines = stderr.lines().map(str::trim).filter(|l| !l.is_empty());
+    if stderr.contains(OUTSIDE_LANE) {
+        lines.collect::<Vec<_>>().join(" ")
+    } else {
+        lines.last().unwrap_or_default().to_owned()
+    }
+}
