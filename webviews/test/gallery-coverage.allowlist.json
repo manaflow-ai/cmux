@@ -175,7 +175,6 @@
     "pages/settings/components/GitHubAccountsCard.tsx#GitHubAccountsCard",
     "pages/settings/components/ModelsCard.tsx#AddConnectionSheet",
     "pages/settings/components/NoticesCard.tsx#NoticesCard",
-    "pages/settings/components/PersonalizationCard.tsx#PersonalizationCard",
     "pages/settings/components/ProviderAccounts.tsx#ProviderAccounts",
     "pages/settings/components/TeamAgentKeysCard.tsx#TeamAgentKeysCard",
     "pages/settings/components/ThemeOverrides.tsx#ThemeOverrides",
