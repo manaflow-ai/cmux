@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { groupsHoldStack } from "../src/agent-session/acpmux/permissions/askRows";
 import type { PermissionClientState, PermissionGroup } from "../src/agent-session/acpmux/permissions/protocol";
 import { teardownDom } from "./support/domTeardown";
 
@@ -93,4 +94,15 @@ test("an answered permission leaves the panel at once, with no receipt over the 
   }
   await show(listed([edit("cancelled", null)]));
   expect(panel()).toBeNull();
+});
+
+test("an answered group holds no place in the asks stack over the composer", () => {
+  expect(groupsHoldStack(listed([edit("pending", null)]))).toBe(true);
+  expect(groupsHoldStack(listed([edit("collecting", null)]))).toBe(true);
+  expect(groupsHoldStack(listed([edit("resolved", "allow_once")]))).toBe(false);
+  expect(groupsHoldStack(listed([edit("cancelled", null)]))).toBe(false);
+  expect(groupsHoldStack({ ...listed([edit("resolved", "deny")]), error: "The answer did not reach the host." })).toBe(
+    true,
+  );
+  expect(groupsHoldStack(undefined)).toBe(false);
 });

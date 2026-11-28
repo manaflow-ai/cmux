@@ -41,3 +41,11 @@ export function groupAskedCalls(groups: PermissionClientState | undefined): Set<
       }
   return calls;
 }
+
+/// The grouped panel holds a place in the asks stack over the composer: a group still waits, or
+/// an error has its line. An answered group draws nothing (Panel.tsx), so counting it left an
+/// empty stack over the composer and kept the composer's ⌘↩ from acting.
+export function groupsHoldStack(groups: PermissionClientState | undefined): boolean {
+  if (!groups?.supported) return false;
+  return !!groups.error || groups.groups.some((group) => group.state === "pending" || group.state === "collecting");
+}
