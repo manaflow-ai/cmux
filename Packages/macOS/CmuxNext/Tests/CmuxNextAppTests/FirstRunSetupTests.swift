@@ -305,6 +305,38 @@ import Testing
         #expect(FirstRunSetup(defaults: try defaults(), skipsOnboarding: true).shows == false)
     }
 
+    /// First-run findings N5 (2026-11-27): Claude Code installed from the terminal (the `curl … | bash` its `claude`
+    /// hint prints) left Chief's card saying Install Claude Code until it was clicked. While an agent waits to be
+    /// installed the model watches the folders installers write, so the install itself turns Install into Sign In.
+    /// A fresh Mac has no `~/.local/bin` yet: its parent stands in until the installer makes it.
+    @Test func anInstallMadeAnywhereTurnsTheChiefCardsInstallIntoSignIn() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "cn-install-watch-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bin = root.appending(path: "local/bin")
+        let setup = FirstRunSetup(defaults: try defaults(), skipsOnboarding: true)
+        let missing = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false)
+        let source = MockAgentSignInSource(agents: [missing])
+        let model = setup.agents(source: source)
+        model.installFolders = [bin]
+        defer { model.stop() }
+        model.refresh(recheck: false)
+        await until { model.loaded }
+        #expect(setup.needsChiefAgent)
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: Self.quiet, forChief: true)
+        defer { provider.stop() }
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "missing")
+
+        let reads = source.reads.count
+        source.agents = [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedOut)]
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: bin.appending(path: "claude"))
+        await until { model.agents.contains { $0.id == "claude" } }
+        #expect(source.reads.count > reads, "the install was read with no click and no focus")
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut", "Install became Sign In")
+        #expect(setup.needsChiefAgent, "signed out still needs the card")
+    }
+
     /// Classic stable's save (no workspaces), as the launch's migration asks it: the app reads the daemon's preview
     /// into this offer (`AppOnboardingServices.classicOffer`), so the test's preview is the offer itself.
     private static let plan = FirstRunSetup.ClassicOffer(workspaces: 0, app: "cmux", savedAt: 1_793_000_000, running: false)
