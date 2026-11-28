@@ -81,6 +81,75 @@ import Testing
         // The find bar's own full-history button shows the failure and can retry.
         #expect(opened == 1)
     }
+
+    @Test(.timeLimit(.minutes(1))) func aJumpLoadsThroughThePanesLoadSoTheFindBarShowsIt() async {
+        let jumper = RemoteTmuxFindWindowJumper()
+        let load = LoadGate()
+        var reseeds = 0
+        var reruns = 0
+        let search = RemoteTmuxFullHistorySearch(
+            reseed: {
+                reseeds += 1
+                return await load.wait()
+            },
+            rerunSearch: { reruns += 1 }
+        )
+        var opened = 0
+        let jump = jumper.jump(
+            loadsFullHistoryFirst: true,
+            reseed: { await search.loadForFindWindowJump() },
+            isStillTarget: { true },
+            openSearch: { opened += 1 }
+        )
+        await load.started()
+
+        // The find bar's full-history button reads this state, so it shows the jump's load.
+        #expect(search.state == .loading)
+        #expect(opened == 0)
+        load.release(.loaded(historyRows: 40_000, truncated: false))
+        await jump?.value
+
+        #expect(search.state == .loaded(historyRows: 40_000, truncated: false))
+        #expect(reseeds == 1)
+        #expect(reruns == 1)
+        #expect(opened == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aJumpDuringTheFindBarsLoadDoesNotStartASecondOne() async {
+        let jumper = RemoteTmuxFindWindowJumper()
+        let load = LoadGate()
+        var reseeds = 0
+        let search = RemoteTmuxFullHistorySearch(
+            reseed: {
+                reseeds += 1
+                // A second load would take over the gate and strand the find bar's load.
+                guard reseeds == 1 else { return .failed }
+                return await load.wait()
+            },
+            rerunSearch: {}
+        )
+        let findBarLoad = Task { @MainActor in await search.load() }
+        await load.started()
+
+        var opened = 0
+        let jump = jumper.jump(
+            loadsFullHistoryFirst: true,
+            reseed: { await search.loadForFindWindowJump() },
+            isStillTarget: { true },
+            openSearch: { opened += 1 }
+        )
+        await jump?.value
+
+        // The find bar opens on the rows already there; the running load reruns its
+        // search when it ends.
+        #expect(opened == 1)
+        #expect(reseeds == 1)
+        #expect(search.state == .loading)
+        load.release(.loaded(historyRows: 40_000, truncated: false))
+        #expect(await findBarLoad.value)
+        #expect(reseeds == 1)
+        #expect(search.state == .loaded(historyRows: 40_000, truncated: false))
+    }
 }
 
 /// Holds a full-history load until the test releases it.
