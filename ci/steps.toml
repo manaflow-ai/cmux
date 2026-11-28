@@ -1198,6 +1198,73 @@ run = '''
 scripts/ci/new_red_only.sh "FFI caller ratchet" -- python3 -I scripts/cmux-next/ffi_caller_ratchet.py
 '''
 
+# Three more ratchets that ran only on the feat-cmux-next tip and went red there after their changes merged green
+# (fix_causes.py, base reds of 11-21..11-28): the spawn-owner ratchet (cmux-next-guards.yml; spawn-owner-baseline.tsv
+# fixed forward 5 times), No new SwiftUI and UI text budget (cmux-next.yml checks; their allowlists fixed forward 2
+# times each). Each takes 10-15 s on a loaded 8 vCPU lane host (load 17-30). land_gate, so a pull request whose diff
+# touches what they scan runs them; the base each compares its list with is the merge commit's first parent, as the
+# tip run compares with the push's before. The crash ratchet (155 s) and crash-class (125 s) are left to the batch.
+[step.next-spawn-owner-ratchet]
+job = "linux"
+timeout = 300
+title = "Only the process owners spawn (cmux-tui)"
+about = "check-spawn-owner.py: no new raw process spawn outside cmux-process and cmux-scope, and the baseline only shrinks (the cmux-next-guards.yml step of the same name), red only when this change adds it"
+land_gate = true
+inputs = [
+  "cmux-tui/crates/**/*.rs",
+  "cmux-tui/crates/**/Cargo.toml",
+  "scripts/cmux-next/check-spawn-owner.py",
+  "scripts/cmux-next/baseline_renames.py",
+  "scripts/cmux-next/spawn-owner-baseline.tsv",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+scripts/ci/new_red_only.sh "Spawn-owner ratchet" -- python3 -I scripts/cmux-next/check-spawn-owner.py . --base-ref "$base"
+'''
+
+[step.next-no-swiftui]
+job = "linux"
+timeout = 300
+title = "No new SwiftUI (macOS UI is AppKit)"
+about = "check-no-swiftui.py: no new SwiftUI import under Packages/macOS, and the allowlist only shrinks (the cmux-next.yml checks step of the same name), red only when this change adds it"
+land_gate = true
+inputs = [
+  "Packages/macOS/**/*.swift",
+  "scripts/cmux-next/check-no-swiftui.py",
+  "scripts/cmux-next/no-swiftui-allowlist.txt",
+  "scripts/cmux-next/no-swiftui-restored.tsv",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+scripts/ci/new_red_only.sh "No new SwiftUI" -- python3 -I scripts/cmux-next/check-no-swiftui.py --base "$base" .
+'''
+
+[step.next-ui-text-budget]
+job = "linux"
+timeout = 300
+title = "UI text says only what you can act on"
+about = "check-ui-text-budget.py: no UI string over its word budget, and the allowlist only shrinks (the cmux-next.yml checks step of the same name), red only when this change adds it"
+land_gate = true
+# check-ui-text-budget.py's TABLE_ROOTS (string tables) and SCHEMA_GLOB (settings summaries and help).
+inputs = [
+  "webviews/src/**/*.xcstrings",
+  "Packages/**/*.xcstrings",
+  "cmux-next-ios/**/*.xcstrings",
+  "schemas/settings/source/*.json",
+  "scripts/cmux-next/check-ui-text-budget.py",
+  "scripts/cmux-next/ui-text-budget-allowlist.tsv",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+scripts/ci/new_red_only.sh "UI text budget" -- python3 -I scripts/cmux-next/check-ui-text-budget.py --base "$base" .
+'''
+
 [step.next-base-red-classifier]
 job = "linux"
 timeout = 300

@@ -594,7 +594,8 @@ def record_at(repo: str, pr: int, sha: str, token: str, bots: list[str]) -> str:
     """When the newest trusted proof record at SHA was posted on PR (any look suite, "" for none)."""
     comments = proof_record.pr_comments(repo, pr, token)
     when = {c.get("html_url", ""): c.get("created_at") or "" for c in comments}
-    found = [proof_record.find(comments, suite, sha, bots) for suite in proof_record.SUITES]
+    can_write = proof_record.writer_check(repo, [token])
+    found = [proof_record.find(comments, suite, sha, bots, can_write) for suite in proof_record.SUITES]
     return max((when.get(r.get("_comment", ""), "") for r in found if r), default="")
 
 
@@ -676,7 +677,8 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
         return verdict(need, "", {}, [], pr)
     body = (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
     comments = proof_record.pr_comments(repo, pr, token)
-    records = {s: proof_record.find(comments, s, sha, bots) for s in suites_for(need)}
+    can_write = proof_record.writer_check(repo, proof_record.read_tokens() or [token])
+    records = {s: proof_record.find(comments, s, sha, bots, can_write) for s in suites_for(need)}
     ui = new_ui(added_files(), read=show)
     state, desc = verdict(need, body, records, ui, pr)
     if state == "pending" and desc.startswith(NO_LOOK):
