@@ -45,3 +45,12 @@ describe("readResendingOnLostConnection", () => {
     expect(connectionLost("Network connection lost.")).toBe(false)
   })
 })
+
+describe("connectionLost and timeouts", () => {
+  it("never calls a timeout lost", () => {
+    // mysql2's connect timeout (connectMysql's 5 s), pg's connect and query timeouts.
+    expect(connectionLost(Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" }))).toBe(false)
+    expect(connectionLost(new Error("Connection terminated due to connection timeout"))).toBe(false)
+    expect(connectionLost(new Error("Query read timeout"))).toBe(false)
+  })
+})
