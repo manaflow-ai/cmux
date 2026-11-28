@@ -6,6 +6,13 @@
 //! transport sequence and is reported as an arrival; it is what the stats show
 //! and what sizes FEC. Congestion loss counts only packets never reported:
 //! a repaired random loss is not a sign of a full queue.
+//!
+//! A repair the path did not need is not loss. Reordering longer than the
+//! viewer's NACK grace makes it ask for shards that are only late; the late
+//! original and the copy then both arrive and both are reported under the
+//! same sequence. More receipts than sends is the duplicate (DSACK, RFC 2883
+//! and RFC 3708) that undoes the repair, so path loss and the FEC it sizes
+//! track what the path dropped, not how much it reorders.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -14,12 +21,21 @@ const MAX_TRACKED: usize = 8192;
 // packet spread on each leg before settling a gap. This is independent of
 // the shorter receiver-side NACK grace: requesting repair is not proof of loss.
 const REORDER_GRACE_US: u64 = 100_000;
+// A repaired packet waits for its copy's receipt (a round trip plus the
+// feedback cadence) before it settles, so a late original reported first is
+// not settled as repaired before the duplicate that proves it arrived.
+const REPAIR_FEEDBACK_US: u64 = 60_000;
+const MAX_REPAIR_WAIT_US: u64 = 400_000;
 
 #[derive(Debug)]
 struct Sent {
     seq: u16,
     arrived: bool,
     repaired: bool,
+    /// Receipts of this sequence; an original and its copy are two.
+    receipts: u8,
+    /// Copies sent by `on_resent`.
+    resends: u8,
     /// Never sent after all (`forget`): settles as neither received nor lost.
     retired: bool,
     settle_due_us: Option<u64>,
@@ -54,6 +70,8 @@ impl LossMeter {
             seq,
             arrived: false,
             repaired: false,
+            receipts: 0,
+            resends: 0,
             retired: false,
             settle_due_us: None,
         });
@@ -67,13 +85,21 @@ impl LossMeter {
     /// on the path, even though the copy is reported under the same sequence.
     /// Without this a 1 % link drop that NACK repairs reads as 0 % loss.
     /// Tail probes are speculative resends and must not call this.
-    pub fn on_resent(&mut self, seq: u16) {
+    /// `rtt_us` is the host's round-trip estimate: the packet settles no
+    /// sooner than the copy's receipt can come back, so a late original's
+    /// duplicate can still undo the repair.
+    pub fn on_resent(&mut self, seq: u16, now_us: u64, rtt_us: Option<u64>) {
         let first_ordinal = self.next_ordinal - self.order.len() as u64;
         let Some(&ordinal) = self.ordinals.get(&seq) else { return };
-        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize)
-            && !packet.arrived
-        {
-            packet.repaired = true;
+        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize) {
+            packet.resends = packet.resends.saturating_add(1);
+            if !packet.arrived {
+                packet.repaired = true;
+                let wait =
+                    rtt_us.unwrap_or(0).saturating_add(REPAIR_FEEDBACK_US).min(MAX_REPAIR_WAIT_US);
+                let due = now_us.saturating_add(wait);
+                packet.settle_due_us = Some(packet.settle_due_us.map_or(due, |d| d.max(due)));
+            }
         }
     }
 
@@ -129,6 +155,10 @@ impl LossMeter {
                 continue;
             };
             packet.arrived = true;
+            packet.receipts = packet.receipts.saturating_add(1);
+            if packet.repaired && packet.receipts > packet.resends {
+                packet.repaired = false; // the original arrived too: the repair was spurious
+            }
             newest = Some(newest.map_or(ordinal, |last| last.max(ordinal)));
         }
         if let Some(newest) = newest {

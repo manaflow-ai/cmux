@@ -44,7 +44,7 @@ fn reversed_feedback_chunks_do_not_invent_loss() {
 fn a_resent_datagram_is_loss_even_when_its_copy_arrives() {
     let mut m = sent(10);
     assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
-    m.on_resent(3);
+    m.on_resent(3, 0, None);
     assert_eq!(m.on_arrivals([3], 10_000), None, "the copy's receipt");
     assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.1));
 }
@@ -53,8 +53,8 @@ fn a_resent_datagram_is_loss_even_when_its_copy_arrives() {
 fn a_resend_after_a_receipt_is_not_loss() {
     let mut m = sent(4);
     assert_eq!(m.on_arrivals([0, 1, 2, 3], 0), None);
-    m.on_resent(2);
-    m.on_resent(77); // unknown: ignored
+    m.on_resent(2, 0, None);
+    m.on_resent(77, 0, None); // unknown: ignored
     assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
 }
 
@@ -64,16 +64,48 @@ fn one_percent_repaired_by_nack_reads_one_percent() {
     let dropped = |s: &u16| s % 100 == 37;
     assert_eq!(m.on_arrivals((0..1000).filter(|s| !dropped(s)), 0), None);
     for seq in (0..1000).filter(dropped) {
-        m.on_resent(seq);
+        m.on_resent(seq, 0, None);
     }
     assert_eq!(m.on_arrivals((0..1000).filter(dropped), 8_000), None);
     assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.01));
 }
 
 #[test]
+fn a_repair_the_path_did_not_need_is_not_loss() {
+    // 3 is only late: the viewer NACKs it, then the original and the copy both arrive.
+    let mut m = sent(10);
+    assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
+    m.on_resent(3, 0, Some(30_000));
+    assert_eq!(m.on_arrivals([3, 3], 20_000), None, "original and copy in one feedback");
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+}
+
+#[test]
+fn a_late_original_reported_before_its_copy_waits_for_the_duplicate() {
+    // On a 150 ms round trip the copy's receipt comes after the fixed reorder grace.
+    let mut m = sent(10);
+    assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
+    m.on_resent(3, 5_000, Some(150_000));
+    assert_eq!(m.on_arrivals([3], 30_000), None, "the late original");
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0), "0..2 settle; 3 waits for its copy");
+    assert_eq!(m.on_arrivals([3], 180_000), None, "the copy: a duplicate");
+    assert_eq!(m.on_arrivals([], 215_000), Some(0.0));
+}
+
+#[test]
+fn two_copies_of_a_lost_packet_are_not_a_duplicate() {
+    let mut m = sent(10);
+    assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
+    m.on_resent(3, 0, None);
+    m.on_resent(3, 50_000, None); // the NACK retry
+    assert_eq!(m.on_arrivals([3, 3], 70_000), None, "both copies, no original");
+    assert_eq!(m.on_arrivals([], 110_000), Some(0.1));
+}
+
+#[test]
 fn a_repaired_packet_is_path_loss_but_not_congestion_loss() {
     let mut m = sent(20);
-    m.on_resent(3);
+    m.on_resent(3, 0, None);
     assert_eq!(m.on_arrivals(0..20, 0), None);
     assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.05));
     assert_eq!(m.take_congestion_loss(REORDER_GRACE_US), None);

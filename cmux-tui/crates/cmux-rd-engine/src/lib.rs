@@ -1137,6 +1137,8 @@ impl MediaEngine {
             self.last_probe_start_us = Some(now_us);
         }
         self.last_feedback_us = now_us;
+        // Read before the stream borrow; the copy's receipt wait needs only a bound.
+        let repair_rtt_us = self.rtt_us();
         let ltr_enabled = self.cfg.ltr_enabled;
         let rtt_us = self.ack_rtt_us().unwrap_or(0);
         let Some(state) = self.streams.get_mut(&stream) else { return };
@@ -1202,8 +1204,8 @@ impl MediaEngine {
                     if let Ok((header, _)) = DatagramHeader::decode(d) {
                         self.cc.on_retransmitted(header.transport_seq);
                         // The viewer reports the repair under this sequence: count the
-                        // original as path loss now.
-                        self.loss_meter.on_resent(header.transport_seq);
+                        // original as path loss, unless its own receipt turns up too.
+                        self.loss_meter.on_resent(header.transport_seq, now_us, repair_rtt_us);
                     }
                     out.datagrams.push(d.clone());
                     budget -= 1;
