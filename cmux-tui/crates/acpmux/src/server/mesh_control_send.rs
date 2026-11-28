@@ -40,7 +40,9 @@ fn start_params(params: &Value, answer: &str) -> Result<serde_json::Map<String, 
 fn error(error: HubError) -> RpcError {
     let code = error.code.as_deref().unwrap_or("mesh.unavailable");
     RpcError::new(-32000, error.message.clone()).with_data(json!({
-        "reason": code, "candidates": error.candidates, "retryable": !error.refused,
+        // A hub's 5xx or 429 passes too, as `mesh_retry::transient` says.
+        "reason": code, "candidates": error.candidates,
+        "retryable": crate::mesh_retry::transient(&error, false),
     }))
 }
 
@@ -169,13 +171,21 @@ async fn start_through(
     super::peer_forward::strip_new_meta(&mut p);
     let meta = p.pointer("/_meta/acpmux");
     // A create key that fits the hub's key keeps a resent `new` from starting a second chat.
-    let key = crate::hub::create_key::requested(meta)
-        .ok()
-        .flatten()
-        .filter(|k| k.len() >= 8)
-        .map(|k| format!("new:{k}"))
-        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
     let name = meta.and_then(|m| m.get("name")).and_then(Value::as_str).map(str::to_owned);
+    // A named start that last failed in a way that may pass is resent with its key, so the hub
+    // answers with that start's message and session, not a second chat (`unsettled`).
+    let slot = name.as_deref().map(|n| unsettled::Slot::new(conn.caller(), host, n));
+    let key = slot
+        .as_ref()
+        .and_then(unsettled::Slot::key)
+        .or_else(|| {
+            crate::hub::create_key::requested(meta)
+                .ok()
+                .flatten()
+                .filter(|k| k.len() >= 8)
+                .map(|k| format!("new:{k}"))
+        })
+        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
     let answer =
         crate::hub::cmux_tools_answer::here_for(crate::user_settings::text().as_deref(), &p);
     let mut start = Value::Object(start_params(&p, answer)?);
@@ -194,9 +204,22 @@ async fn start_through(
         ..Sender::default()
     };
     let relay = MeshControlRelay::new(mesh.clone(), sender);
-    let receipt = crate::mesh_control::submit(&relay, &request).await.map_err(error)?;
-    let receipt = settled(mesh.as_ref(), receipt, START_WAIT).await?;
-    let started = started(receipt, host, name.as_deref(), &key)?;
+    let until = tokio::time::Instant::now() + START_WAIT;
+    let started = async {
+        // The keyed send is safe to post again: the hub answers a resend with the same message.
+        let receipt = crate::mesh_retry::ride_out(false, until, || {
+            crate::mesh_control::submit(&relay, &request)
+        })
+        .await
+        .map_err(error)?;
+        let receipt = settled(mesh.as_ref(), receipt, until).await?;
+        started(receipt, host, name.as_deref(), &key)
+    }
+    .await;
+    if let Some(slot) = &slot {
+        slot.note(&key, &started);
+    }
+    let started = started?;
     if let Some(id) = started.get("sessionId").and_then(Value::as_str) {
         hub.note_created_remote(host, id, name.as_deref());
     }
@@ -205,21 +228,96 @@ async fn start_through(
 
 /// `receipt`, waited on through the hub until it is delivered, refused or expired, or `wait`
 /// passes.
+/// A hub that fails to answer for a while (a 503 `mesh.unavailable`) is asked again until
+/// `until`: the start may already be running there, so one failed read is not its answer.
+/// Before, the first failed read failed the `new` although the session started (a lane host,
+/// 2026-11-28: a caller's retries left 8 idle duplicates).
 async fn settled(
     mesh: &dyn crate::mesh::MeshHub,
     mut receipt: crate::mesh::Receipt,
-    wait: Duration,
+    until: tokio::time::Instant,
 ) -> Result<crate::mesh::Receipt, RpcError> {
-    let until = tokio::time::Instant::now() + wait;
     while !matches!(receipt.state.as_str(), "delivered" | "refused" | "expired") {
         let left = until.saturating_duration_since(tokio::time::Instant::now());
         if left.is_zero() {
             break;
         }
         let id = receipt.message_id.clone();
-        receipt = mesh.answer(&id, left.min(Duration::from_secs(25))).await.map_err(error)?;
+        let read = crate::mesh_retry::ride_out(false, until, || {
+            let left = until.saturating_duration_since(tokio::time::Instant::now());
+            mesh.answer(&id, left.min(Duration::from_secs(25)))
+        })
+        .await;
+        match read {
+            Ok(next) => receipt = next,
+            // Out of time with the start unanswered: say it is pending, with its message id.
+            Err(e) if crate::mesh_retry::transient(&e, false) => break,
+            Err(e) => return Err(error(e)),
+        }
     }
     Ok(receipt)
+}
+
+/// The keys of named starts through the hub that did not settle, so a `new` sent again for the
+/// same caller, machine and name resends that start rather than starting another chat. A start
+/// that settled (started or refused) leaves; a key is kept [`unsettled::KEPT`] at most.
+mod unsettled {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Instant;
+
+    /// How long a start that did not settle is resent rather than started again.
+    // timeout: past it a `new` is a new start; the hub keeps the old one's receipt.
+    pub(super) const KEPT: Duration = Duration::from_secs(15 * 60);
+    /// At most this many unsettled starts are kept; the oldest leaves first.
+    const MOST: usize = 256;
+
+    type Book = HashMap<(String, String, String), (String, Instant)>;
+
+    fn book() -> &'static Mutex<Book> {
+        static BOOK: OnceLock<Mutex<Book>> = OnceLock::new();
+        BOOK.get_or_init(Default::default)
+    }
+
+    pub(super) struct Slot((String, String, String));
+
+    impl Slot {
+        pub(super) fn new(caller: Option<&str>, host: &str, name: &str) -> Self {
+            Self((caller.unwrap_or_default().to_owned(), host.to_owned(), name.to_owned()))
+        }
+
+        /// The key of this start's last unsettled send, if it is recent.
+        pub(super) fn key(&self) -> Option<String> {
+            let mut book = book().lock().unwrap_or_else(|e| e.into_inner());
+            book.retain(|_, (_, at)| at.elapsed() < KEPT);
+            book.get(&self.0).map(|(key, _)| key.clone())
+        }
+
+        /// Keep `key` when `outcome` may pass on a resend; forget it once the start settled.
+        pub(super) fn note(&self, key: &str, outcome: &Result<Value, RpcError>) {
+            let mut book = book().lock().unwrap_or_else(|e| e.into_inner());
+            let unsettled = match outcome {
+                Ok(_) => false,
+                Err(e) => {
+                    e.data.as_ref().and_then(|d| d.get("retryable")).and_then(Value::as_bool)
+                        == Some(true)
+                }
+            };
+            if !unsettled {
+                book.remove(&self.0);
+                return;
+            }
+            if book.len() >= MOST && !book.contains_key(&self.0) {
+                if let Some(oldest) =
+                    book.iter().min_by_key(|(_, (_, at))| *at).map(|(k, _)| k.clone())
+                {
+                    book.remove(&oldest);
+                }
+            }
+            book.insert(self.0.clone(), (key.to_owned(), Instant::now()));
+        }
+    }
 }
 
 /// The answer to a `session/new` started through the hub, from its start's `receipt`.
