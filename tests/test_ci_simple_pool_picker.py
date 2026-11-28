@@ -145,6 +145,14 @@ class NeverQueueBehindBlacksmithTests(unittest.TestCase):
         self.assertTrue(choice.retry_label.startswith("blacksmith-"))
         self.assertTrue(picker.write_outputs(choice, 2)["retry_runner"].startswith("blacksmith-"))
 
+    def test_a_full_run_never_queues_on_a_label_with_nothing_running(self):
+        # 2026-11-28 01:12Z, PR 63201: every label too full for the run; 12vcpu read least loaded at 1 queued and
+        # 0 running (0.2) while it had started nothing in 3 h, and the run's jobs queued there 70+ min.
+        state = picker.State(jobs=8, blacksmith=(pool(picker.BLACKSMITH[0], 5, 0, 1),
+                                                 pool(picker.BLACKSMITH[1], 10, 10, 3),
+                                                 pool(picker.BLACKSMITH[2], 10, 10, 6)))
+        self.assertEqual(picker._pick_blacksmith(state).label, picker.BLACKSMITH[1])
+
     def test_a_free_blacksmith_slot_still_takes_the_overflow(self):
         free = (pool(picker.BLACKSMITH[0], 5, 3), *self.FULL[1:])
         self.assertEqual(picker.pick(self.state(free)).label, picker.BLACKSMITH[0])

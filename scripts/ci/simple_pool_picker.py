@@ -380,7 +380,12 @@ def _pick_blacksmith(state: State) -> Choice:
     # A stalled or dead label (Pool.stalled) is the last resort: least loaded among the moving ones first. This
     # comes before the reservation filter so that, with every moving label held, a run queues on a held moving
     # label rather than on a dead one.
-    eligible = [pool for pool in eligible if not pool.stalled] or eligible
+    # A label with jobs queued and none running is not the least loaded one: it is starving, the same signal as
+    # stalled before its oldest job reaches BLACKSMITH_STALL_MINUTES. On 2026-11-28 01:12Z, with every label full,
+    # this ratio picked blacksmith-12vcpu-macos-26 (1 queued, 0 running: 0.2) for PR 63201's whole run while it had
+    # started no job in 3 h and blacksmith-6vcpu-macos-26 started 20; its compile admission and the main run's
+    # retry queued there 70+ min with nothing starting.
+    eligible = [pool for pool in eligible if not pool.stalled and not starving(pool)] or eligible
     # A label holding queued release, nightly or app FFI release work is never the overflow either: the
     # least-loaded choice below used to ignore the reservation. Only when every moving label is held does a run
     # queue on one, as it would on any full label.
@@ -390,6 +395,11 @@ def _pick_blacksmith(state: State) -> Choice:
                                                   BLACKSMITH.index(pool.label)))
         return Choice(winner.label, "lowest (queued + running) / per-label cap", winner.xcode_app)
     return Choice(state.fallback, "no Blacksmith pool in the snapshot", blocked=True)
+
+
+def starving(pool: Pool) -> bool:
+    """A Blacksmith label with a job queued and none running: nothing it was given has started."""
+    return pool.queued > 0 and pool.running == 0
 
 
 def _pool(item: Pool | Mapping[str, Any]) -> Pool:
