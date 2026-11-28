@@ -7,6 +7,6 @@ for c in check:browser-lanes check:fixed-waits check:design-tokens check:catalog
 done
 echo "=== import-order + browser tests"
 bun test test/import-order-lint.test.ts test/session-info-section-order-browser.test.tsx test/session-info-changes-narrow-browser.test.tsx || { echo "FAILED tests"; st=1; }
-echo "=== check (all pieces)"
-bun run check || { echo "FAILED check"; st=1; }
+echo "=== fmt"
+bun x vp fmt --check || { echo "FAILED fmt"; st=1; }
 exit $st
