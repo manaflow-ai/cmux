@@ -89,6 +89,7 @@ actor LivenessHostRouter {
     private var macInstanceTag: String? = "default"
     private var macClientNamespace: String? = "mac:com.cmuxterm.app.debug"
     private var macDisplayName: String? = "Test Mac"
+    private var macAppVersion: String?
     private var workspaceListResponseHook: (@Sendable () -> Void)?
     private var workspaceIDs = ["live-workspace"]
     private var workspaceListTitles: [String] = []
@@ -306,6 +307,10 @@ actor LivenessHostRouter {
 
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func setMacAppVersion(_ version: String) {
+        macAppVersion = version
     }
 
     func setHostIdentity(
@@ -602,6 +607,7 @@ actor LivenessHostRouter {
                     result["mac_client_namespace"] = macClientNamespace
                 }
                 if let macDisplayName { result["mac_display_name"] = macDisplayName }
+                if let macAppVersion { result["mac_app_version"] = macAppVersion }
             }
             return try? Self.resultFrame(id: id, result: result)
         case "mobile.events.subscribe":
@@ -974,7 +980,7 @@ final class OutputCollector {
     }
 }
 
-func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
+func makeTicket(clock: TestClock, macAppVersion: String? = nil) throws -> CmxAttachTicket {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
         kind: .debugLoopback,
@@ -986,6 +992,7 @@ func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+        macAppVersion: macAppVersion,
         routes: [route],
         expiresAt: clock.now.addingTimeInterval(3600)
     )

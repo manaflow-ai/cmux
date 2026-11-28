@@ -133,6 +133,7 @@ extension MobileShellComposite {
             ticket: connection.ticket,
             storedInstanceTag: connection.storedInstanceTag,
             authenticatedInstanceTag: connection.authenticatedInstanceTag,
+            authenticatedMacAppVersion: connection.authenticatedMacAppVersion,
             supportedHostCapabilities: connection.supportedHostCapabilities,
             actionCapabilities: connection.actionCapabilities,
             displayName: connection.displayName
@@ -665,7 +666,7 @@ extension MobileShellComposite {
         let liveConnectionGeneration = adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
-        authenticatedMacAppVersion = sub.ticket.macAppVersion
+        authenticatedMacAppVersion = sub.authenticatedMacAppVersion
         // The foreground refetches this feed under the bare device key; the
         // pairing-keyed source would otherwise linger as stale offline rows,
         // and a sibling switch must not reuse the old build's device-keyed
@@ -707,6 +708,7 @@ extension MobileShellComposite {
             displayName: displayName ?? connectedHostName,
             storedInstanceTag: sub.storedInstanceTag,
             authenticatedInstanceTag: sub.authenticatedInstanceTag,
+            authenticatedMacAppVersion: sub.authenticatedMacAppVersion,
             supportedHostCapabilities: sub.supportedHostCapabilities,
             actionCapabilities: sub.actionCapabilities
         )
@@ -769,6 +771,8 @@ extension MobileShellComposite {
             await sub.client.disconnectAndWaitForTransportDrain()
             return .unavailable
         }
+        clearMacVersionUpdateRequired(for: macID, instanceTag: activeMacInstanceTag)
+        clearPairingError()
         // Establish the foreground listener before fetching the snapshot that
         // focus will publish. This closes the control-unsubscribe/terminal-
         // subscribe gap for legacy Macs that have no state-sync cursor repair.
