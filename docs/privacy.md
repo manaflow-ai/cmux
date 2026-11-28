@@ -198,6 +198,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `static.crates.io` | connects | crates.io's package downloads, from a Cloud machine's crates cache, only for a `.crate` neither the machine nor a peer has; it sends the package name and version | the package name and version | when a Cloud machine's crates cache needs a `.crate` neither the machine nor a peer has | create `/etc/cmux/crates-cache.disabled` on the Cloud machine |
 | `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic | a STUN probe: only the device's public address | when a phone or remote-desktop link starts and names no STUN server | don't start a link |
 | `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic | a STUN probe: only the device's public address | when the remote-desktop link's first STUN server fails | don't start a remote-desktop link |
+| `stun1.l.google.com` | connects | the third STUN server of `cmux-nat-probe`, a NAT-traversal measurement tool the team runs, not the app: it learns only the probe's public address | a STUN probe: only the public address | when someone runs `cmux-nat-probe` | don't run `cmux-nat-probe` |
 | `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine | what you type in the address bar | as you type, when Google is your search engine | `browser.omnibar.remoteSuggestions` off, or another `browser.searchEngine` |
 | `thumb.wikimedia.org` | connects | museum art for backgrounds, when you search for art | your art search words, then image requests | when you search for background art | don't search for art (`appearance.background`) |
 | `uniichat.com` | connects | the hosted UniiChat agent, only when you start it | your messages to the hosted agent | only when you start the UniiChat agent | don't start it |
@@ -224,6 +225,11 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `console.x.ai` | opens | a page to get an API key, opened from Settings |
 | `accounts.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `auth.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `www.grok.com` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `www.kimi.ai` | opens | a provider's sign-in page or API key page, opened when you sign that agent in or from Settings |
+| `www.kimi.com` | opens | a provider's sign-in page or API key page, opened when you sign that agent in or from Settings |
+| `z.ai` | opens | a page to get an API key, opened from Settings |
+| `www.morphllm.com` | opens | a provider's docs page, opened from Settings |
 | `airbnb.com` | opens | a site the address bar suggests before it is in your history |
 | `amazon.com` | opens | a site the address bar suggests before it is in your history |
 | `console.aws.amazon.com` | opens | a page to get an API key, opened from Settings |
@@ -307,6 +313,9 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `x.ai` | identifier | an xAI tool method name, not a host |
 | `customize.io` | identifier | the error code `cmux customize` prints when a file read or write fails, not a host |
 | `community.io` | identifier | the error code `cmux community` prints when a staging folder cannot be made, not a host |
+| `share.io` | identifier | the error code a workspace share prints when its listing cannot be read or encoded, not a host |
+| `tool.sh` | identifier | a file name in a test fixture, not a host |
+| `try.sh` | identifier | the name of a script on the Mac that serves the iPhone try-a-PR picker, not a host |
 | `live.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
 | `microsoftonline.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
 | `outlook.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |

@@ -22,6 +22,7 @@ lines, and this test is what makes a new workflow carry it.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -37,6 +38,8 @@ RESOLVE = 'client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"'
 CHECK = 'if ! [[ -x "$client" ]]; then'
 # A run that names the client by either of these must resolve it as above.
 MENTIONS = (".local/bin/cmux-ci", "CMUX_CI_CLIENT")
+# `NAME="$HOME/.local/bin/cmux-ci"`: a named fallback to the installed client, checked on the next line.
+FALLBACK = re.compile(r'^([a-z_]+)="\$HOME/\.local/bin/cmux-ci"$')
 # The steps known to call the client today; a parse that finds fewer is broken.
 KNOWN_CALLERS = 4
 
@@ -48,7 +51,14 @@ def check_run(run: str) -> list[str]:
         return []
     problems = []
     resolves = [i for i, line in enumerate(lines) if line == RESOLVE]
-    others = [line for line in lines if line != RESOLVE and any(m in line for m in MENTIONS)]
+    # A fallback to the runner's installed client (the fleet-client action, when the fetched one cannot start)
+    # names it once more, and is fine when the next line checks it is executable before any call.
+    nonblank = [line for line in lines if line and not line.startswith("#")]
+    fallbacks = {i for i, line in enumerate(nonblank)
+                 if (m := FALLBACK.match(line)) and i + 1 < len(nonblank)
+                 and nonblank[i + 1].startswith(f'if [[ -x "${m.group(1)}" ]]')}
+    others = [line for i, line in enumerate(nonblank)
+              if line != RESOLVE and i not in fallbacks and any(m in line for m in MENTIONS)]
     if others:
         problems.append(f"names the client outside `{RESOLVE}`: {others[0]}")
     if len(resolves) != 1:
@@ -88,6 +98,9 @@ def self_test() -> list[str]:
         "no exit": (f'{RESOLVE}\n{CHECK}\n  echo missing\nfi\n"$client" run\n', True),
         "check later": (f'{RESOLVE}\n"$client" run\n{CHECK}\n  exit 2\nfi\n', True),
         "second spelling": (guarded + '"$CMUX_CI_CLIENT" wait\n', True),
+        "checked fallback": (guarded + 'installed="$HOME/.local/bin/cmux-ci"\nif [[ -x "$installed" ]]; then\n'
+                             '  "$installed" --help\nfi\n', False),
+        "unchecked fallback": (guarded + 'installed="$HOME/.local/bin/cmux-ci"\n"$installed" run\n', True),
     }
     return [name for name, (text, bad) in cases.items() if bool(check_run(text)) != bad]
 

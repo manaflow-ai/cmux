@@ -6,7 +6,7 @@ holding a Mac mini for that wait buys nothing (Leo, 2026-11-26: "How about freei
 that don't need Mac's asap?"). The moved jobs fetch the controller's client with .github/actions/fleet-client
 (sha256-checked against the controller's manifest) and keep the same "no client, no verdict" path.
 
-GATEWAY_MAC is the jobs still on a glaeda-gateway label. It only shrinks: a new job on a gateway label fails here,
+GATEWAY_MAC is the jobs still on a gateway label (mac-gateway since #61222, RFD 0185 phase 2; glaeda-gateway before). It only shrinks: a new job on a gateway label fails here,
 and a listed job that left the label must leave the list.
 """
 
@@ -24,7 +24,11 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "fleet-client" / "action.yml"
 LINUX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 
+# A gateway runner label: the unified mac-gateway (#61222) or the older glaeda-gateway-* it replaced.
+GATEWAY_LABEL = re.compile(r"\bmac-gateway\b|glaeda-gateway")
+
 GATEWAY_MAC = frozenset({
+    "cmux-next-agent-conn-chaos.yml#chaos-fleet",  # #60441: the gateway hook admits only thin cmux-ci clients
     "cmux-next-fast-tier-batch.yml#swift-fleet",  # private fallback only
     "cmux-next-head-compile.yml#compile",
     "cmux-next-ios-energy-nightly.yml#bench",
@@ -32,6 +36,7 @@ GATEWAY_MAC = frozenset({
     "cmux-next-iphone-clips.yml#record",
     "cmux-next-perf-bench.yml#bench",
     "cmux-next-perf-budgets.yml#measure",
+    "cmux-next-split-table.yml#measure-fleet",
     "cmux-next-stress-bench.yml#measure",
     "cmux-next-tab-switch.yml#frames",
     "fleet-compile-check.yml#compile-check",
@@ -73,7 +78,7 @@ def reusable_gateway_jobs_the_hook_refuses(root: Path = WORKFLOWS) -> list[str]:
             continue
         for name, job in (document.get("jobs") or {}).items():
             runs_on = yaml.safe_dump((job or {}).get("runs-on", ""))
-            if ("glaeda-gateway" in runs_on or GATEWAY_VAR.search(runs_on)) and not name.endswith("-fleet"):
+            if (GATEWAY_LABEL.search(runs_on) or GATEWAY_VAR.search(runs_on)) and not name.endswith("-fleet"):
                 refused.append(f"{path.name}#{name}")
     return refused
 
@@ -87,14 +92,14 @@ def jobs():
 
 
 def on_gateway(job: dict) -> bool:
-    return "glaeda-gateway" in yaml.safe_dump(job.get("runs-on", ""))
+    return bool(GATEWAY_LABEL.search(yaml.safe_dump(job.get("runs-on", ""))))
 
 
 class GatewayJobsOnLinuxTests(unittest.TestCase):
     def test_no_new_job_holds_a_gateway_mac_and_the_list_only_shrinks(self) -> None:
         gateway = {key for key, job in jobs() if on_gateway(job)}
         self.assertEqual(sorted(gateway - GATEWAY_MAC), [],
-                         "a new job on a glaeda-gateway label: a job that only runs the fleet client runs on cmux-linux "
+                         "a new job on a gateway label: a job that only runs the fleet client runs on cmux-linux "
                          "with .github/actions/fleet-client")
         self.assertEqual(sorted(GATEWAY_MAC - gateway), [], "left the gateway label: drop it from GATEWAY_MAC")
 
@@ -150,7 +155,7 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
         self.assertIn("Packages/**/Tests/**/*.swift", fallback)
         self.assertIn("scripts/ci/display-suites.txt", fallback)
         self.assertEqual(report["runs-on"], "${{ needs.swift-results.outputs.verdict == 'unavailable' "
-                         "&& 'glaeda-gateway-xcode-26.6' || 'cmux-linux' }}")
+                         "&& 'mac-gateway' || 'cmux-linux' }}")
         self.assertEqual(report["steps"][-1]["if"], "needs.swift-results.outputs.verdict == 'unavailable'")
 
     def test_the_action_checks_every_file_and_exports_the_client_only_when_whole(self) -> None:
