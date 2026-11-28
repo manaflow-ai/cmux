@@ -104,3 +104,21 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         self.ppid = ppid
     }
 }
+
+extension WorkstreamItem {
+    /// The agent's name as the Activity panel shows it on this item's card.
+    /// A producer `WorkstreamSource` doesn't list is stored with the Claude
+    /// fallback source, so its name comes from `sourceID` instead.
+    public var agentDisplayName: String {
+        guard let sourceID else { return source.displayName }
+        return WorkstreamSource.displayName(forSourceID: sourceID)
+    }
+
+    /// The listed source this item's card is drawn for, or `nil` for a
+    /// producer `WorkstreamSource` doesn't list. A stored row can carry a
+    /// listed id in `sourceID` under the Claude fallback source.
+    public var listedSource: WorkstreamSource? {
+        guard let sourceID else { return source }
+        return WorkstreamSource(wireName: sourceID)
+    }
+}

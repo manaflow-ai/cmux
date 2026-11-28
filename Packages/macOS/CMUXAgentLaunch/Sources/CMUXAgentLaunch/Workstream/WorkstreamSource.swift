@@ -46,4 +46,24 @@ public enum WorkstreamSource: String, Codable, Sendable, CaseIterable, Equatable
         case .qoder: return "Qoder"
         }
     }
+
+    /// The Activity panel's name for a raw `_source` id, including the hook
+    /// agents this enum doesn't list. Those take the name `cmux hooks` gives
+    /// them (`AgentHookDef.displayName` in the CLI's hook catalog); any other
+    /// id is shown as sent.
+    public static func displayName(forSourceID sourceID: String) -> String {
+        if let listed = WorkstreamSource(wireName: sourceID) {
+            return listed.displayName
+        }
+        switch sourceID {
+        case "muse": return "Muse Code"
+        case "kimi": return "Kimi Code"
+        case "kiro": return "Kiro"
+        case "antigravity": return "Antigravity"
+        case "rovodev": return "Rovo Dev"
+        case "omp": return "OMP"
+        case "campfire": return "Campfire"
+        default: return sourceID
+        }
+    }
 }
