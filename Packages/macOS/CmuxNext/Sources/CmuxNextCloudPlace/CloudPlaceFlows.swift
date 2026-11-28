@@ -445,6 +445,7 @@ public final class CloudPlaceFlows {
     }
 
     /// One AutoSize frame's result: the machine it added a row for and that machine's rows, read only on the main actor after.
+    // crash-allow: immutable lets of JSONSerialization output, made off the main actor and only read after on it
     nonisolated private struct AutoSizeFed: @unchecked Sendable { let machine: String?; let rows: [Any] }
 
     /// Feeds one frame to Rust and reads back the rows of the machine it added one for, off the main actor; nil when it
