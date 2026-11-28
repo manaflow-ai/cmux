@@ -15,18 +15,16 @@ import Observation
 final class SessionRegistrar {
     private unowned let machines: MachineRegistry
     private var observation: Task<Void, Never>?
-    /// Sends each record and acts on the answer (`SessionRegistration`): a refusal is shown once
-    /// through `notice` and not sent again unchanged; a failure with no answer backs off.
+    /// Sends each record and acts on the answer (`SessionRegistration`): a refusal is logged and counted
+    /// and not sent again unchanged; a failure with no answer backs off.
     private let registration: SessionRegistration<SessionRegistrationRecord>
     private var importing: Set<String> = []
     /// This Mac's name, resolved off the main actor (`MacName`).
     private var computerName: String?
 
-    init(machines: MachineRegistry, notice: @escaping @MainActor (_ session: String, _ message: String) -> Bool,
-         withdraw: @escaping @MainActor (_ session: String) -> Void) {
+    init(machines: MachineRegistry) {
         self.machines = machines
-        registration = SessionRegistration<SessionRegistrationRecord>(policy: .sessionRegistration, notice: notice,
-                                                                      withdraw: withdraw)
+        registration = SessionRegistration<SessionRegistrationRecord>(policy: .sessionRegistration)
         registration.onRetryDue = { [weak self] in self?.sync() }
     }
 
@@ -73,8 +71,9 @@ final class SessionRegistrar {
         return false
     }
 
-    /// Shows the refusal notices no window could show yet (a window became key).
-    func showPendingNotices() { registration.showPendingNotices() }
+    /// Records the home daemon refused, and records that got no answer, since launch (diagnostics).
+    var refusedCount: Int { registration.refusedCount }
+    var unansweredCount: Int { registration.unansweredCount }
 
     func stop() {
         observation?.cancel()

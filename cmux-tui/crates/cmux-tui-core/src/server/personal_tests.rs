@@ -265,7 +265,13 @@ fn sessions_register_import_once_and_forget() {
     assert_eq!(put["session"]["migrated"], false);
     let listed = run(&mux, json!({"cmd":"list-personal"})).unwrap();
     let follows_of = |id: &str| {
-        listed["profiles"].as_array().unwrap().iter().find(|profile| profile["id"] == id).unwrap()["follows"].clone()
+        listed["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|profile| profile["id"] == id)
+            .unwrap()["follows"]
+            .clone()
     };
     assert!(follows_of("default").as_array().unwrap().contains(&json!("remote-1")));
     assert_eq!(follows_of("prof_work"), json!(["remote-1"]));
@@ -361,6 +367,34 @@ fn put_session_records_this_daemons_whole_capability_list() {
         .find(|session| session["session_id"] == "remote-1")
         .expect("the session is in the registry");
     assert_eq!(recorded["capabilities"], capabilities);
+}
+
+/// A daemon advertises one `agent-session-start-endpoint-harness:NAME`
+/// capability per harness it can start with an endpoint credential. The
+/// registry refused the `:` ("must be 1-64 of [a-z0-9._-]"), so the app's
+/// `put-session` failed on every such daemon and the machine was left out of
+/// the restore registry.
+#[test]
+fn put_session_accepts_endpoint_harness_capabilities() {
+    let mux = personal_mux();
+    let capabilities = json!([
+        "agent-session-start-endpoint-harness:gemini",
+        "agent-session-start-endpoint-harness:opencode",
+        "profiles-v1"
+    ]);
+    let put = run(
+        &mux,
+        json!({"cmd":"put-session","session_id":"remote-1","transport":{"kind":"ssh","host":"build-box"},
+               "capabilities":capabilities}),
+    )
+    .expect("put-session accepts a harness capability with a colon");
+    assert_eq!(put["session"]["capabilities"], capabilities);
+    let refused = run(
+        &mux,
+        json!({"cmd":"put-session","session_id":"remote-2","transport":{"kind":"ssh","host":"build-box"},
+               "capabilities":[":leading-colon"]}),
+    );
+    assert!(refused.is_err(), "a token still starts with a letter");
 }
 
 /// `personal-mixed-order-v1`: groups and loose workspaces share one
