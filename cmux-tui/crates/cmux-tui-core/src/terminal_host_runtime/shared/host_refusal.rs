@@ -13,9 +13,27 @@ use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, read_frame};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoCommonHostProtocol;
 
+impl NoCommonHostProtocol {
+    /// The typed kind every RFD 0224 link reports when two sides share no version.
+    pub const ERROR_KIND: &'static str = crate::terminal_host_protocol::VERSION_INCOMPATIBLE;
+    /// The side to update. A host that writes a current record is at least this build's version
+    /// ([`no_common_protocol_if_refused`]), and this build offers every version down to
+    /// `LEGACY_PROTOCOL_VERSION`. So a lasting refusal means the host is newer: update this
+    /// side.
+    pub const UPDATE_SIDE: &'static str = "self";
+    /// The action the refusal names.
+    pub const RECOVERY: &'static str = "the terminal host runs a newer cmux than this daemon \
+        speaks: update cmux (`acpmux host self-update`) to adopt it; the shell keeps running";
+}
+
 impl std::fmt::Display for NoCommonHostProtocol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("terminal host shares no protocol version with this build")
+        write!(
+            formatter,
+            "{}: terminal host shares no protocol version with this build: {}",
+            Self::ERROR_KIND,
+            Self::RECOVERY
+        )
     }
 }
 

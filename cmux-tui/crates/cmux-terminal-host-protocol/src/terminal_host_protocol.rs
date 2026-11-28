@@ -15,6 +15,22 @@ use serde::{Deserialize, Serialize};
 pub const MAGIC: [u8; 4] = *b"CMTH";
 pub const HEADER_LEN: usize = 32;
 pub const PROTOCOL_VERSION: u16 = 4;
+/// The oldest terminal-host protocol a host of this build still serves (hq RFD 0224, "a protocol
+/// range on every link"). A host outlives the daemon that started it, so after an update rolls
+/// back (`acpmux.prev`), the older daemon adopts the newer build's hosts. It reaches them only
+/// when those hosts still serve its version. The floor never passes `PROTOCOL_VERSION - 1`, so
+/// version N-1 and N+1 always overlap. Raising it is its own change, made once the inventory shows
+/// no daemon below it.
+pub const PROTOCOL_MIN_VERSION: u16 = 3;
+const _: () = assert!(PROTOCOL_MIN_VERSION >= 1 && PROTOCOL_MIN_VERSION < PROTOCOL_VERSION);
+/// The typed error kind for a handshake whose two ranges share no version. Every RFD 0224 link
+/// uses the same kind (acpmux's `recovery::kind::VERSION_INCOMPATIBLE`).
+pub const VERSION_INCOMPATIBLE: &str = "version.incompatible";
+
+/// The versions a host of this build serves, oldest first.
+pub const fn served_versions() -> std::ops::RangeInclusive<u16> {
+    PROTOCOL_MIN_VERSION..=PROTOCOL_VERSION
+}
 pub const LAUNCH_ACTIVATION_PROTOCOL_VERSION: u16 = 4;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
 pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
