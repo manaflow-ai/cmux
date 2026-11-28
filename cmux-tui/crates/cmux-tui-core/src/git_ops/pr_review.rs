@@ -163,9 +163,17 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
             "head": view.head,
             "base": base,
         });
-        Store::open(mux, START)?
-            .set_review(&root, review)
-            .map_err(|error| diff_comments::io_failed(START, &error))?;
+        let store = Store::open(mux, START)?;
+        store.set_review(&root, review).map_err(|error| diff_comments::io_failed(START, &error))?;
+        // What people already said on GitHub, as threads the agent answers.
+        // A review still starts when GitHub's comments cannot be read.
+        let imported = match github_comments(&git, &pull) {
+            Ok(comments) => match store.import_github(&root, &comments) {
+                Ok(imported) => json!({"threads": imported.threads, "replies": imported.replies}),
+                Err(error) => json!({"error": error.to_string()}),
+            },
+            Err(error) => json!({"error": error.message}),
+        };
         let value = json!({
             "root": root,
             "branch": branch,
@@ -184,9 +192,18 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
             // the person's environment before anyone read it.
             "setup": {"state": "none"},
             "reused": reused,
+            "imported": imported,
         });
         ledger::commit(mux, &key, START, &fingerprint, &value, false, &request.actor)
     })
+}
+
+/// The pull request's review comments on GitHub, one object each.
+fn github_comments(git: &UserGit<'_>, pull: &PullRef) -> Result<Vec<Value>, ResourceError> {
+    let path = format!("repos/{}/pulls/{}/comments", pull.repository(), pull.number);
+    let arguments = ["api", "--paginate", path.as_str(), "--jq", ".[]"];
+    let run = gh(git, &arguments, None, START)?;
+    Ok(diff_comments::github::comment_lines(&String::from_utf8_lossy(&run.stdout)))
 }
 
 /// `gh pr view`: the pull request's title, head and base.
@@ -557,6 +574,7 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
             .filter(|comment| {
                 let id = comment.get("id").and_then(Value::as_str).unwrap_or_default();
                 ids.iter().any(|named| named == id)
+                    && diff_comments::github::github_id(comment).is_none()
                     && versions
                         .get(id)
                         .is_none_or(|version| comment.get("updatedAt") == Some(version))
@@ -572,6 +590,28 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
         // retry (the same key) finds the review by the key's marker in its
         // body before it posts, so the person never gets it twice, even when
         // every draft it carried was edited since.
+        // The agent's answers to threads imported from GitHub go back to
+        // those threads, as replies on GitHub.
+        let outgoing = diff_comments::github::agent_replies(file, &ids);
+        let mut answered = Vec::new();
+        for reply in &outgoing {
+            let path = format!(
+                "repos/{}/pulls/{}/comments/{}/replies",
+                pull.repository(),
+                pull.number,
+                reply.github_id
+            );
+            let input = serde_json::to_vec(&json!({"body": reply.text})).unwrap_or_default();
+            let arguments = ["api", "--method", "POST", path.as_str(), "--input", "-"];
+            let run = gh(&git, &arguments, Some(input), POST)?;
+            let posted: Value = serde_json::from_slice(&run.stdout).unwrap_or(Value::Null);
+            diff_comments::github::mark_posted(file, &reply.thread, &reply.reply, &posted);
+            answered.push(json!({"thread": reply.thread, "reply": reply.reply}));
+        }
+        if drafted.ids.is_empty() && !answered.is_empty() {
+            let value = json!({"url": pull.url(), "posted": 0, "in_body": 0, "cleared": [], "replied": answered});
+            return Ok((value, true));
+        }
         let url = match posted_review(&git, &path, &marker)? {
             Some(url) => url,
             None if drafted.ids.is_empty() => {
@@ -596,8 +636,9 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
             "posted": drafted.inline,
             "in_body": drafted.in_body,
             "cleared": deleted.get("ids").cloned().unwrap_or_default(),
+            "replied": answered,
         });
-        Ok((value, changed))
+        Ok((value, changed || !answered.is_empty()))
     })
 }
 

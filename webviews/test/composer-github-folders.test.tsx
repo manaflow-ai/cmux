@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, expect, test, beforeEach } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 
@@ -38,7 +38,7 @@ const { createGitHubPicker, useGitHubPicker, githubFolderRepo, githubStatusFromR
 const { cloudStartFolder } = await import("../src/agent-session/acpmux/cloudRun");
 const { setNativeHost } = await import("../src/agent-session/acpmux/native");
 const { installPageKey } = await import("../src/agent-session/acpmux/pageKey");
-const { widestLines } = await import("../src/agent-session/acpmux/FolderPopover");
+const { widestLines } = await import("../src/agent-session/acpmux/folderFit");
 const { useState } = await import("react");
 const { forgetAddedRepos, rememberAddedRepo, setFolderUseTimes } =
   await import("../src/agent-session/acpmux/addedRepos");

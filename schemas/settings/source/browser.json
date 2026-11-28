@@ -364,6 +364,28 @@
           ]
         },
         {
+          "key": "browser.agents.openSignedOut",
+          "note": "RFD 0125 D7.1: on, an agent's browser tab opens in the Agents profile (signed in nowhere) instead of the workspace's profile, and borrows a sign-in only through a browser grant (D7.2). Off by default until the person decides (tbd-leo).",
+          "title": {
+            "key": "settings.browser.agentsOpenSignedOut",
+            "text": "Open Agent Tabs Signed Out"
+          },
+          "help": {
+            "key": "settings.browser.agentsOpenSignedOut.help",
+            "text": "Agent tabs open in the Agents profile, signed in nowhere, until you lend a site. Off, they use the workspace's profile."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "profile",
+            "signed out",
+            "sign-in",
+            "grant",
+            "privacy"
+          ]
+        },
+        {
           "key": "browser.agentMouse.motion",
           "note": "How an agent's pointer moves in browser tabs.",
           "title": {
