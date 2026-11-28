@@ -40,18 +40,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: mirror
-            ref: 74b6e6ef7cbb99b6b9165372358210ba86f04c75
-            profile: "0"
-            nomirror: "0"
-          - leg: nomirror
-            ref: 74b6e6ef7cbb99b6b9165372358210ba86f04c75
-            profile: "0"
-            nomirror: "1"
-          - leg: nomirror-profile
-            ref: 74b6e6ef7cbb99b6b9165372358210ba86f04c75
+          - leg: conforms
+            ref: 01136e883ab5eb5d01509eb00728ab51a0ab5e60
             profile: "1"
-            nomirror: "1"
+            nomirror: "0"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
