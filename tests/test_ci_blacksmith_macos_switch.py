@@ -101,6 +101,8 @@ NEEDS_BLACKSMITH: dict[tuple[str, str], str] = {
     ("cmux-next-dev-daily.yml", "verify"): paid.SIGNING + " (its own picker, needs.runner, places it first)",
     ("cmux-next-dev-daily.yml", "tip-dmg-build"): paid.SIGNING + " (its own picker, needs.runner, places it first)",
     ("cmux-next-dev-daily.yml", "tip-deltas"): paid.SIGNING + " (its own picker, needs.runner, places it first)",
+    ("cmux-next-dev-daily.yml", "nightly-commit-dmg-build"):
+        "checks and packs the per-commit cmux NIGHTLY on a fresh VM, needs.runner's Blacksmith pick, as tip-deltas",
 }
 
 EXEMPT = {**paid.PAID_ONLY_JOBS, **NEEDS_BLACKSMITH}

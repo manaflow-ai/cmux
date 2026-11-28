@@ -66,7 +66,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'cmux-next-cua-helper-dev-sign.yml': ('DEV Computer Use helper signing: an ephemeral label the signing rule checks literally',
      {'sign'}),
     'cmux-next-dev-daily.yml': ('DEV signing and publish: an ephemeral label the signing rule checks literally',
-     {'sign', 'publish', 'tip-dmg'}),
+     {'sign', 'publish', 'tip-dmg', 'nightly-commit-sign', 'nightly-commit-publish'}),
     'cmux-tui-build-package.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',
      {'attest-npm-packages'}),
     'cmux-tui-testbox-warmup.yml': ("Blacksmith Testbox broker bound to its environment's approver App",

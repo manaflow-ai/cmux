@@ -60,7 +60,11 @@ check("TIP_FEED_URL: https://files.cmux.com/nightly-next/tip/appcast-arm64.xml" 
       "the sign job stamps the tip feed")
 stamp = workflow.index("Stamp the tip feed, its key and a build number")
 check(stamp < workflow.index("Sign and verify cmux NEXT DEV"), "the stamp happens before signing")
-check("secrets.NIGHTLY_SPARKLE_PRIVATE_KEY" in workflow and "secrets.SPARKLE_NEXT_PRIVATE_KEY" not in workflow,
+# The nightly-next key signs only the per-commit cmux NIGHTLY jobs (tests/test_nightly_commit_build.py),
+# which come after every tip job; the tip feed never sees it.
+tip_jobs = workflow[:workflow.index("\n  nightly-commit-sign:\n")] if "\n  nightly-commit-sign:\n" in workflow else workflow
+check("secrets.NIGHTLY_SPARKLE_PRIVATE_KEY" in tip_jobs and "secrets.SPARKLE_NEXT_PRIVATE_KEY" not in tip_jobs
+      and "secrets.NIGHTLY_SPARKLE_PRIVATE_KEY" not in workflow[len(tip_jobs):],
       "the tip feed uses the release environment's NIGHTLY Sparkle key")
 tip_dmg_build = workflow[workflow.index("\n  tip-dmg-build:\n"):workflow.index("\n  tip-dmg:\n")]
 tip_dmg = workflow[workflow.index("\n  tip-dmg:\n"):workflow.index("\n  tip:\n")]

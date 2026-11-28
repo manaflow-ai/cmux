@@ -2313,6 +2313,10 @@ path = "tests/test_dev_app_linux.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_commit_build.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_verify_signed_dev_app.py"
 lane = "linux-guard"
 
