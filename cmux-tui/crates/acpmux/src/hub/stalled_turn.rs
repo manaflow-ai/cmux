@@ -108,6 +108,7 @@ impl Hub {
         self.note_prefetch_read(session, update);
         self.surgery_note_tool(session, update);
         self.turn_rules_tool(session, update);
+        self.sidecars_tool(session, update);
         // RFD 0144's command placer, in shadow behind `cloud.autoCloud`: records only.
         crate::placement::command_sampler::note_update(
             &session.id,

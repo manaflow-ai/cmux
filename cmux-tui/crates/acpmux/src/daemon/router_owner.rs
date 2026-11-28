@@ -64,6 +64,14 @@ pub(crate) fn router_owner_path() -> Option<PathBuf> {
     None
 }
 
+/// The pid the running local router names in its status, when one answers: a daemon that came
+/// through a restart's exec in place reaps it if it is its child (`daemon/handoff.rs`).
+#[cfg(unix)]
+pub(super) fn running_pid() -> Option<u32> {
+    let status = ask_router(b"{\"op\":\"status\"}\n").ok()?;
+    status.get("pid").and_then(Value::as_u64).and_then(|pid| u32::try_from(pid).ok())
+}
+
 /// Ask the router's admin socket one line; the reply line as JSON.
 fn ask_router(line: &[u8]) -> std::io::Result<Value> {
     use std::io::{BufRead, BufReader, Write};
