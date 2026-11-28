@@ -1580,7 +1580,7 @@ async fn dispatch_request_with_identity(
     // first, behind `lane_overflow.rebalance`; once moved, the forward below takes the prompt
     // there (`wake_move.rs`, RFD 0181 B6).
     if m == method::SESSION_PROMPT {
-        Box::pin(super::wake_move::before_prompt(hub, &params)).await;
+        heap(|| super::wake_move::before_prompt(hub, &params)).await;
     }
     // A session that lives on a peer (`peer_forward.rs`).
     if !rows_by_key && let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
@@ -4620,8 +4620,9 @@ async fn dispatch_method(
             let restart = params.get("restart").and_then(Value::as_bool) == Some(true);
             let handoff = if restart {
                 tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: prepare");
-                // Boxed: the dispatch future stays its size for every other request.
-                Box::pin(crate::daemon::prepare_handoff(&shutdown_reason(&params))).await
+                // Build off this frame too: direct boxing leaves a large stack temporary.
+                let reason = shutdown_reason(&params);
+                heap(|| crate::daemon::prepare_handoff(&reason)).await
             } else {
                 None
             };
