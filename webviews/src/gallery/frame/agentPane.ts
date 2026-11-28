@@ -182,6 +182,12 @@ export async function mountAgentPane(variant: AgentPaneVariant, context: StageCo
       default: {
         const staged = stageUpload(message);
         if (staged !== undefined) return answer(staged);
+        // A New Tab page's host answers its context at once, before `ready` (AgentPaneNavigation,
+        // adoption.ts `useEarlyNewTabContext`), so the page's first screen is New Tab. Answering
+        // nothing here settled the page as a chat: it drew the chat composer until `ready` carried
+        // `newTab`, then the composer jumped 406 px down (gallery-health load move, every New Tab state).
+        if (message.method === "newTab.context" && !Object.hasOwn(state.native ?? {}, "newTab.context"))
+          return answer(state.ready && "newTab" in state.ready ? { newTab: state.ready.newTab } : null);
         const fixture = state.native?.[message.method ?? ""];
         const value = (typeof fixture === "function" ? fixture(message.params) : fixture) ?? null;
         // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
