@@ -6,20 +6,45 @@ import Foundation
 /// `cloud/chiefs.rs` and `cloud/reach.rs`, ops `chiefs_*` and `reach_*`) through ``HomeEngineRules``.
 /// The Swift types the views use stay; these are the JSON shapes of the ops.
 nonisolated enum ChiefRules {
+    /// The `cloud` area's ops these rules call. `cmux_home_call` takes `AREA.NAME`, so a bare
+    /// `chiefs_tab` is `unknownOp` on every build: debug builds stopped at launch and release builds
+    /// answered every fallback (cmux#60364's capture, 2026-11-28). ``path`` adds the area, and
+    /// `HostedChiefRulesOpsTests` checks every case against the linked library's `ops.list`.
+    enum Op: String, CaseIterable, Sendable {
+        case chiefsCreatedHere = "chiefs_created_here"
+        case chiefsEnsure = "chiefs_ensure"
+        case chiefsMove = "chiefs_move"
+        case chiefsOkValue = "chiefs_ok_value"
+        case chiefsPlacedOnly = "chiefs_placed_only"
+        case chiefsPlacement = "chiefs_placement"
+        case chiefsStaleTabs = "chiefs_stale_tabs"
+        case chiefsTab = "chiefs_tab"
+        case reachDiff = "reach_diff"
+        case reachIsThisMac = "reach_is_this_mac"
+        case reachRoute = "reach_route"
+
+        /// The op as `cmux_home_call` names it: `cloud.<name>`.
+        var path: String { ChiefRules.area + rawValue }
+    }
+
     /// A rule that cannot fail on its input: a failure is a cmux-app-ffi without the op (its pin
     /// predates it), so debug builds stop and release builds answer `fallback`.
-    static func rule<In: Encodable, Out: Decodable>(_ op: String, _ input: In, else fallback: @autoclosure () -> Out) -> Out {
+    static func rule<In: Encodable, Out: Decodable>(_ op: Op, _ input: In, else fallback: @autoclosure () -> Out) -> Out {
         do {
-            return try HomeEngineRules.call(op, input)
+            return try HomeEngineRules.call(op.path, input)
         } catch {
             assertionFailure(String(describing: error))
             return fallback()
         }
     }
 
-    static func call<In: Encodable, Out: Decodable>(_ op: String, _ input: In) throws -> Out {
-        try HomeEngineRules.call(op, input)
+    static func call<In: Encodable, Out: Decodable>(_ op: Op, _ input: In) throws -> Out {
+        try HomeEngineRules.call(op.path, input)
     }
+
+    /// The ops live in cmux-home-rules' `cloud` area; `cmux_home_call` takes `AREA.NAME` and answers a bare
+    /// name `unknownOp`, which stopped every debug build at launch on `chiefs_tab`.
+    static let area = "cloud."
 
     // MARK: Chiefs
 
