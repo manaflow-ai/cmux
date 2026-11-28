@@ -79,31 +79,37 @@ fn op(name: &str, request: Value) -> Value {
 
 #[test]
 fn the_ops_answer_over_json() {
-    assert_eq!(op("browser_rules_link_needs_chromium", json!({"scheme": "chrome"})), json!(true));
-    assert_eq!(op("browser_rules_link_needs_chromium", json!({"scheme": null})), json!(false));
     assert_eq!(
-        op("browser_rules_link_is_new_tab_page", json!({"text": "about:blank"})),
+        op("browser_rules_linkroute_needs_chromium", json!({"scheme": "chrome"})),
+        json!(true)
+    );
+    assert_eq!(op("browser_rules_linkroute_needs_chromium", json!({"scheme": null})), json!(false));
+    assert_eq!(
+        op("browser_rules_linkroute_is_new_tab_page", json!({"text": "about:blank"})),
         json!(true)
     );
     let tabs = json!([{"shown": [{"scheme": "https", "host": "github.com"}]}, {"shown": [null]}]);
     assert_eq!(
         op(
-            "browser_rules_link_sign_in_to_close",
+            "browser_rules_linkroute_sign_in_to_close",
             json!({"tabs": tabs, "host": "github.com", "hosts": []})
         ),
         json!(0)
     );
     assert_eq!(
-        op("browser_rules_link_sign_in_on_host", json!({"shown": [null], "host": "github.com"})),
+        op(
+            "browser_rules_linkroute_sign_in_on_host",
+            json!({"shown": [null], "host": "github.com"})
+        ),
         json!(false)
     );
     assert_eq!(
         op(
-            "browser_rules_link_popup_request",
+            "browser_rules_linkroute_popup_request",
             json!({"features": {"x": 0, "y": 0, "width": 5, "height": 6}})
         ),
         json!({"width": 5.0, "height": 6.0})
     );
-    assert!(ops::call("browser_rules_link_nope", json!({})).is_err());
-    assert!(ops::call("browser_rules_link_is_new_tab_page", json!({})).is_err());
+    assert!(ops::call("browser_rules_linkroute_nope", json!({})).is_err());
+    assert!(ops::call("browser_rules_linkroute_is_new_tab_page", json!({})).is_err());
 }

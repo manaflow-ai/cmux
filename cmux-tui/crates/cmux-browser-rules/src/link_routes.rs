@@ -5,11 +5,11 @@
 //!
 //! | op | request | reply |
 //! | --- | --- | --- |
-//! | `browser_rules_link_needs_chromium` | `{scheme}` (null: none) | a bool |
-//! | `browser_rules_link_is_new_tab_page` | `{text}` | a bool |
-//! | `browser_rules_link_sign_in_on_host` | `{shown, host, hosts}` | a bool |
-//! | `browser_rules_link_sign_in_to_close` | `{tabs: [{shown}], host, hosts}` | the index of the tab, or null |
-//! | `browser_rules_link_popup_request` | `{features}` (`{x, y, width, height}` or null) | `{width, height, x?, y?}` |
+//! | `browser_rules_linkroute_needs_chromium` | `{scheme}` (null: none) | a bool |
+//! | `browser_rules_linkroute_is_new_tab_page` | `{text}` | a bool |
+//! | `browser_rules_linkroute_sign_in_on_host` | `{shown, host, hosts}` | a bool |
+//! | `browser_rules_linkroute_sign_in_to_close` | `{tabs: [{shown}], host, hosts}` | the index of the tab, or null |
+//! | `browser_rules_linkroute_popup_request` | `{features}` (`{x, y, width, height}` or null) | `{width, height, x?, y?}` |
 //!
 //! `shown` is a tab's addresses, each `{scheme, host}` or null (the address was not a URL); the app
 //! parses addresses, Rust decides.
@@ -154,7 +154,7 @@ fn parse<T: serde::de::DeserializeOwned>(request: Value) -> Result<T, OpError> {
 
 /// Runs the link op `op`, or None when it is not one of them.
 pub fn call(op: &str, request: Value) -> Option<Result<Value, OpError>> {
-    let name = op.strip_prefix("browser_rules_link_")?;
+    let name = op.strip_prefix("browser_rules_linkroute_")?;
     Some(run(name, request))
 }
 
@@ -181,6 +181,6 @@ fn run(name: &str, request: Value) -> Result<Value, OpError> {
             let PopupRequestInput { features } = parse(request)?;
             Ok(serde_json::to_value(popup_request(features)).unwrap_or(Value::Null))
         }
-        other => Err(OpError::UnknownOp(format!("browser_rules_link_{other}"))),
+        other => Err(OpError::UnknownOp(format!("browser_rules_linkroute_{other}"))),
     }
 }
