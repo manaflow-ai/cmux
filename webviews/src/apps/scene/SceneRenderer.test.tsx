@@ -1153,7 +1153,7 @@ async function hoverEvent(target: Element, type: string, relatedTarget: Element 
   await act(async () => {
     const send = (element: Element, eventType: string, related: Element | null) => {
       const event = new dom!.window.MouseEvent(eventType, {
-        bubbles: true,
+        bubbles: !eventType.endsWith("enter") && !eventType.endsWith("leave"),
         relatedTarget: related,
         clientX: 20,
         clientY: 20,
@@ -1211,13 +1211,19 @@ test("SDK Tooltip opens on its Pill and leaves without dispatching a scene actio
   );
   jest.useFakeTimers();
   const pill = container.querySelector('[data-app-node="sdk-pill"]')!;
+  const trigger = container.querySelector('[data-app-node="sdk-tip"]')!;
   await hoverEvent(pill, "pointerover", container);
   await hoverEvent(pill, "mouseover", container);
+  // Base UI uses a native enter listener and starts its rest timer on mouse movement.
+  await hoverEvent(trigger, "mouseenter", container);
+  await hoverEvent(pill, "mousemove");
   await advanceHover(HOVER_INTENT.tooltipDelay + 1);
   expect(container.querySelector('[role="tooltip"]')?.textContent).toBe("Open the latest run");
   expect(pill.querySelector(".kit-pill")?.getAttribute("data-tone")).toBe("success");
   await hoverEvent(pill, "pointerout", container);
   await hoverEvent(pill, "mouseout", container);
+  await hoverEvent(trigger, "mouseleave", container);
+  await hoverEvent(container, "mousemove");
   await advanceHover(HOVER_INTENT.tooltipWarm + 1);
   expect(container.querySelector('[role="tooltip"]')).toBeNull();
   expect(calls).toEqual([]);
