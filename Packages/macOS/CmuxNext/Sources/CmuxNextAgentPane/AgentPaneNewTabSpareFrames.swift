@@ -11,7 +11,11 @@ public final class AgentPaneNewTabSpareFrames {
         public var full: CGSize
         public var splits: [CGSize]
 
-        public init(identity: [AnyHashable], full: CGSize, splits: [CGSize]) {
+        public init?(
+            identity: [AnyHashable]?, full: @autoclosure () -> CGSize?,
+            splits: @autoclosure () -> [CGSize]?, opening: Bool, moving: Bool
+        ) {
+            guard !opening, !moving, let identity, let full = full(), let splits = splits() else { return nil }
             self.identity = identity
             self.full = full
             self.splits = splits
@@ -78,9 +82,24 @@ public final class AgentPaneNewTabSpareFrames {
         }
     }
 
+    /// The domain owns parked-view eligibility, including the selected spare. The host supplies
+    /// its current views and geometry again after each asynchronous draw or capture.
+    public func snapshot(
+        _ view: AgentPaneView, parking: PageOffscreenParking, covers: AgentPaneSpareCovers,
+        views: @escaping () -> [AgentPaneView],
+        context: @escaping () -> Context?, invalidated: @escaping () -> Void
+    ) {
+        capture(view, parking: parking, covers: covers,
+                parked: { [weak parking] page in
+                    page.superview === parking && views().contains { $0 === page }
+                },
+                context: { [weak view] in views().first === view ? context() : nil },
+                invalidated: invalidated)
+    }
+
     /// Capture full size first, render Rust's missing split-size plan on this renderer, then
     /// restore full size. Invalid ownership or a changed context stops the attempt at each frame.
-    public func snapshot(
+    private func capture(
         _ view: AgentPaneView, parking: PageOffscreenParking, covers: AgentPaneSpareCovers,
         parked: @escaping (AgentPaneView) -> Bool,
         context: @escaping () -> Context?, invalidated: @escaping () -> Void
@@ -104,7 +123,7 @@ public final class AgentPaneNewTabSpareFrames {
                            valid: { [weak view] in view.map(parked) == true && context() == expected },
                            finished: { [weak self, weak view] in
                                guard let self, let view, parked(view) else { return }
-                               self.snapshot(view, parking: parking, covers: covers, parked: parked,
+                               self.capture(view, parking: parking, covers: covers, parked: parked,
                                              context: context, invalidated: invalidated)
                            }, invalidated: invalidated)
         }

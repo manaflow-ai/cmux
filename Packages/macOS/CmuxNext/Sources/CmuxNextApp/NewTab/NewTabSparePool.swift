@@ -217,6 +217,33 @@ final class NewTabSparePool {
                             snapshot: { [weak self] in self?.snapshotParked($0) })
     }
 
+    func fitParked() {
+        schedulePrepare()
+        spareFrames.fit(parking: parking, size: targetPaneSize, opening: refills.isOpening,
+                        views: slot.all, snapshot: snapshotParked)
+    }
+
+    func paneLayoutDidChange(in window: NSWindow?) {
+        guard let window, window === target, parking.superview != nil else { return }
+        let layout = services.windows.controllers.first { $0.window === window }?.content?.layoutView
+        if layout?.isInLayoutMotion == true { spareFrames.cancel() }
+        if targetIdentity != spareFrames.preparedFor { schedulePrepare() }
+        layout?.whenSettled("NewTabSparePool.fit", after: Self.fitSettle, on: fits) { [weak self] in self?.fitParked() }
+    }
+
+    func snapshotParked(_ view: AgentPaneView) {
+        spareFrames.snapshot(view, parking: parking, covers: covers,
+                             views: { [weak self] in self?.slot.all ?? [] },
+                             context: { [weak self] in self?.prefetchContext },
+                             invalidated: { [weak self] in self?.paneLayoutDidChange(in: self?.target) })
+    }
+
+    private var prefetchContext: AgentPaneNewTabSpareFrames.Context? {
+        .init(identity: targetIdentity, full: targetPane?.newTabContentSize,
+              splits: targetPane?.newTabPrefetchContentSizes, opening: refills.isOpening,
+              moving: targetPane?.workspace?.layoutView.isInLayoutMotion == true)
+    }
+
     lazy var fits = FrameBatchQueue(owner: "NewTabSparePool.fit", budgeted: .background, on: services.mainWork)
 
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
