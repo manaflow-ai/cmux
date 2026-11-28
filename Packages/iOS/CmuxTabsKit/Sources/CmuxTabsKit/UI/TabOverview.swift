@@ -269,20 +269,18 @@ struct TabOverview<Source: TabsDataSource>: View {
             }
             .scrollIndicators(.hidden)
             .ignoresSafeArea()
-            // Safari's top edge: cards scrolled under the status bar and the
-            // top controls blur and fade into the background.
+            // The top edge under the title bar: nothing is legible behind the header
+            // (`OverviewTitleEdge`, vocabulary doc §8).
+            .scrollEdgeEffectStyle(overviewTitleEdgeStyle == .system ? .soft : nil, for: .top)
+            .scrollEdgeEffectHidden(overviewTitleEdgeStyle != .system, for: .top)
             .overlay(alignment: .top) {
-                ZStack {
-                    Rectangle().fill(.ultraThinMaterial)
-                        .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
-                    LinearGradient(colors: [theme.colors.overviewTop, theme.colors.overviewTop.opacity(0.6), .clear],
-                                   startPoint: .top, endPoint: .bottom)
+                if overviewTitleEdgeStyle != .system {
+                    OverviewTitleEdgeLayer(
+                        edge: OverviewTitleEdge(style: overviewTitleEdgeStyle, safeTop: layout.safeTop,
+                                                control: theme.metrics.overviewTopControl),
+                        color: theme.colors.overviewTop,
+                        strongBlur: overviewTitleEdgeStyle == .progressiveBlur)
                 }
-                // Down to the grid's first row, under the top controls.
-                .frame(height: layout.safeTop + 12 + theme.metrics.overviewTopControl)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
             }
             .scaleEffect(transition.gridScale(shown: shown))
             .blur(radius: transition.gridBlur(shown: shown))

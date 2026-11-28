@@ -307,7 +307,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 // The grid's bottom bar stays on top of it: a page zooming into
                 // a card that reaches the bar covered (+) and the count
                 // (cmux-next re-audit 3 #11).
-                .mask { BarCutout(bar: overviewLayout.barRect, shown: overviewShown) }
+                // The grid's title edge covers the active tab's live card too: it is drawn
+                // here, over the grid, so the grid's own edge layer missed it and its text
+                // showed behind the header (#62097's after screenshot, vocabulary doc §8).
+                .mask { BarCutout(bar: overviewLayout.barRect, shown: overviewShown,
+                                  topEdge: overviewTitleEdgeStyle == .system ? nil
+                                      : OverviewTitleEdge(style: overviewTitleEdgeStyle, safeTop: overviewLayout.safeTop,
+                                                          control: theme.metrics.overviewTopControl)) }
 
             if chrome.editing {
                 source.editingBackground(addressEditing)
@@ -1071,15 +1077,28 @@ struct DormantGate<Content: View>: View, Equatable {
 struct BarCutout: View {
     var bar: CGRect
     var shown: Double
+    /// The grid's title edge, cut from the page the same way the grid's edge layer covers
+    /// the other cards: gone above `opaqueBottom`, fading back in to `height`.
+    var topEdge: OverviewTitleEdge? = nil
 
     var body: some View {
+        let shown = min(1, max(0, shown))
         ZStack(alignment: .topLeading) {
             Rectangle()
             Rectangle()
                 .frame(width: bar.width, height: bar.height + 16)
                 .offset(x: bar.minX, y: bar.minY - 8)
-                .opacity(min(1, max(0, shown)))
+                .opacity(shown)
                 .blendMode(.destinationOut)
+            if let edge = topEdge, edge.height > 0 {
+                LinearGradient(stops: [.init(color: .black, location: 0),
+                                       .init(color: .black, location: edge.opaqueStop),
+                                       .init(color: .clear, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: edge.height)
+                    .opacity(shown)
+                    .blendMode(.destinationOut)
+            }
         }
         .compositingGroup()
     }
