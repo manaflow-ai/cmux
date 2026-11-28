@@ -135,10 +135,13 @@ RUST_ROOTS = ("cmux-tui/crates/", "cmux-tui/vendor/")
 
 def rust_inputs(packages: list[str], roots: list[str]) -> list[str]:
     """The ios-kit input patterns the FFI's Cargo closure needs outside cmux-next-ios/ (which `cmux-next-ios/**`
-    covers): each package's tree, each workspace root's manifest and lock, the fixed files the build reads."""
+    covers): each package's tree, each workspace root's manifest, the fixed files the build reads. Cargo reads only
+    the building workspace's (cmux-next-ios/rust) Cargo.lock, so another root's lock is no input, as in
+    ios_link_ffi_key's key: a cmux-tui/Cargo.lock-only change took a Mac for 8 of 95 branches (200 of 2,258 min)
+    of the ios fast verdict on 2026-11-27 16-20Z."""
     want = {f"{pkg}/**" for pkg in packages}
     for root in roots:
-        want |= {f"{root}/Cargo.toml", f"{root}/Cargo.lock"}
+        want.add(f"{root}/Cargo.toml")
     want |= set(ios_link_ffi_key.FIXED)
     return sorted(p for p in want if not p.startswith("cmux-next-ios/"))
 
