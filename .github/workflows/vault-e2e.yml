@@ -8,7 +8,7 @@ name: cmux vault end to end (staging, no Mac)
 # by hash, checks that a second, never approved device cannot read the vault, then cleans up the vault and deletes
 # the machine, pass or fail.
 #
-# The cmux is built from `host_ref` (default lane/secrets-vault-host, the machine side on top of the device side);
+# The cmux is built from `host_ref` (default: this run's own commit; the machine side landed in cmux#56879);
 # the script comes from this workflow's own commit. Secrets: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in
 # cmux-next-vm-image-dev. Runs on a same-repo pull request that changes this file or the script, and by manual
 # dispatch on feat-cmux-next.
@@ -18,7 +18,7 @@ on:
     inputs:
       host_ref:
         description: "The ref whose cmux-tui the CLI device and the machine's cmux-host run"
-        default: lane/secrets-vault-host
+        default: ""
   pull_request:
     branches: [feat-cmux-next]
     paths:
@@ -45,7 +45,7 @@ jobs:
       # The tree that is built: the machine side's branch. The script comes from this run's own commit (e2e/).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.host_ref || 'lane/secrets-vault-host' }}
+          ref: ${{ inputs.host_ref || '' }}
           persist-credentials: false
           submodules: false
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
