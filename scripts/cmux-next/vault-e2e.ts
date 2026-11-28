@@ -172,7 +172,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // Earlier runs cut off before their delete: their exact name, over an hour old.
     const listed = await listAllMachines((p) => api.read("cloud.machine.list", p));
     report.accountMachines = listed.filter((m) => m.status !== "deleted" && m.status !== "deleting").length;
-    say(`the account has ${report.accountMachines} live machine(s)`);
+    // Run 46147092409: 40 live machines, both creates create_overdue, deletes owner.unreachable (the owner's
+    // Durable Object reset at its CPU limit). Name who holds them: name without its run tag, and status.
+    const census = new Map<string, number>();
+    for (const m of listed) {
+      if (m.status === "deleted" || m.status === "deleting") continue;
+      const k = `${String(m?.name ?? "?").replace(/[-\s][a-z]*\d.*$/, "")}/${m.status}`;
+      census.set(k, (census.get(k) ?? 0) + 1);
+    }
+    report.accountCensus = Object.fromEntries([...census].sort((a, b) => b[1] - a[1]));
+    say(`the account has ${report.accountMachines} live machine(s): ${[...census].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(", ")}`);
     for (const m of listed) {
       const t = new RegExp(`^${NAME_PREFIX}([0-9a-z]+)-[0-9a-z]+$`).exec(String(m?.name ?? ""));
       const at = t ? parseInt(t[1], 36) : NaN;
