@@ -1892,6 +1892,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -2201,6 +2204,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -2517,6 +2523,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -2823,6 +2832,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -3136,6 +3148,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -3439,6 +3454,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -3758,6 +3776,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -4066,6 +4087,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -4369,6 +4393,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -4682,6 +4709,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -4993,6 +5023,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -5299,6 +5332,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -5621,6 +5657,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -5935,6 +5974,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -6247,6 +6289,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -6569,6 +6614,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -6875,6 +6923,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -7207,6 +7258,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -7589,6 +7643,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -7977,6 +8034,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -8280,6 +8340,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -8621,6 +8684,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -8980,6 +9046,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -9683,6 +9752,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -10042,6 +10114,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -10348,6 +10423,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -10872,6 +10950,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -11234,6 +11315,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -11537,6 +11621,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -11856,6 +11943,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -12162,6 +12252,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -12476,6 +12569,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -12805,6 +12901,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -13173,6 +13272,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -13481,6 +13583,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -13787,6 +13892,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -14269,6 +14377,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -14610,6 +14721,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -14870,6 +14984,12 @@
       },
       "/sessionId": {
         "ty": "json"
+      }
+    },
+    "request:_acpmux/last": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
       }
     },
     "request:_acpmux/ledger": {
@@ -15171,6 +15291,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -15505,6 +15628,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -15828,6 +15954,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -16139,6 +16268,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -16445,6 +16577,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -16762,6 +16897,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -17150,6 +17288,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -17465,6 +17606,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -17791,6 +17935,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -18406,6 +18553,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -18751,6 +18901,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -19060,6 +19213,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -19382,6 +19538,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -19702,6 +19861,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -20016,6 +20178,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -20321,6 +20486,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -20623,6 +20791,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -20871,6 +21042,323 @@
       }
     },
     "request:_acpmux/protocol": {},
+    "request:_acpmux/pull_request_action": {
+      "/_meta": {
+        "ty": "object"
+      },
+      "/_meta/acpmux": {
+        "ty": "object"
+      },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/adopt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/agentSessionId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/answeredBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/approverDecision": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/approverDecisions": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/argv": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerKind": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerProtocol": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/callerSession": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cancelToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/chunkDeltas": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/class": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/compression": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/context": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/createKey": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/createdBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cwd": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/decisionNonce": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/disallowedTools": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/dispatchSource": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/effort": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/env": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/ephemeral": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/features": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/forceAdmit": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/forwardProjection": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromAgent": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromHarness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/fromSessionId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/githubBroker": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/harness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/harnessFrom": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/host": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/ifNameTaken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/inlineParts": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/interrupt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/localAppToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/mcpServers": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/messageId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/messageSender": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/mode": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/model": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/name": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/notice": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/observer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/parent": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peerHops": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/peerRowBatches": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personDecision": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personKey": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personStop": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/personVerified": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/policy": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/pr": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/preset": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptFileText": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/promptSuggestion": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/provenance": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/reportTo": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requestId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requireAsking": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/requireFullAccess": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/resend": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/restricted": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/route": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderHarness": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderHarnessChecked": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/senderToken": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/sessionChangedDelta": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/sessionCreatedAt": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/spawnToolCallId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/startLater": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steer": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steerNow": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/steerOnly": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/supersede": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/surface": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/tags": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/teamMessage": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/throughSeq": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/throwaway": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/topic": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/via": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/vmBoundary": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/waitStart": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/workflowAllowedTools": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/workspaceId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/worktree": {
+        "ty": "json"
+      },
+      "/action": {
+        "ty": "json"
+      },
+      "/headSha": {
+        "ty": "json"
+      },
+      "/sessionId": {
+        "ty": "json"
+      },
+      "/url": {
+        "ty": "json"
+      }
+    },
     "request:_acpmux/queue_approve": {
       "/_meta": {
         "ty": "object"
@@ -20930,6 +21418,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -21246,6 +21737,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -21552,6 +22046,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -21874,6 +22371,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -22180,6 +22680,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -22538,6 +23041,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -22871,6 +23377,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -23256,6 +23765,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -23633,6 +24145,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -23996,6 +24511,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/session_resources": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/session_resync": {
       "/*untyped*": {
         "ty": "json",
@@ -24146,6 +24667,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -24477,6 +25001,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -24783,6 +25310,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -25096,6 +25626,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -25402,6 +25935,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -25712,6 +26248,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -26015,6 +26554,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -26323,6 +26865,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -26645,6 +27190,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -26965,6 +27513,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -27271,6 +27822,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -27593,6 +28147,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -27911,6 +28468,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -28529,6 +29089,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -28844,6 +29407,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -29197,6 +29763,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -29615,6 +30184,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -29965,6 +30537,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -30386,6 +30961,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -30695,6 +31273,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -31059,6 +31640,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -31374,6 +31958,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -31711,6 +32298,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -32020,6 +32610,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -32339,6 +32932,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -32650,6 +33246,9 @@
       "/_meta/acpmux/cliHost": {
         "ty": "json"
       },
+      "/_meta/acpmux/cloudRegistryId": {
+        "ty": "json"
+      },
       "/_meta/acpmux/compression": {
         "ty": "json"
       },
@@ -32956,6 +33555,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/cliHost": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/cloudRegistryId": {
         "ty": "json"
       },
       "/_meta/acpmux/compression": {
@@ -35977,6 +36579,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/last": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/ledger": {
       "/data/*untyped*": {
         "ty": "json",
@@ -38175,6 +38783,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/pull_request_action": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/queue_approve": {
       "/data/*untyped*": {
         "ty": "json",
@@ -38575,6 +39189,12 @@
       }
     },
     "response:_acpmux/session_hold": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/session_resources": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

@@ -537,7 +537,7 @@ class HostBuildRoot(unittest.TestCase):
             (bin_dir / tool).chmod(0o755)
         self.env = {**os.environ, 'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'HOME': str(self.home),
                     'BUILD_TRACK': 'nightly-next', 'CMUX_NIGHTLY_HOST_BUILD_ROOT': '1',
-                    'CMUX_NIGHTLY_HOST_ROOT': str(self.host)}
+                    'CMUX_NIGHTLY_HOST_ROOT': str(self.host), 'CMUX_NIGHTLY_DISK_USED_PERCENT': '50'}
         for name in ('GITHUB_ENV', 'GITHUB_OUTPUT', 'RUNNER_ENVIRONMENT', 'CMUX_CI_CANONICAL_ROOT', *state.BUILD_SETTINGS):
             self.env.pop(name, None)
 
@@ -630,6 +630,33 @@ class HostBuildRoot(unittest.TestCase):
         # Its success makes the next one an ordinary incremental build.
         self.commit({'Sources/a.swift': 'let a = 4\n'})
         self.assertIn('NEXT Release build: incremental DerivedData (2 since the last clean build)', self.build('1'))
+
+    def test_a_build_service_crash_drops_the_cas_and_derived_data(self):
+        """Runs 46074261734..46079235693: every build on ultra1 crashed the Xcode build service, clean DerivedData
+        included, on the one CAS kept across clean builds. A crash marks the root; the next build starts without it."""
+        self.build('1')
+        (self.host / 'CompilationCache/blob').write_text('cas')
+        (self.host / state.HOST_CRASH_MARK).write_text('')
+        self.commit({'Sources/a.swift': 'let a = 3\n'})
+        out = self.build('2')
+        self.assertIn('NEXT host build root pruned: the Xcode build service crashed in the last build', out)
+        self.assertIn('NEXT Release build: clean DerivedData (the Xcode build service crashed', out)
+        self.assertIn('kept=no', out)
+        self.assertFalse((self.host / 'CompilationCache/blob').exists())
+        self.assertFalse((self.host / state.HOST_CRASH_MARK).exists())
+        # Once only: the next build builds on this one.
+        self.commit({'Sources/a.swift': 'let a = 4\n'})
+        self.assertIn('NEXT Release build: incremental', self.build('1'))
+
+    def test_a_full_data_volume_drops_the_cas_and_derived_data(self):
+        self.build('1')
+        (self.host / 'CompilationCache/blob').write_text('cas')
+        self.env['CMUX_NIGHTLY_DISK_USED_PERCENT'] = '97'
+        self.commit({'Sources/a.swift': 'let a = 3\n'})
+        out = self.build('2')
+        self.assertIn('NEXT host build root pruned: the data volume is 97% used (over 90%)', out)
+        self.assertIn('kept=no', out)
+        self.assertFalse((self.host / 'CompilationCache/blob').exists())
 
     def test_two_failed_builds_in_a_row_make_the_next_one_clean(self):
         """Kept state that itself breaks the build must not break every build after it."""
