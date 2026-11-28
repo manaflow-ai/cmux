@@ -1,0 +1,16 @@
+[package]
+name = "cmux-app-history"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux NEXT app's history, search, file explorer and hint rules (pure; the macOS app asks them over the app FFI): Search All Windows' words, snippets and hit order, the file tree's rows and git folders, closed-history retention, command history sync, Find's states, window hint rects"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+unicode-segmentation = { workspace = true }
+
+[lints]
+workspace = true
