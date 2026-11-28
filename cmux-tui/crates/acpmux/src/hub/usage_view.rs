@@ -722,6 +722,9 @@ impl Hub {
     }
 }
 
+#[path = "purged_spend.rs"]
+mod purged_spend;
+
 #[cfg(test)]
 #[path = "usage_view_tests.rs"]
 mod tests;
