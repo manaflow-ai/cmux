@@ -60,7 +60,8 @@
 //! Writes `duress-bench.json` (schema `acpmux.duress-bench.v1`) and `duress-bench.md` to
 //! `$FAST_CHECKS_OUT` (else a scratch folder it prints) and prints the table. No gate yet.
 //! Refuses to run unless `ACPMUX_DURESS=1`, and on any host whose name contains `cosmic-gray`.
-//! Linux only. Each leg prints `DURESS-SUMMARY <line>`, and the daemon's own log (kept in the
+//! Linux and macOS; on macOS the `disk`, `bigchat`, `all`, `host150` and `starved` legs refuse
+//! (they need tmpfs, prlimit or cgroups) and `os` in the report says which. Each leg prints `DURESS-SUMMARY <line>`, and the daemon's own log (kept in the
 //! scratch folder, off the home) is searched for ENOSPC, panics and socket loss
 //! (`daemonLogFindings`; the disk leg also reads `home/daemon.log` a CLI-started daemon wrote).
 //!
@@ -515,7 +516,11 @@ fn statvfs(path: &Path) -> Option<(u64, u64)> {
     // SAFETY: a zeroed statvfs is a valid out parameter; `c` is a valid C string.
     let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
     (unsafe { libc::statvfs(c.as_ptr(), &mut s) } == 0)
-        .then(|| (s.f_blocks * s.f_frsize, s.f_bavail * s.f_frsize))
+        // fsblkcnt_t is 32 bits on macOS, 64 on Linux; `u64::from` widens either.
+        .then(|| {
+            let frsize = u64::from(s.f_frsize);
+            (u64::from(s.f_blocks) * frsize, u64::from(s.f_bavail) * frsize)
+        })
 }
 
 /// Fills the filesystem at `filler`'s folder until under 1% of it is free: the bytes written.
@@ -2767,6 +2772,7 @@ async fn duress_bench() {
     let report = json!({
         "schema": "acpmux.duress-bench.v1",
         "host": host,
+        "os": std::env::consts::OS,
         "cores": cores(),
         "commit": commit(),
         "knobs": {"legs": k.legs, "windowSecs": k.window.as_secs(), "capSecs": k.cap.as_secs(),
