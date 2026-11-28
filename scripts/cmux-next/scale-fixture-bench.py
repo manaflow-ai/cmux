@@ -19,8 +19,11 @@ A flow fails when the main thread went longer than --budget-ms (default 250) wit
 (`max_gap_ms`, every gap whatever the watchdog's threshold; the watchdog's records name the stalls' stacks).
 Before the flows a 400 ms `debug.stall` proves the watchdog sees a block (`probe`): a blind gate fails, never passes.
 
-Fail open (exit 0, `verdict: "skipped"`, a `warning`): no GUI session on this Mac, the app does not launch, or the
-fixture could not be seeded because the host refused it (no acpmux host id). A seeded fixture whose rows do not ask
+Fail open (exit 0, `verdict: "skipped"`, a `warning`): no GUI session on this Mac, the app does not come up for a
+reason of the host's (no socket in time, a silent socket, an `open` failure), or the fixture could not be seeded because
+the host refused it (no acpmux host id). An app that crashes at launch (a crash report, or a signal exit) is the
+build's own fault, not the host's: `verdict: "crashed"`, exit 1 (run 6f5a0818 at da330185 crashed on a debug
+assertion, `home rules op chiefs_tab: unknownOp`, and read as a green skip). A seeded fixture whose rows do not ask
 for a Chief's avatar (`owned` below half the workspaces) fails: the gate would be blind (exit 2).
 Exit 1: a flow blocked the main thread past the budget. The JSON report (--json) has every number.
 
@@ -59,9 +62,11 @@ def big_config(target_bytes: int = 160_000) -> dict:
 
 def verdict(report: dict, budget_ms: float = BUDGET_MS) -> tuple[str, int, list[str]]:
     """(verdict, exit code, reasons) of a run's report: `skipped` (0) when it measured nothing for a reason outside
-    the change (no GUI session, no launch, a refused seed); `blind` (2) when the watchdog missed the probe stall or
+    the change (no GUI session, no launch, a refused seed); `crashed` (1) when the app crashed at launch; `blind` (2) when the watchdog missed the probe stall or
     the rows did not ask for avatars; `fail` (1) when a flow's longest main-thread gap passed `budget_ms`; else
     `pass` (0)."""
+    if report.get("crashed"):
+        return "crashed", 1, [report["crashed"]]
     if report.get("skipped"):
         return "skipped", 0, [report["skipped"]]
     reasons = []
@@ -181,6 +186,12 @@ def run(opts) -> dict:
     try:
         bench.launch(timeout=180)
     except LaunchError as error:
+        if error.reason == "crashed":
+            fatal = (error.report.get("fatal") or [])[-1:] or \
+                [line for line in (error.report.get("log_tail") or "").splitlines() if "Fatal error" in line][-1:]
+            report["crashed"] = f"app crashed at launch: {error.report.get('detail', '')}" + \
+                (f" ({fatal[0][:300]})" if fatal else "")
+            return report
         report["skipped"] = f"app did not launch: {error.reason}"
         return report
     try:

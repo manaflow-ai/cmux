@@ -68,6 +68,50 @@ class Verdict(unittest.TestCase):
     def test_skipped_fails_open(self):
         self.assertEqual(bench.verdict({"skipped": "no GUI session"}), ("skipped", 0, ["no GUI session"]))
 
+    def test_launch_crash_fails(self):
+        # Run 6f5a0818 (da330185): the app crashed on a debug assertion at launch and the gate read it as a skip.
+        name, code, reasons = bench.verdict({"crashed": "app crashed at launch: exit -5", "skipped": "x"})
+        self.assertEqual((name, code), ("crashed", 1))
+        self.assertIn("crashed", reasons[0])
+
+    def test_run_reports_a_launch_crash_with_its_fatal_line(self):
+        import tempfile
+        import types
+
+        class FakeLaunchError(Exception):
+            def __init__(self, reason, report):
+                super().__init__(reason)
+                self.reason, self.report = reason, report
+
+        class FakeApp:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def launch(self, timeout):
+                raise FakeLaunchError("crashed", {
+                    "detail": "the app ended (exit -5) before its socket answered",
+                    "log_tail": "CmuxNextHostedChief/HostedChiefRules.swift:15: Fatal error: home rules op chiefs_tab: unknownOp\n"})
+
+        fake = types.ModuleType("bench_launch")
+        fake.BenchApp, fake.LaunchError, fake.gui_session = FakeApp, FakeLaunchError, lambda: {"ok": True}
+        saved = sys.modules.get("bench_launch")
+        sys.modules["bench_launch"] = fake
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                code = bench.main(["--app", "x.app", "--out", tmp, "--json", f"{tmp}/r.json"])
+                written = json.loads(Path(f"{tmp}/r.json").read_text())
+        finally:
+            if saved is None:
+                sys.modules.pop("bench_launch", None)
+            else:
+                sys.modules["bench_launch"] = saved
+        self.assertEqual((code, written["verdict"]), (1, "crashed"))
+        self.assertIn("chiefs_tab: unknownOp", written["reasons"][0])
+
+    def test_workflow_fails_a_crash(self):
+        text = (ROOT / ".github/workflows/cmux-next-scale-fixture.yml").read_text()
+        self.assertIn('if v == "crashed":', text)
+
 
 class Config(unittest.TestCase):
     def test_big_config_is_160_kb(self):

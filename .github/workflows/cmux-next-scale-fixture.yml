@@ -11,7 +11,7 @@ name: cmux-next scale fixture
 #
 # Fail open: no gateway, no client, no free GUI Mac, an infra error or a run that measured nothing warns and
 # passes. Only a `fail` verdict (a flow's main-thread gap over 250 ms, with the watchdog proven live by a probe
-# stall and the rows proven to ask for Chief avatars) fails the job. A `blind` verdict warns.
+# stall and the rows proven to ask for Chief avatars) or a `crashed` one (the app crashed at launch) fails the job. A `blind` verdict warns.
 # Gated by path until the relevance map (docs/benches/relevance-map.toml) drives it.
 
 on:
@@ -115,6 +115,9 @@ jobs:
           print(json.dumps({"verdict": v, "reasons": reasons}))
           if v == "fail":
               print(f"::error title=Scale fixture::main thread blocked past budget: {'; '.join(reasons)}")
+              sys.exit(1)
+          if v == "crashed":
+              print(f"::error title=Scale fixture::the app crashed at launch: {'; '.join(reasons)}")
               sys.exit(1)
           if v != "pass":
               print(f"::warning title=Scale fixture (fail open)::{v}: {'; '.join(reasons)}")
