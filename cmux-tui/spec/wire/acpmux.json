@@ -20,6 +20,7 @@
     "field:_meta.acpmux#chunkDeltas",
     "field:_meta.acpmux#class",
     "field:_meta.acpmux#cliHost",
+    "field:_meta.acpmux#cloudRegistryId",
     "field:_meta.acpmux#compression",
     "field:_meta.acpmux#context",
     "field:_meta.acpmux#createKey",
