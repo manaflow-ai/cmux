@@ -80,6 +80,7 @@ fn control_message(id: &str, op: &str) -> InMessage {
     message.message_id = id.to_owned();
     message.kind = Kind::Control;
     message.op = Some(op.into());
+    message.start_work = None;
     message
 }
 
