@@ -30,6 +30,7 @@
     "**/Cargo.lock",
     "webviews/**",
     "web/data/**",
+    "web/services/upstreamError.ts",
     "schemas/**",
     "scripts/cmux-next/**",
     "release-notes/next/**",
@@ -224,7 +225,8 @@
     "examples/**",
     "clients/ts/**",
     "config/vite-plus/**",
-    "web/data/**"
+    "web/data/**",
+    "web/services/upstreamError.ts"
    ],
    "draft": true,
    "paths-ignore": [
