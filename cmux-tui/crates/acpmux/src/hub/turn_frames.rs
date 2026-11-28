@@ -24,7 +24,9 @@
 //! while the app runs. None: no frame, never a wait.
 //!
 //! A frame within [`SAME`] bits (64-bit dHash) of the turn's last kept frame is dropped, so a turn
-//! that changed nothing on screen keeps one frame. At most [`MAX_FRAMES`] a turn (the turn's end
+//! that changed nothing on screen keeps one frame, unless the page's outline changed under the same
+//! picture (its text, not its layout: `turn_frames_shape.rs`), when it is kept with a line of what
+//! changed. At most [`MAX_FRAMES`] a turn (the turn's end
 //! always gets one more). Each frame keeps a [`THUMB_WIDTH`] px thumbnail and a picture at most
 //! [`FULL_WIDTH`] px wide. Disk: `<ACPMUX_HOME>/turn-frames/<session>/<turn>/`, [`KEEP_TURNS`]
 //! turns per chat and [`KEEP_CHATS`] chats, as turn shots; a deleted chat's go with it.
@@ -34,6 +36,7 @@ use super::turn_frames_native;
 use super::turn_shots::{CapturedPage, capture_page, prune, segment};
 use base64::Engine as _;
 use serde_json::{Value, json};
+use shape::Shape;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -85,9 +88,17 @@ pub(crate) struct Frame {
     pub hash: u64,
     #[serde(default)]
     pub url: Option<String>,
+    /// The hash of the page's outline (`turn_frames_shape.rs`); none for a frame with no page read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<u64>,
+    /// What the outline changed from the frame before, in a line (`+2 -1 +button Saved -button
+    /// Save`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<String>,
 }
 
 /// The chat's running (or last) turn and its frames.
+#[derive(Default)]
 struct Turn {
     id: String,
     workspace: String,
@@ -545,6 +556,7 @@ pub(super) fn turn_refused(session: &Session, turn: &str) {
 /// Session `id`'s frames, deleted with its chat. Blocking.
 pub(crate) fn remove_session(id: &str) {
     turns().remove(id);
+    shape::forget(id);
     if let Some(id) = segment(id) {
         let _ = crate::home_fs::remove_dir_all(root().join(id));
     }
@@ -595,7 +607,8 @@ fn ask(session: &str, trigger: &'static str) {
 /// last kept. The kept frame, or none. Blocking.
 fn take(session: &str, trigger: &'static str, repl: &str) -> Option<Frame> {
     let (turn_id, page, dir, picture) = shoot(session, repl)?;
-    keep(session, &turn_id, &dir, &picture, trigger, page.url)
+    let outline = shape::take(&dir.join(format!("{repl}.capture.png")));
+    keep(session, &turn_id, &dir, &picture, trigger, page.url, outline)
 }
 
 /// A picture of `session`'s page now: the agent-driven page of its workspace, else, in a turn that
@@ -695,8 +708,9 @@ fn bounded_shot(binary: &std::ffi::OsStr, args: &[&str], out: &Path) -> bool {
         && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() <= MAX_CAPTURE_BYTES)
 }
 
-/// Keeps `picture` as the turn's next frame unless it matches the last kept one (a `turn-end`
-/// matching it is still dropped: the strip already shows that picture).
+/// Keeps `picture` as the turn's next frame unless it matches the last kept one, in its picture and,
+/// when both have one, in the page's `outline` (a `turn-end` matching it is still dropped: the strip
+/// already shows that picture).
 fn keep(
     session: &str,
     turn_id: &str,
@@ -704,6 +718,7 @@ fn keep(
     picture: &Rgb,
     trigger: &'static str,
     url: Option<String>,
+    outline: Option<Shape>,
 ) -> Option<Frame> {
     let hash = dhash(picture);
     let full = shrink(picture, FULL_WIDTH, None);
@@ -712,7 +727,8 @@ fn keep(
     let mut all = turns();
     let turn = all.get_mut(session).filter(|t| t.id == turn_id)?;
     let last = turn.frames.last().map(|f| f.hash);
-    if last.is_some_and(|last| bits(last, hash) <= SAME) {
+    let change = shape::since_last(session, turn_id, outline.as_ref());
+    if last.is_some_and(|last| bits(last, hash) <= SAME) && change.is_none() {
         return None;
     }
     let first = turn.frames.first().map(|f| f.hash);
@@ -727,6 +743,8 @@ fn keep(
         moved: first.map_or(0.0, |f| f64::from(bits(f, hash)) / 64.0),
         hash,
         url,
+        shape: outline.as_ref().map(|o| o.hash),
+        change,
     };
     let written = crate::home_fs::write(dir.join(format!("{}.png", frame.index)), &full_bytes)
         .and_then(|()| {
@@ -736,6 +754,7 @@ fn keep(
         return None;
     }
     turn.frames.push(frame.clone());
+    shape::kept(session, turn_id, outline);
     let index = serde_json::to_vec(&turn.frames).unwrap_or_default();
     drop(all);
     let _ = crate::home_fs::write(dir.join(INDEX), index);
@@ -769,8 +788,13 @@ fn frame_value(dir: &Path, frame: &Frame, full: bool) -> Option<Value> {
         "moved": frame.moved,
         "thumb": picture_value(&thumb),
     });
-    if full && let Ok(bytes) = std::fs::read(dir.join(format!("{}.png", frame.index))) {
-        value["full"] = picture_value(&bytes);
+    if let Some(fields) = value.as_object_mut() {
+        if let Some(change) = &frame.change {
+            fields.insert("change".into(), json!(change));
+        }
+        if full && let Ok(bytes) = std::fs::read(dir.join(format!("{}.png", frame.index))) {
+            fields.insert("full".into(), picture_value(&bytes));
+        }
     }
     Some(value)
 }
@@ -848,7 +872,8 @@ fn look_now(session: &str) -> Value {
     let Some((turn_id, page, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
         return json!({"error": "no agent-driven page is showing in this chat's workspace, no iOS Simulator is booted, no Mac app this turn ran has a window Computer Use may look at without asking, and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
     };
-    let kept = keep(session, &turn_id, &dir, &picture, "look", page.url.clone());
+    let outline = shape::take(&dir.join(format!("{LOOK_REPL_SESSION}.capture.png")));
+    let kept = keep(session, &turn_id, &dir, &picture, "look", page.url.clone(), outline);
     let hash = dhash(&picture);
     let first = turns().get(session).and_then(|t| t.frames.first().map(|f| f.hash));
     let moved = first.map_or(0, |f| bits(f, hash));
@@ -867,6 +892,10 @@ fn look_now(session: &str) -> Value {
         "turnId": turn_id,
     })
 }
+
+/// The page's outline beside the pixel hash (RFD 0151's structural diff).
+#[path = "turn_frames_shape.rs"]
+pub(super) mod shape;
 
 #[cfg(test)]
 #[path = "turn_frames_tests.rs"]

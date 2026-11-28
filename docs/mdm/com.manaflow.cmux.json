@@ -418,12 +418,6 @@
       "title" : "Session Info",
       "type" : "string"
     },
-    "agentPane.display.sessionInfo.sections.carried" : {
-      "default" : true,
-      "description" : "The MCP servers and carried the chat has.",
-      "title" : "Session Info: Carried memory",
-      "type" : "boolean"
-    },
     "agentPane.display.sessionInfo.sections.changes" : {
       "default" : true,
       "description" : "The chat's pull requests and their checks.",
@@ -4964,6 +4958,12 @@
       "title" : "Expanded Edits Estimate",
       "type" : "boolean"
     },
+    "experiments.feed" : {
+      "default" : false,
+      "description" : "Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first.",
+      "title" : "Feed",
+      "type" : "boolean"
+    },
     "experiments.foldSummaryCounts" : {
       "default" : false,
       "description" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
@@ -8534,6 +8534,16 @@
       "description" : "An Install button for each version listed in What's New.",
       "title" : "Install Versions from What's New",
       "type" : "boolean"
+    },
+    "window.settingsPresentation" : {
+      "default" : "tab",
+      "description" : "Tab opens Settings as a tab in the focused pane. Full Window opens it over the whole window, with its sections on the left.",
+      "enum" : [
+        "tab",
+        "page"
+      ],
+      "title" : "Open Settings In",
+      "type" : "string"
     },
     "window.titlebar" : {
       "default" : "minimal",

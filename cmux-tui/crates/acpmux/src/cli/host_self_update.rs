@@ -904,6 +904,9 @@ pub(super) fn apply(
         allow_downgrade: plan.allow_downgrade,
         caller: None,
         now,
+        // The installed binary is the chosen build: a silent daemon is its
+        // unit's to restart, not this timer's (cmuxterm-hq#36581).
+        same_build_installed: matches!(plan.step, Step::Current(_)),
     };
     let fenced = plan.lease.fence(remote);
     let mut up = update_peer(&fenced, &opts);
@@ -1026,6 +1029,7 @@ fn idle_restart(remote: &dyn Remote, opts: &UpdateOptions, held: PeerUpdate) -> 
         allow_downgrade: opts.allow_downgrade,
         caller: None,
         now: true,
+        same_build_installed: opts.same_build_installed,
     };
     let up = update_peer(remote, &early);
     if let Some((_, _, after)) = idle_state(remote)

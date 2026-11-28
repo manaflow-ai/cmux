@@ -182,16 +182,16 @@ final class QuitCoordinator {
         DebugTimings.markLaunch("quit.decided")
         let services = services
         // Sparkle installs a staged update as the app exits unless `updates.installOnQuit` is off
-        // (then it is cancelled now), once the keep for rollback its staging started ends (bounded).
+        // (then cancelled now), once the rollback keep ends (bounded); its relaunch is a hand-off.
         await services.updater.prepareForQuitAfterKeep()
-        // A keep quit ends within `keepQuitLimit` from here, whatever any step
-        // below does (slow quit, 2026-10-20). An End quit arms its deadline
-        // once its sessions ended (the end steps show their failures).
-        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) } else { reply.hold() } // End's failure alert waits on the person
-        // From here the quit is decided: an end before AppKit's reply (a SIGKILL after a bounded wait,
-        // a slow Chromium shutdown) is still a quit the user asked for, not a crash.
-        // Awaited (bounded, 500 ms) so `quitting` is on disk before the quit
-        // can end the process; the write itself runs off the main thread.
+        // A keep quit ends within `keepQuitLimit` from here, whatever any step below does (slow quit,
+        // 2026-10-20); an End quit arms it once its sessions ended. An update's relaunch is expected.
+        if !choice.ends {
+            deadline.arm(after: QuitDeadline.keepQuitLimit)
+            if services.updater.relaunchingForUpdate { QuitAgents.environment(services)?.expectRelaunch() }
+        } else { reply.hold() } // End's failure alert waits on the person
+        // The quit is decided: an end before AppKit's reply (a bounded wait's SIGKILL, a slow Chromium shutdown) is still
+        // a quit the user asked for, not a crash. Awaited (500 ms bound) so `quitting` is on disk first; written off main.
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
         await quitSteps(choice).run(ends: choice.ends)
