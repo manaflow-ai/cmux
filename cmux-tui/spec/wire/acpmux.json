@@ -242,7 +242,6 @@
     "method:_acpmux/journal_restore",
     "method:_acpmux/keep",
     "method:_acpmux/keys_mint",
-    "method:_acpmux/last",
     "method:_acpmux/lifecycle",
     "method:_acpmux/mac_approver_set",
     "method:_acpmux/mac_approvers",
@@ -981,6 +980,9 @@
     ],
     "feature:journalRestorePages": [
       "field:_meta.acpmux#throughSeq"
+    ],
+    "feature:lastReplies": [
+      "method:_acpmux/last"
     ],
     "feature:linkControls": [
       "method:_acpmux/controls",
