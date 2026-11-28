@@ -21,6 +21,10 @@
 //!   network): `{revision, updates: [{app, name, ref, current_version,
 //!   current_commit, version, commit, install_app}], fetched_at, stale,
 //!   refreshing, error?}`. Catalog apps ship with cmux and never list.
+//!   The background update check's offers (`update_offers.rs`: a git app
+//!   whose repository has a newer commit for its ref) list too, after the
+//!   Community rows; `check: true` runs that check now (the network) and
+//!   answers `checked_at`.
 //! - `apps.update {app, idempotency_key, grant_optional?}` installs that
 //!   row's `install_app` through `apps.install` (user origin, its consent
 //!   card, its answer); an app with no update is `apps.update.none`.
@@ -186,6 +190,12 @@ impl Community {
             error: state.error.clone(),
         };
         (status, due && start)
+    }
+
+    /// Claims a refresh when one is due (the cache is past its TTL and not
+    /// backing off); the caller then runs [`Self::refresh`].
+    pub(super) fn claim_due_refresh(&self) -> bool {
+        self.status(false, true).1
     }
 
     /// Fetches the whole index (bounded) and replaces the cache; a failure
@@ -607,8 +617,8 @@ pub(super) struct InstallsResult {
 
 /// One update (`apps.updates.list` `updates[]`): an installed git app whose
 /// Community row names another reviewed commit than the one installed.
-#[derive(Debug, Clone, Serialize)]
-pub(super) struct UpdateRow {
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(crate) struct UpdateRow {
     /// The installed app id (`apps.update {app}`).
     pub app: String,
     pub name: String,
@@ -633,6 +643,10 @@ pub(super) struct UpdatesListParams {
     /// Fetch now even when the cache is fresh (still answers from the cache).
     #[serde(default)]
     refresh: Option<bool>,
+    /// Run the update check now (`update_offers.rs`: the index when due, and
+    /// each git app's repository) and answer after it.
+    #[serde(default)]
+    check: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -645,6 +659,9 @@ pub(super) struct UpdatesListResult {
     refreshing: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// With `check`: when the check ran.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    checked_at: Option<u64>,
 }
 
 /// `apps.update {app, idempotency_key, grant_optional?}`.
@@ -657,7 +674,7 @@ pub(super) struct UpdateParams {
     grant_optional: Option<bool>,
 }
 
-fn short_commit(commit: &str) -> String {
+pub(super) fn short_commit(commit: &str) -> String {
     commit.chars().take(7).collect()
 }
 
@@ -787,7 +804,7 @@ impl Supervisor {
 
     /// Tells clients (and the App Store page) to read the catalog again; an
     /// `apps-changed` with no app, so nothing reconciles or activates.
-    fn community_changed(&self) {
+    pub(super) fn community_changed(&self) {
         let (sinks, revision) = {
             let inner = self.inner.lock().recover_poison();
             (inner.sinks.clone(), inner.mirror.revision)
@@ -957,7 +974,9 @@ impl Supervisor {
                 .collect();
             (installed, inner.mirror.revision)
         };
-        (updates_from(index, &sources, &installed), revision)
+        let mut updates = updates_from(index, &sources, &installed);
+        self.merge_git_offers(&mut updates, &sources, &installed);
+        (updates, revision)
     }
 
     /// The updates the cached index knows of, by app id; never starts a
@@ -974,9 +993,14 @@ impl Supervisor {
         &self,
         p: UpdatesListParams,
     ) -> Result<UpdatesListResult, ApiError> {
+        let checked_at = (p.check == Some(true)).then(|| {
+            self.check_extension_updates_now();
+            now_ms()
+        });
         let status = self.community_status(p.refresh == Some(true));
         let (updates, revision) = self.community_updates(status.index.as_deref());
         Ok(UpdatesListResult {
+            checked_at,
             revision,
             updates,
             fetched_at: status.index.as_ref().map(|i| i.fetched_at),

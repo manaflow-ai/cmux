@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.updates.checkExtensions.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checks your installed extensions for new versions every few hours and sends a notification when one is available."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يتحقق من وجود إصدارات جديدة من الإضافات المثبتة كل بضع ساعات ويرسل إشعارًا عند توفر إصدار."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Svakih nekoliko sati provjerava ima li novih verzija instaliranih ekstenzija i šalje obavijest kada je neka dostupna."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Søger efter nye versioner af dine installerede udvidelser med få timers mellemrum og sender en notifikation, når der er en."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sucht alle paar Stunden nach neuen Versionen deiner installierten Erweiterungen und sendet eine Mitteilung, wenn eine verfügbar ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Busca nuevas versiones de tus extensiones instaladas cada pocas horas y envía una notificación cuando hay una disponible."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Recherche toutes les quelques heures de nouvelles versions de vos extensions installées et envoie une notification lorsqu'une version est disponible."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cerca nuove versioni delle estensioni installate ogni poche ore e invia una notifica quando ne è disponibile una."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "インストール済みの拡張機能の新しいバージョンを数時間ごとに確認し、利用可能になったら通知します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពិនិត្យរកកំណែថ្មីនៃផ្នែកបន្ថែមដែលបានដំឡើងរៀងរាល់ពីរបីម៉ោងម្តង ហើយផ្ញើការជូនដំណឹងនៅពេលមានកំណែថ្មី។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "설치된 확장 프로그램의 새 버전을 몇 시간마다 확인하고, 새 버전이 있으면 알림을 보냅니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ser etter nye versjoner av de installerte utvidelsene dine med noen timers mellomrom og sender et varsel når en er tilgjengelig."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Co kilka godzin sprawdza, czy są nowe wersje zainstalowanych rozszerzeń, i wysyła powiadomienie, gdy jakaś jest dostępna."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Verifica novas versões das extensões instaladas a cada poucas horas e envia uma notificação quando houver uma disponível."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Каждые несколько часов проверяет наличие новых версий установленных расширений и присылает уведомление, когда версия доступна."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตรวจหาเวอร์ชันใหม่ของส่วนขยายที่ติดตั้งไว้ทุกสองสามชั่วโมง และส่งการแจ้งเตือนเมื่อมีเวอร์ชันใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yüklü uzantılarınızın yeni sürümlerini birkaç saatte bir denetler ve yeni bir sürüm olduğunda bildirim gönderir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кожні кілька годин перевіряє наявність нових версій встановлених розширень і надсилає сповіщення, коли версія доступна."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kiểm tra phiên bản mới của các tiện ích mở rộng đã cài đặt vài giờ một lần và gửi thông báo khi có phiên bản mới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每隔几小时检查已安装扩展的新版本，有新版本时发送通知。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每隔幾小時檢查已安裝延伸功能的新版本，有新版本時傳送通知。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

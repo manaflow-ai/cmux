@@ -1209,6 +1209,26 @@ def row_community(ctx: Ctx) -> dict:
             "add": added, "apps_list_query": cli_query}
 
 
+def row_updates(ctx: Ctx) -> dict:
+    """Extension updates (#44897, the background check): `apps.updates.list {check: true}` runs the update
+    check the daemon runs every few hours with `updates.checkExtensions` on (the Community index when due, and
+    each git app's repository for a newer commit) and answers after it, `checked_at` set; the list it answers
+    is the one `cmux apps update APP` installs from. The copy has no git app installed (an install is the
+    person's consent card), so the list holds no offer, and a plain list (no check) answers no `checked_at`.
+    The offer itself is the daemon test `the_update_check_offers_a_newer_release_and_apps_update_installs_it`."""
+    plain = store_op(ctx, "apps.updates.list")
+    checked = store_op(ctx, "apps.updates.list", {"check": True})
+    data = checked.get("data") or {}
+    plain_data = plain.get("data") or {}
+    refused = store_op(ctx, "apps.update", {"app": CUSTOMIZE_APP, "idempotency_key": f"{ctx.token}-u"})
+    return {"checks": {"plain_list_answers": plain.get("ok") is True and "checked_at" not in plain_data,
+                       "check_ran": checked.get("ok") is True and isinstance(data.get("checked_at"), int),
+                       "registry_answered": bool(data.get("fetched_at")) and not data.get("error"),
+                       "no_offer_without_install": data.get("updates") == [],
+                       "update_needs_the_person": refused.get("ok") is not True},
+            "plain": plain, "checked": checked, "update": refused}
+
+
 def row_share(ctx: Ctx) -> dict:
     """Sharing with a teammate (#42068, #52747): in a clone of a public extension repository, `cmux ext share
     --json` prints the pinned link (`https://github.com/OWNER/REPO/tree/COMMIT`) and the `cmux ext add` line;
@@ -1525,6 +1545,7 @@ ROWS = {
     "toolbar": (row_toolbar, "#47325"),
     "overlay": (row_overlay, "#43014"),
     "community": (row_community, "#44898 #45142 #52659"),
+    "updates": (row_updates, "#44897 lane/ext-update-offer"),
     "share": (row_share, "#42068 #52747"),
     "layout_swap": (row_layout_swap, "#43027"),
     "typed_sdk": (row_typed_sdk, "#42797 #52685"),
