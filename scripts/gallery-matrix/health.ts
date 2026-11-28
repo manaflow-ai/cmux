@@ -88,6 +88,28 @@ export function brokenReason(result: HealthResult): string | null {
 export const stateKey = (result: { params?: Record<string, unknown> }): string =>
   `${String(result.params?.entry ?? "")}#${String(result.params?.variant ?? "")}`;
 
+/**
+ * The shard's cases, split by state: every case of a state lands in the shard its state's FNV-1a hash
+ * names, whatever cases come before it. The split by position (shardCases, `--shard-by index`) moved
+ * every state to another shard whenever one case was added or removed ahead of it, so `health (8)` was a
+ * different set of states at each commit: a post-merge bisect probe judged leg 8 at its commit by states
+ * that were never red at the batch (the red one was in another leg there), and a standing red hopped legs
+ * from batch to batch and was a "new" red again each time (batch run 46040477174: legs 6, 8, 14 and 15 red,
+ * each on a state the base replay did not share). Keyed by state, a leg holds the same states at any commit
+ * with the same shard count, and a state's themes and widths render (and retry) in one shard.
+ */
+export function shardStates<T extends { params?: Record<string, unknown> }>(cases: T[], shardCount: number, shardIndex: number): T[] {
+  if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error("shardCount must be a positive integer");
+  if (!Number.isInteger(shardIndex) || shardIndex < 0 || shardIndex >= shardCount) throw new Error("shardIndex must be within shardCount");
+  return cases.filter((item) => stateShard(stateKey(item), shardCount) === shardIndex);
+}
+
+export function stateShard(state: string, shardCount: number): number {
+  let hash = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(state)) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+  return hash % shardCount;
+}
+
 export type Verdict = {
   /** Broken states the allowlist does not name: the check fails on these. */
   fresh: { state: string; reason: string }[];
@@ -159,6 +181,8 @@ async function main(): Promise<void> {
       retries: { type: "string", default: "2" },
       "shard-count": { type: "string", default: "1" },
       "shard-index": { type: "string", default: "0" },
+      // state (shardStates: a leg is the same states at every commit) or index (shardCases, by position).
+      "shard-by": { type: "string", default: "state" },
       concurrency: { type: "string", default: String(availableParallelism()) },
     },
   });
@@ -172,7 +196,8 @@ async function main(): Promise<void> {
   const undeclaredBaseline = readUndeclaredBaseline(values["undeclared-baseline"]);
   const invariantBaseline = readInvariantBaseline(values["invariant-baseline"]);
   const all = parseManifest(JSON.parse(await readFile(values.manifest, "utf8")));
-  const cases = shardCases(all, Number(values["shard-count"]), Number(values["shard-index"]));
+  if (values["shard-by"] !== "state" && values["shard-by"] !== "index") throw new Error("--shard-by is state or index");
+  const cases = (values["shard-by"] === "index" ? shardCases : shardStates)(all, Number(values["shard-count"]), Number(values["shard-index"]));
   const outputDir = resolve(values["output-dir"]);
   await mkdir(outputDir, { recursive: true });
   const concurrency = Number(values.concurrency);

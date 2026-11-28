@@ -88,6 +88,13 @@ name = "HangReport#schemaVersion"
 policy = "unreviewed"
 
 [[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextHibernation/DormantRecord.swift"
+const = "recordVersion"
+name = "DormantRecord#recordVersion"
+policy = "rebuild"
+why = "kept for one launch only, beside its frame in a temporary directory the next launch removes; a relaunch rebuilds the chat or page from its owner (acpmux, the page's history), losing a last frame, no work"
+
+[[format]]
 file = "Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HiddenHistory.swift"
 const = "schemaVersion"
 name = "HiddenHistory#schemaVersion"
@@ -346,6 +353,9 @@ key = "cmux.diffViewer.layout"
 
 [[storage_key]]
 key = "cmux.diffViewer.options"
+
+[[storage_key]]
+key = "cmux.draft-attachments.authority."
 
 [[storage_key]]
 key = "cmux.editor.keySequence"

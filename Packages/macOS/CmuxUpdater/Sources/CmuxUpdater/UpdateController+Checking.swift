@@ -203,9 +203,10 @@ extension UpdateController {
 
 extension UpdateController: UpdateDriverEventDelegate {
     func updateDriverNeedsSilentInstallResume() {
-        // Returning NO from willInstallUpdateOnQuit ends Sparkle's silent cycle. Resume it as
-        // a foreground cycle only after that callback, so the user driver gets a cancellable
-        // reply instead of trapping the updater in its private silent-install session.
+        // Legacy/classic bundles can still reach this callback when their plist permits
+        // Sparkle's silent cycle. Resume it as a foreground cycle only after that callback, so
+        // the user driver gets a cancellable reply instead of trapping the updater in its
+        // private silent-install session. NEXT bundles disable that cycle at the bundle boundary.
         pendingCheckIntent = pendingCheckIntent?.merged(with: .manual) ?? activeCheckIntent ?? .manual
         showPreparingCheck()
     }
