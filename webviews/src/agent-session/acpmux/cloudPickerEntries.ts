@@ -20,10 +20,14 @@ import { chatPlace, routeOnOwnCloud } from "./chatMachine";
 
 type Entry = ModelPickerProps["catalog"][number];
 
-/** True when the composer's chat starts on, or runs on, a Cloud machine. */
+/** True when the composer's chat starts on, or runs on, a Cloud machine, or Auto may start it there
+ *  (`cloudPicker`: Cloud and Auto share one picker, apart from This Mac's). */
 export function pickerOnCloud(snapshot: AcpmuxSnapshot): boolean {
   return (
-    snapshot.startsOnCloud === true || snapshot.summary?.hostKind === "cloud" || routeOnOwnCloud(chatPlace(snapshot))
+    snapshot.startsOnCloud === true ||
+    (snapshot.cloudPicker === true && (snapshot.summary?.turnCount ?? 0) === 0) ||
+    snapshot.summary?.hostKind === "cloud" ||
+    routeOnOwnCloud(chatPlace(snapshot))
   );
 }
 

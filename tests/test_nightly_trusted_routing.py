@@ -55,7 +55,7 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 CMUX_LINUX = 'cmux-linux'
 CMUX_LINUX_JOBS = ('prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
                    'check-nightly-app-store-shelf', 'check-nightly-webviews',
-                   'early-nightly-webviews')
+                   'early-nightly-webviews', 'nightly-next-hedge-verdict')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
 # publish-nightly-next-github and keep-published-dsyms are loop-run hosted jobs (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS).
@@ -99,6 +99,8 @@ NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 OWNED_SECRET_JOBS = {
     "nightly-next-deltas": "signs and uploads post-feed deltas on the owned signing Mac behind its own whole-Mac claim",
     'nightly-next-one': "builds, signs and publishes nightly-next in one job on cmux15's signer label (NIGHTLY_NEXT_ONE_JOB)",
+    'nightly-next-hedge': "nightly-next-one's unsigned compile on the signer Mac the pick did not take (hedge_pin); "
+                          "its GH_TOKEN_SPARES gh steps, no signing secret",
     'sign-live-code-variant': "signs, notarizes and publishes nightly-next-one's live code variant on the same signer label",
     'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
     'pick-nightly-build-runner': 'reads the routing App key (ci-routing-agent) to pick the build mini; a credentialed control',

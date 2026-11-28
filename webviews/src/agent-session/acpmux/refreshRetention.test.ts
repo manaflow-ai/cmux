@@ -89,6 +89,9 @@ test("same-chat refresh keeps the visible reply when the refresh hold expires be
     expect(duringFrames.length).toBeGreaterThan(0);
     for (const frame of duringFrames) expect(stillVisible(frame)).toBe(true);
 
+    // The fake clock was for the hold's expiry, which has passed; the rest of the switch (its attach
+    // answer and what follows) runs on real time, as a pending timer there would never fire.
+    jest.useRealTimers();
     release!();
     await reopening;
     for (const frame of snapshots.slice(beforeRefresh)) expect(stillVisible(frame)).toBe(true);

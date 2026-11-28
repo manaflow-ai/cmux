@@ -1655,6 +1655,7 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes.md#note-37
   pick-nightly-build-runner:
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-pick-nightly-build-runner-comments.md
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-pick-nightly-build-runner-1.md
     needs: [decide]
     if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.one_job != 'true' }}
@@ -1764,6 +1765,7 @@ jobs:
           overwrite: true
 
   build-nightly-app:
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-nightly-app-comments.md
     permissions:
       contents: write
       actions: read
@@ -2903,6 +2905,7 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-resolve-nightly-cmux-tui-client.md
   resolve-nightly-cmux-tui-client:
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-resolve-nightly-cmux-tui-client-comments.md
     environment:
       name: ci-routing-agent
       deployment: false
@@ -3635,6 +3638,7 @@ jobs:
 
 
   build-sign-notarize-nightly:
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-sign-notarize-nightly-comments.md
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-sign-notarize-nightly.md
     environment: ${{ needs.decide.outputs.environment }}
     # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-sign-notarize-nightly-comments.md
@@ -4175,7 +4179,6 @@ jobs:
           NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
           # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-sign-notarize-nightly-5.md
           SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
-          # nightly-next-one writes the item full-only and builds the deltas after the feed. Why: docs/ci/nightly-workflow-notes.md#note-31
           NIGHTLY_NEXT_DELTAS_AFTER_FEED: ${{ needs.decide.outputs.one_job == 'true' && needs.decide.outputs.track == 'nightly-next' && 'true' || '' }}
         run: |
           set -euo pipefail
@@ -5208,6 +5211,7 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/await-tree-marker.sh
 
   publish-nightly:
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-publish-nightly-comments.md
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-nightly-4.md
     environment: ${{ needs.decide.outputs.environment }}
     permissions:
@@ -5812,6 +5816,7 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes.md#note-21
   publish-nightly-next-github:
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-publish-nightly-next-github-comments.md
     needs: [published-build]
     if: "always() && !cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_tag_status == 'updated' && needs.published-build.outputs.cross_run != 'true'"
     # Why: docs/ci/nightly-workflow-notes/2026-11-28-publish-nightly-next-github-comments.md
@@ -6541,6 +6546,9 @@ jobs:
     outputs:
       host: ${{ steps.pick.outputs.host }}
       pin: ${{ steps.pick.outputs.pin }}
+      # The other signer Mac for the hedge compile (nightly-next-hedge); empty when there is no hedge.
+      hedge_host: ${{ steps.pick.outputs.hedge_host }}
+      hedge_pin: ${{ steps.pick.outputs.hedge_pin }}
       attempt: ${{ github.run_attempt }}
     steps:
       - *github-token-for-git
@@ -6640,8 +6648,8 @@ jobs:
         run: ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
           || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
-  # nightly-next on one Mac, end to end. Why: docs/ci/nightly-workflow-notes.md#note-18
   nightly-next-one:
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-nightly-next-one-comments.md
     needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-next-signer]
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.one_job == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
     environment: ${{ needs.decide.outputs.environment }}
@@ -6655,7 +6663,6 @@ jobs:
     timeout-minutes: 300
     permissions:
       contents: write
-      # The tick ask at notarization. Why: docs/ci/nightly-workflow-notes.md#note-26
       actions: write
       pull-requests: read
       attestations: write
@@ -6692,7 +6699,7 @@ jobs:
       deltas_min_system: ${{ steps.deltas-inputs.outputs.min_system }}
       left: ${{ steps.one-leave.outputs.superseded }}
       left_pending: ${{ steps.one-leave.outputs.pending }}
-    env:
+    env: &one-env
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       CMUX_NIGHTLY_KEEP_STATE: "1"
@@ -6764,7 +6771,8 @@ jobs:
           IN_SLOT: 1
           GH_BUDGET_WAIT_MAX_SECONDS: "0"
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/resolve-leave-build-slot.sh"
-      - name: Point the signing steps at the build products
+      - &one-paths
+        name: Point the signing steps at the build products
         if: ${{ !env.LEFT_SLOT }}
         env:
           VARIANTS: ${{ needs.decide.outputs.variants }}
@@ -6778,7 +6786,8 @@ jobs:
       - *x1
       - *x2
       # Why: docs/ci/nightly-workflow-notes.md#note-15
-      - name: Read whether the kept Zig package cache is complete
+      - &one-zig-kept
+        name: Read whether the kept Zig package cache is complete
         id: zig-kept
         if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
         env: {KEY: *zig-key}
@@ -6787,7 +6796,8 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && steps.zig-kept.outputs.kept != 'true' && !env.LEFT_SLOT
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with: *zig-cache
-      - name: Key the Ghostty CLI helper cache
+      - &one-helper-key
+        name: Key the Ghostty CLI helper cache
         id: helper-cache-key
         if: steps.reuse.outputs.hit != 'true' && !env.LEFT_SLOT
         run: bash scripts/ci/nightly-steps/helper-cache-key.sh
@@ -6798,7 +6808,8 @@ jobs:
         with:
           path: ~/Library/Caches/cmux/ghostty-cli-helper
           key: ${{ steps.helper-cache-key.outputs.key }}
-      - name: Build Ghostty CLI helper
+      - &one-helper-build
+        name: Build Ghostty CLI helper
         if: steps.reuse.outputs.hit != 'true' && !env.LEFT_SLOT
         env:
           HELPER_CACHE_HIT: ${{ steps.helper-cache.outputs.cache-hit }}
@@ -6811,7 +6822,8 @@ jobs:
         env: {KEY: *zig-key}
         run: bash scripts/ci/nightly-steps/zig-cache-kept.sh mark
       - *x5
-      - name: Compile this build (no product reuse)
+      - &one-product
+        name: Compile this build (no product reuse)
         if: ${{ !env.LEFT_SLOT }}
         id: nightly-product
         run: echo hit=false >> "$GITHUB_OUTPUT"
@@ -6819,7 +6831,8 @@ jobs:
       - *x15
       - *x16
       # Why: docs/ci/nightly-workflow-notes.md#note-15
-      - name: Install compilation dependencies
+      - &one-compile-deps
+        name: Install compilation dependencies
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         run: bash scripts/ci/nightly-steps/one-job-compile-deps.sh
       # Why: docs/ci/nightly-workflow-notes.md#note-17
@@ -6847,7 +6860,8 @@ jobs:
       - *x32
       - *x33
       # Why: docs/ci/nightly-workflow-notes.md#note-48
-      - name: Build nightly app (Release)
+      - &one-release-build
+        name: Build nightly app (Release)
         id: app-release-build
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         timeout-minutes: 60
@@ -7110,7 +7124,6 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-tag-outcome.sh
       - *x101
       - *release-the-nightly-next-publi
-      # Leo: "Just keep the train going like 24/7". Why: docs/ci/nightly-workflow-notes.md#note-53
       - name: Hand the Mac to a newer nightly-next push after the feed
         if: "!cancelled() && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT"
         continue-on-error: true
@@ -7127,7 +7140,6 @@ jobs:
           BUDGET_VARIANT: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && 'arm64-cef-on-demand' || 'arm64' }}
           GH_DOWNLOAD_TOKEN: ${{ github.token }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg-bundle-size-budget.sh
-      # Not the rolling-name DMG, a second copy of the build's DMG. Why: docs/ci/nightly-workflow-notes.md#note-32
       - name: Upload nightly variant artifacts
         if: ${{ !env.LEFT_SLOT }}
         id: one-up-variant
@@ -7196,6 +7208,128 @@ jobs:
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe
 
   # Delta trust boundary and topology: docs/ci/nightly-workflow-notes/2026-11-27-nightly-next-deltas-job.md
+  # The hedge compile: the signer Mac the pick did not take builds the same tree, no signing, no publish.
+  # Nothing needs it, so it never holds or reddens the nightly. Why: docs/ci/nightly-workflow-notes/2026-11-28-nightly-next-hedge.md
+  nightly-next-hedge:
+    needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-next-signer]
+    if: "!cancelled() && vars.NIGHTLY_NEXT_HEDGE != 'off' && needs.pick-nightly-next-signer.result == 'success' && needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.hedge_pin != '' && needs.decide.outputs.track == 'nightly-next'"
+    continue-on-error: true
+    # The split builder's environment: no signing secret (the store key below is not passed).
+    environment:
+      name: ${{ github.ref == 'refs/heads/nightly-next' && 'artifacts' || '' }}
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || startsWith(needs.pick-nightly-next-signer.outputs.hedge_pin, '["glaeda-trusted-next-signing",') && fromJSON(needs.pick-nightly-next-signer.outputs.hedge_pin) || 'glaeda-trusted-next-signing' }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      compile: ${{ (steps.chief-build.outcome == 'failure' || steps.mobile-host-build.outcome == 'failure' || steps.app-release-build.outcome == 'failure') && 'fail' || steps.app-release-build.outcome == 'success' && 'pass' || 'not built' }}
+    env: *one-env
+    steps:
+      - *hold-the-whole-mac
+      - *clear-stale-git-locks-self-hos-2
+      - *x8
+      - name: Checkout build ref (warm nightly-next builder)
+        if: *warm-checkout-if
+        timeout-minutes: 15
+        env:
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          FETCH_TOKEN: ${{ github.token }}
+        run: *warm-checkout-script
+      - *checkout-publication-tooling-a
+      - *one-paths
+      - *x10
+      - *select-xcode-sdk-unless-resumed
+      - *x11
+      - *x13
+      - *x1
+      - *x2
+      - *one-zig-kept
+      # The hedge restores the caches nightly-next-one saves and saves none (tests/ci_per_ref_cache_saves_baseline.txt only shrinks).
+      - name: Restore Zig packages
+        if: inputs.nightly_next_unsigned_run == '' && steps.zig-kept.outputs.kept != 'true' && !env.LEFT_SLOT
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with: *zig-cache
+      - *one-helper-key
+      - name: Restore the Ghostty CLI helper
+        id: helper-cache
+        if: steps.reuse.outputs.hit != 'true' && !env.LEFT_SLOT
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/Library/Caches/cmux/ghostty-cli-helper
+          key: ${{ steps.helper-cache-key.outputs.key }}
+      - *one-helper-build
+      - *x4
+      - *x5
+      - *one-product
+      - *x14
+      - *x15
+      - *x16
+      - *one-compile-deps
+      - *x18
+      - *x19
+      - *x20
+      - *x21
+      - *x22
+      - *x23
+      - *x24
+      - *x25
+      - *restore-bun-web-bundles
+      - *x26
+      - *restore-node-web-bundles
+      - *x27
+      - *x28
+      - *x29
+      - *x30
+      - name: Build the web bundles (cmux-next, unsigned store packages)
+        if: steps.nightly-product.outputs.hit != 'true'
+        env:
+          RESTORED: ${{ steps.app-web-r2.outputs.cache-hit }}
+        run: bash scripts/ci/nightly-steps/app-build-web-bundles.sh
+      - *x32
+      - *x33
+      - *one-release-build
+
+  # One row per signer (the build and the hedge) to the summary and an artifact; a split verdict is the flake signal.
+  nightly-next-hedge-verdict:
+    needs: [resolve-nightly-cmux-tui-client, pick-nightly-next-signer, nightly-next-one, nightly-next-hedge]
+    if: "!cancelled() && needs.nightly-next-hedge.result != 'skipped' && needs.pick-nightly-next-signer.outputs.hedge_pin != ''"
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout the verdict script at the workflow commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+      - name: Write one row per signer and flag a split verdict
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TIP_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          PRIMARY_HOST: ${{ needs.pick-nightly-next-signer.outputs.host }}
+          PRIMARY_COMPILE_RED: ${{ needs.nightly-next-one.outputs.compile_red }}
+          PRIMARY_LEFT: ${{ needs.nightly-next-one.outputs.left }}
+          PRIMARY_RESULT: ${{ needs.nightly-next-one.result }}
+          HEDGE_HOST: ${{ needs.pick-nightly-next-signer.outputs.hedge_host }}
+          HEDGE_COMPILE: ${{ needs.nightly-next-hedge.outputs.compile }}
+          ROWS_OUT: ${{ runner.temp }}/nightly-next-hedge-rows.jsonl
+        run: python3 scripts/ci/nightly_next_hedge_verdict.py
+      - name: Upload the signer rows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-hedge-rows
+          path: ${{ runner.temp }}/nightly-next-hedge-rows.jsonl
+          if-no-files-found: ignore
+          retention-days: 3
+
   nightly-next-deltas:
     needs: [decide, pick-nightly-next-signer, nightly-next-one]
     if: "!cancelled() && needs.nightly-next-one.outputs.deltas == 'true' && needs.nightly-next-one.outputs.feed_written == 'true' && needs.nightly-next-one.outputs.left != 'true'"
@@ -7598,6 +7732,7 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes.md#note-49
   dispatch-published-in:
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-dispatch-published-in-comments.md
     environment:
       name: ci-routing-agent
       deployment: false
@@ -7795,6 +7930,7 @@ jobs:
       actions: read
       contents: read
     steps:
+      - *github-token-for-git
       - *checkout-publication-tooling-a
       - name: Take the nightly-next publish lease
         id: lease

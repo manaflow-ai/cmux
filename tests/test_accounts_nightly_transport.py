@@ -126,6 +126,33 @@ class TransportTests(unittest.TestCase):
             ctx.rpc.assert_not_called()
             core.install_customize.assert_not_called()
 
+    def test_nightly_download_resumes_partial_file_until_done(self):
+        root = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location("accounts_nightly_launch_dl", root / "scripts/measure/accounts-nightly-launch.py")
+        launch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launch)
+        calls = []
+
+        def attempt(argv):
+            calls.append(argv)
+            if len(calls) < 3:
+                raise subprocess.CalledProcessError(28, argv)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            launch.download("https://example.invalid/n.dmg", Path(tmp) / "n.dmg", attempt=attempt)
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(argv[argv.index("-C") + 1] == "-" for argv in calls))
+
+        calls.clear()
+
+        def never(argv):
+            calls.append(argv)
+            raise subprocess.CalledProcessError(28, argv)
+
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(subprocess.CalledProcessError):
+            launch.download("https://example.invalid/n.dmg", Path(tmp) / "n.dmg", attempt=never)
+        self.assertEqual(len(calls), launch.DOWNLOAD_TRIES)
+
     def test_accounts_launcher_arguments_are_accepted_by_probe(self):
         spec = importlib.util.spec_from_file_location(
             "accounts_launch", ROOT / "scripts/measure/accounts-nightly-launch.py")
