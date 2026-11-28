@@ -308,7 +308,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
             # at the nightly, hours after the merge (NIGHTLY_GATE_JOBS). Only those steps run (main's `only`).
             start.append(name)
             why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, nightly gate: runs only "
-                         f"{', '.join(gates)} (steps the nightly also runs, ci/steps.toml `nightly`)")
+                         f"{', '.join(gates)} (steps the nightly also runs or a base red put on the land gate, "
+                         f"ci/steps.toml `nightly`, `land_gate`)")
             continue
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
@@ -360,20 +361,36 @@ def route(event: dict, callees: dict, files: list[str] | None,
 PREFLIGHT_CALLEE = "cmux-next-compile-preflight.yml"
 
 
-def preflight_web(event: dict, callees: dict, files: list[str] | None) -> tuple[bool, str]:
-    """(whether the compile preflight's web job runs at this head, why)."""
+def preflight_web(event: dict, callees: dict, files: list[str] | None, start: list[str] | None = None,
+                  exact=None) -> tuple[bool, str]:
+    """(whether the compile preflight's web job runs at this head, why). START: the callees this head starts (None:
+    assume the preflight does). EXACT: compile_preflight.router_web (tests pass a fake)."""
     config = callees.get(PREFLIGHT_CALLEE)
-    if config is None or "paths-ignore" not in config:
-        return True, "no paths-ignore in pr_router.json: runs"
+    if config is None:
+        return True, "no compile preflight in pr_router.json: runs"
     if FULL_CI in head_tier.labels_of(event):
         return True, f"{FULL_CI}: runs"
     if files is None:
         return True, "changed files unknown: runs"
     if not files:
         return True, "no changed file listed: runs"
-    if matches_filter({"paths-ignore": config["paths-ignore"]}, files):
-        return True, "a changed file may reach a web bundle: runs (its first step decides whether to build)"
-    return False, "every changed file is one no web bundle reads (pr_router.json paths-ignore): skips"
+    if "paths-ignore" in config and not matches_filter({"paths-ignore": config["paths-ignore"]}, files):
+        return False, "every changed file is one no web bundle reads (pr_router.json paths-ignore): skips"
+    if start is not None and PREFLIGHT_CALLEE not in start:
+        return True, "the compile preflight does not start at this head"
+    if os.environ.get("CI_ROUTER_WEB_EXACT", "1") == "0":
+        return True, "a changed file may reach a web bundle: runs (CI_ROUTER_WEB_EXACT=0; its first step decides)"
+    # The job's own first step (compile_preflight.py web-touched), answered here; anything unread runs the job.
+    try:
+        if exact is None:
+            import compile_preflight
+            exact = compile_preflight.router_web
+        web, why = exact(ROOT, files)
+    except Exception as e:  # noqa: BLE001 - the router routes more, never less, and never fails on it
+        return True, f"the web-touched check failed here ({type(e).__name__}: {e}): runs (its first step decides)"
+    if web is None:
+        return True, f"{why}: runs (its first step decides)"
+    return (True, f"{why}: runs") if web else (False, f"{why}: skips")
 
 
 # The callee whose ios fast verdict (pr-pipeline.yml ios-fast-runner, ios-fast) a landing head on the affected tier
@@ -584,11 +601,12 @@ def land_status(event: dict, decided: tuple[str, str]) -> str:
     """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
     it on the cheap tier (or idle), `success` once it runs the full tier, lands on the affected tier (the hourly
     full tier rule), or the land carry rule or the full-ci base merge carry rule carries its previous head's run
-    (head_tier.carried, head_tier.full_carried), empty where the land rule does not apply."""
+    (head_tier.carried, head_tier.full_carried) or the same-head land carry rule its own head's
+    (head_tier.same_head_carried), empty where the land rule does not apply."""
     if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
         return ""
     return ("success" if decided[0] == "full" or head_tier.carried(decided) or head_tier.land_affected(decided)
-            or head_tier.full_carried(decided) else "pending")
+            or head_tier.full_carried(decided) or head_tier.same_head_carried(decided) else "pending")
 
 
 def ios_status(event: dict, files: list[str] | None, start: list[str], land: str) -> tuple[str, str]:
@@ -710,7 +728,7 @@ def main(argv: list[str]) -> int:
         held = (carried or rows) and not head_tier.full_rerun(decided)
         status = "pending" if status and held else status
         write_outputs(start, why, files, table, status, ios_status(event, files, start, status),
-                      ui_status(event, files), only, preflight_web(event, callees, files))
+                      ui_status(event, files), only, preflight_web(event, callees, files, start))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

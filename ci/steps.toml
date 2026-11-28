@@ -995,9 +995,12 @@ exit "$status"
 # second parent), as the job's FIXIT_COMPILE_HEAD_SHA did. The job's always-uploaded ci_oops ledger artifact
 # (ci-oops-web-typecheck-RUN-ATTEMPT) is not kept: nothing reads it; retry.py still prints its verdict in the log.
 # 32 s cold on 2 CPUs through ci/run (an empty bun cache), 85 s when fixit-compile fixes an error and compiles again.
+# land_gate: it also runs on a landing head of the affected tier (cmux#61511 landed type errors there unchecked and
+# feat-cmux-next stayed red until #62788; ci_steps.py's `land_gate`).
 [step.web-typecheck]
 job = "linux"
 tier = "push"
+land_gate = true
 timeout = 300
 title = "Web typecheck"
 about = "web's locked dependencies install, the managed relay catalog's generated copies match config/iroh, and web typechecks (tsgo)"

@@ -842,6 +842,19 @@
       "source": "mozilla/sccache release v0.20.0 (2026-11-23, Apache-2.0). The compiler cache a person's machines share through an object store (RFD 0068, what to build next item 6). Installed only: the image sets no RUSTC_WRAPPER; a machine gets the cache's environment from the platform, and only when the cache is configured. sha256 and size from the release's .sha256 file and asset digest; the archive holds LICENSE, README.md and the static musl binary."
     },
     {
+      "name": "executor",
+      "version": "2.0.0-beta.79",
+      "url": "https://github.com/UsefulSoftwareCo/executor/releases/download/executor@2.0.0-beta.79/executor-2.0.0-beta.79-linux-x64.tgz",
+      "sha256": "5c0fba1e77db7866b4dcb5addf80f9227c8f917f21c74141d2f9f61176ca9efe",
+      "size": 137375154,
+      "format": "tar.gz",
+      "bin": { "executor": "package/executor" },
+      "versionArgs": ["--version"],
+      "expect": "v2.0.0-beta.79",
+      "notices": ["package/LICENSE"],
+      "source": "UsefulSoftwareCo/executor release executor@2.0.0-beta.79 (MIT). Executor for the Cloud Chief (RFD 0111 step 4): cmux-executor.service runs `executor serve` on 127.0.0.1:4312 as the work user, and cmux-executor-setup hands the key Executor makes on the machine's first start to the Chief's MCP store and deploys the first-party GitHub app (images/cmux-vm/chief). The archive is package/: the executor binary (143 MB), runtime/ (221 MB, the app runtime it reads beside itself), apps/, packages/, licenses/ (third-party notices); 379 MB unpacked. sha256 and size measured on the downloaded asset 2026-11-28; the staging journey executor-journey.yml runs the same release."
+    },
+    {
       "name": "cmux-cua",
       "version": "0.8.12",
       "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.12/cmux-cua-0.8.12-linux-x86_64.tar.gz",

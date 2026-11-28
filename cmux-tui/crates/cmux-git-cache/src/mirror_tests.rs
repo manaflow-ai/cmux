@@ -27,7 +27,10 @@ fn a_first_fill_asks_github_for_the_repository_size() {
         assert_eq!(api_repo_url(other), None, "{other}");
     }
     // manaflow-ai/cmux's answer on 2026-11-26 was about this size.
-    assert_eq!(api_size_bytes(br#"{"size": 16252928, "name": "cmux"}"#), Some(16_252_928 * 1024));
+    assert_eq!(
+        api_size_bytes(br#"{"size": 16252928, "name": "cmux"}"#),
+        Some(16_252_928 * 1024)
+    );
     assert_eq!(api_size_bytes(b"{}"), None);
     assert_eq!(api_size_bytes(b"not json"), None);
 }
@@ -96,6 +99,99 @@ fn a_sweep_gives_back_only_partial_writes_left_for_an_hour() {
     assert_eq!(sweep_stale_partial_writes(&root.path().join("missing")), (0, 0));
 }
 
+#[test]
+fn only_a_gone_fetchs_keep_counts_as_stale() {
+    let here = this_host().expect("hostname");
+    let me = std::process::id();
+    assert!(keep_is_stale(&format!("fetch-pack {} on {here}\n", i32::MAX), Some(&here)));
+    assert!(!keep_is_stale(&format!("fetch-pack {me} on {here}\n"), Some(&here)), "live");
+    assert!(keep_is_stale(&format!("fetch-pack {me} on another-host\n"), Some(&here)));
+    assert!(!keep_is_stale("", Some(&here)), "an empty keep is an operator's");
+    assert!(!keep_is_stale("held by hand\n", Some(&here)));
+    assert!(!keep_is_stale(&format!("receive-pack 1 on {here}"), Some(&here)));
+    assert!(!keep_is_stale(&format!("fetch-pack {} on {here}", i32::MAX), None));
+}
+
+/// fs-agent-lane-34, 2026-11-27: a fill cut after `index-pack` left a 16 GB pack under its
+/// `fetch-pack` lock. The clear drops the lock and nothing else, so a repack can drop the pack.
+#[test]
+fn a_cut_fetchs_lock_goes_and_its_pack_stays() {
+    let root = tempfile::tempdir().unwrap();
+    let mirror = root.path().join("lane-vm/github.com/o/r.git");
+    let pack = mirror.join("objects/pack");
+    std::fs::create_dir_all(&pack).unwrap();
+    let here = this_host().expect("hostname");
+    for name in ["pack-cut.pack", "pack-cut.idx", "pack-live.pack", "pack-hand.pack"] {
+        std::fs::write(pack.join(name), vec![0u8; 1000]).unwrap();
+    }
+    std::fs::write(pack.join("pack-cut.keep"), format!("fetch-pack {} on {here}\n", i32::MAX))
+        .unwrap();
+    let me = std::process::id();
+    std::fs::write(pack.join("pack-live.keep"), format!("fetch-pack {me} on {here}\n"))
+        .unwrap();
+    std::fs::write(pack.join("pack-hand.keep"), b"").unwrap();
+    assert_eq!(sweep_stale_partial_writes(root.path()), (1, 1000));
+    let mut left: Vec<String> = std::fs::read_dir(&pack)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(
+        left,
+        [
+            "pack-cut.idx",
+            "pack-cut.pack",
+            "pack-hand.keep",
+            "pack-hand.pack",
+            "pack-live.keep",
+            "pack-live.pack"
+        ]
+    );
+}
+
+fn git_ok(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@t")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@t")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// A mirror whose packs hold upstream's tips but no ref names them (a cut fill): the next
+/// fill names the held tips, so its fetch negotiates from them; a tip it lacks stays unnamed.
+#[tokio::test]
+async fn a_fill_negotiates_from_the_tips_a_cut_fetch_left() {
+    let tmp = tempfile::tempdir().unwrap();
+    let up = tmp.path().join("up");
+    std::fs::create_dir_all(&up).unwrap();
+    git_ok(&up, &["init", "--quiet", "-b", "main"]);
+    git_ok(&up, &["commit", "--quiet", "--allow-empty", "-m", "one"]);
+    let held = git_ok(&up, &["rev-parse", "HEAD"]);
+    let mirror = tmp.path().join("m.git");
+    git_ok(tmp.path(), &["init", "--quiet", "--bare", "m.git"]);
+    let url = up.to_string_lossy().into_owned();
+    git_ok(&mirror, &["fetch", "--quiet", &url, "+refs/heads/*:refs/heads/*"]);
+    git_ok(&mirror, &["repack", "-a", "-d", "-q"]);
+    git_ok(&mirror, &["update-ref", "-d", "refs/heads/main"]);
+    git_ok(&up, &["commit", "--quiet", "--allow-empty", "-m", "two"]);
+    git_ok(&up, &["branch", "old", &held]);
+    assert_eq!(Mirrors::adopt_held_tips(&mirror, &url, None).await, 1);
+    let named = git_ok(&mirror, &["for-each-ref", "--format=%(refname)", KEPT_REFS]);
+    assert_eq!(named, format!("{KEPT_REFS}{held}"));
+    let empty = tmp.path().join("e.git");
+    git_ok(tmp.path(), &["init", "--quiet", "--bare", "e.git"]);
+    assert_eq!(Mirrors::adopt_held_tips(&empty, &url, None).await, 0, "no pack, no ask");
+}
+
 /// The writer's own bug: a stopped `git fetch` left `index-pack` running, which wrote its
 /// `tmp_pack_*` after the clear. A stop now ends the whole group, so a grandchild that would
 /// write a file after the stop never does.
@@ -132,6 +228,72 @@ fn a_fetch_the_floor_stopped_reads_no_room_though_clearing_its_pack_frees_the_di
     assert!(!pack.join("tmp_pack_X1").exists());
     // A failure with room to spare is a plain failure: the next miss may try again soon.
     assert_eq!(after_stop(dir.path(), room), Fetched::Failed);
+}
+
+fn sh_git(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+fn packs(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir.join("objects/pack"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".pack"))
+        .collect();
+    names.sort();
+    names
+}
+
+/// gcp-agent-lane-4, 2026-11-27: a fill timed out after its fetch wrote the whole pack and
+/// before it wrote a ref, and the next fill downloaded the whole repository again.
+#[tokio::test]
+async fn a_pack_a_cut_fill_finished_is_named_so_the_next_fill_fetches_only_the_rest() {
+    let up = tempfile::tempdir().unwrap();
+    sh_git(up.path(), &["init", "-q", "-b", "main"]);
+    std::fs::write(up.path().join("a"), b"one").unwrap();
+    sh_git(up.path(), &["add", "a"]);
+    sh_git(
+        up.path(),
+        &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one"],
+    );
+    sh_git(up.path(), &["tag", "v1"]);
+    let tip = sh_git(up.path(), &["rev-parse", "HEAD"]);
+    let url = format!("file://{}", up.path().display());
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("m.git");
+    assert!(Mirrors::init(&dir).await);
+    assert_eq!(Mirrors::adopt_cut_fetch_packs(&dir, &url, None).await, 0, "no keep, no work");
+    // A fetch this small is unpacked into loose objects; the real one is one pack.
+    let mut args = vec!["-c", "fetch.unpackLimit=1", "fetch", "-q", url.as_str()];
+    args.extend(REFSPECS);
+    sh_git(&dir, &args);
+    // What the cut fill left: the pack and fetch's keep on it, no ref.
+    let before = packs(&dir);
+    assert_eq!(before.len(), 1);
+    let keep = dir.join("objects/pack").join(before[0].replace(".pack", ".keep"));
+    std::fs::write(&keep, b"fetch-pack 2647434 on lane-vm\n").unwrap();
+    sh_git(&dir, &["update-ref", "-d", "refs/heads/main"]);
+    sh_git(&dir, &["update-ref", "-d", "refs/tags/v1"]);
+    assert_eq!(sh_git(&dir, &["for-each-ref"]), "");
+
+    assert_eq!(Mirrors::adopt_cut_fetch_packs(&dir, &url, None).await, 1);
+    assert!(!keep.exists(), "the stale keep stays");
+    assert_eq!(
+        sh_git(&dir, &["for-each-ref", "--format=%(refname)"]),
+        format!("{KEPT_REFS}{tip}")
+    );
+    // The next fill negotiates from the named tip: it writes no second pack.
+    sh_git(&dir, &args);
+    assert_eq!(packs(&dir), before, "the next fill downloaded the repository again");
 }
 
 #[tokio::test]

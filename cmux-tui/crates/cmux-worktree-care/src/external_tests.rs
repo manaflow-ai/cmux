@@ -1,5 +1,35 @@
 use super::*;
 
+/// A clean Mac has no developer folder: no `xcrun`, so no simulator pass (it would open
+/// Apple's developer tools installer). Any one of `xcrun`'s folders is enough.
+#[test]
+fn simulators_are_pruned_only_with_developer_tools_installed() {
+    use std::path::Path;
+    let none = |_: &Path| false;
+    assert!(!developer_tools_installed(None, &none));
+    let only_empty = |p: &Path| p.as_os_str().is_empty();
+    assert!(!developer_tools_installed(Some("".into()), &only_empty), "an empty DEVELOPER_DIR");
+    for folder in [
+        "/var/db/xcode_select_link",
+        "/Applications/Xcode.app",
+        "/Library/Developer/CommandLineTools",
+    ] {
+        assert!(
+            developer_tools_installed(None, &|p: &Path| p == Path::new(folder)),
+            "{folder}"
+        );
+    }
+    let dir = "/opt/Xcode-beta.app/Contents/Developer";
+    assert!(developer_tools_installed(Some(dir.into()), &|p: &Path| p == Path::new(dir)));
+    assert!(
+        !developer_tools_installed(Some(dir.into()), &none),
+        "a DEVELOPER_DIR that is gone"
+    );
+    if !cfg!(target_os = "macos") {
+        assert!(!simulators_present());
+    }
+}
+
 #[test]
 fn only_a_daemon_on_a_socket_of_this_users_is_pruned() {
     let mine = crate::store::care_tests::scratch("docker-own");

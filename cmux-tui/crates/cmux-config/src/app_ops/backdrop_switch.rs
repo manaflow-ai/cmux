@@ -81,6 +81,10 @@ fn wait_after(next: f64, now: f64) -> f64 {
     (next - now + 1.0).max(1.0)
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn rotation(request: &Value) -> Result<Value, OpError> {
     let Some(rotation) = rotation_of(request.get("rotation")) else { return Ok(json!({})) };
     let mut out = json!({"rotation": rotation.raw()});
@@ -218,6 +222,10 @@ fn favorites(request: &Value) -> Result<Value, OpError> {
     Ok(json!({"favorites": favorite_names(root), "rotation": rotation_choice(root)}))
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn next_after(current: Option<&str>, favorites: &[String]) -> Option<String> {
     if favorites.len() < 2 {
         return None;

@@ -227,7 +227,11 @@ table inet {TABLE} {{
 
 const BLOCKED_V4: &str = "0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, \
                           172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4";
-const BLOCKED_V6: &str = "::/128, ::1/128, ::ffff:0:0/96, fc00::/7, fe80::/10, ff00::/8";
+/// Besides the private v6 ranges: the prefixes that embed a v4 address (IPv4-compatible `::/96`,
+/// NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, Teredo `2001::/32`, 6to4 `2002::/16`), so a guest
+/// cannot reach a blocked v4 range such as metadata (169.254.169.254) through a translator or relay.
+const BLOCKED_V6: &str = "::/96, ::ffff:0:0/96, 64:ff9b::/96, 64:ff9b:1::/48, 2001::/32, 2002::/16, \
+                          fc00::/7, fe80::/10, ff00::/8";
 
 fn egress_rules(egress: &Egress) -> Result<String> {
     Ok(match egress {
