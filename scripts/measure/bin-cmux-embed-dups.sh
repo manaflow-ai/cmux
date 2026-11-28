@@ -39,7 +39,7 @@ for side in base head; do
   done
 done
 busy=(); for _ in $(seq "$(nproc)"); do (while :; do :; done) & busy+=($!); done
-trap 'kill "${busy[@]}" 2>/dev/null; git -C "$root" worktree remove --force "$scratch/base" 2>/dev/null; rm -rf "$scratch"' EXIT
+trap 'kill ${busy[@]+"${busy[@]}"} 2>/dev/null; git -C "$root" worktree remove --force "$scratch/base" 2>/dev/null; rm -rf "$scratch"' EXIT
 python3 - "$scratch" <<'PY'
 import subprocess,sys,time,statistics
 d=sys.argv[1]; r={}
