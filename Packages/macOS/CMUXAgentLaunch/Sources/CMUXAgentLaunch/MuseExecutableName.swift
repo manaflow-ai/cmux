@@ -21,7 +21,10 @@ public struct MuseExecutableName: Sendable, Equatable {
     /// Whether this is a versioned Muse binary, including the truncated form
     /// macOS reports as a process name.
     public var isVersionedBinary: Bool {
-        let base = URL(fileURLWithPath: value).lastPathComponent.lowercased()
+        // A string operation on purpose: the process scan asks this about bare
+        // process names, and `URL(fileURLWithPath:)` resolves each one under
+        // the working directory, a `getcwd` and an `lstat` each time.
+        let base = (value as NSString).lastPathComponent.lowercased()
         return base.hasPrefix(Self.versionedBinaryPrefix) && base.count > Self.versionedBinaryPrefix.count
     }
 
