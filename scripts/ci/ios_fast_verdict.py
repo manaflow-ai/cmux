@@ -230,7 +230,8 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None,
         "app": app,
         # Whether the gate needs an ios-flows proof: some path besides this check's own files changed. A head that
         # changes only SELF builds the kit to test this check, and no flow reads it, so `cmux ios verify` selects
-        # nothing and posts no record (a pass needs a run): requiring one held cmux#62950 pending with no way out.
+        # nothing: requiring one held cmux#62950 pending with no way out. A head whose paths route here but
+        # select no flow gets a no-flows pass from `cmux ios verify` (ios_verify.no_flows_run, cmux#58097).
         "proof": proof,
         # The first reasons only: the plan rides one $GITHUB_OUTPUT line.
         "why": why[:MAX_WHY] + ([f"... {len(why) - MAX_WHY} more"] if len(why) > MAX_WHY else []),
@@ -378,7 +379,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"::warning::{STATUS_CONTEXT} not posted: REPO, SHA and TOKENS are needed")
             return 0
         if not post_status(args.state, args.description, repo, sha, tokens, os.environ.get("RUN_URL", "")):
-            print(f"::warning::{STATUS_CONTEXT} ({args.state}) was not posted at {sha}: its land waits on the last state")
+            # Red, not a warning: a green job whose post was refused (a spent hourly budget on every token) left
+            # no cmux/ios-fast at the head, and a passed job cannot be rerun, so its land waited for a new head
+            # (cmux#64513: a passed verdict lost at 11:39Z, then an empty push that started no router run).
+            # A failed job is rerun with `gh run rerun RUN --failed` once the budget refills.
+            run = os.environ.get("GITHUB_RUN_ID", "RUN")
+            print(f"::error::{STATUS_CONTEXT} ({args.state}) was not posted at {sha}: its land waits on the last "
+                  f"state posted there (rerun once the rate limit lifts: gh run rerun {run} --failed)")
+            return 1
         return 0
     paths = ci_steps.read_paths(args.paths_file) if args.paths_file else diff_paths()
     if paths is None:
