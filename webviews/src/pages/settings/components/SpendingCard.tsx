@@ -32,16 +32,22 @@ export function SpendingCardDemo({
   settings,
   read,
   layout,
+  busy,
+  error,
 }: {
   settings: SpendingSettings;
   read?: SpendCap | null;
   layout: SpendingLayout;
+  busy?: boolean;
+  error?: string | null;
 }) {
   const [current, setCurrent] = useState(settings);
   return (
     <SpendingCardView
       model={spendingModel(current, read, "en")}
       layout={layout}
+      busy={busy}
+      error={error}
       onLimitChange={(usd) => setCurrent((before) => ({ ...before, overage_limit_usd: usd }))}
       onAskAboveChange={(shape) => setCurrent((before) => ({ ...before, ask_above: shape }))}
       onRunOnMac={() => {}}
