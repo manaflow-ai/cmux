@@ -17,6 +17,12 @@
 //!   (`reason: "expired"`, and why), a sender that waits is answered with that reason, and a
 //!   sender chat on this machine gets one FYI per sender saying what did not arrive and why.
 //!   A running turn takes its inbox at its end, so nothing expires under one.
+//! - a chat no turn can ever take (closed, or its folder is gone, so every wake is refused
+//!   `session.folder_missing`) gets no day of grace ([`grace_ms`]): its messages expire at their
+//!   deadline and go back to their senders then. NOW, 2026-11-27: claude-sr2/ios-ci-3,
+//!   ui-think-tank, land-everything, aiforui-course, app-research and air-blue/ask-fadfd55bc5 all
+//!   had a removed scratch or worktree folder and read `held-overdue` for up to 23 hours, each
+//!   message waiting out a day for a turn that could never start.
 //!
 //! Stop condition: a review is what the timer does at its deadline, so a sweep adds no turn a
 //! deadline would not have started. Cleanup: the sweep holds the hub weakly and ends with it.
@@ -51,17 +57,32 @@ pub(in crate::hub) fn review_after_restore(session: &Session) {
     });
 }
 
-/// The new messages of `items` that expire at `now`: past their deadline by [`EXPIRE_AFTER_MS`].
-/// A folded repeat has no deadline of its own, and a surge-held one waits for its triage.
+/// How long past its deadline a held message of `session` waits before it expires: nothing for a
+/// chat no turn can ever take (closed, or its folder is gone: every wake is refused), else
+/// [`EXPIRE_AFTER_MS`] (module docs).
+pub(in crate::hub) fn grace_ms(session: &Session) -> u64 {
+    let meta = session.meta();
+    let folder_gone = !meta.cwd.as_os_str().is_empty() && !meta.cwd.exists();
+    if meta.status == SessionStatus::Closed || folder_gone {
+        0
+    } else {
+        EXPIRE_AFTER_MS
+    }
+}
+
+/// The new messages of `items` that expire at `now`: past their deadline by `grace` ms
+/// ([`grace_ms`]). A folded repeat has no deadline of its own, and a surge-held one waits for its
+/// triage.
 pub(in crate::hub) fn expired_ids(
     items: &[Item],
     now: u64,
+    grace: u64,
     due: impl Fn(&Item) -> u64,
 ) -> Vec<String> {
     items
         .iter()
         .filter(|i| !i.noticed && !i.surge_held && !folded(i))
-        .filter(|i| due(i).saturating_add(EXPIRE_AFTER_MS) < now)
+        .filter(|i| due(i).saturating_add(grace) < now)
         .map(|i| i.prompt_id.clone())
         .collect()
 }
@@ -89,8 +110,8 @@ fn why_undelivered(session: &Session, inbox: &Inbox) -> &'static str {
 }
 
 impl Hub {
-    /// Expires the new messages of `session` past their deadline by [`EXPIRE_AFTER_MS`] (module
-    /// docs), when no turn runs there and no notice is in flight. Returns how many expired.
+    /// Expires the new messages of `session` past their deadline by [`grace_ms`] (module docs),
+    /// when no turn runs there and no notice is in flight. Returns how many expired.
     pub(in crate::hub) fn inbox_expire(self: &Arc<Self>, session: &Arc<Session>) -> usize {
         if session.turn().is_some() {
             return 0;
@@ -100,12 +121,13 @@ impl Hub {
         let receiver = if meta.name.is_empty() { &session.id } else { &meta.name };
         let lapsed = super::super::cold_wake::coldness(&meta, now).is_some();
         let due = |i: &Item| due_for(i, quiet(&session.id, &meta, lapsed, i));
+        let grace = grace_ms(session);
         let (expired, why) = {
             let mut inbox = session.inbox();
             if inbox.in_flight.is_some() {
                 return 0;
             }
-            let ids = expired_ids(&inbox.items, now, due);
+            let ids = expired_ids(&inbox.items, now, grace, due);
             if ids.is_empty() {
                 return 0;
             }
@@ -151,7 +173,7 @@ impl Hub {
         }
         tracing::warn!(session = %session.id, expired = expired.len(), why, "inbox messages expired past their deadline");
         for (from, items) in by_sender {
-            self.inbox_bounce(&from, &receiver, why, &items);
+            self.inbox_bounce(&from, &receiver, why, grace, &items);
         }
         expired.len()
     }
@@ -159,16 +181,27 @@ impl Hub {
     /// Tells sender chat `from`, when it is on this machine and open, which of its messages to
     /// `receiver` expired and why: one FYI in its inbox (thread [`BOUNCE_THREAD`]). A bounce
     /// names no sender session, so it never bounces again.
-    fn inbox_bounce(self: &Arc<Self>, from: &str, receiver: &str, why: &str, items: &[&Item]) {
+    fn inbox_bounce(
+        self: &Arc<Self>,
+        from: &str,
+        receiver: &str,
+        why: &str,
+        grace: u64,
+        items: &[&Item],
+    ) {
         let Some(sender) = self.session_get(from) else { return };
         if sender.meta().status == SessionStatus::Closed {
             return;
         }
+        let late = if grace == 0 {
+            "at their deadline".to_owned()
+        } else {
+            format!("for over {} hours past their deadline", grace / 3_600_000)
+        };
         let mut text = format!(
-            "{} of your messages to {receiver} expired undelivered: {why}, for over {} hours past \
-             their deadline. Send again if it still matters, or reach {receiver} another way.",
+            "{} of your messages to {receiver} expired undelivered: {why}, {late}. Send again if it \
+             still matters, or reach {receiver} another way.",
             items.len(),
-            EXPIRE_AFTER_MS / 3_600_000
         );
         for item in items.iter().take(5) {
             let first = body(&item.text).lines().next().unwrap_or_default();

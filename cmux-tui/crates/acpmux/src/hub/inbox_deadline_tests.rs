@@ -156,5 +156,32 @@ fn only_new_messages_a_day_past_their_deadline_expire() {
         seen,
         surge,
     ];
-    assert_eq!(expired_ids(&items, now, Item::due), ["past"]);
+    assert_eq!(expired_ids(&items, now, EXPIRE_AFTER_MS, Item::due), ["past"]);
+    let no_grace = expired_ids(&items, now, 0, Item::due);
+    assert_eq!(no_grace, ["past", "inside"], "no grace: due is enough");
+}
+
+/// A chat whose folder is gone refuses every wake, so a held message has no turn to wait a day
+/// for (NOW, 2026-11-27: six chats with removed scratch folders read held-overdue up to 23 h).
+/// It expires at its deadline and goes back to its sender then; a chat whose folder exists keeps
+/// the day of grace.
+#[tokio::test]
+async fn a_chat_whose_folder_is_gone_expires_its_messages_at_their_deadline() {
+    let gone = "/tmp/acpmux-deadline-test-folder-gone-2";
+    let (hub, sessions) = hub_with_chats_in(&["lane-gone-2", "lane-sender-2"], gone);
+    let (receiver, sender) = (&sessions[0], &sessions[1]);
+    assert_eq!(grace_ms(receiver), 0);
+    let due_past = now_ms().saturating_sub(RESULT_DEADLINE_MS + 60_000);
+    receiver.inbox().items.push(held("late", &sender.id, PromptClass::Result, due_past));
+    receiver.inbox().items.push(held("fresh", &sender.id, PromptClass::Result, now_ms()));
+    assert_eq!(hub.inbox_expire(receiver), 1, "the one past its deadline expires now");
+    let ids: Vec<String> = receiver.inbox().items.iter().map(|i| i.prompt_id.clone()).collect();
+    assert_eq!(ids, ["fresh"]);
+    let inbox = sender.inbox();
+    let bounce = inbox.items.iter().find(|i| i.thread == BOUNCE_THREAD).expect("a bounce");
+    assert!(bounce.text.contains("at their deadline"), "{}", bounce.text);
+    assert!(bounce.text.contains("folder no longer exists"), "{}", bounce.text);
+
+    let (_hub, kept) = hub_with_chats(&["lane-here"]);
+    assert_eq!(grace_ms(&kept[0]), EXPIRE_AFTER_MS, "a chat with its folder keeps the day");
 }
