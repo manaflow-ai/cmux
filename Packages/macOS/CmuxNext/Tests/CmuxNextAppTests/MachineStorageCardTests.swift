@@ -49,6 +49,37 @@ import Testing
         #expect(spec.cancelButton?.id == MachineStorageCard.doneID)
     }
 
+    @Test func theCardShowsCacheRowsAndDaemonVerdicts() throws {
+        let reply = try JSONDecoder().decode(WorktreeCareReportReply.self, from: Self.fixture())
+        var state = MachineStorageState()
+        state.measured(reply)
+        let spec = MachineStorageCard.spec(state)
+        let reclaimed = Self.line("/Users/me/Library/Developer/Xcode/DerivedData/OldApp", [
+            MachineStorageStrings.reclaimable, MachineStorageCard.bytes(2_147_483_648), "unused for 192 h",
+        ].joined(separator: " · "))
+        let kept = Self.line("simctl:unavailable", [MachineStorageStrings.cacheKept, "its last use could not be read"].joined(separator: " · "))
+        #expect(Array(spec.lines.suffix(3)) == [MachineStorageStrings.cacheDetails, reclaimed, kept])
+    }
+
+    @Test func theCardAcceptsOlderReportsAndEmptyCacheLists() throws {
+        var object = try #require(try JSONSerialization.jsonObject(with: Self.fixture()) as? [String: Any])
+        var report = try #require(object["report"] as? [String: Any])
+        report.removeValue(forKey: "caches")
+        object["report"] = report
+        let older = try JSONDecoder().decode(WorktreeCareReportReply.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(older.report.caches == nil)
+
+        report["caches"] = ["items": []]
+        object["report"] = report
+        let empty = try JSONDecoder().decode(WorktreeCareReportReply.self, from: JSONSerialization.data(withJSONObject: object))
+        var state = MachineStorageState()
+        state.measured(older)
+        let olderLines = MachineStorageCard.spec(state).lines
+        state.measured(empty)
+        #expect(MachineStorageCard.spec(state).lines == olderLines)
+        #expect(!olderLines.contains(MachineStorageStrings.cacheDetails))
+    }
+
     /// No pass that acted since the daemon started (`last: null`) and automatic cleanup off: the
     /// card says so rather than leaving the lines out.
     @Test func noLastPassAndAutomaticOffAreSaid() throws {

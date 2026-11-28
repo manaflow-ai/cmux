@@ -27,6 +27,14 @@ nonisolated struct MachineStorageStrings {
         String(localized: "machineStorage.reclaimable", defaultValue: "Reclaimable", table: "MachineStorage", bundle: .module)
     }
 
+    static var cacheDetails: String {
+        String(localized: "machineStorage.cacheDetails", defaultValue: "Cache and file details", table: "MachineStorage", bundle: .module)
+    }
+
+    static var cacheKept: String {
+        String(localized: "machineStorage.cacheKept", defaultValue: "Kept", table: "MachineStorage", bundle: .module)
+    }
+
     static var kept: String {
         String(localized: "machineStorage.kept", defaultValue: "Worktrees kept", table: "MachineStorage", bundle: .module)
     }
