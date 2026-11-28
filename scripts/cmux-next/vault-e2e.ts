@@ -211,8 +211,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
     const exec = directExec(api, machine, J);
     const run = async (command: string, timeoutMs = 120_000) => {
-      await fresh();
-      const r = await exec(`export HOME=${HOME}; cd "$HOME"; ${command}`, timeoutMs);
+      // Run 46134684788: the first exec on a machine that had just reached running got 503 "vm_unavailable"
+      // (overloaded). That refusal comes before the command starts, so sending it again is safe; 6 tries span ~3.5 min.
+      let r: Awaited<ReturnType<typeof exec>>;
+      for (let tries = 1; ; tries++) {
+        await fresh();
+        try {
+          r = await exec(`export HOME=${HOME}; cd "$HOME"; ${command}`, timeoutMs);
+          break;
+        } catch (e) {
+          if (tries >= 6 || !/^exec: HTTP 503\b/.test(String((e as Error)?.message ?? e))) throw e;
+          say(`exec refused (${(e as Error).message}), try ${tries}; sending it again`);
+          await sleep(10_000 * tries);
+        }
+      }
       if (r.stdout.includes(nonce) || r.stderr.includes(nonce)) checks.exec_never_printed_value = "FAIL";
       return { ...r, stdout: scrub(r.stdout, J.secrets), stderr: scrub(r.stderr, J.secrets) };
     };
