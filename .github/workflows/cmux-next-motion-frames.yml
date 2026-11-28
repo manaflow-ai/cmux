@@ -22,6 +22,12 @@ on:
   # Started only by pr-router.yml (one router per push, RFD 0023) when the change touches a motion
   # area: scripts/ci/pr_router.json `affects`, the list of those areas' files.
   workflow_call:
+    secrets:
+      CMUX_BOT_APP_KEY:
+        description: >-
+          The cmux-bot App's key: the dispatch runs on that App's token, whose REST budget is its own, not the
+          repository's GITHUB_TOKEN budget every workflow shares (cmux#63849: four 403s in 15 minutes on it)
+        required: false
 
 permissions: {}
 
@@ -36,9 +42,24 @@ jobs:
     permissions:
       actions: write # starts cmux-next-frame-pacing.yml on this pull request's branch
     steps:
+      # The dispatch goes out on the cmux-bot App's token, as pr-router.yml's land tier status post does: the job's
+      # GITHUB_TOKEN draws on the repository's shared budget, which was spent at each reset on cmux#63849
+      # (2026-11-28 03:36-03:50Z). The GITHUB_TOKEN stays the fallback when the App is not set up or minting fails.
+      - name: Mint the dispatch token
+        id: dispatch-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: write
       - name: Start the motion frame checks on this branch
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.dispatch-token.outputs.token || github.token }}
           BRANCH: ${{ github.head_ref }}
           # A dispatch refused for a spent installation rate limit waits for its reset this long at most, then
           # tries once more (cmux#63849, 2026-11-28 03:36Z and 03:41Z: two 403s left the PR unmeasured).

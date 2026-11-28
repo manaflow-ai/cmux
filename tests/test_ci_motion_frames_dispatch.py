@@ -13,7 +13,10 @@ from pathlib import Path
 import yaml
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next-motion-frames.yml"
-STEP = yaml.safe_load(WORKFLOW.read_text())["jobs"]["dispatch"]["steps"][0]
+ROUTER = WORKFLOW.parent / "pr-router.yml"
+DOC = yaml.safe_load(WORKFLOW.read_text())
+STEPS = DOC["jobs"]["dispatch"]["steps"]
+STEP = next(step for step in STEPS if step.get("name") == "Start the motion frame checks on this branch")
 
 FAKE_GH = """#!/usr/bin/env bash
 # Fake gh: `workflow run` reads its outcomes from $FAKE_DIR/dispatches (one per line: ok, ratelimit, other).
@@ -91,8 +94,25 @@ class MotionFramesDispatchTest(unittest.TestCase):
         self.assertEqual((slept, count), ([], 1))
 
     def test_job_timeout_covers_the_wait(self):
-        job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["dispatch"]
+        job = DOC["jobs"]["dispatch"]
         self.assertGreater(job["timeout-minutes"] * 60, int(STEP["env"]["MOTION_FRAMES_RESET_WAIT_S"]) + 60)
+
+    def test_dispatch_uses_the_app_token_not_the_shared_budget(self):
+        mint = next(step for step in STEPS if step.get("id") == "dispatch-token")
+        self.assertIn("create-github-app-token", mint["uses"])
+        self.assertEqual(mint["with"]["permission-actions"], "write")
+        self.assertTrue(mint["continue-on-error"])
+        self.assertLess(STEPS.index(mint), STEPS.index(STEP))
+        self.assertEqual(STEP["env"]["GH_TOKEN"], "${{ steps.dispatch-token.outputs.token || github.token }}")
+        # on: parses as True in PyYAML.
+        call = (DOC.get("on") or DOC[True])["workflow_call"]
+        self.assertIn(mint["with"]["private-key"].split("secrets.")[1].rstrip(" }"), call["secrets"])
+        caller = yaml.safe_load(ROUTER.read_text())["jobs"]["motion-frames"]
+        self.assertEqual(caller["secrets"]["CMUX_BOT_APP_KEY"], "${{ secrets.CMUX_BOT_APP_KEY }}")
+
+    def test_step_runs_with_the_token_it_is_given(self):
+        proc, _, _, _ = self.run_step(["ok"])
+        self.assertEqual(proc.returncode, 0)
 
 
 if __name__ == "__main__":
