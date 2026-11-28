@@ -5,7 +5,7 @@
 //! steps the spring each display frame.
 
 use super::geometry::{adjacent_snap, rubber_band, snap_target};
-use super::strip::{Axis, ColumnStrip};
+use super::strip::ColumnStrip;
 use super::view_offset::{self, Snap};
 use super::{swift_max, swift_min, swift_min_by};
 use crate::{ColumnId, PaneId};
