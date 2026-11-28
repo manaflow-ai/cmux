@@ -318,6 +318,28 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 1, "only the outcome's words are exempt, not any unit named failed*")
 
+    def test_a_form_with_its_own_submit_carries_an_action(self):
+        """A sign-in form whose submit is Try again (ChatGPTDeviceForm, 2026-11-28) carries the failure's action."""
+        form = (
+            "export function SignInForm() {\n"
+            "  return (\n"
+            "    <form\n"
+            "      onSubmit={(event) => { event.preventDefault(); begin(); }}\n"
+            "    >\n"
+            "      <p>Can't reach the server. Check your connection.</p>\n"
+            "    </form>\n"
+            "  );\n"
+            "}\n"
+        )
+        tree = Tree(self)
+        tree.write(f"{PAGE}/SignInForm.tsx", form)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree = Tree(self)
+        tree.write(f"{PAGE}/SignInForm.tsx", form.replace("      onSubmit={(event) => { event.preventDefault(); begin(); }}\n", ""))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+
     def test_an_extension_of_a_nested_failure_type_is_an_outcome(self):
         """`extension Credentials.Failure` holds a refusal's words (cloud.modelConnection.offline, 2026-11-28): the
         Failure type's, not its outer type's; an extension of the outer type itself is still read."""
