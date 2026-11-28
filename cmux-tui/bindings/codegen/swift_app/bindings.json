@@ -2748,6 +2748,31 @@
               "default": "[]"
             }
           }
+        },
+        "ClipboardReadHost": {
+          "type": "TerminalClipboardHost",
+          "doc": [
+            "The host a clipboard read names: its kind and, off this Mac, its name."
+          ],
+          "conformances": [
+            "Decodable",
+            "Sendable",
+            "Hashable"
+          ],
+          "order": [
+            "kind",
+            "name"
+          ],
+          "fields": {
+            "kind": {
+              "type": "ClipboardReadHostKind",
+              "default": ".unknown",
+              "decode": "(try container.decodeIfPresent(String.self, forKey: .kind)).flatMap(ClipboardReadHostKind.init(rawValue:)) ?? .unknown",
+              "doc": [
+                "Fails closed without claiming an unknown origin is remote."
+              ]
+            }
+          }
         }
       }
     },
@@ -3218,7 +3243,7 @@
               "type": "Int"
             }
           },
-          "response": "hand-written"
+          "response": "SetTerminalCommandHistoryResponse"
         },
         "list-terminal-commands": {
           "name": "ListTerminalCommandsRequest",
@@ -3234,7 +3259,7 @@
               "type": "Int"
             }
           },
-          "response": "hand-written"
+          "response": "ListTerminalCommandsResponse"
         }
       },
       "objects": {
@@ -3255,6 +3280,39 @@
           ],
           "fields": {
             "exit_code": {
+              "type": "Int"
+            }
+          }
+        },
+        "SetTerminalCommandHistoryResponse": {
+          "result": "set-terminal-command-history",
+          "doc": [
+            "`set-terminal-command-history` data."
+          ],
+          "order": [
+            "enabled",
+            "retention_days"
+          ],
+          "fields": {
+            "retention_days": {
+              "type": "Int"
+            }
+          }
+        },
+        "ListTerminalCommandsResponse": {
+          "result": "list-terminal-commands",
+          "doc": [
+            "`list-terminal-commands` data."
+          ],
+          "order": [
+            "commands",
+            "truncated",
+            "deletions",
+            "registry_id",
+            "retention_days"
+          ],
+          "fields": {
+            "retention_days": {
               "type": "Int"
             }
           }
