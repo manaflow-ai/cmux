@@ -59,6 +59,9 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("nightly-next-update-e2e.yml", "update"): (
         "installs the published Nightly into /Applications and has Sparkle replace and relaunch it; a persistent Mac "
         "keeps the last run's app, its update state and other jobs' installs, so only a fresh image proves an update"),
+    ("stable-next-update-e2e.yml", "update"): (
+        "installs the published Stable into /Applications and has Sparkle replace and relaunch it; a persistent Mac "
+        "keeps the last run's app, its update state and other jobs' installs, so only a fresh image proves an update"),
     ("auto-resume-nightly-notarization.yml", "wait-and-staple"): SIGNING,
     ("auto-resume-nightly-notarization.yml", "staple-outer"): SIGNING,
     ("auto-resume-nightly-notarization.yml", "staple-stapled"): SIGNING,
