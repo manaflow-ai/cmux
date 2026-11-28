@@ -57,7 +57,43 @@ fn turning_a_folder_off_twice_lists_it_once() {
     let work = tempfile::tempdir().unwrap();
     set_in(state.path(), work.path(), false).unwrap();
     set_in(state.path(), work.path(), false).unwrap();
-    assert_eq!(listed(state.path()).len(), 1);
+    assert_eq!(listed(state.path(), List::SyncBackOff).len(), 1);
+}
+
+#[test]
+fn a_read_only_folder_mounts_without_an_upper_layer_and_has_no_way_back() {
+    let state = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let inner = work.path().join("app");
+    std::fs::create_dir_all(&inner).unwrap();
+    assert_eq!(read_only_in(Some(state.path()), None, work.path()), None);
+
+    set_listed(state.path(), List::ReadOnly, work.path(), true).unwrap();
+    assert_eq!(read_only_in(Some(state.path()), None, &inner), Some("folder"));
+    let off = refused_in(Some(state.path()), None, &inner).unwrap();
+    assert_eq!(off.by, "read_only");
+    assert!(off.to_string().contains("read-only"), "{off}");
+
+    set_listed(state.path(), List::ReadOnly, work.path(), false).unwrap();
+    assert_eq!(read_only_in(Some(state.path()), None, work.path()), None);
+    assert_eq!(refused_in(Some(state.path()), None, work.path()), None);
+
+    let policy = json!({"projection": {"readOnly": true}});
+    assert_eq!(read_only_in(None, Some(&policy), work.path()), Some("policy"));
+}
+
+#[test]
+fn a_machine_that_mounted_a_read_only_folder_writable_is_refused() {
+    use super::super::project::read_only_kept;
+    let old = json!({"ok": true, "data": {"at": "/w"}});
+    let kept = json!({"ok": true, "data": {"at": "/w", "read_only": true}});
+    let refused = json!({"ok": false, "error_code": "projection.busy"});
+    let error = read_only_kept(true, &old).unwrap_err();
+    assert!(error.to_string().contains("projection.read_only_unsupported"), "{error}");
+    read_only_kept(true, &kept).unwrap();
+    // A refusal keeps its own error; a writable folder asks nothing.
+    read_only_kept(true, &refused).unwrap();
+    read_only_kept(false, &old).unwrap();
 }
 
 /// The real ways back refuse before they dial: a folder turned off answers `sync_back_off` with
