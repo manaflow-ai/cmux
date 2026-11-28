@@ -1,5 +1,5 @@
 // The team's hold for its people's machines on the Compute card: the view-model's options and line,
-// the mock backend's set and clear, and that the card draws the control only where a layout asks.
+// the mock backend's set and clear, and that the card draws the control only where it is asked for.
 import { afterAll, expect, test } from "bun:test";
 import { computeModel, holdModel } from "./computeAllotment";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
@@ -41,7 +41,7 @@ test("a number that is not one of the choices reads as no hold", () => {
   expect(holdModel(view).seconds).toBeNull();
 });
 
-test("the app's card draws no hold control; the gallery's draws it and one click sets it", async () => {
+test("a card asked for no hold control draws none; the gallery's draws it and one click sets it", async () => {
   const app = await renderCard(<ComputeCard layout="ledger" />, {
     setup: (provider) => {
       provider.allotment = structuredClone(mockAllotments.hold);

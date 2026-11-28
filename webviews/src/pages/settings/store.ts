@@ -1216,12 +1216,11 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
-  /** Settings > Team > Compute, an admin's one click: the view after it, or the host's refusal text. */
-  async setAllotment(run: AllotmentSet): Promise<{ view: AllotmentView | null; error: string | null }> {
+  /** Settings > Team > Compute, an admin's one click: null once it applied (the card reads the view
+   * again), else the sentence to show: the server's own when it explained the refusal. */
+  async setAllotment(run: AllotmentSet): Promise<string | null> {
     const reply = await this.request("cmux.settings.cloud.allotment.set", run);
-    return reply.ok
-      ? { view: reply.value, error: null }
-      : { view: null, error: userMessage(reply.error, SETTINGS_SENTENCES) };
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has

@@ -23,6 +23,7 @@ import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
 import {
+  ALLOTMENT_REFUSED,
   settingsPageActions,
   type BrowserProfile,
   type HostLists,
@@ -907,10 +908,19 @@ export class MockSettingsProvider {
         if (!this.allotment) throw new ProtocolError("cmux.settings.unavailable", "this host has no Compute part");
         if (run.action !== undefined && run.action !== "down" && run.action !== "hold" && run.action !== "up")
           throw new ProtocolError("cmux.settings.invalid", "action must be down, hold or up");
-        if (run.action === undefined && run.auto === undefined)
-          throw new ProtocolError("cmux.settings.invalid", "a set names an action or auto");
+        if (run.action === undefined && run.auto === undefined && run.person_hold_seconds === undefined)
+          throw new ProtocolError("cmux.settings.invalid", "a set names an action, auto or person_hold_seconds");
+        if (
+          run.person_hold_seconds !== undefined &&
+          run.person_hold_seconds !== null &&
+          !([300, 900, 1800] as number[]).includes(run.person_hold_seconds)
+        )
+          throw new ProtocolError(ALLOTMENT_REFUSED, "person_hold_seconds is 300, 900 or 1800, or null to clear it");
+        // The Cloud app server's refusal (not a team admin, allotments off), its sentence in the message.
+        if (this.allotmentSetRefusal) throw new ProtocolError(ALLOTMENT_REFUSED, this.allotmentSetRefusal);
         this.allotment = runMockAllotment(this.allotment, run);
-        return this.allotment;
+        // Like cloud.allotment.set: the team's setting after it, not the whole view.
+        return { allotment: this.allotment.allotment };
       },
       "cmux.settings.models.state": async () => {
         if (this.modelsReadHold) await this.modelsReadHold;
@@ -1384,6 +1394,8 @@ export class MockSettingsProvider {
   allotment: AllotmentView | null = structuredClone(mockAllotments.proposalUp);
   /** Compute gestures the page sent, in order. */
   readonly allotmentRuns: AllotmentSet[] = [];
+  /** The Cloud app server's sentence for a refused `cmux.settings.cloud.allotment.set`; null applies it. */
+  allotmentSetRefusal: string | null = null;
 
   /** Settings > Models as the app serves it (mockModels.ts); null is a host without the part. */
   models: ModelsState | null = structuredClone(mockModels.macLogins);

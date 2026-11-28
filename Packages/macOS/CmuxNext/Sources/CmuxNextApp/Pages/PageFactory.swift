@@ -243,7 +243,11 @@ struct PageFactory {
         provider.environments = environments
         provider.allotment = CloudAllotmentPage(
             available: { [weak cloud, weak settings] in settings?.snapshot.teamCompute == true && cloud?.auth.isSignedIn == true },
-            get: { [weak cloud] in try JSONEncoder().encode(await cloud?.appOps("cloud.allotment.get", .object([:]), nil, .script)) })
+            get: { [weak cloud] in try JSONEncoder().encode(await cloud?.appOps("cloud.allotment.get", .object([:]), nil, .script)) },
+            set: { [weak cloud] args in
+                guard let cloud else { throw PageError.closed }
+                return try JSONEncoder().encode(await cloud.appOps("cloud.allotment.set", try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: args), UUID().uuidString, .user))
+            })
         let devices = services.deviceHub.settingsModel
         devices.openScreen = { [weak services] id in services?.openMacScreen(for: id, in: nil) }
         devices.shareThisMac = { [weak services] in _ = services?.registry.perform("macScreen.shareThisMac", invocation: ActionInvocation(origin: .page)) }

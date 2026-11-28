@@ -771,8 +771,7 @@ export interface AllotmentDecision {
   apply: boolean;
 }
 
-/** `cmux.settings.cloud.allotment.get` and `.set`'s answer. `allotment` is null before an admin
- * ever set one. */
+/** `cmux.settings.cloud.allotment.get`'s answer. `allotment` is null before an admin ever set one. */
 export interface AllotmentView {
   allotment: TeamAllotment | null;
   decision: AllotmentDecision;
@@ -2826,11 +2825,14 @@ export type SettingsOps = {
   /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
   "cmux.settings.customize.run": [{ verb: "status" | "keep" | "revert" }, CustomizeAnswer];
   /** Settings > Team > Compute: the team's Cloud allotment, who uses what, and the scheduler's
-   * proposal (the backend's `cloud.allotment.get`). Only the mock provider serves it today. */
+   * proposal (the Cloud app server's `cloud.allotment.get`). */
   "cmux.settings.cloud.allotment.get": [Record<string, never>, AllotmentView];
-  /** Settings > Team > Compute, an admin's one click: scale down, hold or scale up, and Auto (the
-   * backend's `cloud.allotment.set`); answers the view after it. */
-  "cmux.settings.cloud.allotment.set": [AllotmentSet, AllotmentView];
+  /** Settings > Team > Compute, an admin's one click (the Cloud app server's `cloud.allotment.set`):
+   * the app serves only the team's hold for its people (`person_hold_seconds`), the person's own click;
+   * the gallery's stand-in also takes scale down, hold or scale up, and Auto. Answers the team's
+   * setting after it; the card reads the view again. A refusal the server explains is
+   * `cmux.settings.cloud.allotment.refused`, its sentence in `message`. */
+  "cmux.settings.cloud.allotment.set": [AllotmentSet, { allotment: TeamAllotment | null }];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
@@ -3055,11 +3057,16 @@ const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable
 
 /** Refusals the host words for the person: the updater's (Go Back, Switch, Update) and a
  * person-only action's (RefusalStrings). Any other failure shows the plain sentence. */
+/** `cmux.settings.cloud.allotment.set` refused by the Cloud app server; `message` is its sentence. */
+export const ALLOTMENT_REFUSED = "cmux.settings.cloud.allotment.refused";
+
 export const SETTINGS_SENTENCES = {
   "cmux.page.refused": OWNER_SENTENCE,
   "cmux.app.user_only": OWNER_SENTENCE,
   // A pasted key the provider refused (acpmux `connections/key.check`): "Key rejected by OpenAI".
   "cmux.models.key_rejected": OWNER_SENTENCE,
+  // The Cloud app server's refusal of a team compute change (Settings > Cloud > Compute): its own sentence.
+  [ALLOTMENT_REFUSED]: OWNER_SENTENCE,
 } as const;
 
 /** The error a call rejected with, as a plain record (its `message` is for logs; the page shows

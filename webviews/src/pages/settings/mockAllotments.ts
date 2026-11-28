@@ -1,9 +1,10 @@
 // l10n-allow-file: mock fixtures (sample member names), not shipped UI.
 // Settings > Team > Compute's mock backend: a seven-seat team (two heavy members, one medium, one
 // light, two agents seats and one member who used nothing) in each state the card draws, and the
-// `cmux.settings.cloud.allotment.set` the mock provider answers. The native side does not exist yet,
-// so this is the op's only implementation; it follows the backend's rules: up and down apply the
-// proposal's commit (the other direction moves one $25 step), hold snoozes proposals 14 days.
+// `cmux.settings.cloud.allotment.set` the mock provider answers. The app serves only the team's hold
+// (`person_hold_seconds`); the rest is this stand-in's, for the gallery, and it follows the backend's
+// rules: up and down apply the proposal's commit (the other direction moves one $25 step), hold
+// snoozes proposals 14 days.
 import type { AllotmentDecision, AllotmentSet, AllotmentView, MemberUse, TeamAllotment } from "./ops";
 import { commitFor, SEAT_MICROS } from "./computeAllotment";
 

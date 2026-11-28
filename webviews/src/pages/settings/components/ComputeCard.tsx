@@ -3,8 +3,8 @@
 // allotment scaled down, held or up in one click. The card renders `computeModel` (../computeAllotment.ts)
 // and nothing else: the sentence, the dial's figures, the rows and their notes are derived there.
 // Three layouts are on trial in the gallery (ledger, meter, inbox); Settings > Cloud mounts the ledger,
-// read-only, behind Labs labs.teamCompute (CloudComputeCard.tsx). It reads once when it mounts and
-// after each click; it never polls.
+// read-only but for the team's hold, behind Labs labs.teamCompute (CloudComputeCard.tsx). It reads once
+// when it mounts and again after each click that applied; it never polls.
 import { useQuery } from "@tanstack/react-query";
 import { useId, useState, type ReactNode } from "react";
 import { Button } from "../../../ui/Button";
@@ -33,25 +33,29 @@ export type ComputeCardViewProps = {
   layout: ComputeLayout;
   busy?: boolean;
   error?: string | null;
-  /** The host serves only the read: no dial buttons, no Auto switch, nothing that cannot work. */
+  /** The host serves no commit change: no dial buttons, no Auto switch, nothing that cannot work. */
   readOnly?: boolean;
-  /** Gallery only for now: the app's card passes none, so nothing is drawn there. */
+  /** The team's hold for its people, which the app serves even when `readOnly`; absent draws none. */
   holdControl?: HoldControl;
   onSet(run: AllotmentSet): void;
 };
 
 const ALLOTMENT_KEY = [...settingsKeys.all, "allotment"] as const;
 
-/** The card on the settings store: one read on mount, the view a click answers replaces it.
- * `readOnly`: the host serves no `cmux.settings.cloud.allotment.set`, so nothing is offered to click.
- * `explainUnavailable`: a read that answered nothing draws one plain line instead of nothing. */
+/** The card on the settings store: one read on mount, and the read again after a click that applied.
+ * `readOnly`: the host serves no commit change (`action`, `auto`), so no dial or Auto switch.
+ * `holdControl`: the team's hold for its people (`person_hold_seconds`), drawn even when `readOnly`.
+ * `explainUnavailable`: a read that answered nothing draws one plain line instead of nothing.
+ * A refused click shows the host's sentence under the card's controls. */
 export function ComputeCard({
   layout = "ledger",
   readOnly = false,
+  holdControl,
   explainUnavailable = false,
 }: {
   layout?: ComputeLayout;
   readOnly?: boolean;
+  holdControl?: HoldControl;
   explainUnavailable?: boolean;
 }) {
   const store = useStore();
@@ -66,9 +70,9 @@ export function ComputeCard({
   const onSet = async (run: AllotmentSet) => {
     setBusy(true);
     try {
-      const reply = await store.setAllotment(run);
-      setError(reply.error);
-      if (reply.view) store.queryClient.setQueryData(ALLOTMENT_KEY, reply.view);
+      const refused = await store.setAllotment(run);
+      setError(refused);
+      if (refused === null) await query.refetch();
     } finally {
       setBusy(false);
     }
@@ -80,6 +84,7 @@ export function ComputeCard({
       busy={busy}
       error={error}
       readOnly={readOnly}
+      holdControl={holdControl}
       onSet={(run) => void onSet(run)}
     />
   );
@@ -131,10 +136,9 @@ export function ComputeCardView({
   busy = false,
   error = null,
   readOnly = false,
-  holdControl,
+  holdControl: hold,
   onSet,
 }: ComputeCardViewProps) {
-  const hold = readOnly ? undefined : holdControl;
   return (
     <section
       className="group"
