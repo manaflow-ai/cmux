@@ -110,6 +110,31 @@ impl Child {
         self
     }
 
+    /// Let the child outlive this handle, as [`Child::detach`], and reap it
+    /// whenever it ends: a thread of its own (`cmux-process-reaper`) waits
+    /// for it, so a child that exits while this process still runs (a daemon
+    /// that lost a start race, a waiter that stood down) never stays a
+    /// zombie. Neither signal nor kill comes from here. The thread ends with
+    /// the child's reap, or with this process. When no thread can start, the
+    /// child is only detached and its status read at once if it already ended.
+    #[cfg(unix)]
+    pub fn reap_when_it_ends(mut self, reason: &'static str) {
+        self.detach(reason);
+        let Ok(pid) = libc::pid_t::try_from(self.id()) else { return };
+        if self.ended || pid <= 0 {
+            return;
+        }
+        drop((self.stdin.take(), self.stdout.take(), self.stderr.take()));
+        // The child's status is this thread's from here: the handle reads it
+        // no more (dropping a detached child neither signals nor reaps).
+        let reap = move || {
+            let _ = waitpid(pid, 0);
+        };
+        if std::thread::Builder::new().name("cmux-process-reaper".into()).spawn(reap).is_err() {
+            let _ = waitpid(pid, libc::WNOHANG);
+        }
+    }
+
     /// Why the child outlives this handle, when [`Child::detach`] said so.
     pub fn detached(&self) -> Option<&'static str> {
         self.detached
