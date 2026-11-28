@@ -316,3 +316,22 @@ async fn a_steer_that_stops_the_step_says_no_one_stopped_you() {
     };
     assert!(!text_of(&written[0]).contains("[acpmux]"), "{written:?}");
 }
+
+/// Send now on a steer already written stops the step the same way: a line just before the
+/// interrupt says the stop is acpmux's (`STEP_STOPPED_NOTE`), as a steer sent now carries it.
+#[tokio::test]
+async fn send_now_for_a_waiting_steer_says_no_one_stopped_you() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    turn_with(&t, shell("toolu_sh", false)).await;
+    let Outbound::Lines(steer) =
+        t.outbound(&prompt(2, "reply PINEAPPLE", json!({"steer": true}))).await
+    else {
+        panic!()
+    };
+    assert!(!steer[0].to_string().contains("[acpmux]"), "{steer:?}");
+    let now = Message::request(9, method::MUX_STEP_NOW, json!({"sessionId": "acp-1"}));
+    let Outbound::Lines(written) = t.outbound(&now).await else { panic!("nothing stopped") };
+    assert_eq!(written.len(), 2, "{written:?}");
+    assert_eq!(written[0]["message"]["content"][0]["text"], STEP_STOPPED_NOTE, "{written:?}");
+    assert!(is_interrupt(&written[1]), "{written:?}");
+}

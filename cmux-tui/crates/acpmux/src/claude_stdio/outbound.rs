@@ -452,7 +452,15 @@ impl Translator {
                                 json!({"interrupted": false}),
                             ));
                         }
-                        Outbound::Lines(vec![self.step_interrupt(Some(id))])
+                        // The steer was written before; a line after it says the stop that
+                        // follows is acpmux's, not a person's (`STEP_STOPPED_NOTE`). Not a
+                        // steer: its echo answers nothing.
+                        let note = json!({
+                            "type": "user",
+                            "uuid": uuid::Uuid::now_v7().to_string(),
+                            "message": {"role": "user", "content": [{"type": "text", "text": STEP_STOPPED_NOTE}]},
+                        });
+                        Outbound::Lines(vec![note, self.step_interrupt(Some(id))])
                     }
                     method::SESSION_FORK => {
                         // Forking needs a new process (--fork-session); the hub does that.
