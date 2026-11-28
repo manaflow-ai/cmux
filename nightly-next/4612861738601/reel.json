@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "build": "4612861738601",
+  "notes": "notes/4612861738601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 64242,
+      "title": "ci: a fleet step-id grep with no match no longer ends a report-only step",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 63523,
+      "title": "ci: post-merge bisect probes a new red's last green first and stops when it is red too",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62349,
+      "title": "cmux-action-catalog: the menu bar names the sign-in backend under Sign In (step A of the menu bar swap)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 63547,
+      "title": "Agents move their own chat between Local, Cloud and Auto, also from the Cloud machine",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62388,
+      "title": "look motion: --cmux-motion-stream and --cmux-ease-stream time a reply's word fade",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/62388/hv-5fb85d5bc599-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 61804,
+      "title": "agent pane: canonicalize signed zero in answer proofs like Swift",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64275,
+      "title": "swift-logic table: classify 321 CmuxHomeCore and CmuxNextHomeEngine declarations",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64241,
+      "title": "acpmux: restore_inbox no longer re-enters session.inbox() under the inbox load lock",
+      "author": "quota-goblin-9011[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64061,
+      "title": "Agent chat: a queued tall send collapses the composer at once, never held then dropped",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/64061/hv-7e1d597c14ba-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 63281,
+      "title": "fix(queue): queued text leaves in 80 ms with its actions (62344 F1)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/63281/hv-d15760393d77-video.mp4",
+      "source": "manual",
+      "note": "3 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 64243,
+      "title": "Cloud journey: the provider-key scan skips installed Python libraries",
+      "author": "quota-goblin-9013[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64246,
+      "title": "macos link stubs: objc2's runtime calls, so a first objc_alloc links",
+      "author": "quota-goblin-9000[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64225,
+      "title": "hot-verify: a failed fleet app build says its error, not the wait's progress",
+      "author": "quota-goblin-9013[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64038,
+      "title": "CmuxNext: page IDs nonisolated so test arguments compile on Xcode 27.2",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 63425,
+      "title": "acpmux: evict idle chats by default (10 min idle; ACPMUX_EVICT_IDLE_SECS=0 is off)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/63425/hv-b1ee1741c096-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 63924,
+      "title": "cmux-mobile-host: classify and count viewport sync send errors; a gone socket ends the driver",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 63795,
+      "title": "acpmux: a lane VM's broker-client gh refusal sends the read through lane-gh",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 63999,
+      "title": "Move stored-session loading into its existing hub module",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62950,
+      "title": "ci(ios-fast): restore a seeded warm DerivedData for kit and app on hosted Macs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 62138,
+      "title": "acpmux: a message the inbox took answers its send once delivered (150 MB per 1000 sends to a coordinator)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/62138/hv-634edb6e63f4-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 57146,
+      "title": "ci: give per-PR/per-head dispatched workflows distinct run names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 63508,
+      "title": "Scroll rail: tick only the person's typed prompts",
+      "author": "quota-goblin-9005[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 63722,
+      "title": "acpmux: usage trackers survive a daemon restart",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64216,
+      "title": "base_red_excuse: name a called workflow's unnamed caller by its id (#64053's base log unplaced)",
+      "author": "quota-goblin-9000[bot]",
+      "clip": "no clip"
+    }
+  ]
+}
