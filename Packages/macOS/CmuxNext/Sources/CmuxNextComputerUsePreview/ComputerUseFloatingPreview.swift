@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextIcons
 public import CmuxNextSettings
 import ImageIO
 import QuartzCore
@@ -276,7 +277,8 @@ final class ComputerUseFloatingPreviewView: NSView {
         pointerLayer.bounds = CGRect(x: 0, y: 0, width: 12, height: 12)
         pointerLayer.cornerRadius = 6 // radius-allow: the agent pointer is a 12 pt round dot, not a button
         pointerLayer.backgroundColor = NSColor.systemBlue.cgColor
-        pointerLayer.borderColor = NSColor.white.cgColor
+        // glass-opaque-allow: the agent pointer dot's ring is the appearance's text background, so it reads on any picture.
+        pointerLayer.borderColor = NSColor.textBackgroundColor.cgColor
         pointerLayer.borderWidth = 2
         pointerLayer.isHidden = true
         frameLayer.addSublayer(pointerLayer)
@@ -374,7 +376,7 @@ final class ComputerUseFloatingPreviewView: NSView {
 final class ComputerUseFloatingPreviewButton: NSButton {
     init(symbol: String) {
         super.init(frame: .zero)
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        image = NSImage.icon(symbol: symbol, size: 14)
         imagePosition = .imageOnly
         isBordered = false
         bezelStyle = .circular

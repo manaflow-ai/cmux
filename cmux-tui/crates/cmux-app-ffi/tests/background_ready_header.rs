@@ -8,13 +8,11 @@
 use std::path::Path;
 use std::process::Command;
 
-const FUNCTIONS: [&str; 9] = [
+const FUNCTIONS: [&str; 7] = [
     "cmux_background_ready_mode_parse",
     "cmux_background_ready_on_quit",
     "cmux_background_ready_hidden_plan",
     "cmux_background_ready_registers_login_item",
-    "cmux_background_ready_registers_preread_agent",
-    "cmux_background_ready_offers_quit_completely",
     "cmux_background_ready_at_launch",
     "cmux_background_ready_exits_for_update",
     "cmux_background_ready_starts_chromium_warmup",

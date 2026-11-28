@@ -31,7 +31,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Off for new chats. Older machines can keep using the key until their chats end."
+            "value" : "Off for new chats; running chats keep the key."
           }
         },
         "es" : {

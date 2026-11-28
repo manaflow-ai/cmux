@@ -125,22 +125,10 @@ pub extern "C" fn cmux_background_ready_registers_login_item(mode: u8) -> bool {
     crate::registers_login_item(Mode::from_u8(mode))
 }
 
-/// The owner of the login-time pre-read agent: registered only for mode 3
-/// (WarmAtLogin); every other mode, Off included, unregisters it, so
-/// switching away removes the agent. Mode 2 needs none: its login item starts
-/// the app, which reads the same pages.
-#[unsafe(no_mangle)]
-pub extern "C" fn cmux_background_ready_registers_preread_agent(mode: u8) -> bool {
-    crate::registers_preread_agent(Mode::from_u8(mode))
-}
-
-/// The owner of whether Quit Completely is offered: only for modes 1 and 2,
-/// which keep a hidden copy after a quit. Off and 3 (WarmAtLogin) keep
-/// nothing running, so a quit is already complete.
-#[unsafe(no_mangle)]
-pub extern "C" fn cmux_background_ready_offers_quit_completely(mode: u8) -> bool {
-    crate::offers_quit_completely(Mode::from_u8(mode))
-}
+// The pre-read agent and Quit Completely answers stay Rust-only
+// (`crate::registers_preread_agent`, `crate::offers_quit_completely`) until the
+// Swift that registers the agent and draws the menu item calls them: an export
+// with no Swift caller is port drift (scripts/cmux-next/tests/test_ffi_caller_ratchet.py).
 
 /// The owner of what a launch does. A launch the user made is 0 (Normal)
 /// whatever the mode: the setting changes quits and logins, never an open. A

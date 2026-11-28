@@ -387,6 +387,7 @@ fn emit(
         c.last_resolve = mark;
         let name = s["name"].as_str().unwrap_or(key);
         let reply: String = crate::secret_scan::mask(&c.reply).chars().take(400).collect();
+        // retry-prompt-ok: granting Full access is the person's choice; nothing may retry it for them
         let next = if state == "blocked" {
             "\nIf the remote sandbox refused the work, choose Full access on the starting machine only when authorized, or retry with a folder and tools that sandbox permits."
         } else {
