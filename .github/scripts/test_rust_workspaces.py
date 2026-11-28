@@ -165,6 +165,17 @@ class RustWorkspacesTests(unittest.TestCase):
         result = self.script("check")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_a_workspace_listed_as_run_and_skip_fails_the_check(self) -> None:
+        path = ".github/rust-workspaces.toml"
+        original = (self.repo / path).read_text()
+        self.write(path, original + '\n[[workspace]]\nroot = "solo"\nskip = "separate benchmark gate"\n')
+        result = self.script("check")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("solo is listed more than once", result.stdout)
+        self.write(path, original)
+        result = self.script("check")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_a_new_workspace_without_an_entry_fails_the_check(self) -> None:
         self.change("tools/new/Cargo.toml", '[package]\nname = "new"\n')
         result = self.script("check")
