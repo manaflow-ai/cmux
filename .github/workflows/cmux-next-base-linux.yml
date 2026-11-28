@@ -128,6 +128,11 @@ jobs:
       - name: Run the routed ${{ matrix.job }} steps (ci/steps.toml)
         env:
           TABLE_JOB: ${{ matrix.job }}
+          # The base has no re-run that fixes a red, so an `alone` step (ios-matrix-protocol and the other long
+          # ones) runs here even after a blocking step failed. Without it, a base red since 11-26 14:51Z on
+          # unrelated steps (vendored-agent-cursor first) skipped ios-matrix-protocol on every run, and the
+          # E0063 break from cmux#54233 + cmux#54390 stayed unseen for 8 h 49 min until the nightly.
+          CI_RUN_ALONE_ON_RED: "1"
         run: |
           set +e
           ci/run run --job "$TABLE_JOB" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} 2>&1 | tee "$RUNNER_TEMP/linux-first.log"

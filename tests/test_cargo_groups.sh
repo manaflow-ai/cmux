@@ -39,6 +39,11 @@ for b in "${bins[@]}"; do echo "$b from $CARGO_TARGET_DIR" > "$CARGO_TARGET_DIR/
 FAKE
 chmod +x "$work/bin/cargo"
 export PATH="$work/bin:$PATH" FAKE_LOG="$work/log"
+# The job split below counts the cores this host has. cargo-groups.sh also caps them by the runner's cgroup
+# memory.max (a 16 GiB slot holds 5 cores at 3 GiB each), which this test does not set up; on a capped runner
+# group 1 got 5 jobs, not the host's 96, and the tree build failed here (cmux-tui job 140944131931). No cgroup
+# file means no cap; scripts/ci/tests/cargo-groups-memory.test.sh covers the cap itself.
+export CARGO_GROUPS_PROC_CGROUP="$work/no-cgroup"
 t=x86_64-unknown-linux-musl
 td="$work/target"
 
@@ -97,7 +102,9 @@ cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 share=$(((2 * cores + 2) / 3))
 lead=$((cores > share ? cores : share))
 rm -rf "$td"; : > "$FAKE_LOG"
-out="$(env -u CARGO_BUILD_JOBS "$script" "$td" "$t" \
+# The script counts fewer cores under a cgroup memory cap (#63969); a pool runner has one, so this case reads
+# no cgroup and expects the CPU count (scripts/ci/tests/cargo-groups-memory.test.sh covers the cap).
+out="$(env -u CARGO_BUILD_JOBS CARGO_GROUPS_PROC_CGROUP=/nonexistent "$script" "$td" "$t" \
   "cmux-tui" "cargo build --bin cmux-tui --target $t" \
   "acpmux" "cargo build --bin acpmux --target $t" \
   "cmux-relay" "cargo build --bin cmux-relay --target $t" 2>&1)" || fail "job split run failed: $out"
@@ -105,7 +112,7 @@ grep -qx "started cmux-tui jobs=$lead" "$FAKE_LOG" || fail "group 1 did not get 
 grep -qx "started acpmux jobs=$share" "$FAKE_LOG" || fail "group 2 did not get $share jobs: $(cat "$FAKE_LOG")"
 grep -qx "started cmux-relay jobs=$share" "$FAKE_LOG" || fail "group 3 did not get $share jobs: $(cat "$FAKE_LOG")"
 rm -rf "$td"; : > "$FAKE_LOG"
-out="$(CARGO_BUILD_JOBS=3 "$script" "$td" "$t" \
+out="$(CARGO_BUILD_JOBS=3 CARGO_GROUPS_PROC_CGROUP=/nonexistent "$script" "$td" "$t" \
   "cmux-tui" "cargo build --bin cmux-tui --target $t" \
   "acpmux" "cargo build --bin acpmux --target $t" 2>&1)" || fail "caller jobs run failed: $out"
 [[ "$(grep -c ' jobs=3$' "$FAKE_LOG")" == 2 ]] || fail "a caller's CARGO_BUILD_JOBS did not reach every group: $(cat "$FAKE_LOG")"
