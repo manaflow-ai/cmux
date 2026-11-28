@@ -238,6 +238,7 @@ def _api(method: str, url: str, token: str) -> object:
         method=method,
         headers={
             "Authorization": f"Bearer {token}",
+            "User-Agent": "cmux-ci-tui-artifacts-retry",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         },
@@ -250,6 +251,7 @@ def _api(method: str, url: str, token: str) -> object:
 def _log_text(url: str, token: str) -> str | None:
     """A job log as text (urllib follows the redirect to the log blob), or None when it cannot be read."""
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}",
+                                                   "User-Agent": "cmux-ci-tui-artifacts-retry",
                                                    "X-GitHub-Api-Version": "2022-11-28"})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:

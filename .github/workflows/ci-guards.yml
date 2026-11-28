@@ -1048,6 +1048,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
+      - name: Validate tailscale steps skip fleet hosts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_tailscale_action_skips_fleet_hosts.py
+
       - name: Validate hosted light-job rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_hosted_light_rescue.py
