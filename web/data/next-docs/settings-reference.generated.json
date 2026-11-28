@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 880,
+  "count": 883,
   "sections": [
     {
       "id": "general",
@@ -4992,6 +4992,14 @@
           "group": "Diff Viewer"
         },
         {
+          "key": "experiments.chat_render_pipeline",
+          "title": "Chat Render Pipeline",
+          "help": "Skip rendering offscreen rows from completed turns while keeping their place in the chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
           "key": "focus.inactiveTabStyle",
           "title": "Unfocused Pane Tabs",
           "help": "How other panes' tabs look subtler when Focused Pane marks tabs.",
@@ -7034,6 +7042,14 @@
           ]
         },
         {
+          "key": "browser.agents.openSignedOut",
+          "title": "Open Agent Tabs Signed Out",
+          "help": "Agent tabs open in the Agents profile, signed in nowhere, until you lend a site. Off, they use the workspace's profile.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Input"
+        },
+        {
           "key": "browser.builtInAdBlocker",
           "title": "Built-in uBlock Origin",
           "help": "Blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
@@ -8576,6 +8592,14 @@
           "key": "mobile.autoApprovePhones",
           "title": "Approve Phone Requests Automatically",
           "help": "A new phone signed in to your account connects without asking you first, and so do phones already waiting. Other accounts never connect.",
+          "kind": "toggle",
+          "default": false,
+          "group": "iPhone"
+        },
+        {
+          "key": "mobile.siteDataHandoff",
+          "title": "Share Cookies and Site Data on iPhone",
+          "help": "When you open a browser tab on your iPhone, share this Mac's cookies and site storage for that site.",
           "kind": "toggle",
           "default": false,
           "group": "iPhone"
