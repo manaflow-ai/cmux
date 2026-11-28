@@ -135,6 +135,10 @@ fn touches(entry: &HistoryEntry, path: &[String]) -> bool {
 }
 
 /// Levenshtein distance over chars.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn distance(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let mut row: Vec<usize> = (0..=b.len()).collect();

@@ -1,0 +1,10 @@
+{
+  "cmuxProfile": 1,
+  "name": "studio-app-open-in-editor",
+  "description": "Open the current tab’s local working folder in an installed editor.",
+  "settings": {},
+  "files": {
+    "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": {\n    \"en\": \"Open in editor\"\n  },\n  \"description\": \"Open the current tab’s local working folder in an installed editor.\",\n  \"version\": \"1.0.0\",\n  \"engines\": {\n    \"cmux\": \"^2.0\"\n  },\n  \"runtime\": {\n    \"main\": \"main.js\"\n  },\n  \"implements\": {\n    \"cmux.session.info.section/1\": {\n      \"export\": \"renderEditor\",\n      \"title\": \"Open in editor\",\n      \"symbol\": \"chevron.left.forwardslash.chevron.right\"\n    }\n  },\n  \"scopes\": {\n    \"actions:run\": \"Open the selected local working folder in its editor.\"\n  },\n  \"activation\": [\n    \"onInterface:cmux.session.info.section/1\"\n  ],\n  \"files\": [\n    \"main.js\"\n  ]\n}\n",
+    "customize/main.js": "function renderEditor() {\n  return Button(\"Open in VS Code\", async () => {\n    try {\n      await cmux.actions.run(\"palette.terminalOpenDirectory\", { app: \"com.microsoft.VSCode\" })\n    } catch (error) {\n      cmux.toast({ title: \"Couldn’t open the folder\", message: String(error.message || error), tone: \"warning\" })\n    }\n  })\n}\n\nglobalThis.__cmuxAppExports = { renderEditor }\n"
+  }
+}
