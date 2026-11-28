@@ -7605,11 +7605,11 @@ jobs:
 
   # Delta trust boundary and topology: docs/ci/nightly-workflow-notes/2026-11-27-nightly-next-deltas-job.md
   nightly-next-deltas:
-    needs: [decide, nightly-next-one]
+    needs: [decide, pick-nightly-next-signer, nightly-next-one]
     if: "!cancelled() && needs.nightly-next-one.outputs.deltas == 'true' && needs.nightly-next-one.outputs.feed_written == 'true' && needs.nightly-next-one.outputs.left != 'true'"
     continue-on-error: true
     environment: ${{ needs.decide.outputs.environment }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.pin && fromJSON(needs.pick-nightly-next-signer.outputs.pin) || 'glaeda-trusted-next-signing' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -7831,12 +7831,12 @@ jobs:
 
   # Signs the overlay into the published nightly's app (no bundle code runs while a secret is in reach) on the signer.
   sign-live-code-variant:
-    needs: [decide, nightly-next-one, build-live-code-variant]
+    needs: [decide, pick-nightly-next-signer, nightly-next-one, build-live-code-variant]
     if: "!cancelled() && needs.build-live-code-variant.outputs.built == 'true'"
     continue-on-error: true
     environment: ${{ needs.decide.outputs.environment }}
-    # The signer label, a literal, as nightly-next-one takes it. Why: docs/ci/nightly-workflow-notes.md#note-33
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}
+    # The signer label (or the build's pinned signer), as nightly-next-one takes it. Why: docs/ci/nightly-workflow-notes.md#note-33
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.pin && fromJSON(needs.pick-nightly-next-signer.outputs.pin) || 'glaeda-trusted-next-signing' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 270 || 160 }}
     permissions:
       contents: read
