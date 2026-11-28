@@ -1190,6 +1190,16 @@ class SdkGeneratorHookTests(unittest.TestCase):
             self.assertEqual(sdk_generate.main(["--check"]), 1)
 
 
+class DuplicateKeyTests(unittest.TestCase):
+    def test_a_key_written_twice_in_one_object_is_refused(self) -> None:
+        """json.loads keeps the last of two equal keys: a family's second "enums" dropped the first's enums."""
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "bindings.json"
+            path.write_text('{"families": {"Creation": {"enums": {"A": {}}, "enums": {"B": {}}}}}', encoding="utf-8")
+            with self.assertRaisesRegex(BindingError, "'enums' appears twice"):
+                generate.load_bindings(path)
+
+
 class RepositoryBindingsTests(unittest.TestCase):
     def test_the_repository_bindings_render_against_the_repository_schema(self) -> None:
         bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
