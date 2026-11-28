@@ -1158,6 +1158,34 @@ def snapshot_event(j):
     return out
 
 
+# A machine object's own cleanup lines (cmux-platform src/server/cloud/CloudCore.ts) write `{"event": ...}`, no `msg`,
+# so a read dropped them all as unlisted: staging run 46197588168 (team_of:vm_f53516..., 2026-11-28 15:14Z, 16 min)
+# named the owner team and scanned 1332 of its events, then kept 0 rows while its header counted 433 test_reaped and
+# 435 test_reap_due among the dropped. Each line keeps its event, the machine and team as tags, its object's stream
+# (`cloud:<team>`, the Durable Object the alarm ran in) as a tag, and fixed words and ints. A machine's name, its
+# origin label and every time (created_at, expires_at, deleted_at, evict_at) are dropped.
+MACHINE_EVENTS = frozenset({"cloud.machine.test_reaped", "cloud.machine.test_reap_due", "cloud.machine.purged",
+                            "cloud.machine.evict_due"})
+MACHINE_EVENT_FIELDS = {"team": ID, "machine": ID, "reason": TOKEN, "status": TOKEN, "refused": TOKEN, "hours": INT}
+
+
+def machine_event(j):
+    """The kept fields of a MACHINE_EVENTS line: its event, tagged ids, fixed words and ints only."""
+    out = {"event": j["event"]}
+    for k, kind in MACHINE_EVENT_FIELDS.items():
+        v = base.typed(kind, j.get(k))
+        if v is not None:
+            out[k] = v
+    stream = j.get("stream")
+    if isinstance(stream, str) and 0 < len(stream) <= 96:
+        out["stream"] = base.tag(stream)
+    if j.get("mode") in REAP_MODES:
+        out["mode"] = j["mode"]
+    if "expires_at" in j:
+        out["has_expiry"] = j["expires_at"] is not None
+    return out
+
+
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg or cmux-vm event, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
@@ -1166,6 +1194,8 @@ def public_log(j):
         return vm_event(j), None
     if "msg" not in j and j.get("event") in SNAPSHOT_EVENTS:
         return snapshot_event(j), None
+    if "msg" not in j and j.get("event") in MACHINE_EVENTS:
+        return machine_event(j), None
     msg = j.get("msg")
     if not isinstance(msg, str) or msg not in PLATFORM_MSGS:
         return None, "unlisted"
@@ -1490,7 +1520,8 @@ def window_needle(needles):
     a busy production hour holds more events than PAGES pages, and cloud.idle.kept is a few of them (cmux#54889).
     The literal is our own constant, never a tenant's word; any other needle filters only the rows, as before."""
     return needles[0] if len(needles) == 1 and (needles[0] in PLATFORM_MSGS or needles[0] in VM_EVENTS
-                                                    or needles[0] in SNAPSHOT_EVENTS) else None
+                                                    or needles[0] in SNAPSHOT_EVENTS
+                                                    or needles[0] in MACHINE_EVENTS) else None
 
 
 def query(token, service, frm, to, offset=None, needle=None):
