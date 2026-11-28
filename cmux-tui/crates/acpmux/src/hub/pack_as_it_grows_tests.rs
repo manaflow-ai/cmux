@@ -439,8 +439,14 @@ fn duress_whole_pack_of_a_real_chat() {
         std::thread::spawn(move || {
             let mut peak = 0u64;
             while !done.load(Ordering::Relaxed) {
-                let n: u64 = std::fs::read_dir(&work).into_iter().flatten().flatten()
-                    .filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum();
+                fn size(p: &Path) -> u64 {
+                    std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| match e.metadata() {
+                        Ok(m) if m.is_dir() => size(&e.path()),
+                        Ok(m) => m.len(),
+                        Err(_) => 0,
+                    }).sum()
+                }
+                let n = size(&work);
                 peak = peak.max(n);
                 std::thread::sleep(Duration::from_millis(20));
             }
