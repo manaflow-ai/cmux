@@ -113,6 +113,45 @@ class Gate(unittest.TestCase):
                       pr.DEFAULT_BOTS.split(","))
         self.assertIsNotNone(got)
 
+    def test_a_private_member_who_can_push_counts(self):
+        # cmux#62808: a member whose org membership is private reads as CONTRIBUTOR to a workflow's github.token,
+        # so their passing record never counted. Whether they can push is what the gate asks GitHub instead.
+        body = pr.render(RECORD)
+        asked = []
+
+        def can_write(login):
+            asked.append(login)
+            return login == "member"
+
+        self.assertIsNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="member")], "ios-flows", HEAD))
+        self.assertIsNotNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="member")], "ios-flows", HEAD,
+                                     (), can_write))
+        self.assertIsNone(pr.find([comment(body, assoc="CONTRIBUTOR", login="outsider")], "ios-flows", HEAD,
+                                  (), can_write))
+        # A bot never passes on a permission read, and a comment with no record costs no read.
+        self.assertIsNone(pr.find([comment(body, assoc="NONE", login="member", kind="Bot")], "ios-flows", HEAD,
+                                  (), can_write))
+        pr.find([comment("no record here", assoc="CONTRIBUTOR", login="chatty")], "ios-flows", HEAD, (), can_write)
+        self.assertEqual(asked, ["member", "outsider"])
+
+    def test_writer_check_reads_the_permission_once_and_fails_closed(self):
+        from unittest import mock
+        answers = {"admin-user": "admin", "writer": "write", "reader": "read"}
+        seen = []
+
+        def fake(req, seconds, **kwargs):
+            login = req.full_url.split("/collaborators/")[1].split("/")[0]
+            seen.append(login)
+            if login == "broken":
+                raise pr.urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+            return 200, json.dumps({"permission": answers[login]}).encode(), {}
+
+        with mock.patch.object(pr.gh_http, "request", side_effect=fake):
+            can_write = pr.writer_check("o/r", ["t"])
+            got = {login: can_write(login) for login in ("admin-user", "writer", "reader", "broken", "writer")}
+        self.assertEqual(got, {"admin-user": True, "writer": True, "reader": False, "broken": False})
+        self.assertEqual(seen, ["admin-user", "writer", "reader", "broken"])
+
     def test_newest_record_wins(self):
         failed = copy.deepcopy(RECORD)
         failed["runs"][0]["result"] = "fail"
@@ -190,6 +229,37 @@ class NoFlows(unittest.TestCase):
         self.assertIsNone(record)
         sh.assert_not_called()
         rerun.assert_not_called()
+
+
+class FromStep(unittest.TestCase):
+    """--from-step posts a finished step's result instead of running it again, and only for the same work."""
+    HEAD = "434cecd2bc9a5be7c5031e9c7b5ddeda15dd03cf"
+    STEP = {"name": "sim 1/1: test ui=AppReviewGateUITests", "mode": "test", "worker": "cmux23",
+            "args": ["test", "ui=AppReviewGateUITests", "video"]}
+
+    def job(self, **over):
+        j = {"ref": self.HEAD, "script": ios_verify.SIM_SCRIPT, "args": self.STEP["args"], "state": "done",
+             "exit_code": 0, "worker": "aws-m4pro-4"}
+        j.update(over)
+        return mock.Mock(returncode=0, stdout=json.dumps(j))
+
+    def read(self, proc):
+        with mock.patch.object(ios_verify.subprocess, "run", return_value=proc):
+            return ios_verify.finished_step(self.STEP, self.HEAD, ["694304f17866e34a2c99d717"])
+
+    def test_a_finished_green_step_is_a_pass_from_the_host_that_ran_it(self):
+        got = self.read(self.job())
+        self.assertEqual((got["result"], got["worker"], got["step"]), ("pass", "aws-m4pro-4", "694304f17866e34a2c99d717"))
+
+    def test_a_failed_or_unfinished_step_is_a_fail(self):
+        self.assertEqual(self.read(self.job(exit_code=1))["result"], "fail")
+        self.assertEqual(self.read(self.job(state="running", exit_code=None))["result"], "fail")
+
+    def test_another_head_shard_or_script_is_not_borrowed(self):
+        self.assertIsNone(self.read(self.job(ref="0" * 40)))
+        self.assertIsNone(self.read(self.job(args=["test", "ui=OtherUITests", "video"])))
+        self.assertIsNone(self.read(self.job(script="scripts/ci/other.sh")))
+        self.assertIsNone(self.read(mock.Mock(returncode=1, stdout="")))
 
 
 class Plan(unittest.TestCase):

@@ -126,7 +126,8 @@ def swift_reasons(lines, added_file):
         elif CASE.match(body) and indent == 4:
             reasons.add("enum case")
         elif FUNC.match(body):
-            sig = re.sub(r"\s+", " ", body.strip().rstrip("{").strip())
+            # A one-line func carries its body after the signature (`func f() -> Bool { x }`): compare only up to the body's brace.
+            sig = re.sub(r"\s+", " ", re.split(r"\{", body.strip(), maxsplit=1)[0].strip())
             (removed if sign == "-" else added).append(sig)
     if set(removed) - set(added):
         reasons.add("signature")  # one went away or changed; a new function alone is fine
