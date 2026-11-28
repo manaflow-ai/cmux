@@ -6,7 +6,6 @@ import CmuxNextCloudPlace
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextSettings
 import Foundation
 
 extension CloudHandlers {
@@ -75,18 +74,14 @@ extension CloudHandlers {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
             // A cancel is never refused.
             let allowed: @MainActor () -> String? = { nil }, gated: @MainActor () -> String? = { reason() ?? CloudMoveStrings.placeOff(services.settings?.snapshot.experimentSwitches) }
-            // A chat's own place pick and its Retry also run with AutoCloud on (`cloud.autoCloud`), for the choices it offers
-            // (``AppServices/placeModes``): AutoCloud on or off for that chat. Priority and Evacuate stay Cloud Toggle's.
-            let perChat = id == AppServices.placeSet || id == AppServices.placeRetry
-            let offered: @MainActor () -> String? = { reason() ?? (services.placeModes.isEmpty ? CloudMoveStrings.placeExperimentOff : nil) }
-            bind(id, registry, reason: cancels ? allowed : perChat ? offered : gated) { invocation in
+            let perChat = id == AppServices.placeSet || id == AppServices.placeRetry, modes = { services.settings?.snapshot.placeModes ?? [] } // AutoCloud alone offers a chat's pick, Retry
+            bind(id, registry, reason: cancels ? allowed : perChat ? { reason() ?? (modes().isEmpty ? CloudMoveStrings.placeExperimentOff : nil) } : gated) { invocation in
                 guard !CloudMoveAsks.isAgent(invocation), !invocation.viaControlSocket else { throw ActionFailure(message: CloudMoveStrings.placeIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named(invocation["sessions"]?.stringValue), row = CloudPlaceDriver.row(named)
                 switch id {
                 case AppServices.placeSet:
                     guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }
-                    // Cloud (its own VM) is Cloud Toggle's; with AutoCloud alone a chat offers Local and Auto.
-                    guard services.placeModes.contains(mode) else { throw ActionFailure(message: CloudMoveStrings.placeExperimentOff) }
+                    guard modes().contains(mode) else { throw ActionFailure(message: CloudMoveStrings.placeExperimentOff) } // Cloud is Cloud Toggle's
                     // A move refused at once fails in the chat's flow (with Retry) and answers the page with why.
                     if let refusal = place.setMode(mode, tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
                 case AppServices.prioritySet: if let refusal = place.setPriority(invocation["priority"]?.stringValue, tab: tab, session: row) { throw ActionFailure(message: refusal.message) }
@@ -295,14 +290,4 @@ extension AppServices: CloudPlaceHost {
     }
 
     func placeIdentityChangedReason() -> String { CloudMoveStrings.identityChanged }
-}
-
-extension AppServices {
-    /// The choices every chat's place control offers now (``CloudPlaceFlows/offeredModes(cloudToggle:autoCloud:)``), from
-    /// Settings > Experiments' Cloud Toggle and Settings > Machines' AutoCloud; none while both are off.
-    @MainActor var placeModes: [String] {
-        guard let snapshot = settings?.snapshot else { return [] }
-        return CloudPlaceFlows.offeredModes(cloudToggle: snapshot.experimentSwitches["cloudToggle"] == true,
-                                            autoCloud: CloudNewWorkspaceSetting().autoCloud(in: snapshot.root))
-    }
 }

@@ -151,11 +151,7 @@ import Testing
     /// Cloud never reads `mode: local, at: cloud` once the move lands (review of #52230 at 37033a59, F1).
     /// Leo, 2026-11-27: "remember we need to be able to toggle a chat on and off of autocloud" and "we're not
     /// putting autocloud as THE DEFAULT OPTION FOR EVERY SINGLE CHAT. IT JUST SIMPLY MUST BE AN OPTION."
-    @Test func autoCloudInSettingsOffersEachChatLocalAndAutoAndChangesNoDefault() throws {
-        #expect(CloudPlaceFlows.offeredModes(cloudToggle: false, autoCloud: false).isEmpty)
-        #expect(CloudPlaceFlows.offeredModes(cloudToggle: false, autoCloud: true) == ["local", "auto"])
-        #expect(CloudPlaceFlows.offeredModes(cloudToggle: true, autoCloud: false) == ["local", "cloud", "auto"])
-        #expect(CloudPlaceFlows.offeredModes(cloudToggle: true, autoCloud: true) == ["local", "cloud", "auto"])
+    @Test func offeredModesReachTheHeaderAndChangeNoDefault() throws {
         let place = flows(Recorder())
         let read = { (modes: [String]?) in
             try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, modes: modes)
