@@ -19,7 +19,7 @@ import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, 
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, SHORT_JOURNEY_MS, LONG_JOURNEY_MS, KEPT_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listPageRetryable, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, SHORT_JOURNEY_MS, LONG_JOURNEY_MS, KEPT_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -959,9 +959,33 @@ describe("cloud journey: leaked machine sweep", () => {
     const asked: any[] = [];
     const rows = await listAllMachines(async (p) => { asked.push(p); return pages[String(p.cursor ?? "")]; });
     expect(rows.map((r) => r.id)).toEqual(["a", "b", "c"]);
-    expect(asked).toEqual([{ limit: 100 }, { limit: 100, cursor: "c1" }, { limit: 100, cursor: "c2" }]);
-    // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep.
-    await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 3 pages");
+    expect(asked).toEqual([{ limit: 25 }, { limit: 25, cursor: "c1" }, { limit: 25, cursor: "c2" }]);
+    // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep: 3 hundred-row pages'
+    // worth is 12 pages of 25.
+    await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 12 pages");
+  });
+
+  test("a list page that answers an owner reset or a timeout is asked again", async () => {
+    const reset = new Error('cloud.machine.list: HTTP 503 {"code":"owner.unreachable","message":"Error: Durable Object exceeded its CPU time limit and was reset.","retryable":true}');
+    let calls = 0;
+    const rows = await listAllMachines(async () => { if (++calls < 3) throw reset; return { machines: [{ id: "a" }], next_cursor: null }; }, 20, { pauseMs: 0 });
+    expect(rows.map((r) => r.id)).toEqual(["a"]);
+    expect(calls).toBe(3);
+    // A refusal is not asked again.
+    calls = 0;
+    await expect(listAllMachines(async () => { calls++; throw new Error('cloud.machine.list: HTTP 401 {"code":"auth.unauthenticated"}'); }, 20, { pauseMs: 0 })).rejects.toThrow("auth.unauthenticated");
+    expect(calls).toBe(1);
+    expect(listPageRetryable(new Error('cloud.machine.list: HTTP 0 {"code":"transport","message":"The operation timed out.","retryable":true}'))).toBe(true);
+  });
+
+  test("a sweep's list keeps the rows read when a later page still fails", async () => {
+    const timeout = new Error('cloud.machine.list: HTTP 0 {"code":"transport","message":"The operation timed out.","retryable":true}');
+    const read = async (p: Record<string, unknown>) => { if (p.cursor) throw timeout; return { machines: [{ id: "a" }, { id: "b" }], next_cursor: "c1" }; };
+    expect((await listAllMachines(read, 20, { pauseMs: 0, partial: true })).map((r) => r.id)).toEqual(["a", "b"]);
+    // A caller that must see every row gets the error.
+    await expect(listAllMachines(read, 20, { pauseMs: 0 })).rejects.toThrow("timed out");
+    // A first page that fails is the error even for a sweep: it has nothing to go on.
+    await expect(listAllMachines(async () => { throw timeout; }, 20, { pauseMs: 0, partial: true })).rejects.toThrow("timed out");
   });
 });
 
@@ -4063,7 +4087,7 @@ describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a
     const list = async (p: any) => { seen.push(p); return p.cursor ? { machines: rows(49, 52) } : { machines: rows(0, 49), next_cursor: "c2" }; };
     const r = await listedMachine("vm_51", list, async () => { throw new Error("not asked"); });
     expect(r.detail).toBe("52 machines");
-    expect(seen).toEqual([{ limit: 100 }, { limit: 100, cursor: "c2" }]);
+    expect(seen).toEqual([{ limit: 25 }, { limit: 25, cursor: "c2" }]);
   });
   test("a capped page with no cursor: confirmed by cloud.machine.get, the cap named", async () => {
     const r = await listedMachine("vm_51", async () => ({ machines: rows(0, 49) }), async (id: string) => ({ id, status: "running", size: { cpu: 2 } }));

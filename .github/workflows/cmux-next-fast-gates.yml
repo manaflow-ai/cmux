@@ -542,10 +542,9 @@ jobs:
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
-            # The rest of the job's inputs (scripts/ci/fast-check-inputs.json): the dated workflow notes, the privacy
-            # page and the two bun.lock files the shared bun cache key hashes (a missing file hashes as nothing).
             /docs/ci/cmux-next-workflow-notes/
             /docs/ci/nightly-workflow-notes/
+            # tests/test_outbound_hosts.py reads the host list; the Bun cache keys hash these lockfiles.
             /docs/privacy.md
             /agent-chat/bun.lock
             /backend/bun.lock

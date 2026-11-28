@@ -517,7 +517,8 @@ def stale_pending(prs: list[dict], now: dt.datetime, hours: float = STALE_HOURS)
 
 SWEEP_QUERY = """query($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {
-    pullRequests(states: OPEN, baseRefName: "feat-cmux-next", first: 100, after: $after) {
+    pullRequests(states: OPEN, baseRefName: "feat-cmux-next", first: 100, after: $after,
+                 orderBy: {field: UPDATED_AT, direction: DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes { number headRefOid
         commits(last: 1) { nodes { commit { status { context(name: "cmux/ui-proof") {
@@ -527,10 +528,16 @@ SWEEP_QUERY = """query($owner: String!, $name: String!, $after: String) {
 }"""
 
 
-def open_prs(repo: str, token: str) -> list[dict]:
+# Pages of 100 the sweep reads. feat-cmux-next holds thousands of open PRs (4859 on 2026-11-28); a 10-page cap in
+# oldest-first order read only the first 1000, so no newer PR's pending was ever swept. Newest-updated first, every
+# page: a PR whose pending is fresh is updated recently, and the cap only bounds a runaway cursor.
+SWEEP_MAX_PAGES = 100
+
+
+def open_prs(repo: str, token: str, max_pages: int = SWEEP_MAX_PAGES) -> list[dict]:
     owner, name = repo.split("/", 1)
     nodes, after = [], None
-    for _ in range(10):
+    for _ in range(max_pages):
         got = api("graphql", token, "POST", {"query": SWEEP_QUERY,
                                              "variables": {"owner": owner, "name": name, "after": after}})
         if got.get("errors"):
@@ -540,6 +547,9 @@ def open_prs(repo: str, token: str) -> list[dict]:
         if not page["pageInfo"]["hasNextPage"]:
             break
         after = page["pageInfo"]["endCursor"]
+    else:
+        print(f"cmux/ui-proof sweep: page cap {max_pages} reached; the least recently updated PRs were not read",
+              file=sys.stderr)
     return nodes
 
 

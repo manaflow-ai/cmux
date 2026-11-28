@@ -4869,17 +4869,58 @@ export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = 
 /** The most time one run spends revoking leaked installs; the next run takes the rest. */
 export const INSTALL_SWEEP_BUDGET_MS = 60_000;
 
-/** Every page of cloud.machine.list (`next_cursor`), at most `maxPages` pages. */
-export async function listAllMachines(read: (params: Record<string, unknown>) => Promise<any>, maxPages = 20): Promise<any[]> {
+/**
+ * The rows one cloud.machine.list page asks for. 100 was too many for a team holding a leaked pile: on 2026-11-28 from
+ * 06:27Z the staging test team (86-102 machines) answered every 100-row page with owner.unreachable ("Durable Object
+ * exceeded its CPU time limit and was reset") or a transport timeout. Every journey's sweep and the staging test
+ * sweep (run 46130928568) then deleted nothing, so the pile only grew, and journey-staging failed on 503
+ * vm_unavailable (overloaded) in every backend run from 06:02Z (46114736551, 46120103066, 46126237744).
+ */
+export const LIST_PAGE_ROWS = 25;
+/** How many times one list page is asked for when it answers a retryable error (an owner reset, a timeout). */
+export const LIST_PAGE_TRIES = 3;
+/** A list page error worth asking again: an owner reset or a cut-off call, never a refusal. */
+export const listPageRetryable = (e: unknown): boolean =>
+  /"retryable":\s*true|owner\.unreachable|"code":"transport"|timed out|CPU time limit|exceeded timeout/i.test(String((e as Error)?.message ?? e));
+
+/**
+ * Every page of cloud.machine.list (`next_cursor`), LIST_PAGE_ROWS rows a page, at most `maxPages` hundred rows' worth
+ * of pages. A page that answers a retryable error is asked again, up to LIST_PAGE_TRIES times with a pause. With
+ * `partial` (a sweep), a later page that still fails ends the list with the rows read so far, so the sweep deletes
+ * what it saw and the next run reads a shorter list; without it (a caller that must see every row) the error is thrown.
+ */
+export async function listAllMachines(
+  read: (params: Record<string, unknown>) => Promise<any>,
+  maxPages = 20,
+  opts: { rows?: number; tries?: number; pauseMs?: number; partial?: boolean } = {},
+): Promise<any[]> {
+  const limit = opts.rows ?? LIST_PAGE_ROWS;
+  const tries = opts.tries ?? LIST_PAGE_TRIES;
+  const pauseMs = opts.pauseMs ?? 2000;
+  const pageCap = Math.max(1, Math.ceil((maxPages * 100) / limit));
   const rows: any[] = [];
   let cursor: string | null = null;
-  for (let page = 0; page < maxPages; page++) {
-    const v = await read(cursor === null ? { limit: 100 } : { limit: 100, cursor });
+  for (let page = 0; page < pageCap; page++) {
+    const params = cursor === null ? { limit } : { limit, cursor };
+    let v: any;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        v = await read(params);
+        break;
+      } catch (e) {
+        if (attempt < tries && listPageRetryable(e)) { await sleep(pauseMs * attempt); continue; }
+        if (opts.partial && rows.length > 0) {
+          console.log(`machine list: page ${page + 1} failed after ${attempt} tries (${String((e as Error)?.message ?? e).slice(0, 200)}); going on with the ${rows.length} rows read`);
+          return rows;
+        }
+        throw e;
+      }
+    }
     rows.push(...(v?.machines ?? v?.items ?? (Array.isArray(v) ? v : [])));
     cursor = typeof v?.next_cursor === "string" && v.next_cursor ? v.next_cursor : null;
     if (cursor === null) return rows;
   }
-  throw new Error(`more than ${maxPages} pages of machines`);
+  throw new Error(`more than ${pageCap} pages of machines`);
 }
 
 /**
@@ -6219,7 +6260,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const t0 = Date.now();
       const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
       try {
-        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params), 20, { partial: true });
         sweptRows = rows;
         const stale = staleJourneyMachines(rows, Date.now());
         const failed: string[] = [];

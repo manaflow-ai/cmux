@@ -254,6 +254,55 @@ class RelevanceMapFileTest(unittest.TestCase):
         got = rel.reverse_dependents(root, [f"w/crates/{n}" for n in "abcd"])
         self.assertEqual(got, {"a": ["b", "c"], "b": [], "c": [], "d": []})
 
+    def test_every_cargo_package_is_in_its_workspace(self):
+        # `--manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi` named no package (cmux-app-ffi and the crates it
+        # lists are their own workspace), so its area and unit tests never ran. Ask cargo, not our resolver, which
+        # packages each workspace has, for every cargo command in the map, hand-written and generated.
+        import json
+        import shlex
+        import shutil
+        if not shutil.which("cargo"):
+            self.skipTest("no cargo on this machine")
+        wanted: dict[str, set[str]] = {}
+        for r in self.rules:
+            for cmd in r.tests:
+                lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+                lex.whitespace_split = True
+                tokens, parts = list(lex), [[]]
+                for t in tokens:
+                    parts.append([]) if t in ("&&", "||", ";", "|") else parts[-1].append(t)
+                for words in parts:
+                    part = " ".join(words)
+                    if words[:1] != ["cargo"] or "-p" not in words:
+                        continue
+                    self.assertIn("--manifest-path", words, f"{r.kind} {r.name}: {part.strip()!r} has no --manifest-path")
+                    manifest = words[words.index("--manifest-path") + 1]
+                    wanted.setdefault(manifest, set()).update(
+                        w for i, w in enumerate(words) if i and words[i - 1] in ("-p", "--package"))
+        missing = []
+        for manifest, names in sorted(wanted.items()):
+            out = subprocess.run(["cargo", "metadata", "--no-deps", "--offline", "--format-version", "1",
+                                  "--manifest-path", manifest], cwd=ROOT, capture_output=True, text=True, timeout=120)
+            self.assertEqual(out.returncode, 0, f"cargo metadata {manifest}: {out.stderr[-500:]}")
+            have = {pkg["name"] for pkg in json.loads(out.stdout)["packages"]}
+            missing += [f"-p {n} in {manifest}" for n in sorted(names - have)]
+        self.assertEqual(missing, [], "these cargo commands name a package their workspace lacks")
+
+    def test_cargo_workspace_follows_cargo(self):
+        root = Path(tempfile.mkdtemp())
+        for path, body in (("w/Cargo.toml", '[workspace]\nmembers = ["crates/a"]\nexclude = ["crates/x"]\n'),
+                           ("w/crates/a/Cargo.toml", '[package]\nname = "a"\n'),
+                           ("w/crates/f/Cargo.toml", '[package]\nname = "f"\n[workspace]\nmembers = ["../s"]\n'),
+                           ("w/crates/s/Cargo.toml", '[package]\nname = "s"\nworkspace = "../f"\n'),
+                           ("w/crates/x/Cargo.toml", '[package]\nname = "x"\n')):
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(body)
+        self.assertEqual({c: rel.cargo_workspace(root, f"w/crates/{c}") for c in "afsx"},
+                         {"a": "w", "f": "w/crates/f", "s": "w/crates/f", "x": "w/crates/x"})
+        self.assertEqual(rel.cargo_test_commands(root, ["w/crates/a", "w/crates/s", "w/crates/f"]),
+                         ["cargo test --manifest-path w/Cargo.toml -p a",
+                          "cargo test --manifest-path w/crates/f/Cargo.toml -p s -p f"])
+
     def test_top_level_tests_are_mapped(self):
         hit = rel.load().match("tests/test_bench_relevance_map.py")
         self.assertTrue(hit.mapped, "a top-level tests/ file took the default:tests area")
@@ -304,7 +353,7 @@ class ForPathsCliTest(unittest.TestCase):
         self.assertEqual(got.returncode, 0, got.stderr)
         self.assertIn("Swift↔Rust bridge", got.stdout)
         self.assertIn("docs/benches/templates/bridge.md", got.stdout)
-        self.assertIn("cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-ffi", got.stdout)
+        self.assertIn("cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", got.stdout)
 
 
 

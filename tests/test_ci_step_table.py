@@ -42,6 +42,44 @@ import crate_results  # noqa: E402
 from test_ci_post_merge_checks import BASE, branch_matches, load_workflows, triggers  # noqa: E402
 
 
+class GuardStepsReachedTest(unittest.TestCase):
+    """A workflow or guard-script change runs the ci-guards.yml steps it reaches on its landing head
+    (guard-steps-reached, land_gate). 11-28: #63625, #63940, #64168 and #64245 merged green with every
+    cmux-next-guards.yml guard job skipped (land tier), and the push after each went red (run 46134168061)."""
+
+    CULPRITS = {
+        "#63940": [".github/workflows/bench-baselines-nightly.yml", "scripts/bench/baselines-upload.sh",
+                   "scripts/bench/benchlib/baselines.py", "scripts/bench/cmux-bench", "tests/test_bench_baselines.py"],
+        "#64168": [".github/workflows/cmux-next-hot-verify.yml", "scripts/ci/ui_proof_verdict.py",
+                   "tests/test_ci_ui_proof_verdict.py"],
+        "#64245": [".github/workflows/bench-baselines-nightly.yml", ".github/workflows/chief-evals.yml",
+                   "tests/test_ci_gateway_jobs_on_linux.py"],
+        "#63625": [".github/github-token-budget.json", ".github/workflows/cmux-next-hot-verify.yml",
+                   ".github/workflows/ui-proof-stale-sweep.yml", "scripts/ci/ui_proof_verdict.py"],
+    }
+
+    def test_each_culprit_routes_the_reached_guards_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("guard-steps-reached", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+                self.assertIn("guard-steps-reached", ci_steps.route(t, paths, pr_scope=True, tier="pr")["linux"])
+
+    def test_a_product_change_does_not_route_it(self) -> None:
+        t = ci_steps.load()
+        self.assertNotIn("guard-steps-reached",
+                         ci_steps.nightly_gate_steps(t, ["webviews/src/app.ts", "cmux-tui/crates/x/src/lib.rs"]))
+
+    def test_a_workflow_input_of_a_blocking_linux_step_survives_pr_scope(self) -> None:
+        # `.github/workflows/**` is a whole-directory glob, so --pr-scope dropped the workflow guard steps for a
+        # change to one workflow; the folder is flat, and `.github/workflows/*` names the same files.
+        t = ci_steps.load()
+        for step in t.steps.values():
+            if step.job == "linux" and step.blocks and step.pr_scope and not step.nightly and not step.land_gate:
+                with self.subTest(step=step.name):
+                    self.assertNotIn(".github/workflows/**", step.inputs)
+
+
 class NightlyGateTest(unittest.TestCase):
     """A step-table step that mirrors a nightly step (`nightly`) runs on the landing head that changes its inputs, every
     input kept, so a check that stops the nightly fails the landing (Leo, 2026-11-27: "shouldn't a build check fail
@@ -1387,7 +1425,8 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
         self.assertEqual(router["jobs"]["pipeline"]["with"], {
             "jobs": "${{ needs.route.outputs.table || '' }}",
-            "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True})
+            "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True,
+            "ios_fast_skip": "${{ needs.route.outputs.ios_fast_skip == 'true' }}"})
 
     def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
         """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR
