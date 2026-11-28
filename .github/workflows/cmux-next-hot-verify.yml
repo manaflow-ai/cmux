@@ -137,7 +137,7 @@ jobs:
   # the merge (p50 126 min, 2026-11-27) while the newest 20 merges span about an hour, so 2 of 20 had a receipt.
   plan:
     name: plan the look
-    if: ${{ (vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged)) && (github.event.action == 'closed' || contains(github.event.pull_request.labels.*.name, 'ready-to-land') || (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged)) && (github.event.action == 'closed' || contains(github.event.pull_request.labels.*.name, 'ready-to-land') || (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 10 minutes for the plan, 2 for the dispatch's rate-limit wait (GH_BUDGET_WAIT_MAX_SECONDS), plus its retries.
     timeout-minutes: 15
@@ -168,7 +168,7 @@ jobs:
       # A VM without a ready mirror keeps the plain drop.
       - name: Drop a reused workspace's repository
         if: runner.environment == 'self-hosted'
-        run: |
+        run: &seed-pool-mirror |
           rm -rf "$GITHUB_WORKSPACE/.git"
           m="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}"
           [ "$GITHUB_REPOSITORY" = manaflow-ai/cmux ] && [ -e "$m/cmux-ready" ] && [ -d "$m/objects" ] || exit 0
@@ -183,6 +183,8 @@ jobs:
             echo "workspace repository seeded with the runner's git mirror ($m)" ||
             { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
       - name: Checkout the base branch's scripts
+        # Bounded, so a stalled clone leaves the (again) clone its time (see `check the pull request`).
+        timeout-minutes: 2
         id: checkout
         continue-on-error: true
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -402,9 +404,10 @@ jobs:
   # still at the head the plan saw.
   target:
     name: check the pull request
-    if: ${{ (github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result == '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result == '') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # 2 for a stalled checkout, 2 for its (again), the read and its rate-limit waits.
+    timeout-minutes: 8
     permissions:
       contents: read
       pull-requests: read
@@ -423,21 +426,11 @@ jobs:
       # A reused pool workspace breaks this sparse checkout (see the plan job).
       - name: Drop a reused workspace's repository
         if: runner.environment == 'self-hosted'
-        run: |
-          rm -rf "$GITHUB_WORKSPACE/.git"
-          m="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}"
-          [ "$GITHUB_REPOSITORY" = manaflow-ai/cmux ] && [ -e "$m/cmux-ready" ] && [ -d "$m/objects" ] || exit 0
-          git init -q "$GITHUB_WORKSPACE" && g=(git -C "$GITHUB_WORKSPACE") &&
-            "${g[@]}" config remote.origin.url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" &&
-            "${g[@]}" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' &&
-            printf '%s\n' "$m/objects" > "$GITHUB_WORKSPACE/.git/objects/info/alternates" &&
-            seed="$(GIT_AUTHOR_NAME=cmux-runner-pool GIT_AUTHOR_EMAIL=pool@cmux.invalid GIT_AUTHOR_DATE='1700000000 +0000' \
-              GIT_COMMITTER_NAME=cmux-runner-pool GIT_COMMITTER_EMAIL=pool@cmux.invalid GIT_COMMITTER_DATE='1700000000 +0000' \
-              "${g[@]}" commit-tree "$("${g[@]}" hash-object -w -t tree /dev/null)" -m 'cmux-runner-pool: empty seed HEAD')" &&
-            "${g[@]}" update-ref --no-deref HEAD "$seed" &&
-            echo "workspace repository seeded with the runner's git mirror ($m)" ||
-            { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
+        run: *seed-pool-mirror
       - name: Checkout the pull request check
+        # Bounded so a stalled clone leaves time for the (again) clone below: unbounded, it used the whole job
+        # (run 46050959640, 2026-11-27: `check the pull request` hung here to its 5 min and the merge look was lost).
+        timeout-minutes: 2
         id: checkout
         continue-on-error: true
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -524,7 +517,7 @@ jobs:
   web:
     name: web layer
     needs: target
-    if: ${{ (inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.publish_web == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.publish_web == 'true') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -537,7 +530,7 @@ jobs:
       # through the others and github.token, and keeps the cmux-bot App's token as the script's last retry.
       - name: Drop a reused workspace's repository
         if: runner.environment == 'self-hosted'
-        run: rm -rf "$GITHUB_WORKSPACE/.git"
+        run: *seed-pool-mirror
       - name: Checkout the rate limit helpers
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -605,7 +598,7 @@ jobs:
   rust:
     name: rust layer
     needs: target
-    if: ${{ (inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.rust == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.rust == 'true') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -620,21 +613,10 @@ jobs:
       # A reused pool workspace breaks this sparse checkout (see the plan job).
       - name: Drop a reused workspace's repository
         if: runner.environment == 'self-hosted'
-        run: |
-          rm -rf "$GITHUB_WORKSPACE/.git"
-          m="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}"
-          [ "$GITHUB_REPOSITORY" = manaflow-ai/cmux ] && [ -e "$m/cmux-ready" ] && [ -d "$m/objects" ] || exit 0
-          git init -q "$GITHUB_WORKSPACE" && g=(git -C "$GITHUB_WORKSPACE") &&
-            "${g[@]}" config remote.origin.url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" &&
-            "${g[@]}" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' &&
-            printf '%s\n' "$m/objects" > "$GITHUB_WORKSPACE/.git/objects/info/alternates" &&
-            seed="$(GIT_AUTHOR_NAME=cmux-runner-pool GIT_AUTHOR_EMAIL=pool@cmux.invalid GIT_AUTHOR_DATE='1700000000 +0000' \
-              GIT_COMMITTER_NAME=cmux-runner-pool GIT_COMMITTER_EMAIL=pool@cmux.invalid GIT_COMMITTER_DATE='1700000000 +0000' \
-              "${g[@]}" commit-tree "$("${g[@]}" hash-object -w -t tree /dev/null)" -m 'cmux-runner-pool: empty seed HEAD')" &&
-            "${g[@]}" update-ref --no-deref HEAD "$seed" &&
-            echo "workspace repository seeded with the runner's git mirror ($m)" ||
-            { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
+        run: *seed-pool-mirror
       - name: Checkout the pull request head (trees only)
+        # Bounded, so a stalled clone leaves the (again) clone its time (see `check the pull request`).
+        timeout-minutes: 2
         id: checkout
         continue-on-error: true
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -755,7 +737,7 @@ jobs:
     name: hot verify request pr=${{ needs.target.outputs.pr }} head=${{ needs.target.outputs.head }} attempt=${{ needs.target.outputs.attempt }} kind=${{ needs.target.outputs.kind }} event=${{ needs.target.outputs.event_at }} layers=${{ needs.target.outputs.layers }}${{ needs.rust.outputs.key != '' && format(' tree={0}', needs.rust.outputs.key) || '' }}
     needs: [target, rust]
     # After the rust job: skipped when the change has no rust layer.
-    if: ${{ (!cancelled() && inputs.look_result == '' && needs.target.outputs.ok == 'true' && (needs.rust.result == 'success' || needs.rust.result == 'skipped')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (!cancelled() && inputs.look_result == '' && needs.target.outputs.ok == 'true' && (needs.rust.result == 'success' || needs.rust.result == 'skipped')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 2
     permissions: {}
@@ -780,7 +762,7 @@ jobs:
   # check) from this protected branch's own scripts; out.tar is data from a fleet worker.
   publish:
     name: post the look
-    if: ${{ (github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result != '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result != '') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 50  # 20, plus hot-verify-ci.py's QUOTA_WAIT_SECONDS (1800) for a post out of quota
     environment: pr-media
@@ -795,21 +777,10 @@ jobs:
       # A reused pool workspace breaks this sparse checkout (see the plan job).
       - name: Drop a reused workspace's repository
         if: runner.environment == 'self-hosted'
-        run: |
-          rm -rf "$GITHUB_WORKSPACE/.git"
-          m="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}"
-          [ "$GITHUB_REPOSITORY" = manaflow-ai/cmux ] && [ -e "$m/cmux-ready" ] && [ -d "$m/objects" ] || exit 0
-          git init -q "$GITHUB_WORKSPACE" && g=(git -C "$GITHUB_WORKSPACE") &&
-            "${g[@]}" config remote.origin.url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" &&
-            "${g[@]}" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' &&
-            printf '%s\n' "$m/objects" > "$GITHUB_WORKSPACE/.git/objects/info/alternates" &&
-            seed="$(GIT_AUTHOR_NAME=cmux-runner-pool GIT_AUTHOR_EMAIL=pool@cmux.invalid GIT_AUTHOR_DATE='1700000000 +0000' \
-              GIT_COMMITTER_NAME=cmux-runner-pool GIT_COMMITTER_EMAIL=pool@cmux.invalid GIT_COMMITTER_DATE='1700000000 +0000' \
-              "${g[@]}" commit-tree "$("${g[@]}" hash-object -w -t tree /dev/null)" -m 'cmux-runner-pool: empty seed HEAD')" &&
-            "${g[@]}" update-ref --no-deref HEAD "$seed" &&
-            echo "workspace repository seeded with the runner's git mirror ($m)" ||
-            { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
+        run: *seed-pool-mirror
       - name: Checkout the publisher
+        # Bounded, so a stalled clone leaves the (again) clone its time (see `check the pull request`).
+        timeout-minutes: 2
         if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         id: checkout
         continue-on-error: true
@@ -827,6 +798,8 @@ jobs:
             scripts/cmux-next/hot-verify-ci.py
             scripts/cmux-next/hot-verify-pr.sh
             scripts/ci/gh_budget_wait.sh
+            scripts/ci/ui_proof_verdict.py
+            scripts/ci/proof_record.py
             scripts/ci/ci_pool_tokens.py
             scripts/ci/gh_http.py
             scripts/ci/deadline_http.py
@@ -852,6 +825,8 @@ jobs:
             scripts/cmux-next/hot-verify-ci.py
             scripts/cmux-next/hot-verify-pr.sh
             scripts/ci/gh_budget_wait.sh
+            scripts/ci/ui_proof_verdict.py
+            scripts/ci/proof_record.py
             scripts/ci/ci_pool_tokens.py
             scripts/ci/gh_http.py
             scripts/ci/deadline_http.py
@@ -981,6 +956,13 @@ jobs:
             exit 0
           fi
           [[ "$rc" == 0 ]] || exit "$rc"
+          # The worker found nothing to look at (e.g. the nightly already contains the merge): no comment, and no
+          # needs_build output, so the publish steps below (needs_build == 'false') skip.
+          if nothing="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("reason") or ""); sys.exit(0 if d.get("nothing") else 1)' "$RUNNER_TEMP/stage.out")"; then
+            echo "nothing=true" >> "$GITHUB_OUTPUT"
+            echo "hot verify: the worker found nothing to look at ($nothing); no comment" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["needs_build"] else 1)' "$RUNNER_TEMP/stage.out"; then
             echo "needs_build=true" >> "$GITHUB_OUTPUT"
             echo "hot verify: the worker's plan against the nightly says this change needs a build; no comment (the build path covers it)" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -1099,3 +1081,35 @@ jobs:
               ${uploaded[@]+"${uploaded[@]}"} ${gallery[@]+"${gallery[@]}"} ${event[@]+"${event[@]}"} > "$hv/comment.md"
             python3 scripts/cmux-next/hot-verify-ci.py post "$hv/comment.md" --pr "$PR" --head "$HEAD_SHA" \
               --repo "$GITHUB_REPOSITORY" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The look above is only pictures in a comment; cmux/ui-proof (pr-router.yml, scripts/ci/ui_proof_verdict.py)
+      # passes on a proof record at the head, and only `hot-verify.py look --record` run by hand posted one: on
+      # 2026-11-27 cmux#61956 sat pending with this workflow's look already done until a lane posted the record by
+      # hand. The record is built from the same out/ (after/ against the NIGHTLY's before/), posted as a pool app
+      # (quota-goblin-N[bot], which the gate trusts; github-actions[bot] it does not), and the gate job rerun.
+      - name: Post the proof record
+        if: ${{ steps.stage.outputs.needs_build == 'false' && inputs.kind != 'merge' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_BUDGET_WAIT_MAX_SECONDS: 120
+          GH_TOKEN: ${{ github.token }}
+          POST_TOKEN: ${{ env.CI_POOL_GH_TOKEN }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ inputs.head }}
+          OUT: ${{ steps.stage.outputs.out }}
+          EVENT_AT: ${{ inputs.event_at }}
+        run: |
+          set -uo pipefail
+          pushed=()
+          [[ "${EVENT_AT:-}" =~ ^[0-9]{9,11}$ ]] && pushed=(--pushed-at "$EVENT_AT")
+          # Exit 1 is a failing record, which is still posted: the gate then says why.
+          python3 scripts/ci/ui_proof_verdict.py record --out "$OUT" --pr "$PR" --repo "$GITHUB_REPOSITORY" \
+            --head "$HEAD_SHA" ${pushed[@]+"${pushed[@]}"} > /dev/null
+          [[ -s "$OUT/proof-record.md" ]] || { echo "::warning title=hot verify::no proof record was built"; exit 0; }
+          if [[ -z "${POST_TOKEN:-}" ]]; then
+            echo "::warning title=hot verify::no pool app token: a record from github-actions[bot] is not trusted by cmux/ui-proof; none posted"
+            exit 0
+          fi
+          GH_TOKEN="$POST_TOKEN" gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$OUT/proof-record.md" || exit 1
+          python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import ui_proof_verdict as v; print(v.rerun_gate(*sys.argv[1:]))' \
+            "$GITHUB_REPOSITORY" "$HEAD_SHA" | tee -a "$GITHUB_STEP_SUMMARY"

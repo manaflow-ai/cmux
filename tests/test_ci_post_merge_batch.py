@@ -372,10 +372,12 @@ class RateLimitTest(unittest.TestCase):
         # A bisect probe's suite judges its reds against `good` (gallery-health's `base`): a standing red
         # there too is not the probed merge's, so the bisect hunts only the red that is new.
         for good, base in (("c" * 40, "c" * 40), ("", "")):
-            with tempfile.TemporaryDirectory() as tmp:
+            # Planning also checks for reusable verdicts; keep this CLI regression offline.
+            with tempfile.TemporaryDirectory() as tmp, mock.patch.object(pmb, "list_runs", return_value=[]) as runs:
                 out = Path(tmp) / "out"
                 pmb.main(["plan", "--github-output", str(out), "--summary", str(Path(tmp) / "s"), "--mode", "probe",
                           "--suite", "drill", "--probe-sha", "a" * 40, "--good", good])
+                runs.assert_called_once()
                 self.assertIn(f"base={base}\n", out.read_text())
 
 class BisectTest(unittest.TestCase):
@@ -458,8 +460,28 @@ class WiringTest(unittest.TestCase):
                              {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
             for k, v in job["with"].items():
                 self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
+            if key == "gallery-health":
+                self.assertEqual(job["with"]["base"], "${{ needs.plan.outputs.base }}")
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
+
+    def test_the_table_suites_reach_every_input_of_their_job(self) -> None:
+        # A suite that runs `ci/run run --job J` must start for any path a step of J reads, or a merge that
+        # changes only that path never runs the step after the merge.
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import ci_steps  # noqa: PLC0415
+
+        steps = ci_steps.load().steps.values()
+        for key, job in (("pr-pipeline-mac", "mac"), ("pr-pipeline-ios", "ios")):
+            with self.subTest(suite=key):
+                suite = self.suites[key]
+                self.assertEqual(set(suite.jobs), {job})
+                want = set(ci_steps.PIPELINE_PATHS) | {f".github/workflows/{suite.workflow}"}
+                want |= {p for s in steps if s.job == job for p in s.inputs}
+                self.assertLessEqual(want, set(suite.paths), sorted(want - set(suite.paths)))
+                text = (WORKFLOW.parent / suite.workflow).read_text()
+                self.assertIn(f"ci/run run --job {job}", text)
+                self.assertIn("inputs.base", text)
 
     def test_each_callee_takes_sha_and_only_and_gates_its_jobs(self) -> None:
         for key, suite in self.suites.items():
@@ -555,6 +577,19 @@ class GuardTest(unittest.TestCase):
             raise RuntimeError("gh api: 403")
 
         self.assertIn("normal landing", pmb.hand_off("o/r", 12, "", api=refused))
+
+    def test_a_revert_owns_its_takeback_so_risk_evidence_passes(self) -> None:
+        # All 8 batch reverts and swap-outs of 11-22..27 went red on risk evidence ("takes back a recent change") and never merged.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("risk_tier", pmb.ROOT / "scripts" / "ci" / "risk_tier.py")
+        rt = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("risk_tier", rt)
+        spec.loader.exec_module(rt)
+        for piece in ("", "cmux-tui/crates/acpmux"):
+            body = "\n\n".join(["Reverts #57280.", *pmb.takes_back_line("57280", "web / Web tests 1/2", "feat-cmux-next", piece)])
+            self.assertEqual(rt.unowned_takebacks(body, [57280]), [])
+        self.assertEqual(pmb.takes_back_line("", "j", "b"), [])
+        self.assertEqual(rt.unowned_takebacks("Reverts #57280.", [57280]), [57280])
 
     def _conflict_api(self, tip_conclusion: str, comments=()):
         calls = []
@@ -806,6 +841,93 @@ class JudgeOriginUnreadableTest(unittest.TestCase):
         code, sent = self.judge(pmb.MAX_PROBE_RETRIES)
         self.assertEqual((code, sent), (1, []))
 
+    def test_an_unreadable_origin_with_a_verdict_judges_again_without_rendering(self) -> None:
+        # Probe run 45955682014 (gallery-health at 72157adeb82, 11-27) had its verdict, could not read its origin,
+        # and its retry 45961171063 rendered all 21 legs again. Its retry now reuses run 70's verdict.
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="f" * 40, suite="web", job="web / Web tests (2/4)", only="web-tests", probe_sha="f" * 40,
+                         good="a" * 40, bad="b" * 40, origin="60", tries="0", pieces="", dry_run=False,
+                         summary=None, github_output=None)
+        sent: list = []
+
+        def gh_api(path, *a, **k):
+            raise RuntimeError(f"gh api {path}: API rate limit exceeded (HTTP 403)")
+
+        jobs = [{"name": "web / Web tests (2/4)", "status": "completed", "conclusion": "failure"}]
+        with mock.patch.object(pmb, "run_jobs", return_value=jobs), mock.patch.object(pmb, "gh_api", gh_api), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)), \
+                mock.patch.object(pmb, "first_parent_range", return_value=[]):
+            self.assertEqual(pmb.cmd_judge(args), 0)
+        self.assertEqual([(p.sha, p.tries, p.reuse, p.inputs()["reuse"]) for p in sent], [("f" * 40, 1, "70", "70")])
+
+
+class ReuseVerdictTest(unittest.TestCase):
+    """A probe of a commit whose same probe already gave a verdict reads that verdict instead of running the suite."""
+    job = "web / Web tests (2/4)"
+
+    def plan(self, earlier: list[dict], **over):
+        fields = dict(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", sha="0" * 40,
+                      suite="web", job=self.job, only="web-tests", probe_sha="e" * 40, good="a" * 40, pieces="",
+                      confirm="", reuse="", summary=None)
+        fields.update(over)
+        out: dict = {}
+        runs = [{"id": 100 + n, "status": r.get("status", "completed"), "display_title": f"{pmb.PROBE} web web-tests at {'e' * 40}"}
+                for n, r in enumerate(earlier)]
+        jobs = {100 + n: [{"name": self.job, "status": "completed", "conclusion": r["conclusion"]}] for n, r in enumerate(earlier)}
+        with mock.patch.object(pmb, "list_runs", return_value=runs), \
+                mock.patch.object(pmb, "run_jobs", lambda repo, rid: jobs.get(int(rid), [])), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)):
+            self.assertEqual(pmb.cmd_plan(Namespace(github_output=None, **fields)), 0)
+        return out
+
+    def test_a_known_verdict_is_reused_and_no_suite_runs(self) -> None:
+        out = self.plan([{"conclusion": "failure"}])
+        self.assertEqual((out["suites"].strip(), out["reuse"]), ("", "100"))
+
+    def test_no_earlier_verdict_runs_the_suite(self) -> None:
+        for earlier in ([], [{"conclusion": "cancelled"}], [{"conclusion": "failure", "status": "in_progress"}]):
+            out = self.plan(earlier)
+            self.assertEqual((out["suites"], out["reuse"]), (" web ", ""), earlier)
+
+    def test_a_confirm_run_renders_again(self) -> None:
+        out = self.plan([{"conclusion": "failure"}], confirm="red-1")
+        self.assertEqual((out["suites"], out["reuse"]), (" web ", ""))
+
+    def test_the_dispatch_named_run_wins(self) -> None:
+        out = self.plan([], reuse="77")
+        self.assertEqual((out["suites"].strip(), out["reuse"]), ("", "77"))
+
+    def test_unreadable_earlier_runs_run_the_suite(self) -> None:
+        out: dict = {}
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", sha="0" * 40,
+                         suite="web", job=self.job, only="web-tests", probe_sha="e" * 40, good="a" * 40, pieces="",
+                         confirm="", reuse="", summary=None, github_output=None)
+        with mock.patch.object(pmb, "list_runs", side_effect=RuntimeError("rate limited")), mock.patch("sys.stderr"), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)):
+            pmb.cmd_plan(args)
+        self.assertEqual(out["suites"], " web ")
+
+    def test_the_judge_reads_the_reused_runs_jobs(self) -> None:
+        read: list[int] = []
+
+        def run_jobs(repo, rid, api=None):
+            read.append(int(rid))
+            return [{"name": self.job, "status": "completed", "conclusion": "failure"}] if int(rid) == 100 else []
+
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="e" * 40, suite="web", job=self.job, only="web-tests", probe_sha="e" * 40, good="a" * 40,
+                         bad="i" * 40, origin="60", tries="0", pieces="", confirm="", reuse="100", dry_run=True,
+                         summary=None, github_output=None)
+        out: dict = {}
+        with mock.patch.object(pmb, "run_jobs", run_jobs), mock.patch.object(pmb, "gh_api", lambda *a, **k: {"id": 60}), \
+                mock.patch.object(pmb, "list_runs", return_value=[]), mock.patch.object(pmb, "probe_refusal", return_value=""), \
+                mock.patch.object(pmb, "suite_verdicts", lambda js, suites: {j["name"]: ("web", j["conclusion"]) for j in js}), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)), \
+                mock.patch.object(pmb, "first_parent_range", return_value=[c * 40 for c in "abcdefghi"]):
+            self.assertEqual(pmb.cmd_judge(args), 0)
+        self.assertEqual(read[0], 100)
+        self.assertNotIn(70, read)
+
 
 class JudgeProbeReadsItsOwnJobTest(unittest.TestCase):
     def test_the_origin_check_walks_back_only_to_the_probe_jobs_green(self) -> None:
@@ -833,6 +955,33 @@ class JudgeProbeReadsItsOwnJobTest(unittest.TestCase):
             pmb.cmd_judge(args)
         self.assertNotIn(40, read)
         self.assertNotIn(30, read)
+
+
+    def test_a_stuck_reds_later_probe_is_not_refused_for_its_own_chain_steps(self) -> None:
+        # Probe run 45971486391 (11-27 09:10Z): batch 45965089670 dispatched web / Web tests (1/4) at 27712e0b, a
+        # stuck red's culprit step past earlier chains' probes; its judge read those judged steps as finished bisects
+        # (no chain_start), so stuck_reds dropped the job and the probe was refused as "not a new red".
+        job = "web / Web tests (2/4)"
+        batch = lambda rid, sha, at: {"id": rid, "status": "completed", "head_sha": sha * 40, "display_title": f"{pmb.BATCH} at {sha * 40}",
+                                      "created_at": at, "path": f".github/workflows/{pmb.WORKFLOW}", "head_branch": "feat-cmux-next"}
+        step = lambda rid, sha, at: {"id": rid, "status": "completed", "display_title": f"{pmb.PROBE} web web-tests at {sha * 40}", "created_at": at}
+        judge = {"name": "judge", "status": "completed", "conclusion": "success"}
+        red, green = {"name": job, "status": "completed", "conclusion": "failure"}, {"name": job, "status": "completed", "conclusion": "success"}
+        runs = [step(56, "2", "2026-11-27T08:50:00Z"), step(55, "2", "2026-11-27T08:40:00Z"), step(54, "2", "2026-11-27T08:30:00Z"),
+                step(53, "2", "2026-11-27T08:20:00Z"), batch(50, "5", "2026-11-27T08:00:00Z"), batch(30, "1", "2026-11-27T07:00:00Z")]
+        jobs = {60: [red, judge], 50: [red, judge], 30: [green, judge], 70: [red], **{r: [red, judge] for r in (53, 54, 55, 56)}}
+        commits = [c * 40 for c in "23456"]
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="4" * 40, suite="web", job=job, only="web-tests", probe_sha="4" * 40, good="3" * 40, bad="5" * 40,
+                         origin="60", tries="0", pieces="", dry_run=True, summary=None, github_output=None)
+        out: dict = {}
+        with mock.patch.object(pmb, "run_jobs", lambda repo, rid, api=None: jobs.get(int(rid), [])), \
+                mock.patch.object(pmb, "list_runs", return_value=runs), \
+                mock.patch.object(pmb, "gh_api", return_value=batch(60, "6", "2026-11-27T09:00:00Z")), \
+                mock.patch.object(pmb, "first_parent_range", lambda good, head: commits[commits.index(good) + 1:] if good in commits else commits), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)), mock.patch("sys.stderr"):
+            code = pmb.cmd_judge(args)
+        self.assertEqual(code, 0)  # refused is 1; here the culprit step goes on to its confirm runs
 
 
 class KnownVerdictTest(unittest.TestCase):
@@ -981,6 +1130,63 @@ class SkippedProbeTest(unittest.TestCase):
         self.assertEqual(pmb.probe_conclusion(ran, probe), "failure")
 
 
+class LoneJobProbeTest(unittest.TestCase):
+    """A red job with no manifest id is probed alone first ('lone-<name>'), not with the whole suite: cmux-tui-spec's
+    ~1 min `changes` check bisected with ~80 runner-min whole-suite runs (run 46048381428, 11-27), and
+    webviews-test-history with three ~450 runner-min whole-web runs at one commit, none with a verdict."""
+
+    suite = pmb.Suite("web", "ci-web.yml", ["web/**"], {"web-tests": "Web tests"})
+
+    def judge(self, only: str, jobs: list[dict], tries: int = 0):
+        origin = {"id": 60, "status": "completed", "head_sha": "6" * 40, "display_title": f"{pmb.BATCH} tick",
+                  "path": f".github/workflows/{pmb.WORKFLOW}", "head_branch": "feat-cmux-next"}
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="6" * 40, suite="web", job="web / webviews-test-history", only=only, probe_sha="6" * 40,
+                         good="5" * 40, bad="", origin="60", tries=str(tries), pieces="", dry_run=False, summary=None,
+                         github_output=None)
+        sent: list = []
+        found = [("web / webviews-test-history", "web", "5" * 40)]
+        with mock.patch.object(pmb, "run_jobs", return_value=jobs), mock.patch.object(pmb, "gh_api", return_value=origin), \
+                mock.patch.object(pmb, "list_runs", return_value=[]), mock.patch.object(pmb, "new_reds", return_value=(found, [])), \
+                mock.patch.object(pmb, "stuck_reds", return_value=[]), mock.patch.object(pmb, "first_parent_range", return_value=["6" * 40]), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)):
+            return pmb.cmd_judge(args), sent
+
+    def test_an_id_less_job_probes_alone(self) -> None:
+        self.assertEqual(self.suite.probe_only("Web tests (2/4)"), "web-tests")
+        self.assertEqual(self.suite.probe_only("webviews-test-history"), "lone-webviews-test-history")
+        self.assertEqual(self.suite.probe_only("plan (changed Cargo workspaces)"), "lone-plan")
+        with mock.patch.dict(os.environ, {"POST_MERGE_PROBE_WHOLE_SUITE": "1"}):
+            self.assertEqual(self.suite.probe_only("webviews-test-history"), "")
+
+    def test_a_lone_job_that_ran_gives_its_own_verdict(self) -> None:
+        probe = pmb.Probe("web", "web / changes", "lone-changes", "c1", "g", "c3", "1")
+        self.assertEqual(pmb.probe_conclusion({"web / changes": ("web", "failure")}, probe), "failure")
+        self.assertEqual(pmb.probe_conclusion({"web / changes": ("web", "success"), "web / scope": ("web", "failure")}, probe), "success")
+        # Not the suite's worst job: the lone job did not run, so there is no verdict.
+        self.assertEqual(pmb.probe_conclusion({"web / scope": ("web", "failure")}, probe), "")
+
+    def test_a_lone_job_that_did_not_run_falls_back_to_the_whole_suite_once(self) -> None:
+        jobs = [{"name": "web / web-subarea-scope", "status": "completed", "conclusion": "success"},
+                {"name": "web / webviews-test-history", "status": "completed", "conclusion": "skipped"}]
+        code, sent = self.judge("lone-webviews-test-history", jobs)
+        self.assertEqual(code, 0)
+        self.assertEqual([(p.only, p.sha, p.tries) for p in sent], [("", "6" * 40, 0)])
+
+    def test_a_whole_suite_skip_with_nothing_lost_is_not_run_again(self) -> None:
+        step = [{"name": "Test webviews", "conclusion": "failure"}]
+        jobs = [{"name": "web / react-apps-check (5)", "status": "completed", "conclusion": "failure", "steps": step},
+                {"name": "web / webviews-test-history", "status": "completed", "conclusion": "skipped"}]
+        code, sent = self.judge("", jobs)
+        self.assertEqual((code, sent), (0, []))
+
+    def test_a_whole_suite_skip_behind_a_lost_runner_runs_again(self) -> None:
+        jobs = [{"name": "web / react-apps-check (5)", "status": "completed", "conclusion": "failure", "steps": []},
+                {"name": "web / webviews-test-history", "status": "completed", "conclusion": "skipped"}]
+        code, sent = self.judge("", jobs)
+        self.assertEqual([(p.only, p.tries) for p in sent], [("", 1)])
+
+
 class FirstUnknownProbeTest(unittest.TestCase):
     """A stuck red's bisect starts again about hourly: its first probe skips the commits earlier bisects probed."""
     commits = [c * 40 for c in "bcdefghi"]  # good a, bad i
@@ -1086,7 +1292,8 @@ class SameRedTest(unittest.TestCase):
         p = self.probe("Build gallery|Other")
         self.assertEqual(p.inputs()["step"], "Build gallery|Other")
         self.assertNotIn("step", self.probe("").inputs())
-        nxt = pmb.next_step(p, "failure", ["a" * 40, "b" * 40, "c" * 40, "d" * 40])
+        mid = pmb.Probe(p.suite, p.job, p.only, "c" * 40, "a" * 40, "e" * 40, p.origin, step=p.step)
+        nxt = pmb.next_step(mid, "failure", ["a" * 40, "b" * 40, "c" * 40, "d" * 40, "e" * 40])
         self.assertEqual((nxt[0], nxt[1].step), ("probe", p.step))
         self.assertTrue(all(c.step == p.step for c in pmb.confirm_probes(p, "d" * 40, "c" * 40)))
 
