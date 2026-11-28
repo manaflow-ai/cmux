@@ -43,4 +43,11 @@ echo $((24 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"
 out=$(CARGO_BUILD_JOBS=5 run)
 grep -q 'CARGO_BUILD_JOBS=5 each' <<<"$out" || { echo "$out"; echo "FAIL: caller's jobs overridden"; exit 1; }
 
+# 5. --print-jobs prints the count alone on stdout, for one cargo build (the Cloud journey's): 8 in the 24 GiB slot,
+# a caller's CARGO_BUILD_JOBS as given.
+jobs=$(CARGO_GROUPS_PROC_CGROUP="$tmp/proc-cgroup" bash "$script" --print-jobs 2>/dev/null)
+[[ "$jobs" == 8 ]] || { echo "got '$jobs'"; echo "FAIL: --print-jobs not capped"; exit 1; }
+jobs=$(CARGO_BUILD_JOBS=3 bash "$script" --print-jobs 2>/dev/null)
+[[ "$jobs" == 3 ]] || { echo "got '$jobs'"; echo "FAIL: --print-jobs overrode the caller"; exit 1; }
+
 echo PASS

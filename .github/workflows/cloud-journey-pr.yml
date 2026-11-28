@@ -231,6 +231,11 @@ jobs:
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
           binary="$target_dir/debug/cmux-tui"
+          # As many jobs as the runner's memory holds: a cold build at every visible core had the kernel SIGKILL
+          # the acpmux rustc (job 140980947344, 2026-11-28).
+          CARGO_BUILD_JOBS="$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-groups.sh" --print-jobs)"
+          export CARGO_BUILD_JOBS
+          echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"
           cargo build -p cmux-tui --bin cmux-tui -p cmux-autocloud --bin cmux-autocloud --locked
           test -x "$binary"
           test -x "$target_dir/debug/cmux-autocloud"
