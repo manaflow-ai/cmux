@@ -53,8 +53,6 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'push'}),
     'feature-flag-review-drift.yml': ('report holds App keys (spare issue tokens, cmux#55872): the fork-routing secret rule forbids a variable-movable runner',
      {'report'}),
-    'ui-proof-stale-sweep.yml': ('posts cmux/ui-proof with the CI pool tokens (secrets): the fork-routing secret rule forbids a variable-movable runner',
-     {'sweep'}),
     'billing-nightly.yml': ('holds the App Store In-App Purchase key and health token: the fork-routing secret rule forbids a variable-movable runner',
      {'alert', 'apple-api', 'apple-delivery', 'apple-post-release'}),
     'ci-queue-janitor.yml': ('the queue repair job must not depend on the pools it repairs: the one-job cmux-gcp-repair-jit-x64, '
