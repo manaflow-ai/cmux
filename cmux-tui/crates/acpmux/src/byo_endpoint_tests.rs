@@ -20,6 +20,34 @@ const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_endpo
 const GOOD_KEY: &str = "sk-byo-good-7f3a9c2e1b";
 const BAD_KEY: &str = "sk-byo-bad-4d8e6f0a2c";
 
+#[test]
+fn byo_endpoint_builders_match_the_profile_environment() {
+    let models = vec!["big".to_owned(), "small".to_owned()];
+    let base_url = "https://models.example/v1";
+    for kind in [Kind::Anthropic, Kind::OpenAi] {
+        let endpoint = Endpoint {
+            cloud_enabled: None,
+            preset: None,
+            id: "builder",
+            name: "Provider",
+            kind,
+            base_url,
+            models: &models,
+            keychain_item: Some("builder/item"),
+        };
+        let text = profile_text(&endpoint);
+        let profile: toml::Value = toml::from_str(&text).unwrap();
+        let expected = match kind {
+            Kind::Anthropic => claude_env(base_url, &models),
+            Kind::OpenAi => opencode_env(endpoint.name, base_url, &models, true),
+        };
+        for (name, value) in expected {
+            assert_eq!(profile["env"][name].as_str(), Some(value.as_str()));
+        }
+        assert_eq!(profile["env"][kind.secret_key()]["keychain"].as_str(), endpoint.keychain_item);
+    }
+}
+
 fn scratch(name: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir().join(format!("acpmux-byo-{name}-{}", std::process::id()));
@@ -78,6 +106,52 @@ fn config(id: &str, profile: HarnessProfile, meta: ProfileMeta) -> Config {
     cfg.harnesses.insert(id.into(), profile);
     cfg.profile_meta.insert(id.into(), meta);
     cfg
+}
+
+#[test]
+fn saved_endpoint_edit_preserves_profile_settings_and_needs_the_original_id() {
+    let root = scratch("preserve-profile");
+    let sources = sources(&root);
+    let mut request = params(
+        "openai-endpoint",
+        "existing--endpoint",
+        "https://models.example/v1",
+        "first",
+        Some("provider-key"),
+    );
+    request.cloud_enabled = Some(false);
+    let created = add(&request, &sources).unwrap();
+    let original = std::fs::read_to_string(&created.path)
+        .unwrap()
+        .replace("icon = \"opencode\"", "icon = \"star\"")
+        .replace("args = [\"acp\"]", "args = [\"acp\", \"--quiet\"]")
+        + "EXTRA_SETTING = \"saved\"\n";
+    assert!(original.contains("cloud_enabled = false"));
+    std::fs::write(&created.path, &original).unwrap();
+
+    request.display_name = Some("Updated endpoint".into());
+    request.keychain_item = None;
+    request.replace = true;
+    request.edit_endpoint = Some(profiles::content_revision(&original));
+    request.cloud_enabled = Some(true);
+    let edited = add(&request, &sources).unwrap();
+    assert_eq!(edited.id, "existing--endpoint");
+    let updated = std::fs::read_to_string(&created.path).unwrap();
+    assert!(updated.contains("name = \"Updated endpoint\""));
+    assert!(updated.contains("icon = \"star\""));
+    assert!(updated.contains("args = [\"acp\", \"--quiet\"]"));
+    assert!(updated.contains("EXTRA_SETTING = \"saved\""));
+    assert!(updated.contains("provider-key"));
+    assert!(!updated.contains("cloud_enabled"));
+    assert_eq!(profiles::load(&sources).profiles["existing--endpoint"].1.cloud_enabled, None);
+    assert!(updated.contains("https://models.example/v1"));
+    request.display_name = Some("Stale title".into());
+    assert!(add(&request, &sources).is_err());
+    assert_eq!(std::fs::read_to_string(&created.path).unwrap(), updated);
+    std::fs::remove_file(&created.path).unwrap();
+    assert!(add(&request, &sources).is_err());
+    assert!(!created.path.exists());
+    std::fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]
@@ -294,7 +368,7 @@ fn byo_endpoint_classify_names_the_fix() {
     let key = fix(Problem::Key, Kind::OpenAi, "acme");
     assert!(key.contains(OPENAI_KEY_ENV) && !key.contains("secret set"), "{key}");
     assert!(fix(Problem::BaseUrl, Kind::Anthropic, "acme").contains("check the base URL"));
-    assert!(fix(Problem::Model, Kind::OpenAi, "acme").contains("model not found"));
+    assert!(fix(Problem::Model, Kind::OpenAi, "acme").contains("no longer offered"));
     let credit = fix(Problem::Credit, Kind::OpenAi, "acme");
     assert!(
         credit.contains("out of credit") && credit.contains("cmux harness doctor acme"),
@@ -531,6 +605,71 @@ fn byo_endpoint_model_lists_parse_from_every_shape() {
         models_url(Kind::Anthropic, "https://gw.example.com?team=a"),
         "https://gw.example.com/v1/models?team=a"
     );
+}
+
+#[test]
+fn byo_endpoint_model_lists_filter_before_the_cap() {
+    let mut rows = (0..MAX_MODELS)
+        .map(|i| json!({"id": format!("utility-{i}"), "type": "embedding"}))
+        .collect::<Vec<_>>();
+    rows.extend([
+        json!({"id": "first/chat", "type": "language"}),
+        json!({"id": "second/image", "type": "language"}),
+        json!({"id": "third/chat"}),
+    ]);
+    let vercel = json!({"data": rows}).to_string();
+    assert_eq!(
+        parse_model_list(&vercel, Some("ai-gateway.vercel.sh"), None).unwrap(),
+        ["first/chat", "third/chat"]
+    );
+}
+
+#[test]
+fn byo_endpoint_model_lists_accept_together_arrays_and_exclude_non_chat_models() {
+    let together = r#"[
+        {"id":"org/chat"}, {"id":"org/text-embed-code"}, {"id":"org/text-embedding-3"},
+        {"id":"org/Whisper-large"}, {"id":"org/llama-guard"}, {"id":"org/tts-1"},
+        {"id":"org/moderation"}, {"id":"org/mistral-ocr"}, {"id":"org/reranker"},
+        {"id":"org/image-gen"}, {"id":"org/text-to-video"}, {"id":"org/vision-chat"}
+    ]"#;
+    assert_eq!(parse_models(together).unwrap(), ["org/chat", "org/vision-chat"]);
+    let morph = r#"{"data":[{"id":"morph-v3-fast"},{"id":"morph-v3-large"},{"id":"auto"},{"id":"morph-kimik31"}]}"#;
+    assert_eq!(parse_model_list(morph, Some("api.morphllm.com"), None).unwrap(), ["morph-kimik31"]);
+}
+
+#[test]
+fn byo_endpoint_google_400_reports_a_refused_key_without_returning_the_body() {
+    assert_eq!(
+        model_list_status_error(400, Some(b"Please pass a valid API key. Details: test-secret")),
+        "the endpoint refused the key (HTTP 400)",
+    );
+    assert_eq!(
+        model_list_status_error(400, Some(b"Invalid model")),
+        "the endpoint answered HTTP 400 for its model list",
+    );
+}
+
+#[test]
+fn byo_endpoint_opencode_minimax_and_interleaved_reasoning() {
+    const MINIMAX_PLAN_BASE: &str = "https://api.minimax.io/anthropic/v1";
+    let env = opencode_env("MiniMax", MINIMAX_PLAN_BASE, &["MiniMax-M3.1-Flash".into()], true);
+    let config: Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    assert_eq!(config["provider"]["byo"]["npm"], "@ai-sdk/anthropic");
+    assert_eq!(config["provider"]["byo"]["options"]["baseURL"], MINIMAX_PLAN_BASE);
+    assert_eq!(models_url(Kind::OpenAi, MINIMAX_PLAN_BASE), "https://api.minimax.io/v1/models");
+    for base in ["https://api.deepseek.com", "https://api.moonshot.ai/v1"] {
+        let env = opencode_env("Provider", base, &["thinking-model".into()], true);
+        let config: Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+        let model = &config["provider"]["byo"]["models"]["thinking-model"];
+        assert_eq!(model["interleaved"]["field"], "reasoning_content");
+        let mut config = json!({"provider": {"byo": {"options": {"baseURL": base}, "models": {"old": {"name": "old"}}}}}).to_string();
+        configure_opencode_session(&mut config, "chat");
+        let config: Value = serde_json::from_str(&config).unwrap();
+        assert_eq!(
+            config["provider"]["byo"]["models"]["old"]["interleaved"]["field"],
+            "reasoning_content"
+        );
+    }
 }
 
 /// A one-thread fake `/v1/models` on 127.0.0.1: the list for `Bearer
@@ -872,7 +1011,7 @@ async fn byo_endpoint_doctor_runs_a_real_turn_and_names_the_fix() {
     let report = doctor(&cfg, "byo", &options(GOOD_KEY, true)).await;
     let prompt = step(&report, "prompt");
     assert_eq!(prompt.status, StepStatus::Fail, "{}", report.text());
-    assert!(prompt.fix.as_deref().unwrap_or("").contains("model not found"), "{}", report.text());
+    assert!(prompt.fix.as_deref().unwrap_or("").contains("no longer offered"), "{}", report.text());
 
     // Nothing listens at the base URL.
     let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1240,6 +1379,7 @@ fn byo_endpoint_remove_then_undo_brings_back_a_working_endpoint_with_its_key() {
     let added = admin::add_endpoint_keyed(&p, &src, &key).unwrap();
     assert_eq!(log.lock().unwrap().len(), 1);
     let (profile, meta) = load(&added.path, "team");
+    let original = meta.credential_instance.clone().unwrap();
     let cfg = config("team", profile, meta);
     // Settings' Remove (with Undo): the profile goes to the backups, the key stays in the Keychain.
     let removed = admin::remove("team", &cfg, &src, &home, None).unwrap();
@@ -1249,7 +1389,8 @@ fn byo_endpoint_remove_then_undo_brings_back_a_working_endpoint_with_its_key() {
     assert!(backup.contains("cmux-harness/team/CMUX_BYO_API_KEY"), "{backup}");
     // Undo: the same profile, and its env resolves the key from the item that stayed.
     let restored = admin::restore(&removed.backup, &src, &home).unwrap();
-    let (profile, _) = load(&restored.path, "team");
+    let (profile, meta) = load(&restored.path, "team");
+    assert_ne!(meta.credential_instance.unwrap(), original);
     let mut env = profile.env.clone();
     let own = own_account(&profile, "team", OPENAI_KEY_ENV);
     assert!(log.lock().unwrap()[0].contains(&own), "Undo names another item than was stored");
@@ -1481,14 +1622,16 @@ fn byo_endpoint_a_replace_stores_its_key_in_a_new_item_the_old_profile_never_rea
     };
     let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
     admin::add_endpoint_keyed(&p, &src, &key(GOOD_KEY)).unwrap();
-    let (profile, _) = load(&path, "team");
+    let (profile, original) = load(&path, "team");
     let first = own_account(&profile, "team", OPENAI_KEY_ENV);
     // A replace with a new key at a new URL: the new key goes to a new item (the profile still
     // there, at the old URL, reads its own item up to the rename), and the old item goes after.
     let mut again = params("openai-endpoint", "team", "https://two.example.com/v1", "m", None);
     again.replace = true;
     admin::add_endpoint_keyed(&again, &src, &key(BAD_KEY)).unwrap();
-    let (profile, _) = load(&path, "team");
+    let (profile, replacement) = load(&path, "team");
+    assert!(original.credential_instance.is_some());
+    assert_eq!(original.credential_instance, replacement.credential_instance);
     let second = own_account(&profile, "team", OPENAI_KEY_ENV);
     assert_ne!(first, second);
     {
@@ -1593,6 +1736,215 @@ async fn byo_endpoint_a_replace_keeps_the_key_only_for_the_same_url_and_kind() {
     let (profile, _) = load(&path, "team");
     assert!(!profile.env.contains_key("ANTHROPIC_AUTH_TOKEN"), "{:?}", profile.env);
     assert!(!profile.env.contains_key(OPENAI_KEY_ENV), "{:?}", profile.env);
+}
+
+#[test]
+fn byo_endpoint_preset_edit_requires_a_new_key_for_a_new_url() {
+    for (id, url) in [
+        ("azure", "https://old.openai.azure.com/openai/v1"),
+        ("bedrock", "https://bedrock-mantle.us-east-1.api.aws/v1"),
+        ("meta", "https://api.llama.com/compat/v1"),
+    ] {
+        let root = scratch(id);
+        let src = sources(&root);
+        let (log, store) = recording(false);
+        let keyed =
+            admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE };
+        let no_key = admin::EndpointKey { store: &store, ..admin::EndpointKey::NONE };
+        let create = params("openai-endpoint", id, url, "original-model", None);
+        let added = admin::add_endpoint_keyed(&create, &src, &keyed).unwrap();
+        let original = std::fs::read_to_string(&added.path).unwrap();
+
+        let mut edit =
+            params("openai-endpoint", id, "https://proxy.example.com/v1", "new-model", None);
+        edit.replace = true;
+        edit.edit_endpoint = Some(profiles::content_revision(&original));
+        // Even a client sending the generic preset cannot remove the original preset or its key.
+        edit.endpoint_preset = Some("endpoint".into());
+        let error = admin::add_endpoint_keyed(&edit, &src, &no_key).unwrap_err();
+        assert!(error.message().contains("Enter an API key"), "{error}");
+        assert_eq!(std::fs::read_to_string(&added.path).unwrap(), original);
+        assert_eq!(log.lock().unwrap().len(), 1, "the old item was touched");
+
+        admin::add_endpoint_keyed(&edit, &src, &keyed).unwrap();
+        let (profile, meta) = load(&added.path, id);
+        assert_eq!(meta.endpoint_preset.as_deref(), Some(id));
+        assert!(profile.env["OPENCODE_CONFIG_CONTENT"].contains("https://proxy.example.com/v1"));
+
+        let changed = std::fs::read_to_string(&added.path).unwrap();
+        edit.edit_endpoint = Some(profiles::content_revision(&changed));
+        edit.base_url = Some("https://another.example.com/v1".into());
+        let error = admin::add_endpoint_keyed(&edit, &src, &no_key).unwrap_err();
+        assert!(error.message().contains("Enter an API key"), "{error}");
+        assert_eq!(std::fs::read_to_string(&added.path).unwrap(), changed);
+        assert_eq!(log.lock().unwrap().len(), 3, "expected two stores and the old item's deletion");
+    }
+}
+
+#[test]
+fn byo_endpoint_cloudflare_requires_vendor_model_ids() {
+    let root = scratch("cloudflare-models");
+    let sources = sources(&root);
+    let mut draft = params(
+        "openai-endpoint",
+        "cloudflare",
+        "https://api.cloudflare.com/client/v4/accounts/1234567890abcdef1234567890abcdef/ai/v1",
+        "@cf/vendor/model",
+        Some("test/item"),
+    );
+    draft.endpoint_preset = Some("cloudflare".into());
+    assert!(add(&draft, &sources).unwrap_err().message().contains("vendor/model"));
+    draft.models = vec!["openai/gpt-4.1".into()];
+    let added = add(&draft, &sources).unwrap();
+    let (profile, _) = load(&added.path, "cloudflare");
+    assert_eq!(profile.model.as_deref(), Some("byo/openai/gpt-4.1"));
+}
+
+#[test]
+fn byo_endpoint_cloudflare_edit_retains_saved_legacy_models() {
+    let root = scratch("cloudflare-legacy-models");
+    let src = sources(&root);
+    let mut draft = params(
+        "openai-endpoint",
+        "legacy-gateway",
+        "https://gateway.ai.cloudflare.com/v1/1234567890abcdef1234567890abcdef/default/compat",
+        "@cf/meta/llama-3.1-8b-instruct",
+        Some("test/item"),
+    );
+    draft.models.push("openai/gpt-4.1".into());
+    let added = add(&draft, &src).unwrap();
+    let original = std::fs::read_to_string(&added.path).unwrap();
+    draft.display_name = Some("Renamed gateway".into());
+    draft.keychain_item = None;
+    draft.endpoint_preset = Some("cloudflare".into());
+    draft.replace = true;
+    draft.edit_endpoint = Some(profiles::content_revision(&original));
+
+    draft.models.push("@cf/meta/another-model".into());
+    assert!(add(&draft, &src).unwrap_err().message().contains("vendor/model"));
+    draft.models.pop();
+    add(&draft, &src).unwrap();
+    let (profile, _) = load(&added.path, "legacy-gateway");
+    assert_eq!(profile.model.as_deref(), Some("byo/@cf/meta/llama-3.1-8b-instruct"));
+    assert_eq!(
+        profile.models.iter().map(|model| model.id()).collect::<Vec<_>>(),
+        ["byo/@cf/meta/llama-3.1-8b-instruct", "byo/openai/gpt-4.1"]
+    );
+}
+
+#[test]
+fn byo_endpoint_edit_can_rename_and_rotate_a_key_with_a_saved_query() {
+    let root = scratch("saved-query");
+    let src = sources(&root);
+    let base = "https://team.openai.azure.com/openai/v1";
+    let legacy_base =
+        "https://team.openai.azure.com/openai/deployments/main?api-version=2024-10-21&prefix=team/";
+    let mut request = params("openai-endpoint", "legacy-query", base, "main", None);
+    let (log, store) = recording(false);
+    let old_key =
+        admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE };
+    let new_key =
+        admin::EndpointKey { value: Some(BAD_KEY), store: &store, ..admin::EndpointKey::NONE };
+    let added = admin::add_endpoint_keyed(&request, &src, &old_key).unwrap();
+    let (profile, _) = load(&added.path, "legacy-query");
+    let original_account = own_account(&profile, "legacy-query", OPENAI_KEY_ENV);
+    let original = std::fs::read_to_string(&added.path).unwrap().replace(base, legacy_base);
+    std::fs::write(&added.path, &original).unwrap();
+
+    request.base_url = Some(legacy_base.into());
+    request.display_name = Some("Renamed endpoint".into());
+    request.replace = true;
+    request.edit_endpoint = Some(profiles::content_revision(&original));
+    add(&request, &src).unwrap();
+    let renamed = std::fs::read_to_string(&added.path).unwrap();
+    let (profile, _) = load(&added.path, "legacy-query");
+    assert!(renamed.contains("name = \"Renamed endpoint\""));
+    assert!(profile.env["OPENCODE_CONFIG_CONTENT"].contains(legacy_base));
+    assert_eq!(own_account(&profile, "legacy-query", OPENAI_KEY_ENV), original_account);
+
+    request.edit_endpoint = Some(profiles::content_revision(&renamed));
+    request.base_url = Some(format!("{base}?api-version=2024-10-22"));
+    assert!(admin::add_endpoint_keyed(&request, &src, &new_key).is_err());
+    assert_eq!(log.lock().unwrap().len(), 1);
+
+    request.base_url = Some(legacy_base.into());
+    admin::add_endpoint_keyed(&request, &src, &new_key).unwrap();
+    let (profile, _) = load(&added.path, "legacy-query");
+    assert!(profile.env["OPENCODE_CONFIG_CONTENT"].contains(legacy_base));
+    assert_ne!(own_account(&profile, "legacy-query", OPENAI_KEY_ENV), original_account);
+    assert_eq!(log.lock().unwrap().len(), 3);
+
+    let secret_url = format!("{base}?api-key=placeholder");
+    let invalid = std::fs::read_to_string(&added.path).unwrap().replace(legacy_base, &secret_url);
+    std::fs::write(&added.path, &invalid).unwrap();
+    request.base_url = Some(secret_url);
+    request.edit_endpoint = Some(profiles::content_revision(&invalid));
+    assert!(matches!(
+        admin::add_endpoint_keyed(&request, &src, &new_key),
+        Err(AdminError::SecretInline(_))
+    ));
+    assert_eq!(log.lock().unwrap().len(), 3);
+}
+
+#[test]
+fn byo_endpoint_edit_can_rename_a_keyless_legacy_endpoint_with_a_saved_query() {
+    let root = scratch("saved-query-keyless");
+    let src = sources(&root);
+    let base = "https://inference.example.com/v1";
+    let legacy_base = "https://team.openai.azure.com/openai/v1?api-version=2024-10-21";
+    let mut request = params("openai-endpoint", "keyless-query", base, "main", None);
+    let added = add(&request, &src).unwrap();
+    let original = std::fs::read_to_string(&added.path).unwrap().replace(base, legacy_base);
+    std::fs::write(&added.path, &original).unwrap();
+
+    request.base_url = Some(legacy_base.into());
+    request.display_name = Some("Renamed endpoint".into());
+    request.replace = true;
+    request.edit_endpoint = Some(profiles::content_revision(&original));
+    add(&request, &src).unwrap();
+    let (profile, _) = load(&added.path, "keyless-query");
+    assert!(profile.env["OPENCODE_CONFIG_CONTENT"].contains(legacy_base));
+    assert!(!profile.env.contains_key(OPENAI_KEY_ENV));
+}
+
+#[test]
+fn byo_endpoint_preset_url_validation() {
+    let root = scratch("preset-url");
+    let src = sources(&root);
+    for (id, host) in [
+        ("azure-openai", "team.openai.azure.com"),
+        ("azure-cognitive", "team.cognitiveservices.azure.com"),
+    ] {
+        let mut azure = params(
+            "openai-endpoint",
+            id,
+            &format!("https://{host}/"),
+            "deployment",
+            Some("test/item"),
+        );
+        azure.endpoint_preset = Some("azure".into());
+        let added = add(&azure, &src).unwrap();
+        let (profile, _) = load(&added.path, id);
+        assert!(
+            profile.env["OPENCODE_CONFIG_CONTENT"].contains(&format!("https://{host}/openai/v1"))
+        );
+        let saved = std::fs::read_to_string(&added.path).unwrap();
+        azure.replace = true;
+        azure.edit_endpoint = Some(profiles::content_revision(&saved));
+        for (path, message) in [
+            ("/openai/deployments/deployment/embeddings", "/openai/v1"),
+            ("/openai/v1/chat/completions", "/openai/v1"),
+            ("/openai/v1?api-version=1", "query string"),
+        ] {
+            azure.base_url = Some(format!("https://{host}{path}"));
+            let error = add(&azure, &src).unwrap_err();
+            assert!(error.message().contains(message), "{error}");
+        }
+        assert_eq!(std::fs::read_to_string(&added.path).unwrap(), saved);
+    }
+    let custom =
+        params("openai-endpoint", "custom-query", "http://localhost:1234/v1?", "model", None);
+    assert!(add(&custom, &src).unwrap_err().message().contains("query string"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1716,4 +2068,70 @@ fn byo_endpoint_every_keychain_read_reads_only_its_own_item_by_exact_account() {
     let mut plain: std::collections::BTreeMap<String, String> =
         [("K".to_owned(), "${keychain:cmux-harness}".to_owned())].into();
     profiles::resolve_env_refs(&mut plain, &|_| None, &lookup).unwrap();
+}
+
+#[test]
+fn byo_endpoint_private_http_stays_local() {
+    for url in [
+        "http://10.0.0.3/v1",
+        "http://172.27.0.2/v1",
+        "http://192.168.1.50/v1",
+        "http://100.64.8.9/v1",
+        "http://computer.local/v1",
+    ] {
+        assert!(check_base_url(url).is_ok(), "{url}");
+        assert!(check_cloud_base_url(url).is_err(), "{url}");
+    }
+    for url in [
+        "http://8.8.8.8/v1",
+        "http://172.32.0.2/v1",
+        "http://100.128.0.1/v1",
+        "http://computer.local.example/v1",
+    ] {
+        assert!(check_base_url(url).is_err(), "{url}");
+    }
+}
+
+#[test]
+fn byo_endpoint_model_listing_prefers_tools_and_maps_provider_status() {
+    let body = r#"{"data":[{"id":"text-only","supported_parameters":[]},
+        {"id":"unknown"}, {"id":"tool-model","supported_parameters":["tools"]}]}"#;
+    assert_eq!(parse_models(body).unwrap(), ["tool-model", "unknown", "text-only"]);
+    assert!(model_list_status_error(402, None).contains("out of credit"));
+    assert!(model_list_status_error(429, None).contains("rate limited"));
+    for message in ["429 insufficient balance", "429 no resource package", "403 code 1113"] {
+        assert_eq!(classify(message), Problem::Credit);
+    }
+}
+
+#[tokio::test]
+async fn byo_endpoint_preflight_checks_typed_models_before_the_profile_is_saved() {
+    let headers = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let port = fake_models(false, headers.clone());
+    let base = format!("http://127.0.0.1:{port}/v1");
+    let root = scratch("typed-preflight");
+    let sources = sources(&root);
+    let mut draft = params("openai-endpoint", "typed", &base, "served-b", None);
+    let error = admin::prepare_endpoint_models(
+        &mut draft,
+        Some("fixture-refused"),
+        &sources,
+        |_, _| panic!("no lookup"),
+        true,
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(error, AdminError::EndpointCheck(_)));
+    assert_eq!(headers.lock().unwrap().len(), 1);
+    admin::prepare_endpoint_models(
+        &mut draft,
+        Some(GOOD_KEY),
+        &sources,
+        |_, _| panic!("no lookup"),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(headers.lock().unwrap().len(), 2);
+    assert_eq!(draft.models, ["served-b"]);
 }
