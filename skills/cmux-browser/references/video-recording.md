@@ -1,8 +1,10 @@
 # Video Recording
 
-`cmux browser` exposes no built-in video recording command: automation runs on WKWebView, and the agent-browser recording pipeline is Chrome/CDP-specific. Related: [commands.md](commands.md), [../SKILL.md](../SKILL.md).
+The per-command `cmux browser` CLI has no recording command: automation runs on WKWebView, and the agent-browser recording pipeline is Chrome/CDP-specific. Related: [commands.md](commands.md), [../SKILL.md](../SKILL.md).
 
-Capture evidence for flaky-automation debugging, CI logs, and release-to-release flow diffs with step screenshots and a snapshot timeline instead:
+To record a run, use `cmux browser repl` ([Browser REPL](../SKILL.md#browser-repl)): `session.record()` returns a recorder, and its `stop()` writes `trace.jsonl`, a PNG per action and `run.png`, an animated PNG of the run. Neither path records video.
+
+With the per-command CLI, capture evidence for flaky-automation debugging, CI logs, and release-to-release flow diffs with step screenshots and a snapshot timeline instead:
 
 ```bash
 cmux browser --surface "$SURFACE" screenshot > /tmp/step1.b64
