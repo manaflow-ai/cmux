@@ -53,12 +53,12 @@ const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 installJsdomScroller(dom.window as never, () => VIEWPORT);
 const sized = new WeakMap<Element, number>();
-const rect = (height: number) =>
-  ({ top: 0, bottom: height, left: 0, right: 760, width: 760, height, x: 0, y: 0, toJSON() {} }) as DOMRect;
+const rect = (height: number, top = 0) =>
+  ({ top, bottom: top + height, left: 0, right: 760, width: 760, height, x: 0, y: top, toJSON() {} }) as DOMRect;
 dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
   if (this.classList.contains("acpmux-scroll")) return rect(VIEWPORT);
   const box = fakeGeometry.get(this);
-  if (box) return { ...rect(box.height), top: box.top, bottom: box.top + box.height };
+  if (box) return rect(box.height, box.top);
   return rect(sized.get(this) ?? 0);
 };
 dom.window.HTMLElement.prototype.getClientRects = function (this: HTMLElement) {

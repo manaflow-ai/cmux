@@ -640,7 +640,13 @@ export function createTailGlide(): TailGlide {
       // place, its clips with it, and a clip on a row out of the view ends. Once, one view read and a
       // box read per row this pass animates.
       if (readView && (slides.size || passClips.length))
-        thread.ownerDocument.defaultView?.requestAnimationFrame(() => finishUnseen(readView, slides, passClips));
+        thread.ownerDocument.defaultView?.requestAnimationFrame(() => {
+          // Layout can grow a row after this pass read it but before the glide first paints.
+          // Refresh only this active clearance span; unchanged boxes start no new pass or frame.
+          if ([...slides.values()].some(live) || passClips.some(({ clip }) => live(clip)))
+            api.refresh(thread, readView);
+          finishUnseen(readView, slides, passClips);
+        });
       if (heldBeforeRefresh) api.hold();
     },
   };
