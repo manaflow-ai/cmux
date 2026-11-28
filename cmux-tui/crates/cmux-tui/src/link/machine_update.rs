@@ -295,10 +295,17 @@ fn update(request: &Request) -> Result<Value, Failed> {
 /// a store that refuses this build as older than one it applied gets it in place. The
 /// automatic update (`--if-older`) never moves a machine back.
 fn route_args(route: apply::Route, request: &Request) -> Vec<String> {
-    if route != apply::Route::Store {
-        return Vec::new();
+    let mut args = Vec::new();
+    // The app's automatic update (`--if-older`) never restarts a machine whose agents work: its daemon and acpmux
+    // restart under them, which dropped a Cloud chat mid-start and lost its credential (cmux#57192). It answers
+    // busy and the app asks again later. A start's own update (no `--if-older`) must run, and runs.
+    if request.if_older {
+        args.push(apply::IF_IDLE_FLAG.to_owned());
     }
-    let mut args = vec!["--route".to_owned(), "store".to_owned()];
+    if route != apply::Route::Store {
+        return args;
+    }
+    args.extend(["--route".to_owned(), "store".to_owned()]);
     if request.to_bundled && !request.if_older {
         args.push(apply::IN_PLACE_FLAG.to_owned());
     }
