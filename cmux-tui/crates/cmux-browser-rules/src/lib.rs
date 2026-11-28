@@ -10,6 +10,8 @@
 //!   over http (`HTTPSUpgradeFallback`).
 //! - [`calculator`]: the omnibox calculator row's arithmetic and its answer text
 //!   (`OmniboxCalculator`).
+//! - [`input`]: the browser automation's input rules: a driver key's AppKit key event
+//!   (`KeyStroke`, `DOMKeyCodes`) and a driver mouse call's event type (`MouseEventPlan`).
 //! - [`load_waits`], [`cookie_backups`], [`cookies`], [`tab_watcher`]: the browser automation's
 //!   rules (`LoadWaits`, `CookieBackups`, the cookie calls of `WebKitDriver`, `TabWatcher`), ops in
 //!   [`automation_ops`].
@@ -32,6 +34,7 @@ pub mod cookie_backups;
 pub mod cookies;
 pub mod driver;
 pub mod frames;
+pub mod input;
 pub mod links;
 pub mod load_waits;
 pub mod ops;
@@ -53,6 +56,8 @@ mod cookies_tests;
 mod driver_tests;
 #[cfg(test)]
 mod frames_tests;
+#[cfg(test)]
+mod input_tests;
 #[cfg(test)]
 mod links_tests;
 #[cfg(test)]
