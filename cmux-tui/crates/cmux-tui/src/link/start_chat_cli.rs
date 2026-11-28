@@ -359,6 +359,12 @@ struct PlanRequest {
     /// nothing grows.
     #[serde(default)]
     plan_max: Option<String>,
+    /// Machines this send's automatic pick took and could not connect to (the App's "didn't connect": paused and
+    /// never resumed, stuck starting). A send that names no machine never takes one again: its pin to one not made
+    /// for it is dropped, no reuse picks it, and with nothing else of the person's it makes a new machine
+    /// ([`pick::Candidate::unreachable`]). A machine the person chose (`machine`) is never left this way.
+    #[serde(default)]
+    unreachable: Vec<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -471,8 +477,19 @@ fn plan_with_calls(
                 &vm.preflight_machine(),
             )
             .is_none();
+        vm.unreachable = selected.is_none() && request.unreachable.contains(&vm.id);
     }
     let planned = Ledger::update(ledger, |pins| {
+        // A send pinned to a machine it reused that then could not connect goes on without it: the pin is
+        // dropped, so the pick below reuses another machine of the person's or makes a new one. A machine made
+        // for this send keeps its pin: its own start bounds and replaces it.
+        if selected.is_none()
+            && let Some(pinned) = pins.machine(&send)
+            && request.unreachable.contains(&pinned)
+            && !pins.made(&send, &pinned)
+        {
+            pins.forget(&send);
+        }
         let pinned = pins.machine(&send);
         let mut destination = if let Some(id) = selected {
             Destination::Machine(id.clone())
@@ -579,7 +596,11 @@ fn plan_with_calls(
                     credential.0,
                 );
             }
-            json!({"ok": true, "machine": id, "target_pane": pane, "ensured": made})
+            // `falls_back`: the automatic path found this machine (the person named none and it was not made for
+            // this send), so when it can't connect the App plans again with it `unreachable` and the send goes on
+            // on a new machine, never ending on "didn't connect" (cmux#64395's general fix).
+            let falls_back = selected.is_none() && made.is_null();
+            json!({"ok": true, "machine": id, "target_pane": pane, "ensured": made, "falls_back": falls_back})
         }
         Ok((Destination::New, _)) if ensures(&request, project_key.as_deref()) => {
             let ask = Ensure {

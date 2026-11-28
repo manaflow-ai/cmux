@@ -157,6 +157,11 @@ fn a_plan_names_its_machine_keys_and_setup_and_without_keys_is_no_answer() {
     );
     // A machine the plan found (or a reservation it bound) is not this send's to delete.
     assert!(!plan.made_for_send);
+    // A plan names a reused machine that may fall back only when it says so.
+    assert!(!plan.falls_back);
+    let reused = json!({"ok": true, "machine": "vm-3", "create_key": "c", "tab_key": "t", "falls_back": true});
+    let (answer, object) = parse(&output(&reused.to_string(), "", 0));
+    assert!(start_chat_plan(answer, object.as_ref()).1.falls_back, "{reused}");
     let made = json!({"ok": true, "machine": "vm-2", "create_key": "c", "tab_key": "t", "ensured": {"created": true}});
     let (answer, object) = parse(&output(&made.to_string(), "", 0));
     assert!(start_chat_plan(answer, object.as_ref()).1.made_for_send, "{made}");

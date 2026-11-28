@@ -135,7 +135,7 @@ impl TcpStack {
                     // owner reads the request and replies before the
                     // handshake's last ACK, a round trip sooner.
                     tcp::State::Established | tcp::State::CloseWait => {
-                        self.accept_now(handle, flow, &accept)
+                        self.accept_now(handle, flow, &accept);
                     }
                     tcp::State::SynReceived if early => {
                         // Still half-open until the last ACK: no spare

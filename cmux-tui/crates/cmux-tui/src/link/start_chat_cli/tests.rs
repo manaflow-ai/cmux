@@ -241,10 +241,11 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
         "vm-new",
         "the pinned retry keeps its machine"
     );
+    // Released, not deleted: it is still the person's running machine, so a fresh send reuses it.
     assert_eq!(
         plan(&path, &on(&key()))["machine"],
-        Value::Null,
-        "a fresh send gets its own machine"
+        "vm-new",
+        "a fresh send reuses the person's machine"
     );
     // The second fails for good too, after a third was pinned to it: still shared.
     let third = key();
@@ -939,7 +940,10 @@ fn plan_and_pin_need_the_account_the_send_began_in() {
     // the person's machine the App lists for that team).
     let other = plan(&path, &request(json!("user-leo/team-b")));
     assert_eq!(other["machine"], json!("vm-free"), "{other}");
-    assert_eq!(other["create_key"], Value::Null, "{other}");
+    // Every answer carries the send's own keys (`moves::cli` refuses one without them), lowercased
+    // by `Keys::of`; the App reads them back from the plan, never rebuilds them from its UUID.
+    let create_key = format!("cloud-start-chat-{}", key.to_lowercase());
+    assert_eq!(other["create_key"], json!(create_key), "{other}");
     let retry =
         json!({"key": key, "account": ACCOUNT, "user": ME, "loaded": false, "machines": []});
     assert_eq!(plan(&path, &retry.to_string())["machine"], json!("vm-free"));
@@ -1258,6 +1262,72 @@ fn two_cloud_chats_share_one_machine() {
     // A retry of the first send stays on its machine.
     assert_eq!(plan(&path, &request(&first, &listed, true))["machine"], json!("vm-a"));
     assert_eq!(plan(&path, &request(&first, &json!([]), false))["machine"], json!("vm-a"));
+}
+
+/// Production GUI environments probe, run 46120614401: the automatic path's first Cloud chat reused the
+/// person's paused `probe-link-connect`, which never came up, and the send ended on "probe-link-connect
+/// didn't connect. Retry once it's online." A reused machine that can't connect is left for a new one
+/// (cmux#64395's general fix): the plan says the machine `falls_back`, and planned again with it
+/// `unreachable` the send makes a new `cloud-chats-N`, or reuses another machine of the person's. A
+/// machine the person named, or one made for this send, never falls back.
+#[test]
+fn a_reused_machine_that_cannot_connect_falls_back_to_a_new_one() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let request = |key: &str, machines: &Value, extra: Value| {
+        let mut body = json!({"key": key, "account": ACCOUNT, "workspace": "ws-a", "user": ME,
+            "loaded": true, "machines": machines});
+        body.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        body.to_string()
+    };
+    let paused = json!([
+        {"id": "vm-stuck", "title": "probe-link-connect", "created_by": ME, "status": "paused"},
+        {"id": "vm-chats", "title": "cloud-chats", "created_by": TEAMMATE, "status": "running", "connected": true},
+    ]);
+    let send = key();
+    let first = plan(&path, &request(&send, &paused, json!({})));
+    assert_eq!(first["machine"], json!("vm-stuck"), "{first}");
+    assert_eq!(first["falls_back"], json!(true), "{first}");
+    // It didn't connect: planned again with it unreachable, the same send makes a new machine named
+    // apart from every listed one, and its pin to the stuck machine is gone.
+    let again = plan(&path, &request(&send, &paused, json!({"unreachable": ["vm-stuck"]})));
+    assert_eq!(again["ok"], json!(true), "{again}");
+    assert_eq!(again["machine"], Value::Null, "{again}");
+    assert_eq!(again["new_name"], json!("cloud-chats-2"), "{again}");
+    let kept = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(kept.machine(&self::send(&send)), None);
+    // With another machine of the person's open, the fallback reuses that one instead.
+    let two = json!([
+        {"id": "vm-stuck", "title": "probe-link-connect", "created_by": ME, "status": "paused"},
+        {"id": "vm-other", "title": "cloud-chats", "created_by": ME, "status": "paused"},
+    ]);
+    let other = key();
+    assert_eq!(plan(&path, &request(&other, &two, json!({})))["machine"], json!("vm-stuck"));
+    let moved = plan(&path, &request(&other, &two, json!({"unreachable": ["vm-stuck"]})));
+    assert_eq!(moved["machine"], json!("vm-other"), "{moved}");
+    assert_eq!(moved["falls_back"], json!(true), "{moved}");
+    // A machine the person named stays theirs: no fallback, and `unreachable` doesn't move it.
+    let named = key();
+    let chosen = plan(
+        &path,
+        &request(&named, &paused, json!({"machine": "vm-stuck", "unreachable": ["vm-stuck"]})),
+    );
+    assert_eq!(chosen["machine"], json!("vm-stuck"), "{chosen}");
+    assert_eq!(chosen["falls_back"], json!(false), "{chosen}");
+    // A machine made for this send keeps its pin (its own start bounds and replaces it): no fallback.
+    let made = key();
+    let planned = plan(&path, &request(&made, &json!([]), json!({})));
+    assert_eq!(planned["machine"], Value::Null, "{planned}");
+    assert_eq!(
+        super::create_begin(&path, &made, ACCOUNT, "cloud-chats", &Keys::of(&made).create)["ok"],
+        json!(true)
+    );
+    assert_eq!(pin(&path, &made, ACCOUNT, "vm-made", Some("ws-b"))["ok"], json!(true));
+    let listed =
+        json!([{"id": "vm-made", "title": "cloud-chats", "created_by": ME, "status": "starting"}]);
+    let retry = plan(&path, &request(&made, &listed, json!({"unreachable": ["vm-made"]})));
+    assert_eq!(retry["machine"], json!("vm-made"), "{retry}");
+    assert_eq!(retry["falls_back"], json!(false), "{retry}");
 }
 
 /// A machine one workspace has is never given to another: not by a plan, and

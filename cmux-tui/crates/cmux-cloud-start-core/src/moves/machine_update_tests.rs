@@ -239,7 +239,7 @@ fn run(plan: Plan, answers: &[Option<ExecRun>]) -> (Vec<(String, u64)>, Answer) 
     let mut answers = answers.iter();
     loop {
         match step {
-            Step::Done { answer } => return (made, answer),
+            Step::Done { answer } => return (made, *answer),
             Step::Exec { command, timeout_ms, state } => {
                 made.push((command, timeout_ms));
                 let ran = answers.next().cloned().flatten();

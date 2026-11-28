@@ -322,7 +322,16 @@ fn scoped_ready_reports_only_current_installed_or_verified_completions() {
                 .write(true)
                 .open(dir.path().join("spare-warm.lock"))
                 .unwrap();
-            assert!(lock.try_lock().is_ok(), "network report still holds the ledger lock");
+            // A child another test forks in this process shares the flock's file description
+            // until its exec closes it; only a lock still held after that is this report's.
+            let free = (0..100).any(|_| {
+                if lock.try_lock().is_ok() {
+                    return true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                false
+            });
+            assert!(free, "network report still holds the ledger lock");
             reports.set(reports.get() + 1);
         };
         let ask = |mut request: Value, now| {
