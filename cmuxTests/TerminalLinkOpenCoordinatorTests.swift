@@ -190,6 +190,58 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(store.bonsplitController.allPaneIds.count == 1)
     }
 
+    @Test(
+        "A request naming the other browser opens the one the setting does not",
+        arguments: [true, false]
+    )
+    @MainActor
+    func otherBrowserDestinationInvertsTheSetting(opensInCmuxByDefault: Bool) throws {
+        // Cmd+Shift-click: one link leaves the default without changing it.
+        let defaults = makeDefaults()
+        defaults.set(
+            opensInCmuxByDefault,
+            forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == terminalPanelId ? store : nil
+            },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+        let url = try #require(URL(string: "https://example.com/other"))
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: nil,
+            sourcePanelId: terminalPanelId,
+            workingDirectory: nil,
+            destination: .otherBrowser
+        )))
+
+        let embedded = store.bonsplitController.allTabIds
+            .compactMap { store.panel(for: $0) as? BrowserPanel }
+            .compactMap { $0.preferredURLStringForOmnibar() }
+        #expect(externallyOpened == (opensInCmuxByDefault ? [url] : []))
+        #expect(embedded == (opensInCmuxByDefault ? [] : [url.absoluteString]))
+    }
+
     @Test("A request naming the cmux browser embeds even with the setting off")
     @MainActor
     func cmuxBrowserDestinationOverridesTheSetting() throws {

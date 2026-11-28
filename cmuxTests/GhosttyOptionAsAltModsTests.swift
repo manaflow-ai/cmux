@@ -93,6 +93,24 @@ import Testing
         #expect(mods.rawValue & GHOSTTY_MODS_SHIFT_RIGHT.rawValue == 0)
     }
 
+    @Test func commandShiftMouseModsReachGhosttyAsPlainCommand() {
+        // libghostty opens a link only on an exact ctrl/super chord. Cmd+Shift
+        // is cmux's other-browser click, so Ghostty has to see it as Cmd.
+        let chord = NSEvent.ModifierFlags.command.rawValue
+            | NSEvent.ModifierFlags.shift.rawValue
+            | UInt(NX_DEVICERSHIFTKEYMASK)
+        #expect(cmuxIsOtherBrowserLinkClickChord(modifierFlagsRawValue: chord))
+        #expect(cmuxGhosttyMouseModsFromFlags(modifierFlagsRawValue: chord) == GHOSTTY_MODS_SUPER)
+
+        // Any other chord keeps its Shift: Shift-click still extends a
+        // selection and still releases the mouse from a capturing program.
+        for flags: NSEvent.ModifierFlags in [.shift, .command, [.command, .shift, .option], [.control, .shift]] {
+            #expect(!cmuxIsOtherBrowserLinkClickChord(modifierFlagsRawValue: flags.rawValue))
+            let mods = cmuxGhosttyMouseModsFromFlags(modifierFlagsRawValue: flags.rawValue)
+            #expect((mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0) == flags.contains(.shift))
+        }
+    }
+
     @Test func mouseOverLinkActionDecodesURLAndClearsEmptyHover() {
         var bytes = Array("https://example.com/path?q=cmux".utf8CString)
         let decoded = bytes.withUnsafeBufferPointer { buffer in
