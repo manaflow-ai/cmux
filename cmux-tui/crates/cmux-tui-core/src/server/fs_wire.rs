@@ -60,6 +60,7 @@ pub(super) fn data_frame(frame: &str) -> bool {
         || crate::git_seed::frame_command(frame).is_some()
         || crate::blob_fetch::frame_command(frame).is_some()
         || crate::projection::frame_command(frame).is_some()
+        || crate::live_sync::frame_command(frame).is_some()
         || crate::cloud_repos::frame_command(frame)
             .is_some_and(|cmd| !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember"))
 }
@@ -277,6 +278,11 @@ pub(super) fn route_first_line_of(
         serve_projection(mux, peer, entry.service, line, rest, stream);
         return None;
     }
+    // An AutoCloud chat's live folder sync (live_sync.rs): its answer, then cmux-live-sync frames.
+    if let Some(line) = admitted.filter(|line| crate::live_sync::frame_command(line).is_some()) {
+        serve_sync_live(mux, peer, entry.service, line, rest, stream);
+        return None;
+    }
     let request = admitted.and_then(StreamRequest::parse);
     let Some(request) = request else {
         let mut prefix = first;
@@ -443,6 +449,109 @@ fn serve_projection(
     control.close();
 }
 
+/// Serves a `sync.live` dial ([`crate::live_sync::serve_io`]) as a registered remote client, as
+/// [`serve_projection`] does a projection: a kick, a revocation or the entry's shutdown closes
+/// it. One follower per root outlives the dial, so a reconnect resumes from its synced copy.
+fn serve_sync_live(
+    mux: &Arc<Mux>,
+    peer: &RemotePeer,
+    service: Option<&FsService>,
+    first: &str,
+    leftover: Vec<u8>,
+    stream: UnixStream,
+) {
+    let (Ok(control), Ok(closer), Ok(reader)) =
+        (stream.try_clone(), stream.try_clone(), stream.try_clone())
+    else {
+        return;
+    };
+    let control = SinkControl::unix(Box::new(control));
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new_with_render_service(
+        QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
+        Arc::new(RenderService::new()),
+    );
+    let watcher = std::thread::Builder::new().name("mux-sync-live-close".into()).spawn(move || {
+        while outbound.recv().is_some() {}
+        let _ = closer.shutdown(std::net::Shutdown::Both);
+    });
+    if watcher.is_err() {
+        return;
+    }
+    let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
+    let bound = writer.is_open() && mux.bind_remote_peer(client, peer).is_ok();
+    if bound {
+        let roots = live_roots(service);
+        if roots.is_empty() {
+            crate::live_sync::refuse(
+                &stream,
+                first,
+                "sync.unavailable",
+                "this machine does not serve live folder sync",
+            );
+        } else {
+            let _ = stream.set_read_timeout(None);
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(60)));
+            let reader = std::io::Cursor::new(leftover).chain(reader);
+            crate::live_sync::serve_io(reader, &stream, first, &roots);
+        }
+    }
+    super::disconnect_client(mux, client, false);
+    mux.unbind_conversation_principal(client);
+    writer.close();
+    let _ = stream.shutdown(std::net::Shutdown::Both);
+    control.close();
+}
+
+/// The file roots a `sync.live` dial may sync under (none: this daemon serves no files).
+fn live_roots(service: Option<&FsService>) -> Vec<std::path::PathBuf> {
+    service
+        .map(|service| {
+            service.roots().canonical_paths().map(std::path::Path::to_path_buf).collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Serves a `sync.live` dial that arrived on a line connection of the local socket (the Cloud
+/// carrier's `mux-control` stream, as [`serve_local_projection`]): only a connection a data
+/// frame may use ([`native_dial_admits`]: no stamp, or the owner's) is served. Returns when the
+/// Mac closes the dial or it idles out.
+#[cfg(unix)]
+pub(super) fn serve_local_sync_live(
+    mux: &Arc<Mux>,
+    client: u64,
+    first: &str,
+    leftover: Vec<u8>,
+    stream: Box<dyn transport::Stream>,
+) {
+    let kind = {
+        let state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.get(&client).map(|record| record.native_vm_kind)
+    };
+    let service = crate::fs_ops::installed();
+    let allowed = transport_allows_fs(mux, client)
+        && kind.is_some_and(|kind| native_dial_admits(kind, first));
+    let roots = live_roots(service);
+    let refusal = if !allowed {
+        Some(("sync.denied", "this connection may not sync a folder"))
+    } else if roots.is_empty() {
+        Some(("sync.unavailable", "this machine does not serve live folder sync"))
+    } else {
+        None
+    };
+    if let Some((code, message)) = refusal {
+        let mut stream = stream;
+        crate::live_sync::refuse(&mut stream, first, code, message);
+        return;
+    }
+    let _ = stream.set_read_timeout(None);
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(60)));
+    let Ok(writer) = stream.try_clone_box() else { return };
+    let reader = std::io::Cursor::new(leftover).chain(stream);
+    crate::live_sync::serve_io(reader, writer, first, &roots);
+}
+
 /// Serves a projection's dial that arrived on a line connection of the local socket: the Cloud
 /// carrier opens each connection of the Mac as a `mux-control` stream to this socket (after its
 /// `carrier-role` stamp), so a dial whose line is `projection.serve` comes here, not to the
@@ -590,3 +699,7 @@ mod tests;
 #[cfg(test)]
 #[path = "fs_stream_tests.rs"]
 mod stream_tests;
+
+#[cfg(test)]
+#[path = "fs_wire_live_sync_tests.rs"]
+mod live_sync_tests;

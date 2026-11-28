@@ -148,6 +148,8 @@ cmux-computer-use = { workspace = true, features = ["server"] }
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# `sync.live` (live_sync.rs): the VM half of an AutoCloud chat's live two-way folder sync.
+cmux-live-sync.workspace = true
 # Idle terminal-host links wait on one shared poller, not a thread each (surface/idle_links.rs).
 mio.workspace = true
 # Projected folders (projection.rs): the manifest, the stream to the Mac and the mount.
@@ -178,6 +180,8 @@ cmux-sdk = { path = "../../bindings/rust", default-features = false }
 # An agent service in the test's process that serves the v2 list (acpmux's `test-support`
 # module, never in a shipped build): the list callers' recorded runs and v2.pr07c gates.
 acpmux = { path = "../acpmux", default-features = false, features = ["test-support"] }
+# The live sync test's leader (server/fs_wire_live_sync_tests.rs) takes its stop channel.
+crossbeam-channel.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),

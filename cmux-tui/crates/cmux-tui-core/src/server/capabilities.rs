@@ -265,6 +265,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != crate::projection::PROJECTION_CAPABILITY
             && *capability != crate::projection::PROJECTION_EXTEND_CAPABILITY
+            && *capability != crate::live_sync::CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -571,6 +572,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::blob_fetch::advertised());
     #[cfg(unix)]
     capabilities.extend(crate::projection::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::live_sync::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     #[cfg(unix)]

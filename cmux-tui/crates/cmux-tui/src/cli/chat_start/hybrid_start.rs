@@ -773,6 +773,11 @@ impl Drive for Live {
 
     fn pause_machine(&mut self) {
         let Some(machine) = self.machine.clone() else { return };
+        // Live sync with a paused machine would only redial it: it stops first.
+        #[cfg(unix)]
+        if let Err(error) = crate::link::live_stop_chat(&self.session) {
+            eprintln!("cmux chat start: stopping live sync of {}: {error:#}", self.session);
+        }
         let mut runner = cloud_start_chat::SelfRunner::new(&self.global);
         let paused = step_result(&runner.cmux(&pause_words(&machine)));
         println!("{}", json!({"paused": machine, "ok": paused.is_ok()}));

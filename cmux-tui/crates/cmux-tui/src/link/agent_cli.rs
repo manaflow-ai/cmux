@@ -407,6 +407,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     let _memo = super::machine_gate::Memo::open();
     match move_chat(&args, &mut clock) {
         Ok(moved) => {
+            live_after_move(&args, &moved.session_id);
             let mut line = json!({"ok": true, "session_id": moved.session_id,
                               "transfer_id": moved.transfer_id, "bytes": moved.bytes,
                               "pages": clock.pages, "resolved": moved.resolved});
@@ -432,6 +433,27 @@ pub(super) fn run(args: &[String]) -> i32 {
             println!("{line}");
             1
         }
+    }
+}
+
+/// Live two-way sync follows the chat (Leo: "we need to be able to toggle a chat on and off of
+/// autocloud"): a committed move stops the chat's live sync wherever it ran, and a move onto a
+/// machine (`--sync push|seed`, the folder copied to it) starts it there. A move home
+/// (`--sync pull`) leaves it off. The start runs on its own ([`super::sync_cli::live`]): its first
+/// catch-up never holds the move's answer, and a machine that cannot sync live is posted.
+fn live_after_move(args: &Args, session: &str) {
+    use super::sync_cli::live;
+    let stop = |what: &str, stopped: anyhow::Result<bool>| {
+        if let Err(error) = stopped {
+            eprintln!("cmux link agent move: stopping live sync ({what}): {error:#}");
+        }
+    };
+    stop(session, live::stop_chat(session));
+    for sync in &args.syncs {
+        stop(&sync.remote, live::stop_at(&sync.remote));
+    }
+    for sync in args.syncs.iter().filter(|s| matches!(s.way, Way::Push | Way::Seed)) {
+        live::start_detached(&sync.socket, &sync.local, &sync.remote, session);
     }
 }
 

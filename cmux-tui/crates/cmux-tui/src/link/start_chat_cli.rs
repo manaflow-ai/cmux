@@ -1391,6 +1391,23 @@ fn push(
         || project_first(socket, local, remote, chat),
         || super::seed_cli::push(socket, local, remote, Some(subpath)),
     )
+    .inspect(|pushed| live_after_copy(pushed, socket, local, remote, chat))
+}
+
+/// A chat whose folder was seeded or copied onto its machine syncs both ways live from then on
+/// (`cmux link live`, sync_cli/live.rs; Leo: "we need to be able to toggle a chat on and off of
+/// autocloud"). A projected folder does not: its files are read from this Mac on first use, and
+/// the live follower's first scan would read every one of them through the mount. Its start runs
+/// on its own and posts any failure.
+fn live_after_copy(pushed: &Value, socket: &Path, local: &Path, remote: &str, chat: &str) {
+    if pushed.get("mode").and_then(Value::as_str) == Some("projected") {
+        eprintln!(
+            "cmux link start-chat: {} is projected; live sync stays off for it (lazy reads)",
+            local.display()
+        );
+        return;
+    }
+    super::sync_cli::live::start_detached(socket, local, remote, chat);
 }
 
 /// The projection when `project` makes one, else `seed_or_copy`'s push: the head-first
@@ -1455,6 +1472,7 @@ fn push_seed_only(
         || project_first(socket, local, remote, chat),
         || super::seed_cli::push_seed_only(socket, local, remote, Some(subpath)),
     )
+    .inspect(|pushed| live_after_copy(pushed, socket, local, remote, chat))
 }
 
 /// What the copy's answer carries of the push's own line: how it went

@@ -242,6 +242,8 @@ cmux-file-lock.workspace = true
 cmux-install-check.workspace = true
 # Projected folders (link/sync_cli/project.rs): the manifest and the stream the machine reads through.
 cmux-projection.workspace = true
+# `cmux link live` (link/sync_cli/live.rs): the Mac half of an AutoCloud chat's live two-way sync.
+cmux-live-sync.workspace = true
 cmux-no-checkout.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
 cmux-vnc.workspace = true
