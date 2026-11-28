@@ -1,6 +1,6 @@
 package import CmuxNextActions
 package import CmuxNextCloud
-package import CmuxNextCloudStart
+import CmuxNextCloudStart
 import Foundation
 
 /// The named or automatic destination and the agent a Cloud session should open.
