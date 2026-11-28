@@ -534,7 +534,8 @@ another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), `listen
 teammate's agent address while its grant lets you), `memory` (the memory mount shared by your machines, ~/.cmux/memory), `succeed`
 (make a session the successor of ones that died or moved), `role` (claim `goal:SLUG`-style
 addresses), `exec-router` (where heavy commands like cargo ran and why: `acpmux exec-router trace`;
-`CMUX_EXEC_ROUTE=local|routed` forces a side), and `skill` (this guide).
+`CMUX_EXEC_ROUTE=local|routed` forces a side; `acpmux exec-router conformance` runs a fixed
+corpus both ways and compares exit, output and file tree), and `skill` (this guide).
 
 ## 8. Output
 
