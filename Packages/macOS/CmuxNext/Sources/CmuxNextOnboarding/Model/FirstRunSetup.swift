@@ -68,12 +68,18 @@ public final class FirstRunSetup {
     public var cardForm: CardForm? { shows ? .full : needsChiefAgent ? .chief : nil }
 
     /// Reads the agents once (the shared model's first read), so ``needsChiefAgent`` can answer.
-    /// Returns the Sign In a signed-out Chief turn's card offers (first-run findings N5): Chief's agent's login.
+    /// Returns the Sign In a signed-out Chief turn's card offers (first-run findings N5): Chief's agent's login on this
+    /// Mac, so nil for a Chief whose brain runs elsewhere (`here` false: a Cloud Chief on its paired server).
     @discardableResult
-    public func checkChiefAgent(source: (any AgentSignInSource)?) -> @MainActor () -> Void {
+    public func checkChiefAgent(source: (any AgentSignInSource)?, here: Bool = true) -> (@MainActor () -> Void)? {
         let model = agents(source: source)
         model.start()
-        return { [weak model] in model?.signInWhenFound(Self.chiefAgentID) }
+        guard here else { return nil }
+        return { [weak model] in
+            // A configured Claude route answers for Chief: this Mac's Claude Code sign-in is not what failed.
+            guard let model, model.source?.chiefUsesRoute != true else { return }
+            model.signInWhenFound(Self.chiefAgentID)
+        }
     }
 
     /// Hide on the Chief card: away for this launch; Chief's own reply still says what is missing.

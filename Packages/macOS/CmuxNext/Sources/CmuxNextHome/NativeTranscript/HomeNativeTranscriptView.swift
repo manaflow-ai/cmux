@@ -142,7 +142,7 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.onChiefRetry = newValue }
     }
     /// A signed-out Chief turn's card's Sign In (first-run findings N5): Chief's agent's login.
-    public var onChiefSignIn: (() -> Void)? {
+    public var onChiefSignIn: (@MainActor () -> Void)? {
         get { transcript.onChiefSignIn }
         set { transcript.onChiefSignIn = newValue }
     }
