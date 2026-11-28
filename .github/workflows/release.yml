@@ -165,6 +165,16 @@ jobs:
           CMUX_SPARKLE_MONOTONIC_MODE: ${{ startsWith(github.ref, 'refs/tags/') && 'enforce' || 'warn' }}
         run: ./tests/test_ci_sparkle_build_monotonic.sh
 
+      - name: Validate What's New for this version
+        # The version's CHANGELOG.md section is the What's New page
+        # (cmux.com/docs/changelog/<version>) and these notes. A tag push must not
+        # publish a release whose section is missing, empty or has placeholders,
+        # nor one that fails scripts/whats-new/validate.py once that exists here.
+        # Same mode split as the Sparkle step: a dry run only warns.
+        env:
+          CMUX_WHATS_NEW_GATE_MODE: ${{ startsWith(github.ref, 'refs/tags/') && 'enforce' || 'warn' }}
+        run: python3 scripts/release_whats_new_gate.py
+
       - name: Guard immutable release assets
         id: guard_release_assets
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

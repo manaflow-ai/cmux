@@ -611,6 +611,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_release_changelog_lines.py
 
+      - name: Test the release What's New gate
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_release_whats_new_gate.py
+
       - name: Test the PR media uploader
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_pr_media.py
