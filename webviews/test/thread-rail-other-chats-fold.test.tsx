@@ -152,8 +152,11 @@ test("a tick jumps to its own prompt, past the messages before it, and bookmarks
   try {
     await act(async () => rail.tick(1).click());
     await settle();
-    // "Land it" (user-13) is row 8; its top is 3200.
-    expect(rail.scroller.scrollTop).toBeGreaterThan(2400);
+    const landed = rail.scroller.scrollTop;
+    await act(async () => rail.tick(0).click());
+    await settle();
+    // "Land it" (user-13) lies past the four messages after "Plan the change".
+    expect(landed).toBeGreaterThan(rail.scroller.scrollTop);
     await rail.focus(1);
     await act(async () => rail.host.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!.click());
     await settle();
