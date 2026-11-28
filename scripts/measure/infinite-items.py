@@ -231,12 +231,36 @@ def file_groups(disks):
 KERNEL_MAPPINGS = {"[vdso]", "[vvar]", "[vsyscall]", "[uprobes]"}
 
 
+# The largest PROT_NONE mapping below a stack that still reads as its guard page.
+STACK_GUARD_MAX = 64 << 10
+
+
+def thread_stack_pointers(pid):
+    """Each thread's user stack pointer, from /proc/PID/task/TID/syscall (a thread blocked in a syscall, as an idle one
+    is): the second-to-last field. Empty where the kernel refuses the read."""
+    sps = []
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return sps
+    for tid in tids:
+        try:
+            with open(f"/proc/{pid}/task/{tid}/syscall") as f:
+                fields = f.read().split()
+            if len(fields) >= 3:
+                sps.append(int(fields[-2], 16))
+        except (OSError, ValueError):
+            continue
+    return sps
+
+
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
-    where a role's per-process memory sits. Anonymous memory is split three ways: a thread's stack (the mapping
-    above a guard page), a malloc arena (glibc maps each at a 64 MB boundary) and the rest."""
+    where a role's per-process memory sits. Anonymous memory is split three ways: a malloc arena (glibc maps each at a 64 MB boundary), a
+    thread's stack (the mapping a thread's stack pointer is in, or one above a guard page) and the rest."""
     kinds, name = {}, None
-    prev_end, prev_guard = None, False
+    prev_end, prev_guard = None, 0
+    sps = thread_stack_pointers(pid)
     try:
         exe = os.path.realpath(f"/proc/{pid}/exe")
         with open(f"/proc/{pid}/smaps") as f:
@@ -245,8 +269,13 @@ def smaps_kinds(pid):
                 if head and "-" in head[0] and not head[0].endswith(":"):
                     path = head[5] if len(head) > 5 else ""
                     start, end = (int(x, 16) for x in head[0].split("-"))
-                    anon = ("thread-stack" if prev_guard and prev_end == start else
-                            "arena" if start % (64 << 20) == 0 else "anon")
+                    # The arena test first: glibc maps arenas side by side, each one's writable start on a 64 MB
+                    # boundary right after the previous arena's PROT_NONE tail, which reads as a guard page too.
+                    # A guard is a page or two (glibc's default, Rust's); an allocator's reserved tail (a mimalloc
+                    # segment's, a glibc arena's) is far larger, and the mapping above it is heap, not a stack.
+                    anon = ("arena" if start % (64 << 20) == 0 else
+                            "thread-stack" if any(start <= sp < end for sp in sps) else
+                            "thread-stack" if 0 < prev_guard <= STACK_GUARD_MAX and prev_end == start else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
                             "stack" if path.startswith("[stack") else anon if not path else
                             "vdso" if path in KERNEL_MAPPINGS or path.startswith("[vvar") else
@@ -254,7 +283,7 @@ def smaps_kinds(pid):
                             # allocator's heap, mimalloc's arenas above all, not the kernel's pages.
                             "heap:" + path[6:-1] if path.startswith("[anon:") else
                             anon if path.startswith("[") else "file:" + os.path.basename(path))
-                    prev_end, prev_guard = end, not path and head[1].startswith("---")
+                    prev_end, prev_guard = end, (end - start) if not path and head[1].startswith("---") else 0
                 elif head and head[0] == "Pss:" and name:
                     kinds[name] = kinds.get(name, 0) + int(head[1])
     except (OSError, ValueError, IndexError):
@@ -262,11 +291,24 @@ def smaps_kinds(pid):
     return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:8])
 
 
+# The running count's tui.log, where idle_window counts registry commits per thread.
+TUI_LOG = []
+
+
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
+    log_at = os.path.getsize(TUI_LOG[0]) if TUI_LOG and os.path.exists(TUI_LOG[0]) else None
     time.sleep(seconds)  # sleep-ok: the idle window itself, the span CPU and wakeups are measured over
     after = snapshot(top)
+    commits = {}
+    if log_at is not None:
+        with open(TUI_LOG[0], "rb") as f:
+            f.seek(log_at)
+            for line in f.read(64 << 20).decode(errors="replace").splitlines():
+                m = re.search(r"registry-commit thread=(\S+)", line)
+                if m:
+                    commits[m.group(1)] = commits.get(m.group(1), 0) + 1
     roles = {}
     for pid, s in after.items():
         r = roles.setdefault(s["role"], {"count": 0, "threads": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0,
@@ -318,7 +360,7 @@ def idle_window(top, seconds, disks):
     for r in roles.values():
         r["pss_mb"] = round(r.pop("pss") / 1048576, 2)
         r["rss_mb"] = round(r.pop("rss") / 1048576, 2)
-    return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks)}
+    return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks), "commits": commits, "window": seconds}
 
 
 # ------------------------------------------------------------------ sockets
@@ -415,6 +457,9 @@ class Run:
             ACPMUX_UNUSED_EXIT_SECS="0",
             ACPMUX_SESSION_CPU_CLASS="normal",
             CMUX_TUI_CONFIG=os.path.join(self.tui_root, "config.json"),
+            # Each registry commit logs its thread to tui.log (workspace_registry/wal_durability.rs): idle_window
+            # counts them, naming the writer behind the syncer's idle wakeups.
+            CMUX_TUI_DEBUG_COMMIT_THREADS="1",
         )
         # The terminal model under test, never the caller's: the product default (a host per terminal),
         # a host per terminal, or the holder.
@@ -448,7 +493,8 @@ class Run:
                                    start_new_session=True)
         self.procs.append(acp)
         self.wait_for(lambda: '"ready":true' in open(ready).read().replace(" ", ""), acp, "acpmux ready")
-        with open(os.path.join(self.root, "tui.log"), "w") as log_file:
+        TUI_LOG[:] = [os.path.join(self.root, "tui.log")]
+        with open(TUI_LOG[0], "w") as log_file:
             tui = subprocess.Popen([self.args.tui, "--headless", "--session", f"inf{os.getpid()}-{self.count}",
                                     "--socket", self.tui_sock, "--state", os.path.join(self.tui_root, "state"),
                                     # The app's owner reaps a closed tab's terminal after its grace (30 s,
@@ -831,6 +877,11 @@ ROWS = []  # every PERF_ROW, printed again at the end as one {"rows": [...]} rep
 
 
 def perf_row(name, value, unit, floor=None):
+    # --row-arm ARM names the rows infinite_items.ARM.nN.* so a second arm (the all-live one, --lazy-start=off) sits
+    # beside the product arm's infinite_items.nN.* rows in one report instead of replacing them.
+    arm = getattr(ARGS, "row_arm", "") if ARGS is not None else ""
+    if arm and name.startswith("infinite_items."):
+        name = f"infinite_items.{arm}." + name[len("infinite_items."):]
     row = {"name": name, "p50": round(value, 4), "p95": round(value, 4), "unit": unit}
     if floor is not None:
         row["floor"] = floor
@@ -961,6 +1012,8 @@ def report(results):
             t_ = s["total"]
             print(f"INFINITE-DAY {n} day={s['day']} mb={t_['pss_mb']} cpu={t_['cpu_pct']} wk={t_['wakeups_per_s']} "
                   f"procs={t_['procs']} thr={t_.get('threads')} fds={t_['fds']} disk={json.dumps(s['disk'])}", flush=True)
+            print(f"INFINITE-COMMITS {n} day={s['day']} per_s={round(sum(s.get('commits', {}).values()) / max(1, s.get('window', 1)), 2)} "
+                  f"by_thread={json.dumps(dict(sorted(s.get('commits', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
             for k, v in (sorted(s["roles"].items()) if s is r["samples"][0] or s is r["samples"][-1] else []):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
@@ -1064,8 +1117,13 @@ def main():
                    help="after the last sample, ask a dhat-heap acpmux to write its profile (_acpmux/heap_profile)")
     p.add_argument("--heap-profile-at", type=float, default=0.0,
                    help="a Unix time at which to ask for the heap profile even if the run has not ended (dhat is slow)")
+    p.add_argument("--row-arm", default="",
+                   help="name this arm's PERF_ROWs infinite_items.ARM.nN.* (e.g. all_live with --lazy-start=off), so "
+                        "perf-cron keeps them beside the product arm's infinite_items.nN.* rows; empty (default): no arm")
     p.add_argument("--out")
     args = p.parse_args()
+    if args.row_arm and not re.fullmatch(r"[a-z0-9_]+", args.row_arm):
+        raise SystemExit(f"infinite-items: --row-arm takes [a-z0-9_]+, not {args.row_arm!r}")
     args.dhat_mark_days = sorted({int(d) for d in args.dhat_mark_days.split(",") if d})
     global ARGS
     ARGS = args

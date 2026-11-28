@@ -342,8 +342,61 @@ impl Drop for Daemon {
             .env("HOME", self.dir.join("home"))
             .env("ACPMUX_HOME", self.dir.join("acpmux"))
             .output();
+        // A stop that failed (a binary relinked mid-run refuses `--end-terminals`)
+        // left the server, its acp daemon and that daemon's `codex app-server`
+        // model probes running; once the home is gone nothing can reach them.
+        // gcp-agent-lane-2, 2026-11-22: 46 such trees lived 126 h under
+        // `systemd --user` (hq docs/findings/2026-11-24-test-daemon-probe-orphans.md).
+        end_processes_of_home(&self.dir);
         let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+/// SIGKILL every process of this user that belongs to the test home `dir`:
+/// its environment names a path inside `dir` (HOME, ACPMUX_HOME, the socket),
+/// or its cwd lies there. The home's name carries this test's pid and a
+/// nanosecond stamp, so only processes this test started match. Linux only
+/// (`/proc`); elsewhere the stop commands above are all there is.
+fn end_processes_of_home(dir: &std::path::Path) {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let prefix = dir.as_os_str().as_bytes();
+        let inside = |path: &[u8]| {
+            path.starts_with(prefix) && matches!(path.get(prefix.len()), None | Some(b'/'))
+        };
+        // SAFETY: getuid(2) and getpid(2) have no preconditions.
+        let (uid, me) = unsafe { (libc::getuid(), libc::getpid()) };
+        for _pass in 0..3 {
+            let mut found = false;
+            for entry in fs::read_dir("/proc").into_iter().flatten().flatten() {
+                let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse::<i32>().ok())
+                else {
+                    continue;
+                };
+                if pid == me || !entry.metadata().is_ok_and(|m| m.uid() == uid) {
+                    continue;
+                }
+                let env = fs::read(entry.path().join("environ")).unwrap_or_default();
+                let named = env.split(|b| *b == 0).any(|var| {
+                    var.iter().position(|b| *b == b'=').is_some_and(|eq| inside(&var[eq + 1..]))
+                });
+                let cwd = fs::read_link(entry.path().join("cwd"))
+                    .is_ok_and(|cwd| inside(cwd.as_os_str().as_bytes()));
+                if named || cwd {
+                    found = true;
+                    // SAFETY: kill(2) of a process this test's home started.
+                    unsafe { libc::kill(pid, libc::SIGKILL) };
+                }
+            }
+            if !found {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = dir;
 }
 
 #[test]
@@ -659,6 +712,7 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     assert!(capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
     // A Codex credential's provider reaches app-server here (cmux#45774): the app updates a machine without it.
     assert!(capabilities.contains("agent-session-start-codex-credentials-v1"), "{identity}");
+    assert!(capabilities.contains("agent-session-start-endpoint-credentials-v1"), "{identity}");
     let surface = owner.own_agent_tab();
     let refused = start(&owner, surface, "fcx", None);
     assert_eq!(refused["error_code"], "agent_session.host_unverified", "{refused}");
@@ -680,6 +734,7 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(!capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
     assert!(!capabilities.contains("agent-session-start-codex-credentials-v1"), "{identity}");
+    assert!(!capabilities.contains("agent-session-start-endpoint-credentials-v1"), "{identity}");
     let surface = ssh.own_agent_tab();
     let refused = start(&ssh, surface, "fcx", Some("owner"));
     assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");
