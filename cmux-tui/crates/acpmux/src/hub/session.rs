@@ -62,13 +62,13 @@ pub struct Session {
     pub(super) child: Mutex<Option<Arc<ChildAgent>>>,
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
-    pub(super) spawn_lock: Mutex<()>,
+    pub(super) spawn_lock: Arc<Mutex<()>>,
     pub(super) fork_lock: Mutex<()>,
     /// Serializes close/purge with transfer retirement before an ID can be reused.
     pub(super) close_lock: Mutex<()>,
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
     /// change); the idle pass takes it exclusively while it lists and ends the harness.
-    pub(super) harness_use: tokio::sync::RwLock<()>,
+    pub(super) harness_use: Arc<tokio::sync::RwLock<()>>,
     /// The hub clock's time of the last log of why the idle harness stays up (`idle_census.rs`).
     pub(super) idle_refusal_logged: AtomicU64,
     pub(super) seq: AtomicU64,
@@ -320,6 +320,10 @@ pub struct Session {
     /// period instead of the idle one; its next prompt starts it on what is installed then.
     /// Cleared with `profile_respawn`, when its agent ends or starts.
     pub(super) respawn_when_quiet: AtomicBool,
+    /// Whether a retry must wait for the replacement environment before sending. Stale binary
+    /// and profile refreshes are opportunistic; credential, route and proxy changes are required
+    /// so a continuation must not reuse the old child for them.
+    pub(super) respawn_required: AtomicBool,
     /// The chat's inbound channel, made at its first use ([`Session::inbound_channel`]): a chat
     /// loaded from the store that no agent ever started holds none (goals/infinite-items-flat).
     pub(super) inbound: std::sync::OnceLock<InboundChannel>,
@@ -433,6 +437,9 @@ pub struct Session {
     pub(super) stop_respawn: AtomicU64,
     /// How many taps `Hub::session_tap` made for it; each tap knows its number.
     pub(super) taps: AtomicU64,
+    /// The number of the last tap that logged a line the agent wrote (a `claude.*` line):
+    /// a sandboxed agent that writes none fails its start (`remote_start_bound.rs`).
+    pub(super) raw_line_tap: AtomicU64,
     /// Taps numbered up to this one belong to an agent a Stop ended (`cancel.rs`): what they
     /// still log is no sign of work (no `heard`, no unstick, no tool state).
     pub(super) muted_taps: AtomicU64,
