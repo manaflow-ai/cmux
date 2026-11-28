@@ -183,6 +183,7 @@ impl RelayLease {
     /// lease once it runs, and until then the mark says it is coming ([`refreshing`]), so the next
     /// `ls` neither starts a second one nor waits on the relay. The refresh, or the mark's bound,
     /// clears it.
+    #[cfg_attr(test, allow(dead_code))]
     fn hand_off(mut self) {
         self.marker = None;
     }
@@ -557,8 +558,9 @@ fn refresh_detached(cache: &Path) {
                 "refreshes the relay cache after this ls exits; its relay child is killed at send_relay::LS_DEADLINE",
             );
             lease.hand_off();
+        } else {
+            drop(lease);
         }
-        drop(lease);
     }
     // This process is the test binary, so no child runs: the lease stands for the child's,
     // held (with its mark) for as long as that read would run, here the rest of the test.
