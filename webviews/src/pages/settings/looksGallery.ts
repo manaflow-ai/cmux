@@ -2,8 +2,18 @@
 // catalog, the previews, the stack and every write (`cmux setup gallery|preview|install|remove|on|
 // off|order`); this reads its answers, says its consent card in the page's words, and works out the
 // one list `order` takes.
+import { LOOK_BUNDLES } from "../onboarding/walk";
 import type { LookConsentCard, LooksGallery, LookPreview } from "./ops";
 import { t } from "./strings";
+
+/** The gallery id of the look we root for: the intro walk's `pick` bundle (onboarding/walk.ts), whose
+ * catalog entry is `manaflow-ai/ID-look` (cmux-customize setup/looks.json). One flag, both surfaces:
+ * the walk's tile and this card's both wear "Our pick". Leo, 2026-11-28: "we need to have at least
+ * SOMETHING you root for". */
+export const PICK_LOOK_ID: string | null = (() => {
+  const pick = LOOK_BUNDLES.find((bundle) => bundle.pick);
+  return pick ? `manaflow-ai/${pick.id}-look` : null;
+})();
 
 /** What one `cmux.settings.looks` answer means: the verb's JSON, the consent card an install
  * without `yes` answers (nothing changed yet), or a refusal in the CLI's own words. */

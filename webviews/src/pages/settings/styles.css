@@ -3918,6 +3918,26 @@ button.menu-disclosure {
   min-width: 0;
 }
 
+/* "Our pick": the intro walk's quiet tag (onboarding .onb-make-badge), beside the name. */
+.looks-tile-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.looks-pick {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: color-mix(in srgb, var(--ds-color-accent) 12%, transparent);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+}
+
 .looks-tagline {
   display: -webkit-box;
   overflow: hidden;
