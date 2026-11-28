@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.tailnet.connectHelp" : {
+      "comment" : "Settings > Tailscale Cloud machines: what Connect Your Tailnet does.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "One stable cmux device on your tailnet, with Tailscale SSH. Your vault keeps it, so it moves with your work from machine to machine."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
