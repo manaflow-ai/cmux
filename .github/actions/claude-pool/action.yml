@@ -32,9 +32,19 @@ runs:
       id: fresh
       shell: bash
       run: |
-        if pgrep -x tailscaled >/dev/null 2>&1 || pgrep -f 'Tailscale.app|io.tailscale.ipn|IPNExtension' >/dev/null 2>&1; then
+        # A fleet host's runner (hetzner-N-M, gcp-agent-lane-N, fs-agent-lane-N) shares the host's tailscaled: a join
+        # re-ups the host's node as github-HOST under tag:ci and the post step logs it out (hetzner-2, 2026-11-28).
+        # pgrep alone misses a daemon the runner user cannot see (hidepid /proc, another PID namespace), so the
+        # socket and `tailscale status` count too, and the runner name settles it before any probe.
+        found=""
+        case "${RUNNER_NAME:-}" in hetzner-*|gcp-agent-lane-*|fs-agent-lane-*) found="fleet host runner $RUNNER_NAME" ;; esac
+        if [ -z "$found" ] && pgrep -x tailscaled >/dev/null 2>&1; then found="a tailscaled process"; fi
+        if [ -z "$found" ] && pgrep -f 'Tailscale.app|io.tailscale.ipn|IPNExtension' >/dev/null 2>&1; then found="the Tailscale app"; fi
+        if [ -z "$found" ] && { [ -S /var/run/tailscale/tailscaled.sock ] || [ -S /run/tailscale/tailscaled.sock ]; }; then found="a tailscaled socket"; fi
+        if [ -z "$found" ] && command -v tailscale >/dev/null 2>&1 && tailscale status --json >/dev/null 2>&1; then found="a running Tailscale backend"; fi
+        if [ -n "$found" ]; then
           echo "join=false" >> "$GITHUB_OUTPUT"; echo "probe=true" >> "$GITHUB_OUTPUT"
-          echo "runner already runs Tailscale: no join, probing the pool through it"
+          echo "runner already runs Tailscale ($found): no join, probing the pool through it"
         elif [ -n "$CLIENT_ID" ]; then
           echo "join=true" >> "$GITHUB_OUTPUT"; echo "probe=true" >> "$GITHUB_OUTPUT"
         else
@@ -44,7 +54,7 @@ runs:
       env:
         CLIENT_ID: ${{ inputs.oauth-client-id }}
     - name: Join tailnet as tag:ci
-      if: steps.fresh.outputs.join == 'true'
+      if: steps.fresh.outputs.join == 'true' && !startsWith(runner.name, 'gcp-agent-lane-') && !startsWith(runner.name, 'hetzner-') && !startsWith(runner.name, 'fs-agent-lane-')
       uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
       with:
         oauth-client-id: ${{ inputs.oauth-client-id }}
