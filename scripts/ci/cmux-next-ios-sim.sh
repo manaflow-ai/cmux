@@ -774,6 +774,10 @@ cleanup() {
       (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip) || result=1
     fi
   fi
+  # try: a host that could not set up (exit 3) is no verdict on the head. cmux-next-ios-try-ahead.yml hands the
+  # verdict to the controller (report_check.go), which posts 69 as neutral and 3 as failure, and the picker
+  # (try.sh list) would then call a head that builds "failed".
+  if [[ "$mode" == try && "$result" == 3 ]]; then result=69; fi
   if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" || "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}" == 1 ]]; then
     python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "$result" || result=1
   fi
