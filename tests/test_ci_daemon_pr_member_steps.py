@@ -11,8 +11,9 @@ keeps that whole:
 2. every tracked file of the member, and of every fixture directory or file its cmux_next_ tests name outside it
    (include_str!/include_bytes! paths and CARGO_MANIFEST_DIR-relative paths), is matched by one of the step's inputs;
 3. the member's targets (cmux-next-daemon-test-packages.sh MEMBER_DIR) are `-p MEMBER` and a part of the gate's;
-4. cmux-next-idle-wakeups, the gate's idle daemon tests, is a land_gate step: it runs on a landing head whose change
-   reaches the daemon's idle paths (cmux#47027's cmux-tui-core-only change among them), on a target of the gate's.
+4. cmux-next-idle-wakeups, the gate's idle daemon tests, is RFD 0023 tier B (no land_gate, 2026-11-28): a landing head
+   does not run it, the post-merge gate does; a push or full tier head whose change reaches the daemon's idle paths
+   (cmux#47027's cmux-tui-core-only change among them) does, on a target of the gate's.
 
 Run: python3 -I tests/test_ci_daemon_pr_member_steps.py
 """
@@ -149,24 +150,28 @@ CULPRIT_47027 = [
 ]
 
 
-class IdleWakeupsLandGate(unittest.TestCase):
+class IdleWakeupsStep(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.table = ci_steps.load()
         cls.step = cls.table.steps[IDLE_STEP]
 
-    def test_it_is_a_blocking_land_gate_step(self) -> None:
+    def test_it_is_a_blocking_push_tier_step_off_the_landing_head(self) -> None:
+        # RFD 0023 tier B: the post-merge gate (cmux-next-daemon-tests) runs these tests once per merge. Leo,
+        # 2026-11-28: "de facto, im asking for 99% fewer minutes of ci time, period."
         step = self.step
         self.assertEqual(step.job, "linux")
-        self.assertTrue(step.land_gate and step.blocks and step.alone)
+        self.assertEqual(step.tier, "push")
+        self.assertFalse(step.land_gate)
+        self.assertTrue(step.blocks and step.alone)
         self.assertEqual(set(step.needs), {"rust", "zig"})
         self.assertIn(f"{RUNNER} crates/cmux-tui it idle_wakeups::cmux_next_", step.run)
 
-    def test_a_landing_head_that_reaches_the_daemon_runs_it(self) -> None:
+    def test_a_landing_head_does_not_run_it(self) -> None:
         gates = lambda paths: ci_steps.nightly_gate_steps(self.table, paths, ["linux"])  # noqa: E731
-        self.assertIn(IDLE_STEP, gates(CULPRIT_47027))
-        self.assertIn(IDLE_STEP, gates([IDLE_FILE]))
-        self.assertIn(IDLE_STEP, gates(["cmux-tui/Cargo.lock"]))
+        self.assertNotIn(IDLE_STEP, gates(CULPRIT_47027))
+        self.assertNotIn(IDLE_STEP, gates([IDLE_FILE]))
+        self.assertNotIn(IDLE_STEP, gates(["cmux-tui/Cargo.lock"]))
         self.assertNotIn(IDLE_STEP, gates(["docs/x.md"]))
         self.assertNotIn(IDLE_STEP, gates(["cmux-tui/crates/cmux-tui-core/README.md"]))
         self.assertNotIn(IDLE_STEP, gates(["cmux-tui/crates/acpmux/src/lib.rs"]))

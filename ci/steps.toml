@@ -3683,20 +3683,21 @@ python3 -I tests/test_ci_daemon_pr_member_steps.py
 scripts/ci/cmux-next-member-tests.sh crates/cmux-tui
 '''
 
-# The idle daemon tests of the post-merge gate (cmux-tui tests/idle_wakeups.rs, `idle_wakeups::cmux_next_*`), on the
-# pull request and on its landing head. cmux#47027 (2026-11-26) added a git HEAD watch in cmux-tui-core whose inotify
+# The idle daemon tests of the post-merge gate (cmux-tui tests/idle_wakeups.rs, `idle_wakeups::cmux_next_*`), on a
+# pull request's push or full tier head. cmux#47027 (2026-11-26) added a git HEAD watch in cmux-tui-core whose inotify
 # events woke the idle daemon: it changed only cmux-tui-core, so cmux-next-tui above did not route, and as a landing
 # head of the affected tier it started no pr-pipeline.yml job at all (`cheap tier: starts when ready-to-land`). The
 # gate (cmux-next-daemon-tests, cmux-tui-artifacts.yml) found it after the merge, and the feat-cmux-next channel held
 # until #62585. Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
-# land_gate: it runs on a landing head whose change reaches the daemon's idle paths (every input kept, `**` too): the
-# daemon and its core, the settings and usage-pattern watchers the tests name, and the workspace manifests (a notify
-# bump). The `it` binary only, from the gate's saved target (cmux-next-member-tests.sh), so only what the change
-# touched compiles; nothing on a change that reaches none of these.
+# RFD 0023 tier B since 2026-11-28 (no land_gate): on a landing head it cost up to 45 min on each of 161 merges a day
+# (the 24 h before), and the same tests run once post-merge in cmux-next-daemon-tests, which caught cmux#47027. Leo,
+# 2026-11-28: "de facto, im asking for 99% fewer minutes of ci time, period." It still runs on a push or full tier
+# head whose change reaches the daemon's idle paths (every input kept, `**` too): the daemon and its core, the
+# settings and usage-pattern watchers the tests name, and the workspace manifests (a notify bump). The `it` binary
+# only, from the gate's saved target (cmux-next-member-tests.sh), so only what the change touched compiles.
 [step.cmux-next-idle-wakeups]
 job = "linux"
 tier = "push"
-land_gate = true
 alone = true
 timeout = 2700
 title = "cmux_next_ idle daemon tests (idle_wakeups)"

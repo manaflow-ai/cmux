@@ -279,7 +279,7 @@ class NightlyGateTest(unittest.TestCase):
             with self.subTest(name):
                 self.assertTrue(steps[name].nightly)
                 # The land_gate steps a path also routes run beside the nightly's (next-state-roots scans
-                # scripts/cmux-next/*.sh for Classic ids; cmux-next-idle-wakeups reads Cargo.lock, cmux#63822): only
+                # scripts/cmux-next/*.sh for Classic ids): only
                 # the steps with a nightly twin are the nightly's causes.
                 self.assertEqual([n for n in ci_steps.nightly_gate_steps(ci_steps.load(), paths)
                                   if steps[n].nightly], [name])
@@ -307,8 +307,8 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
-        # Cargo.lock also reaches the idle daemon tests (cmux-next-idle-wakeups, a land_gate step).
-        self.assertEqual(only, ["web-typecheck", "cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"])
+        # The idle daemon tests (cmux-next-idle-wakeups) read Cargo.lock but are tier B since 2026-11-28: post-merge.
+        self.assertEqual(only, ["web-typecheck", "rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "rust-notices"]))
@@ -391,11 +391,10 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
                 # A crate's Rust source also reaches the persisted-formats registry, next-state-roots and the
-                # spawn-owner ratchet (#64665) (land_gate steps on every cmux-tui/crates/*/src .rs); Cargo.lock reaches
-                # the idle daemon tests.
+                # spawn-owner ratchet (#64665) (land_gate steps on every cmux-tui/crates/*/src .rs).
                 expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
                                 ["persisted-formats", "next-state-roots", "next-spawn-owner-ratchet", "phone-speed-icount"],
-                            "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]
+                            "cmux-tui/Cargo.lock": ["rust-notices", "phone-speed-icount"]
                             }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
 
