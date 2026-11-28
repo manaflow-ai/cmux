@@ -1,0 +1,29 @@
+name: cmux NEXT pair-e2e on an ephemeral macOS VM (staging agent account)
+
+# The implementation lives on feat-cmux-next. GitHub dispatches only a workflow the default branch
+# registers, so this inert copy lets main's nightly (cmux-next-pair-e2e-reconnect-nightly.yml) and lanes run:
+#
+#   gh workflow run cmux-next-pair-e2e-vm.yml -R manaflow-ai/cmux --ref feat-cmux-next -f ref=feat-cmux-next
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win; these inputs only mirror them.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The branch, tag or commit to test (it must carry scripts/ci/cmux-next-ios-sim.sh pair-e2e)
+        required: true
+        type: string
+      words:
+        description: pair-e2e words for cmux-next-ios-sim.sh, e.g. reconnect-drops=10,60
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  registration:
+    timeout-minutes: 5
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    steps:
+      - run: echo "pair-e2e is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"
