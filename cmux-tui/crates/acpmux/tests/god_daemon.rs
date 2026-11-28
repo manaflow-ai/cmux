@@ -681,7 +681,27 @@ impl Daemon {
         (field(14) + field(15)) as f64 / hz as f64
     }
 
+    /// The daemon's physical footprint now and its lifetime peak, in bytes (`proc_pid_rusage`):
+    /// what Activity Monitor shows as Memory, so the ladder measures on a Mac too.
+    #[cfg(target_os = "macos")]
+    fn rss(&self) -> (u64, u64) {
+        let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+        // SAFETY: `info` is a valid, writable rusage_info_v4 and the flavor names that layout.
+        let rc = unsafe {
+            libc::proc_pid_rusage(
+                self.child.id() as libc::c_int,
+                libc::RUSAGE_INFO_V4,
+                (&mut info as *mut libc::rusage_info_v4).cast(),
+            )
+        };
+        if rc != 0 {
+            return (0, 0);
+        }
+        (info.ri_phys_footprint, info.ri_lifetime_max_phys_footprint)
+    }
+
     /// `VmRSS` and `VmHWM` of the daemon, in bytes.
+    #[cfg(not(target_os = "macos"))]
     fn rss(&self) -> (u64, u64) {
         let status = std::fs::read_to_string(format!("/proc/{}/status", self.child.id()))
             .unwrap_or_default();
