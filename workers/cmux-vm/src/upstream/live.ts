@@ -30,7 +30,8 @@ import {
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
 import { awaitBackground, BACKGROUND_AFTER_HEADER, BACKGROUND_AFTER_SECS, DEFAULT_BACKGROUND_POLL_MS } from "./live-background.ts";
-import { timedUpstream, timedUpstreamBody } from "./timing.ts";
+import { timedStep, timedUpstream, timedUpstreamBody } from "./timing.ts";
+import { afterResponse } from "../db/sql.ts";
 
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),
@@ -258,8 +259,12 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
 
     startVm: (_vm, { owns }, priority) => Effect.gen(function* () {
       const id = yield* idOf(owns);
-      const release = yield* admitSend(config.createAdmission, `start:${crypto.randomUUID()}`, undefined, priority?.background === true, priority?.tenant);
-      return yield* vmAction("startVm", id, "start").pipe(Effect.ensuring(release));
+      const admit = admitSend(config.createAdmission, `start:${crypto.randomUUID()}`, undefined, priority?.background === true, priority?.tenant);
+      const release = yield* (config.createAdmission === undefined ? admit : timedStep("admit", admit));
+      // The slot goes back after the answer (waitUntil), not before it: the release was a second round trip to the
+      // environment's one queue object on every start's response path (cmuxterm-hq goals/cloud-resume-gap.md). A
+      // slot held a few ms longer only delays the next waiter by as much; its lease still bounds a lost release.
+      return yield* vmAction("startVm", id, "start").pipe(Effect.ensuring(afterResponse(release)));
     }),
 
     pauseVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => vmAction("pauseVm", id, "pause")),

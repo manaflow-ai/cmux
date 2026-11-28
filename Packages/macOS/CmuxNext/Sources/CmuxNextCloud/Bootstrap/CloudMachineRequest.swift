@@ -61,6 +61,12 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// a Retry after that attempt was cancelled mid-answer may find the request running, its feed item
     /// closed, and waits for it like an answered one.
     public var answeringRequest: String?
+    /// The same create as a new one: a new key, with no team, route or approval (Rust `create_flow::change_key`'s `renew`), for a
+    /// create the server refused outright whose contract asks again with a new key (``CloudStartCore/createMachineGoneRetries(_:attempt:)``).
+    public var renewed: CloudMachineRequest {
+        var next = self; next.idempotencyKey = UUID().uuidString
+        (next.wasSent, next.team, next.approvedRequest, next.answeringRequest) = (false, nil, nil, nil); return next
+    }
     /// The loaded bootstrap (``loadScript(work:)``), started by the create itself once the machine
     /// exists, so the creation's Retry starts it too.
     public var script: CloudMachineBootstrap?

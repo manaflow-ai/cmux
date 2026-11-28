@@ -275,15 +275,45 @@ extension CloudWait {
     /// carrier rebound it (`connect …/cmux-link-….sock failed: No such file or directory`, start matrix run 42125025387),
     /// or a fresh connection's first request got no reply (Rust `wait::link_dropped` decides from the timed-out request).
     public nonisolated static func linkDropped(_ error: any Error) -> Bool {
-        struct Failure: Encodable { var kind: String, code: Int32?, what: String? }
         struct Reply: Decodable { var dropped: Bool }
-        let failure = switch error {
-        case DaemonError.connectionClosed: Failure(kind: "connectionClosed", code: nil, what: nil)
-        case DaemonError.connectFailed(_, let code): Failure(kind: "connectFailed", code: code, what: nil)
-        case DaemonError.timedOut(let what): Failure(kind: "timedOut", code: nil, what: what)
-        default: Failure(kind: "other", code: nil, what: nil)
+        return CloudMoveCore().call("link_dropped", StartFailure(error), as: Reply.self)?.dropped ?? false
+    }
+
+    /// Whether a start's failure says the link the app still holds is stale (Rust `wait::link_stale`): a fresh
+    /// connection's first request got no reply. A relink for it drops that link and waits for a new one, since a wait
+    /// for "a link is up" answers at once with the dead one (``retriedOnce(_:closed:relinkAfter:)``).
+    public nonisolated static func linkStale(_ error: any Error) -> Bool {
+        struct Reply: Decodable { var stale: Bool }
+        return CloudMoveCore().call("link_stale", StartFailure(error), as: Reply.self)?.stale ?? false
+    }
+
+    /// A start's relink after its failure (``retriedOnce(_:closed:relinkAfter:)``). A stale link (``linkStale(_:)``: a
+    /// fresh connection's first request got no reply) is still held as connected, so a wait for "a link is up" answered
+    /// at once and the one more try dialed the same dead link (cosmic-gray 2026-11-27, 2 AutoCloud starts: "started but
+    /// its agent didn't (timed out: identify (no progress for 10.0 s))"). That LINK is dropped (DROP, as after an update
+    /// that restarted the daemon) and this waits, up to ``relinkWait``, for the connection that replaces it (or a
+    /// REFUSED link) before UP, the usual wait. Any other failure: UP alone.
+    public static func relinked(after error: any Error, link: @escaping @MainActor @Sendable () -> AnyObject?,
+                                drop: () -> Void, refused: @escaping @MainActor @Sendable () -> Bool,
+                                up: () async -> Bool) async -> Bool {
+        if linkStale(error), let stale = link() {
+            drop()
+            _ = await holds(within: relinkWait) { refused() || link().map { $0 !== stale } ?? false }
         }
-        return CloudMoveCore().call("link_dropped", failure, as: Reply.self)?.dropped ?? false
+        return await up()
+    }
+
+    /// A start's failure as Rust's `wait::StartFailure` reads it.
+    private struct StartFailure: Encodable {
+        var kind: String, code: Int32?, what: String?
+        init(_ error: any Error) {
+            switch error {
+            case DaemonError.connectionClosed: (kind, code, what) = ("connectionClosed", nil, nil)
+            case DaemonError.connectFailed(_, let errno): (kind, code, what) = ("connectFailed", errno, nil)
+            case DaemonError.timedOut(let request): (kind, code, what) = ("timedOut", nil, request)
+            default: (kind, code, what) = ("other", nil, nil)
+            }
+        }
     }
 
     /// A refused start's machine `update`, then its new link: the update restarts the machine's daemon and its carrier
@@ -315,10 +345,17 @@ extension CloudWait {
 
     public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
                                       relink: () async -> Bool) async throws -> T {
+        try await retriedOnce(start, closed: closed, relinkAfter: { _ in await relink() })
+    }
+
+    /// ``retriedOnce(_:closed:relink:)`` whose relink sees the failure: a stale link (``linkStale(_:)``) needs a new
+    /// link, not the one the app still holds.
+    public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
+                                      relinkAfter relink: (any Error) async -> Bool) async throws -> T {
         do {
             return try await start()
         } catch where closed(error) && !Task.isCancelled {
-            guard await relink() else { throw error }
+            guard await relink(error) else { throw error }
             return try await start()
         }
     }
