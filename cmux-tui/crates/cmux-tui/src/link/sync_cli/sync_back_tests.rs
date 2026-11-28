@@ -145,3 +145,40 @@ fn sync_pull_and_project_back_refuse_a_folder_turned_off_before_they_dial() {
         assert!(status.success(), "sync-back {want}");
     }
 }
+
+#[test]
+fn the_teams_saved_policy_turns_it_off_too() {
+    let state = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let team_path = cmux_config::location::team_policy_path(state.path());
+    std::fs::create_dir_all(team_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &team_path,
+        json!({"managed": true, "features": {"projection.syncBack": {"value": false, "mode": "enforced"}}})
+            .to_string(),
+    )
+    .unwrap();
+    let policy = read_policy(Some(state.path()));
+    let off = refused_in(Some(state.path()), policy.as_ref(), work.path()).unwrap();
+    assert_eq!(off.by, "policy");
+
+    assert_eq!(team_sync_back(&json!({"features": {"projection.syncBack": true}})), Some(true));
+    assert_eq!(team_sync_back(&json!({"features": {}})), None);
+}
+
+#[test]
+fn the_teams_sync_back_off_keeps_the_files_read_only() {
+    let state = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let team_path = cmux_config::location::team_policy_path(state.path());
+    std::fs::create_dir_all(team_path.parent().unwrap()).unwrap();
+    std::fs::write(&team_path, json!({"features": {"projection.syncBack": false}}).to_string()).unwrap();
+    std::fs::write(
+        state.path().join(rule::POLICY_FILE),
+        json!({"projection": {"readOnly": true}}).to_string(),
+    )
+    .unwrap();
+    let policy = read_policy(Some(state.path()));
+    assert_eq!(read_only_in(Some(state.path()), policy.as_ref(), work.path()), Some("policy"));
+    assert_eq!(refused_in(Some(state.path()), policy.as_ref(), work.path()).unwrap().by, "policy");
+}

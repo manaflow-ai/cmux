@@ -13,7 +13,9 @@
 //! - the policy, `projection.syncBack: false` or `projection.readOnly: true` (dotted or nested)
 //!   in the JSON file `CMUX_POLICY_FILE` names, else `<state>/policy.json`; it holds for every
 //!   folder, and nothing local loosens it. The org policy and MDM pieces of RFD 0211 write this
-//!   file.
+//!   file. The managing team's saved policy layer (`<state>/settings/team-policy.json`, its
+//!   `features."projection.syncBack"`) turns sync-back off the same way: a team that set
+//!   `projection.syncBack: false` wins over a policy file that says nothing or `true`.
 //! - this Mac's own lists (`cmux link project sync-back off|on|status FOLDER`, `cmux link project
 //!   read-only on|off|status FOLDER`), kept in `<state>/link-sync/sync-back-off` and
 //!   `<state>/link-sync/read-only`, one absolute folder per line; a folder inside a listed one is
@@ -93,9 +95,31 @@ pub(crate) fn policy_sync_back(policy: &Value) -> Option<bool> {
     rule::policy_sync_back(policy)
 }
 
-fn read_policy(state: Option<&Path>) -> Option<Value> {
-    let bytes = std::fs::read(policy_path(state)?).ok()?;
-    serde_json::from_slice(&bytes).ok()
+/// The managing team's `projection.syncBack` in its saved policy layer (`{value, mode}`, or a
+/// bare value); None when the team did not set it.
+pub(crate) fn team_sync_back(team: &Value) -> Option<bool> {
+    let key = team.get("features")?.get("projection.syncBack")?;
+    key.get("value").unwrap_or(key).as_bool()
+}
+
+fn read_json(path: &Path) -> Option<Value> {
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+}
+
+/// The policy file, with the team's `projection.syncBack: false` laid over it: the tighter wins.
+pub(crate) fn read_policy(state: Option<&Path>) -> Option<Value> {
+    let own = policy_path(state).and_then(|path| read_json(&path));
+    let team = state.and_then(|state| read_json(&cmux_config::location::team_policy_path(state)));
+    if team.as_ref().and_then(team_sync_back) == Some(false) {
+        // The team turns sync-back off; the file's other keys (`projection.readOnly`) still hold.
+        let mut merged = match own {
+            Some(Value::Object(map)) => map,
+            _ => serde_json::Map::new(),
+        };
+        merged.insert("projection.syncBack".to_owned(), Value::Bool(false));
+        return Some(Value::Object(merged));
+    }
+    own
 }
 
 fn absolute(folder: &Path) -> PathBuf {
