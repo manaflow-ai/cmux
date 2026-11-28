@@ -209,9 +209,8 @@ fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
 }
 
 /// Codex review F1 on #40957: a start that can't go on deletes the machine made for it only when
-/// it is still that start's alone. Since #40159 every new start plans a machine of its own, so a
-/// second chat shares one only when it is pinned there (the person picked it); that chat keeps
-/// it, and one that plans after the strand never finds it.
+/// it is still that start's alone. A released machine stays the person's and a later send may reuse
+/// it; a deleted one is no longer listed, so one that plans after that strand never finds it.
 #[test]
 fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
     let scratch = scratch();
@@ -243,8 +242,8 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
     );
     assert_eq!(
         plan(&path, &on(&key()))["machine"],
-        Value::Null,
-        "a fresh send gets its own machine"
+        "vm-new",
+        "released, not deleted: a fresh send still reuses the person's machine"
     );
     // The second fails for good too, after a third was pinned to it: still shared.
     let third = key();
@@ -939,7 +938,10 @@ fn plan_and_pin_need_the_account_the_send_began_in() {
     // the person's machine the App lists for that team).
     let other = plan(&path, &request(json!("user-leo/team-b")));
     assert_eq!(other["machine"], json!("vm-free"), "{other}");
-    assert_eq!(other["create_key"], Value::Null, "{other}");
+    // Reused, nothing was made for it, and it may still fall back: every answer carries the send's
+    // create key (the App decodes it and a fallback creates under it), so the reuse shows in `ensured`.
+    assert_eq!(other["ensured"], Value::Null, "{other}");
+    assert_eq!(other["falls_back"], json!(true), "{other}");
     let retry =
         json!({"key": key, "account": ACCOUNT, "user": ME, "loaded": false, "machines": []});
     assert_eq!(plan(&path, &retry.to_string())["machine"], json!("vm-free"));
