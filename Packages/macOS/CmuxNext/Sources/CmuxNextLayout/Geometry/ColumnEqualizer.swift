@@ -46,38 +46,18 @@ public nonisolated struct ColumnEqualizer {
         self.minimumWidth = minimumWidth
     }
 
-    /// The widths that differ from the ones the columns have; empty when they are equal already.
+    /// The widths that differ from the ones the columns have; empty when they are equal already. Run by
+    /// cmux-layout-reducer (`layout_model_equalize_columns`; `schemas/layout-model/vectors.json`).
     public var resizes: [ColumnResize] {
-        let parts = DockStripGeometry.docks(columns)
-        let strip = parts.scrolling.filter { $0.dock == nil }
-        guard !strip.isEmpty else { return [] }
-        let range = ColumnWidthPreset.widthRange
-        func clamped(_ value: Double) -> Double { min(max(value, range.lowerBound), range.upperBound) }
-        var result: [ColumnResize] = []
-        func set(_ column: LayoutColumn, _ width: Double) {
-            if abs(column.width - width) > 0.001 { result.append(ColumnResize(column: column.id, width: width)) }
+        struct Request: Encodable {
+            var columns: [LayoutColumn], visible: Set<ColumnID>, viewportWidth: Double, gap: Double
+            var minimumWidths: [String: Double]
         }
-        let sides = [parts.left, parts.right].compactMap { $0 }.filter { $0.dock?.mode == .docked }
-        /// The width each of `count` columns gets, the docks included.
-        func equalWidth(stripColumns count: Int) -> CGFloat {
-            let total = CGFloat(sides.count + count)
-            return (viewportWidth - (total + 1) * gap) / total
-        }
-        let widest = strip.map(minimumWidth).max() ?? 0
-        let fitsAll = 1.0 / Double(strip.count) >= range.lowerBound
-            && (viewportWidth <= 0 || equalWidth(stripColumns: strip.count) >= widest)
-        let shown = strip.filter { visible.contains($0.id) }.count
-        let stripCount = fitsAll || shown == 0 ? strip.count : shown
-        if !sides.isEmpty, viewportWidth > gap {
-            let equal = equalWidth(stripColumns: stripCount)
-            let share = (parts.left != nil && parts.right != nil ? DockStripGeometry.maxShareBoth : DockStripGeometry.maxShare) * viewportWidth
-            for dock in sides {
-                let width = min(max(equal, minimumWidth(dock)), share)
-                set(dock, clamped(ColumnStripGeometry.fraction(forPixelWidth: width, viewportWidth: viewportWidth, gap: gap)))
-            }
-        }
-        let each = clamped(1.0 / Double(stripCount))
-        for column in strip { set(column, each) }
-        return result
+        struct Reply: Decodable { var resizes: [ColumnResize] }
+        let widths = Dictionary(columns.map { ($0.id.rawValue, Double(minimumWidth($0))) }) { first, _ in first }
+        let request = Request(columns: columns, visible: visible, viewportWidth: Double(viewportWidth), gap: Double(gap),
+                              minimumWidths: widths)
+        let reply: Reply? = LayoutRules.call("layout_model_equalize_columns", request)
+        return reply?.resizes ?? []
     }
 }
