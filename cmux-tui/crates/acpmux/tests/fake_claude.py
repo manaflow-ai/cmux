@@ -92,7 +92,8 @@ turn; Claude Code then runs a turn of its own for the notification ("agent-503-h
 holds that turn until PATH exists; "agent-503-late: PATH" fails only once PATH exists, with no
 turn of its own, as a failure that lands while a person's turn runs; "agent-400" fails on a bad
 request instead, "agent-reset" on a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
-again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again; with
+again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again, with FAKE_CLAUDE_RESUME_FAILS=agent-reset
+on a dropped connection; with
 FAKE_CLAUDE_FORGET_AGENTS=1, 64 other agents fail first; with FAKE_CLAUDE_RESUME_COMPLETES=1 it
 completes).
 "cost-probe" ends its turn the way Claude Code reports spend: the turn's own
@@ -120,6 +121,12 @@ import os
 import sys
 import uuid
 import threading
+
+# The hidden cmux blocks' sources, shared with the product: `context_inventory::RULE_SOURCES`, whose
+# test fails when this file drifts from it. Each goes out as `<SOURCE-context>`.
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
+    GUIDANCE_SOURCES = frozenset(json.load(_f))
+GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
 
 
 SEND_LOCK = threading.Lock()
@@ -184,14 +191,12 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
+    if source in GUIDANCE_SOURCES:
         return True
     # Only the guidance blocks (`context_inventory::override_block`): the forum's rules, a side
     # question's chat and attachments are cmux-*-context blocks Claude must read.
     text = block.get("text", "")
-    return isinstance(text, str) and text.lstrip().startswith(
-        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
-         "<cmux-card-context>"))
+    return isinstance(text, str) and text.lstrip().startswith(GUIDANCE_TAGS)
 
 
 def command_text(content):
@@ -378,8 +383,10 @@ def compact_stop():
     """A compaction that ignores interrupt until its late result."""
     import time
     send({"type": "system", "subtype": "status", "status": "compacting", "session_id": SESSION})
-    deadline = time.monotonic() + 0.8
-    while time.monotonic() < deadline:
+    hold = os.environ.get("FAKE_CLAUDE_COMPACT_HOLD")
+    deadline = time.monotonic() + (30 if hold else 0.8)
+    deferred = []
+    while time.monotonic() < deadline and (not hold or os.path.exists(hold)):
         try:
             got = LINES.get(timeout=0.02)
         except queue.Empty:
@@ -389,6 +396,9 @@ def compact_stop():
         try:
             control = json.loads(got)
         except ValueError:
+            continue
+        if (control.get("request") or {}).get("subtype") != "interrupt":
+            deferred.append(got)
             continue
         if control.get("type") == "control_request":
             # Claude acknowledges the interrupt but remains in compaction.
@@ -402,6 +412,9 @@ def compact_stop():
           "message": {"role": "user", "content": "Summary: compacted late."}})
     send({"type": "result", "subtype": "success", "result": "", "num_turns": 0,
           "duration_api_ms": 0, "local_command": True, "usage": {"input_tokens": 0, "output_tokens": 0}})
+
+    for got in deferred:
+        LINES.put(got)
 
 
 def long_step(prompt):
@@ -1367,8 +1380,12 @@ while True:
                   "description": "Push relay", "task_type": "local_agent", "is_backgrounded": True})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_send",
                   "content": '{"success":true,"resumedAgentId":"%s"}' % AGENT_503}]}})
-            if os.environ.get("FAKE_CLAUDE_RESUME_FAILS") == "1":
-                agent_failure("toolu_send")
+            fails = os.environ.get("FAKE_CLAUDE_RESUME_FAILS") or ""
+            if fails:
+                agent_failure(
+                    "toolu_send",
+                    os.environ.get("FAKE_CLAUDE_RESUME_ERROR", "agent-503") if fails == "1" else fails,
+                )
             if os.environ.get("FAKE_CLAUDE_RESUME_COMPLETES") == "1":
                 send({"type": "system", "subtype": "task_notification", "task_id": AGENT_503,
                       "tool_use_id": "toolu_send", "status": "completed", "output_file": "",

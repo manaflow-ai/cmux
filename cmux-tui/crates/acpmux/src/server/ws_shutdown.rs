@@ -115,7 +115,12 @@ impl WsShutdown {
 /// let an immediate retry connect to this dying listener. Linux stops a listening socket on
 /// shutdown, whatever copies remain; other systems refuse that, and only the drop applies.
 pub(super) fn close_admission(listener: tokio::net::TcpListener) {
-    close_admission_unless_kept(listener, crate::daemon::listener_handover::listeners_live_on());
+    // The handover and the keeper are unix-only: on Windows no copy is kept.
+    #[cfg(unix)]
+    let kept = crate::daemon::listener_handover::listeners_live_on();
+    #[cfg(not(unix))]
+    let kept = false;
+    close_admission_unless_kept(listener, kept);
 }
 
 fn close_admission_unless_kept(listener: tokio::net::TcpListener, kept: bool) {

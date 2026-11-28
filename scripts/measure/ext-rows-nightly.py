@@ -10,7 +10,7 @@ person's own app is never asked anything). Everything goes through the copy's ow
 `cmux ext shot --json`, `cmux settings set`, and the daemon ops through `cmux-tui raw command` (the same binary
 under the name that has the `raw` scope; a direct socket line when that name refuses). The Mac app's control
 socket is used only for what the CLI has no verb for (an action run, `apps.views`, `snapshot.get`), found by
-the copy's pid. No clicks.
+the copy's pid. Default rows do not click; the opt-in agent_prompts row uses Computer Use.
 
 A row is one function `row_<name>(ctx) -> dict` in ROWS. It installs or scaffolds a sample (an extension's
 manifest written to the copy's own customize folder installs it with no consent card: the customize app is
@@ -29,6 +29,7 @@ import os
 import pwd
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -480,17 +481,61 @@ def row_ext_new(ctx: Ctx) -> dict:
 SIDE = Path(__file__).resolve().parents[2] / "scripts/cmux-next/side-instance.sh"
 
 
+def daemon_pids(daemon_socket: str) -> list[int]:
+    """The pids holding the daemon's socket open (`lsof`), the daemon's own."""
+    try:
+        out = subprocess.run(["lsof", "-t", "--", daemon_socket], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return sorted({int(p) for p in out.split() if p.strip().isdigit()} - {os.getpid()})
+
+
 def side_relaunch(ctx: Ctx, between=None) -> dict:
     """Stops the side copy (the app, its daemon and helpers), runs `between()` while nothing of it runs, launches
-    it again and attaches ctx to the new control and daemon sockets."""
+    it again and attaches ctx to the new control and daemon sockets. The daemon reads its state once, so a
+    daemon that outlives the stop keeps what it read: a9a8865c's `side-instance.sh stop` exited 1 and the
+    relaunched copy listed the old empty widget layout. A stop that fails is run again, a daemon of this copy
+    still on its socket after that is ended (TERM, then KILL), and the answer says whether the daemon after the
+    launch is a new process."""
     name, side_root = ctx.pid_file.parent.name, ctx.pid_file.parent.parent
     env = os.environ | {"CMUX_SIDE_ROOT": str(side_root)}
-    stop = subprocess.run([str(SIDE), "stop", name], capture_output=True, text=True, env=env, timeout=120)
+    before = daemon_pids(ctx.daemon) if ctx.daemon else []
+    stops = []
+    for _ in range(2):
+        stop = subprocess.run([str(SIDE), "stop", name], capture_output=True, text=True, env=env, timeout=120)
+        stops.append({"exit": stop.returncode, "out": (stop.stdout + stop.stderr)[-400:]})
+        if stop.returncode == 0:
+            break
+    survivors = [pid for pid in before if pid_alive(pid)]
+    for sig, wait in ((signal.SIGTERM, 10), (signal.SIGKILL, 5)):
+        for pid in survivors:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+        deadline = time.time() + wait
+        while time.time() < deadline and any(pid_alive(pid) for pid in survivors):
+            time.sleep(0.2)
+        survivors = [pid for pid in survivors if pid_alive(pid)]
+        if not survivors:
+            break
     done = between() if between else None
     launch = subprocess.run([str(SIDE), "launch", name], capture_output=True, text=True, env=env, timeout=180)
     ctx.control, ctx.daemon = attach_copy(ctx.app, ctx.cli, ctx.pid_file, ctx.control)
-    return {"stop": stop.returncode, "between": done, "launch": launch.returncode,
-            "launch_err": launch.stderr[-400:]}
+    after = daemon_pids(ctx.daemon) if ctx.daemon else []
+    return {"stop": stops[-1]["exit"], "stops": stops, "daemon_before": before, "daemon_after": after,
+            "daemon_survived": survivors, "daemon_restarted": bool(after) and not set(after) & set(before),
+            "between": done, "launch": launch.returncode, "launch_err": launch.stderr[-400:]}
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def support_roots() -> list[Path]:
@@ -714,6 +759,8 @@ def row_newtab_widget(ctx: Ctx) -> dict:
     relaunch = side_relaunch(ctx, seed) if dirs else {"skipped": "no daemon session folder (open_state_dirs, "
                                                                   "socket_session_dirs, apps_state_dirs)"}
     placed = store_op(ctx, "apps.widgets.list", {"place": "newtab"})
+    on_disk = {str(d): (d / "apps-widgets-layout.json").read_text()[:400]
+               if (d / "apps-widgets-layout.json").is_file() else None for d in dirs}
     opened = ctx.rpc("action.run", {"action": "workspace.newAtBottom", "focus": True}, timeout=30)
     drawn = logs_with(ctx, f"{word} newtab {NEWTAB_TILE}", wait=30)
     return {"checks": {"scaffolded": made.get("exit") == 0, "built": True, "installed": install["installed"],
@@ -724,6 +771,7 @@ def row_newtab_widget(ctx: Ctx) -> dict:
                        "newtab_draws_it": bool(drawn)},
             "new": {k: made.get(k) for k in ("exit", "json")}, "shot_exit": shot.get("exit"), "main": main_rel,
             "export": export, "install": install, "dirs": [str(d) for d in dirs], "relaunch": relaunch,
+            "layout_on_disk": on_disk,
             "placed": placed, "open": opened, "log_lines": drawn, "any_render": logs_with(ctx, word, wait=2)}
 
 
@@ -1318,7 +1366,14 @@ def row_typed_sdk(ctx: Ctx) -> dict:
 # customize row replaces the last one's sample, activation first (it checks no view is open), the rows that
 # open a tab last; ext_new uses folders of its own; widget and newtab_widget relaunch the copy, so they
 # run last.
+def row_agent_prompts(ctx: Ctx) -> dict:
+    """The documented palette and /review examples, selected in the published app's GUI."""
+    probe = load("ext_rows_agent_prompts", ROOT / "scripts/measure/ext-rows-agent-prompts.py")
+    return probe.run(ctx, sys.modules[__name__])
+
+
 ROWS = {
+    "agent_prompts": (row_agent_prompts, "#56371 #60996"),
     "activation": (row_activation, "#43018"),
     "opener": (row_opener, "#43007"),
     "composer": (row_composer, "#43032 #49239"),
@@ -1400,7 +1455,8 @@ def main() -> int:
     parser.add_argument("--mcp-config", type=Path, help="the private settings file prepared for the MCP probe")
     parser.add_argument("--customize", required=True, help="the copy's own customize folder")
     parser.add_argument("--out", required=True)
-    parser.add_argument("--rows", default=",".join(ROWS))
+    # Input-driving GUI checks are explicit opt-ins; preserve the default read-only rows.
+    parser.add_argument("--rows", default=",".join(n for n in ROWS if n != "agent_prompts"))
     args = parser.parse_args()
     names = [n for n in args.rows.split(",") if n]
     unknown = [n for n in names if n not in ROWS]

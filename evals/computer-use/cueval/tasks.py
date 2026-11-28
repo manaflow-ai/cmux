@@ -228,7 +228,16 @@ class TaskEnv:
                     h = penv.start_app(step["app"], args, self.work)
                     self.apps.append(h)
                     started.append(h)
-            if started:
+            if started and penv.platform_name() == "macos":
+                # A launched app's new window is its ready signal on macOS: wait for each (bounded, so an app
+                # that opens no new window costs at most the old fixed wait), then a short settle for its
+                # first paint. The fixed 3 s sleep this replaces sat inside every app task's wall time.
+                bound = float(os.environ.get("CUEVAL_APP_READY_S", "3"))
+                deadline = time.monotonic() + bound
+                for h in started:
+                    penv.mac_new_windows(h, timeout=max(0.0, deadline - time.monotonic()))
+                time.sleep(float(os.environ.get("CUEVAL_APP_SETTLE_S", "0.5")))
+            elif started:
                 time.sleep(float(os.environ.get("CUEVAL_APP_SETTLE_S", "3")))  # apps have no ready signal
             if penv.platform_name() == "macos":
                 for h in started:

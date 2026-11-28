@@ -15,7 +15,7 @@
 /*
  Bumped on any change to a type or a function.
  */
-#define CMUX_SCREENSHOTS_ABI_VERSION 2
+#define CMUX_SCREENSHOTS_ABI_VERSION 4
 
 /*
  The panes unlocked this launch.
@@ -42,6 +42,11 @@ typedef struct CmuxScreenshotsReply CmuxScreenshotsReply;
  A scan rule (a source's `rule` from `cmux_screenshots_detect`).
  */
 typedef struct CmuxScreenshotsRule CmuxScreenshotsRule;
+
+/*
+ A read of one source in progress (`cmux_screenshots_walk_new`).
+ */
+typedef struct CmuxScreenshotsWalk CmuxScreenshotsWalk;
 
 /*
  One directory entry for `cmux_screenshots_newest_picture`.
@@ -207,19 +212,6 @@ uint32_t cmux_screenshots_rule_item_kind(const CmuxScreenshotsRule *rule,
                                          const uint8_t *name,
                                          size_t name_len,
                                          uint32_t system_kind);
-
-/*
- Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
-
- # Safety
- `rule` is null or a live rule; `name` is null or `name_len` readable bytes.
- */
-bool cmux_screenshots_rule_enters(const CmuxScreenshotsRule *rule,
-                                  uint32_t entry_kind,
-                                  bool hidden,
-                                  const uint8_t *name,
-                                  size_t name_len,
-                                  size_t depth);
 
 /*
  The position of the newest picture among `entries` (the first listed wins a tie), or -1.
@@ -522,5 +514,56 @@ uint32_t cmux_screenshots_pane_entry_action(const CmuxScreenshotsPane *pane,
                                             const uint8_t *path,
                                             size_t path_len,
                                             const CmuxScreenshotsEntry *entry);
+
+/*
+ A read of the folder at `root` under `rule` (the rule is copied). Free it with
+ `cmux_screenshots_walk_free`; null when `rule` is null.
+
+ # Safety
+ `rule` is null or a live rule; `root` is null or `root_len` readable bytes.
+ */
+CmuxScreenshotsWalk *cmux_screenshots_walk_new(const CmuxScreenshotsRule *rule, const uint8_t *root, size_t root_len);
+
+/*
+ Frees a walk; null does nothing.
+
+ # Safety
+ `walk` is null or from `cmux_screenshots_walk_new`, freed once.
+ */
+void cmux_screenshots_walk_free(CmuxScreenshotsWalk *walk);
+
+/*
+ The next folder to list (the caller frees it), or null when the read is done. Hand its
+ listing to `cmux_screenshots_walk_listed` before asking again.
+
+ # Safety
+ `walk` is null or a live walk.
+ */
+char *cmux_screenshots_walk_next(CmuxScreenshotsWalk *walk);
+
+/*
+ Takes the listing of the folder `cmux_screenshots_walk_next` named (`readable` false: it could
+ not be read) and writes into `kinds` the kind each entry is listed as (1 image, 2 video,
+ 3 other; 0: not listed, or a subfolder the walk reads next).
+
+ # Safety
+ `walk` is null or a live walk; `entries` is null or `count` readable entries whose names are
+ readable; `kinds` is null or `count` writable values.
+ */
+void cmux_screenshots_walk_listed(CmuxScreenshotsWalk *walk,
+                                  bool readable,
+                                  const CmuxScreenshotsEntry *entries,
+                                  size_t count,
+                                  uint32_t *kinds);
+
+/*
+ What the read found, as JSON `{"folders": [...], "readable": bool}` (the caller frees it):
+ every folder listed (the source's and each subfolder entered), and false when the source's
+ own folder could not be read. Null when `walk` is null.
+
+ # Safety
+ `walk` is null or a live walk.
+ */
+char *cmux_screenshots_walk_result(const CmuxScreenshotsWalk *walk);
 
 #endif  /* CMUX_SCREENSHOTS_H */

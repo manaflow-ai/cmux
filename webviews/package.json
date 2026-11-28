@@ -41,6 +41,7 @@
     "check:browser-lanes": "bun scripts/check-browser-test-lanes.ts",
     "check:surface-bypass": "bun scripts/check-surface-bypass.ts",
     "check:pane-selectors": "bun scripts/check-pane-selectors.ts",
+    "check:bundle-matrix": "bash ../scripts/ci/web-bundle-matrix.sh --skip typecheck",
     "check:compiler-bails": "node scripts/check-compiler-bails.mjs",
     "check:fixed-waits": "bun scripts/check-fixed-waits.ts",
     "check:whole-list-rows": "bun scripts/check-whole-list-rows.ts",

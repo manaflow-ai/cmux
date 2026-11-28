@@ -1011,7 +1011,12 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
-    RouteDeath { session: Option<String>, facts: Option<PathBuf>, show_facts: bool },
+    RouteDeath {
+        session: Option<String>,
+        facts: Option<PathBuf>,
+        #[arg(long)]
+        show_facts: bool,
+    },
     #[command(hide = true)]
     PauseAgent { session: String },
     #[command(hide = true)]
@@ -1145,8 +1150,9 @@ pub enum Command {
         /// conversation with its first prompt.
         #[arg(long)]
         harness: Option<String>,
-        /// The model the fork starts on (with --harness).
-        #[arg(long, short, requires = "harness")]
+        /// The model the fork runs, on --harness or the chat's own harness (MODEL or
+        /// HARNESS/MODEL). A model the harness does not list fails the fork.
+        #[arg(long, short)]
         model: Option<String>,
     },
     #[command(hide = true)]
@@ -1252,6 +1258,9 @@ pub enum Command {
     /// `daemon felt`: the felt-latency histograms (the net graph).
     #[command(hide = true)]
     DaemonFelt,
+    /// `daemon watchdog-hold`: hold the daemon's systemd watchdog for a pause.
+    #[command(hide = true)]
+    DaemonWatchdogHold,
     /// `daemon placement`: one tailnet placement update.
     #[command(hide = true)]
     DaemonPlacement { message: String },
@@ -1492,6 +1501,12 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// Hold the running daemon's systemd watchdog until this machine resumes (or 15 minutes pass
+    /// with no resume seen), so a pause of any length cannot trip it. The platform runs it on the
+    /// guest just before it pauses the VM. Prints `{"held":true,"until_resume":true}`, or
+    /// `held:false` when no systemd watchdog is armed; fails on a daemon from before it.
+    #[command(hide = true)]
+    WatchdogHold,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
     /// pid file of a daemon whose lock nobody holds and whose pid is gone. A running daemon is
     /// never stopped from outside: one whose executable is gone stops itself once unused for 5
@@ -1839,6 +1854,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
             DaemonCmd::Felt => Command::DaemonFelt,
+            DaemonCmd::WatchdogHold => Command::DaemonWatchdogHold,
             DaemonCmd::Placement { message } => Command::DaemonPlacement { message },
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
@@ -1949,5 +1965,24 @@ pub enum ExecCmd {
         /// How many of the newest decisions.
         #[arg(long, default_value_t = 20)]
         last: usize,
+    },
+    /// The identical-result rule (`placement/exec_conformance.rs`): run a fixed corpus of
+    /// commands (a tiny cargo build and test, file writes, a failing exit, stdout and stderr
+    /// order, creates, deletes, renames and a symlink, ...) in fresh copies of a fixture
+    /// checkout, once with CMUX_EXEC_ROUTE=local and once routed, and compare exit code, output
+    /// and the resulting file tree. One row per case, then `identical N/M`; exits 1 unless every
+    /// case was routed and none differed beyond its documented divergence. Run it in a Cloud
+    /// machine session with run VMs on: elsewhere the routed side runs here and proves nothing.
+    Conformance {
+        /// Only these cases (repeatable); default every case.
+        #[arg(long = "case", value_name = "NAME")]
+        cases: Vec<String>,
+        /// Where the work copies go (default `$ACPMUX_HOME/exec-conformance/run-*`, removed
+        /// after a passing run). Must be on the disk a fork copies.
+        #[arg(long, value_name = "DIR")]
+        dir: Option<std::path::PathBuf>,
+        /// Keep the work copies after a passing run too.
+        #[arg(long)]
+        keep: bool,
     },
 }

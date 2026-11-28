@@ -700,14 +700,8 @@ class GitHub(_evidence.GitHub):
             return test_reds.plain(kept.replace("\ufeff", ""))
         try:
             return test_reds.plain(self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", ""))
-        except Refused as error:
-            said = str(error)
-            # main_fix_evidence names the read before gh's stderr (`...failed: gh api ROUTE: unknown flag...`, from
-            # its read_name); the refusal is gh's stderr after that name, as escape_flag_unknown reads it.
-            named = f"{REQUEST_FAILED}{_evidence.read_name(['api', ESCAPE_FLAG, route])}: " \
-                if hasattr(_evidence, "read_name") else REQUEST_FAILED
-            stderr = said[len(named):] if said.startswith(named) else said[len(REQUEST_FAILED):]
-            if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(stderr)):
+        except _evidence.RequestFailed as error:
+            if not escape_flag_unknown(error.stderr):
                 raise
         return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
@@ -1295,6 +1289,7 @@ BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
 BASE_CHECK_FOR = {
     ("feat-cmux-next", "pr-router.yml", "pr pipeline / linux"): ("cmux-next-base-linux.yml", "base linux"),
     ("feat-cmux-next", "pr-router.yml", "pr pipeline / web-browser"): ("cmux-next-base-linux.yml", "base web-browser"),
+    ("feat-cmux-next", "pr-router.yml", "pr web pipeline / web-browser"): ("cmux-next-base-linux.yml", "base web-browser"),
 }
 # The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
 # which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
@@ -6249,8 +6244,12 @@ GUARD_WORKFLOWS = {
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
+        "app-store-shelf-pr": _PRODUCT,
         "ios-placeholder-bounds": "reads the iOS app's Swift sources and placeholders.json: a red is the change's "
                                   "own unbound placeholder, never a guard's",
+        "spec-checks": "checks cmux-tui's spec and bindings against the server and client sources; a red the base "
+                       "shares is already only a warning in the job (spec_checks.py run --base), so a red is the "
+                       "change's own",
         "pr-red-checks": _PUBLISH,
         "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
         "security-holes": "judges the workflow holes and secrets the change's own diff adds against the base's "
@@ -6380,10 +6379,12 @@ PACKAGE_JOBS = {
                   # cmux-mobile-link-ffi depends on cmux-terminal-projection (#42219)
                   "cmux-tui/crates/cmux-terminal-projection/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
+                  # The mobile dependency graph reaches the hop relay (#54363) and vault sealing (#56920).
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
-                  # cmux-window-rules' tab group tests include_str! the shared vectors (#57843)
-                  "schemas/tab-group-rules/",
+                  # cmux-window-rules tests include both sets of shared vectors (#57843, #57997).
+                  "schemas/tab-group-rules/", "schemas/tab-layout-rules/",
                   # a crate the kit's manifests reach since #58214 (cmux-vnc's vnc_* JSON ops)
                   "cmux-tui/crates/cmux-vnc/",
                   # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
@@ -6427,7 +6428,10 @@ PACKAGE_JOBS = {
                   # cmux-mobile-link-ffi reaches cmux-local-url, cmux-mobile-host reaches cmux-phone-page; the
                   # window rules' tab layout tests and cmux-region-pick's tests include_str! these two (2026-11-27)
                   "cmux-tui/crates/cmux-local-url/", "cmux-tui/crates/cmux-phone-page/",
-                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts")
+                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts",
+                  # cmux-mobile-link reaches cmux-hop-relay (#54363); cmux-mobile-link-ffi reaches cmux-vault-e2e
+                  # (#56920)
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/")
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')

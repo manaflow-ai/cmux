@@ -1767,10 +1767,14 @@ def command_look(args) -> int:
             # started one on 2026-11-17: the head's own source key is not the one the PR's layer publishes).
             planned["pr"] = args.pr
         receipt["plan"] = planned
-        if planned["needs_build"]:
+        # A Swift-only change (strings beside it) gets the head's complete app from the fleet: NIGHTLY's copy is
+        # shot first, then the copy is made again from that app and shot after (look(), built). Without this no
+        # Swift PR could get a look, and cmux/ui-proof held every one pending (cmux#62345, cmux#61438, 2026-11-27).
+        built = planned["needs_build"] and can_build_swift_app(planned)
+        if planned["needs_build"] and not built:
             receipt["errors"].append("the change needs a build: " + "; ".join(planned["build"]))
             return finish(out, receipt, phases, began, EXIT_NEEDS_BUILD)
-        if not planned["layers"]:
+        if not planned["layers"] and not built:
             receipt["plan"]["notes"].append("nothing in the app changes: nothing to look at")
             return finish(out, receipt, phases, began, EXIT_LOOKED)
         unsupported = [layer for layer in planned["layers"] if layer not in ("web", "rust")]
@@ -1779,8 +1783,9 @@ def command_look(args) -> int:
         if sys.platform != "darwin":
             raise LookError("a look runs the app: it needs macOS with a display")
         receipt["marker"] = marker(planned["head"], receipt["app"].get("commit") or receipt["app"].get("version")
-                                   or "unknown", planned["layers"], planned["source"])
-        return look(args, repo, planned, side, the_app, out, receipt, phases, began)
+                                   or "unknown", sorted({*planned["layers"], *(["app"] if built else [])}),
+                                   planned["source"])
+        return look(args, repo, planned, side, the_app, out, receipt, phases, began, built=built)
     except (RuntimeError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
         receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
         if not args.watch:
@@ -1808,7 +1813,8 @@ def command_look_recorded(args) -> int:
         return code
     head = ((receipt.get("plan") or {}).get("head")) or ""
     layers = (receipt.get("plan") or {}).get("layers")
-    if code == EXIT_NEEDS_BUILD or not SHA.fullmatch(head) or not layers:
+    built = "app" in (receipt.get("applied") or {})
+    if code == EXIT_NEEDS_BUILD or not SHA.fullmatch(head) or not (layers or built):
         log("no record: the look needed a build or changed nothing in the app")
         return code
     sys.path.insert(0, str(HERE.parent / "ci"))
@@ -1851,7 +1857,7 @@ def stop_video(video: Video, receipt: dict, side, phases) -> None:
     return None
 
 
-def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int:
+def look(args, repo, planned, side, the_app, out, receipt, phases, began, built: bool = False) -> int:
     kit = load_kit(args.kit)
     steps = load_steps(args.state, kit)
     engine = steps_engine(args.state)
@@ -1861,27 +1867,38 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
     src_tree = resolve_tree(planned, args.source)
     scratch = Path(tempfile.mkdtemp(prefix="hot-verify-look-"))
     video = None
+
+    def copy_of(app: Path):
+        """A fresh side copy of APP, launched: its pid, control socket and repaint watch."""
+        if side.exists():
+            side.stop()
+            side.run("remove", timeout=300)
+        side.run(*side_make_args(app), timeout=600)
+        set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
+        if planned.get("ffi_baseline"):
+            receipt["ffi_baseline"] = apply_ffi_baseline(rules, planned, side)
+        # The kit's Recorder records the main display (Video), so a kit look shows the copy there; else the copy
+        # is parked on a display no person looks at (side-instance.sh launch, "parked") and shot by its window.
+        launched = side.run("launch", *(["--shown"] if kit is not None else []), timeout=launch_seconds())
+        found = re.search(r"pid (\d+)", launched)
+        if not found:
+            raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
+        pid = int(found.group(1))
+        named = side.socket()
+        sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
+        until("the copy's window", WINDOW_SECONDS, lambda: window_id(pid) if kit is None else True)
+        repaint = Repaint(shoot, pid, scratch)
+        repaint.wait("launch", REPAINT_LAUNCH)
+        return pid, sock, repaint
+
     try:
+        built_app = None
+        if built:
+            # First, so a build that fails or times out costs no copy and no shots.
+            with phases("app-build"):
+                built_app = build_swift_app(repo, planned, args.source, scratch)
         with phases("side"):
-            if side.exists():
-                side.stop()
-                side.run("remove", timeout=300)
-            side.run(*side_make_args(the_app), timeout=600)
-            set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
-            if planned.get("ffi_baseline"):
-                receipt["ffi_baseline"] = apply_ffi_baseline(rules, planned, side)
-            # The kit's Recorder records the main display (Video), so a kit look shows the copy there; else the copy
-            # is parked on a display no person looks at (side-instance.sh launch, "parked") and shot by its window.
-            launched = side.run("launch", *(["--shown"] if kit is not None else []), timeout=launch_seconds())
-            found = re.search(r"pid (\d+)", launched)
-            if not found:
-                raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
-            pid = int(found.group(1))
-            named = side.socket()
-            sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
-            until("the copy's window", WINDOW_SECONDS, lambda: window_id(pid) if kit is None else True)
-            repaint = Repaint(shoot, pid, scratch)
-            repaint.wait("launch", REPAINT_LAUNCH)
+            pid, sock, repaint = copy_of(the_app)
         with phases("before"):
             for index, mode in enumerate(("light", "dark")):
                 set_theme(sock, mode)
@@ -1889,23 +1906,33 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                 repaint.wait(f"the {mode} theme", REPAINT_THEME, changed=index > 0)
                 shoot(pid, out / "before" / f"{mode}.png")
                 repaint.saw(out / "before" / f"{mode}.png")
-        if not args.no_video:
+        def start_video():
             with phases("video"):
-                video = Video(out, kit)
+                started = Video(out, kit)
                 try:
-                    side.remember(recorder_pid=video.start(pid), recorder_name=video.name)
+                    side.remember(recorder_pid=started.start(pid), recorder_name=started.name)
                 except LookError as error:
                     receipt["errors"].append(f"video: {error}")
-                    video = None
+                    return None
+                return started
+
+        # A built app is a new copy and a new process: the video starts on it, after the swap.
+        if not args.no_video and built_app is None:
+            video = start_video()
         handed = time.monotonic()
         applied = {}
         with phases("apply"):
-            if "rust" in planned["layers"]:
+            if built_app is not None:
+                pid, sock, repaint = copy_of(built_app)
+                applied["app"] = {"how": "fleet app build of the head (a fresh side copy)", "commit": planned["head"]}
+                if not args.no_video:
+                    video = start_video()
+            if built_app is None and "rust" in planned["layers"]:
                 given = Path(args.rust_binary).resolve() if getattr(args, "rust_binary", None) else None
                 head_binary = (Path(args.rust_binary_head).resolve() if getattr(args, "rust_binary_head", None)
                                else None)
                 applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given, head_binary)
-            if "web" in planned["layers"]:
+            if built_app is None and "web" in planned["layers"]:
                 applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
                 # The copy's pages reload on the new overlay: wait for the window to change from the before shot
                 # and settle (a change the main window does not show waits out the bound).
@@ -1915,7 +1942,8 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
         with phases("after"):
             for index, mode in enumerate(("light", "dark")):
                 set_theme(sock, mode)
-                repaint.wait(f"the {mode} theme", REPAINT_THEME, changed=True)
+                # A new copy's first theme may be the one it launched in, as before's was.
+                repaint.wait(f"the {mode} theme", REPAINT_THEME, changed=index > 0 or built_app is None)
                 shoot(pid, out / "after" / f"{mode}.png")
                 repaint.saw(out / "after" / f"{mode}.png")
                 if index == 0:
@@ -2272,10 +2300,15 @@ def can_build_swift_app(planned: dict) -> bool:
     manifests, bundled helpers) remain an explicit build-required result.
     """
     build = planned.get("build")
-    return bool(planned.get("needs_build") and isinstance(build, dict) and build
-                and set(build) <= {"Swift", "Swift, resources or manifests"}
-                and all(paths and all(path.endswith(".swift") and not path.endswith("Package.swift")
-                                      for path in paths) for paths in build.values()))
+    if not (planned.get("needs_build") and isinstance(build, dict) and build
+            and set(build) <= {"Swift", "Swift, resources or manifests", "strings"}):
+        return False
+    # A strings catalog rides in the complete app too (cmux#62345: a Swift change with its Localizable.xcstrings
+    # copy planned `strings` beside `Swift` and was refused a build, so it could get no look).
+    swift = (lambda path: path.endswith(".swift") and not path.endswith("Package.swift"))
+    copy = (lambda path: path.endswith((".xcstrings", ".strings")))
+    return all(paths and all(copy(path) if reason == "strings" else swift(path) for path in paths)
+               for reason, paths in build.items())
 
 
 def _ci_client() -> str:

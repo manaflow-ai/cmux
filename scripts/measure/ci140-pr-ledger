@@ -1,0 +1,427 @@
+#!/usr/bin/env python3
+"""One ledger of CI minutes by what the minutes bought: every GitHub job row and PR/lane/base fleet job in the window,
+counted the way the meter (cmuxterm-hq build-fleet/data/ci_per_pr.py) counts them, in four buckets.
+
+  (a) landed        runs at the head that merged (a merged PR's headRefOid); memo: of which reruns
+  (b) earlier heads of PRs that merged in the window: superseded by a push | superseded by a base merge or
+      update-branch (the next head is a merge commit) | rerun after red at the same head (attempt > 1, or the
+      same job again after a red one)
+  (c) PRs not merged in the window: open and active (a push in the last 6 h before --until) | abandoned (no push
+      in 6 h or more, or closed unmerged); PRs merged outside the window / into another base are rows of their own
+  (d) non-PR work: push to a base, scheduled/nightly, workflow_dispatch, lane branch with no PR, fleet base/lane
+
+and what cancel-on-supersede would save: minutes of jobs that were running (or queued and started) when a newer
+head of the same PR appeared and were not cancelled, next to what concurrency cancel-in-progress cancelled.
+
+Attribution (the head_sha mistake): a workflow_dispatch / schedule run's head_sha is the ref's tip, not the tested
+commit. A run is attributed by the commit its run-name or title names (`v1;sha=...`, `hot verify PR N SHA`,
+`cmux-next · MERGEREF` -> second parent, `N/merge`, `#N synchronize`), else by the feed's own sha when the run's event
+is a pull_request one or the run is on a PR branch, else by the PR on its branch and the head that PR had when the
+run was created. A run on a base branch that names no PR commit is non-PR work. Each row says how it was attributed
+(`how`), and --json-out has the measured vs inferred split.
+
+Inputs (no GitHub calls but --prs, one GraphQL list):
+  --feed    meter records (ci_per_pr.py --save), JSONL(.gz)      --fleet   meter fleet jobs (--fleet-save)
+  --events  meter run feed (--events-save), optional: run event types, pr_heads
+  --rc      /v1/required-checks JSON                              --mirror  cmux git mirror (commits, merged PRs)
+  --prs     {n: {number,state,isDraft,mergedAt,closedAt,createdAt,headRefName,baseRefName,headRefOid}}
+  --meter   path to ci_per_pr.py (fleet classes and ids are the meter's; default $CI_PER_PR or /tmp/ci140h-hq)
+
+Run: ci_per_pr.py --since S --until U --mirror M --save recs.jsonl.gz --fleet-save fleet.jsonl.gz --events-save ev.jsonl.gz
+     scripts/measure/ci140-pr-ledger --feed recs.jsonl.gz --fleet fleet.jsonl.gz --events ev.jsonl.gz --rc rc.json \
+       --prs prs.json --mirror M --since S --until U [--json-out ledger.json]
+"""
+import argparse, bisect, collections as C, importlib.util, importlib.machinery, json, os, re, subprocess, sys, datetime as dt
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+BASES = ("feat-cmux-next", "main")
+NONPR_BRANCH = BASES + ("nightly-next",)
+RED = ("failure", "timed_out", "startup_failure", "failed")
+SHA = r"[0-9a-f]{40}"
+
+
+def load(path, name):
+    loader = importlib.machinery.SourceFileLoader(name, str(path))
+    spec = importlib.util.spec_from_loader(name, loader)
+    m = importlib.util.module_from_spec(spec)
+    sys.modules[name] = m
+    spec.loader.exec_module(m)
+    return m
+
+
+def git(mirror, *args, inp=None):
+    env = dict(os.environ, GIT_NO_LAZY_FETCH="1")
+    return subprocess.run(["git", "-C", mirror, *args], capture_output=True, text=True, env=env, input=inp).stdout
+
+
+def nonpr_kind(name, path, branch, event):
+    """The (d) row of a run no PR commit owns."""
+    s = f"{name} {path}"
+    if event == "schedule" or branch == "nightly-next" or re.search(
+            r"nightly|\btick\b|hourly|daily|sweeper|Seed DerivedData|\d+(,\d+)+ \*|cron|\bschedule", s, re.I):
+        return "scheduled / nightly"
+    if event == "workflow_dispatch" or re.search(
+            r"hot verify|probe |machine channel|FFI release|web bundle publish|clips|dispatch|pair-e2e|parity|"
+            r"degenerate lab|energy bench|reliability matrix|journey|drills|replay|A/B|gate \(", s, re.I):
+        return "workflow_dispatch"
+    if branch in BASES or event == "push":
+        return "push to base"
+    return "lane branch, no PR"
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    for k in ("feed", "fleet", "rc", "prs", "mirror", "since", "until"):
+        ap.add_argument("--" + k, required=True)
+    ap.add_argument("--events")
+    ap.add_argument("--meter", default=os.environ.get("CI_PER_PR", "/tmp/ci140h-hq/ci_per_pr.py"))
+    ap.add_argument("--active-hours", type=float, default=6)
+    ap.add_argument("--top", type=int, default=8)
+    ap.add_argument("--json-out")
+    a = ap.parse_args(argv)
+    me = load(a.meter, "ci_per_pr")
+    hm = load(HERE / "ci140-head-minutes", "ci140_head_minutes")
+    ts, rows = hm.ts, hm.rows
+    since, until = ts(a.since), ts(a.until)
+
+    merged_any = hm.merges(a.mirror, since - 7 * 86400, until + 7 * 86400)
+    merged_in = {pr for pr, (at, _) in merged_any.items() if since <= at < until}
+    M = len(merged_in) or 1
+    prs = {int(k): v for k, v in json.load(open(a.prs)).items()}
+    by_branch = C.defaultdict(list)
+    for p in prs.values():
+        by_branch[p["headRefName"]].append((ts(p["createdAt"]), p["number"]))
+    for v in by_branch.values():
+        v.sort()
+    rc = [h for h in json.load(open(a.rc))["heads"] if h.get("head") and h.get("pr")]
+    head_pr = {h["head"]: h["pr"] for h in rc}
+    events = {}
+    if a.events:
+        for e in rows(a.events):
+            events[e["id"]] = e
+            for ph in e.get("pr_heads") or []:
+                head_pr.setdefault(ph["head_sha"], ph["number"])
+
+    # runs
+    feed = []
+    runs = {}
+    for r in rows(a.feed):
+        end = ts(r["at"])
+        if not since <= end < until:
+            continue
+        start = end - (r.get("seconds") or 0)
+        x = runs.setdefault(r["run"], {"created": start - (r.get("queue") or 0), "sha": None, "branch": r.get("branch"),
+                                       "name": r.get("workflow") or "", "path": r.get("workflow_path") or "",
+                                       "seg": r.get("seg"), "min": 0.0})
+        x["created"] = min(x["created"], start - (r.get("queue") or 0))
+        x["min"] += (r.get("seconds") or 0) / 60
+        if r.get("sha"):
+            x["sha"] = r["sha"]
+        feed.append((r, start, end))
+
+    # commits named by run names, plus every head, for parents and subjects
+    named = set()
+    for x in runs.values():
+        for m in re.finditer(SHA, x["name"]):
+            named.add(m.group(0))
+        if x["sha"]:
+            named.add(x["sha"])
+    named |= set(head_pr)
+    info = {}
+    shas = sorted(named)
+    out = git(a.mirror, "log", "--no-walk=unsorted", "--stdin", "--format=%H %P%x09%s", inp="\n".join(shas) + "\n")
+    for l in out.splitlines():
+        h, _, s = l.partition("\t")
+        f = h.split()
+        info[f[0]] = (f[1:], s)
+
+    # attribution: (pr, head, how)
+    def name_head(x):
+        n = x["name"]
+        if m := re.search(rf"hot verify PR (\d+) ({SHA})", n):
+            return int(m.group(1)), m.group(2), "name:hot-verify"
+        if m := re.match(rf"v1;sha=({SHA})", n):
+            return None, m.group(1), "name:v1"
+        if m := re.match(rf"cmux-next(?: base tier)? · ({SHA})$", n):
+            s = m.group(1)
+            ps = info.get(s, ([], ""))[0]
+            if len(ps) == 2:
+                return None, ps[1], "name:merge-ref"
+            return None, s, "name:merge-ref-tip"
+        if m := re.search(r"#(\d+) (?:opened|synchronize|reopened|ready_for_review)", n):
+            return int(m.group(1)), None, "name:#N"
+        if m := re.search(r"\b(\d+)/merge\b", n):
+            return int(m.group(1)), None, "name:N/merge"
+        return None, None, None
+
+    def pr_of_branch(b, t):
+        v = by_branch.get(b) or []
+        best = None
+        for c, n in v:
+            if c is not None and c <= t + 3600:
+                best = n
+        return best if best is not None else (v[0][1] if v else None)
+
+    for rid, x in runs.items():
+        ev = events.get(rid)
+        x["event"] = ev["event"] if ev else None
+        pr, head, how = name_head(x)
+        base_run = x["branch"] in NONPR_BRANCH
+        if head is None and x["sha"] and not (x["event"] in ("workflow_dispatch", "schedule", "push") and base_run) \
+                and not (base_run and x["seg"] != "pr"):
+            head, how = x["sha"], how or "feed-sha"
+        if head and pr is None:
+            pr = head_pr.get(head)
+        if pr is None and head and base_run:
+            how = "base-tip"  # a base commit, no PR
+        if pr is None and not base_run and x["branch"] and not (head and head not in head_pr and x["seg"] != "pr"):
+            pr = pr_of_branch(x["branch"], x["created"])
+            if pr:
+                how = (how or "") + "+branch" if head else "branch"
+        if pr is not None and head is None:
+            how = how or "branch"
+        x["pr"], x["head"], x["how"] = pr, head, how
+
+    # head sequences per PR
+    push = C.defaultdict(dict)
+    for h in rc:
+        t = ts(h.get("seen_at"))
+        if t:
+            d = push[h["pr"]]
+            d[h["head"]] = min(d.get(h["head"], 1e18), t)
+    for x in runs.values():
+        if x["pr"] and x["head"]:
+            d = push[x["pr"]]
+            d[x["head"]] = min(d.get(x["head"], 1e18), x["created"])
+    seqs = {pr: sorted((t, h) for h, t in d.items()) for pr, d in push.items()}
+    times = {pr: [t for t, _ in s] for pr, s in seqs.items()}
+    for x in runs.values():
+        if x["pr"] and not x["head"]:
+            s = seqs.get(x["pr"])
+            if s:
+                x["head"] = s[max(bisect.bisect_right(times[x["pr"]], x["created"] + 60) - 1, 0)][1]
+                x["how"] = (x["how"] or "") + "+head-at"
+
+    def next_push(pr, head):
+        s = seqs.get(pr) or []
+        for i, (_, h) in enumerate(s):
+            if h == head:
+                return (s[i + 1][0], s[i + 1][1]) if i + 1 < len(s) else (None, None)
+        return None, None
+
+    # items: pr, head, key, min, start, end, concl, attempt, src, how, nonpr kind
+    items = []
+    for r, start, end in feed:
+        x = runs[r["run"]]
+        k = nonpr_kind(x["name"], x["path"], x["branch"], x["event"]) if x["pr"] is None else None
+        items.append([x["pr"], x["head"], hm.job_key(r), r["seconds"] / 60, start, end, r.get("conclusion"),
+                      r.get("attempt") or 1, "gh", x["how"], k, r["run"]])
+    seen = set()
+    full_head = {}
+    for pr, s in seqs.items():
+        for _, h in s:
+            full_head[(pr, h[:12])] = h
+
+    def head_at(pr, t):
+        s = seqs.get(pr)
+        return s[max(bisect.bisect_right(times[pr], t + 60) - 1, 0)][1] if s else None
+
+    fleet_apart = 0.0
+    for j in rows(a.fleet):
+        end, start = ts(j.get("updated_at")), ts(j.get("started_at"))
+        if j.get("state") not in me.FLEET_TERMINAL or end is None or not since <= end < until or j.get("id") in seen:
+            continue
+        seen.add(j.get("id"))
+        m = (end - start) / 60 if start and j.get("worker") and end > start else 0.0
+        cls = me.fleet_class(j)
+        if cls not in me.FLEET_PER_PR:
+            fleet_apart += m
+            continue
+        sk, ws = j.get("step_key") or "", j.get("workspace") or ""
+        pr = head = how = None
+        if k := hm.RC_KEY.match(sk):
+            pr = int(k.group(1)); head = full_head.get((pr, k.group(2)[:12])) or head_at(pr, ts(j.get("created_at")) or start or end)
+            how = "fleet:rc-key"
+        elif k := hm.HV_KEY.match(sk):
+            pr = int(k.group(1)); head = None; how = "fleet:hv-key"
+            if mm := re.search(rf"hv-{pr}-([0-9a-f]+)", sk):
+                head = full_head.get((pr, mm.group(1)[:12]))
+            head = head or head_at(pr, ts(j.get("created_at")) or start or end)
+        elif rid := me.fleet_run_id(j):
+            x = runs.get(rid)
+            if x and x["pr"]:
+                pr, head, how = x["pr"], x["head"], "fleet:run"
+        elif k := hm.PULL.search(ws):
+            pr = int(k.group(1)); head = head_at(pr, ts(j.get("created_at")) or end); how = "fleet:pull"
+        kind = None
+        if pr is None:
+            kind = {"base": "fleet base (tip check, warmers)", "lane": "fleet lane (cmux-ci before a push)",
+                    "pr_offload": "fleet run of a non-PR run"}[cls]
+        items.append([pr, head, hm.fleet_key(j), m, start or end, end, j.get("state"), 1, "fleet", how, kind, None])
+
+    # fates
+    def fate(pr):
+        p = prs.get(pr)
+        if pr in merged_in:
+            return "merged in window"
+        if pr in merged_any:
+            return "merged outside window"
+        if p is None:
+            return "PR not in list"
+        if p.get("mergedAt"):
+            return "merged outside window" if p.get("baseRefName") in BASES else "merged into another base"
+        if p.get("state") == "CLOSED":
+            return "closed unmerged"
+        return "open"
+
+    def last_push(pr):
+        s = seqs.get(pr)
+        return s[-1][0] if s else None
+
+    fates = {it[0]: fate(it[0]) for it in items if it[0] is not None}
+    landed = {}
+    for pr in merged_in:
+        p = prs.get(pr) or {}
+        landed[pr] = p.get("headRefOid") or ((seqs.get(pr) or [(0, None)])[-1][1])
+
+    # reruns: same job again after a red one (or attempt > 1), per (pr, head)
+    grp = C.defaultdict(list)
+    for i, it in enumerate(items):
+        if it[0] is not None and it[1]:
+            grp[(it[0], it[1], it[2])].append(i)
+    rerun, repeat = set(), set()
+    for ix in grp.values():
+        ix.sort(key=lambda i: items[i][4])
+        for n, i in enumerate(ix):
+            if items[i][7] > 1:
+                rerun.add(i)
+            elif n and items[ix[n - 1]][6] in RED:
+                rerun.add(i)
+            elif n and items[i][8] == "gh" and items[i][6] != "cancelled":
+                repeat.add(i)
+
+    def cause(pr, head):
+        _, nh = next_push(pr, head)
+        if nh is None:
+            return "push"
+        ps, subj = info.get(nh, ([], ""))
+        return "base merge" if len(ps) >= 2 and re.match(r"Merge |Update branch|update branch", subj) else "push"
+
+    L = C.OrderedDict()
+    sub = C.defaultdict(lambda: [0.0, 0.0])  # label -> [gh, fleet]
+    n_pr = C.defaultdict(set)
+    a_rerun = 0.0
+    how_min = C.Counter()
+    lab_job = C.defaultdict(C.Counter)
+    now_cut = until - a.active_hours * 3600
+    for i, it in enumerate(items):
+        pr, head, key, m, start, end, concl, att, src, how, kind, rid = it
+        g = 0 if src == "gh" else 1
+        if pr is None:
+            lab = "(d) non-PR: " + kind
+        else:
+            f = fates[pr]
+            if f == "merged in window":
+                if head == landed.get(pr):
+                    lab = "(a) landed: runs at the merged head"
+                    if i in rerun:
+                        a_rerun += m
+                elif i in rerun:
+                    lab = "(b) earlier head: rerun after red at the same head"
+                elif cause(pr, head) == "base merge":
+                    lab = "(b) earlier head: superseded by a base merge / update-branch"
+                else:
+                    lab = "(b) earlier head: superseded by a push"
+            elif f == "open":
+                lp = last_push(pr)
+                lab = "(c) open, active (push in last 6 h)" if lp and lp >= now_cut else "(c) abandoned: open, no push in 6 h or more"
+            elif f == "closed unmerged":
+                lab = "(c) abandoned: closed unmerged"
+            else:
+                lab = "(c) other: " + f
+            n_pr[lab].add(pr)
+        sub[lab][g] += m
+        lab_job[lab][" / ".join(key)] += m
+        how_min[(lab.split(")")[0] + ")", (how or "none").split("+")[0].split(":")[0] if how else "none")] += m
+
+    total = sum(a_ + b_ for a_, b_ in sub.values())
+    # supersede
+    sup = C.Counter()
+    sup_n = C.Counter()
+    sup_job = C.Counter()
+    canc_sup = C.Counter()
+    canc_other = C.Counter()
+    for it in items:
+        pr, head, key, m, start, end, concl, att, src, how, kind, rid = it
+        if pr is None or head is None or not m:
+            continue
+        nxt, _ = next_push(pr, head)
+        sup_ = nxt is not None and end > nxt
+        if concl == "cancelled":
+            if sup_:
+                canc_sup["spent min of jobs cancelled at a superseded head"] += m
+                canc_sup["of which spent after the newer push"] += min(m, (end - max(start, nxt)) / 60)
+                canc_sup["jobs"] += 1
+            else:
+                canc_other["spent min"] += m; canc_other["jobs"] += 1
+            continue
+        if not sup_:
+            continue
+        ov = min(m, (end - max(start, nxt)) / 60)
+        if start < nxt:
+            sup["running at the newer push: minutes after the push (saved by cancel-on-supersede)"] += ov
+            sup["running at the newer push: whole minutes of those jobs"] += m
+            sup_n["running"] += 1
+            sup_job[key] += ov
+        else:
+            sup["started after the newer push (queued earlier): minutes"] += m
+            sup_n["started after"] += 1
+            sup_job[key] += m
+    per = lambda v: round(v / M, 1)
+
+    res = {"window": [a.since, a.until], "merged_prs": len(merged_in), "total_min": round(total),
+           "total_per_merged_pr": per(total), "fleet_apart_min_not_counted": round(fleet_apart),
+           "rows": {k: {"gh_min": round(v[0]), "fleet_min": round(v[1]), "min": round(v[0] + v[1]),
+                        "per_merged_pr": per(v[0] + v[1]), "prs": len(n_pr[k]) if k in n_pr else None}
+                    for k, v in sorted(sub.items())},
+           "a_memo_rerun_min": round(a_rerun), "same_head_repeat_after_green_gh_min": round(sum(items[i][3] for i in repeat)),
+           "attribution_min": {f"{b} {h}": round(v) for (b, h), v in sorted(how_min.items())},
+           "cancel_on_supersede": {k: {"min": round(v), "per_merged_pr": per(v)} for k, v in sup.items()},
+           "cancel_on_supersede_jobs": dict(sup_n),
+           "cancelled_today": {"at superseded heads": {k: round(v) for k, v in canc_sup.items()},
+                               "elsewhere": {k: round(v) for k, v in canc_other.items()}},
+           "top_jobs_per_bucket": {k: [[j, round(v)] for j, v in c.most_common(5)] for k, c in lab_job.items()},
+           "top_superseded_jobs": [[" / ".join(k), per(v)] for k, v in sup_job.most_common(a.top)]}
+    # table
+    print(f"window {a.since}..{a.until}; {len(merged_in)} PRs merged (meter's merges); total {round(total)} min "
+          f"= {per(total)} min per merged PR (fleet release class {round(fleet_apart)} min apart, not counted)\n")
+    print("| bucket | PRs | GitHub min | fleet min | total min | min / merged PR |")
+    print("|---|---:|---:|---:|---:|---:|")
+    for k, v in sorted(sub.items()):
+        print(f"| {k} | {len(n_pr[k]) if k in n_pr else ''} | {v[0]:.0f} | {v[1]:.0f} | {v[0]+v[1]:.0f} | {per(v[0]+v[1])} |")
+    print(f"| all | | {sum(v[0] for v in sub.values()):.0f} | {sum(v[1] for v in sub.values()):.0f} | {total:.0f} | {per(total)} |")
+    print(f"\nmemo: reruns inside (a): {a_rerun:.0f} min ({per(a_rerun)}/PR); same-job repeats after green, not counted as reruns: "
+          f"{res['same_head_repeat_after_green_gh_min']} GitHub min (inside the buckets above)")
+    print("\ncancel-on-supersede (jobs not cancelled that overlapped a newer head of the same PR):")
+    for k, v in sup.items():
+        print(f"  {v:9.0f} min  {per(v):6} /PR  {k}")
+    print(f"  jobs: {dict(sup_n)}")
+    print("cancelled today (concurrency cancel-in-progress and any other cancel), spent minutes, not the saved ones:")
+    for k, v in canc_sup.items():
+        print(f"  superseded head: {k}: {v:.0f}")
+    for k, v in canc_other.items():
+        print(f"  other cancels: {k}: {v:.0f}")
+    print("\ntop jobs per bucket (min):")
+    for k in sorted(lab_job):
+        print(f"  {k}: " + "; ".join(f"{j} {v:.0f}" for j, v in lab_job[k].most_common(4)))
+    print("top jobs in the superseded overlap (min per merged PR):", res["top_superseded_jobs"])
+    print("\nattribution (min by bucket and how the run named its head; measured = name/feed-sha/fleet key, inferred = branch/head-at):")
+    for (b, h), v in sorted(how_min.items()):
+        print(f"  {b:4} {h:10} {v:9.0f}")
+    if a.json_out:
+        json.dump(res, open(a.json_out, "w"), indent=1)
+
+
+if __name__ == "__main__":
+    main()

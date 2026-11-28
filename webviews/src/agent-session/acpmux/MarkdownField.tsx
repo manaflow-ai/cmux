@@ -14,10 +14,12 @@ import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
 import {
   inlineAttachmentNode,
+  INLINE_REMOVE,
   inlineIds,
   inlinePlugin,
   insertInline,
   type InlinePlace,
+  onlyInline,
   orderInline,
   placeTokensIn,
   removeInline,
@@ -1172,6 +1174,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const copied = (editorView: EditorView, event: ClipboardEvent, cut: boolean) => {
     const surface = latest.current.onCopy;
     const { state } = editorView;
+    // The strip view's hidden nodes are not the person's text: a selection of only them copies and
+    // cuts nothing (composer/inlineNode.ts onlyInline).
+    if (latest.current.inlineHidden && !state.selection.empty && onlyInline(state.selection.content())) {
+      event.preventDefault();
+      return true;
+    }
     if (!surface || state.selection.empty) return false;
     const copy = {
       parts: inlineOn.current ? selectionParts(state) : [],
@@ -1834,7 +1842,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         if (!parsed) return;
         const { tr, doc } = current.state;
         tr.replace(0, doc.content.size, new Slice(parsed.content, 0, 0));
-        current.dispatch(placeTokensIn(tr, inlineKnown).setMeta("addToHistory", undoable));
+        current.dispatch(placeTokensIn(tr, inlineKnown).setMeta("addToHistory", undoable).setMeta(INLINE_REMOVE, true));
       });
     else editor.current?.action(replaceAll(markdown));
     const current = view.current;

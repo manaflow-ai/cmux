@@ -182,6 +182,18 @@ const LANE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// soon as the link is gone ([`accept_lane`]).
 const HOST_LANE_WAIT: std::time::Duration = std::time::Duration::from_secs(12);
 
+/// Whether this tunnel's links take the input lane (a second TCP stream to
+/// the link port): only when both sides offered it and the link is not the
+/// reliable one. A reliable link's Mac never takes a lane (its answer drops
+/// it, and its listener serves resumes at once), so a lane the phone opened
+/// reached that listener as a resumed carrier and ended the live link it
+/// belonged to ("peer closed the link" 0.06 s into a fresh reliable link,
+/// 2026-11-27: `wireguard_reliable_link_resumes_over_a_new_transport` failed
+/// 3 runs of 6 on main). Both sides decide it from the same offers.
+pub(super) fn tunnel_input_lane(options: &DialOptions, peer_lanes: &[String], reliable: bool) -> bool {
+    !reliable && super::input_lane_agreed(options, peer_lanes)
+}
+
 /// Mac: the next connection on `listener` is the input lane of the link that
 /// holds `lane`'s receiver, while that link still waits for it. Returns
 /// false when the listener closed. Pairing is by order (the phone opens the
@@ -3351,9 +3363,9 @@ pub(super) fn dial_wireguard<'a>(
                         let ip: Ipv4Addr = overlay_ip
                             .parse()
                             .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
-                        agreed = super::input_lane_agreed(options, &lanes);
                         liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
                         reliable = super::reliable_agreed(options, &lanes);
+                        agreed = tunnel_input_lane(options, &lanes, reliable);
                         let class_lanes = class_offer().agreed(&lanes);
                         classes_agreed = class_lanes.classes;
                         screen_agreed = class_lanes.screen;
@@ -3636,8 +3648,8 @@ impl Dialer for WireGuardDialer {
             else {
                 return Err(DialError::Unexpected("expected wg-init".into()));
             };
-            let agreed = super::input_lane_agreed(options, &lanes);
             let reliable = super::reliable_agreed(options, &lanes);
+            let agreed = tunnel_input_lane(options, &lanes, reliable);
             let video_wanted = options.video_lane && super::video_lane_listed(&lanes);
             let webrtc_media_wanted =
                 video_wanted && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -3837,6 +3849,20 @@ impl Dialer for WireGuardDialer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A reliable link takes no input lane on either side: the Mac's
+    /// listener would take the phone's lane for a resumed carrier.
+    #[test]
+    fn a_reliable_link_takes_no_input_lane_on_either_side() {
+        let on = DialOptions { reliable: true, input_lane: true, ..DialOptions::default() };
+        let lanes = vec![crate::link::INPUT_LANE.to_owned(), crate::RELIABLE_LANE.to_owned()];
+        let reliable = super::super::reliable_agreed(&on, &lanes);
+        assert!(reliable);
+        assert!(!tunnel_input_lane(&on, &lanes, reliable));
+        let plain = DialOptions { reliable: false, ..on.clone() };
+        let reliable = super::super::reliable_agreed(&plain, &lanes);
+        assert!(tunnel_input_lane(&plain, &lanes, reliable), "a plain link keeps its lane");
+    }
 
     /// Version 3 (cell beside Wi-Fi) against a version-2 peer: the peer
     /// keeps the trickled answer and `reach` it had.

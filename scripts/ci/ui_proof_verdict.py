@@ -76,7 +76,11 @@ APP_VISUAL = ("Packages/macOS/", "Packages/Shared/", "Native/", "Resources/", "A
 # Under a visual root, still nothing a user sees: tests, fixtures, benches, docs, copy (Leo's tier 0 keeps copy fast).
 NOT_VISUAL = ("*/Tests/*", "*Tests.swift", "*/test/*", "*/tests/*", "*/__tests__/*", "*.test.*", "*.spec.*",
               "*/bench/*", "*.bench.*", "*/fixtures/*", "*.md", "*.xcstrings", "*.strings", "*/dev-server/*",
-              "Resources/Info.plist", "*.entitlements")
+              "Resources/Info.plist", "*.entitlements", "Packages/macOS/CmuxNext/app-ffi-pin.json")
+# app-ffi-pin.json is the release bot's FFI pin roll (app-ffi-release.yml): its Rust already merged in the PRs that
+# changed it (Rust is not visual here; hot-verify looks at it on that PR), and no look can run on the roll itself
+# (hot-verify needs a build for an xcframework), so the bot's pin PR stayed pending: cmux#60965 from 14:56Z 11-27,
+# the FFI pin 600 min behind main. The pin PR's Package.swift imports only PackageDescription.
 # A Swift file whose every import is one of these has no way to draw (no SwiftUI, AppKit, CoreGraphics, Metal, WebKit,
 # GhosttyKit or a Cmux module that might re-export them), so changing it changes no pixels. A file with no import at
 # all, an unread one, or one that dropped a UI import (its base text is checked too) stays visual.

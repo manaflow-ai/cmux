@@ -439,7 +439,7 @@ impl Outcome {
     }
 }
 
-pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
+pub(super) async fn run(mut args: MoveArgs, json_out: bool) -> Result<()> {
     if args.from_snapshot {
         return snapshot::run(args, json_out).await;
     }
@@ -448,6 +448,16 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     super::move_end::reclaim_dead_moves(&super::move_end::journal_dir()).await;
     let peers = local.request("_acpmux/peers", json!({})).await?;
     let here = crate::pairing::machine_name();
+    // `--from MACHINE` of a machine this one reaches only through the team hub: its chats move
+    // as `MACHINE/ID` does, asked of the machine that holds them (`hub::ask_holder`).
+    if let Some(from) = args.from.clone()
+        && !args.all_idle
+        && !names_here(&from, &here)
+        && peer_ssh(&peers, &from).is_none()
+        && hub::resolve(&local, &from).await.is_ok()
+    {
+        from_hub_machine(&mut args, &from);
+    }
     // `--from`: the chats' daemon is the peer's, reached through a forward of its local socket.
     let (src, source, home, _src_forward) = match &args.from {
         None => {
@@ -2037,6 +2047,16 @@ fn outdated_lines(hosts: &[Value], order: &[String]) -> Vec<String> {
             })
         })
         .collect()
+}
+
+/// `--from FROM` as `FROM/ID` keys, for a source machine reached through the team hub.
+fn from_hub_machine(args: &mut MoveArgs, from: &str) {
+    for key in &mut args.sessions {
+        if !key.contains('/') {
+            *key = format!("{from}/{key}");
+        }
+    }
+    args.from = None;
 }
 
 /// What [`walk`] found: the target (with its answer), the hosts it passed over and why, the

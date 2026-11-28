@@ -1172,7 +1172,7 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
   await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
   await L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand());
-  await L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand());
+  await L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs());
 }
 
 /**
@@ -1227,21 +1227,32 @@ export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
  * user has its cwd there. At the bound, name the probes still running and stop them (TERM, then KILL): a probe CLI
  * that hangs past acpmux's own kill (2026-11-26 roll 45732114266: two `cursor-agent acp` probes alive after 120 s)
  * is the bake's own process and must not fail the roll; only a probe that survives KILL does. `unattended` is for
- * tests.
+ * tests. The bound is wall time, not loop turns: each turn's /proc scan is bounded too (`timeout`), so a scan that
+ * stalls on a busy guest cannot stretch 120 turns past the exec's own 300 s (roll 46067232978: status 124 at 326 s,
+ * no output, the roll red). acpmuxProbesQuietStepMs gives the exec room for the bound plus the TERM and KILL waits.
  */
+/**
+ * The exec bound for acpmuxProbesQuietCommand: its wall-time wait plus 300 s for the rest, which at most is a last
+ * scan (10 s), the TERM and KILL waits (2 x 5 turns of a 1 s sleep and a 10 s scan, 110 s), the final scans and slack.
+ */
+export function acpmuxProbesQuietStepMs(limitSeconds = 120): number {
+  return (limitSeconds + 300) * 1000;
+}
+
 export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string): string {
   const dir = unattended === undefined ? '"$CMUX_TUI_HOME/.acpmux/unattended"' : sq(unattended);
   // One find over /proc (a readlink per process forks hundreds of times); -lname matches the cwd link's target.
   const probes = [
-    'find /proc -mindepth 2 -maxdepth 2 -name cwd \\( -lname "$dir" -o -lname "$dir/*" \\) 2>/dev/null | while IFS= read -r c; do',
-    '  pid="${c#/proc/}"; pid="${pid%%/*}"; echo "  probe pid $pid: $(tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)"',
+    'timeout 10 find /proc -mindepth 2 -maxdepth 2 -name cwd \\( -lname "$dir" -o -lname "$dir/*" \\) 2>/dev/null | while IFS= read -r c; do',
+    '  pid="${c#/proc/}"; pid="${pid%%/*}"; echo "  probe pid $pid: $(timeout 2 tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)"',
     "done",
   ].join("\n");
   return [
     ...(unattended === undefined ? [cmuxTuiLayoutSelector(), 'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-probes-no-service; exit 0; fi'] : []),
     `dir=${dir}`,
     `probes() {\n${probes}\n}`,
-    `i=0; while [ "$i" -lt ${limitSeconds} ] && [ -n "$(probes)" ]; do i=$((i + 1)); sleep 1; done`,
+    `t0=$(date +%s); i=0; while [ "$i" -lt ${limitSeconds} ] && [ -n "$(probes)" ]; do sleep 1; i=$(($(date +%s) - t0)); done`,
+    `if [ "$i" -gt ${limitSeconds} ]; then i=${limitSeconds}; fi`,
     `left="$(probes)"`,
     'if [ -z "$left" ]; then echo "acpmux-probes-quiet after ${i}s"; exit 0; fi',
     `echo "acpmux's model probes still run after ${limitSeconds}s; stopping them:"; printf '%s\\n' "$left"`,

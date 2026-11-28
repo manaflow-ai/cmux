@@ -4,7 +4,7 @@ import { afterEach, expect, test } from "bun:test";
 import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { ChatAccounts, NewChatAccount } from "./chatAccounts";
+import type { ChatAccountList, ChatAccounts, NewChatAccount } from "./chatAccounts";
 import type { QuickFamily, QuickModel } from "./quickModelMenuModel";
 import { authText, type SessionAuth } from "./sessionAuth";
 import { translate } from "./i18n";
@@ -150,20 +150,22 @@ function Harness({
   auth?: SessionAuth;
   session?: Session;
 }) {
+  const own = session.family ?? "claude";
   const [open, setOpen] = useState(false);
   const [effort, setEffort] = useState(startEffort);
   const trigger = useRef<HTMLButtonElement | null>(null);
   calls.open = open;
   const accounts: ChatAccounts = {
-    list: async () => ({
-      accounts: [
-        { id: "max", name: "Max", kind: "direct-subscription" },
-        { id: "key", name: "Work key", kind: "direct-api-key" },
-      ],
-      active: "max",
-      scope: "chat",
-      family: "claude",
-    }),
+    list: async () =>
+      session.accounts ?? {
+        accounts: [
+          { id: "max", name: "Max", kind: "direct-subscription" },
+          { id: "key", name: "Work key", kind: "direct-api-key" },
+        ],
+        active: "max",
+        scope: "chat",
+        family: "claude",
+      },
     add: async (account) => {
       calls.added.push(account);
     },
@@ -178,6 +180,7 @@ function Harness({
       menu={{
         models: [],
         ...(session.current === null ? {} : { current: session.current ?? "claude-Opus" }),
+        ...(session.signIn ? { signIn: session.signIn } : {}),
         onModel() {},
         inlineEffort: true,
         ...(auth
@@ -232,7 +235,7 @@ function Harness({
         },
         families: {
           list,
-          current: "claude",
+          current: own,
           onPick(row) {
             calls.picks.push(row);
           },
@@ -247,7 +250,15 @@ function Harness({
 }
 
 /// The chat the menu opens on: its running model (null: the session has named none yet) and its Fast.
-type Session = { current?: string | null; fastOn?: boolean };
+/// `family`: the harness it runs (the rail's current, "claude" by default); `accounts`: its route list;
+/// `signIn`: the sign-in acpmux reports for it (`authSource`).
+type Session = {
+  current?: string | null;
+  fastOn?: boolean;
+  family?: string;
+  accounts?: ChatAccountList;
+  signIn?: string;
+};
 
 async function openMenu(
   list: QuickFamily[] = [claude, codex, gemini],
@@ -983,6 +994,179 @@ test("an account switch folds the card back to the avatar and keeps the menu ope
   expect(popup().querySelector(".acpmux-cols-card")).toBeNull();
   expect(popup().querySelector(".acpmux-cols-profile")?.getAttribute("aria-expanded")).toBe("false");
 });
+
+// cmux#63167: the account card opened over the model list and hid the checked model. It opens in the
+// flow under the search row: the rail and the models move down, whole, and the checked one stays shown.
+test("the account card opens above the lists, never over them, and keeps the checked model in view (#63167)", async () => {
+  await openMenu();
+  // The models list shows 0 to 100; the checked row (Opus, the first) sits at 150 to 180 once the card
+  // pushed it down: the list alone scrolls it back.
+  const list = popup().querySelector<HTMLElement>("[role=listbox]")!;
+  const rect = (top: number, bottom: number) => () =>
+    ({ top, bottom, left: 0, right: 100, width: 100, height: bottom - top }) as DOMRect;
+  list.getBoundingClientRect = rect(0, 100);
+  row("Opus").getBoundingClientRect = rect(150, 180);
+  await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
+  const card = popup().querySelector<HTMLElement>(".acpmux-cols-card")!;
+  expect(card).not.toBeNull();
+  expect(card.closest(".acpmux-cols-corner")).toBeNull();
+  expect(card.parentElement?.classList.contains("acpmux-cols-strips")).toBe(true);
+  const lists = popup().querySelector<HTMLElement>(".acpmux-cols-lists")!;
+  expect(card.contains(lists)).toBe(false);
+  expect(card.compareDocumentPosition(lists) & dom!.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(row("Opus").getAttribute("aria-selected")).toBe("true");
+  expect(list.scrollTop).toBe(80);
+  // A press inside the card keeps it open; one on the list closes it.
+  await act(async () => {
+    card
+      .querySelector(".acpmux-cols-card-head")!
+      .dispatchEvent(new dom!.window.Event("pointerdown", { bubbles: true }));
+  });
+  expect(popup().querySelector(".acpmux-cols-card")).not.toBeNull();
+  await act(async () => {
+    row("Haiku").dispatchEvent(new dom!.window.Event("pointerdown", { bubbles: true }));
+  });
+  expect(popup().querySelector(".acpmux-cols-card")).toBeNull();
+});
+
+test("the menu grows by the open card's height, so the lists keep theirs, and goes back as it closes (#63167)", async () => {
+  fakeLayout = (window) => {
+    installFakeLayout(window);
+    Object.defineProperty(window.HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains("acpmux-cols-card") ? 120 : 0;
+      },
+    });
+  };
+  await openMenu();
+  const frame = popup().querySelector<HTMLElement>(".acpmux-cols-frame")!;
+  const fixed = Number(frame.dataset.fitHeight);
+  expect(fixed).toBeGreaterThan(0);
+  expect(frame.style.height).toContain(`${fixed}px`);
+  await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
+  expect(frame.style.height).toContain(`${fixed + 120}px`);
+  // Never past the room the popup has.
+  expect(frame.style.height).toContain("var(--available-height");
+  expect(Number(frame.dataset.fitHeight)).toBe(fixed);
+  await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
+  expect(frame.style.height).toContain(`${fixed}px`);
+  expect(frame.style.height).not.toContain(`${fixed + 120}px`);
+});
+
+test("the account card's style keeps it in the flow, scrolling as one block over lists that keep two rows (#63167)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("./quickModelColumns.css", import.meta.url), "utf8");
+  const rule = (selector: string) =>
+    new RegExp(`${selector.replace(/[.()>:]/g, "\\$&")}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+  const card = rule(".acpmux-cols-card");
+  expect(card).not.toBe("");
+  expect(card).not.toMatch(/position\s*:\s*(absolute|fixed)/);
+  expect(card).toMatch(/overflow-y\s*:\s*auto/);
+  expect(card).toMatch(/min-height\s*:\s*0/);
+  const body = rule(".acpmux-cols-body:has(> .acpmux-cols-strips > .acpmux-cols-card)");
+  expect(body).toMatch(/minmax\(0,\s*max-content\)/);
+  expect(body).toMatch(/minmax\(calc\(2 \* var\(--ds-control-row\)/);
+});
+
+// cmux#63167: a chat on Claude Code (sr2 internal) showed "CLI login · Claude Code". With no route
+// bound, the card names the sign-in acpmux reports for the chat, and the harness by its own name.
+const claudeCode: QuickFamily = { ...claude, name: "Claude Code" };
+const sr2: QuickFamily = {
+  id: "claude-sr2",
+  name: "Claude Code (sr2 internal)",
+  mark: "claude",
+  accountFamily: "claude-sr2",
+  models: [model("claude-sr2", "Opus", { efforts: ["low", "medium", "high"] }), model("claude-sr2", "Haiku")],
+  more: [],
+};
+const noRoutes: ChatAccountList = { accounts: [], family: "claude-sr2" };
+const cardWho = () => {
+  const card = popup().querySelector<HTMLElement>(".acpmux-cols-card")!;
+  return {
+    name: card.querySelector(".acpmux-cols-card-name")?.textContent,
+    title: card.querySelector(".acpmux-cols-card-name")?.getAttribute("title"),
+    detail: card.querySelector(".acpmux-cols-card-head .acpmux-cols-detail")?.textContent,
+    rows: [...card.querySelectorAll(".acpmux-cols-card-list [role=button] .acpmux-cols-name")].map(
+      (node) => node.textContent,
+    ),
+  };
+};
+const openCard = () => click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
+const onSr2 = { family: "claude-sr2", current: "claude-sr2-Opus", signIn: "SR2 token (sr2 claude)" };
+
+test("a chat on SR2 names the SR2 sign-in acpmux reports, not CLI login, and its harness by name (#63167)", async () => {
+  await openMenu([claudeCode, sr2, codex], "medium", undefined, { ...onSr2, accounts: noRoutes });
+  const avatar = popup().querySelector<HTMLElement>(".acpmux-cols-profile")!;
+  expect(avatar.getAttribute("aria-label")).not.toContain("CLI login");
+  await openCard();
+  const who = cardWho();
+  expect(who.name).toBe("SR2 token");
+  expect(who.title).toBe("SR2 token (sr2 claude)");
+  expect(who.detail).toBe("Claude Code (sr2 internal)");
+  expect(who.rows).not.toContain("CLI login");
+});
+
+test("a Claude Code chat with no route bound names its reported subscription (#63167)", async () => {
+  await openMenu([claudeCode, codex], "medium", undefined, {
+    accounts: { accounts: [], family: "claude" },
+    signIn: "Claude subscription (keychain)",
+  });
+  await openCard();
+  expect(cardWho().name).toBe("Claude subscription");
+  expect(cardWho().detail).toBe("Claude Code");
+});
+
+test("a Codex chat, whose sign-in acpmux does not report, keeps its own CLI login (#63167)", async () => {
+  await openMenu([claude, codex], "medium", undefined, {
+    family: "codex",
+    current: "codex-Sol",
+    accounts: { accounts: [], family: "codex" },
+  });
+  await openCard();
+  expect(cardWho().name).toBe("CLI login");
+  expect(cardWho().detail).toBe("Codex");
+});
+
+test("the chat's sign-in never shows on another harness's tab (#63167)", async () => {
+  await openMenu([claudeCode, sr2, codex], "medium", undefined, { ...onSr2, accounts: noRoutes });
+  await click(tab("Codex"));
+  await openCard();
+  expect(cardWho().name).not.toContain("SR2");
+  expect(cardWho().detail).toBe("Codex");
+});
+
+test("a bound route still names the account; the default row stays the harness login (#63167)", async () => {
+  await openMenu(undefined, "medium", undefined, { signIn: "API key (ANTHROPIC_API_KEY, from route Max)" });
+  await openCard();
+  expect(cardWho().name).toBe("Max");
+  expect(cardWho().title).toBeNull();
+  expect(cardWho().rows[0]).toBe("CLI login");
+});
+
+test("back to the default in this opening, the old route's reported sign-in is not shown as the login (#63167)", async () => {
+  await openMenu(undefined, "medium", undefined, { signIn: "API key (ANTHROPIC_API_KEY, from route Max)" });
+  await openCard();
+  await click(
+    [...popup().querySelectorAll<HTMLElement>(".acpmux-cols-card [role=button]")].find(
+      (node) => node.textContent === "CLI login",
+    )!,
+  );
+  await openCard();
+  expect(cardWho().name).toBe("CLI login");
+});
+
+for (const [why, signIn] of [
+  ["no sign-in reported", undefined],
+  ["acpmux found none it could read", "No sign-in found"],
+] as const) {
+  test(`with ${why} the card keeps the harness login (#63167)`, async () => {
+    await openMenu([claudeCode, codex], "medium", undefined, { accounts: noRoutes, ...(signIn ? { signIn } : {}) });
+    await openCard();
+    expect(cardWho().name).toBe("CLI login");
+    expect(cardWho().detail).toBe("Claude Code");
+  });
+}
 
 test("a harness this Mac does not have draws no avatar in the corner", async () => {
   await openMenu();

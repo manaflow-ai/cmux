@@ -1723,6 +1723,7 @@ async fn team_delivery_refuses_when_disabled_and_only_allowed_starts_an_idle_tur
         team_messaging: true,
         credential: None,
         control_from: Vec::new(),
+        direct_send: false,
     });
     // Missing startWork is information even if mode asks to steer.
     assert_eq!(

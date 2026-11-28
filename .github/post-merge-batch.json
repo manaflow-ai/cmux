@@ -159,7 +159,7 @@
       ],
       "jobs": {
         "cargo": "fast tier (cargo and script entries)",
-        "swift": "fast tier (Swift entries, build fleet)"
+        "swift-fleet": "fast tier (Swift entries, build fleet)"
       }
     },
     "tooling-tests": {
@@ -351,6 +351,7 @@
         "webviews/scripts/agent-pane/frameSites.mjs",
         "webviews/scripts/agent-pane/jsonParsePlugin.mjs",
         "webviews/scripts/agent-pane/katexStylePlugin.mjs",
+        "webviews/scripts/agent-pane/packedShikiPlugin.mjs",
         "webviews/scripts/agent-pane/reactCompilerPlugin.mjs",
         "webviews/scripts/agent-pane/tailwind-css.mjs",
         "webviews/scripts/agent-pane/tailwindCompile.mjs",
@@ -363,6 +364,8 @@
         "webviews/scripts/pages/gen-strings.mjs",
         "webviews/scripts/pages/catalog.mjs",
         "webviews/scripts/pages/split-strings.mjs",
+        "webviews/postcss.config.mjs",
+        "webviews/scripts/postcss/**",
         "webviews/test/latency/mock-host.ts",
         "webviews/vite.config.ts",
         "webviews/vite.config.gallery.ts",
@@ -374,6 +377,7 @@
         "config/vite-plus/**",
         "webviews/scripts/lint/effect-cleanup.mjs",
         "webviews/scripts/lint/perf-footguns.mjs",
+        "webviews/scripts/lint/row-motion-baseline.json",
         "webviews/scripts/lint/aria-props.mjs",
         "scripts/gallery-matrix/broken-allowlist.json",
         "scripts/gallery-matrix/bun.lock",
@@ -396,6 +400,7 @@
         "scripts/cmux-next/build-agent-pane-web.sh",
         "scripts/ci/test_reds.py",
         "scripts/ci/ensure-system-chrome.sh",
+        "scripts/ci/pin-browser-test-font.sh",
         ".github/actions/playwright-apt-cache/**",
         ".github/workflows/gallery-health.yml",
         "schemas/gallery/**",
@@ -405,6 +410,7 @@
         "schemas/surface-roles/surface-roles.json",
         "schemas/composer-status/peek-pin.json",
         "examples/gallery/gallery.json",
+        "examples/setups/**",
         "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
         "design/icons/neko-candidates/**",
         "first-party-apps/*/preview/**",
@@ -428,6 +434,7 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextActions/BrowserProfileActions.xcstrings",
         "Packages/macOS/CmuxNext/Sources/CmuxNextActions/HistoryActions.xcstrings",
         "Packages/macOS/CmuxNext/Sources/CmuxNextActions/RemoteActions.xcstrings",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/Resources/GitHubConnection.xcstrings",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/KeybindingsPage.xcstrings",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Passwords.xcstrings",
@@ -634,6 +641,7 @@
         "schemas/sidebar-hover-card-rules/vectors.json",
         "schemas/sidebar-item-info/vectors.json",
         "schemas/sidebar-drag-geometry/vectors.json",
+        "schemas/sidebar-region-layout/vectors.json",
         "backend/catalog/cloud-relay-operations.json",
         "schemas/settings/source/notifications.json",
         "schemas/settings/source/page-layout.json",
@@ -641,7 +649,10 @@
         "docs/mdm/com.manaflow.cmux.intune.plist",
         "docs/mdm/com.manaflow.cmux.json",
         "docs/mdm/com.manaflow.cmux.plist",
-        "docs/mdm/managed-preferences.md"
+        "docs/mdm/managed-preferences.md",
+        "schemas/settings/source/row-facts.json",
+        "schemas/settings/source/samples.json",
+        "schemas/window-registry/vectors.json"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },
@@ -660,6 +671,18 @@
         "acpmux-protocol-ir": "acpmux protocol IR is current",
         "remote-web-wasm": "cmux remote web wasm"
       }
+    },
+    "ghosttykit-release-check": {
+      "workflow": "ghosttykit-release-check.yml",
+      "paths": [
+        "ghostty",
+        "scripts/download-prebuilt-ghosttykit.sh",
+        "scripts/validate-xcframework-archive.py",
+        "scripts/ghosttykit-checksums.txt",
+        "tests/test_ci_ghosttykit_release_check.sh",
+        ".github/workflows/ghosttykit-release-check.yml"
+      ],
+      "jobs": {"verify": "GhosttyKit release check"}
     }
   }
 }
