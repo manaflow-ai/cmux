@@ -13,7 +13,9 @@
      surface, no blur, the rim only.
    The tint is a translucent mix of the theme's surface: never opaque, never the accent.
    appearance.borders none clears every line of the rim. */
-:root {
+/* Resolve theme-dependent variables again at nested theme boundaries. */
+:root,
+[data-surface-theme] {
   /* The theme surface the tint mixes from (WebTheme.swift: the page color made opaque). */
   /* glass-opaque-allow: the color --glass-tint mixes from at 40-60%; never painted as a fill itself */
   --glass-surface: var(--cmux-surface-solid, Canvas);
@@ -22,6 +24,9 @@
     color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-light-veil-alpha) * 100%), transparent),
     color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-dark-veil-alpha) * 100%), transparent)
   );
+}
+
+:root {
   /* The fill. With no wallpaper still to bend it is plain glass's; while the lens draws it is
      clearer (below): the bend, not the frost, says it is glass. */
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
@@ -758,7 +763,8 @@
    Glass, never opaque: a fill on an overlay covers less than --surface-near-opaque; Reduce
    Transparency is the one opaque path (--glass-opaque). A neutral role's veil and rims are one
    material, the design scale's (--ds-material-neutral-*, --ds-material-rim-*), at the role's opacities. */
-:root {
+:root,
+[data-surface-theme] {
   --surface-near-opaque: 90%;
   --surface-hairline: var(--glass-edge); /* the one stroke of every role: the glass's ring, resolved here so a surface can name it without a cycle */
   --surface-elevation-flat: 0 0 transparent; /* the content roles: no shadow */

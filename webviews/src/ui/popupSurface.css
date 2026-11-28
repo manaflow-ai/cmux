@@ -247,7 +247,7 @@
 }
 :where(.ui-separator) {
   height: 1px;
-  margin: 4px var(--ui-row-padding-inline);
+  margin: var(--ds-space-fixed-1) var(--ui-row-padding-inline);
   border: 0;
   background: var(--menu-separator, color-mix(in srgb, currentColor 12%, transparent));
 }
@@ -508,8 +508,8 @@
 .ui-combobox-pinned-list { display: flex; flex-direction: column; min-height: 0; }
 /* Combobox `listEnd`: keeps its height as the scrolling list gives up room. */
 .ui-combobox-list-end { flex: none; }
-.ui-combobox-pinned { flex: none; margin-bottom: 4px; padding-bottom: 4px; }
-.ui-combobox-pinned[data-placement="bottom"] { margin: 4px 0 0; padding: 4px 0 0; }
+.ui-combobox-pinned { flex: none; margin-bottom: var(--ds-space-fixed-1); padding-bottom: var(--ds-space-fixed-1); }
+.ui-combobox-pinned[data-placement="bottom"] { margin: var(--ds-space-fixed-1) 0 0; padding: var(--ds-space-fixed-1) 0 0; }
 .ui-combobox-scroll { min-height: 0; }
 .ui-combobox-pinned > button { display: flex; align-items: center; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
 .ui-combobox-pinned > button:hover, .ui-combobox-pinned > button:focus-visible { background: var(--ui-row); }

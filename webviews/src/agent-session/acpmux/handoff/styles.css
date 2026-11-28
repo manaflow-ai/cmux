@@ -1,14 +1,14 @@
 .acpmux-handoff-review {
   width: min(760px, calc(100% - 36px));
-  margin: 24px auto;
+  margin: var(--ds-space-fixed-5) auto;
   color: var(--agent-text);
   overflow: auto;
-  padding-bottom: 24px;
+  padding-bottom: var(--ds-space-fixed-5);
 }
-.acpmux-handoff-provenance { margin: 0 0 8px; font-weight: 500; }
-.acpmux-handoff-project { margin: 0 0 24px; color: var(--agent-muted); overflow-wrap: anywhere; }
-.acpmux-handoff-review form { display: grid; gap: 16px; }
-.acpmux-handoff-review label { display: grid; gap: 8px; font-size: 12px; color: var(--agent-muted); }
+.acpmux-handoff-provenance { margin: 0 0 var(--ds-space-fixed-2); font-weight: 500; }
+.acpmux-handoff-project { margin: 0 0 var(--ds-space-fixed-5); color: var(--agent-muted); overflow-wrap: anywhere; }
+.acpmux-handoff-review form { display: grid; gap: var(--ds-space-fixed-4); }
+.acpmux-handoff-review label { display: grid; gap: var(--ds-space-fixed-2); font-size: 12px; color: var(--agent-muted); }
 .acpmux-handoff-review textarea, .acpmux-handoff-review input:not([type=checkbox]) {
   width: 100%;
   box-sizing: border-box;
@@ -22,16 +22,16 @@
   color: var(--agent-text);
   background: var(--acpmux-composer-tray);
 }
-.acpmux-handoff-review .acpmux-handoff-confirm { display: flex; align-items: center; gap: 8px; }
+.acpmux-handoff-review .acpmux-handoff-confirm { display: flex; align-items: center; gap: var(--ds-space-fixed-2); }
 .acpmux-handoff-confirm input { accent-color: var(--agent-text); }
-.acpmux-handoff-review details label { margin-top: 12px; }
+.acpmux-handoff-review details label { margin-top: var(--ds-space-fixed-3); }
 .acpmux-handoff-review summary { cursor: default; color: var(--agent-muted); }
 .acpmux-handoff-coverage { margin: 0; color: var(--agent-muted); font-size: 11px; }
-.acpmux-handoff-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.acpmux-handoff-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-fixed-3); }
 .acpmux-handoff-buttons button {
   border: 0;
   border-radius: var(--ds-radius-control);
-  padding: 8px 12px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   font: inherit;
   color: var(--agent-text);
   background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, transparent));
@@ -41,5 +41,5 @@
 .acpmux-handoff-buttons button:disabled { opacity: .45; cursor: default; }
 .acpmux-handoff-review :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([role="menu"], .ui-popup) { outline: 1px solid var(--agent-muted); outline-offset: 2px; }
 .acpmux-handoff-review [role=alert] { margin: 0; color: var(--agent-text); }
-.acpmux-handoff-header-tools { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
-.acpmux-handoff-error { margin: 8px 24px; color: var(--agent-text); font-size: 12px; }
+.acpmux-handoff-header-tools { margin-left: auto; display: flex; align-items: center; gap: var(--ds-space-fixed-2); min-width: 0; }
+.acpmux-handoff-error { margin: var(--ds-space-fixed-2) var(--ds-space-fixed-5); color: var(--agent-text); font-size: 12px; }

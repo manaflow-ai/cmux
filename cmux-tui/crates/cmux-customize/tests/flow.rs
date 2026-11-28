@@ -993,3 +993,34 @@ fn a_mode_change_after_an_agents_turn_is_by_hand() {
         [("customize/run.sh", ChangeKind::Added, true)]
     );
 }
+
+#[test]
+fn scene_color_warnings_identify_style_literals_and_still_allow_apply() {
+    let home = Home::new();
+    let customize = home.customize();
+    customize.begin("color a row", "mcp", 1).unwrap();
+    home.write("customize/cmux-app.json", MANIFEST);
+    let script = r##"export function renderSection() {
+  // Text("demo").foregroundColor("#445566")
+  const pattern = /[.]color("#112233")/;
+  const sample = '.color("#112233")', accent = "accent", suffix = "AA";
+  return Text("#336699 edited draft").foregroundColor("secondary")
+    .background(/* chosen fill */ '#336699')
+    .stroke(`#112233AA`,).borderColor(accent).fill("#88aa22" + suffix)
+    .foregroundColor("#336699")
+}
+"##;
+    home.write("customize/main.js", script);
+    let status = customize.status().unwrap();
+    assert!(status.problems.is_empty());
+    assert_eq!(status.warnings.len(), 3);
+    let fill = &status.warnings[0];
+    assert_eq!(fill.path, "customize/main.js");
+    assert_eq!((fill.line, fill.column), (Some(6), Some(35)));
+    assert!(fill.message.contains("#336699 in .background()"));
+    assert!(status.warnings[1].message.contains("#112233AA in .stroke()"));
+    assert!(status.warnings[2].message.contains("#336699 in .foregroundColor()"));
+    assert!(customize.apply(None, "cli", 2).unwrap().recorded);
+    assert_eq!(home.read("customize/main.js").as_deref(), Some(script));
+    assert!(customize.status().unwrap().warnings.is_empty());
+}

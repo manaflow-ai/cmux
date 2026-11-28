@@ -82,7 +82,9 @@ impl Customize {
         let scan = tree::scan(&self.roots)?;
         let base = self.current_tree(&index)?;
         let changes = changes(&base, &scan.tree, draft.as_ref());
-        let problems = validate::problems(&self.live_bytes(&scan.tree)?);
+        let files = self.live_bytes(&scan.tree)?;
+        let problems = validate::problems(&files);
+        let warnings = validate::scene_color_warnings(&changes, &files);
         let ask_to_first_change_ms = draft
             .as_ref()
             .and_then(|draft| draft.asks.last())
@@ -94,6 +96,7 @@ impl Customize {
             draft: draft.as_ref().map(DraftInfo::from),
             changes,
             problems,
+            warnings,
             skipped: scan.skipped,
             ask_to_first_change_ms,
         })
