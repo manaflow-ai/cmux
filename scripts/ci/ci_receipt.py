@@ -440,7 +440,7 @@ def lane_oidc_token(env=os.environ) -> str:
         raise Rejected("no OIDC token here (the job needs permissions: id-token: write)")
     request = urllib.request.Request(f"{url}&audience={LANE_AUDIENCE}", headers={"Authorization": f"Bearer {bearer}"})
     try:
-        status, body, _ = deadline_http.request(request, 20)
+        status, body, _ = gh_http.request(request, 20, budget_s=20)
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise Rejected(f"no OIDC token: {error}") from error
     if status >= 300:
@@ -470,7 +470,7 @@ def lane_ask(payload: dict, token: str, endpoint: str = LANE_ENDPOINT, *,
         request = urllib.request.Request(endpoint, data=data, method="POST", headers={
             "Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
         try:
-            status, body, _ = deadline_http.request(request, max(end - clock(), 1.0))
+            status, body, _ = gh_http.request(request, max(end - clock(), 1.0), tries=1)  # a POST: sent once; this loop retries
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             raise Rejected(f"the controller did not answer: {error}") from error
         try:
@@ -835,7 +835,7 @@ def spool_dir(env=os.environ) -> Path:
 def controller_post(target: str, data: bytes, deadline: float = RECORD_DEADLINE_S) -> tuple[int, bytes]:
     request = urllib.request.Request(target, data=data, method="POST", headers={
         "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
-    status, body, _ = deadline_http.request(request, deadline)
+    status, body, _ = gh_http.request(request, deadline, tries=1)  # a POST: sent once; the spool retries
     return status, body
 
 

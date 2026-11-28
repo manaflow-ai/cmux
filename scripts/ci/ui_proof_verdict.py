@@ -75,6 +75,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import gh_http  # noqa: E402
 import proof_record  # noqa: E402
 
 STATUS_CONTEXT = "cmux/ui-proof"
@@ -383,8 +384,9 @@ def api(path: str, token: str, method: str = "GET", body: dict | None = None):
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                                           "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read() or b"null")
+    # gh_http asks a read again after a refusal that can change; a write is sent once (its rule).
+    _, raw, _ = gh_http.request(req, 20, raise_errors=True)
+    return json.loads(raw or b"null")
 
 
 def post_status(state: str, description: str, repo: str, sha: str, tokens: list[str], target_url: str = "") -> bool:
@@ -594,7 +596,8 @@ def record_at(repo: str, pr: int, sha: str, token: str, bots: list[str]) -> str:
     """When the newest trusted proof record at SHA was posted on PR (any look suite, "" for none)."""
     comments = proof_record.pr_comments(repo, pr, token)
     when = {c.get("html_url", ""): c.get("created_at") or "" for c in comments}
-    found = [proof_record.find(comments, suite, sha, bots) for suite in proof_record.SUITES]
+    can_write = proof_record.writer_check(repo, [token])
+    found = [proof_record.find(comments, suite, sha, bots, can_write) for suite in proof_record.SUITES]
     return max((when.get(r.get("_comment", ""), "") for r in found if r), default="")
 
 
@@ -676,7 +679,8 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
         return verdict(need, "", {}, [], pr)
     body = (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
     comments = proof_record.pr_comments(repo, pr, token)
-    records = {s: proof_record.find(comments, s, sha, bots) for s in suites_for(need)}
+    can_write = proof_record.writer_check(repo, proof_record.read_tokens() or [token])
+    records = {s: proof_record.find(comments, s, sha, bots, can_write) for s in suites_for(need)}
     ui = new_ui(added_files(), read=show)
     state, desc = verdict(need, body, records, ui, pr)
     if state == "pending" and desc.startswith(NO_LOOK):

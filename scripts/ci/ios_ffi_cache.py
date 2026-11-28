@@ -459,12 +459,19 @@ def controller_base():
     return (os.environ.get("CMUX_CI_CONTROLLER") or DEFAULT_CONTROLLER).rstrip("/")
 
 
-def _open(url, timeout):
-    """GET. Inside a step the host's tailnet identity authorizes the read; no token is sent or needed."""
+def _deadline_http():
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import deadline_http
+    return deadline_http
+
+
+def _open(url, timeout, total=None):
+    """GET, as a stream: each wait ends after TIMEOUT s of silence and the whole call by TOTAL (default TIMEOUT)
+    (deadline_http.stream). Inside a step the host's tailnet identity authorizes the read; no token is sent."""
     import urllib.request
     # The artifact edge refuses urllib's default User-Agent.
-    return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-ios-ffi-cache"}),
-                                  timeout=timeout)
+    return _deadline_http().stream(urllib.request.Request(url, headers={"User-Agent": "cmux-ios-ffi-cache"}),
+                                   total or timeout, stall=timeout, raise_errors=True)
 
 
 def fleet_entry(key):
@@ -513,7 +520,7 @@ def download(name, digest, size, target):
         raise OSError("no download URL for " + name)
     h, total = hashlib.sha256(), 0
     deadline = time.monotonic() + FLEET_DOWNLOAD_SECONDS
-    with _open(url, 60) as res, open(target, "wb") as out:
+    with _open(url, 60, FLEET_DOWNLOAD_SECONDS) as res, open(target, "wb") as out:
         while True:
             if time.monotonic() > deadline:
                 raise TimeoutError("%s took longer than %d s; building is faster" % (name, FLEET_DOWNLOAD_SECONDS))
@@ -616,8 +623,9 @@ def _claim(method, key, body=None, wait=0):
     try:
         # A claim reads the step's commit at the controller (a cold fetch takes up to ~45 s); a waiting read
         # answers by its wait. Any other answer than 200 or 409 (an older controller's 400/405, a 503) builds.
-        with urllib.request.urlopen(req, timeout=wait + 15 if method == "GET" else 50) as res:
-            answer = json.loads(res.read(64 << 10))
+        _, raw, _ = _deadline_http().request(req, wait + 15 if method == "GET" else 50, max_bytes=64 << 10,
+                                             raise_errors=True)
+        answer = json.loads(raw)
     except urllib.error.HTTPError as e:
         if e.code != 409:
             print("ios-ffi cache: claim %s answered %d (%s)" % (key[:12], e.code, e.read(300).decode("utf-8", "replace").strip()))
