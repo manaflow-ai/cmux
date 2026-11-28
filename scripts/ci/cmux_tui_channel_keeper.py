@@ -69,10 +69,13 @@ def git(*args: str) -> str:
 
 
 def tree_key(commit: str) -> str:
-    out = subprocess.run([str(ROOT / "scripts/cmux-next/pin-cmux-tui.sh"), "key", "--rev", commit],
-                         cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip()
-    if len(out) != 40:
-        raise RuntimeError(f"no tree key for {commit}: {out!r}")
+    """The cmux-tui tree key of COMMIT; RuntimeError (naming the key script's stderr) when it has none."""
+    done = subprocess.run([str(ROOT / "scripts/cmux-next/pin-cmux-tui.sh"), "key", "--rev", commit],
+                          cwd=ROOT, check=False, capture_output=True, text=True)
+    out = done.stdout.strip()
+    if done.returncode != 0 or len(out) != 40:
+        why = (done.stderr.strip().splitlines() or [f"exit {done.returncode}"])[-1][:300]
+        raise RuntimeError(f"no tree key for {commit[:12]}: {why}")
     return out
 
 
@@ -103,6 +106,7 @@ class Report:
     state: str = ""  # current | untested | point-due | unpublished | unreadable
     holding: str = ""
     walked: list[Tree] = field(default_factory=list)
+    unkeyed: list[str] = field(default_factory=list)  # commits skipped because their tree key failed
 
 
 def read_channel() -> dict | None:
@@ -155,7 +159,14 @@ def measure(limit: int, fetch_branch: bool = True) -> Report:
     for commit in git("rev-list", "--first-parent", f"-n{limit}", head).splitlines():
         if commit == report.channel_commit:
             break
-        key = tree_key(commit)
+        try:
+            key = tree_key(commit)
+        except RuntimeError as error:
+            # One commit whose key cannot be computed (a slow or refused git read on a loaded runner, run
+            # 46175773522 on 2026-11-28) must not stop the walk: the trees below it can still be tested and
+            # pointed at. It is named in the report, never treated as the channel's tree or as published.
+            report.unkeyed.append(str(error))
+            continue
         if key == report.channel_key:
             break
         if key in seen:
@@ -195,6 +206,8 @@ def print_report(report: Report) -> None:
     for tree in report.walked:
         marks = ("published" if tree.published else "unpublished") + (", daemon-tested" if tree.tested else "")
         print(f"  tree {tree.key[:12]} at {tree.commit[:12]}: {marks}")
+    for why in report.unkeyed:
+        print(f"  skipped: {why}")
     print(f"state: {report.state}: {report.holding}")
 
 
