@@ -293,7 +293,7 @@ import {
 import { jumpToLatestWith, placeViewWith, pressUpWith } from "./transcript/jumpWiring";
 import { indexOfRow, mountedIndexOf } from "./transcript/rowIndex";
 import { type TranscriptReferences, LIST_PROPS, sameList } from "./transcript/references";
-import { type LastEstimate, estimateFrom, nearView } from "./transcript/liveEstimate";
+import { type LastEstimate, copiedLayout, estimateFrom, nearView } from "./transcript/liveEstimate";
 import { SNAPSHOT_HOST_TAG, TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE } from "./chatSnapshot/shared";
 import { useStreamAppendDeclaration } from "./devMotionAudit";
 export { RowContent } from "./transcript/RowFrame";
@@ -778,7 +778,7 @@ function coldOpenRoughAbove(
 }
 
 /// The layouts of the chats this page's transcripts showed (conversation/keptLayouts.ts).
-const keptLayouts = new KeptLayouts<DrawnHeights, AcpmuxRow>();
+const keptLayouts = new KeptLayouts<DrawnHeights, AcpmuxRow, LastEstimate>();
 
 function TranscriptView({
   rows: paneRows,
@@ -2177,6 +2177,19 @@ function TranscriptView({
     // prepared markdown and DOM heights from the old transcript must never place the new one.
     // The chat shown takes the layout it left in this page, if any: its rows place at the heights they
     // drew, and its estimates measure none of them again (conversation/keptLayouts.ts).
+    // The chat left keeps its last whole estimate, copied out of this transcript's reused arrays
+    // (keptLayouts `park`), and the chat shown takes the one it left: its rows that are the same
+    // objects keep their places, so the switch's estimate lays out only what came while it was away
+    // (settled page; Leo, 2026-11-21: "Time to settled page at its ceiling, with no visible oddity").
+    const leaving = lastEstimate.current;
+    if (
+      leaving?.sessionId !== undefined &&
+      leaving.sessionId === measurementSession.current &&
+      !leaving.partial &&
+      !leaving.layout.rough &&
+      rowHeights.current.registry === registry
+    )
+      keptLayouts.park(leaving.sessionId, { ...leaving, layout: copiedLayout(leaving.layout) });
     measurementSession.current = sessionId;
     measurementCache.current.clear();
     rowHeights.current = { registry, heights: new WeakMap() };
@@ -2185,6 +2198,8 @@ function TranscriptView({
       sessionId === undefined
         ? undefined
         : keptLayouts.show(sessionId, chatLook, attachmentView, registry, gridScale());
+    const parked = sessionId === undefined ? undefined : keptLayouts.takeParked(sessionId);
+    if (parked && shown) lastEstimate.current = parked;
     // Its drawn heights name it (`DrawnHeight.sessionId`), so they place only its rows.
     // Noted as what was last asked (`askDrawn`): the commit's report of each mounted row at its kept
     // height then asks nothing (`flushDrawn`).

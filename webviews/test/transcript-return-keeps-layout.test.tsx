@@ -275,6 +275,33 @@ test("a kept layout seeds only the look it was measured with, at its scale, and 
   expect(kept.show("c", look, "attachments", defaultRegistry, 1)).toBeUndefined();
 });
 
+test("a chat's parked estimate is taken once, only with its layout's look, and is bounded with it", () => {
+  const kept = new KeptLayouts<string, AcpmuxRow, string>(2);
+  const look = {};
+  const rows = chat("a", 3);
+  const layout = { drawn: "drawn", rows, heights: new WeakMap(), look, view: "attachments", registry: defaultRegistry };
+  // No kept layout for the chat: nothing parks.
+  kept.park("a", "estimate-a");
+  expect(kept.takeParked("a")).toBeUndefined();
+  kept.record("a", layout);
+  kept.park("a", "estimate-a");
+  expect(kept.show("a", look, "attachments", defaultRegistry, 1)).toBe("drawn");
+  expect(kept.takeParked("a")).toBe("estimate-a");
+  expect(kept.takeParked("a")).toBeUndefined();
+  // Shown with another look: its parked estimate goes with its layout.
+  kept.park("a", "estimate-a");
+  expect(kept.show("a", {}, "attachments", defaultRegistry, 1)).toBeUndefined();
+  expect(kept.takeParked("a")).toBeUndefined();
+  // Bounded: the oldest chat's layout and estimate go together.
+  kept.park("a", "estimate-a");
+  kept.record("b", layout);
+  kept.record("c", layout);
+  expect(kept.takeParked("a")).toBeUndefined();
+  kept.park("c", "estimate-c");
+  kept.forget("c");
+  expect(kept.takeParked("c")).toBeUndefined();
+});
+
 test("a kept height stands only for the same row at the same scale", () => {
   const heights = new Map([["r", { version: 3, textLength: 5, width: 700, height: 42, scale: 1 }]]);
   expect(keptHeightFor(heights, { id: "r", version: 3, text: "hello" }, 1)?.height).toBe(42);

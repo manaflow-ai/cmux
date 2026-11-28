@@ -54,9 +54,14 @@ type Seeding = { heights: ReadonlyMap<string, KeptHeight>; passes: number; since
 /// Chats whose layout one page keeps, as many as their tails it keeps a while (tailCache.ts).
 export const KEPT_LAYOUTS = 12;
 
-export class KeptLayouts<D, R extends KeptRow = KeptRow> {
+export class KeptLayouts<D, R extends KeptRow = KeptRow, E = unknown> {
   /// Least recently recorded first.
   private kept = new Map<string, KeptLayout<D, R>>();
+  /// The last whole estimate each chat left (`park`), its own copy: a chat shown again whose rows are the
+  /// objects it left (pane/useTurnActions.ts `pastTurns`) keeps that estimate's places for them, so its
+  /// switch lays out only the rows that came while it was away, not every row again (settled page,
+  /// cmuxterm-hq goals/settled-page-ceiling.md). Bounded with `kept`.
+  private parked = new Map<string, E>();
   /// Chats shown again whose first estimates take their rows' heights from what they left.
   private seeding = new Map<string, Seeding>();
 
@@ -75,7 +80,22 @@ export class KeptLayouts<D, R extends KeptRow = KeptRow> {
       if (oldest === undefined) break;
       this.kept.delete(oldest);
       this.seeding.delete(oldest);
+      this.parked.delete(oldest);
     }
+  }
+
+  /// The transcript leaves `sessionId`: keeps `estimate` (a copy the caller made, never its reused
+  /// arrays) for that chat's next show, when its layout is kept.
+  park(sessionId: string, estimate: E): void {
+    if (this.kept.has(sessionId)) this.parked.set(sessionId, estimate);
+  }
+
+  /// The estimate `sessionId` left (`park`), once: undefined after a `show` that found its layout
+  /// measured with another look, view or registry.
+  takeParked(sessionId: string): E | undefined {
+    const estimate = this.parked.get(sessionId);
+    this.parked.delete(sessionId);
+    return estimate;
   }
 
   /// The transcript shows `sessionId` again: the drawn heights its layout left, when it was measured with
@@ -84,7 +104,10 @@ export class KeptLayouts<D, R extends KeptRow = KeptRow> {
   show(sessionId: string, look: unknown, view: unknown, registry: unknown, scale: number): D | undefined {
     this.seeding.delete(sessionId);
     const kept = this.kept.get(sessionId);
-    if (!kept || kept.look !== look || kept.view !== view || kept.registry !== registry) return undefined;
+    if (!kept || kept.look !== look || kept.view !== view || kept.registry !== registry) {
+      this.parked.delete(sessionId);
+      return undefined;
+    }
     const heights = new Map<string, KeptHeight>();
     for (const row of kept.rows) {
       const known = kept.heights.get(row);
@@ -123,6 +146,7 @@ export class KeptLayouts<D, R extends KeptRow = KeptRow> {
   forget(sessionId: string): void {
     this.kept.delete(sessionId);
     this.seeding.delete(sessionId);
+    this.parked.delete(sessionId);
   }
 
   get size(): number {
@@ -132,6 +156,7 @@ export class KeptLayouts<D, R extends KeptRow = KeptRow> {
   clear(): void {
     this.kept.clear();
     this.seeding.clear();
+    this.parked.clear();
   }
 }
 

@@ -85,3 +85,16 @@ export function nearView(
     to: placed.last + shift + LIVE_RESIZE_ROWS,
   };
 }
+
+/// `layout` with arrays of its own: a transcript's estimates are written into its reused arrays
+/// (model.ts LayoutBuffers), so a layout kept past the next estimate (a chat left, keptLayouts `park`)
+/// is copied out of them. O(rows), once per switch, and no layout or text measurement.
+export function copiedLayout(layout: ConversationLayout): ConversationLayout {
+  return {
+    ...layout,
+    tops: layout.tops.slice(),
+    heights: layout.heights.slice(),
+    ...(layout.gaps ? { gaps: layout.gaps.slice() } : {}),
+    ...(layout.marks ? { marks: layout.marks.slice() } : {}),
+  };
+}
