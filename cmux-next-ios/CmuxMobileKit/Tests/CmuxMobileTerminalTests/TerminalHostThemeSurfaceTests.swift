@@ -32,14 +32,19 @@ import UIKit
             window.addSubview(surface)
         }
 
+        /// How long a color check waits for the frame. It returns as soon as the frame shows the
+        /// color, so this bounds only a failing run; two seconds was too short for a loaded
+        /// simulator, where the kit suite ran 408 s and a correct frame came late.
+        static let frameWait: Duration = .seconds(20)
+
         /// Whether the presented frame's background (its bottom-right corner, away from the
-        /// cursor) is `hex` within two seconds. A mirror-mode surface answers no color query (the
+        /// cursor) is `hex` within `frameWait`. A mirror-mode surface answers no color query (the
         /// Mac's terminal does), so the drawn frame is what shows the colors it uses. Each try feeds
         /// a carriage return so the surface draws a frame after the config change.
         func shows(_ hex: String) async -> Bool {
             guard let want = CmuxMobileTerminalTheme.rgb(hex) else { return false }
             let target = (Int(want.0 * 255), Int(want.1 * 255), Int(want.2 * 255))
-            let deadline = ContinuousClock.now + .seconds(2)
+            let deadline = ContinuousClock.now + Self.frameWait
             while ContinuousClock.now < deadline {
                 await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                     surface.feed(Data("\r".utf8), completion: { done.resume() })
@@ -65,10 +70,10 @@ import UIKit
             return UIImage(cgImage: cg)
         }
 
-        /// Whether the corner pixel's alpha meets `test` within two seconds (each try feeds a
+        /// Whether the corner pixel's alpha meets `test` within `frameWait` (each try feeds a
         /// carriage return so the surface draws a frame after the config change).
         func alphaBecomes(_ test: (Int) -> Bool) async -> Bool {
-            let deadline = ContinuousClock.now + .seconds(2)
+            let deadline = ContinuousClock.now + Self.frameWait
             while ContinuousClock.now < deadline {
                 await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                     surface.feed(Data("\r".utf8), completion: { done.resume() })

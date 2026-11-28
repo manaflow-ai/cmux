@@ -12,7 +12,10 @@ final class TerminalKeyRowOnDemandUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"]
+        // The key row itself: with only the harness rows tucking while the composer is in use
+        // (`ComposerTuck.chrome`), so the composer's tap raises the keyboard and the row.
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle",
+                                "-cmuxMobileComposerTuck", "chrome"]
         app.launch()
         defer { app.terminate() }
 
