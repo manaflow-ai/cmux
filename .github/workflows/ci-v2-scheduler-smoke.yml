@@ -13,7 +13,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
-      label: ${{ steps.label.outputs.label }}
+      linux_label: ${{ steps.label.outputs.label }}
     steps:
       - name: Compute scheduler label
         id: label
@@ -23,7 +23,7 @@ jobs:
     needs: placement
     # The scheduler grants this exact label to this run and attempt. A
     # one-job runner cannot accept work for another run.
-    runs-on: ${{ needs.placement.outputs.label }}
+    runs-on: ${{ needs.placement.outputs.linux_label }}
     timeout-minutes: 10
     steps:
       - name: Record scheduler grant
