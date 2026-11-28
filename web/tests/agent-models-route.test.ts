@@ -61,6 +61,44 @@ describe("agent models route", () => {
         { id: "openai/gpt-5.5", label: "GPT-5.5" },
       ],
     });
+
+    expect(agentModelCatalog.providers.minimax).toEqual({
+      defaultModel: "MiniMax-M3.1-Flash",
+      models: [
+        {
+          id: "MiniMax-M3.1-Flash",
+          label: "MiniMax M3.1 Flash",
+          contextWindow: 1000000,
+          supportsOneMillion: true,
+        },
+        {
+          id: "MiniMax-M3",
+          label: "MiniMax M3",
+          contextWindow: 1000000,
+          supportsOneMillion: true,
+        },
+      ],
+    });
+  });
+
+  test("serializes the current MiniMax choices with Flash first", async () => {
+    const response = await GET(new Request("https://cmux.test/api/agent-models"));
+    const catalog = await response.json();
+    expect(catalog.providers.minimax.defaultModel).toBe("MiniMax-M3.1-Flash");
+    expect(catalog.providers.minimax.models.map((model: { id: string }) => model.id)).toEqual([
+      "MiniMax-M3.1-Flash",
+      "MiniMax-M3",
+    ]);
+  });
+
+  test("rejects a catalog that drops a required provider", () => {
+    const { minimax: _minimax, ...withoutMinimax } = agentModelCatalog.providers;
+
+    expect(() => validateAndDeduplicateCatalog({
+      schemaVersion: 1,
+      updatedAt: agentModelCatalog.updatedAt,
+      providers: withoutMinimax,
+    })).toThrow("missing provider minimax");
   });
 
   test("uses the strong ETag for conditional revalidation", async () => {
