@@ -37,6 +37,8 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     /// as the glyph, so the numeric badge never returns, not even when no
     /// member state is loud enough to roll up.
     var compactsAgentStatus = false
+    /// `sidebar.groupMemberIndent`, for the group-scoped bottom drop indicator.
+    var memberIndent = SidebarWorkspaceGroupingMetrics.memberIndent
     /// Resolved modifier-hold hint (for example "⌘3"); nil hides the pill.
     let shortcutHintText: String?
     let shortcutHintXOffset: Double

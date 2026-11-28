@@ -5,6 +5,8 @@ import Foundation
 public struct SidebarCatalogSection: SettingCatalogSection {
     /// Valid notification-preview line limits for settings UI and configuration parsing.
     public static let notificationMessageLineLimitRange = 1...50
+    /// Valid group-member indents, in points, for configuration parsing and the row settings snapshot.
+    public static let groupMemberIndentRange = 0...48
 
     /// Resolves the shipped legacy layout contract together with the newer
     /// branch/directory placement preference.
@@ -76,6 +78,13 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         id: "sidebar.notificationMessageLineLimit",
         defaultValue: 12,
         userDefaultsKey: "sidebarNotificationMessageLineLimit"
+    )
+
+    /// Leading indent, in points, of workspace rows inside a group, defaulting to 12.
+    public let groupMemberIndent = DefaultsKey<Int>(
+        id: "sidebar.groupMemberIndent",
+        defaultValue: 12,
+        userDefaultsKey: "sidebarGroupMemberIndent"
     )
 
     public let showBranchDirectory = DefaultsKey<Bool>(
