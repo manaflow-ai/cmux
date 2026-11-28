@@ -32,3 +32,16 @@ fn daemon_at_capacity_is_retryable_and_says_why() {
     assert!(message.contains("64"), "{message}");
     assert!(!message.contains("expired"), "{message}");
 }
+
+/// A daemon that ends the link after the Noise handshake, before
+/// link-ready, without a word: the resume names that step
+/// (`no_link_ready`), not the plain `link is closed`.
+#[tokio::test]
+async fn a_link_ended_before_link_ready_names_the_step() {
+    let (ours, theirs) = tokio::io::duplex(1024);
+    drop(theirs);
+    let (reader, writer) = tokio::io::split(ours);
+    let link = crate::provider::LengthDelimitedLink::new("memory://test", 1024, reader, writer);
+    let error = receive_control::<LinkHandshakeResponse>(&link).await.err().unwrap();
+    assert!(error.to_string().contains("the daemon closed the link before link-ready"), "{error}");
+}

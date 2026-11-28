@@ -124,6 +124,34 @@ class Wiring(unittest.TestCase):
         download = next(s for s in jobs["verify-signed-nightly"]["steps"] if s.get("id") == "nightly-source-get")
         self.assertEqual(download["with"]["name"], f"nightly-source-${{{{ {BUILD_SHA} }}}}")
 
+    def test_scripts_jobs_read_this_runs_scripts_before_any_checkout(self) -> None:
+        # Run 46142021653: retry-nightly-next and report-nightly-failure fetched scripts/ci from github.com
+        # (the mirror lacked the head 43 min after its push); runner-preflight fetched its three files.
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        resolve = jobs["resolve-nightly-cmux-tui-client"]["steps"]
+        upload = next(s for s in resolve if s.get("name") == "Upload this workflow commit's scripts")
+        self.assertEqual(upload["with"]["name"], "nightly-scripts-${{ github.sha }}")
+        for job_id in ("retry-nightly-next", "report-nightly-failure"):
+            steps = jobs[job_id]["steps"]
+            ids = [s.get("id") for s in steps]
+            with self.subTest(job=job_id):
+                self.assertIn("run-scripts-get", ids)
+                get = steps[ids.index("run-scripts-get")]
+                self.assertEqual(get["with"]["name"], "nightly-scripts-${{ github.sha }}")
+                for i, step in enumerate(steps):
+                    if str(step.get("uses") or "").startswith("actions/checkout@"):
+                        self.assertLess(ids.index("run-scripts"), i)
+                        self.assertIn("steps.run-scripts.outputs.ok != 'true'", str(step.get("if")))
+        pre = jobs["runner-preflight"]["steps"]
+        ids = [s.get("id") for s in pre]
+        checkout = next(s for s in pre if str(s.get("uses") or "").startswith("actions/checkout@"))
+        self.assertLess(ids.index("preflight-src"), pre.index(checkout))
+        self.assertIn("steps.preflight-src.outputs.ok != 'true'", str(checkout.get("if")))
+
+    def test_chief_key_fetches_only_a_missing_commit(self) -> None:
+        text = (ROOT / "scripts/ci/nightly-steps/chief-input-key.sh").read_text()
+        self.assertIn('git cat-file -e "$BUILD_SHA^{commit}" 2>/dev/null || git fetch', text)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

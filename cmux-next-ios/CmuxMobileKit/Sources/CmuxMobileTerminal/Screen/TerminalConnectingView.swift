@@ -103,6 +103,8 @@ public struct TerminalConnectingView: View {
                         }
                     }
                     .accessibilityHidden(true)
+                    // R1: the page drawn from this phone's own frame cache (LaunchMarks.firstContent).
+                    .onAppear { LaunchMarks.shared.firstContent("terminal", cached: true) }
                 }
             case .screenText:
                 GeometryReader { proxy in
