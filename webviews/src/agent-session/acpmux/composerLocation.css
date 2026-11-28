@@ -905,6 +905,24 @@
     margin-inline: calc(-1 * var(--acpmux-composer-narrow-outset));
   }
 }
+/* The tightest row (COMPOSER_FIT_STEPS.effortHidden): the effort leaves it whole (the model menu
+   still sets it), so +, the mode, the model mark, the mic and Send never overlap (Leo 2026-11-27). */
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-effort="hidden"] [data-fit-part="effort"] {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+@container composer (max-width: 240px) {
+  :is(.acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="hidden"]) {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
 @container composer (max-width: 260px) {
