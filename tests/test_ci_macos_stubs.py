@@ -252,6 +252,47 @@ class SourceExternTests(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+# A locked Apple binding crate (core-foundation-sys, security-framework-sys, system-configuration-sys) has every
+# extern it declares in its framework's stub, so a first call into it links on the pool. #54956 (2026-11-27) made
+# acpmux search the keychain through security-framework, which was locked since #37211 but never called there, and
+# every Linux cross link of cmux-tui failed ("undefined symbol: kSecMatchSearchList", 20 names; run 46100844289),
+# the macOS fallback build and the nightly behind it. sys-crates.txt lists the versions the stubs cover; a lock
+# bump of one of these crates fails here until `macos_stubs.py sys-crates` adds the new version's externs.
+LOCK_PATH = "cmux-tui/Cargo.lock"
+SYS_CRATES_PATH = "scripts/ci/macos-stubs/sys-crates.txt"
+
+
+class SysCrateCoverageTests(unittest.TestCase):
+    def test_declared_externs_reads_every_extern_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp)
+            (src / "item.rs").write_text('extern "C" {\n    pub static kSecMatchSearchList: CFStringRef;\n'
+                                         '    pub fn SecItemCopyMatching(q: CFDictionaryRef) -> OSStatus;\n}\n'
+                                         "fn not_extern() {}\n")
+            self.assertEqual(stubs.declared_externs(src), {"_kSecMatchSearchList", "_SecItemCopyMatching"})
+
+    def test_locked_versions_names_only_the_binding_crates(self) -> None:
+        lock = ('[[package]]\nname = "security-framework-sys"\nversion = "2.17.0"\n\n'
+                '[[package]]\nname = "security-framework"\nversion = "3.7.0"\n\n'
+                '[[package]]\nname = "core-foundation-sys"\nversion = "0.8.7"\n')
+        self.assertEqual(stubs.locked_versions(lock),
+                         {"security-framework-sys": ["2.17.0"], "core-foundation-sys": ["0.8.7"]})
+
+    def test_every_locked_binding_crate_version_is_in_the_stubs(self) -> None:
+        covered = {tuple(line.split()[:2]) for line in (ROOT / SYS_CRATES_PATH).read_text().splitlines()
+                   if line and not line.startswith("#")}
+        locked = stubs.locked_versions((ROOT / LOCK_PATH).read_text())
+        missing = [f"{name} {version}" for name, versions in sorted(locked.items()) for version in versions
+                   if (name, version) not in covered]
+        self.assertEqual(missing, [], "run: python3 scripts/ci/macos_stubs.py sys-crates scripts/ci/macos-stubs "
+                                      "cmux-tui/Cargo.lock")
+
+    def test_the_stubs_hold_the_keychain_search_that_broke_the_link(self) -> None:
+        held = stubs.read_stub(ROOT / "scripts/ci/macos-stubs/Security.tbd")[1]
+        for name in ("_kSecMatchSearchList", "_SecKeychainItemDelete", "_kSecUseAuthenticationUISkip"):
+            self.assertIn(name, held)
+
+
 class MergeStubs(unittest.TestCase):
     def test_merge_adds_the_newer_symbols_and_stubs(self) -> None:
         with tempfile.TemporaryDirectory() as old_dir, tempfile.TemporaryDirectory() as new_dir:
