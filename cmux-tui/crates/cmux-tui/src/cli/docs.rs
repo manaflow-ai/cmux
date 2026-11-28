@@ -105,6 +105,27 @@ pub(super) const GUIDES: &[Guide] = &[
         the user looks at, not your own workspace.",
     },
     Guide {
+        topic: "Check a hover, scroll or typing fix in a chat, in the person's own build",
+        keywords: &[
+            "hover", "scroll", "wheel", "typing", "type", "flicker", "rerender", "render",
+            "composer", "verify", "nightly", "release", "drive", "pointer",
+        ],
+        text: "`cmux app chat drive --tab TAB` (every build, Nightly and Release too) drives one \
+        agent chat tab's page without moving the system pointer and without focusing, raising or \
+        showing its window: --hover TEST_ID, --hover-sent-image N or --hover-tool-screenshot N \
+        rests a pointer on that element and holds it (the page gets a real :hover and opens its \
+        hover card); --wheel N [--delta PX] sends N trusted wheel ticks to the transcript under \
+        it; --type TEXT types into the composer one character a frame and leaves the text in \
+        the draft (nothing is restored; it refuses a non-empty draft unless --over-draft). It \
+        reports each frame (--json): composer renders and DOM mutations, focus, :focus-within \
+        and page-inactive flips, hover and card state, frame times, and Chromium's layout and \
+        style counts when the chat shows in Chromium. It refuses a chat whose turn is running \
+        unless --allow-busy, stops within --seconds (at most 30), and runs no script: a fixed set \
+        of actions. Its counters exist only for the run. A covered, hidden or screen-locked chat \
+        draws no frames, and the report says it measured nothing. `cmux app chat perf --tab TAB` \
+        measures a chat left alone.",
+    },
+    Guide {
         topic: "Set up cmux for the person: trust, harnesses, machines, accounts",
         keywords: &[
             "setup",

@@ -10,6 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
+import { SENT_IMAGE } from "../transcriptSelectors";
 import { promptText, withoutAttachedFileNotes, type ComposerAttachment } from "../attachments";
 import { setChipHost } from "../chips/host";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -101,18 +102,18 @@ test("a dropped image file's thumbnail in the file band carries its own classes"
     );
   });
   // The host's read answers in a later task.
-  for (let turn = 0; turn < 50 && !container.querySelector("img.cv-user__image"); turn++)
+  for (let turn = 0; turn < 50 && !container.querySelector(SENT_IMAGE); turn++)
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-  const image = container.querySelector<HTMLImageElement>(".cv-user__files img.cv-user__image");
+  const image = container.querySelector<HTMLImageElement>(`.cv-user__files ${SENT_IMAGE}`);
   expect(image?.getAttribute("src")).toBe(PNG);
   expect(image?.closest("button")?.classList.contains("cv-user__image-open")).toBe(true);
 });
 
 test("the thumbnail rules match the thumbnail and its button in any band", () => {
   const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
-  const thumbnail = ruleFor(css, "img.cv-user__image");
+  const thumbnail = ruleFor(css, SENT_IMAGE);
   expect(thumbnail).toMatch(/height:\s*auto/);
   expect(thumbnail).toMatch(/max-width:\s*100%/);
   expect(thumbnail).toMatch(/object-fit:\s*contain/);

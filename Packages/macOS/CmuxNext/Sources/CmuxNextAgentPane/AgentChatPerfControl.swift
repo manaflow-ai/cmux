@@ -73,6 +73,14 @@ public struct AgentChatPerfControl: Sendable {
             .withLimit { request, _ in .seconds(((try? Self.seconds(request.params)) ?? Self.maxSeconds) + 15) }
     }
 
+    /// This method and `agent.chat.drive` (``AgentChatDriveControl``), which finds its chat page the same way.
+    public func controlMethods(
+        sources: @escaping @MainActor @Sendable () -> AgentPageSources? = { nil },
+        pages: @escaping @MainActor @Sendable () -> PageCounts? = { nil }
+    ) -> [ControlMethod] {
+        [controlMethod(sources: sources, pages: pages), AgentChatDriveControl(find: find).controlMethod()]
+    }
+
     /// `seconds`, checked: a whole number from 1 to 60, or absent for the default.
     public nonisolated static func seconds(_ params: [String: JSONValue]) throws -> Int {
         guard let raw = params["seconds"] else { return defaultSeconds }

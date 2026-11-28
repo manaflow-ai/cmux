@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { composerProbe } from "./composerProbe";
 import { withoutHandedBack } from "./handedBack";
 import { sentWords } from "./computerUse/computerUseState";
 import { runResumed, submitResumed } from "./composer/resumedSend";
@@ -10,12 +11,12 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
   useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
@@ -31,9 +32,9 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
+  inlineTokenSpans,
   type KnownPaths,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
@@ -871,6 +872,7 @@ function ComposerFrame({
   onFilled,
 }: Props) {
   acpmuxPerf.render("composer");
+  composerProbe.render?.("composer");
   const t = useT();
   // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
   const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);

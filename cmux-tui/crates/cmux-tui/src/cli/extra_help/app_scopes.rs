@@ -148,6 +148,7 @@ usage: cmux app ping | identify | capabilities
        cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
        cmux app renderers profile --browser <id> [--seconds <n>]  (one cmux page's heap and CPU profile; needs defaults key CMUXPageProfiler)
        cmux app chat perf --tab <tab> [--seconds <1-60>]  (a chat's frames and record-to-paint times)
+       cmux app chat drive --tab <tab> --hover <test-id> [--wheel <n>] [--type <text>]  (hover, wheel and type in a chat; per-frame counts)
        cmux app chat memory [--empty-tab <tab>] [--empty-bytes <n>]  (each chat page's memory, the app's and daemon's, and the ratio to an empty chat)
        cmux app chat perf --page-source         (how each chat page was made: warm spare, kept, cold and why)
        cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)

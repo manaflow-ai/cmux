@@ -10,6 +10,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
+import { SENT_IMAGE } from "../src/agent-session/acpmux/transcriptSelectors";
 import { SENT_IMAGE_HEIGHT } from "../src/agent-session/acpmux/conversation/userBubbleModel";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -48,8 +49,8 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
     { entry: "agent-pane.reply-thumbs", variant: "tall-phone", image: ".cv-thumb__img", frame: ".cv-thumb" },
     // A row of a wide, a tall and a square image: each keeps its shape inside its share.
     { entry: "agent-pane.reply-thumbs", variant: "shapes", image: ".cv-thumb__img", frame: ".cv-thumb" },
-    { entry: "agent-pane.sent-images", variant: "wide-strip", image: "img.cv-user__image", frame: "button" },
-    { entry: "agent-pane.sent-images", variant: "pasted", image: "img.cv-user__image", frame: "button" },
+    { entry: "agent-pane.sent-images", variant: "wide-strip", image: SENT_IMAGE, frame: "button" },
+    { entry: "agent-pane.sent-images", variant: "pasted", image: SENT_IMAGE, frame: "button" },
     // A tall phone shot a tool call returned (ToolRow.tsx ToolImages): its own column, no tall empty frame.
     {
       entry: "agent-pane.read-image-result",
@@ -71,7 +72,7 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
       frame: ".cv-thumb",
     },
     // A 400px chat: the strip above a prompt and inside one scale down to the bubble's width.
-    { entry: "agent-pane.sent-images", variant: "narrow", image: "img.cv-user__image", frame: "button", width: 400 },
+    { entry: "agent-pane.sent-images", variant: "narrow", image: SENT_IMAGE, frame: "button", width: 400 },
   ];
   for (const { entry, variant, image, frame, width = 760 } of cases)
     for (const colorScheme of ["dark", "light"] as const)

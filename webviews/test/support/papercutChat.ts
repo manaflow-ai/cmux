@@ -138,6 +138,9 @@ export async function papercutPane(
     /// does (`hub/paging.rs`), instead of the `attachPage` size: a scroll-up bench reads the page sizes
     /// the pane asks for (direct.ts OLDER_PAGE_RECORDS, OLDER_PAGE_BYTES).
     askedPageSize?: boolean;
+    /// Sent images' bytes by their acpmux id, as `_acpmux/attachment` answers them (a `user_message`'s
+    /// `images` names them). Unset, every read finds none.
+    attachments?: Record<string, { mimeType: string; data: string }>;
     /// Answer `_acpmux/events` reads forward from `afterSeq` (a reconnect's hole read) with the
     /// records after it. Unset, they are answered empty.
     forwardReads?: boolean;
@@ -217,6 +220,8 @@ export async function papercutPane(
         const start = Math.max(0, end - Math.min(options.attachPage, Number(params?.limit) || options.attachPage));
         return { events: events.slice(start, end), hasMore: start > 0, lastSeq: events.length };
       }
+      case "_acpmux/attachment":
+        return options.attachments?.[String(params?.id)] ?? null;
       default:
         return null;
     }

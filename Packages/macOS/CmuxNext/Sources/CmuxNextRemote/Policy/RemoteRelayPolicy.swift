@@ -66,9 +66,11 @@ public struct RemoteRelayPolicy: Sendable {
     /// covers `link.open` (cmux:// deep links), which navigates this Mac's
     /// windows; `run` covers `action.run`, which reaches every action;
     /// `debug` covers every `debug.*` method (DEBUG builds' diagnostics,
-    /// which read local state and seed it).
+    /// which read local state and seed it); `drive`, `hover`, `wheel` and
+    /// `type` cover engine-level input into a local page (`agent.chat.drive`).
     static let neverAllowedWords: Set<String> = ["send", "text", "key", "keys", "input", "paste", "spawn", "respawn", "eval", "exec",
-                                                 "run", "script", "command", "url", "link", "navigate", "resume", "launch", "debug"]
+                                                 "run", "script", "command", "url", "link", "navigate", "resume", "launch", "debug",
+                                                 "drive", "hover", "wheel", "type"]
     /// These local Git operations can execute Git and write to the Mac's filesystem.
     static let localCheckoutMethods: Set<String> = ["repo.clone", "github.repos.checkout"]
     /// Creating or splitting one of these starts a terminal or loads a page.

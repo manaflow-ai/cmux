@@ -148,14 +148,13 @@ final class AppControl {
             .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
-            // `cmux app chat perf`: a chat page's frames and record-to-paint times, read-only; finds the page, never shows it.
-            AgentChatPerfControl { [weak services] id in
-                guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
-                guard tab.agentSession != nil else { return .notAgentChat }
-                return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }, pages: { [weak services] in services?.madeAgentTabs.map { .init(views: $0.views.count, newTab: $0.views.marked.count, frozen: services?.cache.hibernation?.agentPages?.pages.frozen.count ?? 0, released: services?.cache.hibernation?.agentPages?.pages.releasedCount ?? 0) } }),
             AgentChatMemoryControl(chats: { [weak services] in services?.madeAgentTabs.map { store in store.views.entries.map { ($0.key.machine, $0.key.key, $0.value, store.views.marked.contains($0.key)) } } ?? [] }, daemonPid: { [weak services] in services?.machines.local.identity?.pid }).controlMethod, ClickTraceControl.method(), // `cmux app chat memory` (pids only; Rust reads the footprints) and `cmux app clicks` (where the last presses went, every build)
         ])
+        service.router.register(AgentChatPerfControl { [weak services] id in
+            guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
+            guard tab.agentSession != nil else { return .notAgentChat }
+            return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
+        }.controlMethods(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }, pages: { [weak services] in services?.madeAgentTabs.map { .init(views: $0.views.count, newTab: $0.views.marked.count, frozen: services?.cache.hibernation?.agentPages?.pages.frozen.count ?? 0, released: services?.cache.hibernation?.agentPages?.pages.releasedCount ?? 0) } }))
         // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
         // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
         service.router.register(perfProbes.methods())

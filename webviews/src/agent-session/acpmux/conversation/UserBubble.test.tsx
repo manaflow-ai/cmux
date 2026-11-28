@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
+import { SENT_IMAGE } from "../transcriptSelectors";
 import type { ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
 import { PresentationContext } from "./presentationContextModel";
@@ -333,9 +334,9 @@ test("a sent screenshot whose read fails for a moment is read again on its own a
     return PNG;
   };
   const container = await render({ ...baseRow(), images: [{ ...image, id: "retry-moment" }] }, { promptImage });
-  await until(() => container.querySelector("img.cv-user__image") !== null);
+  await until(() => container.querySelector(SENT_IMAGE) !== null);
   expect(reads).toBe(3);
-  expect(container.querySelector("img.cv-user__image")?.getAttribute("src")).toBe(PNG);
+  expect(container.querySelector(SENT_IMAGE)?.getAttribute("src")).toBe(PNG);
 });
 
 test("a sent screenshot that still fails says so with Retry, and Retry draws it", async () => {
@@ -358,8 +359,8 @@ test("a sent screenshot that still fails says so with Retry, and Retry draws it"
   expect(retry).not.toBeNull();
   failing = false;
   await act(async () => retry!.click());
-  await until(() => container.querySelector("img.cv-user__image") !== null);
-  expect(container.querySelector("img.cv-user__image")?.getAttribute("src")).toBe(PNG);
+  await until(() => container.querySelector(SENT_IMAGE) !== null);
+  expect(container.querySelector(SENT_IMAGE)?.getAttribute("src")).toBe(PNG);
   expect(container.querySelector(".cv-user__image-failed")).toBeNull();
 });
 

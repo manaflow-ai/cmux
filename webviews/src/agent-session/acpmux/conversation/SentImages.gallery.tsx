@@ -17,6 +17,7 @@ import {
   useAttachmentView,
 } from "../../../gallery/fixtures/sentMedia";
 import type { AcpmuxRow, PromptImage } from "../model";
+import { SENT_IMAGE } from "../transcriptSelectors";
 import { attachmentRetry } from "../../../pages/shared/attachmentRetry";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -95,7 +96,7 @@ function GalleryPrimedLate({ images }: Props) {
 /// The capture moment of `pasted-echo-first`: the priming above landed and the image drew in its
 /// slot, not the placeholder the 300 ms timer leaves while it waits.
 const primed: Play = ({ waitFor, document }) =>
-  waitFor(() => document.querySelector("img.cv-user__image") && !document.querySelector(".cv-user__image-placeholder"));
+  waitFor(() => document.querySelector(SENT_IMAGE) && !document.querySelector(".cv-user__image-placeholder"));
 
 function GallerySentImages({
   images,
@@ -347,7 +348,7 @@ const oneRulePlay =
   (view: "inline" | "strip"): Play =>
   async ({ waitFor, document }) => {
     const rows = () => [...document.querySelectorAll<HTMLElement>("[data-gallery-row]")];
-    await waitFor(() => rows().length === 3 && rows().every((row) => row.querySelector("img.cv-user__image")));
+    await waitFor(() => rows().length === 3 && rows().every((row) => row.querySelector(SENT_IMAGE)));
     for (const row of rows()) {
       const images = [...row.querySelectorAll(".cv-user__image, .cv-user__image-placeholder")];
       const inBubble = images.filter((node) => node.closest(".cv-user__bubble")).length;
@@ -387,7 +388,7 @@ const placedInOrderNoShift: Play = async ({ waitFor, document }) => {
   if (kinds.join(",") !== "text,image,text,file,text")
     throw new Error(`the bubble draws ${kinds.join(",")}, not text,image,text,file,text`);
   await waitFor(() => {
-    const image = document.querySelector<HTMLImageElement>("img.cv-user__image");
+    const image = document.querySelector<HTMLImageElement>(SENT_IMAGE);
     return image !== null && image.complete && image.naturalWidth > 0;
   });
   const after = watched()!;
