@@ -1268,9 +1268,7 @@ impl LinkShares {
                     return Err("share.limit");
                 }
             }
-            let share = find(shares, &p.share_id)?;
-            let chat = (share.session.clone(), share.surface);
-            Ok(((answer, Some(chat)), true))
+            Ok((answer, true))
         })
     }
 
@@ -1356,7 +1354,9 @@ impl LinkShares {
                     return Err("share.limit");
                 }
             }
-            Ok((answer, true))
+            let share = find(shares, &p.share_id)?;
+            let chat = (share.session.clone(), share.surface);
+            Ok(((answer, Some(chat)), true))
         })
     }
 
