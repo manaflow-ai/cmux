@@ -83,6 +83,18 @@ export function isFreestyleTransient(error: unknown): boolean {
 }
 
 /**
+ * A VM start Freestyle gave up on: the 429 overload, or 409 VM_NON_RESPONSIVE
+ * ("vm stopped responding: timed out reading from guest agent"), a fresh VM
+ * that never answered its guest agent. Either way no VM came back, so asking
+ * for a new one is safe. Rebake run 46028301324 attempt 3 (11-27) lost a
+ * verify whose first machine had passed to one 409 on the second start.
+ */
+export function isFreestyleStartRetryable(error: unknown): boolean {
+  const e = error as { status?: unknown; code?: unknown } | null;
+  return isFreestyleOverload(error) || (e?.status === 409 && e?.code === "VM_NON_RESPONSIVE");
+}
+
+/**
  * Freestyle answers a VM start it has no capacity for with 429
  * INFRASTRUCTURE_OVERLOADED ("VM start capacity queue wait expired"). The
  * size ladder starts up to twelve VMs at once and the largest shapes queue
@@ -92,7 +104,7 @@ export function isFreestyleTransient(error: unknown): boolean {
  * time Freestyle holds an ask in its queue does not count), and rethrow any
  * other error at once.
  */
-export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000, retryable: (error: unknown) => boolean = isFreestyleOverload): Promise<T> {
+export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000, retryable: (error: unknown) => boolean = isFreestyleStartRetryable): Promise<T> {
   // The budget is our own backoff between asks, not wall time: Freestyle holds
   // each start in its capacity queue up to ten minutes before it answers 429,
   // so a wall-clock budget was spent by the first ask and the overload was
