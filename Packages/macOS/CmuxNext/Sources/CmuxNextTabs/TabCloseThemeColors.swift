@@ -4,7 +4,7 @@ import QuartzCore
 
 /// A theme's close button colors on one tab (`appearance.tabClose.*`, `ThemeFlourishes.TabClose`):
 /// the x rests in `from` and, under the pointer or held, takes the hover color, which also tints the
-/// hover fill; an end left unset is today's (the title color, the text-ink fill). The x blends
+/// hover fill; an end left unset is today's (the title color, the black or white fill). The x blends
 /// between them in the theme's color space at the tab bar's hover pace (`Motion.tabs`: at once
 /// when motion is off). Only a tab whose strip has the colors set comes here
 /// (`TabCell.applyCloseColors`); without them the tab keeps its own path.
@@ -26,7 +26,7 @@ struct TabCloseThemeColors {
             let disc = cell.metrics.hoverCloseSwap == .disc && cell.visibility.closeReplacesStatus
             let percent = BrowserChromeTuning.value(.closeHoverOpacity) - (cell.isClosePressed ? 2 : 0)
             background.backgroundColor = hot || disc
-                ? (hover ?? Palette.textPrimary).withAlphaComponent(max(0, percent) / 100).cgColor : nil
+                ? (hover ?? TabCell.closeHoverInk(dark: cell.themeScope.tokens.isDark)).withAlphaComponent(max(0, percent) / 100).cgColor : nil
         }
     }
 }
