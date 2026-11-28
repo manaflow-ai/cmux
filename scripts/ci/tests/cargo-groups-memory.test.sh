@@ -125,4 +125,33 @@ out=$(FAKE_NPROC=16 CARGO_GROUPS_HEAVY="1 3" bash "$script" "$tmp/target" x86_64
 peak=$(awk '/^start/{n++; if(n>m)m=n} /^end/{n--} END{print m}' "$conc")
 ((peak == 2)) || { cat "$conc"; echo "FAIL: $peak heavy groups at once with room for both, want 2"; exit 1; }
 
+# 11. GIANTS_ONE_AT_A_TIME: capped by memory (and no CARGO_GROUPS_HEAVY), the acpmux and cmux_tui_core rustc never
+# compile at once, while another crate still compiles beside them; any caller's RUSTC_WRAPPER still runs. Together
+# they lost acpmux to the kernel under memory.max 14 GiB on the thin Cloud machine channel leg (run 46168566003).
+conc="$tmp/giants"; : > "$conc"
+cat > "$tmp/bin/fake-rustc" <<EOF
+#!/usr/bin/env bash
+c=""; p=""; for a in "\$@"; do [[ "\$p" == --crate-name ]] && c=\$a; p=\$a; done
+echo "start \$c" >> "$conc"; sleep 0.4; echo "end \$c" >> "$conc"
+EOF
+printf '#!/bin/sh\necho inner >> %s\nexec "$@"\n' "$conc" > "$tmp/bin/inner-wrapper"
+chmod +x "$tmp/bin/fake-rustc" "$tmp/bin/inner-wrapper"
+r() { echo "\"\$RUSTC_WRAPPER\" fake-rustc --edition 2021 --crate-name $1"; }
+echo $((14 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"; meminfo 512 500
+out=$(FAKE_NPROC=8 RUSTC_WRAPPER=inner-wrapper bash "$script" "$tmp/target" x86_64-unknown-linux-gnu \
+  "" "$(r acpmux) & $(r serde) & $(r cmux_tui_core) & wait" 2>&1) || { echo "$out"; echo "FAIL: giant groups failed"; exit 1; }
+grep -q 'giants (acpmux cmux_tui_core) compile one at a time' <<<"$out" || { echo "$out"; echo "FAIL: no giants line"; exit 1; }
+peak=$(awk '/^start (acpmux|cmux_tui_core)$/{n++; if(n>m)m=n} /^end (acpmux|cmux_tui_core)$/{n--} END{print m}' "$conc")
+((peak == 1)) || { cat "$conc"; echo "FAIL: $peak giants at once under a 14 GiB cap, want 1"; exit 1; }
+peak=$(awk '/^start/{n++; if(n>m)m=n} /^end/{n--} END{print m}' "$conc")
+((peak == 2)) || { cat "$conc"; echo "FAIL: $peak crates at once, want a giant and serde together"; exit 1; }
+(($(grep -c '^inner$' "$conc") == 3)) || { cat "$conc"; echo "FAIL: the caller's RUSTC_WRAPPER did not run for every crate"; exit 1; }
+# Memory to spare, or a fat-LTO leg (CARGO_GROUPS_HEAVY): no lock.
+echo $((64 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"
+out=$(FAKE_NPROC=16 bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo \"w=\${RUSTC_WRAPPER:-}\"" 2>&1)
+grep -q '^w=$' <<<"$out" && ! grep -q giants <<<"$out" || { echo "$out"; echo "FAIL: giant lock with memory to spare"; exit 1; }
+echo $((14 * 1073741824)) > "$tmp/cg/ci.slice/r2.service/memory.max"
+out=$(FAKE_NPROC=8 CARGO_GROUPS_HEAVY="1" bash "$script" "$tmp/target" x86_64-unknown-linux-gnu "" "echo \"w=\${RUSTC_WRAPPER:-}\"" 2>&1)
+grep -q '^w=$' <<<"$out" || { echo "$out"; echo "FAIL: giant lock on a fat-LTO leg"; exit 1; }
+
 echo PASS
