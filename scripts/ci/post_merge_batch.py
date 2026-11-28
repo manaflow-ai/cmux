@@ -100,7 +100,17 @@ STEP_SEP = "|"
 # A batch run on the tip whose judge never succeeded (its plan or judge lost a runner) is run again by the tick
 # until this many batch runs sit on that tip.
 MAX_TIP_BATCHES = 2
-SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+# A live batch run this many minutes old whose judge job has not started is stalled: the tick cancels it and starts
+# the next batch, whose plan reads from the last judged batch, so its window covers the stalled one's commits too.
+# Until 2026-11-28 a live batch held every tick with no bound: run 46164328032 (16:17Z) sat 2.5 h on a Mac job stuck
+# in runner setup (blacksmith-6vcpu-macos-26 saturated; timeout-minutes does not count a runner wait) and a linux
+# job whose bound is 1090 min, and no base row moved after its fixes merged. The seven batch runs before it started
+# their judge 61 to 162 min in, so 200 leaves a healthy batch alone. NEXT_POST_MERGE_STALL_MINUTES sets it; 0: off.
+DEFAULT_STALL_MINUTES = 200
+# A stalled run still live this long past the stall bound did not take its cancel (a job stuck in runner setup):
+# the tick force-cancels it.
+FORCE_CANCEL_AFTER_MINUTES = 60
+SHA_RE =re.compile(r"^[0-9a-f]{40}$")
 PR_RE = re.compile(r"\(#(\d+)\)\s*$")
 PIECES_DRILL = "lane/post-merge-drill-pieces-"
 # Core teammates (cmuxterm-hq culprit_revert's TEAMMATE_CORE_TEAM, minus Leo, whose login his agents also merge
@@ -563,6 +573,32 @@ def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int
     return "dispatch", f"tip {tip[:11]} is untested; last batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]}, {age:.0f} min ago"
 
 
+def stalled_batches(runs: list[dict], now: datetime, stall: int, judging=lambda run_id: True,
+                    self_run_id: int = 0) -> list[dict]:
+    """The live batch runs (never self_run_id) at least stall minutes old whose judge job has not started
+    (judging(run id) is False): the tick supersedes them. stall 0: none."""
+    if stall <= 0:
+        return []
+    return [r for r in runs
+            if is_batch(r) and r.get("status") != "completed" and r.get("id") != self_run_id
+            and (now - parse_time(r["created_at"])).total_seconds() / 60 >= stall and not judging(r["id"])]
+
+
+def superseded(runs: list[dict], stalled: list[dict]) -> list[dict]:
+    """RUNS with each stalled run read as completed (cancelled): tick_decision then counts it as a batch with no verdict."""
+    ids = {r.get("id") for r in stalled}
+    return [{**r, "status": "completed", "conclusion": "cancelled"} if r.get("id") in ids else r for r in runs]
+
+
+def stall_minutes(value: str | None) -> int:
+    """NEXT_POST_MERGE_STALL_MINUTES: unset or unreadable is the default; 0 turns superseding off."""
+    try:
+        minutes = int(str(value or "").strip())
+    except ValueError:
+        return DEFAULT_STALL_MINUTES
+    return max(minutes, 0)
+
+
 def window_minutes(value: str | None) -> int:
     try:
         minutes = int(str(value or "").strip())
@@ -656,8 +692,28 @@ def tick(args: argparse.Namespace) -> int:
         return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
 
     self_run_id = int(getattr(args, "self_run_id", 0) or 0)
+
+    def judging(run_id: int) -> bool:
+        return any(j.get("name") == "judge" and j.get("status") in ("in_progress", "completed")
+                   for j in run_jobs(args.repo, run_id))
+
+    now = datetime.now(timezone.utc)
+    stall = stall_minutes(getattr(args, "stall_minutes", None))
+    stalled = stalled_batches(runs, now, stall, judging, self_run_id)
+    for r in stalled:
+        age = (now - parse_time(r["created_at"])).total_seconds() / 60
+        how = "force-cancel" if age >= stall + FORCE_CANCEL_AFTER_MINUTES else "cancel"
+        print(f"supersede: batch run {r.get('id')} on {str(r.get('head_sha'))[:11]} is {r.get('status')} {age:.0f} min "
+              f"with no judge started (bound {stall} min): {how}")
+        if not args.dry_run:
+            try:
+                gh_api(f"repos/{args.repo}/actions/runs/{r['id']}/{how}", method="POST")
+            except RuntimeError as err:
+                if "HTTP 409" not in str(err):  # 409: it completed since the list; nothing left to cancel
+                    raise
+    runs = superseded(runs, stalled)
     action, reason = tick_decision(
-        tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged,
+        tip, runs, now, window_minutes(args.window_minutes), judged,
         every_merges(getattr(args, "every_merges", None)), lambda base: ahead_by(args.repo, base, tip), self_run_id,
     )
     print(f"{action}: {reason}")
@@ -2033,6 +2089,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--every-merges", default=os.environ.get("NEXT_POST_MERGE_EVERY_MERGES"),
                    help=f"dispatch once the tip is this many commits past the last batch (default {DEFAULT_EVERY_MERGES}; 0: the window alone)")
     p.add_argument("--self-run-id", type=int, default=0, help="the batch run whose judge job ticks (its own run)")
+    p.add_argument("--stall-minutes", default=os.environ.get("NEXT_POST_MERGE_STALL_MINUTES"),
+                   help=f"cancel and replace a live batch this old whose judge has not started (default {DEFAULT_STALL_MINUTES}; 0: off)")
     p.set_defaults(func=cmd_tick)
 
     p = sub.add_parser("plan")
