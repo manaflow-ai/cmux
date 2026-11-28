@@ -1,0 +1,44 @@
+name: Vault Go
+
+on:
+  pull_request:
+    paths:
+      - vault/**
+      - .github/workflows/vault.yml
+  push:
+    branches: [main]
+    paths:
+      - vault/**
+      - .github/workflows/vault.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vault-go-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  vault-go-tests:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: vault
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.24.x'
+          cache-dependency-path: vault/go.sum
+      - name: Build cmux-vault
+        run: go build ./cmd/cmux-vault
+      - name: Run Vault tests
+        run: go test ./...
+      - name: Run Vault tests with the race detector
+        run: go test -race ./...
+      - name: Vet Vault packages
+        run: go vet ./...
