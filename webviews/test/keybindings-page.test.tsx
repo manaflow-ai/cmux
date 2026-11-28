@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
+import { installVirtualSizes } from "./support/virtualSizes";
 import { factsCardText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
@@ -38,6 +39,8 @@ beforeAll(() => {
   };
   saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
   Object.assign(scope, replacements);
+  // The table is windowed: give it a viewport and its rows a height, as a browser would.
+  installVirtualSizes(window, (element) => (element.classList.contains("keys-scroll") ? 600 : 41));
   host = window.document.getElementById("root")!;
 });
 

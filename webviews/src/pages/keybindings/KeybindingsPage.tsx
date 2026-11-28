@@ -1,7 +1,23 @@
 // The Keyboard Shortcuts page (plans/cmux-next/keybindings.md 8). State lives in
 // `KeybindingsStore`; this file only renders it and turns plain keys and clicks into store
 // intents. Cmd/Ctrl chords never reach page handlers; recording goes through the app's dispatcher.
-import { useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+// The table is windowed: every action is a row of the grid, but only the rows near the viewport are
+// mounted (about one viewport each side), plus the selected, focused, editing and recording rows;
+// spacer rows stand for the rest. Rows are memoized on their binding and state, so a selection draws
+// two rows, not the table.
+import {
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+  type ReactNode,
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type FocusEvent,
+} from "react";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { Popover, type UiAnchor, type UiVirtualAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
 import { ConnectionChip } from "../../ui/ConnectionChip";
@@ -11,16 +27,29 @@ import { KeyHint } from "../../ui/KeyHint";
 import {
   canEditWhen,
   displayStrokes,
-  identity,
   isReadOnly,
   keyMatches,
   moveSelection,
   sourceLabel,
   strokeCaps,
+  rowIndex,
+  rowList,
 } from "./model";
 import type { KeybindingsStore, Recording } from "./store";
 import type { Binding } from "./types";
 import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
+
+/** A row's height before the first of its kind is measured (styles.css: two lines and padding). */
+const ROW_ESTIMATE = 41;
+/** The table's top before its header is measured: `.keys-scroll`'s top padding and the header row. */
+const SCROLL_PAD = 4;
+const HEAD_ESTIMATE = 26;
+/** About one viewport of rows above and below the visible ones. */
+const OVERSCAN = 16;
+
+/** The kinds of row whose heights can differ: a narrow pane gives an empty `when` a thinner line. */
+type SizeKind = "when" | "plain";
+const rowSize = (binding: Binding): SizeKind => (binding.when ? "when" : "plain");
 
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
 const editOnMount = (node: HTMLInputElement | null) => {
@@ -28,7 +57,6 @@ const editOnMount = (node: HTMLInputElement | null) => {
   node.focus();
   node.select();
 };
-const revealOnSelect = (node: HTMLTableRowElement | null) => node?.scrollIntoView?.({ block: "nearest" });
 
 /** A plain key: no Cmd, Ctrl or Option (those belong to the app's key dispatcher). */
 function plain(event: KeyboardEvent): boolean {
@@ -92,7 +120,81 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   // restart drops it for a few seconds, and the person has nothing to do (Leo, 2026-11-14).
   const downLasting = useConnectionQuiet(disconnected);
   const searchRecording = snap.recording?.target === "search";
-  const selected = snap.rows.find((row) => identity(row) === snap.selection);
+  const list = useMemo(() => rowList(snap.rows), [snap.rows]);
+  const selectedIndex = rowIndex(list, snap.selection);
+  const selected = selectedIndex < 0 ? undefined : snap.rows[selectedIndex];
+  const rowRecording = snap.recording?.target === "row" ? snap.recording : undefined;
+  // The row that holds focus (a click on its keys or `when` focuses a control in it) stays mounted.
+  const [focusedRow, setFocusedRow] = useState<string | undefined>(undefined);
+  // Kept mounted however far the list scrolls: Up/Down move from the selection, keys go to the
+  // focused row, the `when` editor and the recorder's anchor live in theirs.
+  const kept = [
+    selectedIndex,
+    rowIndex(list, focusedRow),
+    rowIndex(list, snap.editing),
+    rowIndex(list, rowRecording?.row),
+  ];
+  const scroller = useRef<HTMLDivElement | null>(null);
+  // Where the rows start in the scroller: its padding and the header row (none when a narrow pane
+  // hides it), read again when the header resizes.
+  const [scrollMargin, setScrollMargin] = useState(SCROLL_PAD + HEAD_ESTIMATE);
+  const body = useCallback((node: HTMLTableSectionElement | null) => {
+    if (!node) return;
+    const read = () => setScrollMargin(SCROLL_PAD + node.offsetTop);
+    read();
+    const head = node.previousElementSibling;
+    if (typeof ResizeObserver === "undefined" || !head) return;
+    const observer = new ResizeObserver(read);
+    observer.observe(head);
+    return () => observer.disconnect();
+  }, []);
+  // One function per list: TanStack measures every row again when it changes.
+  const rowKey = useCallback((index: number) => list.ids[index]!, [list]);
+  // The first mounted row of each kind sizes every one not yet mounted, so the rows a scroll brings
+  // in measure as estimated: TanStack places all N rows again whenever a measure differs.
+  const sizes = useRef(new Map<SizeKind, number>());
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so the keybindings page stays uncompiled on purpose; it windows table rows between spacer <tr> rows under a measured header and keeps the selected, focused, editing and recording rows mounted, so ui/VirtualList does not fit.
+  const virtualizer = useVirtualizer({
+    count: list.ids.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: (index) => sizes.current.get(rowSize(list.rows[index]!)) ?? ROW_ESTIMATE,
+    getItemKey: rowKey,
+    overscan: OVERSCAN,
+    scrollMargin,
+    rangeExtractor: (range: Range) => {
+      const indexes = defaultRangeExtractor(range);
+      for (const index of kept)
+        if (index >= 0 && !indexes.includes(index)) {
+          indexes.push(index);
+          indexes.sort((a, b) => a - b);
+        }
+      return indexes;
+    },
+  });
+  const measure = useCallback(
+    (node: HTMLElement | null) => {
+      const kind = node?.dataset.size as SizeKind | undefined;
+      if (node && kind && node.offsetHeight > 0) sizes.current.set(kind, node.offsetHeight);
+      virtualizer.measureElement(node);
+    },
+    [virtualizer],
+  );
+  // A new selection scrolls its row into view (each row did this as it mounted selected when every
+  // row was mounted); the selected row is always mounted, at its place among the spacers.
+  const revealed = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (snap.selection === revealed.current) return;
+    revealed.current = snap.selection;
+    if (selectedIndex < 0) return;
+    scroller.current
+      ?.querySelector<HTMLElement>(`.keys-row[data-index="${selectedIndex}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  });
+  const rowFocus = (event: FocusEvent) =>
+    setFocusedRow((event.target as Element).closest<HTMLElement>(".keys-row")?.dataset.row);
+  const rowBlur = (event: FocusEvent<HTMLElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusedRow(undefined);
+  };
   // The recording row's keys, read each time the recorder is placed.
   const [recordingKeys] = useState<UiVirtualAnchor>(() => ({
     getBoundingClientRect: () =>
@@ -103,8 +205,8 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
     if (!plain(event) || composing(event) || snap.editing) return;
     // Return on a focused button belongs to that button.
     const onControl = (event.target as Element).closest?.("button, input") != null;
-    if (event.key === "ArrowDown") store.select(moveSelection(snap.rows, snap.selection, 1));
-    else if (event.key === "ArrowUp") store.select(moveSelection(snap.rows, snap.selection, -1));
+    if (event.key === "ArrowDown") store.select(moveSelection(list, snap.selection, 1));
+    else if (event.key === "ArrowUp") store.select(moveSelection(list, snap.selection, -1));
     else if (event.key === "Enter" && !onControl && selected && !isReadOnly(selected))
       void store.changeKeybinding(selected);
     else return;
@@ -117,7 +219,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
       store.resetQuery();
       event.preventDefault();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      store.select(moveSelection(snap.rows, snap.selection, event.key === "ArrowDown" ? 1 : -1));
+      store.select(moveSelection(list, snap.selection, event.key === "ArrowDown" ? 1 : -1));
       event.preventDefault();
     } else if (event.key === "Enter" && selected && !isReadOnly(selected)) {
       void store.changeKeybinding(selected);
@@ -236,7 +338,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             : t(snap.text || snap.conflictsOnly ? "keybindings.page.emptySearch" : "keybindings.page.empty")}
         </div>
       ) : (
-        <div className="keys-scroll">
+        <div className="keys-scroll" ref={scroller}>
           <table
             id="keys-table"
             className="keys-table"
@@ -244,11 +346,15 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role
             role="grid"
             aria-label={t("keybindings.page.title")}
+            // Every row counts, mounted or not: the header and one per action.
+            aria-rowcount={list.ids.length + 1}
             tabIndex={0}
             onKeyDown={tableKeys}
+            onFocus={rowFocus}
+            onBlur={rowBlur}
           >
             <thead>
-              <tr>
+              <tr aria-rowindex={1}>
                 <th scope="col" className="keys-col-command">
                   {t("keybindings.page.column.command")}
                 </th>
@@ -266,24 +372,31 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
                 </th>
               </tr>
             </thead>
-            <tbody>
-              {snap.rows.map((binding) => {
-                const row = identity(binding);
-                return (
-                  <BindingRow
-                    key={row}
-                    binding={binding}
-                    strings={strings}
-                    selected={row === snap.selection}
-                    editing={row === snap.editing}
-                    recording={
-                      snap.recording?.target === "row" && snap.recording.row === row ? snap.recording : undefined
-                    }
-                    resettable={snap.resettable.has(binding.command)}
-                    store={store}
-                  />
-                );
-              })}
+            <tbody ref={body}>
+              {windowRows(
+                virtualizer.getVirtualItems(),
+                scrollMargin,
+                virtualizer.getTotalSize() + scrollMargin,
+                (index) => {
+                  const binding = list.rows[index]!;
+                  const row = list.ids[index]!;
+                  return (
+                    <BindingRow
+                      key={row}
+                      index={index}
+                      row={row}
+                      measure={measure}
+                      binding={binding}
+                      strings={strings}
+                      selected={index === selectedIndex}
+                      editing={row === snap.editing}
+                      recording={rowRecording?.row === row ? rowRecording : undefined}
+                      resettable={snap.resettable.has(binding.command)}
+                      store={store}
+                    />
+                  );
+                },
+              )}
             </tbody>
           </table>
         </div>
@@ -293,6 +406,29 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
 }
 
 type RowRecording = Extract<Recording, { target: "row" }>;
+
+/** The mounted rows in order, a spacer row (no cells, hidden from screen readers) for each run of
+ *  rows between them that is not mounted, and one for the rest of the table after the last. */
+function windowRows(
+  items: readonly { index: number; start: number; end: number }[],
+  top: number,
+  bottom: number,
+  row: (index: number) => ReactNode,
+): ReactNode[] {
+  const out: ReactNode[] = [];
+  let edge = top;
+  for (const item of items) {
+    if (item.start > edge) out.push(<Spacer key={`gap:${item.index}`} height={item.start - edge} />);
+    out.push(row(item.index));
+    edge = item.end;
+  }
+  if (bottom > edge) out.push(<Spacer key="gap:end" height={bottom - edge} />);
+  return out;
+}
+
+const Spacer = memo(function Spacer({ height }: { height: number }) {
+  return <tr className="keys-gap" aria-hidden="true" style={{ height }} />;
+});
 
 /** A press in the recorder keeps focus where it was (the search field): its controls unmount
  *  with it, and focus on one would end on nothing. */
@@ -528,6 +664,11 @@ function Recorder({
 }
 
 interface RowProps {
+  /** The row's place in the shown rows (TanStack measures it by `data-index`). */
+  index: number;
+  /** Its identity (`model.identity`), which the page tracks focus by. */
+  row: string;
+  measure: (element: HTMLElement | null) => void;
   binding: Binding;
   strings: Strings;
   selected: boolean;
@@ -538,7 +679,18 @@ interface RowProps {
   store: KeybindingsStore;
 }
 
-function BindingRow({ binding, strings, selected, editing, recording: rowRecording, resettable, store }: RowProps) {
+const BindingRow = memo(function BindingRow({
+  index,
+  row,
+  measure,
+  binding,
+  strings,
+  selected,
+  editing,
+  recording: rowRecording,
+  resettable,
+  store,
+}: RowProps) {
   const { t } = strings;
   const recording = rowRecording !== undefined;
   // The row shows the table's keys only (what the app holds): the recorder's own keys (still
@@ -549,8 +701,13 @@ function BindingRow({ binding, strings, selected, editing, recording: rowRecordi
     <tr
       className={classes.filter(Boolean).join(" ")}
       aria-selected={selected}
-      ref={selected ? revealOnSelect : undefined}
-      onClick={() => store.select(identity(binding))}
+      // Its place among every row, the header first: the screen reader's "row 3 of 1001".
+      aria-rowindex={index + 2}
+      ref={measure}
+      data-index={index}
+      data-size={rowSize(binding)}
+      data-row={row}
+      onClick={() => store.select(row)}
     >
       <td className="keys-col-command">
         <span className="keys-command-title">{binding.title}</span>
@@ -676,4 +833,4 @@ function BindingRow({ binding, strings, selected, editing, recording: rowRecordi
       </td>
     </tr>
   );
-}
+});
