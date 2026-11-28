@@ -153,6 +153,72 @@ pub(crate) fn joined_own_reason(
     team_or_own(inputs, env, flag, cwd, false).err()
 }
 
+/// The `--settings` flag's `env`, which Claude applies over the process env.
+fn flag_settings_env(flag: Option<&Map<String, Value>>) -> BTreeMap<String, String> {
+    // A JSON `true` or number
+    // (`"CLAUDE_CODE_USE_BEDROCK": true`) is the value Claude reads, as the launcher's check
+    // (`agent-auth.sh` `cmux_claude_settings_has`) counts it.
+    flag.and_then(|s| s.get("env"))
+        .and_then(Value::as_object)
+        .map(|e| {
+            e.iter()
+                .filter_map(|(k, v)| {
+                    let v = match v {
+                        Value::String(s) => s.clone(),
+                        Value::Bool(b) => b.to_string(),
+                        Value::Number(n) => n.to_string(),
+                        _ => return None,
+                    };
+                    Some((k.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether a launch signs in by itself without a pair in its env: a helper in its flag settings,
+/// or a sign-in or personal endpoint `claude_auth::find_in` reads (a key, token, settings env,
+/// the `.claude.json` API key or the saved login). A personal endpoint in a settings file (a
+/// proxy that signs requests itself) is the person's too, as one in the env or the flag is.
+fn saved_sign_in(
+    inputs: &Inputs<'_>,
+    env: &BTreeMap<String, String>,
+    flag_env: &BTreeMap<String, String>,
+    flag: Option<&Map<String, Value>>,
+    cwd: &Path,
+) -> bool {
+    let mut env = env.clone();
+    env.entry("HOME".to_owned()).or_insert_with(|| inputs.home.to_string_lossy().into_owned());
+    env.extend(flag_env.clone());
+    let flag_helper = flag
+        .is_some_and(|s| HELPERS.iter().any(|h| s.get(*h).is_some_and(|v| v.as_str() != Some(""))));
+    let found = crate::claude_auth::find_in(&env, cwd);
+    flag_helper || found.signed_in() || found.endpoint.is_some()
+}
+
+/// Whether a remote-origin Claude launch (created over the WebSocket listener: a peer's
+/// `acpmux new --machine`, a remote device) on a joined machine has nothing to sign in with.
+/// Its sandbox reaches no loopback proxy, so the hub's route, which needs the egress proxy to
+/// fill the machine credential, is never its route, whatever `CMUX_CLAUDE_AUTH` or `cr use`
+/// chose: with no pair, key, managed credential or saved sign-in of its own it would start Direct
+/// and answer "Not logged in" every turn (2026-11-28: lane hosts started from a peer).
+pub(crate) fn remote_joined_without_sign_in(
+    inputs: &Inputs<'_>,
+    env: &BTreeMap<String, String>,
+    flag: Option<&Map<String, Value>>,
+    cwd: &Path,
+) -> bool {
+    let flag_env = flag_settings_env(flag);
+    let set = |k: &str| {
+        (inputs.var)(k).is_some_and(|v| !v.is_empty())
+            || flag_env.get(k).is_some_and(|v| !v.is_empty())
+    };
+    !set("ANTHROPIC_BASE_URL")
+        && !set("ANTHROPIC_API_KEY")
+        && !managed_credential(&inputs.root.join(MANAGED_SETTINGS))
+        && !saved_sign_in(inputs, env, &flag_env, flag, cwd)
+}
+
 /// Whether a Claude launch on a joined machine has nothing to sign in with: no
 /// `CMUX_CLAUDE_AUTH` pin, no `cr use` choice, and no sign-in of its own, the one a Cloud image
 /// would send to its team plane ([`chooses_team`]'s unchosen rule). The joined plane is opt-in,
@@ -190,26 +256,7 @@ fn team_or_own(
     unchosen_team: bool,
 ) -> Result<(), &'static str> {
     let var = |k: &str| (inputs.var)(k).filter(|v| !v.is_empty());
-    // The flag settings' env, which Claude applies over the process env. A JSON `true` or number
-    // (`"CLAUDE_CODE_USE_BEDROCK": true`) is the value Claude reads, as the launcher's check
-    // (`agent-auth.sh` `cmux_claude_settings_has`) counts it.
-    let flag_env: BTreeMap<String, String> = flag
-        .and_then(|s| s.get("env"))
-        .and_then(Value::as_object)
-        .map(|e| {
-            e.iter()
-                .filter_map(|(k, v)| {
-                    let v = match v {
-                        Value::String(s) => s.clone(),
-                        Value::Bool(b) => b.to_string(),
-                        Value::Number(n) => n.to_string(),
-                        _ => return None,
-                    };
-                    Some((k.clone(), v))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let flag_env = flag_settings_env(flag);
     let set = |k: &str| var(k).is_some() || flag_env.get(k).is_some_and(|v| !v.is_empty());
     // A pair in the launch already (the person's, or a route's) wins, as in the launcher.
     if set("ANTHROPIC_BASE_URL") {
@@ -234,17 +281,7 @@ fn team_or_own(
             Some(_) => {}
             None if !unchosen_team => return Err("no choice is recorded"),
             None => {
-                let mut env = env.clone();
-                env.entry("HOME".to_owned())
-                    .or_insert_with(|| inputs.home.to_string_lossy().into_owned());
-                env.extend(flag_env.clone());
-                let flag_helper = flag.is_some_and(|s| {
-                    HELPERS.iter().any(|h| s.get(*h).is_some_and(|v| v.as_str() != Some("")))
-                });
-                // A personal endpoint in a settings file (a proxy that signs requests itself)
-                // is the person's too, as one in the env or the flag is above.
-                let found = crate::claude_auth::find_in(&env, cwd);
-                if flag_helper || found.signed_in() || found.endpoint.is_some() {
+                if saved_sign_in(inputs, env, &flag_env, flag, cwd) {
                     return Err("the launch has a sign-in of its own");
                 }
             }
