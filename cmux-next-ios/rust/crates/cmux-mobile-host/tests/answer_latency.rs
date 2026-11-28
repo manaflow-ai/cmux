@@ -119,7 +119,42 @@ async fn rig(stun: &str) -> Rig {
 struct Sample {
     mac_ms: f64,
     phone_ms: f64,
+    /// What the Mac's answer waited on, from its timeline marks.
+    waited: Waited,
     connected: cmux_mobile_link::Connected,
+}
+
+/// The waits an answer took, read from the Mac's marks: these do not move
+/// with the machine's load, as the milliseconds do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Waited {
+    /// `GET /v1/ice` ran while the answer waited (`ice_servers_fetched`).
+    ice_fetch: bool,
+    /// `wg-resp` went out after the STUN gather (`answer_gathered`), not
+    /// with host endpoints at once (`answer_host_endpoints`).
+    stun_gather: bool,
+}
+
+async fn waited(session: &str) -> Waited {
+    let timeline =
+        cmux_mobile_host::host::answer_timeline(session).expect("the Mac kept its answer's timeline");
+    let has = |mark: &str| timeline.get(mark).is_some();
+    // The Mac marks `wg_resp_sent` just after the send, so its task may not
+    // have run that line yet when the phone is up.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !has("wg_resp_sent") {
+        assert!(Instant::now() < deadline, "the answer was sent: {timeline:?}");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(
+        has("ice_servers_cached") || has("ice_servers_stale") || has("ice_servers_fetched"),
+        "the answer marked where its ICE servers came from: {timeline:?}"
+    );
+    assert!(
+        has("answer_host_endpoints") != has("answer_gathered"),
+        "the answer marked whether it waited for the gather: {timeline:?}"
+    );
+    Waited { ice_fetch: has("ice_servers_fetched"), stun_gather: has("answer_gathered") }
 }
 
 async fn dial(rig: &Rig) -> Sample {
@@ -146,6 +181,7 @@ async fn dial(rig: &Rig) -> Sample {
     Sample {
         mac_ms: answer.duration_since(offer).as_secs_f64() * 1000.0,
         phone_ms: phone.as_secs_f64() * 1000.0,
+        waited: waited(session).await,
         connected,
     }
 }
@@ -179,7 +215,7 @@ fn set_phase(before: bool) {
     cmux_mobile_link::dial::wireguard::set_answer_after_gather(before);
 }
 
-async fn measure(profile: Profile, before: bool, runs: usize, summary: &mut Vec<String>) {
+async fn measure(profile: Profile, before: bool, runs: usize, summary: &mut Vec<String>) -> Vec<Waited> {
     set_phase(before);
     let phase = if before { "before" } else { "after" };
     let (stun, _stun_task) = silent_stun().await;
@@ -187,7 +223,7 @@ async fn measure(profile: Profile, before: bool, runs: usize, summary: &mut Vec<
     // Warm the cache: the first answer of a process has nothing cached and
     // waits for `GET /v1/ice` either way.
     drop(dial(&rig).await.connected);
-    let (mut mac, mut phone) = (Vec::new(), Vec::new());
+    let (mut mac, mut phone, mut waits) = (Vec::new(), Vec::new(), Vec::new());
     let mut previous: Option<cmux_mobile_link::Connected> = None;
     for run in 0..runs {
         match profile {
@@ -215,11 +251,14 @@ async fn measure(profile: Profile, before: bool, runs: usize, summary: &mut Vec<
                     "seed": 0,
                     "ice_delay_ms": ICE_DELAY.as_millis() as u64,
                     "stun": "silent",
+                    "ice_fetch": sample.waited.ice_fetch,
+                    "stun_gather": sample.waited.stun_gather,
                 })
             );
         }
         mac.push(sample.mac_ms);
         phone.push(sample.phone_ms);
+        waits.push(sample.waited);
         previous = Some(sample.connected);
     }
     drop(previous);
@@ -234,19 +273,46 @@ async fn measure(profile: Profile, before: bool, runs: usize, summary: &mut Vec<
     );
     println!("SUMMARY {line}");
     summary.push(line);
+    waits
 }
 
 /// Before/after over `ANSWER_LATENCY_RUNS` runs (default 20) per case. The
-/// "after" bounds: no answer waits on `GET /v1/ice` once anything was
-/// fetched, nor on a silent STUN server.
+/// "after" property, from the Mac's marks: no answer waits on `GET /v1/ice`
+/// once anything was fetched, nor on the (silent) STUN gather. The "before"
+/// rows restore those waits and must show them, so the check would see a
+/// regression. The milliseconds are printed; a busy runner stretches them
+/// (base run 46181076635: network-change/after p95 1137 ms, 2 ms idle), so
+/// their bound holds only with `CMUX_ANSWER_LATENCY_STRICT=1`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn offer_to_answer_before_and_after() {
     let _switches = SWITCHES.lock().await;
     let runs = runs();
     let mut summary = Vec::new();
+    let mut failures = Vec::new();
     for profile in [Profile::Warm, Profile::Wake, Profile::NetworkChange] {
         for before in [true, false] {
-            measure(profile, before, runs, &mut summary).await;
+            let waits = measure(profile, before, runs, &mut summary).await;
+            let phase = if before { "before" } else { "after" };
+            let fetched = waits.iter().filter(|w| w.ice_fetch).count();
+            let gathered = waits.iter().filter(|w| w.stun_gather).count();
+            if !before && (fetched > 0 || gathered > 0) {
+                failures.push(format!(
+                    "{} {phase}: {fetched} of {runs} answers waited on GET /v1/ice, {gathered} on the STUN gather",
+                    profile.name()
+                ));
+            }
+            if before && gathered != waits.len() {
+                failures.push(format!(
+                    "{} {phase}: the baseline should wait on the STUN gather every time, did {gathered} of {runs}",
+                    profile.name()
+                ));
+            }
+            if before && !matches!(profile, Profile::Warm) && fetched == 0 {
+                failures.push(format!(
+                    "{} {phase}: the baseline should wait on GET /v1/ice after the servers are dropped, never did",
+                    profile.name()
+                ));
+            }
         }
     }
     set_phase(false);
@@ -255,10 +321,13 @@ async fn offer_to_answer_before_and_after() {
     for line in &summary {
         println!("{line}");
     }
-    // The after rows: far under the 1.5 s STUN wait and the 2 s ICE fetch.
-    for line in summary.iter().filter(|line| line.contains("| after |")) {
-        let p95: f64 = line.split('|').nth(4).unwrap().trim().parse().unwrap();
-        assert!(p95 < 750.0, "an answer waited: {line}");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    if std::env::var("CMUX_ANSWER_LATENCY_STRICT").is_ok_and(|v| v == "1") {
+        // The after rows: far under the 1.5 s STUN wait and the 2 s ICE fetch.
+        for line in summary.iter().filter(|line| line.contains("| after |")) {
+            let p95: f64 = line.split('|').nth(4).unwrap().trim().parse().unwrap();
+            assert!(p95 < 750.0, "an answer waited: {line}");
+        }
     }
 }
 

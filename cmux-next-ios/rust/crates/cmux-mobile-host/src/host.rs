@@ -67,6 +67,29 @@ pub fn set_fetch_after_wake(on: bool) {
     FETCH_AFTER_WAKE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// The timelines of this process's latest answers, newest last, so a test
+/// can read why an answer took its time from its marks (where the ICE
+/// servers came from, whether `wg-resp` waited for the STUN gather) and
+/// not from a stopwatch that a busy machine stretches.
+static ANSWER_TIMELINES: std::sync::Mutex<std::collections::VecDeque<(String, Timeline)>> =
+    std::sync::Mutex::new(std::collections::VecDeque::new());
+const ANSWER_TIMELINES_KEPT: usize = 32;
+
+fn keep_answer_timeline(session_id: &str, timeline: &Timeline) {
+    let mut kept = ANSWER_TIMELINES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if kept.len() == ANSWER_TIMELINES_KEPT {
+        kept.pop_front();
+    }
+    kept.push_back((session_id.to_owned(), timeline.clone()));
+}
+
+/// The Mac-side timeline of the answer to session `session_id`, while it
+/// is one of the latest [`ANSWER_TIMELINES_KEPT`] answers.
+pub fn answer_timeline(session_id: &str) -> Option<Timeline> {
+    let kept = ANSWER_TIMELINES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    kept.iter().rev().find(|(id, _)| id == session_id).map(|(_, timeline)| timeline.clone())
+}
+
 /// Where an answer's ICE servers came from (its timeline mark).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IceOrigin {
@@ -785,6 +808,7 @@ async fn answer_session(
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
     timeline.mark("offer_received");
+    keep_answer_timeline(&session_id, &timeline);
     let baseline = std::env::var_os("CMUX_MOBILE_BASELINE").is_some();
     let (ice_servers, origin) =
         if baseline { context.ice.servers_uncached().await } else { context.ice.servers().await };
