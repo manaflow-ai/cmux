@@ -82,6 +82,7 @@ jobs:
           echo "::warning title=cmux ios verify (auto)::dispatch refused 3 times; run \`cmux ios verify --pr $PR\` by hand"
 
   verify:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     name: cmux ios verify
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' }}
     runs-on: cmux-linux
