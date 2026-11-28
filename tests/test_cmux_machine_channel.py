@@ -781,6 +781,33 @@ class LinuxReleasePoint(unittest.TestCase):
         return subprocess.run(["bash", "scripts/ci/cmux-linux-nightly-follow.sh", str(self.tmp / f"follow-{run_id}")],
                               cwd=self.repo, env=env, text=True, capture_output=True)
 
+    def run_sign(self, *mode, run_id="30"):
+        """scripts/ci/linux-release-sign.sh for RELEASE_COMMIT against the fake R2 (no gh: a run that finds
+        the commit's file published never downloads its build)."""
+        shutil.copy(ROOT / "scripts/ci/linux-release-sign.sh", self.repo / "scripts/ci/")
+        env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_R2": str(self.r2),
+               "FAKE_UPLOAD_LOG": str(self.tmp / "uploads.log"), "SIGNING_KEY": self.pem,
+               "R2_ENDPOINT": "https://r2.invalid", "GITHUB_RUN_ID": run_id, "GITHUB_SHA": RELEASE_COMMIT,
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "unused"}
+        return subprocess.run(["bash", "scripts/ci/linux-release-sign.sh", str(self.tmp / f"sign-{run_id}"),
+                               "feat-cmux-next", *mode], cwd=self.repo, env=env, text=True, capture_output=True)
+
+    def test_a_published_release_file_is_kept_and_moves_the_channel(self):
+        # sign-nightly-linux-release wrote the commit's file (--commit-only); point-machine-channel's run
+        # of the same commit keeps it and moves linux-feat-cmux-next to its bytes, with no second build.
+        self.only_linux_release()
+        self.assert_ok(self.point(self.payload(), "--commit-only"))
+        first = self.served(self.RELEASE)
+        self.assertIsNone(self.served(self.POINTER))
+        again = self.run_sign("--commit-only", run_id="31")
+        self.assert_ok(again)
+        self.assertIn("is published; keeping it", again.stdout)
+        self.assertIsNone(self.served(self.POINTER))
+        result = self.run_sign(run_id="32")
+        self.assert_ok(result)
+        self.assertEqual(self.served(self.RELEASE), first)
+        self.assertEqual(self.served(self.POINTER), first)
+
     def test_the_follow_script_points_linux_nightly_at_the_nightlys_first_commit(self):
         self.only_linux_release()
         self.assert_ok(self.point(self.payload()))
@@ -1055,6 +1082,61 @@ class LinuxReleaseTree(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(SystemExit), \
                     contextlib.redirect_stderr(io.StringIO()) as err:
                 self.alias(**kwargs)
+            self.assertIn(message, err.getvalue())
+
+
+class CloudMachineRollback(unittest.TestCase):
+    """`rollback` (cloud-machine-channel-journey.yml machine-channel-settle): a regressed build's channel moves back to the
+    last proven build, its commit and URLs, past the regressed build's commit time, so the forward-only channel
+    and the machines' updaters take it; the regressed commit's later (fat) point then finds the channel newer."""
+
+    setUp, point, served, verified, assert_ok = (LinuxReleasePoint.setUp, LinuxReleasePoint.point,
+                                                 LinuxReleasePoint.served, LinuxReleasePoint.verified,
+                                                 LinuxReleasePoint.assert_ok)
+    CHANNEL = "cmux-tui/channels/cloud-machine.json"
+
+    def build(self, commit, committed_at, key):
+        path = LinuxReleasePoint.payload(self, commit=commit, committed_at=committed_at,
+                                         purpose="cmux-cloud-machine-update")
+        value = json.loads(path.read_bytes()) | {"key": key}
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        return path
+
+    def rollback(self, proven, over):
+        out = self.tmp / f"rollback-{len(list(self.tmp.iterdir()))}.json"
+        channel.main(["cmux-machine-channel.py", "rollback", "--proven", str(proven), "--over", str(over),
+                      "--keys", str(self.repo / KEYS_PATH), "--out", str(out)])
+        return out
+
+    def test_a_regressed_build_moves_back_to_the_proven_one(self):
+        good, bad = "a" * 40, "b" * 40
+        self.assert_ok(self.point(self.build(good, COMMITTED_AT, "1" * 64)))
+        proven = self.tmp / "proven.json"
+        proven.write_bytes(self.served(self.CHANNEL))
+        self.assert_ok(self.point(self.build(bad, COMMITTED_AT + 60, "2" * 64), run_id="2"))
+        over = self.tmp / "over.json"
+        over.write_bytes(self.served(self.CHANNEL))
+        self.assert_ok(self.point(self.rollback(proven, over), run_id="3"))
+        value = self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")
+        self.assertEqual((value["commit"], value["key"], value["committed_at"]), (good, "1" * 64, COMMITTED_AT + 61))
+        self.assertEqual(value["targets"], json.loads(base64.b64decode(json.loads(proven.read_bytes())["payload"]))["targets"])
+        # The regressed commit's fat point, later in the same run, keeps the rolled-back channel.
+        self.assert_ok(self.point(self.build(bad, COMMITTED_AT + 60, "3" * 64), run_id="4"))
+        self.assertEqual(self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")["commit"], good)
+        # The next push moves it forward again.
+        self.assert_ok(self.point(self.build("d" * 40, COMMITTED_AT + 120, "4" * 64), run_id="5"))
+        self.assertEqual(self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")["commit"], "d" * 40)
+
+    def test_rollback_refuses_the_build_it_replaces_and_an_unsigned_file(self):
+        self.assert_ok(self.point(self.build("b" * 40, COMMITTED_AT, "2" * 64)))
+        over = self.tmp / "over.json"
+        over.write_bytes(self.served(self.CHANNEL))
+        unsigned = self.tmp / "unsigned.json"
+        unsigned.write_bytes(self.build("a" * 40, COMMITTED_AT, "1" * 64).read_bytes())
+        for proven, message in ((over, "the build it would replace"), (unsigned, "does not verify")):
+            with self.subTest(message=message), self.assertRaises(SystemExit), \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                self.rollback(proven, over)
             self.assertIn(message, err.getvalue())
 
 

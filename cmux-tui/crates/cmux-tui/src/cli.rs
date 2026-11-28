@@ -29,6 +29,8 @@ mod agents;
 #[cfg(unix)]
 mod agents_doctor;
 #[cfg(unix)]
+mod api_tokens;
+#[cfg(unix)]
 mod app;
 pub(crate) mod app_action_help;
 #[cfg(unix)]
@@ -61,6 +63,8 @@ mod caller_browser;
 mod caller_scope;
 mod capability_cache;
 #[cfg(unix)]
+mod device_login;
+#[cfg(unix)]
 mod share_requests;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
@@ -80,6 +84,8 @@ mod chief_target;
 mod cloud_agent;
 #[cfg(unix)]
 mod cloud_api;
+#[cfg(unix)]
+mod cloud_apps_relay;
 #[cfg(unix)]
 mod cloud_auth_handoff_relay;
 #[cfg(unix)]
@@ -129,9 +135,16 @@ mod codex_app_server;
 mod command;
 mod completion;
 #[cfg(unix)]
+mod env_command;
+mod intent;
+#[cfg(unix)]
 mod key_broker;
 #[cfg(unix)]
+mod mac_screen_view;
+#[cfg(unix)]
 mod notification_banners;
+#[cfg(unix)]
+mod vault;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod autocloud;
@@ -152,6 +165,7 @@ mod federation;
 mod fix_command;
 #[cfg(unix)]
 mod frontend_browser;
+mod hook_emit_deadline;
 #[cfg(unix)]
 mod host_mount;
 mod hosts;
@@ -182,9 +196,13 @@ mod mcp_servers;
 #[cfg(unix)]
 mod ps_gc;
 #[cfg(unix)]
+mod repo_archive;
+#[cfg(unix)]
 mod repo_hold;
 #[cfg(unix)]
 mod repo_mcp_lazy;
+#[cfg(unix)]
+mod repo_remote;
 #[cfg(unix)]
 pub(crate) mod runnable_link;
 #[cfg(unix)]
@@ -205,6 +223,8 @@ mod vm;
 mod vm_bootstrap;
 #[cfg(unix)]
 mod vm_cleanup;
+#[cfg(unix)]
+mod vm_exec_input;
 #[cfg(unix)]
 mod vm_gcp;
 #[cfg(unix)]
@@ -280,6 +300,8 @@ mod machine_join;
 #[cfg(unix)]
 mod machine_link;
 #[cfg(unix)]
+mod machine_list_reads;
+#[cfg(unix)]
 mod machine_request;
 #[cfg(unix)]
 mod mobile_pair_requests;
@@ -327,6 +349,8 @@ mod setup;
 mod share_cli;
 mod shorthand;
 #[cfg(unix)]
+mod sign_clones;
+#[cfg(unix)]
 mod skew;
 #[cfg(unix)]
 mod stale_app;
@@ -352,6 +376,8 @@ mod theme_scheme;
 mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
+#[cfg(unix)]
+mod usage_insights;
 #[cfg(unix)]
 mod video;
 #[cfg(unix)]
@@ -648,6 +674,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents",
     "chats",
     "board",
+    "care",
     "harness",
     "remote",
     "script",
@@ -662,12 +689,14 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "computer-use",
     "chat",
     "vm",
+    "env",
     "customize",
     "agent-config",
     "move",
     "teleport",
     "evacuate",
     "video",
+    "usage",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -753,7 +782,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// acpmux's (`--json` is a global clap option there).
 /// `agent` is not one of them: its verbs acpmux runs (agent_engine_requested, agent_acp_scope_args) take
 /// `--json` after the scope, and its app verbs (`agent list`, `agent open`) read the cmux global one where it is.
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "send", "inbox"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "care", "send", "inbox"];
 
 /// Session-engine verbs that also answer as a plain top-level `cmux` word: `cmux send` is
 /// `cmux agent send` and `cmux inbox` is the engine's team inbox, one command grammar under
@@ -919,13 +948,45 @@ fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
     None
 }
 
+fn agent_card_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command) = parse_globals(args).ok()?;
+    let json_flag = command.iter().any(|w| w == "--json");
+    let words: Vec<&str> = command.iter().map(String::as_str).filter(|w| *w != "--json").collect();
+    let what = match words.as_slice() {
+        ["capabilities"] => "capabilities",
+        ["machine", "info"] => "machine",
+        _ => return None,
+    };
+    let json = json_flag || matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+    println!("{}", acpmux::agent_card::cli(what, json, &cwd));
+    Some(0)
+}
+
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
-    let surface = Surface::current();
     if let Ok((_, command)) = parse_globals(args) {
         vm_words::activate_for(&command);
+        match command::hook_emit_budget(&command) {
+            Ok(Some(deadline)) => {
+                let (args, usage) = (args.to_vec(), startup_usage.to_owned());
+                return hook_emit_deadline::within(deadline, move || run_unbounded(&args, &usage));
+            }
+            Err(error) => return early_usage_error(args, &error.0),
+            Ok(None) => {}
+        }
     }
+    run_unbounded(args, startup_usage)
+}
+
+fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
+    let surface = Surface::current();
     // `cmux completion zsh|bash|fish` and the scripts' `cmux __complete -- WORDS`.
     if let Some(code) = completion::run_if_requested(args) {
+        return code;
+    }
+    // `cmux capabilities` and `cmux machine info`: what cmux lets an agent do in a chat here and
+    // this machine's numbers, the card a new chat gets in its system context (acpmux agent_card.rs).
+    if let Some(code) = agent_card_if_requested(args) {
         return code;
     }
     #[cfg(unix)]
@@ -998,6 +1059,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `login` with no cmux app to answer (or `--device`): sign in by link, print a CMUX_TOKEN.
+    #[cfg(unix)]
+    if let Some(code) = device_login::run_if_requested(args) {
+        return code;
+    }
     // `login` and `logout` are `vm sign-in` and `vm sign-out`, which the Cloud alias below runs.
     #[cfg(unix)]
     let account_args;
@@ -1109,6 +1175,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| api_tokens::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
@@ -1121,6 +1188,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| vault::run_if_requested(args))
+        .or_else(|| env_command::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| cloud_provider::run_if_requested(args))
@@ -1137,6 +1206,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
+        .or_else(|| cloud_apps_relay::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
         .or_else(|| machine_request::run_if_requested(args))
@@ -1145,6 +1215,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| safe_mode::run_if_requested(args))
+        .or_else(|| sign_clones::run_if_requested(args))
         .or_else(|| ps_gc::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
@@ -1155,6 +1226,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| pack::run_if_requested(args))
         .or_else(|| video::run_if_requested(args))
+        .or_else(|| usage_insights::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
@@ -1239,6 +1311,16 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 .and_then(|(global, _)| skew::reexec_at_dead_end(&global).err().flatten());
             #[cfg(not(unix))]
             let skew: Option<String> = None;
+            // A mistyped or synonym scope or verb (`cmux sessions ls`) runs the one word it
+            // meant, said on stderr; once, so a still-refused command ends here (cli/intent.rs).
+            static INTENT_TRIED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if skew.is_none()
+                && !INTENT_TRIED.swap(true, std::sync::atomic::Ordering::Relaxed)
+                && let Some(fixed) = intent::retry(args, startup_usage)
+            {
+                return run(&fixed, startup_usage);
+            }
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
                 format!("cmux: {}", failure.error)
             } else {
@@ -1324,7 +1406,9 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         {
             false
         }
-        Some("get" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore") => true,
+        Some(
+            "get" | "explain" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore",
+        ) => true,
         _ => false,
     }
 }
@@ -1687,8 +1771,8 @@ fn scan_globals(
     Ok((global, command))
 }
 
-/// `machine add|vault`'s value-less switches (`machine_join::own_switch`) and the chat
-/// commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
+/// `machine add|revoke|rotate|vault`'s value-less switches (`machine_join::own_switch`) and
+/// the chat commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
 fn own_switch(command: &[String], flag: &str) -> bool {
     #[cfg(unix)]
     {
@@ -2095,7 +2179,7 @@ USAGE
   cmux agent <agent> focus
   cmux agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <value>
   cmux agent hook install|uninstall|status [provider...]
-  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
+  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>] [--deadline-ms <n>]
   cmux agent plugin list
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>

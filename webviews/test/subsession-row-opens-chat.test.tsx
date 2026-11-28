@@ -78,7 +78,10 @@ test("a click on a sub-session's name chip opens its chat; the rest of its line 
   // The label is the chip; the model and state follow it, and nothing after them but the chevron.
   expect(chip.textContent).toBe("Started sub-session fleet-mesh");
   expect(line.textContent).toContain("gpt-6.1-sol");
-  expect(chip.title).toBe(t("subagents.open", { name: "fleet-mesh" }));
+  // A chip that opens a chat says so to a screen reader; it has no native title (AgentTag.tsx: what
+  // it cannot show goes on its facts card, chips/FactsHoverCard.tsx).
+  expect(chip.getAttribute("aria-label")).toBe(t("subagents.open", { name: "fleet-mesh" }));
+  expect(chip.hasAttribute("title")).toBe(false);
   expect(chip.hasAttribute("aria-expanded")).toBe(false);
   expect(chevron.getAttribute("aria-expanded")).toBe("false");
   expect(chevron.getAttribute("aria-label")).toBe(t("message.details"));
@@ -156,8 +159,9 @@ test("a started agent keeps its icon and name link, with visible status controll
   expect(line.querySelector(".is-chevron")).toBeNull();
   const name = line.querySelector<HTMLButtonElement>("button.cv-agent-tag")!;
   const status = line.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle.is-status")!;
-  expect(status.textContent).toBe("Working");
-  expect(status.hasAttribute("aria-label")).toBe(false);
+  // Working is the spinner alone; hover and VoiceOver keep the word.
+  expect(status.textContent).toBe("");
+  expect(status.querySelector("[title]")?.getAttribute("title")).toBe("Working");
   expect(status.getAttribute("aria-expanded")).toBe("false");
   expect(status.tabIndex).toBe(0);
   await act(async () => name.click());

@@ -30,6 +30,30 @@ pub struct ScorecardArgs {
     /// `_acpmux/scorecard`. Never the live state directory a daemon writes.
     #[arg(long, value_name = "DIR")]
     pub home: Option<std::path::PathBuf>,
+    /// Fail (exit 1) when any turn in the range churned its cached prefix (RFD 0158 §1:
+    /// `harnessMagic.cacheAlarm.collapses` or `callChurn`): the replay's no-churn assertion.
+    #[arg(long)]
+    pub assert_no_churn: bool,
+    #[command(subcommand)]
+    pub cmd: Option<ScorecardCmd>,
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum ScorecardCmd {
+    /// Replay recorded session logs against RFD 0161's cache-prefix invariants with no model
+    /// call (2: model, tools and system prompt unchanged; 5: no cache-read collapse without a
+    /// declared compaction or surgery). Fails (exit 1) on a violation, for CI.
+    Replay(ReplayArgs),
+}
+
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct ReplayArgs {
+    /// Session ids, unique id prefixes or names (every session when none).
+    pub sessions: Vec<String>,
+    /// Read a copy of a state directory (a fixture set for CI) in this process instead of
+    /// asking the daemon. Never the live state directory a daemon writes.
+    #[arg(long, value_name = "DIR")]
+    pub home: Option<std::path::PathBuf>,
 }
 
 const BYS: &[&str] = &["set", "feature", "session"];
@@ -93,7 +117,14 @@ fn counters(m: &Value) -> String {
     let Some(o) = m["harnessMagic"].as_object().filter(|o| !o.is_empty()) else {
         return String::new();
     };
-    let list: Vec<String> = o.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut list: Vec<String> = o.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    // RFD 0160's hit rate: attached files the turns then read or edited, over those attached.
+    if let (Some(hits), Some(files)) = (
+        o.get("prefetch.hits").and_then(Value::as_f64),
+        o.get("prefetch.files").and_then(Value::as_f64).filter(|f| *f > 0.0),
+    ) {
+        list.push(format!("prefetch.hitRate={:.2}", hits / files));
+    }
     format!("  harnessMagic: {}\n", list.join(" "))
 }
 
@@ -140,8 +171,8 @@ fn text(args: &ScorecardArgs, a: &Value) -> String {
     out
 }
 
-/// The scorecard of a copied state directory, read in this process (`--home`).
-fn offline(home: &std::path::Path, p: &Value) -> Result<Value> {
+/// Refuses the live state directory (`--home`).
+fn copied_home(home: &std::path::Path) -> Result<()> {
     let canon = |d: &std::path::Path| std::fs::canonicalize(d).unwrap_or_else(|_| d.to_owned());
     if canon(home) == canon(&crate::config::home()) {
         anyhow::bail!(
@@ -149,6 +180,84 @@ fn offline(home: &std::path::Path, p: &Value) -> Result<Value> {
             home.display()
         );
     }
+    Ok(())
+}
+
+/// The replay's text: one line a session, one a violation.
+fn replay_text(a: &Value) -> String {
+    let mut out = String::new();
+    for s in a["sessions"].as_array().into_iter().flatten() {
+        let id = s["session"].as_str().unwrap_or("");
+        let n = s["violations"].as_array().map_or(0, Vec::len);
+        out.push_str(&format!(
+            "{} {:<8} {} calls {} inits  {}\n",
+            id.chars().take(12).collect::<String>(),
+            s["harness"].as_str().unwrap_or(""),
+            s["calls"],
+            s["inits"],
+            if n == 0 { "ok".to_owned() } else { format!("{n} violation(s)") }
+        ));
+        for v in s["violations"].as_array().into_iter().flatten() {
+            out.push_str(&format!(
+                "  invariant {} {} at seq {}: {}\n",
+                v["invariant"],
+                v["name"].as_str().unwrap_or(""),
+                v["seq"],
+                v["detail"].as_str().unwrap_or("")
+            ));
+        }
+    }
+    for m in a["missing"].as_array().into_iter().flatten() {
+        out.push_str(&format!("{}: no such session\n", m.as_str().unwrap_or("")));
+    }
+    let not_yet: Vec<String> =
+        a["notYet"].as_array().into_iter().flatten().map(|v| v["invariant"].to_string()).collect();
+    out.push_str(&format!(
+        "{} session(s), {} violation(s); invariants 2 and 5 checked, {} not yet\n",
+        a["sessions"].as_array().map_or(0, Vec::len),
+        a["violations"],
+        not_yet.join(", ")
+    ));
+    out
+}
+
+async fn replay(args: ReplayArgs, json_out: bool) -> Result<()> {
+    let answer = match args.home {
+        Some(home) => {
+            copied_home(&home)?;
+            let sessions = args.sessions.clone();
+            tokio::task::spawn_blocking(move || -> Result<Value> {
+                let config =
+                    crate::config::Config::load_from(&home.join("config.json")).unwrap_or_default();
+                let store = crate::store::open(&config.store, &home)?;
+                Ok(crate::scorecard_replay::to_value(&crate::scorecard_replay::replay(
+                    &*store, &sessions,
+                )?))
+            })
+            .await??
+        }
+        None => {
+            let client = crate::daemon::connect(true).await?;
+            client.request(method::MUX_SCORECARD_REPLAY, json!({"sessions": args.sessions})).await?
+        }
+    };
+    if json_out {
+        print_json(&answer);
+    } else {
+        print!("{}", replay_text(&answer));
+    }
+    // A violation or a missing session fails the command (exit 1), for CI.
+    let violations = answer.get("violations").and_then(Value::as_u64).unwrap_or(0);
+    let missing = answer.get("missing").and_then(Value::as_array).map_or(0, Vec::len);
+    if violations > 0 || missing > 0 {
+        anyhow::bail!("scorecard replay: {violations} violation(s), {missing} missing session(s)");
+    }
+    Ok(())
+}
+
+/// The scorecard of a copied state directory, read in this process (`--home`).
+fn offline(home: &std::path::Path, p: &Value) -> Result<Value> {
+    copied_home(home)?;
     let config = crate::config::Config::load_from(&home.join("config.json")).unwrap_or_default();
     let claude_stdio: std::collections::HashSet<String> = config
         .harnesses
@@ -164,7 +273,10 @@ fn offline(home: &std::path::Path, p: &Value) -> Result<Value> {
     Ok(crate::scorecard::to_value(&card))
 }
 
-pub async fn run(args: ScorecardArgs, json_out: bool) -> Result<()> {
+pub async fn run(mut args: ScorecardArgs, json_out: bool) -> Result<()> {
+    if let Some(ScorecardCmd::Replay(r)) = args.cmd.take() {
+        return replay(r, json_out).await;
+    }
     let p = params(&args, crate::store::now_ms())?;
     let answer = match args.home.as_deref() {
         Some(home) => {
@@ -181,36 +293,23 @@ pub async fn run(args: ScorecardArgs, json_out: bool) -> Result<()> {
     } else {
         print!("{}", text(&args, &answer));
     }
+    if args.assert_no_churn {
+        no_churn(&answer)?;
+    }
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn params_name_the_range_and_the_steer_window() {
-        let args = ScorecardArgs {
-            since: Some("2d".into()),
-            by: "feature".into(),
-            steer_window: Some(30),
-            limit: 5,
-            home: None,
-        };
-        let p = params(&args, 10 * 86_400_000).unwrap();
-        assert_eq!(p["since"], 8 * 86_400_000u64);
-        assert_eq!(p["steerWindowS"], 30);
-        assert!(params(&ScorecardArgs { by: "colour".into(), ..args }, 0).is_err());
-    }
-
-    #[test]
-    fn text_says_when_no_feature_ran() {
-        let args = ScorecardArgs { by: "feature".into(), ..ScorecardArgs::default() };
-        let a = json!({"since": 1, "until": 2, "steerWindowS": 60,
-            "totals": {"turns": 3, "sessions": 1, "steeringRate": 0.5, "ttfu": {}, "firstModel": {}},
-            "byFeature": {}});
-        let t = text(&args, &a);
-        assert!(t.contains("every turn is the baseline"), "{t}");
-        assert!(t.contains("0.500"), "{t}");
+/// `--assert-no-churn`: an error naming the churn count when there was any.
+fn no_churn(answer: &Value) -> Result<()> {
+    match crate::scorecard::churn(answer) {
+        0 => Ok(()),
+        n => anyhow::bail!(
+            "cache alarm: {n} prefix churn(s) in the range ({}); RFD 0158 §1 holds the cached prefix fixed inside a session",
+            crate::scorecard::CHURN_COUNTERS.join(", ")
+        ),
     }
 }
+
+#[cfg(test)]
+#[path = "scorecard_tests.rs"]
+mod tests;

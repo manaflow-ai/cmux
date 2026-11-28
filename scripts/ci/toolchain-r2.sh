@@ -42,8 +42,50 @@ if [[ -z "${TOOLCHAIN_R2_URL+set}" && "${GITHUB_ACTIONS:-}" == true ]]; then
 fi
 namespace="${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}"
 say() { echo "toolchain-r2: $*"; }
+
+# bun answers "error: EACCES accessing temporary directory. set $BUN_TMPDIR or $BUN_INSTALL" when the system temp
+# dir is not writable to the runner user: 6 of 22 gallery-health shards of batch run 46058976708 (hetzner-1-14,
+# -1-21, -1-25, -2-16, -2-19, -2-23; 11-27 20:17Z) failed at their first bun install so, and the bisect's probes
+# chased those legs. Every bun step after this one gets a temp dir under the runner's own $RUNNER_TEMP, which it
+# owns, on every runner and before any early exit below (scripts/cmux-next/build-web-bundles.sh and
+# fast_gate_webviews_checks.py fixed it for themselves alone).
+bun_tmpdir() {
+  [[ -z "${BUN_TMPDIR:-}" && -n "${RUNNER_TEMP:-}" && -n "${GITHUB_ENV:-}" ]] || return 0
+  mkdir -p "$RUNNER_TEMP/bun-tmp" 2>/dev/null && [[ -w "$RUNNER_TEMP/bun-tmp" ]] || return 0
+  echo "BUN_TMPDIR=$RUNNER_TEMP/bun-tmp" >> "$GITHUB_ENV"
+  say "BUN_TMPDIR=$RUNNER_TEMP/bun-tmp for the job's bun steps"
+}
+
+[[ "$mode" != restore || "$kind" != bun ]] || bun_tmpdir
 scratch=()
 trap 'for d in ${scratch[@]+"${scratch[@]}"}; do rm -rf "$d"; done' EXIT
+
+# restore bun, on any runner (Macs too): the minis share ~/.bun between runner instances and other jobs leave
+# another bun there (cmux7s-mac-mini, 11-26 07:00Z: ~/.bun/bin/bun was 1.4.5), so setup-bun downloaded 1.4.4 from
+# github.com and failed the nightly on a 403 (run 45771452504). Keep each version seen at ~/.bun/bin/bun in a
+# version-keyed store and put the pinned one back first, so setup-bun downloads nothing.
+bun_store_dir="${TOOLCHAIN_BUN_STORE:-$HOME/.cache/cmux-toolchains/bun}"
+bun_store_keep() { # BIN: keep a copy of BIN under its own version
+  local b="$1" v
+  v="$("$b" --version 2>/dev/null)" || return 0
+  [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+  [[ -x "$bun_store_dir/$v/bun" ]] && return 0
+  mkdir -p "$bun_store_dir/$v" && cp "$b" "$bun_store_dir/$v/bun.tmp.$$" && mv -f "$bun_store_dir/$v/bun.tmp.$$" "$bun_store_dir/$v/bun" \
+    && say "kept bun $v in $bun_store_dir/$v" || true
+}
+if [[ "$mode" == restore && "$kind" == bun ]]; then
+  shared_bun="$HOME/.bun/bin/bun"
+  [[ -x "$shared_bun" ]] && bun_store_keep "$shared_bun"
+  if [[ -x "$shared_bun" && "$("$shared_bun" --version 2>/dev/null)" == "$version" ]]; then
+    say "bun $version is at $shared_bun"; exit 0
+  fi
+  if [[ -x "$bun_store_dir/$version/bun" && "$("$bun_store_dir/$version/bun" --version 2>/dev/null)" == "$version" ]]; then
+    mkdir -p "$(dirname "$shared_bun")"
+    if cp "$bun_store_dir/$version/bun" "$shared_bun.tmp.$$" && mv -f "$shared_bun.tmp.$$" "$shared_bun"; then
+      say "bun $version put back at $shared_bun from $bun_store_dir/$version (no download)"; exit 0
+    fi
+  fi
+fi
 
 if [[ "$mode" == restore ]]; then
   if [[ -z "$url" ]]; then say "no cache URL; nothing to restore"; exit 0; fi
@@ -158,7 +200,7 @@ PY
   chmod 755 "$work/out/bun"
   if [[ "$("$work/out/bun" --version 2>/dev/null)" != "$ver" ]]; then say "the copy of $name is not bun $ver; setup-bun downloads it"; return 0; fi
   mkdir -p "$(dirname "$bin")"
-  cp "$work/out/bun" "$bin.tmp.$$" && mv -f "$bin.tmp.$$" "$bin" && say "bun $ver restored to $bin"
+  cp "$work/out/bun" "$bin.tmp.$$" && mv -f "$bin.tmp.$$" "$bin" && say "bun $ver restored to $bin" && bun_store_keep "$bin"
 }
 
 restore_rust() {

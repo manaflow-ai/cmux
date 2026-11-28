@@ -96,7 +96,7 @@
 .acpmux-composer-context:has(> .acpmux-folder-choice) {
   flex-wrap: wrap;
 }
-.acpmux-composer-context:has(> .acpmux-folder-choice) > .acpmux-location-picker:last-child {
+.acpmux-composer-context:has(> .acpmux-folder-choice) > .acpmux-location-picker[data-kind="branch"] {
   order: 2;
 }
 .acpmux-composer-context > .acpmux-folder-choice {
@@ -114,13 +114,14 @@
    bounds a long host name. */
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child { flex-shrink: 100; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker[data-kind="computer"] { flex-shrink: 0; }
-/* The branch keeps its name: it shrinks only past half the strip. */
-.acpmux-composer-context > .acpmux-location-picker:last-child { flex: 0 0 auto; max-width: 50%; margin-left: auto; }
+/* The branch keeps its name: it shrinks only past half the strip. The chat composer draws it in its
+   bottom row instead (ComposerBranch, below), so this is New Tab's and the galleries' strip. */
+.acpmux-composer-context > .acpmux-location-picker[data-kind="branch"] { flex: 0 0 auto; max-width: 50%; margin-left: auto; }
 /* The folder and the branch cut only when the strip runs out of room (the rules above), never at
    the controls' fixed cap (190 px, 145 px in a narrow pane, below), which cut a long name beside
    empty strip. The computer keeps the cap. */
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:not([data-kind="computer"]) :is(.acpmux-location-button, .acpmux-location-readonly),
-.acpmux-composer-context > .acpmux-location-picker:last-child .acpmux-location-button { max-width: none; }
+.acpmux-composer-context > .acpmux-location-picker[data-kind="branch"] .acpmux-location-button { max-width: none; }
 .acpmux-location-picker {
   position: relative;
   display: inline-flex;
@@ -246,13 +247,13 @@
 }
 /* The same steps beside the branch (the context's last control, a plain picker with no rows). */
 @container acpmux-strip (width < 472px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="machines"] .acpmux-location-label { display: none; }
+  .acpmux-composer-context:has(> .acpmux-location-picker[data-kind="branch"]) .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="machines"] .acpmux-location-label { display: none; }
 }
 @container acpmux-strip (width < 416px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="machines"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
+  .acpmux-composer-context:has(> .acpmux-location-picker[data-kind="branch"]) .acpmux-location-leading:has(> [data-rows="machines"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
 }
 @container acpmux-strip (width < 314px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
+  .acpmux-composer-context:has(> .acpmux-location-picker[data-kind="branch"]) .acpmux-location-leading .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
 }
 /* At 340: the folder takes a short cap and cuts in the middle (its head takes the ellipsis, its
    last word stays; splitForMiddleTruncation never splits a character), so the branch keeps its
@@ -1832,6 +1833,14 @@
   --acpmux-shell-inset-bottom: calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop));
   --acpmux-shell-inset-left: var(--acpmux-composer-lead-gap);
 }
+/* A subagent's relay composer draws no + (Composer.tsx `useRelayProps`), so its text starts where +'s
+   glyph would: under the subagent's mark in the header over it, which is centred in +'s box. With
+   the plain lead gap the text stood on the box's edge. */
+.acpmux-composer[data-composer-relay] .acpmux-composer-box[data-composer-grid] {
+  --acpmux-composer-lead-gap: calc(
+    var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-glyph)) / 2
+  );
+}
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. Shell mode takes the band there, through
    the one inset it draws from, for this look too. */
@@ -1867,6 +1876,11 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover.acpmux-env-popover {
   max-width: min(calc(360 * var(--ui-px, 1px)), calc(100vw - 32px));
   max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
+}
+/* A list long enough to mount only the rows in view (EnvironmentPicker `windowed`): its rows no
+   longer size the popover, so it takes its widest size rather than the 200 px floor. */
+.acpmux-menu.acpmux-location-menu.acpmux-folder-popover.acpmux-env-popover.acpmux-env-windowed {
+  width: min(calc(360 * var(--ui-px, 1px)), calc(100vw - 32px));
 }
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
@@ -1948,7 +1962,7 @@
 }
 /* The cloud toggle (stripLayout cloud-toggle) stands at the strip's end, before the branch. */
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] { flex: none; margin-left: auto; }
-.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker:last-child { margin-left: var(--acpmux-location-gap, 4px); }
+.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker[data-kind="branch"] { margin-left: var(--acpmux-location-gap, 4px); }
 /* Its menu's question, as ChatGPT's "Where should this chat run?": one quiet line over the rows. */
 .acpmux-env-popover .acpmux-env-heading {
   padding: 4px calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding)) 4px;
@@ -2016,8 +2030,12 @@
   font-weight: inherit;
   line-height: 16px;
 }
-/* A machine's ⌥⌘ key, and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
-.acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count) {
+/* A machine's ⌥⌘ key (ui/KeyHint), and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
+.acpmux-env-row .acpmux-env-key {
+  flex: none;
+  margin-left: auto;
+}
+.acpmux-env-row .acpmux-env-count {
   flex: none;
   margin-left: auto;
   padding: 0;
@@ -2069,10 +2087,31 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
+/* The warning is the row's status, never the row: the machine's name keeps its room and a long
+   warning ("High load: 15/4 cores busy") shortens with an ellipsis instead of squeezing the name out. */
+.acpmux-env-row:has(> .acpmux-env-state[data-warning="true"]) > .acpmux-location-name { flex: 1 0 auto; max-width: 60%; }
+.acpmux-env-row .acpmux-env-state[data-warning="true"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* A machine list's Unavailable row (Leo, 2026-11-09: "drop retired and unreachable machines from the
    list, or group them at the bottom"): muted like the machines it holds, its chevron turning down
    while the group is open, as a Mac outline's disclosure does. */
 .acpmux-env-row.acpmux-env-unavailable { color: var(--agent-muted); }
+/* Cloud rows of the list kept from the last launch (EnvironmentPicker `lastSeenLook`): dimmed under
+   their "Last seen" caption (the row's data-section heading), or a notice with Retry over the list. */
+/* The row's children, not the row: its "Last seen" caption (a data-section heading) stays readable. */
+.acpmux-env-row[data-last-seen="dimmed-header"] > * { opacity: .55; }
+.acpmux-env-popover .acpmux-env-last-seen-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.acpmux-env-last-seen-text { flex: 1; min-width: 0; white-space: normal; line-height: 1.3; }
+.acpmux-env-last-seen-retry { flex: none; font-size: var(--text-caption); }
 .acpmux-env-unavailable-chevron { transition: transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out); }
 .acpmux-env-unavailable[data-expanded] .acpmux-env-unavailable-chevron { transform: rotate(90deg); }
 /* A new chat's extra folders (ExtraFolderList.tsx), under the folder menu's list: a quiet heading,
@@ -2212,6 +2251,20 @@
   margin-inline-start: auto;
 }
 
+/* The chat composer's branch, in the quiet row under the draft (ComposerBranch, Composer.tsx): the
+   row is bottom-anchored, so the branch holds still as the draft grows, as +, the mic and Send do
+   (ask-f87d5d43b4: "this still being at the top of the composer as it grows is the same issue").
+   It keeps the strip's chip and gives up width before the mode and model do. */
+.acpmux-composer-branch {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  flex-shrink: 100;
+}
+.acpmux-composer-branch > .acpmux-location-picker { min-width: 0; }
+.acpmux-composer-branch .acpmux-location-button { max-width: 100%; }
+
 .acpmux-folder-popover .acpmux-source-status {
   max-inline-size: 54%;
   text-align: end;
@@ -2241,3 +2294,7 @@
 .acpmux-env-popover .acpmux-env-back:hover { color: var(--agent-text); background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
 .acpmux-env-popover .acpmux-env-back-chevron { display: inline-flex; rotate: 180deg; }
 .acpmux-env-popover .acpmux-env-back-chevron:dir(rtl) { rotate: 0deg; }
+/* The agent machines' row while their list is open to the side: highlighted, as a Mac menu's open submenu row. */
+.acpmux-env-popover .acpmux-menu-item:has(> [data-action="agentMachines"][data-expanded]) {
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+}

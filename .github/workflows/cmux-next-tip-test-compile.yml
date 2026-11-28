@@ -40,7 +40,7 @@ on:
         type: string
         default: ""
       only:
-        description: "The one job id to run (a bisect probe): compile. Empty: every job."
+        description: "The one job id to run (a bisect probe): compile-fleet (the gateway admits a job id ending in -fleet from any workflow, so a workflow_call from cmux-next-post-merge.yml runs it; compile, the old id, still selects it). Empty: every job."
         type: string
         default: ""
   workflow_dispatch:
@@ -54,7 +54,9 @@ permissions: {}
 
 concurrency:
   # A batch run or bisect probe is keyed by its commit and job, so neither evicts the other's pending call.
-  group: cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 env:
@@ -75,7 +77,7 @@ jobs:
       base: ${{ steps.plan.outputs.base }}
     steps:
       - name: Checkout the pushed commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -124,12 +126,13 @@ jobs:
           echo "base=$base" >> "$GITHUB_OUTPUT"
           if [ -s "$RUNNER_TEMP/plan.txt" ]; then echo "needed=true"; else echo "needed=false"; fi >> "$GITHUB_OUTPUT"
 
-  compile:
+  compile-fleet:
     name: tip test-compile (fleet, background)
     needs: plan
-    if: ${{ (inputs.only == '' || inputs.only == 'compile') && (needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '')) }}
-    # One gateway runner at most (the concurrency group); its own label when set.
-    runs-on: ${{ vars.CI_TIP_TEST_COMPILE_GATEWAY || vars.CI_COMPILE_CHECK_GATEWAY }}
+    if: ${{ (inputs.only == '' || inputs.only == 'compile-fleet' || inputs.only == 'compile') && (needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '')) }}
+    # One gateway runner at most (the concurrency group). It only runs the fleet client and waits; the compile runs
+    # on a fleet Mac, so the gateway is Linux (tests/test_ci_gateway_jobs_on_linux.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
       actions: read
@@ -140,7 +143,7 @@ jobs:
       report: ${{ steps.compile.outputs.report }}
     steps:
       - name: Checkout the script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -150,6 +153,26 @@ jobs:
             scripts/ci/tip-test-compile.sh
             .gitmodules
           sparse-checkout-cone-mode: false
+
+      # The fleet client action comes from this workflow's own commit, not the commit under test: a bisect probe
+      # of a commit older than the action (#59069) otherwise fails before any suite runs, a red on every probe.
+      - name: Checkout the fleet client action (this workflow's commit)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 5
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .fleet-client-src
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            /.github/actions/fleet-client/
+            /.gitmodules
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.fleet-client-src/.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
 
       - name: Compile the planned test targets on a fleet Mac
         id: compile
@@ -170,9 +193,9 @@ jobs:
 
   report:
     name: tip test-compile report
-    needs: [plan, compile]
+    needs: [plan, compile-fleet]
     # Not in a bisect probe (inputs.only set): a probe of an older commit must not open or close the tip's issue.
-    if: ${{ !cancelled() && inputs.only == '' && needs.plan.outputs.needed == 'true' && needs.compile.result != 'skipped' }}
+    if: ${{ !cancelled() && inputs.only == '' && needs.plan.outputs.needed == 'true' && needs.compile-fleet.result != 'skipped' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       issues: write
@@ -183,8 +206,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          VERDICT: ${{ needs.compile.outputs.verdict || 'none' }}
-          REPORT: ${{ needs.compile.outputs.report }}
+          VERDICT: ${{ needs.compile-fleet.outputs.verdict || 'none' }}
+          REPORT: ${{ needs.compile-fleet.outputs.report }}
           BASE: ${{ needs.plan.outputs.base }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           HEAD_SHA: ${{ inputs.sha || github.sha }}

@@ -126,3 +126,7 @@ impl AdminClient {
         Ok(check(request.send().await?).await?.json().await?)
     }
 }
+
+#[cfg(test)]
+#[path = "admin_seeded_tests.rs"]
+mod seeded_tests;
