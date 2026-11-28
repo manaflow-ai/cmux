@@ -510,6 +510,7 @@ const vmWorkflowErrorTagRecord = {
   VmFirewallRuleLimitError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
+  VmCreateWaitingError: true,
   VmCreateFailedError: true,
   VmCreateDisabledError: true,
   VmAccountDeletionInProgressError: true,
