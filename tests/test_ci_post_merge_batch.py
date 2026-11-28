@@ -210,6 +210,31 @@ class PlanAndJudgeTest(unittest.TestCase):
         self.assertEqual(found, [])
         self.assertIn("known red", notes[0])
 
+    def test_a_red_on_other_steps_is_another_red(self) -> None:
+        # Run 46058976708 (11-27): web-typecheck red on `Install dependencies` after a batch that was red on `Typecheck`.
+        # They are two reds: the install red looks past the typecheck one to the green (one confirm probe, not a
+        # seven-probe bisect of a stuck red), and the typecheck red is still the typecheck red's own known red.
+        verdicts = {"web / check": ("web", "failure")}
+        runs = [run(3, "b" * 40, "2026-11-21T10:00:00Z"), run(2, "c" * 40, "2026-11-21T08:00:00Z"),
+                run(1, "d" * 40, "2026-11-21T06:00:00Z")]
+        older = {3: ({"web / check": ("web", "failure")}, True), 2: ({"web / check": ("web", "failure")}, True),
+                 1: ({"web / check": ("web", "success")}, True)}
+        typecheck = {"web / check": frozenset({"Typecheck"})}
+        install = {"web / check": frozenset({"Install dependencies"})}
+        steps = {3: typecheck, 2: typecheck, 1: {}}
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, install, steps.get)
+        self.assertEqual(found, [("web / check", "web", "d" * 40)])
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites,
+                                        steps=install, steps_of=steps.get), [])
+        found, notes = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, typecheck, steps.get)
+        self.assertEqual(found, [])
+        self.assertIn("known red", notes[0])
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites,
+                                        steps=typecheck, steps_of=steps.get), [("web / check", "web", "d" * 40, "c" * 40)])
+        # Unknown steps on either side keep the job-level reading.
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid], None, {}, steps.get)
+        self.assertEqual(found, [])
+
     def stuck_setup(self):
         verdicts = {"rust / test (linux, 1)": ("rust", "failure"), "rust / test (linux, 2)": ("rust", "failure")}
         runs = [run(3, "b" * 40, "2026-11-21T10:00:00Z"), run(2, "c" * 40, "2026-11-21T08:00:00Z"),
@@ -458,11 +483,12 @@ class WiringTest(unittest.TestCase):
             # sha and only always; a suite may take more of plan's outputs (gallery-health's base, cmux#57172).
             self.assertEqual({k: v for k, v in job["with"].items() if k in ("sha", "only")},
                              {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
-            # An expression input reads plan's output of its own name; a constant one (swift-acpmux-protocol's
-            # `check: acpmux`) is the callee's own setting and reads nothing.
             for k, v in job["with"].items():
-                if "${{" in str(v):
-                    self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
+                # A literal is the called workflow's own constant (swift-acpmux-protocol.yml's `check: acpmux`,
+                # #61885 folded several Swift checks into one workflow); an expression is plan's output of its name.
+                if isinstance(v, str) and "${{" not in v:
+                    continue
+                self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
             if key == "gallery-health":
                 self.assertEqual(job["with"]["base"], "${{ needs.plan.outputs.base }}")
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
@@ -580,6 +606,19 @@ class GuardTest(unittest.TestCase):
             raise RuntimeError("gh api: 403")
 
         self.assertIn("normal landing", pmb.hand_off("o/r", 12, "", api=refused))
+
+    def test_a_revert_owns_its_takeback_so_risk_evidence_passes(self) -> None:
+        # All 8 batch reverts and swap-outs of 11-22..27 went red on risk evidence ("takes back a recent change") and never merged.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("risk_tier", pmb.ROOT / "scripts" / "ci" / "risk_tier.py")
+        rt = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("risk_tier", rt)
+        spec.loader.exec_module(rt)
+        for piece in ("", "cmux-tui/crates/acpmux"):
+            body = "\n\n".join(["Reverts #57280.", *pmb.takes_back_line("57280", "web / Web tests 1/2", "feat-cmux-next", piece)])
+            self.assertEqual(rt.unowned_takebacks(body, [57280]), [])
+        self.assertEqual(pmb.takes_back_line("", "j", "b"), [])
+        self.assertEqual(rt.unowned_takebacks("Reverts #57280.", [57280]), [57280])
 
     def _conflict_api(self, tip_conclusion: str, comments=()):
         calls = []
