@@ -1002,6 +1002,21 @@ jobs:
         timeout-minutes: 1
         run: python3 tests/test_webviews_no_duplicate_import_names.py
 
+      # Leo, ask-5ad71ec59c: "Flag changes to user-visible defaults (like the banner, the Live button or Cmd+N)."
+      # A heads-up, never a red: the watched defaults a pull request changes become ::warning annotations at
+      # their file and line plus a step summary table. Not the blocking defaults guard #55271 deleted.
+      - name: Flag the user-visible defaults this change moves (warning only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          python3 tests/test_user_visible_defaults.py
+          if git rev-parse --verify -q HEAD^1 >/dev/null; then
+            python3 scripts/ci/user_visible_defaults.py --base HEAD^1 --head HEAD
+          else
+            echo "::warning title=user-visible defaults check skipped::no parent commit in this checkout"
+          fi
+
       - name: The defaults snapshot tests
         id: defaults-snapshot
         if: ${{ !cancelled() }}
