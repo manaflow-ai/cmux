@@ -308,14 +308,12 @@ impl Facts {
             "handoff_id": self.handoff_id, "harness_enable": self.harness_enable,
             "starts_local_session": self.starts_local_session, "free": self.free(),
         });
-        if let Some(origin) = self.redeemed_answer {
-            value["redeemed_answer"] = Value::String(
-                match origin {
-                    AnswerTicketOrigin::Click => "click",
-                    AnswerTicketOrigin::QuestionReturn => "question_return",
-                }
-                .into(),
-            );
+        if let (Some(origin), Some(object)) = (self.redeemed_answer, value.as_object_mut()) {
+            let origin = match origin {
+                AnswerTicketOrigin::Click => "click",
+                AnswerTicketOrigin::QuestionReturn => "question_return",
+            };
+            object.insert("redeemed_answer".into(), Value::String(origin.into()));
         }
         value
     }

@@ -1,4 +1,8 @@
 //! Refusal diagnostics and ticket facts must preserve the transport contract.
+#![allow(
+    clippy::indexing_slicing,
+    reason = "asserts read serde_json Values by key; a missing key reads as null and fails the assert"
+)]
 use cmux_agent_pane_policy::answers::{answers_rule_violation, breaks_answers_rule};
 use cmux_agent_pane_policy::ffi::checked_json;
 use cmux_agent_pane_policy::gesture::PermissionOptions;

@@ -1,4 +1,8 @@
 //! Contract tests for the optional Rust boundary, not proof of native host provenance.
+#![allow(
+    clippy::indexing_slicing,
+    reason = "asserts read serde_json Values by key; a missing key reads as null and fails the assert"
+)]
 use cmux_agent_pane_policy::check::{
     AnswerTicketOrigin, AnswerTicketRequest, AnswerTicketVerifier, GesturePick,
     check_frame_with_answer_tickets,
