@@ -31,6 +31,7 @@ mod composer_draft;
 mod composer_draft_tests;
 mod events;
 mod failure_copy;
+mod live_line;
 pub mod new_line;
 mod reconnect_wait;
 mod run;

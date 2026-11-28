@@ -321,10 +321,11 @@ impl Overlay {
                 let got = if key.1 == WHOLE {
                     self.whole(file).map(drop)
                 } else {
-                    self.chunk(file, key.1, size).map(drop)
+                    self.chunk(file, key.1).map(drop)
                 };
                 if let Err(errno) = got {
-                    failed = Some(errno);
+                    // A file re-listed under the pin is left for the next one.
+                    failed = Some(if errno == RETRY { EIO } else { errno });
                     break;
                 }
             }

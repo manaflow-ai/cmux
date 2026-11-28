@@ -1132,6 +1132,9 @@ one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
 default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
 linked worktree `git status` adds `worktree.main_root`, its main checkout.
+While a merge, rebase, cherry-pick or revert is stopped partway in the
+checkout, `git status` adds `in_progress` (`merge`, `rebase`, `cherry-pick` or
+`revert`), read from the checkout's own git directory with no extra run.
 `git fingerprint` (`git.fingerprint`, capability `git-fingerprint-v1`) prints
 64 hex digits that stay equal while the scope's `git diff` stays equal, for a
 view that asks often if its diff is still current. It runs no patch: the

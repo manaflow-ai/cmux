@@ -11127,6 +11127,19 @@
             "name": "GitStatusWorktree"
           },
           "description": "Present in a linked worktree (git worktree add, git.worktree.create); absent in the main checkout."
+        },
+        "in_progress": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "merge",
+              "rebase",
+              "cherry-pick",
+              "revert"
+            ]
+          },
+          "description": "The operation that stopped partway in this checkout and waits to be finished or aborted, read from its own git directory; absent otherwise. git.commit refuses merge_in_progress and git.worktree.apply refuses unmerged while it is set."
         }
       },
       "extra": false
@@ -16447,6 +16460,17 @@
             }
           },
           "description": "The pull request URLs it opened, oldest first."
+        },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The git branch of the chat's folder; null when acpmux does not know it."
         },
         "preview": {
           "required": false,

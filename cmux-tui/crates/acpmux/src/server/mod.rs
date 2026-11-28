@@ -107,6 +107,7 @@ mod goal;
 mod harness_admin;
 mod harness_enable;
 mod held_rows;
+mod history;
 pub(crate) mod host_notice;
 pub(crate) mod host_power;
 mod http_refusal;

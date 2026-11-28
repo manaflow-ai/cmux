@@ -1081,6 +1081,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/history/read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/surgery",
       "params": true,
       "result": true

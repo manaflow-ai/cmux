@@ -985,8 +985,9 @@ impl Hub {
             (gone, session.prompts.lock().unwrap_or_else(|e| e.into_inner()))
         });
         // Ahead of the prompts a failed turn holds: a prompt sent after the failure runs first.
-        // The person's prompt goes ahead of every agent message waiting too (`digest.rs`), behind
-        // the person's own and a prompt sent now.
+        // The person's prompt goes ahead of every prompt the person did not send too: another
+        // agent's message, an inbox notice or digest, a surge digest (`queue_origin::person_place`),
+        // behind the person's own and a prompt sent now.
         // An inbox digest goes behind the person's prompts, held ones too (`inbox_digest.rs`).
         // Another agent's message while a person's Stop holds them waits held, behind them
         // (`cancel.rs` `hold_agent_messages`); a digest then waits held in its place.
@@ -998,6 +999,11 @@ impl Hub {
             }
             Some(_) if stop_held => None,
             Some(_) => queue.iter().position(|q| q.held),
+            None if super::queue_origin::of(p.provenance, None)
+                == super::queue_origin::QueueOrigin::Person =>
+            {
+                super::queue_origin::person_place(&queue)
+            }
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };
         let at = at.unwrap_or(queue.len());

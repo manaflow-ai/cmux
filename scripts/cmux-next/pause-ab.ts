@@ -53,7 +53,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  Api, CHAT_START_SIZE, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, http,
+  Api, CHAT_START_SIZE, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, expiresAtMs, http,
   idleHeldBy, launchCredentialStartProgram, listAllMachines, oidcSignIn, passwordSignIn, readEnvFile, resolveBackend, sharedCleanup,
   type Exec,
 } from "./cloud-journey.ts";
@@ -301,10 +301,21 @@ export function parseWaitOutput(stdout: string): { code: string | undefined; tex
 
 /** The status `acp --json history` lists for the turn whose prompt starts with MARKER, or null. */
 export function historyTurnStatus(stdout: string, marker: string): string | null {
+  return historyTurn(stdout, marker)?.status ?? null;
+}
+
+/**
+ * The marker's turn in `acp --json history`: its status and, for a turn that ended badly, why
+ * (the row's `error` and `detail`, e.g. `outcome_unknown` after a daemon restart, `stalled`).
+ * Run 45869919450's turns read "acp wait exit 1; history lists the turn failed" with no reason.
+ */
+export function historyTurn(stdout: string, marker: string): { status: string; why: string } | null {
   try {
     const turns: any[] = JSON.parse(stdout.slice(stdout.indexOf("{"))).turns ?? [];
     const t = turns.find((x) => typeof x?.prompt === "string" && x.prompt.startsWith(marker));
-    return typeof t?.status === "string" ? t.status : null;
+    if (typeof t?.status !== "string") return null;
+    const why = [t.error, t.detail].filter((x) => typeof x === "string" && x.trim()).map((x: string) => x.trim().slice(0, 200)).join("; ");
+    return { status: t.status, why };
   } catch {
     return null;
   }
@@ -325,7 +336,7 @@ export function waitVerdict(a: { code: string | undefined; text: string; werr: s
   if (a.code === "0" && a.text) return hasNonce ? { kind: "reply" } : { kind: "fail", error: `reply lacks the stub nonce: ${a.text.slice(-160)}` };
   if (!a.code || a.code === "0" || a.code === "3") return { kind: "again" };
   const why = `acp wait exit ${a.code}${a.werr ? `: ${a.werr.slice(-200)}` : ""}`;
-  if (hasNonce && a.turnStatus && !TURN_UNFINISHED.has(a.turnStatus)) return { kind: "reply", note: `${why}; history lists the turn ${a.turnStatus}` };
+  if (hasNonce && a.turnStatus && !TURN_UNFINISHED.has(a.turnStatus.split(" ")[0])) return { kind: "reply", note: `${why}; history lists the turn ${a.turnStatus}` };
   if (a.waitFails < 3) return { kind: "retry" };
   return { kind: "fail", error: `${why}; turn ${a.turnStatus ?? "not listed"}; last: ${a.text.slice(-160)}` };
 }
@@ -355,6 +366,35 @@ export function pairTable(results: MachineResult[], arms: string[]): string {
     };
     return `| ${p} | ${ms[0]?.seed ?? "?"} | ${(ms[0]?.gaps_s ?? []).join(",")} | ${arms.map(cell).join(" | ")} |`;
   })].join("\n");
+}
+
+/** A session's end as ms since the epoch: an ISO time or epoch seconds/ms; a missing or "?" one reads as never. */
+export function sessionExpiresAt(v: string): number {
+  const n = Number(v);
+  if (v.trim() !== "" && Number.isFinite(n)) return expiresAtMs(n);
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? t : Infinity;
+}
+
+/** A JWT's exp claim as ms since the epoch; a token that is no JWT reads as never. */
+export function jwtExpiresAt(token: string): number {
+  try {
+    return expiresAtMs(Number(JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")).exp));
+  } catch {
+    return Infinity;
+  }
+}
+
+/**
+ * Signs this job in with a fresh GitHub OIDC token each call. Run 45926298791 signed in once and held that session
+ * past its end (~70 min in): every call after it got auth.unauthenticated 401, so the run's 20 deletes failed and
+ * its machines leaked. Set as the Api's remint, every call signs in again with under a minute left.
+ */
+export function oidcMint(apiOrigin: string, env: Record<string, string | undefined>, secrets: string[], fetchJson: typeof http = http): () => Promise<{ token: string; expiresAt: number }> {
+  return async () => {
+    const s = await oidcSignIn(apiOrigin, env, secrets, fetchJson);
+    return { token: s.token, expiresAt: sessionExpiresAt(s.expiresAt) };
+  };
 }
 
 /**
@@ -682,7 +722,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         let turnStatus: string | null = null;
         if (code && code !== "0" && code !== "3") {
           const h = await exec(`${GUEST}"$c" acp --json history ${shq(session)} --limit 5 2>&1`, 45_000).catch(() => null);
-          turnStatus = h ? historyTurnStatus(h.stdout, marker) : null;
+          const listed = h ? historyTurn(h.stdout, marker) : null;
+          turnStatus = listed ? (listed.why ? `${listed.status} (${listed.why})` : listed.status) : null;
         }
         const v = waitVerdict({ code, text, werr, turnStatus, nonce, waitFails });
         if (v.kind === "reply") {
@@ -762,13 +803,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
     api.bearer = await J.step("sign in (agent test account)", async () => {
       if (signIn === "oidc") {
-        const s = await oidcSignIn(backend.api, process.env, J.secrets);
+        const mint = oidcMint(backend.api, process.env, J.secrets);
+        const s = await mint();
+        api.expiresAt = s.expiresAt;
+        api.remint = mint;
         return { value: s.token, detail: "GitHub OIDC" };
       }
       if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
-      const s = await passwordSignIn(STACK[backend.stack], email, password);
-      J.secrets.push(s.access, s.refresh);
-      return { value: s.access, detail: "password" };
+      const mint = async () => {
+        const s = await passwordSignIn(STACK[backend.stack], email, password);
+        J.secrets.push(s.access, s.refresh);
+        return { token: s.access, expiresAt: jwtExpiresAt(s.access) };
+      };
+      const s = await mint();
+      api.expiresAt = s.expiresAt;
+      api.remint = mint;
+      return { value: s.token, detail: "password" };
     });
     await J.step("user.ensure", async () => ({ value: await api.op("user.ensure", {}, `pab-${tag}-ensure`), detail: "ok" }));
     {

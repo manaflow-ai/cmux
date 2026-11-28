@@ -48,14 +48,14 @@ impl Fetch for Disk {
 
 fn fuse_here() -> bool {
     Path::new("/dev/fuse").exists()
-        && std::process::Command::new("fusermount3")
+        && Command::new("fusermount3")
             .arg("--version")
             .output()
             .is_ok_and(|output| output.status.success())
 }
 
 fn sh(dir: &Path, args: &[&str]) -> String {
-    let out = std::process::Command::new("git")
+    let out = Command::new("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
@@ -272,7 +272,7 @@ fn mount_with_link(mac: &Path, duress: bool) -> Option<Projected> {
 /// What a reader checks: HEAD, the log, the staged file and the unpushed file.
 fn view(at: &Path) -> Result<String, String> {
     let run = |args: &[&str]| -> Result<String, String> {
-        let out = std::process::Command::new("git")
+        let out = Command::new("git")
             .args(["-c", "core.checkStat=minimal", "-c", "core.trustctime=false"])
             .args(args)
             .current_dir(at)
@@ -455,12 +455,12 @@ fn readers_through_swap(carry: bool) {
     let Some(p) = mount(&repo.mac) else { return };
     let expected = view(p.at.path()).unwrap();
     // A reader that started before the switch and keeps its pack open across it.
-    let mut batch = std::process::Command::new("git")
+    let mut batch = Command::new("git")
         .args(["cat-file", "--batch-check"])
         .current_dir(p.at.path())
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
         .spawn()
         .unwrap();
     let projected = p.at.path().join(".git");

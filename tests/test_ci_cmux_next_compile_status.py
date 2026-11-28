@@ -518,7 +518,9 @@ class Placement(unittest.TestCase):
                        "contains(needs.path_route.outputs.labels, ',full-ci,')",
                        "needs.path_route.outputs.mac_release == 'true'"):
             self.assertIn(needle, fallback)
-        self.assertEqual(job()["needs"], ["path_route", "push-head-preflight", "pure-checks-coalesce"])
+        # A PR head's compile-status waits for the Linux cargo tier and skips on a red one (#58899, note-cheap-gate).
+        self.assertEqual(job()["needs"], ["path_route", "push-head-preflight", "pure-checks-coalesce", "fast-tier-cargo"])
+        self.assertIn("needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped'", job()["if"])
         self.assertEqual(job()["outputs"]["handoff"], "${{ steps.wait.outputs.handoff }}")
         # The fallback's own conditions: release-compile runs for a push (when release-compile-fast has no verdict)
         # and for a full-ci or mac_release same-repository pull request.

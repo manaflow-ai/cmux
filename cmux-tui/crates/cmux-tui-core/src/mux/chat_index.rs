@@ -276,6 +276,7 @@ pub(crate) fn row(summary: &Value) -> Option<Value> {
         "updated_ms": ms(summary.get("updatedAt")),
         "created_ms": ms(summary.get("createdAt")),
         "pull_requests": pull_requests,
+        "branch": text(summary.get("gitBranch")),
         "preview": text(summary.get("preview")),
     }))
 }

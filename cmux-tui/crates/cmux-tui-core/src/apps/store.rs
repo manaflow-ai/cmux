@@ -689,11 +689,11 @@ impl Supervisor {
             .map(|(app, record)| {
                 let mut row = installed_app(app, record, inner.catalog.packages.get(app));
                 annotate(&inner, app, Some(&mut row.state));
+                switch(&switches, app, Some(&mut row.state));
                 row.state.update = updates.get(app).map(|update| AvailableUpdate {
                     version: update.version.clone(),
                     commit: update.commit.clone(),
                 });
-                switch(&switches, app, Some(&mut row.state));
                 row.instance = self.instance_json(app);
                 row
             })

@@ -16,12 +16,3 @@ extension MachineSectionRow {
         return menu
     }
 }
-
-extension JoinedMachine {
-    /// A joined machine's "…" menu: the registry's rows for it, run on its id with the row it opened
-    /// on (`rowID`, where Check records its result).
-    @MainActor public func menu(rowID: String, registry: ActionRegistry) -> NSMenu {
-        registry.makeContextMenu(for: .joinedMachine, target: ActionTargetRef(kind: .machine, id: id),
-                                 arguments: ["row": .string(rowID)])
-    }
-}

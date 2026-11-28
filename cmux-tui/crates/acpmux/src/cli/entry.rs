@@ -95,6 +95,11 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
+    // A listener keeper across a service-manager restart (`daemon/listener_keeper.rs`).
+    #[cfg(unix)]
+    if args.first().is_some_and(|a| a == crate::daemon::listener_keeper::HOLD_ARG) {
+        return crate::daemon::listener_keeper::main(args.get(1..).unwrap_or_default());
+    }
     // A bench's sized chat, written by this build's store (`god_fixture.rs`): no daemon, no CLI.
     if args.first().is_some_and(|a| a == crate::god_fixture::SEED_CHAT_ARG) {
         return crate::god_fixture::seed_chat_main(args.get(1..).unwrap_or_default());

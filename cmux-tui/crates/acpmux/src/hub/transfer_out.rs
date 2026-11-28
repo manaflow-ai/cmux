@@ -262,6 +262,8 @@ pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
+#[path = "compaction_outline.rs"]
+pub(super) mod compaction_outline;
 /// Where a move's begin token is kept, in its bundle folder.
 const BEGIN_TOKEN_FILE: &str = "begin-token";
 

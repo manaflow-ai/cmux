@@ -582,6 +582,11 @@ impl Hub {
                 None
             };
             let (rec, logged) = tap_hub.append_logged(&tap_session, d, &kind, value, host_seq);
+            // A compaction summary the log took: its turns' outline follows, off this path
+            // (`hub/compaction_outline.rs`).
+            if logged && d == "in" && kind == "compaction_summary" {
+                tap_hub.outline_compaction(&tap_session, rec.seq);
+            }
             // Only a logged update's sections count as logged: a retried write is compared with
             // what the log holds.
             if logged && let Some(repeats) = repeats {

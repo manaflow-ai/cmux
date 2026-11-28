@@ -14,6 +14,7 @@ fn cli() -> TaskCli {
         denied: "/h/chat's mcp.json.bg-denied".into(),
         key: "k1".to_owned(),
         run_vm: None,
+        slow: true,
     }
 }
 
@@ -148,6 +149,29 @@ fn a_wait_with_a_short_bound_is_a_read() {
     ] {
         assert_eq!(slow_reason(command).is_some(), command.contains(" wait "), "{command}");
     }
+}
+
+/// Off (cmux's default), a known-slow foreground command runs as asked, routed or not;
+/// a background shell is still moved to a daemon task.
+#[test]
+fn with_the_slow_switch_off_a_slow_foreground_command_runs_as_asked() {
+    let off = TaskCli { slow: false, ..cli() };
+    for command in ["cargo test -p acpmux", "glaeda-gh wait pr o/r#1", "tail -f log"] {
+        assert_eq!(decide(&foreground(command), None, &off), None, "{command}");
+        assert_eq!(decide(&foreground(command), Some(Route::Direct), &off), None, "{command}");
+    }
+    assert!(decide(&call(true), Some(Route::Direct), &off).is_some());
+}
+
+#[test]
+fn the_slow_switch_is_off_unless_the_setting_or_env_turns_it_on() {
+    assert!(!slow_foreground_in(&json!({})));
+    assert!(!slow_foreground_in(&json!({"agents": {"slowForeground": {"enabled": false}}})));
+    assert!(slow_foreground_in(&json!({"agents": {"slowForeground": {"enabled": true}}})));
+    assert!(slow_foreground_in(&json!({"agents.slowForeground.enabled": true})));
+    assert_eq!(switch_word(" On "), Some(true));
+    assert_eq!(switch_word("0"), Some(false));
+    assert_eq!(switch_word("maybe"), None);
 }
 
 #[test]

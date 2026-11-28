@@ -401,6 +401,8 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       // few frames' length drew 0 to 2 part-faded samples from run to run.
       expect(samples[from]!.work).toBeGreaterThan(0.5);
       expect(Math.max(...folding.map((sample) => sample.fadeMs))).toBeGreaterThanOrEqual(2 * (1000 / 60));
+      for (const sample of folding)
+        if (Math.abs(sample.prompt - before.prompt) > 0.5) expect(sample.work).toBeLessThan(0.05);
       expect(after.work).toBe(0);
       // The bottom stays pinned on every frame of the fold: the view stays at its end.
       for (const sample of folding) expect(sample.gap).toBeLessThanOrEqual(2);

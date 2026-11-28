@@ -21,8 +21,10 @@
 
 pub mod chrome_theme;
 pub mod effective;
+pub mod fields;
 pub mod home_table;
 pub mod jsonc;
+pub mod link_rules;
 pub mod looks;
 pub mod notifications;
 pub mod schema;
@@ -47,7 +49,9 @@ type AreaCall = fn(&str, &Value) -> Option<Result<Value, OpError>>;
 const AREAS: &[AreaCall] = &[
     chrome_theme::call,
     effective::call,
+    fields::call,
     home_table::call,
+    link_rules::call,
     looks::call,
     notifications::call,
     schema::call,

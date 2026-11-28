@@ -11,6 +11,49 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CompactionNote } from "../src/agent-session/acpmux/conversation/CompactionNote";
 import { compactTokens } from "../src/agent-session/acpmux/conversation/compactionNoteModel";
+import { compactionOf } from "../src/agent-session/acpmux/direct/sessionUpdates";
+import { setExperimentSwitches } from "../src/experiments/switches";
+
+test("the threshold insight needs opt-in and an observed automatic boundary", () => {
+  const draw = (fields: Record<string, unknown> = {}) => {
+    const compaction = compactionOf({
+      state: "completed",
+      trigger: "auto",
+      preTokens: 386_000,
+      ...fields,
+    })!;
+    return renderToStaticMarkup(createElement(CompactionNote, { compaction }));
+  };
+  const message = "autoCompactWindow";
+  try {
+    setExperimentSwitches({});
+    expect(draw()).not.toContain(message);
+    setExperimentSwitches({ compactionThresholdInsight: true });
+    expect(draw()).toContain(message);
+    expect(draw()).toContain("386k");
+    const withSizes = draw({ postTokens: 24_000 });
+    expect(withSizes).toContain(message);
+    expect(withSizes).toContain("24k");
+    expect(withSizes.match(/386k/g)).toHaveLength(1);
+    for (const fields of [
+      { trigger: "manual" },
+      { trigger: undefined },
+      { reason: "cache_expiry" },
+      { state: "running" },
+      { state: "failed" },
+      { preTokens: undefined },
+      { preTokens: -1 },
+      { preTokens: 1.5 },
+      { preTokens: 0 },
+    ]) {
+      expect(draw(fields)).not.toContain(message);
+    }
+    setExperimentSwitches({ compactionThresholdInsight: false });
+    expect(draw()).not.toContain(message);
+  } finally {
+    setExperimentSwitches({});
+  }
+});
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const START = Date.UTC(2026, 9, 18, 9, 0, 0);
@@ -160,7 +203,7 @@ test("a compaction is one row: running, then how it ended", async () => {
     ),
   );
   expect(compactions().map((row) => [row.id, row.compaction])).toEqual([
-    [id, { state: "completed", reason: "account_switch", preTokens: 27183, postTokens: 2047 }],
+    [id, { state: "completed", trigger: "manual", reason: "account_switch", preTokens: 27183, postTokens: 2047 }],
   ]);
   expect(rows().some((row) => (row.text ?? "").includes("PLUM-42"))).toBe(false);
 
@@ -1269,7 +1312,7 @@ test("a compaction's repeated running updates stay its one row", async () => {
       7,
     ),
   );
-  expect(compactions()).toEqual([[3, { state: "completed", preTokens: 352235, postTokens: 24315 }]]);
+  expect(compactions()).toEqual([[3, { state: "completed", trigger: "auto", preTokens: 352235, postTokens: 24315 }]]);
 });
 
 // The same chat later: sr2 started an account-switch compaction between turns, the next prompt's

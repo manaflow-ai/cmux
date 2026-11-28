@@ -45,6 +45,7 @@
   "experiments.chatInstantUnderLoad": {"case": "keep", "why": "A perf experiment (chat-instant-under-load design, the idle lane): off until it shows a gain under the typing bench; off keeps today's chat list timing."},
   "experiments.agentBadgesBeam": {"case": "keep", "why": "Agent Badges' variant (a light along a running row's edge), off until Leo rates it; no effect while Agent Badges is off."},
   "experiments.terminalAgentMark": {"case": "keep", "why": "A taste experiment (Leo 2026-11-24, cmux#53018): terminal agents' marks on a rounded square, off until Leo rates it; the bare mark stays the default."},
+  "experiments.compactionThresholdInsight": {"case": "keep", "why": "Opt-in usage insight for observed automatic compaction sizes in the transcript."},
   "experiments.chatWidgets": {"case": "keep", "why": "Extension chat widgets (cards an installed extension draws under a finished tool call), off by default; Leo named no default, so the chat stays as it was until the person turns it on."},
   "experiments.appsTier": {"case": "keep", "why": "A design experiment (RFD 0003 Apps tier), off until Leo rates it; off keeps today's browser pane and sidebar."},
   "experiments.expandedEditsEstimate": {"case": "keep", "why": "The expanded edits group estimate, off by default under Leo's UI merge hold (2026-11-24, ask-82b08b7ed7); off keeps the old estimate until the person turns it on."},

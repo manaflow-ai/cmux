@@ -304,8 +304,8 @@ def row_composer(ctx: Ctx) -> dict:
             "composer_list_ok": listed.get("ok"), "mentions_ok": mentions.get("ok")}
 
 
-def row_chat_widget(ctx: Ctx) -> dict:
-    """Chat-widget routing (#43030, the daemon op only; the transcript does not draw it yet): a tool call whose
+def row_chat_widget_routes(ctx: Ctx) -> dict:
+    """Chat-widget routing (#43030): a tool call whose
     name matches a `cmux.chat.widget/1` app routes to it (`apps.chat_widgets.route`); another does not."""
     install = install_customize(ctx, {
         "name": "Rows chat widget", "description": "A card for rowsprobe tools.", "runtime": {"main": "main.js"},
@@ -325,6 +325,19 @@ def row_chat_widget(ctx: Ctx) -> dict:
                        and widget(other) is None,
                        "app_route_answers": (widget(by_app) or {}).get("app") == CUSTOMIZE_APP},
             "install": install, "route_tool": tool, "route_other": other, "route_app": by_app}
+
+
+def row_chat_widget(ctx: Ctx) -> dict:
+    """Require both routing and a completed tool's widget drawn in the NIGHTLY copy."""
+    routing = row_chat_widget_routes(ctx)
+    fixture = load("ext_rows_chat_widget", ROOT / "scripts/measure/ext-rows-chat-widget.py")
+    drawing = fixture.row_chat_widget_drawn(ctx, sys.modules[__name__])
+    return {"checks": {**{f"route_{key}": value for key, value in routing["checks"].items()},
+                       **drawing["checks"], "drawing_checks_present": bool(drawing["checks"])},
+            "routing": routing, "drawing": drawing}
+
+
+row_chat_widget.needs_app = True
 
 
 def row_newtab(ctx: Ctx) -> dict:
@@ -1309,7 +1322,7 @@ ROWS = {
     "activation": (row_activation, "#43018"),
     "opener": (row_opener, "#43007"),
     "composer": (row_composer, "#43032 #49239"),
-    "chat_widget": (row_chat_widget, "#43030"),
+    "chat_widget": (row_chat_widget, "#43030 #43040"),
     "background_events": (row_background_events, "#43018 #49223"),
     "status": (row_status, "#47317"),
     "menus": (row_menus, "#43006"),

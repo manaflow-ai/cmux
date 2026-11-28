@@ -190,6 +190,17 @@ impl Track {
             self.keep_max("daemonSwapKib", s as f64);
             point.insert("daemonSwapKib".into(), json!(s));
         }
+        // The daemon's own heap against its mapped files, resident and swapped: what of it is
+        // past the ceiling (`RssAnon` + `VmSwap` is its anonymous working set).
+        for (key, field) in [("daemonRssAnonKib", "RssAnon"), ("daemonRssFileKib", "RssFile")] {
+            if let Some(v) = status_kib(pid, field) {
+                self.keep_max(key, v as f64);
+                point.insert(key.into(), json!(v));
+            }
+        }
+        if let (Some(a), Some(s)) = (status_kib(pid, "RssAnon"), status_kib(pid, "VmSwap")) {
+            self.keep_max("daemonAnonPlusSwapKib", (a + s) as f64);
+        }
         let wait = starved::runqueue_wait_ns(pid);
         let now = Instant::now();
         if let Some((t0, w0)) = self.last_wait {

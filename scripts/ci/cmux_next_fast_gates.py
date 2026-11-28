@@ -229,13 +229,13 @@ def deep_enough(repo: Path, head: str, base: str) -> bool:
 
 def deepen_fetch(repo: Path, remote: str, how: str, wants: list[str]) -> None:
     """One deepen fetch, commits only; when the server's pack-objects aborts on it, the same fetch with blob:none."""
-    result = git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, how, remote, *wants, check=False)
+    result = git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, "--refmap=", how, remote, *wants, check=False)
     if result.returncode == 0:
         return
     if "pack-objects" not in result.stderr:
         raise SystemExit(f"fast-gates: git fetch {DEEPEN_FILTER} {how} failed: {result.stderr.strip()}")
     log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in the server's pack-objects; again with {DEEPEN_FALLBACK_FILTER}")
-    git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FALLBACK_FILTER, how, remote, *wants)
+    git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FALLBACK_FILTER, "--refmap=", how, remote, *wants)
 
 
 def unshallow_from_alternates(repo: Path, head: str, base: str) -> bool:
