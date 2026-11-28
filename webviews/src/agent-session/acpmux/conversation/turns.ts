@@ -1911,10 +1911,14 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
   // the agent read the steer its next words start a row under it (direct.ts `steer_read`), so an
   // answer already under the steer leaves the words over it in place: those were written before the
   // read (Leo, 2026-11-17: "the message you sent after my steer... shot up. instead of landing after
-  // my steer prompt"; carriedSteerOrder.test.ts).
+  // my steer prompt"; carriedSteerOrder.test.ts). Words under the steer that pick up mid-line (they
+  // open on a space) are not a new reply but the rest of the one over it, which acpmux cut at the
+  // steer: that reply is the answer, and both halves move under the steer (chat-sim late-steer).
+  const firstSaidAfter = rows.slice(late + 1, end).find(isOwnText);
+  const continuesOver = /^\s/.test(firstSaidAfter?.text ?? "");
   let from = late;
   // ends: from walks back to the first row or the preceding change of author
-  if (answerIndex < late) while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
+  if (answerIndex < late || continuesOver) while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
   const region = rows.slice(from, end);
   const steers = region.filter(isLateSteer);
   const said = region.filter(isOwnText);
