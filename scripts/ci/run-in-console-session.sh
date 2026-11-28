@@ -298,6 +298,34 @@ fi
 if [ -z "$console_user" ] || [ "$console_user" = "root" ] \
   || [ "$console_user" = "loginwindow" ]; then
   echo "::warning::No logged-in console user on this runner; running in the current bootstrap. GUI XCTest requires an active console login." >&2
+  # A GUI test command is not exec'd: when it fails here its failures are this
+  # runner's, not the code's (no testmanagerd control service outside a console
+  # session), and ci-failure-attribution reads that only from a failure
+  # annotation (#15395). The GUI test command is the app-host runner, read as
+  # the command itself past env, its NAME=value words and a bash/sh launcher
+  # with its options; -c runs a command string, which never counts.
+  # Every other command (cleanup, the CLI tests' direct xcodebuild) keeps its
+  # plain exit code, and a GUI command that passes stays silent past the warning.
+  gui_test_command=0
+  for command_arg in "$@"; do
+    case "$command_arg" in
+      --*) continue ;;
+      -*c*) break ;;
+      env|*/env|*=*|bash|*/bash|sh|*/sh|-*) continue ;;
+      */run-app-host-xcodebuild.sh|run-app-host-xcodebuild.sh) gui_test_command=1 ;;
+    esac
+    break
+  done
+  if [ "$gui_test_command" = "1" ]; then
+    status=0
+    "$@" || status=$?
+    if [ "$status" -ne 0 ]; then
+      # On a line of its own even if the command's last output had no newline.
+      echo >&2
+      echo "::error::No logged-in console user on this runner, and the GUI test command run in the current bootstrap exited $status; GUI XCTest cannot pass without a console login." >&2
+    fi
+    exit "$status"
+  fi
 else
   current_uid="$(id -u 2>/dev/null || true)"
   session_manager="$(launchctl managername 2>/dev/null || true)"
