@@ -42,11 +42,11 @@ enum CloudHandlers {
         registry.bindUnavailable(registry.unboundActionIDs(in: [.cloud]), ActionFailure(message: MiscHandlerStrings.cloud))
     }
 
-    /// Binds `id` with an availability reason and a throwing body.
+    /// Binds `id` with an availability reason and a throwing body; a thrown `not_found` stays one.
     static func bind(_ id: ActionID, _ registry: ActionRegistry, reason: @escaping @MainActor () -> String?,
                      _ body: @escaping @MainActor (ActionInvocation) throws -> Void) {
         registry.bind(id, unavailable: reason, invoke: { [weak registry] invocation in
-            do { try body(invocation) } catch { registry?.refuse(RefusalStrings.describe(error)) }
+            do { try body(invocation) } catch { registry?.refuse(thrown: error) }
         })
     }
 

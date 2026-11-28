@@ -353,6 +353,7 @@ appearance.wallpaperLighting
 appearance.wallpaperTint
 browser.agentMouse.maxMoveMs
 browser.agentMouse.motion
+browser.agents.openSignedOut
 browser.builtInAdBlocker
 browser.customSearchEngine.search
 browser.customSearchEngine.suggest
@@ -533,6 +534,7 @@ experiments.attachmentTypeIcons
 experiments.browserProfileCard
 experiments.chatInstantUnderLoad
 experiments.chatWidgets
+experiments.chat_render_pipeline
 experiments.cloudDiskBar
 experiments.cloudToggle
 experiments.compactionThresholdInsight
@@ -542,6 +544,7 @@ experiments.composerHatGroups
 experiments.composerV2
 experiments.eventsAsToolCalls
 experiments.expandedEditsEstimate
+experiments.feed
 experiments.foldSummaryCounts
 experiments.forum
 experiments.forumCallCard
@@ -671,6 +674,7 @@ markdown.theme
 media.pictureInPicture.enabled
 mobile.allowIPhoneConnections
 mobile.autoApprovePhones
+mobile.siteDataHandoff
 mobile.terminalSizing
 mobile.terminalSizingOrder
 models.spreadUsage

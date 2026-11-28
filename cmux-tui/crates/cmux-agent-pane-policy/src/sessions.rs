@@ -28,7 +28,7 @@ pub const HANDOFF_RECORDS: [&str; 4] = [
     "_acpmux/handoff_start",
 ];
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct State {
     sessions: BTreeSet<String>,
     /// Raw ids of the starting requests waiting for their reply.
@@ -51,6 +51,12 @@ pub struct PaneSessions {
 impl PaneSessions {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// An independent view of the scope at one point in time. Replies and
+    /// sends after this call update only the source, never this snapshot.
+    pub fn snapshot(&self) -> Self {
+        Self { state: Mutex::new(self.lock().clone()) }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {

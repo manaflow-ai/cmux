@@ -398,11 +398,12 @@ import json, sys
 sys.path.insert(0, "scripts/cmux-next")
 try:
     import split_scale_metrics as ssm
-    rows = json.load(open(sys.argv[1])).get("row_table")
+    report = json.load(open(sys.argv[1]))
+    rows, base_sha = report.get("row_table"), report.get("baseline_sha")
 except Exception:
-    rows = None
+    rows = base_sha = None
 if rows:
     print("\n## Split table (report-only)\n")
-    print(ssm.row_table_markdown(rows))
+    print(ssm.row_table_markdown(rows, base_sha=base_sha))
 PY
 exit "$status"

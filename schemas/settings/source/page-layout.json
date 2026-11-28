@@ -329,7 +329,7 @@
             ]},
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-              "agentPane.display.vscodeMinimap", "agentPane.display.chatListStatusPills", "agentPane.display.trayTucked",
+              "experiments.chat_render_pipeline", "agentPane.display.vscodeMinimap", "agentPane.display.chatListStatusPills", "agentPane.display.trayTucked",
               "agentPane.display.trayHandle", "agentPane.display.headerBreadcrumb", "agentPane.display.subagentOf",
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control",

@@ -9,7 +9,6 @@
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
     "CmuxChiefList": "Packages/Shared/CmuxChiefList",
     "CmuxEgress": "Packages/Shared/CmuxEgress",
-    "CmuxFeedPushCore": "Packages/Shared/CmuxFeedPushCore",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
@@ -399,6 +398,7 @@
         "CmuxNextKeys",
         "CmuxNextLaunchImages",
         "CmuxNextLayout",
+        "CmuxNextLinkOrder",
         "CmuxNextLiveCode",
         "CmuxNextMacScreen",
         "CmuxNextMallocZone",
@@ -451,7 +451,6 @@
         "CmuxAgentQuestion",
         "CmuxAppAttest",
         "CmuxEgress",
-        "CmuxFeedPushCore",
         "CmuxHomeCore",
         "CmuxHomeRender",
         "CmuxVisibleRows"
@@ -750,6 +749,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserAutomation",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextWakeups"
@@ -1411,6 +1411,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
@@ -1844,6 +1845,12 @@
       ],
       "packages": []
     },
+    "CmuxNextLinkOrder": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLinkOrder",
+      "targets": [],
+      "packages": []
+    },
     "CmuxNextLiveCode": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode",
@@ -2101,6 +2108,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
@@ -2110,6 +2118,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
@@ -2743,6 +2752,17 @@
         "CmuxNextWorkspaceRepair"
       ],
       "packages": [],
+      "reads": []
+    },
+    "CmuxScreenKitTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxScreenKitTests",
+      "targets": [
+        "CCmuxAppFFI"
+      ],
+      "packages": [
+        "CmuxScreenKit"
+      ],
       "reads": []
     },
     "DaemonCapabilitiesPlugin": {
