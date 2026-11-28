@@ -1,5 +1,6 @@
 import type { InspectorHistory } from "./InspectorTiming";
 import type { BrowserWorkspaces } from "./browser/workspaces";
+import { noteWireFrame } from "./hiddenRebuild";
 import {
   browserDeviceError,
   browserDeviceIsCurrent,
@@ -4284,6 +4285,8 @@ export class AcpmuxDirectClient {
 
   private receive(raw: string, stale = false, deltas?: ChatDeltas): void {
     if (!stale) this.daemonLastFrameAt = Date.now();
+    // HIDDEN-REBUILD: how much this document grew (hiddenRebuild.ts).
+    noteWireFrame();
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
     // Parsed once: the wire log takes the parsed frame.
     const parsed = parseJsonObjectFrame(raw);
@@ -16916,10 +16919,18 @@ export class AcpmuxDirectClient {
         if (result?.sessionId) this.takeBackFork(String(result.sessionId));
         return undefined;
       }
-      if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
+      if (!result?.sessionId) return undefined;
+      // A fork for its own tab names its source itself (`sessionId`), so the page reselecting
+      // meanwhile (a tab rebound, a fallback) changes nothing about where it opens: it still opens.
       if (stay) {
         this.handOverForkTail(sessionId, result);
         return String(result.sessionId);
+      }
+      // A fork that would open in this pane after the reader opened another chat opens nowhere:
+      // acpmux made it all the same, so it is taken back, never left as a chat nobody opened.
+      if (generation !== this.selectionGeneration) {
+        this.takeBackFork(String(result.sessionId));
+        return undefined;
       }
       return await this.select(String(result.sessionId));
     } catch (error) {
