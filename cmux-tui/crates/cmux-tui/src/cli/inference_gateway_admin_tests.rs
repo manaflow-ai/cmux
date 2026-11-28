@@ -217,3 +217,34 @@ fn the_named_api_passes_the_gate() {
     assert!(cmux_egress::check(host, "test").is_ok());
     assert!(cmux_egress::check("unrelated-api-gateway-admin-test.org", "test").is_err());
 }
+
+/// `inference gateway mode` sends the cmux token only as the bearer and the team only as `x-cmux-team`; the
+/// machine id rides in the body, which carries neither.
+#[tokio::test]
+async fn seeded_token_and_team_ride_only_in_their_headers() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDgatewayAdminBearer-c41e";
+    let team = "SEEDgatewayAdminTeam-0b7a";
+    let common = Common {
+        api: Some(cmux_cloud_environment::PRODUCTION_API.to_owned()),
+        team: Some(team.to_owned()),
+        token: TokenSource::Command(format!("printf %s {token}")),
+    };
+    let verb = Verb::Mode {
+        personal: false,
+        mode: "gateway".into(),
+        machine: Some(Some("vm_abcdefghij0123456789".into())),
+    };
+    let _ = run(&common, &verb).await;
+    let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+    assert!(
+        sent.iter().any(|r| r.method == "PUT" && r.target == "/v1/cloud/inference-gateway"),
+        "{sent:?}"
+    );
+    for (secret, place) in [(token, ": header authorization"), (team, ": header x-cmux-team")] {
+        let places = cmux_egress::capture::leaks(secret);
+        assert!(!places.is_empty(), "{secret}: {sent:?}");
+        assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
+    }
+}

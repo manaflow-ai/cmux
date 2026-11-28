@@ -279,3 +279,30 @@ fn the_named_api_passes_the_gate() {
     assert!(cmux_egress::check(host, "test").is_ok());
     assert!(cmux_egress::check("unrelated-api-inference-setup-test.org", "test").is_err());
 }
+
+/// `inference setup --path gateway` asks the cmux API with the token only as the bearer and the team only as
+/// `x-cmux-team`.
+#[tokio::test]
+async fn seeded_token_and_team_ride_only_in_their_headers() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDinferenceSetupBearer-7d20";
+    let team = "SEEDinferenceSetupTeam-e9a4";
+    let options = Options {
+        api: cmux_cloud_environment::PRODUCTION_API.to_owned(),
+        team: Some(team.to_owned()),
+        machine: "vm_abcdefghij0123456789".into(),
+        path: PathChoice::Gateway,
+        token: TokenSource::Command(format!("printf %s {token}")),
+        gateway: None,
+    };
+    // The capture server's `{}` is no gateway, so setup stops after its one ask.
+    assert!(setup(&options).await.is_err());
+    let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+    assert!(sent.iter().any(|r| r.target == "/v1/cloud/inference-gateway"), "{sent:?}");
+    for (secret, place) in [(token, ": header authorization"), (team, ": header x-cmux-team")] {
+        let places = cmux_egress::capture::leaks(secret);
+        assert!(!places.is_empty(), "{secret}: {sent:?}");
+        assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
+    }
+}
