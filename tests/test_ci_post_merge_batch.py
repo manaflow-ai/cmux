@@ -578,6 +578,19 @@ class GuardTest(unittest.TestCase):
 
         self.assertIn("normal landing", pmb.hand_off("o/r", 12, "", api=refused))
 
+    def test_a_revert_owns_its_takeback_so_risk_evidence_passes(self) -> None:
+        # All 8 batch reverts and swap-outs of 11-22..27 went red on risk evidence ("takes back a recent change") and never merged.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("risk_tier", pmb.ROOT / "scripts" / "ci" / "risk_tier.py")
+        rt = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("risk_tier", rt)
+        spec.loader.exec_module(rt)
+        for piece in ("", "cmux-tui/crates/acpmux"):
+            body = "\n\n".join(["Reverts #57280.", *pmb.takes_back_line("57280", "web / Web tests 1/2", "feat-cmux-next", piece)])
+            self.assertEqual(rt.unowned_takebacks(body, [57280]), [])
+        self.assertEqual(pmb.takes_back_line("", "j", "b"), [])
+        self.assertEqual(rt.unowned_takebacks("Reverts #57280.", [57280]), [57280])
+
     def _conflict_api(self, tip_conclusion: str, comments=()):
         calls = []
         job = "web / Web tests 1/2"
