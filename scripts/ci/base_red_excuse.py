@@ -2137,6 +2137,7 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict, *, _dept
     # The workflow job named like JOB, and every job whose name is not read (an expression may render as JOB's): each
     # that fits the jobs API's steps must give the same marks, so only one way of reading the steps is possible.
     named, rendered, unread = [], [], []
+    ids = {id(spec): str(job_id) for job_id, spec in jobs.items()}
     for job_id, spec in jobs.items():
         if not isinstance(spec, dict):
             return STEP_NAMES_UNKNOWN
@@ -2165,7 +2166,8 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict, *, _dept
     # cmux#43014's 'Reviewer path (appstore, ipad)' (ios-review-gate.yml, matrix family) was refused because its
     # composite setup-cmux-tui-rust step printed three inner `Run` lines and no header was known to place them.
     if len(named) == 1 and "uses" in named[0]:
-        return _called_step_names(repo, job, path, named[0], unread, names, github, seen, _depth)
+        return _called_step_names(repo, job, path, named[0], unread, names, github, seen, _depth,
+                                  caller_id=ids.get(id(named[0])))
     if len(named) != 1:
         return STEP_NAMES_UNKNOWN
     marks = _step_marks(named[0].get("steps"), names)
@@ -2195,7 +2197,8 @@ CALLED_WORKFLOW_DEPTH = 4
 
 
 def _called_step_names(repo: str, job: dict, path: str, caller: dict, unread: list, names: list, github,
-                       seen: dict, depth: int = 0) -> dict[int, bool] | StepNamesUnknown:
+                       seen: dict, depth: int = 0, *, caller_id: str | None = None
+                       ) -> dict[int, bool] | StepNamesUnknown:
     """workflow_step_names for JOB, named '<CALLER's name> / <its job>' because CALLER (the one job of PATH named
     like JOB) calls a local workflow: the called workflow's job of that inner name, read the same way at the same
     head_sha. Only a fixed local call (`./.github/workflows/X.yml`, no `@ref`, no matrix) is followed, at most
@@ -2204,9 +2207,16 @@ def _called_step_names(repo: str, job: dict, path: str, caller: dict, unread: li
     (pr-router.yml's pr-pipeline job calling pr-pipeline.yml, run 46108532940) failed only in its step table, the base
     red of test_ci_daemon_pr_member_steps, and was refused with "does not map one to one onto its steps": five
     upload-artifact steps that share a second were placeable only by their workflow's headers, which a caller job
-    never gave (a called workflow's job was always STEP_NAMES_UNKNOWN)."""
+    never gave (a called workflow's job was always STEP_NAMES_UNKNOWN).
+
+    A CALLER with no `name:` is named by its id (CALLER_ID), as Actions names it and _check_matcher reads it.
+    2026-11-28: cmux-next-post-merge.yml's `rust-workspaces:` job has none, so its 'rust-workspaces / plan (changed
+    Cargo workspaces)' (feat-cmux-next run 46113542594, job 140884231693) was STEP_NAMES_UNKNOWN, its log unplaced
+    (two headers in one second), and cmux#64053's red of the same base duplicate was refused: "its red base verdict's
+    log does not map one to one onto its steps"."""
     called = caller.get("uses")
-    prefix = f"{caller.get('name')} / " if isinstance(caller.get("name"), str) else None
+    own = caller.get("name", caller_id)
+    prefix = f"{own} / " if isinstance(own, str) else None
     name = job.get("name")
     if (depth >= CALLED_WORKFLOW_DEPTH or not isinstance(called, str) or prefix is None
             or not re.fullmatch(r"\./\.github/workflows/[\w.-]+\.ya?ml", called)

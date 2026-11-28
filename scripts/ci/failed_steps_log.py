@@ -180,8 +180,6 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
     starts = _one_to_one_starts(steps, lines, texts, windows, step_names)
     if starts is None:
         starts = _aligned_starts(steps, lines, texts, windows, step_names)
-    if starts is None:
-        starts = _same_second_starts(steps, lines, texts, windows, step_names)
     if not starts:  # None, or [] (a job of only "Set up job" and "Complete job": no header to place a section by)
         return unknown
     # Each section opens at its header's lead (_lead): the runner's download lines before a header are the opened step's,
@@ -251,57 +249,6 @@ def _one_to_one_starts(steps: list[dict], lines: list[str], texts: list[str], wi
             return None
         # The windows holding AT: those opened at or before it less those closed at or before it.
         if bisect.bisect_right(opened, at) - bisect.bisect_right(closed, at) != 1:
-            return None
-    return starts
-
-
-def _same_second_starts(steps: list[dict], lines: list[str], texts: list[str], windows: list, step_names
-                        ) -> list[int] | None:
-    """step_owners' third reading, for a log with exactly one STEP_START line per printing step whose headers share a
-    second with the step before or after (the jobs API keeps whole seconds), so _one_to_one_starts cannot tell which
-    step each is in, and whose workflow headers are not all known (a self-hosted runner's "Set up runner" and
-    "Complete runner" job hooks are no workflow step), so _aligned_starts does not run. cmux#64053's "plan (changed
-    Cargo workspaces)" (run 46113401818, job 140881736364): "CI tier of this head" ran 05:43:51-52 and "Every Cargo
-    workspace is listed" 05:43:52-53, the latter's header was stamped 05:43:52.078 inside both, and its one
-    `##[error]...is listed more than once` line was AMBIGUOUS, so land-judge refused the red as "does not map one to one
-    onto its steps" though only that step failed.
-
-    The K-th header is the K-th printing step's when every one of: it fits its step's name as in _one_to_one_starts;
-    its stamp is in that step's times; every other stamped line of its section, up to the next header, is in that
-    step's times too (the last section: through "Complete job"'s), but the runner's own RUNNER_HOOK_NOTICE and
-    RUNNER_PREAMBLE lines; and the jobs API agrees with the sections on every step that succeeded or failed: a failed
-    step's section has a live SECTION_RED line, a passing one's has none. A composite's inner `Run` line standing in
-    for a missing header puts the composite's lines, and its failure or its passing, in the wrong step's section, which
-    the last check refuses (as _aligned_starts' own last check does); anything else that does not fit places nothing."""
-    proven = {} if step_names is STEP_NAMES_UNKNOWN else step_names
-    printing = steps[1:-1]
-    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
-    if not printing or len(starts) != len(printing):
-        return None
-    edges = [*starts, len(lines)]
-    for i, (step, n) in enumerate(zip(printing, starts)):
-        k = i + 1
-        name = str(step.get("name") or "")  # step-name: validate
-        header = texts[n].removeprefix("##[group]")
-        named = proven.get(step.get("number"))
-        if header == "Post job cleanup." or name.startswith("Post "):
-            if not (header == "Post job cleanup." and name.startswith("Post ")):
-                return None
-        elif (named is False or (named is not True and name.startswith("Run "))) and header != name:
-            return None
-        start, end = windows[k]
-        if k == len(steps) - 2:
-            end = max(end, windows[-1][1])  # "Complete job" prints into the last section
-        if _line_time(lines[n]) is None:
-            return None
-        for m in range(n, edges[i + 1]):
-            if RUNNER_HOOK_NOTICE.match(texts[m]) or RUNNER_PREAMBLE.match(texts[m]):
-                continue
-            at = _line_time(lines[m])
-            if at is not None and not start <= at < end:
-                return None
-        if step.get("conclusion") in ("success", "failure") and \
-                (step.get("conclusion") == "failure") != _live_red(texts, n, edges[i + 1], opened=True):
             return None
     return starts
 
