@@ -4,6 +4,7 @@
  * rate limits, idempotency and the audit log.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import { withRequestConnection } from "../../src/db/sql.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 
@@ -322,6 +323,30 @@ describe("start, stop, pause, resume", () => {
     expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
     // The provider's share of the request, for the caller's own trace (cmuxterm-hq goals/cloud-resume-gap.md).
     expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call"$/);
+  });
+
+  it("writes the start's audit row after the answer when the Worker can keep the request alive", async () => {
+    const deferred: Array<Promise<unknown>> = [];
+    const t = await harness({ perRequest: withRequestConnection, defer: (work) => deferred.push(work) });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+
+    const response = await action(t, key, vmId, "start");
+
+    expect(response.status).toBe(200);
+    // The row is handed to waitUntil, not written before the response (cmuxterm-hq goals/cloud-resume-gap.md).
+    expect(deferred).toHaveLength(1);
+    await Promise.all(deferred);
+    expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
+  });
+
+  it("writes the audit row before the answer when nothing can keep the request alive", async () => {
+    const t = await harness({ perRequest: withRequestConnection });
+    const { vmId } = t.addVm(TENANT_A, "stopped");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+
+    expect((await action(t, key, vmId, "start")).status).toBe(200);
+    expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
   });
 
   it("names no upstream time on an answer that made no upstream call", async () => {

@@ -291,6 +291,8 @@
   "nightly-pr-build.yml": {
    "land_affected": true,
    "land_ask_only": true,
+   "trunk_only": true,
+   "trunk_only_why": "Runs once per 30-minute window on the feat-cmux-next tip (its push trigger, base-coalesce.yml); base-red-watch bisects a red to name the PR. At 00Z 2026-11-28 the per-PR runs still took ~16.5k runner-min/day on ~28 PR heads an hour, while the Nightly compiles this configuration on the tip every 15 minutes. $CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests again.",
    "land_ask_only_why": "On the affected landing tier it starts only when land asks: the labeled event adding ready-to-land or full-ci (land-judge pulses it at the head it lands) and the merge train's tip, not on each push or base merge of a labelled or ask-named PR. 15-21Z 2026-11-27 its two Mac stubs were the 2nd and 3rd largest jobs (arm64 17.9, x86_64 17.5 runner-min per merged PR, 11,896 runner-min): 80% on PRs not merged by 21Z, 56% on base-merge heads, 25% on pushes after the label, and 31% of runs repeated an input key already compiled. $CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts it on every landing head again.",
    "types": [
     "opened",
@@ -394,6 +396,65 @@
     ".github/workflows/transcript-replay-perf-report.yml"
    ],
    "affects_why": "webviews/bench/transcript-replay-ab.sh replays the long chat into the agent pane built from webviews/src/agent-session (and what it imports) at the merge base and the head, with the head's bench and its imports (browsers, godFixture, perfRow, replayLogs, stability, support/sharedBuilds, test/support foldFrameReport and paintedFrames); the duress reading runs scripts/measure/replay-under-load.sh and its bench; the summary is scripts/ci/transcript_replay_report.py. A change touching none of them moves no number in the report.",
+   "skip_docs_only": true
+  },
+  "cmux-next-motion-frames.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "affects": [
+    ".github/workflows/cmux-next-motion-frames.yml",
+    "scripts/ci/frame-pacing/motion_frames.py",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+Motion*.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+Visibility.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+SnapFrame.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/LayoutPaneContentProvider.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneCommitMotion*.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneZoomDim*.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutModel+PaneClose.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/PendingPaneClose.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneCommitMotion*.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController+PaneClose.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/**"
+   ],
+   "affects_why": "golden.py's motion_frames (scripts/ci/frame-pacing/motion_frames.py) records Cmd-Shift-Enter (split zoom), Cmd-P (the palette) and Cmd-W (a pane's close) on an owned Mac; the files listed are those gestures' motion and what each pane's content sees during it. A change touching none of them moves no frame it records.",
+   "land_affected": true,
+   "land_affected_why": "A pull request that touches a motion area's files gets its frames run on the affected landing tier too (Leo, 2026-11-27: \"These run only when Cmd+W, the palette or split zoom are touched\"): before this, only the hourly full tier ran it, so the PR that changed a gesture never measured it. It costs one 5-minute Linux dispatcher; the Mac run starts only while an owned Mac is free and gates nothing (fail open).",
+   "skip_docs_only": true
+  },
+  "cmux-next-sidebar-bench.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "Packages/macOS/CmuxNext/Sources/**/Sidebar*",
+    "Packages/macOS/CmuxNext/Sources/**/*Chief*",
+    "Packages/macOS/CmuxNext/Sources/**/HomeRules*",
+    "Packages/macOS/CmuxNext/Sources/**/WelcomeRule*",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/Sidebar*Bench*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChief*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefFaceFlushBench*.swift",
+    ".github/workflows/cmux-next-sidebar-bench.yml"
+   ],
+   "affects": [
+    "Packages/macOS/CmuxNext/Sources/**/Sidebar*",
+    "Packages/macOS/CmuxNext/Sources/**/*Chief*",
+    "Packages/macOS/CmuxNext/Sources/**/HomeRules*",
+    "Packages/macOS/CmuxNext/Sources/**/WelcomeRule*",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/Sidebar*Bench*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChief*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefFaceFlushBench*.swift",
+    ".github/workflows/cmux-next-sidebar-bench.yml"
+   ],
+   "affects_why": "SidebarChiefLagTests and ChiefFaceFlushBenchTests read the sidebar row feed and bridge (Sources/**/Sidebar*), the Chief faces and pet settings (*Chief*), the Home rules and engine they flush through, and the bench files themselves; a change touching none of them moves no SIDEBAR-CHIEF-LAG number.",
    "skip_docs_only": true
   }
  }

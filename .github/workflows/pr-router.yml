@@ -174,6 +174,8 @@ jobs:
           # tip and land's update-branch head only (pr_router.py handoff_label_skip); 0 builds the label handoff too.
           CI_MC_HANDOFF_LABEL_SKIP: ${{ vars.CI_MC_HANDOFF_LABEL_SKIP || '1' }}
           CI_NIGHTLY_PR_BUILD_AT_LAND: ${{ vars.CI_NIGHTLY_PR_BUILD_AT_LAND || '1' }}
+          # nightly-pr-build.yml runs on the tip (pr_router.py per_pr_on); 1 starts it on pull requests too.
+          CI_NIGHTLY_PR_BUILD_PER_PR: ${{ vars.CI_NIGHTLY_PR_BUILD_PER_PR || '0' }}
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
@@ -445,7 +447,7 @@ jobs:
   size-budget:
     name: cmux-next size budget
     needs: [route, compile-preflight]
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-size-budget.yml') }}
+    if: ${{ !cancelled() && !failure() && needs.compile-preflight.result == 'success' && (contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-size-budget.yml')) }}
     uses: ./.github/workflows/cmux-next-size-budget.yml
     with:
       web_bundle_key: ${{ needs.compile-preflight.outputs.web_bundle_key }}
@@ -454,6 +456,14 @@ jobs:
     permissions:
       contents: read
       id-token: write
+
+  cmux-next-sidebar-bench:
+    name: cmux-next sidebar bench
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-sidebar-bench.yml') }}
+    uses: ./.github/workflows/cmux-next-sidebar-bench.yml
+    permissions:
+      contents: read
 
   swift-logic-ratchet:
     name: Swift logic ratchet
@@ -464,6 +474,15 @@ jobs:
       check: ratchet
     permissions:
       contents: read
+
+  motion-frames:
+    name: cmux-next motion frames
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-motion-frames.yml') }}
+    uses: ./.github/workflows/cmux-next-motion-frames.yml
+    permissions:
+      # dispatch starts cmux-next-frame-pacing.yml's `frames` suite on the pull request's branch.
+      actions: write
 
   transcript-replay-perf-report:
     name: transcript-replay perf report
@@ -488,7 +507,9 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'nightly-pr-build.yml') }}
     uses: ./.github/workflows/nightly-pr-build.yml
+    # actions: read is its coalesce job's (skipped on a pull request); GitHub checks the callee's permissions at startup.
     permissions:
+      actions: read
       contents: read
       checks: read
 
@@ -587,6 +608,8 @@ jobs:
       actions: read
       # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
       id-token: write
+      # The ios fast verdict's plan reads the head's earlier cmux/ios-fast statuses (pr-pipeline.yml).
+      statuses: read
 
   web-pipeline:
     name: pr web pipeline
@@ -610,6 +633,8 @@ jobs:
       actions: read
       # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
       id-token: write
+      # The ios fast verdict's plan reads the head's earlier cmux/ios-fast statuses (pr-pipeline.yml).
+      statuses: read
 
   # The ios fast verdict's result as `cmux/ios-fast` at the head (the route posted `pending`): success, failure, or
   # error when the verdict never ran (no Mac, the pipeline cancelled, or skipped though the route started it: red
@@ -662,7 +687,8 @@ jobs:
           if [ "$PIPELINE" = skipped ]; then
             state=error; desc="No verdict: the pr pipeline did not start on this head (fast gates red, or skipped); rerun it"
           elif [ "$RUN" = false ]; then
-            state=success; desc="The plan builds nothing on this head"
+            # A head that already passed on the same iOS inputs (scripts/ci/ios_fast_verdict.py reuse) says so.
+            state=success; case "$SUMMARY" in Reused*) desc="$SUMMARY" ;; *) desc="The plan builds nothing on this head" ;; esac
           elif [ "$VERDICT" = success ]; then
             state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
           elif [ "$VERDICT" = failure ]; then
