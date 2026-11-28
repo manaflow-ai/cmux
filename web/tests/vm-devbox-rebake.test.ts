@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { DERIVE_MAX_RETRIED_ROWS, deriveRowFailureAction, isFreestyleGuestUnresponsive, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, startAnsweringVm, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { DERIVE_MAX_RETRIED_ROWS, DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS, DEVBOX_BAKE_STEP_BUDGET_MS, devboxAgentPins, devboxBakeStepBudgetMs, devboxBubblewrapInstallCommand, deriveRowFailureAction, isFreestyleGuestUnresponsive, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, startAnsweringVm, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -298,5 +298,31 @@ describe("deriveRowFailureAction", () => {
   test("the derive ladder asks the policy rather than retrying 429s alone", () => {
     const derive = readFileSync(path.join(here, "..", "scripts", "derive-devbox-sizes.ts"), "utf8");
     expect(derive).toContain('deriveRowFailureAction(error, retriedRows) === "defer"');
+  });
+});
+
+describe("devboxBakeStepBudgetMs", () => {
+  test("a downloading step waits out a slow mirror; a local step keeps the short bound", () => {
+    // Rebake 46141534980: `agents` (npm install, usually ~45 s) took 304 s and
+    // failed 4 s past the flat 300 s with every agent installed.
+    const agents = `npm install -g --foreground-scripts ${devboxAgentPins().map((pin) => `'${pin.spec}'`).join(" ")} && echo agents-pinned`;
+    for (const command of [
+      agents,
+      "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg",
+      "curl -fsSL -o /tmp/chrome.deb https://dl.google.com/x.deb && apt-get install -y /tmp/chrome.deb",
+      devboxBubblewrapInstallCommand("https://example.invalid/bubblewrap-0.11.0.tar.xz", "0".repeat(64), "0.11.0"),
+      "wget -q https://example.invalid/x",
+    ]) expect(devboxBakeStepBudgetMs(command)).toBe(DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS);
+    for (const command of ["mkdir -p /etc/codex", "sleep 30", "bash -n /etc/cmux/agent-config.sh && echo ok", "echo curling-iron", "grep -q npm-install-log /x"]) {
+      expect(devboxBakeStepBudgetMs(command)).toBe(DEVBOX_BAKE_STEP_BUDGET_MS);
+    }
+    expect(DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS).toBeGreaterThan(3 * DEVBOX_BAKE_STEP_BUDGET_MS - 1);
+  });
+
+  test("the bake hands every step its own budget and names it on a timeout", () => {
+    const bake = readFileSync(path.join(repoRoot, "web/scripts/build-devbox-freestyle.ts"), "utf8");
+    expect(bake).toContain("devboxBakeStepBudgetMs(command)");
+    expect(bake).not.toContain("budgetMs: STEP_TIMEOUT_MS");
+    expect(bake).toContain("(its ${budgetMs / 1000} s budget ran out)");
   });
 });
