@@ -8,7 +8,10 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import {
+import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const {
   draftHistory,
   hydratedDraft,
   markDraftRead,
@@ -16,9 +19,8 @@ import {
   readPersistedDraft,
   settlePendingDraftWrites,
   writePersistedDraft,
-} from "../src/agent-session/acpmux/composerDraft";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import { teardownDom } from "./support/domTeardown";
+} = await importWithDom(() => import("../src/agent-session/acpmux/composerDraft"));
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f5";
 

@@ -88,7 +88,8 @@ jobs:
           # This repository is public: the summary gets the verdict and the budget line; hosts and diffs go to the issue.
           head -n 3 "$RUNNER_TEMP/speed-check.md" >> "$GITHUB_STEP_SUMMARY"
 
-      # The per-PR merge-to-NIGHTLY rows outlive the runner here: the issue keeps only their summary. The file is
+      # The per-PR merge-to-NIGHTLY rows outlive the runner here: the issue keeps only their summary. Each run's file
+      # holds the whole 7-day observed window (PR_WINDOW_DAYS), so three days (a report a person reads) loses no row. The file is
       # pr_stream's PR-only document (PR, merge sha and time, first feed head and time, minutes, reason, the observed
       # window); this repository is public, so speed-check.json (hosts, runners, diffs) is never uploaded.
       - name: Upload the per-PR attribution
@@ -99,7 +100,7 @@ jobs:
           name: nightly-pr-attribution
           path: ${{ runner.temp }}/nightly-pr-attribution.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 3
 
       - name: Update the speed issue in cmuxterm-hq
         if: steps.hq-token.outputs.token != ''

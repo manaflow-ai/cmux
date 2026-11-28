@@ -6,6 +6,14 @@ use super::*;
 
 const LOCAL: &str = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+/// `read` then `apply`, as `machine list` runs them (`machine_list_reads`).
+fn merge(global: &GlobalArgs, result: Value) -> Value {
+    match read(global) {
+        Some(cloud) => apply(global, result, cloud),
+        None => result,
+    }
+}
+
 fn local_row() -> Value {
     json!({"id": LOCAL, "name": "local", "origin": "local", "status": "running",
            "connectable": true, "deleted": false, "recoverable": false})

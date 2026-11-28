@@ -337,6 +337,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next only: its reviewer-path legs take the review-gate lane's pick in plan (an owned simulator mini) on "
         "attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or refused leg ends at its 120-minute timeout "
         "and a person's re-run lands on Blacksmith",
+    ".github/workflows/ios-sim-screenshot-loop.yml":
+        "feat-cmux-next only, informational (continue-on-error, not required): its loop job takes the owned side "
+        "label on attempt 1 while CI_PR_POOL_OWNED is 1 and MACOS_RUNNER_26 or Blacksmith macOS 26 on a re-run, so "
+        "a stuck or refused job ends at its 180-minute timeout and the next push or a person's re-run moves it",
     ".github/workflows/cloud-rd-link-readback.yml":
         "a manual feat-cmux-next readback: its one job takes the owned side label on attempt 1 while "
         "CI_PR_POOL_OWNED is 1 and the declared macos_26 pool on a re-run, so a stuck or refused job ends at its "
@@ -350,13 +354,11 @@ UNRESCUED_WORKFLOW_PATHS = {
         "keeps on a live Linux member, and it holds no secret; its job timeout or a person's cancel clears a stuck "
         "run (cancel-in-progress is false), and the deploy jobs take bounded Blacksmith routes the rescue does not "
         "act on",
-    ".github/workflows/automation-bench.yml": _POOL_READ_WHY,
     ".github/workflows/ci-artifact-transport.yml": _POOL_READ_WHY,
     ".github/workflows/ci-fast-guards.yml": _POOL_READ_WHY,
     ".github/workflows/ci-repo-variables.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-guest-install.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-image-bake.yml": _POOL_READ_WHY,
-    ".github/workflows/cloud-vm-image-lock.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-base-tier-kick.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-chromium-currency.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-crash-class.yml": _POOL_READ_WHY,
@@ -368,7 +370,6 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-web-bundles.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-sdks.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-spec.yml": _POOL_READ_WHY,
-    ".github/workflows/fleet-test-compile.yml": _POOL_READ_WHY,
     ".github/workflows/gallery-health.yml": _POOL_READ_WHY,
     ".github/workflows/indexnow.yml": _POOL_READ_WHY,
     ".github/workflows/ios-e2e.yml": _POOL_READ_WHY,

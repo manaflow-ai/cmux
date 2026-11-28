@@ -174,7 +174,7 @@ own_run() { printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":$2,\"st
 failed_jobs='{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-linux / build aarch64-unknown-linux-musl","status":"completed","conclusion":"failure","runner_name":"bs-1","created_at":"2023-11-14T22:00:00Z"}]}'
 reset_cdn; set_runs "$no_runs"; own_run "$own" 3 3; jobs_file 3 "$failed_jobs"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed on its last attempt fails fast, not at the limit (took $took s)"
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed on its last attempt fails fast, at its first check, not at the limit (took $took s)"
 
 # Before the last attempt cmux-tui-artifacts-retry re-runs the failed job (tree 453a2f94
 # published on such a retry): the wait goes on.
@@ -187,6 +187,56 @@ reset_cdn; set_runs "$no_runs"; own_run "$own" 8 3
 jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"completed","conclusion":"failure","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a failed primary macOS leg (the fallback rebuilds it) keeps the wait (took $took s)"
+check '[[ $took -ge 1800 ]] && grep -q "rebuilding its failed primary macOS leg" "$TMP/err" && grep -q "after 30 min" "$TMP/err"' "a rebuilding publisher extends the limit by the rebuild grace, then fails (took $took s)"
+
+# 2026-11-27 (NIGHTLY 46057516701): the rebuilt tree's manifest landed 6 min past the limit.
+# A rebuilding publisher's manifest past the limit but inside the grace is installed.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 8 1
+jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"completed","conclusion":"failure","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-darwin-fallback / build aarch64-apple-darwin","status":"in_progress","runner_name":"linux-1","created_at":"2023-11-14T22:00:00Z"}]}'
+fake_clock_at 960 "mkdir -p '$TMP/cdn/$own' && printf '{\"commit\":\"$own\",\"binaries\":{}}' > '$TMP/cdn/$own/manifest.json'"
+client "$own" "$app"
+check '[[ $status == 0 && $out == "$own" && $took -ge 960 && $took -lt 1100 ]] && grep -q "waiting up to 20 min more" "$TMP/err"' "a rebuilding publisher's manifest inside the grace is installed (took $took s)"
+
+# With CMUX_TUI_TREE_CLIENT_REBUILD_ENDS=1 (the signer's bundle step, fallback tree in hand) the first
+# "rebuilding" answer ends the wait: that rebuild lands the tree about 30 min late (NIGHTLY 46123570780
+# held the signing Mac 1869 s for one, then bundled the fallback tree anyway).
+reset_cdn; set_runs "$no_runs"; own_run "$own" 8 1
+jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"completed","conclusion":"failure","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-darwin-fallback / build aarch64-apple-darwin","status":"in_progress","runner_name":"linux-1","created_at":"2023-11-14T22:00:00Z"}]}'
+started=$(date +%s); status=0
+out=$(cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=600 CMUX_TUI_TREE_CLIENT_POLL_SECONDS=20 \
+  CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS=120 CMUX_TUI_TREE_CLIENT_REBUILD_ENDS=1 \
+  bash scripts/cmux-next/await-tree-client.sh "$key" "$own" "$app" 2>"$TMP/err") || status=$?
+took=$(( $(date +%s) - started ))
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "not holding this job for it" "$TMP/err"' "a rebuilding publisher ends the wait at once when CMUX_TUI_TREE_CLIENT_REBUILD_ENDS=1 (took $took s)"
+status=0; (cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_REBUILD_ENDS=yes bash scripts/cmux-next/await-tree-client.sh "$key" "$own" 2>/dev/null) || status=$?
+check '[[ $status == 2 ]]' "a malformed rebuild-ends switch is a usage error"
+
+# With CMUX_TUI_TREE_CLIENT_FAILED_ENDS=1 (the signer's bundle step, fallback tree in hand) a completed
+# run that failed on an earlier attempt ends the wait at its first check, not a second one for a retry
+# (NIGHTLY 46146914237 held the signing Mac 254 s for that second look). Without it, two checks.
+completed_failed_run() { printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":$2,\"status\":\"completed\",\"conclusion\":\"failure\",\"run_attempt\":1,\"head_sha\":\"$1\",\"head_branch\":\"feat-cmux-next\",\"created_at\":\"2023-11-14T22:00:00Z\"}]}" > "$runs_dir/runs-$1"; }
+completed_failed_jobs='{"jobs":[{"name":"build-linux / build aarch64-unknown-linux-musl","status":"completed","conclusion":"failure","runner_name":"bs-1","created_at":"2023-11-14T22:00:00Z"}]}'
+reset_cdn; set_runs "$no_runs"; completed_failed_run "$own" 9; jobs_file 9 "$completed_failed_jobs"
+started=$(date +%s); status=0
+out=$(cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=600 CMUX_TUI_TREE_CLIENT_POLL_SECONDS=20 \
+  CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS=120 CMUX_TUI_TREE_CLIENT_FAILED_ENDS=1 \
+  bash scripts/cmux-next/await-tree-client.sh "$key" "$own" "$app" 2>"$TMP/err") || status=$?
+took=$(( $(date +%s) - started ))
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "(check 1 of 1)" "$TMP/err"' "a failed publisher ends the wait at its first check when CMUX_TUI_TREE_CLIENT_FAILED_ENDS=1 (took $took s)"
+reset_cdn; set_runs "$no_runs"; completed_failed_run "$own" 9; jobs_file 9 "$completed_failed_jobs"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 ]] && grep -q "(check 2 of 2)" "$TMP/err"' "a failed publisher takes two checks without CMUX_TUI_TREE_CLIENT_FAILED_ENDS (took $took s)"
+status=0; (cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_FAILED_ENDS=yes bash scripts/cmux-next/await-tree-client.sh "$key" "$own" 2>/dev/null) || status=$?
+check '[[ $status == 2 ]]' "a malformed failed-ends switch is a usage error"
+
+# A publisher building normally gets no grace: the same late manifest misses the limit.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 8 1
+jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'
+fake_clock_at 960 "mkdir -p '$TMP/cdn/$own' && printf '{\"commit\":\"$own\",\"binaries\":{}}' > '$TMP/cdn/$own/manifest.json'"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 && $took -lt 700 ]] && ! grep -q "waiting up to" "$TMP/err"' "a publisher with no rebuild keeps the plain limit (took $took s)"
+: > "$FAKE_CLOCK_EVENTS"  # the 960 s upload this wait never reached must not land in a later case
+rm -f "$runs_dir/runs-$own"
 
 reset_cdn; set_runs "$no_runs"; own_run "$own" 4
 jobs_file 4 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"'"$(ago 1000)"'"},{"name":"build / build aarch64-unknown-linux-musl","status":"queued","runner_name":null,"labels":["blacksmith-16vcpu-ubuntu-2404"],"created_at":"'"$(ago 1000)"'"}]}'
@@ -213,7 +263,7 @@ check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "stalled 
 preflight_failed='{"jobs":[{"name":"cmux-tui tree preflight","status":"completed","conclusion":"failure","runner_name":"linux-1","created_at":"2023-11-14T22:00:00Z"}]}'
 reset_cdn; set_runs "$no_runs"; own_run "$own" 11 3; jobs_file 11 "$preflight_failed"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a terminal preflight failure fails fast with its state and run (took $took s)"
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a terminal preflight failure fails fast with its state and run (took $took s)"
 
 # A completed workflow must retain the preflight error, not only an active workflow.
 completed_run() {
@@ -229,7 +279,7 @@ JSON
 }
 reset_cdn; set_runs "$no_runs"; completed_run "$own" 11; jobs_file 11 "$preflight_failed"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a completed publisher retains its terminal preflight failure (took $took s)"
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a completed publisher retains its terminal preflight failure (took $took s)"
 
 # Let the automatic retry become active between the two idle observations.
 reset_cdn; set_runs "$no_runs"; completed_run "$own" 12 1; jobs_file 12 "$preflight_failed"
@@ -284,6 +334,23 @@ set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":10,\"status\":\"in_progr
 client "$own"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${takeover:0:12} is building tree" "$TMP/err"' "a stuck publisher is passed over for a later same-key run (took $took s)"
 rm -f "$runs_dir/runs-$app" "$runs_dir/runs-$takeover"; rm -rf "$TMP/api/repos/o/r/actions/runs"
+
+# 5h. The runs cannot be read (2026-11-28, NIGHTLY 46105117438: github.token's budget was spent,
+# five "could not all be read" checks held the signing Mac 1568 s for the full limit). With no
+# limit set an unreadable answer keeps waiting; with CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS=2
+# (what the nightly bundle step sets when it has a fallback tree) it fails at the second check.
+reset_cdn; set_runs "not json"; printf 'not json\n' > "$runs_dir/runs-$own"; printf 'not json\n' > "$runs_dir/runs-$app"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "could not all be read" "$TMP/err"' "unreadable runs keep waiting when no limit is set (took $took s)"
+started=$(date +%s); status=0
+out=$(cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=600 CMUX_TUI_TREE_CLIENT_POLL_SECONDS=20 \
+  CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS=120 CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS=2 \
+  bash scripts/cmux-next/await-tree-client.sh "$key" "$own" "$app" 2>"$TMP/err") || status=$?
+took=$(( $(date +%s) - started ))
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "could not be read 2 checks in a row" "$TMP/err"' "unreadable runs end the wait at the set limit (took $took s)"
+status=0; (cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS=two bash scripts/cmux-next/await-tree-client.sh "$key" "$own" 2>/dev/null) || status=$?
+check '[[ $status == 2 ]]' "a malformed unreadable-checks limit is a usage error"
+rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; set_runs "$no_runs"
 
 # 6. Bad usage.
 status=0; (cd "$TMP/src" && bash scripts/cmux-next/await-tree-client.sh nope "$own" 2>/dev/null) || status=$?
@@ -377,8 +444,9 @@ check '[[ $status == 0 ]] && grep -qx "fallback=" "$TMP/gh-output"' "past the wi
 # With it, base's client lacks language-packs-v1, which the tip's app lists: run 44975559258
 # (2026-11-22) failed 20 min in on exactly that. The fallback is dropped at resolve time instead.
 cp "$ROOT/scripts/ci/nightly_fallback_covers.py" "$TMP/src/scripts/ci/"
+# check-daemon-capabilities-fresh.py loads gen-daemon-capabilities.py since #57018 (base run 46008833629).
 cp "$ROOT/scripts/cmux-next/check-app-capability-references.py" "$ROOT/scripts/cmux-next/check-daemon-capabilities-fresh.py" \
-  "$TMP/src/scripts/cmux-next/"
+  "$ROOT/scripts/cmux-next/gen-daemon-capabilities.py" "$TMP/src/scripts/cmux-next/"
 pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output" && grep -qx "fallback=" "$TMP/gh-output" && grep -q "lacks .language-packs-v1." "$TMP/summary"' \
   "a fallback whose client lacks a capability the tip's app lists is dropped at resolve time"

@@ -81,7 +81,8 @@ if [[ "$role" == host ]]; then
   for _ in $(seq 1 50); do [[ -S "$rig_root/state/rig.sock" ]] && break; sleep 0.2; done
   [[ -S "$rig_root/state/rig.sock" ]] && echo "SCREEN-STREAM-EVAL-STAGE stage-table host: rig up (pid $rig_pid)" \
     || echo "SCREEN-STREAM-EVAL-STAGE stage-table host: the rig did not start: $(tail -n 3 "$out/rig.log" | tr '\n' ' ' | cut -c1-300)"
-  python3 -I "$vs" peer-serve --bind "$addr" --port "$port" --token-file "$token_file" --hold-s 7200 &
+  # No first-contact bound here (0): the viewer half builds its tools, rd and its DEV app before its first dial.
+  python3 -I "$vs" peer-serve --bind "$addr" --port "$port" --token-file "$token_file" --hold-s 7200 --first-contact-s 0 &
   serve=$!
   app_pid="" store=""
   trap '[[ -n "$app_pid" ]] && kill "$app_pid" 2>/dev/null; kill "$rig_pid" 2>/dev/null; [[ -n "$store" ]] && rm -f "$store"; rm -f "$host_app_file"' EXIT

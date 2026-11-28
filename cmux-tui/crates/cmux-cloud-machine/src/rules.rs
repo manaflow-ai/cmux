@@ -13,6 +13,7 @@ use crate::record::{Machine, Status};
 /// start, and takes the record's other fields.
 pub fn listed(record: &Machine, current: &Machine, connected_since_read: bool) -> Machine {
     let mut accepted = record.clone();
+    accepted.environment_id = accepted.environment_id.or_else(|| current.environment_id.clone());
     if current.status.is_live() && !record.status.is_live() && connected_since_read {
         accepted.status = current.status;
         accepted.pause_reason = current.pause_reason;
@@ -108,6 +109,7 @@ pub fn start_chat_plan_entry(
     entry.insert("connected".into(), json!(connected));
     let optional = [
         ("slug", machine.slug.clone().map(Value::from)),
+        ("environment", machine.environment_id.clone().map(Value::from)),
         ("created_by", machine.created_by.clone().map(Value::from)),
         ("pause_reason", machine.pause_reason.map(|reason| json!(reason))),
         ("chats", chats.map(Value::from)),

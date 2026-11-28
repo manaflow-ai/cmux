@@ -136,6 +136,21 @@ nonisolated public struct FrecencyStore: Codable, Sendable, Equatable {
     /// Every row with uses or learned picks.
     public var rowKeys: Set<String> { Set(entries.keys).union(picks.map(\.key)) }
 
+    /// The `limit` rows with the strongest uses as of `now` (decayed score, at least 0.05), strongest first, and any
+    /// row tied with the last of them: what the empty query's Recent section ranks from (the ranker's
+    /// `top_frecency_keys`, cmux-palette-ranker rank.rs). Learned picks rank typed queries only.
+    public func strongestKeys(_ limit: Int, now: Date) -> [String] {
+        guard limit > 0 else { return [] }
+        let scored = entries.compactMap { key, entry -> (key: String, score: Double)? in
+            let score = entry.score * pow(2, -max(0, now.timeIntervalSince(entry.lastUsed)) / halfLife)
+            return score >= 0.05 ? (key, score) : nil
+        }.sorted { $0.score > $1.score }
+        guard scored.count > limit else { return scored.map(\.key) }
+        // Rows tied with the cutoff are kept: the ranker orders them by key, in JavaScript's string order.
+        let cutoff = scored[limit - 1].score
+        return scored.prefix { $0.score >= cutoff }.map(\.key)
+    }
+
     /// This history with only its hidden rows: what ranks while `palette.searchHistory` is off.
     public func keepingOnlyHidden() -> FrecencyStore {
         var store = self

@@ -32,6 +32,8 @@ export class UpstreamError extends Data.TaggedError("UpstreamError")<{
   readonly operation: string;
   /** HTTP status from the provider, or null when no response arrived. */
   readonly status: number | null;
+  /** A bounded, internal classification of a provider response. Never contains provider text. */
+  readonly kind?: "capacity_overloaded";
 }> {}
 
 /** The fields of the provider's VM record this service reads. Everything else is ignored. */
@@ -82,6 +84,11 @@ export interface CreateVmSpec {
     /** A resumed creation's retained request digest (its probe's `request`): what its VM carries as `cmux_create`. */
     readonly request: string | null;
     readonly beforeSend: (context: string, probe: VmCreationProbe) => Effect.Effect<void, UpstreamError>;
+    /**
+     * Fails as beginSend would refuse now (a send under this key still in flight or of unknown outcome, a cancelled or
+     * finished creation), writing nothing. Run before a provider create slot is taken, so such a retry holds none.
+     */
+    readonly checkSend: () => Effect.Effect<void, UpstreamError>;
     readonly beginSend: () => Effect.Effect<string, UpstreamError>;
     readonly rejected: (token: string) => Effect.Effect<void, UpstreamError>;
     readonly active: Effect.Effect<void, UpstreamError>;
@@ -99,6 +106,10 @@ export interface CreateVmSpec {
    * skipped only when `journal.minted`; the boot image read always. Absent: both reads come first.
    */
   readonly withoutReads?: boolean;
+  /** A create no one is waiting on (a spare): its provider create slot is taken behind everyone else's. */
+  readonly background?: boolean;
+  /** `x-cmux-create-deadline` (epoch ms): the caller's own deadline; the wait for a create slot spans it. */
+  readonly deadlineAt?: number;
   /**
    * Filled as the create runs, for the handler's vm_create line: recoverMs, verifyImageMs, createMs, recoverAfterMs,
    * resizeMs (each only when that provider call was made), `recovered`, `imageVariant` for an approved image, and the
@@ -242,7 +253,7 @@ export interface UpstreamClientService {
     },
     UpstreamError
   >;
-  readonly startVm: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> }) => Effect.Effect<UpstreamVm, UpstreamError>;
+  readonly startVm: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> }, priority?: { readonly tenant: string; readonly background: boolean }) => Effect.Effect<UpstreamVm, UpstreamError>;
   readonly pauseVm: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> }) => Effect.Effect<UpstreamVm, UpstreamError>;
   /** Shuts the guest down from inside (the provider has no stop operation). */
   readonly shutdownVm: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> }) => Effect.Effect<void, UpstreamError>;

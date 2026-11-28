@@ -94,6 +94,19 @@ pub(super) fn append_with_receipt(
     outcome
 }
 
+/// The plugin's single delivery worker keeps its connection across events.
+pub(super) fn send_plugin_queue(socket: &Path, queued: std::sync::mpsc::Receiver<Spool>) {
+    let mut sender = Sender::new(socket);
+    for spool in queued {
+        if let Ok(Some(lock)) = spool.try_drain() {
+            let _ = drain(&spool, lock, &mut sender, "");
+        }
+        if sender.gone {
+            sender = Sender::new(socket);
+        }
+    }
+}
+
 /// Sends every queue of the session on `socket` that no child sends: what
 /// its new owner runs once it attaches, so events a restart left queued go
 /// out without waiting for some agent's next hook.

@@ -142,7 +142,7 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     let leaf = format!("rh-{}", &socket_digest[..12]);
     let mut runtime = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
     #[cfg(unix)]
-    if !crate::server::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
+    if !crate::socket_path::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
         runtime = crate::platform::fallback_runtime_dir().join(leaf);
     }
     // The name from before NEXT's folder move: the build keeps its Keychain items, so its device.

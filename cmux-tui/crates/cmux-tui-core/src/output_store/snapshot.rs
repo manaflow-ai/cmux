@@ -1088,7 +1088,8 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
     }
 }
 
-#[cfg(test)]
+// Its placeholder surface (`Surface::exited_terminal_placeholder`) is unix-only.
+#[cfg(all(unix, test))]
 #[path = "parked_capture_tests.rs"]
 mod parked_capture_tests;
 

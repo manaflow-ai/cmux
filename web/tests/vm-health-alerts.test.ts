@@ -26,10 +26,26 @@ function report(overrides: Partial<VmHealthReport> = {}): VmHealthReport {
 
 const hungReport = report({
   hung: [{
+    confirmedThisSweep: true,
     vmId: "vm-1", workload: "app:chatmux2", owner: null, snapshot: null,
     size: { cpu: null, memoryMib: null, storageMib: null },
     firstSeenHungAt: "2026-10-12T11:00:00.000Z", providerUpdatedAt: "2026-10-12T10:00:00.000Z", dbUpdatedAt: null, detail: "timeout",
   }],
+});
+
+const mixedSweepReport = report({
+  hung: [
+    {
+      ...hungReport.hung[0]!,
+      vmId: "vm-confirmed",
+      confirmedThisSweep: true,
+    },
+    {
+      ...hungReport.hung[0]!,
+      vmId: "vm-carried",
+      confirmedThisSweep: false,
+    },
+  ],
 });
 
 /** The durable store's contract: a claim succeeds when inactive, escalated, or 24 hours after the last page. */
@@ -63,6 +79,28 @@ describe("vm health alert", () => {
     expect(alert.body).toContain("1 app:chatmux2");
     expect(alert.body).toContain("https://cmux.com/dashboard/ops/cloud-vms");
     expect(vmHealthAlert(report(), null)).toBeNull();
+  });
+
+  test("pages only current hung VMs in a mixed sweep", () => {
+    const alert = vmHealthAlert(mixedSweepReport, null)!;
+    expect(alert.severity).toBe("critical");
+    expect(alert.body).toContain("1 app:chatmux2");
+    expect(alert.body).toContain("vm-confirmed");
+    expect(alert.body).not.toContain("vm-carried");
+  });
+
+  test("legacy unmarked hung records never page, even with clean coverage", () => {
+    const legacyHung = { ...hungReport.hung[0]! };
+    delete (legacyHung as { confirmedThisSweep?: boolean }).confirmedThisSweep;
+    expect(vmHealthAlert(report({ hung: [legacyHung] }), null)).toBeNull();
+    expect(vmHealthAlert(report({
+      hung: [legacyHung],
+      coverage: { ...report().coverage, probeErrors: 1 },
+    }), null)).toBeNull();
+    expect(vmHealthAlert(report({
+      hung: [legacyHung],
+      coverage: { ...report().coverage, skippedBudget: 1 },
+    }), null)).toBeNull();
   });
 
   test("pages once per incident and at most once an hour when a VM flaps", async () => {
@@ -105,6 +143,20 @@ describe("vm health alert", () => {
     expect(state.clears).toBe(0);
     expect(await deliverVmHealthAlert(report(), { now: at(125), store, send, lastSentAt })).toBe("none");
     expect(state.clears).toBe(1);
+  });
+
+  test("an inconclusive sweep with only carried hung records does not clear dedupe", async () => {
+    const { state, store } = memoryStore();
+    const send = async () => ({ sent: true, configured: true });
+    const at = (minutes: number) => new Date(Date.UTC(2026, 9, 12, 12, minutes));
+
+    await deliverVmHealthAlert(hungReport, { now: at(0), store, send, lastSentAt: async () => state.lastSentAt });
+    const carried = report({
+      hung: [{ ...hungReport.hung[0]!, confirmedThisSweep: false }],
+      coverage: { ...report().coverage, skippedBudget: 1 },
+    });
+    expect(await deliverVmHealthAlert(carried, { now: at(120), store, send, lastSentAt: async () => state.lastSentAt })).toBe("none");
+    expect(state.clears).toBe(0);
   });
 
   test("a failed delivery releases its lease so the next sweep retries", async () => {

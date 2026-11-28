@@ -56,6 +56,9 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_PEER_SEND_WINDOW_KB",
     // The relay client's early Connect (off by default), so a row can measure it.
     "CMUX_RELAY_EARLY_CONNECT",
+    // The dialer's standby socket and the relay's pre-attach hold it needs (both off by default).
+    "CMUX_RELAY_DIAL_STANDBY",
+    "CMUX_RELAY_PREATTACH_HOLD_SECONDS",
 ]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
@@ -469,6 +472,7 @@ async fn world(load: &str) -> World {
     let relay_addr = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
         allow_open: true,
+        preattach_hold: Duration::from_secs(env_u64("CMUX_RELAY_PREATTACH_HOLD_SECONDS", 0)),
         ..cmux_relay::RelayConfig::default()
     })
     .unwrap();

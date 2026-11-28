@@ -166,6 +166,7 @@ fn path_name(path: LinkPath) -> &'static str {
         LinkPath::Direct => "direct",
         LinkPath::Turn => "turn",
         LinkPath::TurnTls => "turn-tls",
+        LinkPath::Hop => "hop",
         LinkPath::HttpsRelay => "https-relay",
         LinkPath::NoPath => "no-path",
     }
@@ -310,6 +311,7 @@ struct PathResult {
 async fn probe_path(
     args: &Args,
     spec: PathSpec,
+    api: &ApiClient,
     signaling: &SignalingClient,
     mac: &str,
     ice: &[IceServer],
@@ -320,9 +322,13 @@ async fn probe_path(
     let mut marks: BTreeMap<String, Vec<Option<f64>>> = BTreeMap::new();
     let mut errors = Vec::new();
     for _ in 0..args.dials {
+        let mut ice_servers = ice.to_vec();
+        if spec.kind == TransportKind::WireGuard && !spec.block_udp {
+            api.renew_hop_tickets(&mut ice_servers, Duration::from_secs(8)).await;
+        }
         let timeline = Timeline::new();
         let options = DialOptions {
-            ice_servers: ice.to_vec(),
+            ice_servers,
             exclude_cgnat: args.exclude_cgnat,
             relay_only: spec.relay_only,
             block_udp: spec.block_udp,
@@ -521,7 +527,7 @@ async fn run(args: Args) -> Result<Value> {
     let signaling = SignalingClient::connect(&args.base_url, &args.token, &team, &phone).await?;
     let mut paths = Vec::new();
     for spec in &args.paths {
-        let result = probe_path(&args, *spec, &signaling, &mac, &ice).await;
+        let result = probe_path(&args, *spec, &api, &signaling, &mac, &ice).await;
         rows.push(result.row);
         paths.push(result.json);
     }

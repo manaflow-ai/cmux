@@ -55,7 +55,6 @@
     "auth-refresh-tests.yml": {
       "paths": [
         "Packages/Shared/CmuxAuthRuntime/**",
-        "Packages/Shared/CmuxIrxTransport/**",
         "Packages/macOS/CmuxPhonePush/**",
         "vendor/stack-auth-swift-sdk-prerelease/**",
         ".github/workflows/auth-refresh-tests.yml"
@@ -102,7 +101,6 @@
     "iroh-v2.yml": {
       "paths": [
         "workers/iroh-v2/**",
-        "Packages/Shared/CmuxIrxTransport/**",
         ".github/workflows/iroh-v2.yml"
       ]
     },
@@ -115,8 +113,6 @@
     "relay-tls.yml": {
       "paths": [
         "tests/relay_tls/**",
-        "Packages/Shared/CmuxIrohTransport/**",
-        "Packages/Shared/CmuxIrxTransport/**",
         ".github/workflows/relay-tls.yml"
       ]
     },

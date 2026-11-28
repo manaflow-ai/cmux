@@ -6,6 +6,10 @@ name: risk tier tests
 # ran on those pull requests only, so it keeps a dispatch run.
 
 on:
+  # Register the dispatch entrypoint when this workflow lands off main.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/risk-tier-tests.yml]
   workflow_dispatch:
 
 permissions:

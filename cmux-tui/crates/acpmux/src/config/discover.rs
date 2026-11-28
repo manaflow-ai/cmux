@@ -420,6 +420,19 @@ pub fn discover_harnesses_from(
             );
         }
     }
+    // Each uses OpenCode's ACP transport with a distinct provider and model namespace.
+    if let Some(opencode) = agents.get("opencode").cloned() {
+        for (id, model) in [
+            ("github-copilot", "github-copilot/gpt-5-mini"),
+            ("openrouter", "openrouter/openai/gpt-5.4-mini"),
+        ] {
+            agents.entry(id.to_owned()).or_insert_with(|| HarnessProfile {
+                family: Some(id.to_owned()),
+                model: Some(model.to_owned()),
+                ..opencode.clone()
+            });
+        }
+    }
     // Cursor's installer links `~/.local/bin/agent` into its install
     // (`.../cursor-agent/versions/<v>/cursor-agent`). `agent` is too common a
     // name to trust by itself: only a launcher that resolves there counts.

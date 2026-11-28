@@ -1,6 +1,6 @@
 import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
-import { cachedIceServers } from "./ice.ts"
+import { cachedIceServers, hopServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userEmail, userTeams } from "./stack.ts"
 import { audienceOf, judgedAt, parseReport, ReportError } from "./connectivity-alerts.ts"
 import {
@@ -425,7 +425,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   if (path === "/v1/ice" && method === "GET") {
     await limit(env.ICE_LIMIT, me, "ICE requests")
     const { iceServers: list, ttl, turn } = await t.span("turn", cachedIceServers(env, ctx))
-    return json({ iceServers: list, ttl, turn })
+    return json({ iceServers: list, hopServers: await hopServers(env, ttl), ttl, turn })
   }
 
   const probe = path.match(/^\/v1\/netcheck\/([a-z]+)$/)

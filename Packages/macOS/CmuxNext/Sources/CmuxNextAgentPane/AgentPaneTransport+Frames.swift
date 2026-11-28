@@ -70,8 +70,14 @@ extension AgentPaneTransport {
     /// of its step get only what the lock hands out: the encoded text, or a yes or no.
     nonisolated final class FrameBox: Sendable {
         private let frame: Mutex<[String: Any]>
+        /// How many times the box parsed JSON text after it was made (RFD 0191 step 4: the page
+        /// frame is parsed once, before the box; only the path check's rewrite parses again).
+        private let parses = Atomic<Int>(0)
 
         init(_ object: sending [String: Any]) { frame = Mutex(object) }
+
+        /// The parses counted in ``parses``, for tests and benches.
+        var parseCount: Int { parses.load(ordering: .relaxed) }
 
         /// The frame's fresh serialization, with `id` set when given; nil when it does not encode.
         func encoded(id: Int?) -> String? {
@@ -84,11 +90,27 @@ extension AgentPaneTransport {
 
         /// Replaces the frame with the parse of `text`; false when `text` is not one JSON object.
         func replace(withJSON text: String) -> Bool {
-            frame.withLock { object in
+            parses.add(1, ordering: .relaxed)
+            return frame.withLock { object in
                 guard let parsed = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return false }
                 object = parsed
                 return true
             }
+        }
+
+        /// `body` over a param of the frame that is not null (a question's `answers` or
+        /// `annotations`, a group's `revision`), read in place under the lock: no encode and re-parse.
+        func withParam<R: Sendable>(_ key: String, _ body: @Sendable (Any?) -> R) -> R {
+            frame.withLock { object in
+                let value = (object["params"] as? [String: Any])?[key]
+                return body(value.flatMap { $0 is NSNull ? nil : $0 })
+            }
+        }
+
+        /// `body` over the frame itself, changed in place under the lock (the prompt relay's
+        /// promptId): no encode and re-parse. `body` must not touch this box.
+        func withFrame<R: Sendable>(_ body: @Sendable (inout [String: Any]) -> R) -> R {
+            frame.withLock { object in body(&object) }
         }
 
         /// Frees a large frame here, off the main thread.

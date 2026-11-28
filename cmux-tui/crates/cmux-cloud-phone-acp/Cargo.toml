@@ -1,0 +1,20 @@
+[package]
+name = "cmux-cloud-phone-acp"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A phone's ACP chat over a Cloud machine's daemon carrier: the adapter, the mobile handshake and the line reader that hostd (Mac relay) and the machine's own link (phone direct, RFD 0135 gate 4) share"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Silence bounds for a cloud prompt (src/adapter.rs).
+cmux-deadline = { workspace = true }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "time"] }

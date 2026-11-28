@@ -156,6 +156,7 @@ impl RemoteRows {
             && a.summary.peer() == b.summary.peer()
             && a.summary.name() == b.summary.name()
             && a.summary.alias() == b.summary.alias()
+            && a.summary.handle() == b.summary.handle()
             && a.summary.former_names() == b.summary.former_names()
             && a.summary.same_pair(&b.summary)
     }
@@ -443,6 +444,36 @@ impl RemoteRows {
         keys.into_iter().filter_map(|k| self.rows.get_key_value(k.as_str())).collect()
     }
 
+    /// Peer `peer`'s rows `rest` can name exactly: its name with or without `PEER/`, its alias as
+    /// stored or as spoken, its handle (its default one too) in any case, a former name, and a
+    /// prefix of its peer's session id (`Hub::name_on`'s first step, `harness_key`'s exact
+    /// names). A superset each caller filters by its own test, read through the indexes: a
+    /// prompt to `HOST/NAME` walked every peer's rows twice, 0.4 ms a prompt at 2,000 sessions
+    /// on one connection (coord-sim fanin, 2026-11-27).
+    pub(crate) fn exact_of_peer<'a>(
+        &'a self,
+        peer: &str,
+        rest: &str,
+    ) -> Vec<(&'a String, &'a Arc<RemoteSession>)> {
+        let n = &self.names;
+        let mut keys: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
+        for map in [&n.by_name, &n.by_bare_name, &n.by_spoken, &n.by_former] {
+            keys.extend(map.get(rest).into_iter().flatten());
+        }
+        keys.extend(n.by_alias.get(rest).into_iter().flatten());
+        keys.extend(n.by_handle.get(&rest.to_ascii_lowercase()).into_iter().flatten());
+        keys.extend(
+            n.muxes
+                .range::<_, (String, String)>((rest.to_owned(), String::new())..)
+                .take_while(|(mux, _)| mux.starts_with(rest))
+                .map(|(_, k)| k),
+        );
+        keys.into_iter()
+            .filter_map(|k| self.rows.get_key_value(k.as_str()))
+            .filter(|(_, r)| r.peer == peer)
+            .collect()
+    }
+
     /// The rows whose name ends in `key`'s last segment: every row `key` can be the short name
     /// of ([`super::peers::remote_segment`] decides which are).
     pub(crate) fn short_named<'a>(
@@ -498,6 +529,10 @@ struct Names {
     by_alias: POrdMap<String, PSet<String>>,
     by_former: PMap<String, PSet<String>>,
     by_last_segment: PMap<String, PSet<String>>,
+    /// Its alias as `acpmux ls` prints it (`session_handle::spoken_alias`).
+    by_spoken: PMap<String, PSet<String>>,
+    /// Its handle as shown (its default one when it has none), in lower case.
+    by_handle: PMap<String, PSet<String>>,
     keys: PSet<String>,
     muxes: PSet<(String, String)>,
 }
@@ -509,6 +544,12 @@ impl Names {
         let bare = name.strip_prefix(row.peer.as_str()).and_then(|rest| rest.strip_prefix('/'));
         let last = name.rsplit_once('/').map(|(_, last)| last);
         [(0, Some(name.to_owned())), (1, bare.map(str::to_owned)), (2, last.map(str::to_owned))]
+    }
+
+    /// `row`'s handle as shown, in lower case: `session_handle::matches` is this in any case.
+    fn handle_key(row: &RemoteSession) -> String {
+        crate::session_handle::display(row.summary.handle(), &row.receipt.mux_session_id)
+            .to_ascii_lowercase()
     }
 
     fn map(&mut self, which: u8) -> &mut PMap<String, PSet<String>> {
@@ -530,7 +571,10 @@ impl Names {
         }
         if let Some(alias) = row.summary.alias() {
             self.by_alias.entry(alias.to_owned()).or_default().insert(key.to_owned());
+            let spoken = crate::session_handle::spoken_alias(alias).into_owned();
+            self.by_spoken.entry(spoken).or_default().insert(key.to_owned());
         }
+        self.by_handle.entry(Self::handle_key(row)).or_default().insert(key.to_owned());
         self.keys.insert(key.to_owned());
         self.muxes.insert((row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -562,6 +606,22 @@ impl Names {
                 self.by_alias.remove(alias);
             }
         }
+        if let Some(alias) = row.summary.alias() {
+            let spoken = crate::session_handle::spoken_alias(alias);
+            if let Some(keys) = self.by_spoken.get_mut(&*spoken) {
+                keys.remove(key);
+                if keys.is_empty() {
+                    self.by_spoken.remove(&*spoken);
+                }
+            }
+        }
+        let handle = Self::handle_key(row);
+        if let Some(keys) = self.by_handle.get_mut(&handle) {
+            keys.remove(key);
+            if keys.is_empty() {
+                self.by_handle.remove(&handle);
+            }
+        }
         self.keys.remove(key);
         self.muxes.remove(&(row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -573,6 +633,8 @@ impl Names {
             && self.by_alias.is_empty()
             && self.by_former.is_empty()
             && self.by_last_segment.is_empty()
+            && self.by_spoken.is_empty()
+            && self.by_handle.is_empty()
             && self.keys.is_empty()
             && self.muxes.is_empty()
     }

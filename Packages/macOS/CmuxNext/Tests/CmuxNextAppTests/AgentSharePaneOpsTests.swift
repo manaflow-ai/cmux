@@ -71,6 +71,26 @@ struct AgentSharePaneOpsTests {
         #expect(JSONSerialization.isValidJSONObject(["shares": listed]))
     }
 
+    /// Access requests reach the page in its keys, and approve or decline acts on every live share of
+    /// this chat the account asked on, never another chat's or an ended one.
+    @Test func requestsReachThePageAndActOnlyOnThisChat() throws {
+        let mei = AgentSessionShareAccessRequest(account: "mei@x.co", name: "Mei", requestedAt: 7)
+        let shares = [
+            AgentSessionShare(shareId: "s1", state: "active", session: Self.session, surface: 1, requests: [mei]),
+            AgentSessionShare(shareId: "s2", state: "active", session: Self.session, surface: 1, requests: [mei]),
+            AgentSessionShare(shareId: "ended", state: "revoked", session: Self.session, surface: 1, requests: [mei]),
+            AgentSessionShare(shareId: "other", state: "active", session: "another-chat", surface: 1, requests: [mei]),
+        ]
+        #expect(AgentSharePaneState.sharesAsked(by: " Mei@X.co", of: Self.session, in: shares) == ["s1", "s2"])
+        #expect(AgentSharePaneState.sharesAsked(by: "@nobody", of: Self.session, in: shares).isEmpty)
+        let listed = AgentSharePaneState.shares(of: Self.session, in: shares)
+        let requests = try #require(listed.first?["requests"] as? [[String: Any]])
+        #expect(requests.first?["account"] as? String == "mei@x.co")
+        #expect(requests.first?["requestedAt"] as? Int == 7)
+        #expect(requests.first?["avatarUrl"] is NSNull)
+        #expect(JSONSerialization.isValidJSONObject(["shares": listed]))
+    }
+
     @Test func aCreateWithNoRoleLeavesTheFieldOut() throws {
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase

@@ -39,4 +39,16 @@ struct RemoteDesktopDefaultsSettingsTests {
         let on = Self.parse(["sharpLinuxText": .bool(true)])
         #expect(on.remoteDesktop.sharpLinuxText && on.diagnostics.isEmpty)
     }
+
+    /// `remoteDesktop.clipboard` (cmux#53615 shipped the policy with nothing reading the key): own devices
+    /// only when unset, each written value kept, an unknown one left at the default with a diagnostic.
+    @Test func clipboardDefaultsToOwnDevicesAndKeepsAPick() {
+        #expect(Self.parse(nil).remoteDesktop.clipboard == .ownDevicesOnly)
+        for value in RemoteDesktopClipboard.allCases {
+            let picked = Self.parse(["clipboard": .string(value.rawValue)])
+            #expect(picked.remoteDesktop.clipboard == value && picked.diagnostics.isEmpty)
+        }
+        let wild = Self.parse(["clipboard": .string("sometimes")])
+        #expect(wild.remoteDesktop.clipboard == .ownDevicesOnly && !wild.diagnostics.isEmpty)
+    }
 }

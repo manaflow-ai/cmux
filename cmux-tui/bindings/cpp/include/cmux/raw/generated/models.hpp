@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4";
+inline constexpr std::string_view kProtocolIrSha256 = "4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -51,6 +51,10 @@ enum class CloseReason;
 struct CloseTerminalResult;
 struct CloudConversationPresenceParticipant;
 struct ColorHex;
+struct ColumnDock;
+enum class ColumnDockEdge;
+enum class ColumnDockMode;
+enum class ColumnDockRole;
 enum class ColumnMoveDirection;
 struct ColumnPin;
 enum class ColumnSide;
@@ -80,6 +84,7 @@ enum class DetachReason;
 struct EmptyResult;
 struct ExportLayoutResult;
 struct ExportedPane;
+struct FloatingPane;
 struct FocusDirectionResult;
 enum class FrontendFocusTarget;
 struct FrontendJournalEvent;
@@ -665,6 +670,7 @@ struct ChiefChangedEvent;
 struct ClientAttachedEvent;
 struct ClientChangedEvent;
 struct ClientDetachedEvent;
+struct ClientDisconnectedByEvent;
 struct ClientListInvalidatedEvent;
 struct CloudConversationChangedEvent;
 struct CloudConversationLiveEvent;
@@ -1629,6 +1635,18 @@ struct ClientDetachedEvent {
     friend bool operator==(const ClientDetachedEvent&, const ClientDetachedEvent&) = default;
 };
 
+struct SizeDetachActor {
+    Field<std::string> device_name{};
+    Field<std::string> display_name{};
+    Field<std::string> user_id{};
+    friend bool operator==(const SizeDetachActor&, const SizeDetachActor&) = default;
+};
+
+struct ClientDisconnectedByEvent {
+    std::optional<SizeDetachActor> by{};
+    friend bool operator==(const ClientDisconnectedByEvent&, const ClientDisconnectedByEvent&) = default;
+};
+
 struct ClientFocusRequest {
     std::string client_id{};
     friend bool operator==(const ClientFocusRequest&, const ClientFocusRequest&) = default;
@@ -1656,6 +1674,7 @@ enum class ClientTransport {
 
 struct ClientInfo {
     std::vector<Id> attached{};
+    std::optional<std::vector<std::string>> capabilities{};
     std::uint64_t client{};
     std::uint64_t connected_seconds{};
     std::optional<std::string> kind{};
@@ -2155,6 +2174,33 @@ struct ColorsChangedEvent {
     std::optional<ColorHex> selection_fg{};
     std::optional<Id> surface{};
     friend bool operator==(const ColorsChangedEvent&, const ColorsChangedEvent&) = default;
+};
+
+enum class ColumnDockEdge {
+    left,
+    right,
+    top,
+    bottom,
+};
+
+enum class ColumnDockMode {
+    docked,
+    overlay,
+};
+
+enum class ColumnDockRole {
+    agent_chat,
+};
+
+struct ColumnDock {
+    std::optional<bool> allow_tabs{};
+    ColumnDockEdge edge{};
+    ColumnDockMode mode{};
+    std::optional<bool> permanent{};
+    std::optional<bool> pinned{};
+    std::optional<ColumnDockRole> role{};
+    Json::Object additional_properties{};
+    friend bool operator==(const ColumnDock&, const ColumnDock&) = default;
 };
 
 enum class ColumnMoveDirection {
@@ -3035,13 +3081,6 @@ struct DetachClientTarget {
     friend bool operator==(const DetachClientTarget&, const DetachClientTarget&) = default;
 };
 
-struct SizeDetachActor {
-    Field<std::string> device_name{};
-    Field<std::string> display_name{};
-    Field<std::string> user_id{};
-    friend bool operator==(const SizeDetachActor&, const SizeDetachActor&) = default;
-};
-
 struct DetachClientRequest {
     Field<SizeDetachActor> by{};
     DetachClientTarget client{};
@@ -3182,6 +3221,15 @@ struct FloatPaneRequest {
     Field<double> x{};
     Field<double> y{};
     friend bool operator==(const FloatPaneRequest&, const FloatPaneRequest&) = default;
+};
+
+struct FloatingPane {
+    double h{};
+    Id pane{};
+    double w{};
+    double x{};
+    double y{};
+    friend bool operator==(const FloatingPane&, const FloatingPane&) = default;
 };
 
 struct FlushLaunchSnapshotRequest {
@@ -3751,7 +3799,7 @@ struct LayoutRowNode {
 };
 
 struct LayoutColumnNode {
-    std::optional<JsonValue> dock{};
+    std::optional<ColumnDock> dock{};
     Id id{};
     Layout layout{};
     std::optional<std::vector<LayoutRowNode>> rows{};
@@ -5322,7 +5370,7 @@ struct Screen {
     Id active_pane{};
     Field<std::string> color{};
     std::optional<std::vector<LayoutColumnNode>> columns{};
-    std::optional<JsonValue> floating{};
+    std::optional<std::vector<FloatingPane>> floating{};
     Field<std::string> group{};
     std::optional<std::vector<Id>> hidden_dividers{};
     Field<std::string> icon{};
@@ -7242,6 +7290,30 @@ struct Codec<ColorHex> {
 };
 
 template <>
+struct Codec<ColumnDock> {
+    static Result<Json> encode(const ColumnDock& value);
+    static Result<ColumnDock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnDockEdge> {
+    static Result<Json> encode(const ColumnDockEdge& value);
+    static Result<ColumnDockEdge> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnDockMode> {
+    static Result<Json> encode(const ColumnDockMode& value);
+    static Result<ColumnDockMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnDockRole> {
+    static Result<Json> encode(const ColumnDockRole& value);
+    static Result<ColumnDockRole> decode(const Json& value);
+};
+
+template <>
 struct Codec<ColumnMoveDirection> {
     static Result<Json> encode(const ColumnMoveDirection& value);
     static Result<ColumnMoveDirection> decode(const Json& value);
@@ -7413,6 +7485,12 @@ template <>
 struct Codec<ExportedPane> {
     static Result<Json> encode(const ExportedPane& value);
     static Result<ExportedPane> decode(const Json& value);
+};
+
+template <>
+struct Codec<FloatingPane> {
+    static Result<Json> encode(const FloatingPane& value);
+    static Result<FloatingPane> decode(const Json& value);
 };
 
 template <>
@@ -10923,6 +11001,12 @@ template <>
 struct Codec<ClientDetachedEvent> {
     static Result<Json> encode(const ClientDetachedEvent& value);
     static Result<ClientDetachedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientDisconnectedByEvent> {
+    static Result<Json> encode(const ClientDisconnectedByEvent& value);
+    static Result<ClientDisconnectedByEvent> decode(const Json& value);
 };
 
 template <>

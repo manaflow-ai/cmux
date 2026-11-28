@@ -6,7 +6,7 @@
 // app, replace the sixteen colors, the background and the foreground, and re-derive those three.
 {
   "name": "Cell",
-  "description": "The terminal's character cell, dark: one palette of sixteen terminal colors, surfaces derived from its background and foreground, 4 px corners, one-pixel lines, no glass.",
+  "description": "Dark: your terminal's colors for everything.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   // Each terminal color is checked over the page: 1 to 6 and 9 to 14 at 4.5:1 or more, 8 (the dim
