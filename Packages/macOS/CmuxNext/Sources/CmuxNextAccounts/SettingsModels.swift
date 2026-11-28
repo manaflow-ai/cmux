@@ -597,6 +597,7 @@ public final class SettingsModels {
         guard line.isPerson, let reply = await line.call(method.rawValue, request) else {
             throw PageError.unavailable("the local acpmux could not check model access")
         }
+        // main-actor-ok: one route-test reply (a few fields), read once per Test click.
         return try JSONValue.parse(JSONSerialization.data(withJSONObject: reply))
     }
 

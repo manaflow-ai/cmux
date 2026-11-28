@@ -47,6 +47,7 @@ extension UpdaterService {
             actions = [.install]
             // "What's in this build" (the popover's ``BuildPullRequests``): the staged span's PRs by area.
             if let prs = stagedPullRequests, !prs.isEmpty,
+               // main-actor-ok: the staged build's PR list (tens of titles), encoded once per status read.
                case .object(var members)? = try? JSONValue.parse(JSONEncoder().encode(prs)) {
                 members["title"] = .string(UpdaterStrings.pullRequestsTitle)
                 members["other"] = .string(UpdaterStrings.pullRequestsOther)
