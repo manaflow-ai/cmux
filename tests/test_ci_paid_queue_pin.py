@@ -63,6 +63,15 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("cmux-tui-team-signed.yml", "sign-helper"): SIGNING + " (Developer ID, environment release-next)",
     ("ios-internal-nightly.yml", "upload"): SIGNING + " (App Store Connect key and iOS distribution certificate)",
     ("ios-testflight.yml", "upload"): SIGNING + " (App Store Connect key and iOS distribution certificate)",
+    ("ios-fast-verdict-seed.yml", "seed"): (
+        "writes the warm DerivedData seed that pr-pipeline.yml's ios-fast job restores on its Blacksmith fallback; "
+        "the seed's absolute workspace path must match that pool's, and it holds the next-cache-writer environment"),
+    ("machine-vault-e2e.yml", "e2e"): (
+        "adds a macOS user as root and gives it a login keychain (ephemeral-required); an owned mini's runner user "
+        "may not sudo (tests/test_ci_owned_mac_jobs_no_sudo.py)"),
+    ("relay-tls.yml", "system-keychain"): (
+        "adds a trust root to the System keychain as root (ephemeral-required), which must not outlive the job on a "
+        "shared machine (tests/test_ci_owned_mac_jobs_no_sudo.py)"),
 }
 
 
