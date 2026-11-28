@@ -434,6 +434,84 @@ PR_CHECKS_STEPS = ("pr-size", "ui-review", "split-plan", "swift-logic", "review-
 
 
 
+class NamedStepTest(unittest.TestCase):
+    """`ci/run step NAME` (the build fleet's `cmux-ci run --step NAME`): one step by name, whatever routes it, with the
+    step's own verdict. Leo, 2026-11-19: "can't you... just be able to run whatever ci steps?"."""
+
+    TABLE = textwrap.dedent('''
+        [step.lint]
+        job = "linux"
+        inputs = ["never/matched/**"]
+        run = "echo lint-ran"
+        [step.other]
+        job = "linux"
+        run = "echo other-ran"
+        [step.warns]
+        job = "advisory"
+        blocks = false
+        class = "idle"
+        run = "echo warns-ran; exit 3"
+        [step.labelled]
+        job = "advisory"
+        blocks = false
+        class = "idle"
+        labels = ["perf"]
+        run = "echo labelled-ran"
+        [step.swift]
+        job = "mac"
+        run = "echo swift-ran"
+    ''')
+
+    def step(self, name: str, system: str = "Linux") -> tuple[int, str]:
+        t = table(self.TABLE, jobs='linux = "l"\nadvisory = "a"\nmac = "m"')
+        out = io.StringIO()
+        env = {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+        old = os.environ
+        os.environ = env
+        try:
+            code = ci_steps.run_named_step(t, name, out, system=system)
+        finally:
+            os.environ = old
+        return code, out.getvalue()
+
+    def test_it_runs_only_that_step_whatever_its_inputs(self) -> None:
+        code, out = self.step("lint")
+        self.assertEqual(code, 0, out)
+        self.assertIn("lint-ran", out)
+        self.assertNotIn("other-ran", out)
+
+    def test_a_non_blocking_step_that_fails_fails_the_run(self) -> None:
+        code, out = self.step("warns")
+        self.assertEqual(code, 1, out)
+        self.assertIn("warns-ran", out)
+
+    def test_a_labelled_step_runs_as_its_label_event(self) -> None:
+        code, out = self.step("labelled")
+        self.assertEqual(code, 0, out)
+        self.assertIn("labelled-ran", out)
+
+    def test_an_unknown_step_is_refused_not_passed(self) -> None:
+        code, out = self.step("added-later")
+        self.assertEqual(code, 2, out)
+        self.assertIn("no step 'added-later'", out)
+
+    def test_a_step_of_another_os_is_refused(self) -> None:
+        code, out = self.step("swift", system="Linux")
+        self.assertEqual(code, 2, out)
+        self.assertIn("runs on Darwin", out)
+        self.assertNotIn("swift-ran", out)
+        code, out = self.step("swift", system="Darwin")
+        self.assertEqual(code, 0, out)
+        self.assertIn("swift-ran", out)
+        code, _ = self.step("lint", system="Darwin")
+        self.assertEqual(code, 2)
+
+    def test_the_fleet_entry_runs_ci_run_step(self) -> None:
+        script = (ROOT / "scripts" / "ci" / "run-step.sh").read_text()
+        self.assertIn('exec python3 ci/run step "$step"', script)
+        self.assertIn("^[a-z0-9][a-z0-9-]*$", script)
+
+
 class FakeStore:
     """The controller's step-result store, in memory."""
 
