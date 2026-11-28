@@ -752,7 +752,8 @@ public final class UpdaterService {
             card: card,
             cardPresentation: cardPresentation,
             badge: footerPill?.title,
-            relaunchHold: relaunchHold
+            relaunchHold: relaunchHold,
+            automation: automationFacts
         )
     }
 

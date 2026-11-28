@@ -96,6 +96,7 @@ fn scope_text(args: &[String]) -> Option<String> {
         ["settings" | "config", ..] => return Some(format!("{}\n", messages.settings_usage)),
         ["live", ..] => return Some(format!("{}\n", messages.live.usage)),
         ["nightly", ..] => return Some(format!("{}\n", messages.nightly.usage)),
+        ["update", ..] => return Some(format!("{}\n", messages.update_status.usage)),
         ["app", "try", ..] => return Some(format!("{}\n", messages.app_try.usage)),
         ["app", "versions" | "use", ..] => return Some(format!("{}\n", messages.nightly.usage)),
         ["app", "web-pieces", ..] => {
