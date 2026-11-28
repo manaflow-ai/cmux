@@ -157,9 +157,9 @@ enum TabHandlers {
         // tab.focus and Go to Tab focus by purpose (`focuses`); any other
         // caller only with the run's view-change permission.
         guard ActionRunScope.viewChangeAllowed() else { return }
-        guard let (tab, paneModel) = ctx.services.locateTab(tabID) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
-        guard let (workspace, screen) = owner(of: paneModel, ctx) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
-        reveal(workspace: workspace, screen: screen, pane: paneModel, tab: tab, ctx: ctx)
+        guard let paneModel = ctx.services.locateTab(tabID)?.1 ?? ctx.services.windows.controllers.lazy.compactMap({ $0.content?.panes.values.first { $0.stripModel.tab(StripTabID(tabID)) != nil }?.pane }).first ?? ctx.notFound(RefusalStrings.noTab(tabID)),
+              let (workspace, screen) = owner(of: paneModel, ctx) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }  // a strip-only tab: local-page:mac-screen:… (run 46125220823)
+        reveal(workspace: workspace, screen: screen, pane: paneModel, tab: ctx.services.locateTab(tabID)?.0.id ?? tabID, ctx: ctx)
     }
 
     /// pane.focus: the pane's workspace and screen shown, the pane focused.
@@ -192,9 +192,9 @@ enum TabHandlers {
     /// that lists `workspace` shows it, `screen` is selected there, then
     /// `tab` (selected and focused) or `pane` (focused); the window's record
     /// is saved and the window raised.
-    private static func reveal(workspace: WorkspaceModel, screen: ScreenModel, pane: PaneModel?, tab: TabModel?, ctx: AppActionContext) {
+    private static func reveal(workspace: WorkspaceModel, screen: ScreenModel, pane: PaneModel?, tab: String?, ctx: AppActionContext) {
         guard let controller = ctx.window(showing: workspace.id) ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }
-        ctx.services.show(in: controller, workspace: workspace, screen: screen, pane: pane, tab: tab?.id)
+        ctx.services.show(in: controller, workspace: workspace, screen: screen, pane: pane, tab: tab)
         ctx.services.windows.recordSaver.stateDidChange(controller.state)
         if let window = controller.window { WindowActivation.show(window, .raise) }
     }
