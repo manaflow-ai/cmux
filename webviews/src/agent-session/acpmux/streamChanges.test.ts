@@ -8,6 +8,7 @@ import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { streamedOnly } from "./streamChanges";
 import { drewStreamingRow } from "./streamingRow";
+import { usageOnly } from "./liveSummary";
 
 const prompt: AcpmuxRow = { id: "user-1", version: 1, at: 0, kind: "user", text: "run the bench" };
 const call = (output: string, extra: Partial<NonNullable<AcpmuxActivity["tool"]>> = {}): AcpmuxRow => ({
@@ -105,4 +106,21 @@ test("anything else draws the pane", () => {
   // The transcript drew the reply shaped, not as the client holds it.
   drewStreamingRow("assistant-1", "Hel");
   expect(streamedOnly(drawn, drawn, grown(call("line 0\nline 1\n")))).toBeUndefined();
+});
+
+test("a usage update keeps the pane through the client's per-snapshot projections", () => {
+  const rows = [prompt, call("line 0\n"), reply("Hello")];
+  const base = { sessionId: "s", cwd: "/tmp", harness: "claude", model: "claude-opus-5-5" };
+  const drawn = snapshot(rows, {
+    summary: { ...base, usage: { used: 1 } },
+    settled: { lastSeq: 4, forkSeqs: [] },
+    connection: "agent_message_chunk",
+  });
+  const next = snapshot(rows, {
+    summary: { ...base, usage: { used: 2 } },
+    settled: { lastSeq: 4, forkSeqs: [] },
+    connection: "usage_update",
+  });
+  expect(usageOnly(drawn, next)).toBe(true);
+  expect(usageOnly(drawn, snapshot(rows, { ...next, title: "x" }))).toBe(false);
 });
