@@ -422,7 +422,11 @@ def test_tree_request_keys_each_revision_in_its_blobless_sparse_checkout() -> No
                                               "--no-checkout", "--branch", "feat-cmux-next")
         git("sparse-checkout", "set", "--cone", "scripts/ci", cwd=checkout)
         git("checkout", "-q", "--detach", requested, cwd=checkout)
-        assert key(checkout, older).returncode != 0, "without the prefetch the older inputs list is not local"
+        # The older inputs list is not local and the script reads no object lazily, but it fetches that one blob
+        # itself: a revision keys by its own list, never the checkout's newer one (before, the newer list named an
+        # input the older revision lacks, and hot-verify plans of such commits stopped on "no cmux-tui tree key").
+        unfetched = key(checkout, older)
+        assert unfetched.returncode == 0 and unfetched.stdout == expected[older].stdout, unfetched.stderr
 
         subprocess.run(("bash", "-c", f'set -euo pipefail\n{prefetch.group(1)}\n'
                         f'prefetch_key_inputs {requested}\nprefetch_key_inputs {older}\n'),
