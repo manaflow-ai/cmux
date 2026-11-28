@@ -1924,8 +1924,7 @@ pub fn main() -> std::process::ExitCode {
     // the CLI's environment, stamps or test-owner setup.
     #[cfg(unix)]
     if let Some(code) = run_folded_host() {
-        // The status the standalone host binaries' `process::exit` gives: its low 8 bits.
-        return std::process::ExitCode::from(u8::try_from(code & 0xff).unwrap_or(u8::MAX));
+        return code;
     }
     cmux_tui_core::startup_timings::process_mark("process.start");
     // SAFETY: the first statements of main: no other thread runs yet (G4).
@@ -1968,23 +1967,58 @@ pub fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-/// Runs the host argv[0]'s file name names (`cmux-browser-host`,
-/// `cmux-app-host`, `cmux-mobile-host`) and returns its exit code, or `None` when it names none.
+/// The programs this binary runs when argv[0]'s file name is theirs (links
+/// beside bin/cmux, scripts/cmux-next/link-folded-hosts.sh, CMUX-570).
 #[cfg(unix)]
-fn run_folded_host() -> Option<i32> {
+pub const FOLDED_HOSTS: &[&str] =
+    &["cmux-browser-host", "cmux-app-host", "cmux-agent-screen-detection", "cmux-cloud"];
+
+/// Set to `1` on a run through a folded name: the binary prints
+/// `folded-hosts: <name>...` ([`FOLDED_HOSTS`]) and exits, so the bundle
+/// scripts learn which programs it carries. A binary from before this list
+/// ignores it and runs the host (link-folded-hosts.sh reads that answer too).
+#[cfg(unix)]
+const FOLDED_HOSTS_PROBE_ENV: &str = "CMUX_FOLDED_HOSTS_PROBE";
+
+/// Runs the program argv[0]'s file name names ([`FOLDED_HOSTS`]) and returns
+/// its exit status, or `None` when it names none.
+#[cfg(unix)]
+fn run_folded_host() -> Option<std::process::ExitCode> {
+    use std::process::ExitCode;
+    // The status the standalone binaries' `process::exit` gives: its low 8 bits.
+    let low_byte = |code: i32| ExitCode::from(u8::try_from(code & 0xff).unwrap_or(u8::MAX));
     let argv0 = std::env::args_os().next()?;
     let name = Path::new(&argv0).file_name()?.to_str()?;
-    let args = || std::env::args().skip(1).collect::<Vec<_>>();
-    match name {
-        "cmux-browser-host" => Some(cmux_browser_host::cli::run(args())),
-        "cmux-app-host" => Some(cmux_app_host::entry::run(&args())),
-        // A tool the app downloads on first use (`tool_packs`): runs it in this process's place.
-        "cmux-mobile-host" => {
-            let exe = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
-            cmux_tui_core::tool_packs::run_as(name, &exe)
-        }
-        _ => None,
+    // A tool the app downloads on first use (`tool_packs`): runs it in this process's place.
+    // Not a folded host: the bundle links no name for it.
+    if name == "cmux-mobile-host" {
+        let exe = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+        return cmux_tui_core::tool_packs::run_as(name, &exe).map(low_byte);
     }
+    if !FOLDED_HOSTS.contains(&name) {
+        return None;
+    }
+    if std::env::var_os(FOLDED_HOSTS_PROBE_ENV).is_some_and(|value| value == "1") {
+        println!("folded-hosts: {}", FOLDED_HOSTS.join(" "));
+        return Some(ExitCode::SUCCESS);
+    }
+    let args = || std::env::args().skip(1).collect::<Vec<_>>();
+    Some(match name {
+        "cmux-browser-host" => low_byte(cmux_browser_host::cli::run(args())),
+        "cmux-app-host" => low_byte(cmux_app_host::entry::run(&args())),
+        // A panic in the plugin still ends its process here, where panics
+        // unwind: `cli::run` installs that hook (its own build is panic=abort).
+        "cmux-agent-screen-detection" => cmux_agent_screen_detection::cli::run(args()),
+        // What a `main` returning `io::Result` prints and exits with on an error.
+        "cmux-cloud" => match cmux_cloud::run_stdio() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Error: {error:?}");
+                ExitCode::FAILURE
+            }
+        },
+        _ => return None,
+    })
 }
 
 /// The `cmux_tui.dll` entry point (cx-w0uha) that the thin Windows
