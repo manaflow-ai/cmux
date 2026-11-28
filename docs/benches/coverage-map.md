@@ -128,6 +128,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `agent-quota` | CI and agents | one PR | no |
 | `agent-turn` | acpmux daemon | stand-in model | no |
 | `app-stream-bytes` | agent pane transport | 20 chats | no |
+| `app-try-plan` | team dev build (`cmux app try dir:`) | cmux checkout | no |
 | `ask-card-wait` | agent chat | replayed logs | no |
 | `autocloud-repo-ready` | cloud | real repo | no |
 | `bundle` | app bundle | n/a | no |
@@ -217,13 +218,20 @@ whether it fails on a number.
 | `ChiefFaceFlushBenchTests` | pending lane/main-thread-sync-bridge (CmuxNextAppTests) | none | one flush under 250 ms at 1,104 rows × 5 Chiefs, 160 KB |
 | `ChatTailJSONPathBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/ChatTailJSONPathBench.swift` | `CMUX_CHAT_TAIL_BENCH` | after faster than before |
 | `ChiefLiveLayoutPerformanceTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileChiefTests/ChiefLiveLayoutPerformanceTests.swift` | `CMUX_CHIEF_LIVE_PERF` | no |
+| `ClassicUpgradeSimulationPerfTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClassicUpgradeSimulationPerfTests.swift` | `CMUX_CLASSIC_UPGRADE_PERF` | no |
 | `CloseTabRoundTripBench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/CloseTabRoundTripBench.swift` | `CMUX_TRACE_FILE` | yes |
 | `CmdPRankBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests/CmdPRankBench.swift` | `CMUX_CMDP_RANK_BENCH` | no |
 | `CmuxDialogLatencyBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/CmuxDialogLatencyBench.swift` | `CMUX_DIALOG_BENCH` | no |
 | `ExtensionsMenuPerformanceTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/ExtensionsMenuPerformanceTests.swift` | a display | yes: open and hover within a frame, calibrated to the host (`FrameBudgetCalibration`) |
+| `HomeBackgroundLoadPerfTests` | `Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/HomeBackgroundLoadPerfTests.swift` | none | yes: frame under background load p95 < 4 ms, live-line store pass p95 < 2 ms |
+| `HomeListLoadPerfTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileInstantPerfTests/HomeListLoadPerfTests.swift` | none | yes: five whole-list reads on one task allocate < 10 MB |
+| `HomeStateChangePerfTests` | `Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/HomeStateChangePerfTests.swift` | none | yes: a commit derives ≤ 40 rows again |
+| `HomeStreamingPerfTests` | `Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/HomeStreamingPerfTests.swift` | none | yes: streaming frame p95 < 12 ms, p99 < 20 ms |
+| `InstantPerfTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileInstantPerfTests/InstantPerfTests.swift` | `CMUX_INSTANT_PERF_STRICT` makes the small-case budget fail (else warns) | yes: small p95 frame within one frame |
 | `KeyRouterBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/KeyRouterBench.swift` | `CMUX_BENCH` | no |
 | `KeyboardInjectBenchUITests` | `cmux-next-ios/UITests/KeyboardInjectBenchUITests.swift` | UI test plan | no |
 | `KeyboardMotionBenchUITests` | `cmux-next-ios/UITests/KeyboardMotionBenchUITests.swift` | `cmux-next-ios-keyboard-motion.yml` (push) | no |
+| `LargeSessionChiefFacesPerfTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LargeSessionChiefFacesPerfTests.swift` | none | yes: a large-session sidebar flush under `flushBound` |
 | `LayoutDragBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LayoutDragBench.swift` | `CMUX_DRAG_BENCH` | no |
 | `LinkSmoothnessBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LinkSmoothnessBenchTests.swift` | none | yes |
 | `MachineWorkspaceResourceLookupBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MachineWorkspaceResourceLookupBenchTests.swift` | none | a lookup at 11,000 workspaces at most 4x one at 110 (#61663) |
@@ -248,6 +256,7 @@ whether it fails on a number.
 | `SidebarScrollBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarScrollBench.swift` | none (a harness other tests drive) | yes, through `SidebarChiefLagTests` (cmux#61230) |
 | `SidebarStructuralChangeBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarStructuralChangeBenchTests.swift` | none | no (prints 100 vs 10,789) |
 | `SnappySendBenchUITests` | `cmux-next-ios/UITests/SnappySendBenchUITests.swift` | UI test plan | no |
+| `SnapshotSaveGatePerfTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileInstantPerfTests/SnapshotSaveGatePerfTests.swift` | none | yes: a gated event costs ≤ 0.05 ms |
 | `SpaceSwitchBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SpaceSwitchBench.swift` | none | no |
 | `TabStripFollowsPaneTickBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TabStripFollowsPaneTickBench.swift` | `CMUX_KEY_RESIZE_STRIP_BENCH` | no |
 | `TabStripSelectionBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TabStripSelectionBench.swift` | none | no |
@@ -261,6 +270,7 @@ whether it fails on a number.
 | `TerminalReadFirstR1Bench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalReadFirstR1Bench.swift` | `CMUX_READ_FIRST_R1` | no |
 | `TranscriptReadFirstR1Bench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TranscriptReadFirstR1Bench.swift` | none | no |
 | `WorkspaceCacheSaveBurstPerfTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileInstantPerfTests/WorkspaceCacheSaveBurstPerfTests.swift` | none | burst of 50 or 500 saves writes ≤ 2 times, wall ≤ 3 single writes |
+| `WorkspacesCachePerfTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileInstantPerfTests/WorkspacesCachePerfTests.swift` | none | no |
 | `WorkspaceSyncPerformanceTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/WorkspaceSyncPerformanceTests.swift` | none | no |
 
 A row whose path cell reads "pending <branch>" is a suite on an open branch: the test lets it be absent until the branch lands, then wants its path.

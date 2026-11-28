@@ -47,6 +47,7 @@ webviews/src/protocol/codegen/*
 # the fast gates and every script a gate runs (tests/test_check_paths.py keeps them covered)
 scripts/ci/cmux_next_fast_gates.py
 scripts/ci/fast_gate_webviews_checks.py
+scripts/ci/palette_coverage_gate.py
 scripts/web_lint_prepush.py
 scripts/measure/tests/empty-array-bash32.test.py
 scripts/ci/crash_ratchet_compare.py

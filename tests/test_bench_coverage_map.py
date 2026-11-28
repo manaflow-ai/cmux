@@ -47,7 +47,7 @@ REQUIRED_RISKY = (
 
 # A bench suite, not a helper: `…Bench`, `…BenchTests`, `…Benchmark`, `…BenchmarkTests`, `…BenchParse`,
 # `…Bench…UITests`, `…PerformanceTests`. `BenchError`, `BenchHost` and `WorkspaceBenchmarkDaemon` are not.
-SUITE_NAME = re.compile(r"^\w+Bench(?:mark)?(?:Tests|UITests|Parse)?$|^\w+Bench\w+UITests$|^\w+PerformanceTests$")
+SUITE_NAME = re.compile(r"^\w+Bench(?:mark)?(?:Tests|UITests|Parse)?$|^\w+Bench\w+UITests$|^\w+Perf(?:ormance)?Tests$")
 SWIFT_ROOTS = ("Packages", "cmux-next-ios")
 
 
@@ -84,7 +84,7 @@ def tracked(*specs: str) -> list[str]:
 
 def swift_suites() -> dict[str, str]:
     """Bench suite types declared under a `…Tests` folder (git grep: one pass, no file reads in Python)."""
-    out = subprocess.run(["git", "grep", "-o", "-E", r"(struct|class|enum|actor) +[A-Za-z0-9_]*(Bench|PerformanceTests)[A-Za-z0-9_]*",
+    out = subprocess.run(["git", "grep", "-o", "-E", r"(struct|class|enum|actor) +[A-Za-z0-9_]*(Bench|PerformanceTests|PerfTests)[A-Za-z0-9_]*",
                           "--", *(f"{root}/*Tests/*.swift" for root in SWIFT_ROOTS)],
                          cwd=ROOT, capture_output=True, text=True)
     if out.returncode not in (0, 1):

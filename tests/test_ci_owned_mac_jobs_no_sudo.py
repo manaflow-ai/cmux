@@ -55,8 +55,6 @@ SCRIPTS: dict[str, tuple[int, str]] = {
         "added four; 41f770da folded them into the clean-room key probe, so the count went back to 11)"),
     "scripts/cmux-next/auto-journey.ts": (1, "safe: `sudo -n journalctl` on the guest VM, falling back to log files"),
     "scripts/cmux-next/cloud-github-main-path.py": (3, "safe: names GitHub's sudo page, runs no sudo"),
-    "scripts/e2e/backend-env.sh": (
-        5, "debt: `sudo tee -a /etc/hosts` fails on an owned mini (ios-e2e.yml mac-ios-e2e); the rest end in `|| true`"),
     "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py": (2, "safe: sudo in test data, runs none"),
     "scripts/ci/frame-pacing/console-session.sh": (
         6, "safe: hops to the console user only when `sudo -n -l launchctl` passes, else warns"),
