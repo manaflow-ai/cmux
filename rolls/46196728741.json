@@ -1,0 +1,157 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46196728741",
+  "recorded_at": "2026-11-28T22:48:35Z",
+  "reason": "cmux-tui 8430f2443622 changes the image's cmux-tui (pinned 0d1e69fa1ee6)",
+  "dry_run": false,
+  "cmux_tui": "8430f244362257e8c1584634ec0359df280d1e43",
+  "fixes": [
+    {
+      "sha": "bc3d4346208addb14e061821e107ecd56a8fec53",
+      "mergedAt": "2026-11-28T20:15:58Z",
+      "subject": "Generate the terminal-find and offer-link-to-phone daemon requests (#62863)"
+    },
+    {
+      "sha": "d920f2ba19183324378aafeea8cad77ed5372bf4",
+      "mergedAt": "2026-11-28T20:14:21Z",
+      "subject": "fix: preserve History request compatibility after generation (#62877)"
+    },
+    {
+      "sha": "1e30dbfb82cbf16e6aa3f621c14671fd05e1c09b",
+      "mergedAt": "2026-11-28T20:14:18Z",
+      "subject": "care: archive then remove old transcripts and unused VM images (#62364)"
+    },
+    {
+      "sha": "f08dc70f471ccbc384895453540bebb96100162c",
+      "mergedAt": "2026-11-28T20:10:11Z",
+      "subject": "acpmux: test the send after a move back when the chat took an agent's message there (#65186)"
+    },
+    {
+      "sha": "138aa5c88d9c9fcac8ae6db7d35bf4ab5a08edb7",
+      "mergedAt": "2026-11-28T20:08:26Z",
+      "subject": "fix(acpmux): wait for quiet after automatic harness updates (#65080)"
+    },
+    {
+      "sha": "94e37e5ac4929578386893a9ebc10da2c2db4e0f",
+      "mergedAt": "2026-11-28T20:06:23Z",
+      "subject": "Cloud start: the Auto move overlaps the family read (settle pays one round trip, not two) (#65243)"
+    },
+    {
+      "sha": "24f9a2fc2dd789031f98b5bd7e4e3e01626d4f45",
+      "mergedAt": "2026-11-28T20:04:56Z",
+      "subject": "Generate eleven Daemon request replies from the schema (#64486)"
+    },
+    {
+      "sha": "50999eb79cbbe736bd9dc9a6aab13a91c05f2c67",
+      "mergedAt": "2026-11-28T20:03:49Z",
+      "subject": "terminal-host: serve protocol N-1..=N, typed version.incompatible (RFD 0224 p2) (#65095)"
+    },
+    {
+      "sha": "613ada776d66a9d38363c662f16e90ef13668da9",
+      "mergedAt": "2026-11-28T19:59:27Z",
+      "subject": "cmux-tui: the git HEAD watch asks inotify for no opens (base red: cmux_next_ daemon tests idle_wakeups) (#62585)"
+    },
+    {
+      "sha": "72b0c813b190ccb9f9e81a043bcb22e771e4a511",
+      "mergedAt": "2026-11-28T19:59:09Z",
+      "subject": "cmux-braid-path: revert the proven current path's routine ping skip from #54697 (#65045)"
+    },
+    {
+      "sha": "ad041d42a38ba69680f9350ae14a2ce1b4724155",
+      "mergedAt": "2026-11-28T19:57:30Z",
+      "subject": "acpmux: a claimed turn lock is work coming, so wait-ready holds across the queue handoff (#64043)"
+    },
+    {
+      "sha": "daacd08c4efe3ca593f9fd5b45635796d131d732",
+      "mergedAt": "2026-11-28T19:54:47Z",
+      "subject": "cmux-tui: fix the Rust panic ratchet reds on feat-cmux-next (#65298)"
+    },
+    {
+      "sha": "f733673fa5aeceacef1fe50634db340b3aeaea85",
+      "mergedAt": "2026-11-28T19:48:51Z",
+      "subject": "cloud move: the place view carries the agent move's phases (#61674)"
+    },
+    {
+      "sha": "ce1c9ad8f54b4b07681cc77ab89520c0d21f7286",
+      "mergedAt": "2026-11-28T19:48:30Z",
+      "subject": "cmux-focus-core: TypeAheadTail, CreationKeyboardClaims, DecidedKeyEvents in Rust (step A) (#57731)"
+    },
+    {
+      "sha": "5694543db3e177e4220d38d530ad2ef70acd1c17",
+      "mergedAt": "2026-11-28T19:48:01Z",
+      "subject": "cloud start-chat: a --name machine this run makes is bounded and replaced when it never connects (#63179)"
+    },
+    {
+      "sha": "1bb93aff520c0c141e1e985a93dafd24237df65a",
+      "mergedAt": "2026-11-28T19:46:22Z",
+      "subject": "acpmux: a run of changed peer rows under one rows writer hold (sessions-2000-attached) (#64820)"
+    },
+    {
+      "sha": "aad24752b6683dab3d145eb53e4ae206b9bbdd89",
+      "mergedAt": "2026-11-28T19:45:47Z",
+      "subject": "acpmux: a paused machine answers file open and diff from its replica and journal (RFD 0144 piece 2, off by default) (#64256)"
+    },
+    {
+      "sha": "c640105aae75cddc827e0d927377219ab786bf1b",
+      "mergedAt": "2026-11-28T11:39:46-08:00",
+      "subject": "acpmux tests: the reused-slot check reads a 1 s window, not a 0 s one the meter caps at 0"
+    },
+    {
+      "sha": "9069a041227daac24c08e335bf0fb6c0ae16ac1e",
+      "mergedAt": "2026-11-28T11:39:46-08:00",
+      "subject": "acpmux: the starvation canary runs only while a link loop watches"
+    },
+    {
+      "sha": "d492d376896db40865c2fb465636c6c075882da1",
+      "mergedAt": "2026-11-28T11:39:46-08:00",
+      "subject": "acpmux red test: the starvation canary sleeps while no link loop watches"
+    },
+    {
+      "sha": "5c249b40c96f006ad18ce176397f253f2eb532c6",
+      "mergedAt": "2026-11-28T19:35:58Z",
+      "subject": "infinite-items: a simulated day lets a day pass for the freeing timer (measure clock) (#64616)"
+    },
+    {
+      "sha": "1846d9cc5397c9636683e2a7a738ef13b57b254f",
+      "mergedAt": "2026-11-28T19:35:24Z",
+      "subject": "acpmux: auto pick skips a host that refused a start; private a 775 chats folder (#65173)"
+    },
+    {
+      "sha": "fb2be32d206f1df8c22e9f314c406130b88af587",
+      "mergedAt": "2026-11-28T19:25:45Z",
+      "subject": "acpmux: mask secrets before message text enters the chat text index (#64788)"
+    },
+    {
+      "sha": "d0126cd29c68d62f3805ebdd116ffc520d41bd05",
+      "mergedAt": "2026-11-28T19:19:48Z",
+      "subject": "fix(acpmux pr_state): a skipped check is counted as no verdict, not as passed (#51271)"
+    },
+    {
+      "sha": "1f5aea66eb2f7ade9dfd6525933e826a6fcf1b31",
+      "mergedAt": "2026-11-28T19:13:33Z",
+      "subject": "CmuxNextPhone: recorder, feedback, service and replica rules are cmux-phone-core's (Step B, swift-out-rd E) (#57776)"
+    },
+    {
+      "sha": "e255492fb8967bdeb3405b93cbeaf2e522f283da",
+      "mergedAt": "2026-11-28T19:10:28Z",
+      "subject": "acpmux: run elsewhere on Cloud and AutoCloud machines over the hub carrier (#64212)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T22:48:35Z",
+    "snapshot_id": "sh-f21a633121c04a44a157e9850168033a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46196728741): 35 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "153e4b30bf6f01ebd92a5be207050cb7b7523277",
+    "image": "cloud-native-auto-8430f244-46196728741-1",
+    "revision": "ci-46196728741-1",
+    "at": "2026-11-28T22:48:35Z"
+  },
+  "rolled_back": false
+}
