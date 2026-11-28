@@ -18,6 +18,8 @@ let package = Package(
         .executable(name: "cmux-ui-browser", targets: ["UiBrowserHost"]),
         .executable(name: "cmux-ui-agentpane", targets: ["UiAgentPaneHost"]),
         .executable(name: "cmux-ui-screen", targets: ["UiScreenHost"]),
+        .executable(name: "cmux-ui-settings", targets: ["UiSettingsHost"]),
+        .executable(name: "cmux-ui-cloud", targets: ["UiCloudHost"]),
     ],
     dependencies: [
         .package(path: "../../Packages/macOS/CmuxNext"),
@@ -74,6 +76,22 @@ let package = Package(
                 "UiShellShootKit",
             ],
             path: "Sources/UiScreenHost"
+        ),
+        .executableTarget(
+            name: "UiSettingsHost",
+            dependencies: [
+                .product(name: "CmuxNextUiSettingsModules", package: "CmuxNext"),
+                "UiShellShootKit",
+            ],
+            path: "Sources/UiSettingsHost"
+        ),
+        .executableTarget(
+            name: "UiCloudHost",
+            dependencies: [
+                .product(name: "CmuxNextUiCloudModules", package: "CmuxNext"),
+                "UiShellShootKit",
+            ],
+            path: "Sources/UiCloudHost"
         ),
         .executableTarget(name: "UiLayerSourceWatcher", path: "Sources/UiLayerSourceWatcher"),
         .testTarget(name: "UiLayerHostTests", dependencies: ["UiLayerHost", "UiShellShootKit"]),

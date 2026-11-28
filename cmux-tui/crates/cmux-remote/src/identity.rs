@@ -212,6 +212,11 @@ pub struct KnownDaemon {
     /// invitation that enrolled it, so a later connect reaches its loopback route the same way.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_machine: Option<String>,
+    /// Every welcome of the last connection offered IK, so the next cold connect runs IK, one
+    /// round trip shorter than XX (`ClientConnection::connect_with_ik_hint`). False until a
+    /// connection says so, and cleared when one stops offering it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub takes_ik: bool,
 }
 
 impl std::fmt::Debug for KnownDaemon {
@@ -225,6 +230,7 @@ impl std::fmt::Debug for KnownDaemon {
             .field("first_seen_at_unix", &self.first_seen_at_unix)
             .field("last_used_at_unix", &self.last_used_at_unix)
             .field("via_machine", &self.via_machine)
+            .field("takes_ik", &self.takes_ik)
             .finish_non_exhaustive()
     }
 }
@@ -366,6 +372,7 @@ impl ClientIdentityStore {
             first_seen_at_unix: now,
             last_used_at_unix: now,
             via_machine: None,
+            takes_ik: false,
         };
         candidate.daemons.insert(fingerprint, record.clone());
         self.commit_client_state(transaction, candidate)?;
@@ -389,6 +396,35 @@ impl ClientIdentityStore {
             return Ok(None);
         };
         existing.via_machine = Some(via_machine.to_owned());
+        let record = existing.clone();
+        self.commit_client_state(transaction, candidate)?;
+        Ok(Some(record))
+    }
+
+    /// Keep whether the daemon `fingerprint` offered IK on its last connection
+    /// ([`KnownDaemon::takes_ik`]). Writes only when it changed. None when no daemon has that
+    /// fingerprint.
+    pub async fn remember_takes_ik(
+        &self,
+        fingerprint: &str,
+        takes_ik: bool,
+    ) -> Result<Option<KnownDaemon>, IdentityError> {
+        let (transaction, mut candidate) = self.reload_client_state().await?;
+        let routes_changed = transaction.routes_changed;
+        let Some(existing) = candidate.daemons.get_mut(fingerprint) else {
+            if routes_changed {
+                self.commit_client_state(transaction, candidate)?;
+            }
+            return Ok(None);
+        };
+        if existing.takes_ik == takes_ik {
+            let record = existing.clone();
+            if routes_changed {
+                self.commit_client_state(transaction, candidate)?;
+            }
+            return Ok(Some(record));
+        }
+        existing.takes_ik = takes_ik;
         let record = existing.clone();
         self.commit_client_state(transaction, candidate)?;
         Ok(Some(record))

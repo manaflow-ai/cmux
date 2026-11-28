@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import queue
 import os
 import subprocess
 import sys
@@ -54,6 +55,23 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(w.plan([app])["needs_build"], [app])
         self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiShellShootKit/UiShellShootKit.swift"])["swift"],
                          list(w.SHELL_SCENES))
+
+    def test_the_settings_window_and_cloud_ui_shoot_their_own_hosts(self):
+        settings = "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/CustomizationsMenu.swift"
+        cloud = "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudMoveStrings.swift"
+        self.assertEqual(w.plan([settings])["swift"], ["density-overlay"])
+        self.assertEqual(w.plan([cloud])["swift"], ["env-secrets"])
+        self.assertEqual(w.HEAVY_SCENES["density-overlay"], "cmux-ui-settings")
+        self.assertEqual(w.HEAVY_SCENES["env-secrets"], "cmux-ui-cloud")
+        self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiCloudHost/UiCloudHostMain.swift"])["swift"],
+                         ["env-secrets"])
+
+    def test_the_screen_map_names_each_unmapped_file(self):
+        app = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"
+        got = w.screen_map([app, "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/X.swift", "webviews/src/a.ts",
+                            "README.md"])
+        self.assertEqual(got, {app: "needs_build", "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/X.swift": ["tabs"],
+                               "webviews/src/a.ts": "web"})
 
     def test_every_heavy_scene_has_a_host_and_a_module(self):
         drawn = {s for scenes in w.SWIFT_SCENES.values() for s in scenes}
@@ -284,6 +302,69 @@ class LookTests(unittest.TestCase):
             receipt = worker.look(request())
             self.assertEqual(worker.shot, [])
             self.assertIn("shoots web scenes only", receipt["error"])
+
+
+class WarmBeforeTests(unittest.TestCase):
+    """shadow-leo: "keep warm per-screen baselines refreshed on merge, re-render only mapped screens"."""
+
+    def test_a_warmed_base_makes_the_look_shoot_the_head_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = True
+            done = worker.warm_base(BASE, lambda: False)
+            self.assertEqual(done["shot"], list(w.ALL_SWIFT_SCENES))
+            worker.shot.clear()
+            receipt = worker.look(request())
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual(worker.shot, [HEAD])
+            self.assertEqual(receipt["before_cached"], {"swift": True})
+            self.assertIn("before_s", receipt)
+            [row] = json.loads(worker.receipts_path.read_text())["receipts"]
+            self.assertEqual(row["before_cached"], {"swift": True})
+
+    def test_an_unwarmed_base_is_shot_by_the_look(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            receipt = worker.look(request())
+            self.assertEqual(worker.shot, [BASE, HEAD])
+            self.assertEqual(receipt["before_cached"], {"swift": False})
+            self.assertGreaterEqual(receipt["before_s"], 0)
+
+    def test_the_last_eight_warmed_tips_stay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = True
+            tips = [f"{i:x}" * 40 for i in range(9)]
+            for tip in tips:
+                worker.warm_base(tip, lambda: False)
+            self.assertEqual(worker.warm_tips(), tips[::-1][:w.BASE_TIPS_KEPT])
+            shots = Path(tmp) / "shots" / "swift"
+            self.assertFalse((shots / tips[0]).exists())
+            self.assertTrue((shots / tips[1]).exists())
+            self.assertEqual(len([d for d in shots.iterdir() if d.is_dir()]), 8)
+
+    def test_a_queued_push_stops_the_warm_between_scenes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = True
+            jobs = queue.Queue()
+            real = worker.swift_side
+
+            def side(sha, scenes, branch=None):
+                out = real(sha, scenes, branch)
+                jobs.put((request(), 0.0))  # a push lands while the first scene shoots
+                return out
+            worker.swift_side = side
+            done = worker.warm_base(BASE, lambda: jobs.unfinished_tasks > 0)
+            self.assertTrue(done["stopped"])
+            self.assertEqual(done["shot"], [w.ALL_SWIFT_SCENES[0]])
+            self.assertEqual(worker.warm_tips(), [])  # unfinished: the next poll goes on
+            jobs.get()
+            jobs.task_done()
+            worker.swift_side = real
+            done = worker.warm_base(BASE, lambda: jobs.unfinished_tasks > 0)
+            self.assertEqual(done["shot"], list(w.ALL_SWIFT_SCENES[1:]))
+            self.assertEqual(worker.warm_tips(), [BASE])
 
 
 class SwiftPeerTests(unittest.TestCase):

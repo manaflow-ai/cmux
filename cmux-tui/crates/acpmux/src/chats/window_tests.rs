@@ -218,3 +218,20 @@ fn a_replaced_spec_sends_every_row_again_with_a_later_revision() {
     assert_eq!(full["full"], true);
     assert_eq!(full["revision"], 2);
 }
+
+/// The title ranker that keeps its work across keystrokes ranks as the one-shot `ranked` does,
+/// when a query grows, shrinks, jumps or the entries change.
+#[test]
+fn the_kept_title_ranker_ranks_as_a_fresh_one_does() {
+    let mut entries: Vec<_> = (0..60)
+        .map(|i| entry(&format!("chat {i} about parser {}", i % 7), "/Users/me/cmux", "codex"))
+        .collect();
+    let kept = TitleRanker::default();
+    for query in ["p", "pa", "par", "pars", "par", "chat 1", "chat 12", "zzz", "p"] {
+        assert_eq!(kept.rank(query, entries.clone(), None), ranked(query, entries.clone(), None));
+    }
+    entries.push(entry("a new parser chat", "/Users/me/site", "claude-code"));
+    for query in ["pa", "par", "parser n"] {
+        assert_eq!(kept.rank(query, entries.clone(), None), ranked(query, entries.clone(), None));
+    }
+}
