@@ -178,3 +178,45 @@ fn six_thousand_asks_fold_once_and_read_in_constant_pages() {
     assert!(fold < std::time::Duration::from_secs(5), "fold took {fold:?}");
     assert!(read < std::time::Duration::from_millis(500), "a page took {read:?}");
 }
+
+/// A search matches every word, filters by folded status, is bounded and counts every match; a
+/// row's text is a snippet that `get` brings whole.
+#[test]
+fn search_is_bounded_and_get_brings_the_whole_ask() {
+    let ledger = AskLedger::default();
+    let long = "x".repeat(1_000);
+    for n in 0..query::SEARCH_MAX + 5 {
+        ledger.record(
+            captured(&format!("a{n}"), "s", n as u64, &format!("fix the tab {n} {long}")),
+            None,
+        );
+    }
+    ledger.record(captured("other", "s", 9_999, "something else"), None);
+    let all = ledger.search("Fix TAB", None, Some(10_000));
+    assert_eq!(all["matched"], query::SEARCH_MAX + 5);
+    assert_eq!(all["asks"].as_array().unwrap().len(), query::SEARCH_MAX);
+    assert_eq!(all["asks"][0]["id"], format!("a{}", query::SEARCH_MAX + 4));
+    assert_eq!(all["asks"][0]["textCut"], true);
+    assert_eq!(ledger.search("", None, None)["asks"][0]["id"], "other");
+    assert_eq!(ledger.search("nothing like it", None, None)["matched"], 0);
+
+    assert!(ledger.link("a3", "lane", Kind::Answered).is_ok());
+    let answered = ledger.search("", Some("answered"), None);
+    assert_eq!(answered["matched"], 1);
+    assert_eq!(answered["asks"][0]["events"], 1);
+    let whole = ledger.get("a3").unwrap();
+    assert!(whole["text"].as_str().unwrap().ends_with(&long));
+    assert!(ledger.get("nope").is_none());
+    assert!(ledger.link("a3", "lane", Kind::Captured { row: json!({}) }).is_err());
+    assert!(ledger.link("nope", "lane", Kind::Picked).is_err());
+}
+
+#[test]
+fn the_tools_are_listed_only_where_a_ledger_file_exists() {
+    let home = tempfile::tempdir().unwrap();
+    assert!(!query::captured_on(home.path()));
+    let ledger = AskLedger::open(Some(home.path().join(DIR)));
+    ledger.record(captured("a", "s", 1, "t"), None);
+    ledger.flush();
+    assert!(query::captured_on(home.path()));
+}

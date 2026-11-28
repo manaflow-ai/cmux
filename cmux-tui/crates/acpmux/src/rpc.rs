@@ -1133,6 +1133,11 @@ pub mod method {
     /// A chat's packed history read back: an outline, a range's digest or one record by seq
     /// (`server/history.rs`, `hub/compaction_outline.rs`).
     pub const MUX_HISTORY_READ: &str = "_acpmux/history/read";
+    /// The person's asks searched, read whole and linked by an agent (`server/asks.rs`,
+    /// `hub/ask_ledger/query.rs`, RFD 0010).
+    pub const MUX_ASKS_SEARCH: &str = "_acpmux/asks/search";
+    pub const MUX_ASKS_GET: &str = "_acpmux/asks/get";
+    pub const MUX_ASKS_LINK: &str = "_acpmux/asks/link";
     /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
     /// on the masked copy, with no model call.
     pub const MUX_SURGERY: &str = "_acpmux/surgery";

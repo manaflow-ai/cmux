@@ -92,6 +92,8 @@ mod history;
 pub(crate) mod pr;
 /// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
 pub(crate) use pr::pr_state;
+#[path = "acpmux_mcp_asks.rs"]
+mod asks;
 #[path = "acpmux_mcp_control.rs"]
 mod control;
 #[path = "acpmux_mcp_look.rs"]
@@ -169,6 +171,15 @@ fn tools_with_artifacts(artifacts: bool) -> Value {
     let mut all = tools();
     if artifacts && let Some(list) = all.as_array_mut() {
         list.extend(artifacts::definitions());
+    }
+    all
+}
+
+/// `all` and the ask tools when this machine's ask ledger captured an ask (the default-off
+/// `askLedger` experiment was on here), read once per chat's server.
+fn with_asks(mut all: Value, captured: bool) -> Value {
+    if captured && let Some(list) = all.as_array_mut() {
+        list.extend(asks::tools());
     }
     all
 }
@@ -392,7 +403,13 @@ fn served_with(
     artifacts: Option<Arc<artifacts::Artifacts>>,
 ) -> Result<crate::tools_mcp::Served> {
     let allow = crate::tool_env::var(crate::agent_tools::MCP_TOOLS_ENV);
-    let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
+    let tools = allowed(
+        with_asks(
+            tools_with_artifacts(artifacts.is_some()),
+            crate::hub::ask_ledger::query::captured_on(&crate::config::home()),
+        ),
+        allow.as_deref(),
+    );
     // Under an allowlist, a call outside it is refused like an unknown tool.
     let names: Option<Arc<Vec<String>>> = allow
         .is_some()
@@ -478,6 +495,9 @@ fn served_with(
                 }
                 if name == history::NAME {
                     return history::call(&daemon, &session, &args).await;
+                }
+                if asks::TOOLS.contains(&name) {
+                    return asks::call(&daemon, name, &args).await;
                 }
                 if name == crate::github_status::TOOL {
                     let sources = crate::github_status::Sources::current();

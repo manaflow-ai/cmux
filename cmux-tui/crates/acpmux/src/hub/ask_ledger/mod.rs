@@ -12,6 +12,7 @@
 //! the hub is built. A purge drops the chat's asks and rewrites the file without them, so the
 //! words leave the disk with the chat. A memory store keeps the events in memory only.
 
+pub(crate) mod query;
 mod store;
 
 use super::{Hub, Session};
@@ -346,7 +347,7 @@ fn identity(harness: &str, session: &str, message: &str) -> String {
 }
 
 /// The person at this machine, as an event's `by`.
-fn person() -> String {
+pub(crate) fn person() -> String {
     let user = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
         .ok()
