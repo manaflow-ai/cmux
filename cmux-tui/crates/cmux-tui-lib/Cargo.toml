@@ -228,6 +228,12 @@ cmux-cloud-phone-acp.workspace = true
 # hub carrier here (scripts/ci/acpmux-build-features.sh); cmux-remote is below already.
 acpmux = { path = "../acpmux", default-features = false, features = ["hub-carrier"] }
 cmux-app-host = { workspace = true, features = ["engine"] }
+# The agent screen-detection plugin and the Cloud app server run from it by
+# argv[0] too (`cmux-agent-screen-detection`, `cmux-cloud`; CMUX-570). Each
+# stays its own Cargo workspace with its own binary (npm packages, the Linux
+# tree, their own tests); only the cmux-next bundle links them.
+cmux-agent-screen-detection = { path = "../../bindings/examples/rust-agent-screen-detection" }
+cmux-cloud = { path = "../../../first-party-apps/cloud/server" }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-cloud-api.workspace = true
@@ -269,6 +275,8 @@ cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
 cmux-link.workspace = true
+# The phone_chat link service (src/link/phone_chat.rs): the same adapter hostd serves.
+cmux-cloud-phone-acp.workspace = true
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true
 x25519-dalek.workspace = true
@@ -335,6 +343,9 @@ cmux-composer-send.workspace = true
 cmux-layout-reducer.workspace = true
 # Seeded-secret tests: the gate sends each payload path's request to a local capture server.
 cmux-egress = { workspace = true, features = ["capture"] }
+# app/tests/frame_work.rs, ui/sidebar.rs: the list views are held to flat per-frame work in N
+# (cmux-view-rows src/frame_work.rs), counted under #[cfg(test)].
+cmux-view-rows = { path = "../cmux-view-rows", features = ["frame-work"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # `cmux carrier dial`: the device's Noise key in the login Keychain (carrier/noise_key.rs).
