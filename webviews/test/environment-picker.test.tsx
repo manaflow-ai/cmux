@@ -5,16 +5,18 @@
 // Cloud section and opens the host's create flow. It defaults to this computer. The machines come
 // from acpmux (`_acpmux/status` peers, by URL scheme, and the hosts its chats ran on); with
 // previews off the row keeps its plain Computer menu.
-import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test, jest } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { translate as t } from "../src/agent-session/acpmux/i18n";
-import { noChat } from "../src/gallery/fixtures/acpmux";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 import { labelExposure } from "./support/labelExposure";
 import { factsCardText } from "./support/factsCard";
+
+const { translate: t } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
