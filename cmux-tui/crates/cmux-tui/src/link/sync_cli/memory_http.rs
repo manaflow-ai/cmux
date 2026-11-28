@@ -252,7 +252,11 @@ impl HttpHead {
 
     fn fresh_grant(&self) -> anyhow::Result<String> {
         let issued = self.call(Method::POST, "/grants", Some(&json!({})))?;
-        let token = issued["token"].as_str().context("the grant answer has no token")?.to_string();
+        let token = issued
+            .get("token")
+            .and_then(Value::as_str)
+            .context("the grant answer has no token")?
+            .to_string();
         *self.grant.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(token.clone());
         Ok(token)
     }
@@ -266,13 +270,16 @@ impl HttpHead {
         }
         let issued =
             self.call(Method::POST, &format!("/proposals/{id}/acceptance"), Some(&json!({})))?;
-        let token = issued["token"].as_str().context("the acceptance answer has no token")?;
+        let token = issued
+            .get("token")
+            .and_then(Value::as_str)
+            .context("the acceptance answer has no token")?;
         let done = self.call(
             Method::POST,
             "/accept",
             Some(&json!({"proposal": id, "token": token, "revision": revision})),
         )?;
-        done["revision"].as_u64().context("the accept answer has no revision")
+        done.get("revision").and_then(Value::as_u64).context("the accept answer has no revision")
     }
 }
 
@@ -380,7 +387,8 @@ impl Head for HttpHead {
             "changes": changes,
         });
         let answer = self.call(Method::POST, "/proposals", Some(&body))?;
-        let id = answer["id"].as_str().context("the proposal answer has no id")?;
+        let id =
+            answer.get("id").and_then(Value::as_str).context("the proposal answer has no id")?;
         Ok(id.to_string())
     }
 
