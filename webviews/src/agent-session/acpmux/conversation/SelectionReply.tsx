@@ -66,11 +66,29 @@ function watchTranscriptRows(view: Window & typeof globalThis, root: Element, pl
     }
   };
   watchRows();
+  // A chat switch draws its rows in a new thread element (VirtualTranscript `leavingThread`): the
+  // thread's parent says so, and the new thread is watched from then on.
   const mounts = view.MutationObserver ? new view.MutationObserver(watchRows) : undefined;
-  mounts?.observe(root.querySelector(".acpmux-thread") ?? root, { childList: true });
+  let thread: Element | null = null;
+  const watchThread = () => {
+    const next = root.querySelector(".acpmux-thread");
+    if (next === thread && thread !== null) return;
+    thread = next;
+    mounts?.disconnect();
+    mounts?.observe(thread ?? root, { childList: true });
+  };
+  watchThread();
+  const swaps = view.MutationObserver
+    ? new view.MutationObserver(() => {
+        watchThread();
+        watchRows();
+      })
+    : undefined;
+  if (thread?.parentElement) swaps?.observe(thread.parentElement, { childList: true });
   return () => {
     sizes.disconnect();
     mounts?.disconnect();
+    swaps?.disconnect();
   };
 }
 
