@@ -171,7 +171,7 @@ public actor InstallAuthClient {
     /// This app's version, sent as `x-cmux-client-version`; the owner refuses an older one when
     /// the team sets `updates.minimumVersion` (enterprise P17).
     private let clientVersion: String?
-    private let onRecord: @Sendable (InstallRecord?) async -> Void
+    private let onRecord: (@Sendable (InstallRecord?) async -> Void)?
     private let now: @Sendable () -> Date
     private var record: InstallRecord?
     private var token: (value: String, expiresAt: Date)?
@@ -181,15 +181,17 @@ public actor InstallAuthClient {
     public static let refreshMargin: TimeInterval = 60
     /// The header the owner's version gate reads (token mint and wire connects).
     public static let clientVersionHeader = "x-cmux-client-version"
+    /// The most effects one mint or revoke performs before the client gives up on it.
+    static let maximumSteps = 64
 
     /// - Parameters:
     ///   - team: One backend team id, fixed for this client and its token cache. Nil keeps personal issuance.
     ///   - expectedEnvironment: The environment already verified by the enclosing account client, when available.
-    ///   - onRecord: persists the record (Keychain) the moment it changes.
+    ///   - onRecord: persists the record (Keychain) the moment it changes; nil keeps it in memory only.
     public init(transport: any InstallAuthTransport, signer: any InstallSigner, sessionToken: SessionToken?,
                 stackUser: String, deviceName: String, clientVersion: String?, record: InstallRecord?,
                 profile: InstallProfile = .mac, team: String? = nil, expectedEnvironment: String? = nil,
-                onRecord: @escaping @Sendable (InstallRecord?) async -> Void = { _ in },
+                onRecord: (@Sendable (InstallRecord?) async -> Void)? = nil,
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.transport = transport
         self.signer = signer
@@ -233,7 +235,7 @@ public actor InstallAuthClient {
         guard effect["revoked"] as? Bool == true else { return }
         reset()
         self.record = nil
-        await onRecord(nil)
+        await onRecord?(nil)
         try await signer.rotate()
     }
 
@@ -277,7 +279,9 @@ public actor InstallAuthClient {
             "has_session": sessionToken != nil,
             "fresh_ids": [UUID().uuidString.lowercased(), UUID().uuidString.lowercased()],
         ]
-        while true {
+        // The machine ends every exchange in a few dozen steps (the longest mint registers, rotates,
+        // registers again, recovers once and mints again); past the bound it is answering in a circle.
+        for _ in 0..<Self.maximumSteps {
             let effect: [String: Any]
             (state, effect) = try step(state, event)
             switch effect["effect"] as? String {
@@ -299,7 +303,7 @@ public actor InstallAuthClient {
                 record = (saved?["user"] as? String).flatMap { user in
                     (saved?["install"] as? String).map { InstallRecord(user: user, install: $0) }
                 }
-                await onRecord(record)
+                await onRecord?(record)
                 event = ["event": "saved"]
             case "done", "revoked":
                 return effect
@@ -309,6 +313,7 @@ public actor InstallAuthClient {
                 throw InstallAuthError.malformedReply
             }
         }
+        throw InstallAuthError.malformedReply
     }
 
     private func post(_ effect: [String: Any]) async -> [String: Any] {
