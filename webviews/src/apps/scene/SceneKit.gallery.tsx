@@ -42,17 +42,13 @@ const tooltip: Play = async (ctx) => {
 };
 const card: Play = async (ctx) => {
   await ctx.hover({ selector: '[data-app-node="sdk-trigger"]' });
-  await ctx.waitFor(() =>
-    ctx.document.querySelector('[role="dialog"] [data-app-node="sdk-detail"]'),
-  );
+  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"] [data-app-node="sdk-detail"]'));
 };
 const crossed: Play = async (ctx) => {
   await card(ctx);
   await ctx.hover({ selector: '[role="dialog"] [data-app-node="sdk-action"]' });
   // Moving into the portal must keep the actual SDK content usable.
-  await ctx.waitFor(() =>
-    ctx.document.querySelector('[role="dialog"] [data-app-node="sdk-action"]'),
-  );
+  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"] [data-app-node="sdk-action"]'));
 };
 const left: Play = async (ctx) => {
   await crossed(ctx);
@@ -67,11 +63,7 @@ export default componentEntry({
   pane: true,
   height: 400,
   widths: { narrow: 420, normal: 560 },
-  covers: [
-    "apps/scene/SceneRenderer.tsx",
-    "ui/Tooltip.tsx",
-    "agent-session/acpmux/chips/useHoverCard.ts",
-  ],
+  covers: ["apps/scene/SceneRenderer.tsx", "ui/Tooltip.tsx", "agent-session/acpmux/chips/useHoverCard.ts"],
   load: async () => SceneKit,
   variants: {
     closed: { note: "The SDK Pill and Card trigger, before any hover.", props: {} },
