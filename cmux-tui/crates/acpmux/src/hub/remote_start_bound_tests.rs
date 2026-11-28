@@ -64,11 +64,11 @@ fn running(pid: u32) -> bool {
 #[tokio::test]
 async fn a_sandboxed_claude_that_writes_nothing_is_stopped_with_an_error() {
     let (hub, session) = hub_with("remote-start-silent");
-    hub.set_remote_start_bound(std::time::Duration::from_millis(300));
     let child = spawn(&hub, &session, "exec sleep 600").await;
     let pid = child.pid.unwrap();
     assert!(running(pid));
-    hub.watch_remote_start(&session, &child, session.taps.load(Ordering::SeqCst));
+    let tap = session.taps.load(Ordering::SeqCst);
+    hub.watch_remote_start(&session, &child, tap, std::time::Duration::from_millis(300));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while (bound_events(&hub, &session.id).is_empty() || running(pid))
         && std::time::Instant::now() < deadline
@@ -87,12 +87,12 @@ async fn a_sandboxed_claude_that_writes_nothing_is_stopped_with_an_error() {
 #[tokio::test]
 async fn a_sandboxed_claude_that_writes_a_line_is_left_running() {
     let (hub, session) = hub_with("remote-start-heard");
-    hub.set_remote_start_bound(std::time::Duration::from_millis(300));
     let child =
         spawn(&hub, &session, r#"echo '{"type":"system","subtype":"status"}'; exec sleep 600"#)
             .await;
     let pid = child.pid.unwrap();
-    hub.watch_remote_start(&session, &child, session.taps.load(Ordering::SeqCst));
+    let tap = session.taps.load(Ordering::SeqCst);
+    hub.watch_remote_start(&session, &child, tap, std::time::Duration::from_millis(300));
     tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
     assert!(bound_events(&hub, &session.id).is_empty());
     assert!(running(pid));
