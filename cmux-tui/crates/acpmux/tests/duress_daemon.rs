@@ -515,7 +515,11 @@ fn statvfs(path: &Path) -> Option<(u64, u64)> {
     // SAFETY: a zeroed statvfs is a valid out parameter; `c` is a valid C string.
     let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
     (unsafe { libc::statvfs(c.as_ptr(), &mut s) } == 0)
-        .then(|| (s.f_blocks * s.f_frsize, s.f_bavail * s.f_frsize))
+        // fsblkcnt_t is 32 bits on macOS, 64 on Linux; `u64::from` widens either.
+        .then(|| {
+            let frsize = u64::from(s.f_frsize);
+            (u64::from(s.f_blocks) * frsize, u64::from(s.f_bavail) * frsize)
+        })
 }
 
 /// Fills the filesystem at `filler`'s folder until under 1% of it is free: the bytes written.
