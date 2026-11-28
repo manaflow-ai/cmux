@@ -52,11 +52,19 @@ extension CmuxTuiSurfaceProvider {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let state = self.cloudState else { return }
-                self.syncNotifications(from: state)
+                self?.retryNotificationPlacementIfNeeded()
             }
         }
     }
+
+    /// Re-attempts only rows that previously lacked a local terminal target.
+    /// Catalog changes must not replay agent and guest-URL synchronization.
+    private func retryNotificationPlacementIfNeeded() {
+        guard let notificationSync,
+              notificationSync.hasPendingPlacementRetry else { return }
+        notificationSync.apply(rows: notificationSync.rows)
+    }
+
     func syncNotifications(from state: CloudVMState) {
         syncAgentHooks(from: state)
         updateGuestURLMembership()
