@@ -24,6 +24,7 @@ use prompt_sender::{app_pane_unproven, owner_terminal};
 mod presets;
 mod queued;
 mod session_open;
+mod session_resources;
 mod signature;
 mod start_reason;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
@@ -3508,6 +3509,8 @@ async fn dispatch_method(
         method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
         // A pure function of the ids asked, the same for every origin (`requests/signature.rs`).
         method::SESSION_SIGNATURE => signature::handle(params),
+        // Read on request from the OS, nothing kept (`requests/session_resources.rs`).
+        method::MUX_SESSION_RESOURCES => session_resources::handle(hub, &params).await,
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;

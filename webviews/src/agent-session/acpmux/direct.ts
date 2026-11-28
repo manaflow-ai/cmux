@@ -1,3 +1,4 @@
+import type { InspectorHistory } from "./InspectorTiming";
 import type { BrowserWorkspaces } from "./browser/workspaces";
 import {
   browserDeviceError,
@@ -284,6 +285,7 @@ import { promptCoachEnabled } from "./chatDisplay";
 import { afterNextPaint } from "./afterNextPaint";
 import { PromptHeads, type PromptHead } from "./promptHeads";
 import { ADMISSION_WAITING_METHOD, PLACE_CHAT_METHOD } from "./autoWhereModel";
+import { noteDeviceKinds } from "../../ui/deviceKinds";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -6208,6 +6210,23 @@ export class AcpmuxDirectClient {
   gitPullRequest(params: { action?: "threads" | "merge"; number?: number; url?: string } = {}): Promise<unknown> {
     if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
     return this.git("git.pullRequest", params);
+  }
+
+  /// Rust reads the selected chat's PR and returns bounded prompt context. This does not send
+  /// a prompt or merge; the caller's explicit action supplies the former through chat.send.
+  async pullRequestAction(params: { url: string; headSha?: string; action: string }): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    const generation = this.selectionGeneration;
+    const result = await this.request(
+      "_acpmux/pull_request_action",
+      { sessionId, ...params },
+      95_000,
+      () => generation === this.selectionGeneration && sessionId === this.selectedSessionId,
+    );
+    if (this.closed || generation !== this.selectionGeneration || sessionId !== this.selectedSessionId)
+      throw new Error(translate("error.notOpen"));
+    return result;
   }
 
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
@@ -17039,6 +17058,11 @@ export class AcpmuxDirectClient {
   async audit(params: Record<string, unknown> = {}): Promise<unknown> {
     return this.request("_acpmux/audit", params, 15_000);
   }
+  /// A chat's recorded turn timings for the inspector's Timing tab (`_acpmux/history`, acpmux
+  /// hub/history_timing.rs); read only when that tab opens, the latest 100 turns.
+  async inspectorHistory(sessionId: string): Promise<InspectorHistory> {
+    return this.request("_acpmux/history", { sessionId, limit: 100 }, 15_000);
+  }
   /// The chat's effective prompt context for the Context screen (`_acpmux/context`, acpmux
   /// context_inventory.rs): what cmux adds in full, the harness's own parts as counts.
   async contextInventory(sessionId = this.actingSessionId): Promise<unknown> {
@@ -17227,6 +17251,7 @@ export class AcpmuxDirectClient {
           .filter((peer: string | undefined): peer is string => Boolean(peer))
       : [];
     this.peerKinds = peerKindsFromStatus(status);
+    noteDeviceKinds(status);
     this.peerCloudRegistries = peerCloudRegistriesFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
     this.peerAgentLogin = peerAgentLoginFromStatus(status);
@@ -17387,6 +17412,8 @@ export class AcpmuxDirectClient {
                 at: event.at,
                 text: String(event.msg?.text ?? "").slice(0, 240),
                 ...(promptId ? { promptId } : {}),
+                // acpmux marks a prompt the person did not type (hub/paging.rs `prompt_index_msg`).
+                ...(event.msg?.others === true ? { others: true as const } : {}),
               });
             }
             if (page.length > 0) pages.push(page);
