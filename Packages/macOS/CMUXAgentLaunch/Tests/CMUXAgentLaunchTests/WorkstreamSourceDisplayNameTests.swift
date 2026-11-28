@@ -23,3 +23,59 @@ struct WorkstreamSourceDisplayNameTests {
         }
     }
 }
+
+/// A hook agent `WorkstreamSource` doesn't list (Muse, Kimi, Kiro, ...) is
+/// stored with the Claude fallback source and its own id in `sourceID`. Its
+/// card must still carry its own name, not Claude's.
+/// https://github.com/manaflow-ai/cmux/issues/49517
+@MainActor
+@Suite("WorkstreamItem agent display name")
+struct WorkstreamItemAgentDisplayNameTests {
+    private func ingestedStop(source: String) throws -> WorkstreamItem {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "agent-name", hookEventName: .stop, source: source
+        ))
+        return try #require(store.items.first)
+    }
+
+    @Test("A hook agent missing from the source list keeps its own name", arguments: [
+        ("muse", "Muse Code"),
+        ("kimi", "Kimi Code"),
+        ("kiro", "Kiro"),
+        ("antigravity", "Antigravity"),
+        ("rovodev", "Rovo Dev"),
+        ("omp", "OMP"),
+        ("campfire", "Campfire"),
+    ])
+    func unlistedHookAgentKeepsItsName(source: String, name: String) throws {
+        let item = try ingestedStop(source: source)
+        #expect(item.sourceID == source)
+        #expect(item.agentDisplayName == name)
+    }
+
+    @Test("An agent cmux has no name for shows the id it sent")
+    func unknownAgentShowsItsID() throws {
+        let item = try ingestedStop(source: "my-agent")
+        #expect(item.agentDisplayName == "my-agent")
+    }
+
+    @Test("A listed source keeps the name its source gives", arguments: WorkstreamSource.allCases)
+    func listedSourceKeepsItsName(source: WorkstreamSource) throws {
+        let item = try ingestedStop(source: source.rawValue)
+        #expect(item.sourceID == nil)
+        #expect(item.agentDisplayName == source.displayName)
+    }
+
+    @Test("A stored row whose raw id is a listed source takes that source's name")
+    func storedRowWithListedRawID() {
+        let item = WorkstreamItem(
+            workstreamId: "grok-session",
+            source: .claude,
+            sourceID: "grok",
+            kind: .stop,
+            payload: .stop(reason: nil)
+        )
+        #expect(item.agentDisplayName == "Grok")
+    }
+}
