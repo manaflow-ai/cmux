@@ -7,20 +7,20 @@ private actor AccountNoHost: AgentPaneHostProviding {
 }
 
 /// The Keychain in memory: what was stored under which reference, and what was taken back out.
-private final class MemoryKeys: ModelKeyStoring, @unchecked Sendable {
+private final class MemoryKeys: ClaudeTokenStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var _stored: [String: String] = [:]
     private var _deleted: [String] = []
     var stored: [String: String] { lock.withLock { _stored } }
     var deleted: [String] { lock.withLock { _deleted } }
-    func store(_ key: String, provider: String) async throws -> String {
+    func store(_ key: String, socket: String) async throws -> String {
         lock.withLock {
-            let reference = "keychain:test/\(provider)-\(_stored.count + 1)"
+            let reference = "keychain:test/claude-token-\(_stored.count + 1)"
             _stored[reference] = key
             return reference
         }
     }
-    func delete(_ reference: String) async { lock.withLock { _deleted.append(reference) } }
+    func delete(_ reference: String, socket: String) async { lock.withLock { _deleted.append(reference) } }
 }
 
 @Suite(.serialized)

@@ -6,7 +6,7 @@
 
 use super::*;
 
-use crate::{route_account, routes};
+use crate::{route_account, routes, subscriptions::LOCAL_SUBSCRIPTION_ROUTE};
 use cmux_json::JsonSet as _;
 
 impl Hub {
@@ -15,6 +15,7 @@ impl Hub {
         &self,
         route_id: &str,
         family: &str,
+        profile: &HarnessProfile,
     ) -> Result<(), RpcError> {
         let (dir, _) = crate::routes::places(&*self.config.read().await);
         let found = crate::routes::find(dir.as_deref(), route_id)
@@ -24,7 +25,7 @@ impl Hub {
                 "route {route_id} does not serve the {family} harness"
             )));
         }
-        Ok(())
+        found.check_local_harness(Some(profile)).map_err(|e| route_error(&e))
     }
 
     /// The route env of a spawn, applied over `env`: the session's chat
@@ -51,7 +52,7 @@ impl Hub {
     /// be a chat: without a session (a one-shot `_acpmux/complete`) only the
     /// profile's, family's or global route applies. `has_home`: the chat's
     /// conversation already has a folder, which the route does not change.
-    pub(super) async fn apply_route_for(
+    pub(crate) async fn apply_route_for(
         &self,
         harness: &str,
         session: Option<&str>,
@@ -70,16 +71,32 @@ impl Hub {
         // A profile's own route (the `cmux` harness) replaces a family or
         // global binding; a chat or workspace binding still wins; your own
         // endpoint is never rewritten by a family or global one.
+        let automatic = match family.as_str() {
+            "github-copilot" | "openrouter" => {
+                routes::automatic_connection(dir.as_deref(), &bindings, &family)
+                    .map(|id| (id, "profile"))
+            }
+            _ => None,
+        };
         let Some((id, scope)) = routes::spawn_route(
             &bindings,
             session.unwrap_or_default(),
             workspace,
             &family,
             &profile.env,
-        ) else {
+        )
+        .filter(|(_, scope)| {
+            !matches!(family.as_str(), "github-copilot" | "openrouter") || *scope == "chat"
+        })
+        .or(automatic) else {
             return Ok(None);
         };
-        let route = routes::find(dir.as_deref(), &id).map_err(|e| {
+        let route = if let Some(session) = session.filter(|_| scope == "chat") {
+            routes::find_chat_route(dir.as_deref(), &state, session, &id)
+        } else {
+            routes::find(dir.as_deref(), &id)
+        }
+        .map_err(|e| {
             route_error(&routes::RouteError::NotFound(format!(
                 "{e}: this {scope}'s route is gone; put its file back in ~/.config/{next}/routes \
                  or pick another account in the chat's Account menu",
@@ -94,6 +111,7 @@ impl Hub {
             }
             return Ok(None);
         }
+        route.check_local_harness(Some(profile)).map_err(|e| route_error(&e))?;
         let home = route.file.account_home.clone().map(PathBuf::from);
         let name = route.name();
         let moved = route.clone();
@@ -109,6 +127,79 @@ impl Hub {
         .map_err(|e| RpcError::internal(e.to_string()))?
         .map_err(|e| route_error(&e))?;
         routes::apply(env, &route_env);
+        let chatgpt = moved.file.kind == routes::RouteKind::ChatgptPlan;
+        if chatgpt {
+            let (_, home) = routes::places(&*self.config.read().await);
+            let (token, expires_at) = self
+                .chatgpt
+                .token(&home, &id)
+                .await
+                .map_err(|error| connection_error(&error.code, "ChatGPT"))?;
+            env.insert(crate::agent_credentials::CHATGPT_TOKEN.into(), token);
+            env.insert(
+                crate::agent_credentials::LOCAL_REDACTION.into(),
+                crate::agent_credentials::CHATGPT_TOKEN.into(),
+            );
+            env.insert(crate::chatgpt::LOCAL_EXPIRY_ENV.into(), expires_at.to_string());
+        }
+        use crate::subscriptions::Provider;
+        let provider = Provider::for_kind(moved.file.kind);
+        if let Some(provider) = provider {
+            let grant = async || {
+                let (_, home) = routes::places(&*self.config.read().await);
+                let (token, expires_at, region) = self
+                    .subscriptions
+                    .grant(provider, &home, &id, crate::subscriptions::LOCAL_MARGIN)
+                    .await
+                    .map_err(subscription_error)?;
+                Ok::<_, RpcError>((token, expires_at, region, home))
+            };
+            match provider {
+                Provider::Grok => {
+                    let _ = session.ok_or_else(|| subscription_error("session_required"))?;
+                    env.insert(crate::subscriptions::grok_hook::ROUTE.into(), id.clone());
+                }
+                Provider::Kimi => {
+                    let (token, expires_at, region, _) = grant().await?;
+                    let region = region.ok_or_else(|| subscription_error("reauth_required"))?;
+                    env.extend(
+                        crate::byo_endpoint::opencode_env(
+                            "Kimi Code",
+                            region.base_url(),
+                            &[crate::subscriptions::KIMI_MODEL.into()],
+                            true,
+                        )
+                        .into_iter()
+                        .map(|(key, value)| (key.to_owned(), value)),
+                    );
+                    env.insert(crate::byo_endpoint::OPENAI_KEY_ENV.into(), token);
+                    env.insert(
+                        crate::agent_credentials::LOCAL_REDACTION.into(),
+                        crate::byo_endpoint::OPENAI_KEY_ENV.into(),
+                    );
+                    env.insert(
+                        crate::subscriptions::LOCAL_KIMI_EXPIRY.into(),
+                        expires_at.to_string(),
+                    );
+                }
+                Provider::Copilot => {
+                    let (token, _, _, _home) = grant().await?;
+                    env.insert(crate::agent_credentials::COPILOT_TOKEN.into(), token);
+                    #[cfg(unix)]
+                    {
+                        env.insert(crate::agent::copilot_auth::ROUTE_ENV.into(), id.clone());
+                        env.insert(
+                            crate::agent::copilot_auth::ROUTE_HOME_ENV.into(),
+                            _home.to_string_lossy().into_owned(),
+                        );
+                    }
+                }
+            }
+        }
+        if chatgpt || provider.is_some() {
+            let instance = moved.file.credential_instance.as_deref().unwrap_or_default();
+            env.insert(LOCAL_SUBSCRIPTION_ROUTE.into(), format!("{id}:{instance}"));
+        }
         env.insert(routes::NAME_KEY.into(), name);
         // A home the profile pins (a Chief turn's, a claude-sr profile's) is
         // only replaced by a route picked for this chat or profile.
@@ -134,6 +225,229 @@ impl Hub {
         Ok(home)
     }
 
+    /// The turn lock is held. Finish any existing work before restarting a child whose launch
+    /// connection was removed. When restarting would interrupt work, refuse the new prompt.
+    pub(super) async fn refresh_disconnected_subscription_before_turn(
+        &self,
+        session: &Arc<Session>,
+    ) -> Result<(), RpcError> {
+        // A child that is still starting is checked when the prompt acquires it.
+        let Ok(_spawn) = session.spawn_lock.try_lock() else { return Ok(()) };
+        let Some(child) = session.child.lock().await.clone() else { return Ok(()) };
+        if let Err(error) = self.check_local_subscription_child(session, &child).await {
+            if !self.route_child_is_idle(session) {
+                return Err(error);
+            }
+            self.detach_child(session).await;
+        }
+        Ok(())
+    }
+
+    /// Check the connection the child actually started with. Current bindings may already
+    /// point to a different account, including a replacement with the same route id.
+    pub(super) async fn check_local_subscription_child(
+        &self,
+        session: &Session,
+        child: &ChildAgent,
+    ) -> Result<(), RpcError> {
+        let launch = session
+            .launch_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|env| env.get(LOCAL_SUBSCRIPTION_ROUTE).cloned());
+        let needs_restart = match launch {
+            Some(Some(route)) => {
+                let (dir, _) = routes::places(&*self.config.read().await);
+                !tokio::task::spawn_blocking(move || {
+                    let Some((id, instance)) = route.split_once(':') else { return false };
+                    routes::find(dir.as_deref(), id).is_ok_and(|current| {
+                        current.file.credential_instance.as_deref().unwrap_or_default() == instance
+                    })
+                })
+                .await
+                .unwrap_or_default()
+            }
+            Some(None) => false,
+            // An adopted host has no launch snapshot. A recorded local expiry identifies a
+            // subscription even after its bindings have gone. Older Codex hosts can also be
+            // identified by the launch environment while they are still running.
+            None => {
+                if let Some(record) = child.host_record() {
+                    record.local_kimi_expiry.is_some()
+                        || record.local_chatgpt_expiry.is_some()
+                        || self
+                            .legacy_adopted_chatgpt_expiry(session, record.harness_pid)
+                            .await
+                            .is_some()
+                } else {
+                    false
+                }
+            }
+        };
+        if needs_restart { Err(subscription_error("reauth_required")) } else { Ok(()) }
+    }
+
+    /// A local Kimi agent holds its launch grant until the next restart.
+    pub(super) async fn refresh_local_kimi_between_turns(&self, session: &Arc<Session>) {
+        let expiry = session
+            .child
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|child| child.host_record())
+            .and_then(|record| record.local_kimi_expiry);
+        let expiry = expiry.or_else(|| {
+            let launch = session.launch_env.lock().unwrap_or_else(|e| e.into_inner());
+            launch.as_ref()?.get(crate::subscriptions::LOCAL_KIMI_EXPIRY)?.parse::<i64>().ok()
+        });
+        if expiry.is_some_and(|expiry| {
+            expiry.saturating_sub(crate::subscriptions::now()) <= crate::subscriptions::LOCAL_MARGIN
+        }) {
+            self.detach_idle_route_child(session).await;
+        }
+    }
+
+    /// The prompt owns the turn lock and has yet to start its turn. Reopening the agent
+    /// through the ordinary spawn path refreshes the route and resumes its conversation.
+    pub(super) async fn refresh_local_chatgpt_between_turns(&self, session: &Arc<Session>) {
+        let expires = {
+            let launch = session.launch_env.lock().unwrap_or_else(|e| e.into_inner());
+            match launch.as_ref() {
+                Some(env) => match env
+                    .get(crate::chatgpt::LOCAL_EXPIRY_ENV)
+                    .and_then(|value| value.parse::<i64>().ok())
+                {
+                    Some(expiry) => Some(expiry),
+                    None => return,
+                },
+                None => None,
+            }
+        };
+        let expires = match expires {
+            Some(expiry) => Some(expiry),
+            None => {
+                let record =
+                    session.child.lock().await.as_ref().and_then(|child| child.host_record());
+                match record {
+                    Some(record) => match record.local_chatgpt_expiry {
+                        Some(expiry) => Some(expiry),
+                        None => {
+                            self.legacy_adopted_chatgpt_expiry(session, record.harness_pid).await
+                        }
+                    },
+                    None => None,
+                }
+            }
+        };
+        if expires.is_none_or(|expiry| {
+            expiry.saturating_sub(crate::chatgpt::now_unix()) > crate::chatgpt::REFRESH_MARGIN_SECS
+        }) {
+            return;
+        }
+        self.detach_idle_route_child(session).await;
+    }
+
+    async fn detach_idle_route_child(&self, session: &Arc<Session>) {
+        let _spawn = session.spawn_lock.lock().await;
+        if self.route_child_is_idle(session) && session.child.lock().await.is_some() {
+            self.detach_child(session).await;
+        }
+    }
+
+    pub(super) fn route_child_is_idle(&self, session: &Session) -> bool {
+        session.turn().is_none()
+            && !session.harness_turn.load(Ordering::SeqCst)
+            && !session.compacting.load(Ordering::SeqCst)
+            && session.asks_in_flight.load(Ordering::SeqCst) == 0
+            && session.pending_permissions().is_empty()
+            && !self.holds_work_below(session)
+    }
+
+    pub(super) async fn uses_local_chatgpt_plan(&self, session: &Session) -> bool {
+        let launch = session
+            .launch_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|env| env.contains_key(crate::chatgpt::LOCAL_EXPIRY_ENV));
+        if launch == Some(true) {
+            return true;
+        }
+        if launch.is_none() {
+            let host = session.child.lock().await.as_ref().and_then(|child| child.host_record());
+            if let Some(record) = host
+                && (record.local_chatgpt_expiry.is_some()
+                    || self
+                        .legacy_adopted_chatgpt_expiry(session, record.harness_pid)
+                        .await
+                        .is_some())
+            {
+                return true;
+            }
+        }
+        let meta = session.meta();
+        let config = self.config.read().await;
+        let Ok(profile) =
+            super::resolve::session_profile(&config, &meta.harness, &meta.cwd, meta.remote_origin)
+        else {
+            return false;
+        };
+        let (dir, home) = routes::places(&config);
+        local_chatgpt_route(dir.as_deref(), &home, &meta, &profile).is_some()
+    }
+
+    pub(super) async fn legacy_adopted_chatgpt_expiry(
+        &self,
+        session: &Session,
+        pid: Option<u32>,
+    ) -> Option<i64> {
+        if session.credential.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(
+            |credential| credential.family() == crate::agent_credentials::Family::Codex,
+        ) {
+            return None;
+        }
+        let meta = session.meta();
+        let (dir, home, profile) = {
+            let config = self.config.read().await;
+            let Ok(profile) = super::resolve::session_profile(
+                &config,
+                &meta.harness,
+                &meta.cwd,
+                meta.remote_origin,
+            ) else {
+                return None;
+            };
+            let family = crate::config::derive_family(&meta.harness, &profile);
+            if crate::agent_credentials::Family::of_harness(&family)
+                != Some(crate::agent_credentials::Family::Codex)
+            {
+                return None;
+            }
+            let (dir, home) = routes::places(&config);
+            (dir, home, profile)
+        };
+        tokio::task::spawn_blocking(move || {
+            // The launch token still identifies an older local ChatGPT host when its route
+            // and bindings are gone. A token without a readable deadline needs a restart.
+            #[cfg(unix)]
+            if let Some(vars) = pid.and_then(crate::agent_host::tree::environ)
+                && let Some((_, token)) =
+                    vars.iter().find(|(name, _)| name == crate::agent_credentials::CHATGPT_TOKEN)
+            {
+                return Some(crate::agent_credentials::chatgpt_token_expiry(token).unwrap_or(0));
+            }
+            #[cfg(not(unix))]
+            let _ = pid;
+            let id = local_chatgpt_route(dir.as_deref(), &home, &meta, &profile)?;
+            let record = crate::chatgpt::store::read(&home, &id).ok()??;
+            Some(record.expires_at)
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
     /// Bind a chat to a route (None: back to the inherited one) and move its
     /// harness onto it: an idle chat restarts now and resumes; a running
     /// turn finishes first (`now`: is cancelled first).
@@ -143,17 +457,35 @@ impl Hub {
         route: Option<String>,
         now: bool,
     ) -> Result<Value, RpcError> {
-        let (dir, state) = routes::places(&*self.config.read().await);
         let meta = session.meta();
-        let profile = self.config.read().await.harnesses.get(&meta.harness).cloned();
-        if let (Some(id), Some(profile)) = (&route, &profile) {
+        let (dir, state, profile) = {
+            let config = self.config.read().await;
+            let (dir, state) = routes::places(&config);
+            let profile = super::resolve::session_profile(
+                &config,
+                &meta.harness,
+                &meta.cwd,
+                meta.remote_origin,
+            )
+            .ok();
+            (dir, state, profile)
+        };
+        let found = route
+            .as_deref()
+            .map(|id| routes::find(dir.as_deref(), id))
+            .transpose()
+            .map_err(|e| route_error(&e))?;
+        if let Some(found) = &found {
+            found.check_local_harness(profile.as_ref()).map_err(|e| route_error(&e))?;
+        }
+        if let (Some(found), Some(profile)) = (&found, &profile) {
             // Checked before the binding changes: an unknown route, one of
             // another family or a local router that is down keeps the chat
             // where it is.
-            let found = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
             let family = crate::config::derive_family(&meta.harness, profile);
             let state2 = state.clone();
             let marker_root = self.vm_marker_root();
+            let found = found.clone();
             tokio::task::spawn_blocking(move || {
                 let gateway = cloud_gateway(&marker_root, &Default::default());
                 routes::env_for_on(&found, &family, &state2, gateway.as_deref())
@@ -162,7 +494,7 @@ impl Hub {
             .map_err(|e| RpcError::internal(e.to_string()))?
             .map_err(|e| route_error(&e))?;
         }
-        if let (Some(id), Some(profile)) = (&route, &profile)
+        if let (Some(found), Some(profile)) = (&found, &profile)
             && route_account::has_home(&meta)
         {
             // Its conversation stays in its folder: another account's route
@@ -170,30 +502,52 @@ impl Hub {
             let family = crate::config::derive_family(&meta.harness, profile);
             let (_, env) = self.harness_env(&meta).await;
             let current = route_account::current_home(&meta, &family, &env);
-            let to = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
-            route_account::switch_allowed(current.as_deref(), &to).map_err(|e| route_error(&e))?;
+            route_account::switch_allowed(current.as_deref(), found)
+                .map_err(|e| route_error(&e))?;
         }
-        let from = routes::bindings(&state).chats.get(&session.id).cloned();
-        routes::set_binding(&state, &format!("chat:{}", session.id), route.as_deref())
-            .map_err(|e| route_error(&e))?;
-        let running = session.turn().is_some();
-        self.append(
-            session,
-            "mux",
-            "route_changed",
-            json!({"from": from, "to": route, "when": if running && !now { "after-turn" } else { "now" }}),
-        );
-        if running {
+        let turn = session.turn_lock.try_lock().ok();
+        let running = {
+            let _spawn = self.spawn_lease(session).await;
+            let claude = profile
+                .as_ref()
+                .is_some_and(|p| crate::config::derive_family(&meta.harness, p) == "claude");
+            if claude {
+                self.check_claude_route_change(session)?;
+            }
+            let binding = format!("chat:{}", session.id);
+            let from = routes::bindings(&state).chats.get(&session.id).cloned();
+            routes::set_binding(&state, &binding, route.as_deref()).map_err(|e| route_error(&e))?;
+            if claude && let Err(error) = self.save_claude_launch_auth(session, false) {
+                routes::set_binding(&state, &binding, from.as_deref())
+                    .map_err(|e| route_error(&e))?;
+                return Err(error);
+            }
+            let running = session.turn().is_some();
+            let wait = turn.is_none() || !self.route_child_is_idle(session);
             session.route_switch.store(true, Ordering::SeqCst);
+            self.append(
+                session,
+                "mux",
+                "route_changed",
+                json!({"from": from, "to": route, "when": if wait && !(running && now) { "after-turn" } else { "now" }}),
+            );
+            running
+        };
+        if running {
             if now {
+                drop(turn);
                 self.cancel(session).await?;
             }
             return Ok(
                 json!({"routeId": route, "applied": if now { "after-cancel" } else { "after-turn" }}),
             );
         }
-        self.restart_on_route(session).await?;
-        Ok(json!({"routeId": route, "applied": "now"}))
+        if turn.is_some() {
+            self.restart_on_route(session).await?;
+        }
+        let applied =
+            if session.route_switch.load(Ordering::SeqCst) { "after-turn" } else { "now" };
+        Ok(json!({"routeId": route, "applied": applied}))
     }
 
     /// A new chat that started in an account home keeps it as its store
@@ -206,7 +560,11 @@ impl Hub {
     ) -> T {
         let recorded = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            route_account::record(&mut m, spawn.account_home.as_deref())
+            let restarted = super::credentials::claude_login_needs_restart(&m);
+            if restarted {
+                m.claude_login_restart_pending = Some(false);
+            }
+            route_account::record(&mut m, spawn.account_home.as_deref()) || restarted
         };
         if recorded {
             self.save_meta(session);
@@ -226,11 +584,24 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
-        session.route_switch.store(false, Ordering::SeqCst);
-        if session.child.lock().await.is_none() {
-            return Ok(());
+        {
+            let _spawn = self.spawn_lease(session).await;
+            if session.read_meta(super::credentials::claude_login_needs_restart) {
+                if !self.end_previous_claude_host(session).await? {
+                    return Ok(());
+                }
+            } else {
+                if session.route_switch.load(Ordering::SeqCst) && !self.route_child_is_idle(session)
+                {
+                    return Ok(());
+                }
+                session.route_switch.store(false, Ordering::SeqCst);
+                if session.child.lock().await.is_none() {
+                    return Ok(());
+                }
+                self.detach_child(session).await;
+            }
         }
-        self.detach_child(session).await;
         self.child_for(session).await.map(|_| ())
     }
 
@@ -296,10 +667,7 @@ impl Hub {
             // able to click the restart button"), so its restart must drop nothing. Such a
             // session keeps its agent and moves before its next turn (`turns.rs`).
             let idle = || {
-                if session.turn().is_none()
-                    && session.pending_permissions().is_empty()
-                    && !self.holds_work_below(&session)
-                {
+                if self.route_child_is_idle(&session) {
                     session.turn_lock.try_lock().ok()
                 } else {
                     None
@@ -312,8 +680,9 @@ impl Hub {
                 turn = idle().filter(|_| session.route_switch.load(Ordering::SeqCst));
             }
             let Some(_turn) = turn else { return Ok(false) };
+            session.route_switch.store(true, Ordering::SeqCst);
             match self.restart_on_route(&session).await {
-                Ok(()) => Ok(true),
+                Ok(()) => Ok(!session.route_switch.load(Ordering::SeqCst)),
                 Err(e) => {
                     tracing::warn!(session = %session.id, error = %e.message, "harness restart");
                     Err((session.id.clone(), e.message))
@@ -352,8 +721,8 @@ impl Hub {
         let session = session.clone();
         tokio::spawn(async move {
             let _turn = session.turn_lock.lock().await;
-            if session.turn().is_none()
-                && session.pending_permissions().is_empty()
+            if hub.route_child_is_idle(&session)
+                && !session.read_meta(super::credentials::claude_login_needs_restart)
                 && !hub.restart_waits_for_work_below(&session)
                 && session.route_switch.swap(false, Ordering::SeqCst)
             {
@@ -361,6 +730,28 @@ impl Hub {
             }
         });
     }
+}
+
+fn local_chatgpt_route(
+    dir: Option<&Path>,
+    home: &Path,
+    meta: &SessionMeta,
+    profile: &HarnessProfile,
+) -> Option<String> {
+    let family = crate::config::derive_family(&meta.harness, profile);
+    if crate::agent_credentials::Family::of_harness(&family)
+        != Some(crate::agent_credentials::Family::Codex)
+    {
+        return None;
+    }
+    let (id, _) = routes::spawn_route(
+        &routes::bindings(home),
+        &meta.id,
+        meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
+        &family,
+        &profile.env,
+    )?;
+    crate::chatgpt::is_chatgpt_route(dir, &id).then_some(id)
 }
 
 /// What `restart_harnesses` did: how many sessions restarted now, how many
@@ -443,6 +834,9 @@ impl Hub {
                 hub.append(&s, "mux", "route_probe", probe);
             });
         }
+        if route.file.kind == routes::RouteKind::ChatgptPlan {
+            return Some(json!({"route": {"routeId": id, "name": route.name()}}));
+        }
         // A fallback never names another account: the chat keeps its folder.
         let (_, env) = self.harness_env(&meta).await;
         let home = route_account::current_home(&meta, &family, &env);
@@ -451,6 +845,7 @@ impl Hub {
             routes::find(dir.as_deref(), f).ok().filter(|r| {
                 !r.file.disabled
                     && r.serves(&family)
+                    && r.check_local_harness(Some(&profile)).is_ok()
                     && route_account::switch_allowed(home.as_deref(), r).is_ok()
             })
         });
@@ -573,3 +968,20 @@ fn cloud_gateway(
 #[cfg(test)]
 #[path = "route_switch_route_failure_tests.rs"]
 mod route_failure_tests;
+
+fn subscription_error(reason: &'static str) -> RpcError {
+    connection_error(reason, "the subscription")
+}
+
+fn connection_error(reason: &str, provider: &str) -> RpcError {
+    let message = match reason {
+        "reauth_required" | "signed_out" => format!("Reconnect {provider} in Settings > Models."),
+        "keychain_locked" => format!("Unlock your Mac's keychain to use {provider}."),
+        "keychain_other_build" => {
+            crate::subscription_store::Error::KeychainOtherBuild.message().into()
+        }
+        "network" => format!("{provider} is offline. Try again when you are connected."),
+        _ => format!("{provider} is temporarily unavailable."),
+    };
+    RpcError::invalid_params(message).with_data(json!({"reason": reason}))
+}

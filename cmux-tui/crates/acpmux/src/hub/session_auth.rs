@@ -375,17 +375,41 @@ impl Hub {
                 "the login agent does not match the chat's harness",
             ));
         }
+        let provider_route =
+            || RpcError::invalid_params("this chat uses a provider route; sign in to that route");
+        if family == "claude" {
+            if super::spawn::launch_requires_claude_team(&meta) {
+                return Err(provider_route());
+            }
+            if super::spawn::launch_requires_claude_machine_login(&meta) {
+                profile.env = crate::server::claude_machine_login_env(&cfg)
+                    .ok_or_else(super::spawn::claude_route_unavailable)?;
+                return Ok((profile, None));
+            }
+        }
         let defaults = cfg.defaults_for(&meta.harness).env;
         let (dir, state) = routes::places(&cfg);
         drop(cfg);
-        let bindings = routes::bindings(&state);
-        let route = route_of(&bindings, dir.as_deref(), &meta, &harness_family, &profile.env)
-            .map_err(|e| RpcError::invalid_params(e.to_string()))?;
-        if route.as_ref().is_some_and(|(r, _)| r.file.kind != routes::RouteKind::DirectSubscription)
-        {
-            return Err(RpcError::invalid_params(
-                "this chat uses a provider route; sign in to that route",
-            ));
+        // The delivered credential uses the chat's profile and home without a guest route.
+        let route = if family == "claude" && self.has_delivered_credential(session) {
+            None
+        } else {
+            route_of(
+                &routes::bindings(&state),
+                dir.as_deref(),
+                &meta,
+                &harness_family,
+                &profile.env,
+            )
+            .map_err(|e| RpcError::invalid_params(e.to_string()))?
+        };
+        if route.as_ref().is_some_and(|(r, _)| {
+            !matches!(
+                r.file.kind,
+                routes::RouteKind::DirectSubscription | routes::RouteKind::ClaudeToken
+            )
+        }) {
+            return Err(provider_route());
         }
         let picked = route.as_ref().map(|(r, scope)| (r, *scope));
         let home = self.home_of(&meta, family, &defaults, picked).await;
@@ -412,6 +436,9 @@ impl Hub {
             return Ok(());
         }
         for session in self.sessions() {
+            if self.has_delivered_credential(&session) {
+                continue;
+            }
             let Ok((profile, current_route)) = self.login_profile(&session, family).await else {
                 continue;
             };

@@ -1,5 +1,3 @@
-import CmuxNextPages
-import CmuxNextWakeups
 public import Foundation
 
 /// Claude Code's long-lived token from `claude setup-token` (`sk-ant-oat…`), as Settings > Models,
@@ -34,47 +32,37 @@ public nonisolated struct ClaudeSetupToken {
     }
 }
 
-/// Where a pasted model API key goes on this Mac: the Keychain, before acpmux hears of it. acpmux gets
-/// only the returned reference (`keychain:SERVICE/ACCOUNT`) and resolves it itself at each request.
-public protocol ModelKeyStoring: Sendable {
-    /// Stores KEY for PROVIDER; answers its `keychain:` reference.
-    func store(_ key: String, provider: String) async throws -> String
-    /// Removes a stored key by its reference (a connection that was never added).
-    func delete(_ reference: String) async
+/// Where the chat's Add account puts a setup token: the login Keychain, written by acpmux itself
+/// (`_acpmux/connections/secret.store`, as Settings > Models' `KeychainModelKeyStore` does), so the item
+/// trusts acpmux and not `/usr/bin/security`. acpmux gets back only its `keychain:SERVICE/ACCOUNT`
+/// reference; the token goes only over acpmux's unix socket.
+protocol ClaudeTokenStoring: Sendable {
+    /// Stores TOKEN; answers its `keychain:` reference.
+    func store(_ token: String, socket: String) async throws -> String
+    /// Takes a stored token back out by its reference (an add acpmux refused).
+    func delete(_ reference: String, socket: String) async
 }
 
-/// The login Keychain through `/usr/bin/security`, as acpmux's own `cmux harness secret set` stores
-/// one (cli/harness_secret.rs): the item's creator is `security`, so acpmux's
-/// `security find-generic-password` reads it without a prompt. The key goes only to the tool's
-/// standard input (`security -i`), never its arguments, and its output (which can echo the line) is
-/// dropped.
-public struct KeychainModelKeyStore: ModelKeyStoring {
-    public static let service = "cmux-model-key"
+struct AcpmuxClaudeTokenStore: ClaudeTokenStoring {
+    static let service = "cmux-model-key"
 
-    public init() {}
-
-    public func store(_ key: String, provider: String) async throws -> String {
-        let account = "\(provider)-\(UUID().uuidString.lowercased().prefix(8))"
-        let line = "add-generic-password -U -s \(Self.quoted(Self.service)) -a \(Self.quoted(account)) "
-            + "-l \(Self.quoted("cmux \(provider) API key")) -w \(Self.quoted(key))\n"
-        let ran = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"), ["-i"],
-                                                              input: Data(line.utf8), errorOutput: .discard, timeout: .seconds(30), onCancel: .finish))
-        guard ran.succeeded else { throw PageError(code: "cmux.models.keychain", message: "the key could not be stored in the Keychain") }
-        return "keychain:\(Self.service)/\(account)"
+    func store(_ token: String, socket: String) async throws -> String {
+        let account = "claude-token-\(UUID().uuidString.lowercased().prefix(8))"
+        let reply = try await AcpmuxStatusClient.call(socketPath: socket, method: AcpmuxHarnessMethod.connectionsSecretStore.rawValue,
+                                                      params: ["account": account, "label": "cmux claude-token API key", "secret": token],
+                                                      deadline: .seconds(20), detailed: true)
+        guard let reference = reply["secret"] as? String, reference.hasPrefix("keychain:") else {
+            throw AcpmuxStatusClient.Failure.rpc("the token could not be stored in the Keychain")
+        }
+        return reference
     }
 
-    public func delete(_ reference: String) async {
+    func delete(_ reference: String, socket: String) async {
         let prefix = "keychain:\(Self.service)/"
         guard reference.hasPrefix(prefix) else { return }
         let account = String(reference.dropFirst(prefix.count))
         guard !account.isEmpty, !account.contains("/") else { return }
-        _ = try? await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"),
-                                                         ["delete-generic-password", "-s", Self.service, "-a", account],
-                                                         errorOutput: .discard, timeout: .seconds(30)))
-    }
-
-    /// One `security -i` word: quoted, with `\` and `"` escaped.
-    nonisolated static func quoted(_ text: String) -> String {
-        "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        _ = try? await AcpmuxStatusClient.call(socketPath: socket, method: AcpmuxHarnessMethod.connectionsSecretDelete.rawValue,
+                                               params: ["account": account], deadline: .seconds(20), detailed: true)
     }
 }

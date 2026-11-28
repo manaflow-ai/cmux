@@ -119,3 +119,41 @@
   align-items: center;
   gap: 0.5em;
 }
+
+/* The setup-token way's command chip (cmux#59852): `claude setup-token` in the mono face on the field
+   fill, its copy button inside the chip's trailing edge (as the cloud ask's code row, cloudStart.css
+   .acpmux-cloud-ask__code). */
+.acpmux-add-account .acpmux-connect-claude-command {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  max-width: 100%;
+  height: 28px;
+  padding-inline: var(--ds-space-2) var(--ds-space-1);
+  border: 1px solid var(--agent-border);
+  border-radius: var(--ds-radius-md);
+  background: var(--agent-input-bg);
+}
+.acpmux-add-account .acpmux-connect-claude-command code {
+  overflow: hidden;
+  font-family: var(--font-mono, ui-monospace);
+  font-size: var(--text-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-add-account .ui-button.ui-btn.acpmux-connect-claude-copy {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--ds-radius-control);
+  color: var(--agent-muted);
+}
+.acpmux-add-account .ui-button.ui-btn.acpmux-connect-claude-copy:hover,
+.acpmux-add-account .ui-button.ui-btn.acpmux-connect-claude-copy[data-copied] {
+  color: var(--agent-text);
+}
+.acpmux-add-account .ui-button.ui-btn.acpmux-connect-claude-copy:hover {
+  background: var(--agent-hover, color-mix(in srgb, currentColor 7%, transparent));
+}

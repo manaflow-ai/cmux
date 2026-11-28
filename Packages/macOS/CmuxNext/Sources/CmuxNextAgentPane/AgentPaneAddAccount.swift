@@ -41,7 +41,7 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
     }
 
     @MainActor
-    func reply(in model: AgentPaneModel, keys: any ModelKeyStoring = KeychainModelKeyStore()) async -> [String: Any] {
+    func reply(in model: AgentPaneModel, keys: any ClaudeTokenStoring = AcpmuxClaudeTokenStore()) async -> [String: Any] {
         guard !model.remoteChat else { return AgentPaneModel.unsupported("account.add") }
         // The App records native input; no parameter supplied by the page can grant this.
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
@@ -68,7 +68,7 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
     /// Keychain, and acpmux gets the reference with the account's name as its label. A refused add
     /// takes the Keychain item back out.
     @MainActor
-    private func addClaudeToken(socket: String, keys: any ModelKeyStoring) async -> [String: Any] {
+    private func addClaudeToken(socket: String, keys: any ClaudeTokenStoring) async -> [String: Any] {
         guard family == "claude" else {
             return AgentPaneReply.failure(code: "account.failed", message: "A Claude setup token signs in Claude only.")
         }
@@ -77,7 +77,11 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
             return AgentPaneReply.failure(code: "account.failed", message: Self.notAToken)
         }
         let reference: String
-        do { reference = try await keys.store(token, provider: Self.claudeTokenKind) } catch {
+        do { reference = try await keys.store(token, socket: socket) } catch let error as AcpmuxRPCError {
+            return AgentPaneReply.failure(code: "account.failed", message: error.message)
+        } catch AcpmuxStatusClient.Failure.rpc(let message) {
+            return AgentPaneReply.failure(code: "account.failed", message: message)
+        } catch {
             return AgentPaneReply.failure(code: "account.failed", message: "The token could not be stored in the Keychain.")
         }
         var params: [String: any Sendable] = ["secret": reference]
@@ -89,13 +93,13 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
                                                           params: params, deadline: .seconds(20), detailed: true)
             return AgentPaneReply.success(value)
         } catch let error as AcpmuxRPCError {
-            await keys.delete(reference)
+            await keys.delete(reference, socket: socket)
             return AgentPaneReply.failure(code: "account.failed", message: error.message)
         } catch AcpmuxStatusClient.Failure.rpc(let message) {
-            await keys.delete(reference)
+            await keys.delete(reference, socket: socket)
             return AgentPaneReply.failure(code: "account.failed", message: message)
         } catch {
-            await keys.delete(reference)
+            await keys.delete(reference, socket: socket)
             return AgentPaneModel.transportFailure(.noConnection)
         }
     }

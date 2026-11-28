@@ -54,7 +54,7 @@ impl Client {
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
                 .await
-                .expect("no reply in 30 s")
+                .unwrap_or_else(|_| panic!("{m} gave no reply in 30 s"))
                 .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
@@ -123,7 +123,7 @@ fn reason(error: &Value) -> &str {
 fn hub(root: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "claude",
-                               "env": {"ANTHROPIC_API_KEY": "zzprofilekey"}}},
+                               "env": {"ANTHROPIC_API_KEY": "zzprofilekey", "FAKE_AUTH_FAIL": "1"}}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         // No automatic continuation runs behind this test's own prompts (`auto_resume.rs`).
@@ -149,6 +149,88 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     }
     let hub = hub(&root);
     let mut local = client(&hub, Origin::Local);
+
+    // A setup-token connection may have used a custom id and notes before this upgrade.
+    let routes = root.join("config").join("routes");
+    std::fs::create_dir_all(&routes).unwrap();
+    std::fs::write(
+        routes.join("work-claude.toml"),
+        r#"
+kind = "claude-token"
+families = ["claude"]
+provider = "anthropic"
+secret = "keychain:work-claude"
+notes = "The work account"
+"#,
+    )
+    .unwrap();
+    let legacy = local.ok("_acpmux/route/show", json!({"id": "work-claude"})).await;
+    assert_eq!(legacy["notes"], "The work account");
+    let connections = local.ok("_acpmux/connections", json!({})).await;
+    assert!(
+        connections["connections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| { row["id"] == "work-claude" && row["serves_cloud"] == true })
+    );
+    std::fs::remove_file(routes.join("work-claude.toml")).unwrap();
+
+    // The generic edit RPC can rename a managed setup-token route without changing its key.
+    local
+        .ok("_acpmux/connections/claude_token.add", json!({"secret": "keychain:fixture-token"}))
+        .await;
+    let managed = routes.join("claude-token.toml");
+    let before = std::fs::read_to_string(&managed).unwrap();
+    let before = before.lines().next().unwrap();
+    assert!(before.starts_with("# cmux-credential-instance: "));
+    let renamed =
+        local.ok("_acpmux/route/edit", json!({"id": "claude-token", "name": "Renamed"})).await;
+    assert_eq!(renamed["name"], "Renamed");
+    assert_eq!(renamed["secret"], "keychain:fixture-token");
+    let after = std::fs::read_to_string(&managed).unwrap();
+    assert_eq!(Some(before), after.lines().next());
+    local
+        .err("_acpmux/route/edit", json!({"id": "claude-token", "secret": "keychain:different"}))
+        .await;
+    // cmux#59852: a setup token serves chats on this Mac too, so it can be Claude's default here.
+    let state = root.join("home");
+    local
+        .ok(
+            "_acpmux/route/default.set",
+            json!({"scope": "family:claude", "routeId": "claude-token"}),
+        )
+        .await;
+    let bound = acpmux::routes::bindings(&state);
+    assert_eq!(bound.families.get("claude").map(String::as_str), Some("claude-token"));
+    acpmux::routes::set_binding(&state, "family:claude", None).unwrap();
+    std::fs::remove_file(&managed).unwrap();
+
+    local
+        .ok("_acpmux/connections/claude_token.add", json!({"secret": "keychain:replacement-token"}))
+        .await;
+    let stale_instance = before.strip_prefix("# cmux-credential-instance: ").unwrap();
+    let stale = local
+        .err(
+            "_acpmux/account/set",
+            json!({"id": "claude-token", "name": "Stale name", "instance": stale_instance}),
+        )
+        .await;
+    assert_eq!(stale["message"], "the connection changed while it was open");
+    let current = local.ok("_acpmux/connections", json!({})).await;
+    let replacement = current["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "claude-token")
+        .unwrap();
+    assert_ne!(replacement["credential_instance"], stale_instance);
+    assert_eq!(replacement["label"], "Claude Code token");
+    let renamed = local.ok("_acpmux/account/set", json!({
+        "id": "claude-token", "name": "Current name", "instance": replacement["credential_instance"],
+    })).await;
+    assert_eq!(renamed["name"], "Current name");
+    std::fs::remove_file(&managed).unwrap();
 
     // Routes are files; a secret is a reference, never the value.
     let a = local
@@ -295,8 +377,10 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     // A failed turn names its route and the fallback to offer; with
     // autoFallback the chat moves onto it by itself.
     local.ok("_acpmux/route/edit", json!({"id": "proxy-b", "fallback": ["proxy-a"]})).await;
-    let limit = json!({"sessionId": id, "prompt": [{"type": "text", "text": "limit: now"}]});
-    let (failed, _) = local.call_text("session/prompt", limit.clone()).await;
+    // This fixture uses the fake agent's sign-in refusal. A usage limit would
+    // hold the next prompt for the account reset before it could test overload.
+    let auth_error = json!({"sessionId": id, "prompt": [{"type": "text", "text": "limit: now"}]});
+    let (failed, _) = local.call_text("session/prompt", auth_error.clone()).await;
     let data = &failed["error"]["data"];
     assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
     assert_eq!(data["fallback"], json!({"routeId": "proxy-a", "name": "Proxy A"}), "{failed}");
@@ -312,7 +396,7 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
         "ANTHROPIC_BASE_URL=http://127.0.0.1:9/b"
     );
     local.ok("_acpmux/route/edit", json!({"id": "proxy-b", "autoFallback": true})).await;
-    let (failed, _) = local.call_text("session/prompt", limit).await;
+    let (failed, _) = local.call_text("session/prompt", auth_error).await;
     assert_eq!(failed["error"]["data"]["fallback"]["applied"], true, "{failed}");
     assert_eq!(
         local.env_of(&id, "ANTHROPIC_BASE_URL").await,

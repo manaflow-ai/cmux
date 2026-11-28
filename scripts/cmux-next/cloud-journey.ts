@@ -3380,11 +3380,8 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
   secrets.push(s.access, s.refresh);
   const api = new Api(backend.api, team);
   api.bearer = s.access;
-  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`]));
-  // --kept: also the machine a --keep run with this tag made (`cloud journey TAG`), once its operator is done with it.
-  if (kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
-  const mine = rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting");
+  const mine = ownNamedMachines(rows, tag, { kept });
   let failed = 0;
   for (const r of mine) {
     const id = String(r.id ?? r.machine_id ?? "");
@@ -4503,6 +4500,19 @@ export const LONG_JOURNEY_MS = 11 * 3_600_000;
 export function autoMachineName(tag: string, long: boolean): string {
   return `cloud journey auto ${tag}${long ? " long" : ""}`;
 }
+/**
+ * The live machines on ROWS that carry one of TAG's own names (autoMachineName either length, its gateway and its cold create cell), minus
+ * the ids in EXCLUDE. A create can leave a second machine under the run's name besides the id it answered: run
+ * 46059808882 (jr-mwzf7mv7, an 86.8 s create) deleted the answered vm_5e22ac9cfbb7343202e5 at its end while a second
+ * `cloud journey auto jr-mwzf7mv7` stayed paused on the production probe account, held a plan slot (paused counts
+ * against the 20-machine cap) until the next run's STALE_JOURNEY_MS sweep 3 h later. --kept adds a --keep run's names.
+ */
+export function ownNamedMachines(rows: any[], tag: string, opts: { kept?: boolean; exclude?: Iterable<string | null | undefined> } = {}): any[] {
+  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`, `${autoMachineName(tag, long)} cold`]));
+  if (opts.kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
+  const exclude = new Set([...(opts.exclude ?? [])].filter((id): id is string => typeof id === "string" && id !== ""));
+  return rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting" && !exclude.has(String(r.id ?? r.machine_id ?? "")));
+}
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
 /**
@@ -4541,6 +4551,24 @@ export function strandedGatewayMode(body: any): boolean {
   const g = body?.gateway;
   if (!g || typeof g !== "object") return false;
   return g.mode === "gateway" && g.online !== true;
+}
+
+/**
+ * What a run that is not a --gateway run does to its team's gateway mode before create. A run whose agent has no
+ * login of its own and no model stub (the production real leg: no CLAUDE_CODE_OAUTH_TOKEN) reaches its model only
+ * through the team's gateway, so it puts the team in gateway mode ("gateway") and, with no gateway online, says so
+ * ("offline") instead of setting it off: the heal that set it off during the 11-27 gateway outage left the team off
+ * after the gateway came back, and every later real leg read "has no model route" (run 46059370159). Any other run
+ * sets a stranded team back to off ("off", #61939) and leaves the rest alone ("keep").
+ */
+export function gatewayModeAction(body: unknown, gatewayOnly: boolean): "keep" | "off" | "gateway" | "offline" {
+  const g = (body as { gateway?: { mode?: unknown; online?: unknown } } | null)?.gateway;
+  if (gatewayOnly) {
+    if (!g || typeof g !== "object") return "keep";
+    if (g.mode !== "gateway") return "gateway";
+    return g.online === true ? "keep" : "offline";
+  }
+  return strandedGatewayMode(body) ? "off" : "keep";
 }
 
 export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS): StaleMachine[] {
@@ -5497,6 +5525,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let launchCredential = homeChat === "reserved" ? false : startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: Boolean(preclaimLoginCmux) });
   // A --preclaim-login run whose claimed machine got no login on spare.ready takes this path (loginPathAfterClaim).
   const launchOnMiss = homeChat === "reserved" ? false : startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: false });
+  // The production real leg: an agent with no login of its own and no model stub reaches its model only through the
+  // team's gateway (gatewayModeAction).
+  const gatewayOnlyRoute = !gatewayAny && !modelStub && Boolean(provider) && !login;
   const tag =`jr-${Date.now().toString(36)}`;
   // This run's send as one trace (cloud-start-trace.ts mintSendTrace): on the create, the carrier ticket and the prompt.
   const sendTrace = mintSendTrace();
@@ -5671,19 +5702,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: g };
       }).catch(() => undefined);
     }
-    if (deleted) return;
-    let id = machine;
-    if (!id && !cleanupCreatedIdsOnly) {
-      // Every page: the machine may sit past the first (a shared account's list).
-      const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
-      id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
+    if (!deleted && machine) {
+      const target: string = machine;
+      await J.step("delete (cleanup)", async () => {
+        await api.deleteMachine(target, `${tag}-cleanup-delete`);
+        return { value: null, detail: target };
+      }).catch(() => undefined);
     }
-    if (!id) return;
-    const target: string = id;
-    await J.step("delete (cleanup)", async () => {
-      await api.deleteMachine(target, `${tag}-cleanup-delete`);
-      return { value: null, detail: target };
-    }).catch(() => undefined);
+    if (cleanupCreatedIdsOnly) return;
+    // Every machine under this run's own names, not only the id create answered: a lost create reply leaves
+    // `machine` null, and a slow create can leave a second machine by the same name (ownNamedMachines). Every page:
+    // the machine may sit past the first (a shared account's list).
+    const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
+    for (const r of ownNamedMachines(rows, tag, { exclude: [machine, gatewayMachine] })) {
+      const target = String(r.id ?? r.machine_id ?? "");
+      if (!target) continue;
+      await J.step("delete own-named machine (cleanup)", async () => {
+        await api.deleteMachine(target, `${tag}-cleanup-name-${target}`);
+        return { value: null, detail: `${target} ${r.status ?? "?"}` };
+      }).catch(() => undefined);
+    }
   });
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
@@ -5840,10 +5878,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
         if (g.status !== 200) return { value: null, detail: `unread: GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}` };
         const mode = String(g.body?.gateway?.mode ?? "off");
-        if (!strandedGatewayMode(g.body)) return { value: null, detail: `${mode}${g.body?.gateway?.online ? ", gateway online" : ""}` };
-        const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "off", machine: null });
-        if (r.status !== 200) throw new Error(`stranded in gateway mode with no gateway online; PUT off HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
-        return { value: null, detail: "was gateway with no gateway online (a killed --gateway run's); set back to off" };
+        const online = g.body?.gateway?.online === true;
+        const action = gatewayModeAction(g.body, gatewayOnlyRoute);
+        if (action === "keep") return { value: null, detail: `${mode}${online ? ", gateway online" : ""}` };
+        if (action === "offline") throw new Error("gateway mode with no gateway online: this run's agent has no login of its own, so its only model route is the team's gateway, which is down; the mode is left on for when it comes back");
+        const to = action === "gateway" ? "gateway" : "off";
+        const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: to, machine: null });
+        if (r.status !== 200) throw new Error(`was ${mode}; PUT ${to} HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+        return { value: null, detail: to === "gateway"
+          ? `was ${mode}; set to gateway: this run's agent has no login of its own, so the team's gateway is its model route${online ? " (gateway online)" : ""}`
+          : "was gateway with no gateway online (a killed --gateway run's); set back to off" };
       }).catch(() => undefined);
     }
 
@@ -5908,27 +5952,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         gatewayMachineBefore = beforeMachine;
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
-    } else {
-      // A --gateway run killed before its cleanup leaves the team in gateway mode with no gateway online, and every
-      // later chat machine's edge answers "No cmux inference gateway is online" (prod real legs, 11-26..11-27). The
-      // edge route is picked at create, so the mode is read, and a stranded one set back to off, before any machine.
-      const name = "team gateway mode (not stranded)";
-      const t0 = Date.now();
-      try {
-        const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
-        if (g.status !== 200) throw new Error(`GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}`);
-        const mode = String(g.body?.gateway?.mode ?? "off");
-        const online = g.body?.gateway?.online === true;
-        if (!strandedGatewayMode(g.body)) {
-          J.record({ step: name, status: "pass", ms: Date.now() - t0, detail: `mode ${mode}, gateway online ${online}` });
-        } else {
-          const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "off", machine: null });
-          if (r.status !== 200) throw new Error(`PUT off HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
-          J.record({ step: name, status: "pass", ms: Date.now() - t0, detail: `mode was gateway with no gateway online; set to off before the chat machine is made` });
-        }
-      } catch (error) {
-        J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `could not read or heal: ${String((error as Error)?.message ?? error).slice(0, 300)}` });
-      }
     }
     // The sweep's machine list, kept so a full cap's preflight names the machines that hold it.
     let sweptRows: any[] | null = null;
@@ -6907,11 +6930,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.firstText.mark("sent");
           return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
-        if (probeExtra.login_path === "receipt" && provider === "claude") {
-          // The spare holds the person's login (its receipt says installed): the app's start carries no credential and
-          // sends the first prompt on the link its start opened. Before, the journey ran `acp ensure` and then `acp send`
-          // as two execs and two fresh cmux-tui processes: session_ready -> sent 2,566 and 2,515 ms on the real leg's
-          // last two ok runs (45563753386, 45571173365), a cost no person's first send pays.
+        if (provider === "claude") {
+          // The machine holds the person's login (a receipt spare or a copy) or reaches its model through the team's
+          // gateway: the app's start carries no credential and sends the first prompt on the link its start opened.
+          // Before, the journey ran `acp ensure` and then `acp send` as two execs and two fresh cmux-tui processes:
+          // session_ready -> sent 2,566 and 2,515 ms on the real leg's last two ok runs (45563753386, 45571173365), and
+          // on the gateway real leg (46028327619) start 3,996 ms + send 3,331 ms, of which 6,010 ms was the exec route:
+          // a cost no person's first send pays.
           const r = await startExec(`${GUEST}${launchCredentialStartProgram(session, agent, null, null, prompt, sendTrace.id)}`);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (!id) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
@@ -6920,7 +6945,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           promptedWithStart = true;
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the login copied on spare.ready; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
         const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
@@ -7506,12 +7531,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   console.log(`\n${failed.length ? "FAIL" : "PASS"} ${backend.name}: ${J.steps.filter((s) => s.status === "pass").length} passed, ${failed.length} failed, ${J.steps.filter((s) => s.status === "skip").length} skipped, ${(J.steps.reduce((n, s) => n + s.ms, 0) / 1000).toFixed(1)} s`);
   return failed.length ? 1 : 0;
-}
-
-/** A team in gateway mode with no gateway online: every chat machine it makes answers the offline 400. */
-export function strandedGatewayMode(body: unknown): boolean {
-  const g = (body as { gateway?: { mode?: unknown; online?: unknown } } | null)?.gateway;
-  return g?.mode === "gateway" && g.online !== true;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(await main());

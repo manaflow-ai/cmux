@@ -8,7 +8,6 @@ import { checkToken } from "./claudeConnect";
 import { CopyButton } from "./conversation/CopyButton";
 import { useT, type StringKey } from "./i18n";
 import "./addAccount.css";
-import "./claudeConnect.css";
 import { accountIdFor } from "./addAccountDialogModel";
 
 type Kind = "direct-subscription" | "direct-api-key";
