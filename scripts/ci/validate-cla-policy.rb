@@ -1301,6 +1301,10 @@ def git_blob_bytes(git_dir, ids)
     header = line.split(" ")
     return nil unless header.length == 3 && header[0] == id && header[1] == "blob" && header[2].match?(/\A[0-9]+\z/)
 
+    # Past the blob fetch cap: the fetch was meant to stop there, so read it
+    # as missing and fall back to the contents API (which rejects it), even
+    # when this host's git or filesystem let the capped fetch finish.
+    return nil if header[2].to_i > GIT_BLOB_FETCH_BLOCKS_EACH * 1024
     fail!("a policy file is too large") if header[2].to_i > MAX_FILE_BYTES
   end
   output = git_output(git_dir, "cat-file", "--batch", stdin_data: request)
@@ -1316,6 +1320,7 @@ def git_blob_bytes(git_dir, ids)
     return nil unless header.length == 3 && header[0] == id && header[1] == "blob" && header[2].match?(/\A[0-9]+\z/)
 
     size = header[2].to_i
+    return nil if size > GIT_BLOB_FETCH_BLOCKS_EACH * 1024
     fail!("a policy file is too large") if size > MAX_FILE_BYTES
     bytes[id] = output.byteslice(newline + 1, size)
     offset = newline + 1 + size + 1
