@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import {
   layoutConversation,
+  dropHiddenMeasureCaches,
   notePreparedText,
   PREPARED_ROWS,
   PREPARED_TEXT_CHARS,
@@ -107,4 +108,26 @@ test("the text layout library's caches start over after a bounded amount of prep
   const lines = Math.ceil((PREPARED_TEXT_CHARS * 3) / line);
   for (let i = 0; i < lines; i += 1) notePreparedText(line, clear);
   expect(clears).toBe(2);
+});
+
+// Behind `hidden-measure-caches`: a hidden page drops the library's caches at once; a shown page, or
+// the default arm, keeps them (cmuxterm-hq goals/chats-flat-at-any-length.md).
+test("a hidden page drops the text layout library's caches only on the dropped arm", () => {
+  let clears = 0;
+  const clear = () => {
+    clears += 1;
+  };
+  const had = "cmuxExperiments" in globalThis;
+  const before = globalThis.cmuxExperiments;
+  try {
+    globalThis.cmuxExperiments = undefined;
+    expect(dropHiddenMeasureCaches({ visibilityState: "hidden" }, clear)).toBe(false);
+    globalThis.cmuxExperiments = { "hidden-measure-caches": "dropped" };
+    expect(dropHiddenMeasureCaches({ visibilityState: "visible" }, clear)).toBe(false);
+    expect(dropHiddenMeasureCaches({ visibilityState: "hidden" }, clear)).toBe(true);
+    expect(clears).toBe(1);
+  } finally {
+    if (had) globalThis.cmuxExperiments = before;
+    else delete globalThis.cmuxExperiments;
+  }
 });

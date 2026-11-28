@@ -125,6 +125,10 @@ if (!["all", "main", "grown-many", "running", "long", "long-many"].includes(CASE
 const GROW_OPEN = process.env.GROW_OPEN === "1";
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
 const HEAP_RETAINERS = process.env.HEAP_RETAINERS === "1";
+// EXPERIMENTS='{"<id>":"<arm>"}' runs every page on those experiment arms (experiments/experiment.ts).
+const EXPERIMENTS = process.env.EXPERIMENTS
+  ? (JSON.parse(process.env.EXPERIMENTS) as Record<string, string>)
+  : undefined;
 const retainerBase = new Map<number, Retainers>();
 const WAKES = process.env.WAKES === "1";
 const TRACE = process.env.TRACE;
@@ -444,6 +448,10 @@ try {
     const context = await browser.newContext({
       viewport: { width: 1200, height: 800 },
     });
+    if (EXPERIMENTS)
+      await context.addInitScript((arms) => {
+        (globalThis as unknown as { cmuxExperiments: Record<string, string> }).cmuxExperiments = arms;
+      }, EXPERIMENTS);
     if (WAKES)
       await context.addInitScript(() => {
         const wakes = { timers: 0, raf: 0, posts: 0, mutations: 0 };

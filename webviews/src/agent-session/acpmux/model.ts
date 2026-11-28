@@ -1,6 +1,7 @@
 import type { BrowserWorkspaces } from "./browser/workspaces";
 import type { ApprovedPlan } from "./approvedPlan";
 import { experimentArm } from "../../experiments/experiment";
+import { hiddenMeasureCaches } from "./hiddenMeasureCaches.experiment";
 import type { PromptHeads } from "./promptHeads";
 import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
 import { ensureMeasureContext, freshMeasureContext } from "./measureContext";
@@ -3363,8 +3364,31 @@ const clearMeasureCaches = () => {
 /// Counts `length` characters prepared, and clears the library's caches (`clear`) past
 /// PREPARED_TEXT_CHARS. True when it cleared.
 export function notePreparedText(length: number, clear: () => void = clearMeasureCaches): boolean {
+  if (!hiddenDropInstalled && clear === clearMeasureCaches) installHiddenMeasureDrop();
   preparedTextChars += length;
   if (preparedTextChars <= PREPARED_TEXT_CHARS) return false;
+  preparedTextChars = 0;
+  clear();
+  return true;
+}
+
+let hiddenDropInstalled = false;
+/// Behind the `hidden-measure-caches` experiment (default off): a page that hides drops the library's
+/// caches at once instead of holding them until PREPARED_TEXT_CHARS. A window has one shown chat page
+/// and many hidden ones, and each hidden page held its chat's whole word vocabulary (10k per-word
+/// advance arrays at 10k rows). Installed by the first prepare, so a page that never measures adds none.
+function installHiddenMeasureDrop(doc: Document | undefined = globalThis.document): void {
+  hiddenDropInstalled = true;
+  doc?.addEventListener("visibilitychange", () => void dropHiddenMeasureCaches(doc));
+}
+
+/// Drops the library's caches when `doc` is hidden and the experiment's `dropped` arm is on. True when
+/// it dropped them.
+export function dropHiddenMeasureCaches(
+  doc: Pick<Document, "visibilityState">,
+  clear: () => void = clearMeasureCaches,
+): boolean {
+  if (doc.visibilityState !== "hidden" || experimentArm(hiddenMeasureCaches) !== "dropped") return false;
   preparedTextChars = 0;
   clear();
   return true;
