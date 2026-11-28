@@ -112,6 +112,10 @@ const MAPPED: &[Mapped] = &[
 ];
 
 /// The renames in Swift's order: each entry and, for a mapped one, its table.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn entries() -> Vec<(Rename, Option<&'static Mapped>)> {
     let mapped = |index: usize| {
         let entry = &MAPPED[index];

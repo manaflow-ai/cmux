@@ -47,7 +47,7 @@ FILES = {
     "release-notes/next/other.md": "# other\n",
     "README.md": "# fixture\n",
 }
-# (changed paths, the full checkout's web-touched answer). Each row the `affects` superset starts the callee for.
+# (changed paths, the full checkout's web-touched answer). Unrelated paths may be rejected before the exact check.
 ROWS = [
     (["Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"], False),
     (["scripts/cmux-next/check-something.py"], False),
@@ -91,9 +91,10 @@ class RouterWebExact(unittest.TestCase):
         module.unresolved = lambda message: None
         return bool(cp.web_touched(files, module.routed_inputs(str(self.full)), module.pathspec_matcher))
 
-    def test_the_fixture_is_routed_by_the_coarse_superset(self) -> None:
-        for files, _ in ROWS:
-            self.assertTrue(pr_router.affects(CONFIG, files), files)
+    def test_web_inputs_are_routed_by_the_coarse_superset(self) -> None:
+        for files, web in ROWS:
+            if web:
+                self.assertTrue(pr_router.affects(CONFIG, files), files)
 
     def test_the_sparse_router_agrees_with_the_full_checkout(self) -> None:
         self.assertFalse((self.sparse / "webviews").exists(), "the route checkout starts with no webviews/")
@@ -125,11 +126,17 @@ class PreflightWeb(unittest.TestCase):
     callees = {cp.PREFLIGHT_CALLEE: CONFIG}
     event = {"pull_request": {"labels": []}}
     swift = ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"]
+    possible_web = ["clients/ts/cloud/src/other.ts"]
 
     def answer(self, exact, files=None, event=None, start=None, env=None):
         with mock.patch.dict(os.environ, env or {"CI_ROUTER_WEB_EXACT": "1"}):
             return pr_router.preflight_web(event or self.event, self.callees,
-                                           self.swift if files is None else files, start, exact=exact)
+                                           self.possible_web if files is None else files, start, exact=exact)
+
+    def test_ignored_paths_skip_before_the_exact_check(self) -> None:
+        exact = mock.Mock(side_effect=AssertionError("ignored paths need no exact check"))
+        self.assertFalse(self.answer(exact, files=self.swift)[0])
+        exact.assert_not_called()
 
     def test_the_exact_answer_skips_and_runs(self) -> None:
         self.assertFalse(self.answer(lambda root, files: (False, "none"))[0])

@@ -60,18 +60,24 @@ inputs=(cmux-tui/crates/cmux-rd-host cmux-tui/crates/cmux-codecs cmux-tui/crates
   cmux-tui/crates/cmux-hub-host cmux-tui/crates/cmux-process cmux-tui/crates/cmux-rd-core
   cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-link cmux-tui/crates/cmux-rd-proto
   cmux-tui/crates/cmux-transport cmux-tui/crates/cmux-wg cmux-tui/vendor cmux-tui/Cargo.toml)
+# The published helper (cmux-tui-team-signed.yml, write-once per key) is bundled into the stub app
+# screen_sharing_helper_release.py stub-app makes, and carries that stub's icon (AppIcon-Nightly), so the stub's
+# code and the icon set key it too: an icon or stub change publishes a new helper, nothing else does. Not crates,
+# so not in the Xcode phase (test_screen_sharing_helper_inputs.py reads only inputs=).
+stub_inputs=(scripts/ci/screen_sharing_helper_release.py Assets.xcassets/AppIcon-Nightly.appiconset)
+keyed=("${inputs[@]}" "${stub_inputs[@]}")
 size_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_DEBUG=0)
 features="link computer-use"
 key_material="${size_profile[*]} features=$features"$'\n'
-for input in "${inputs[@]}"; do
+for input in "${keyed[@]}"; do
   key_material+="$(git -C "$repo_root" rev-parse "HEAD:$input" 2>/dev/null || echo "missing:$input")"$'\n'
 done
-key_material+="$(git -C "$repo_root" diff HEAD -- "${inputs[@]}" 2>/dev/null || true)"
+key_material+="$(git -C "$repo_root" diff HEAD -- "${keyed[@]}" 2>/dev/null || true)"
 # Untracked files by content, not only by name: editing a new, uncommitted module must change the key.
 while IFS= read -r untracked; do
   [[ -n "$untracked" ]] || continue
   key_material+="$untracked $(git -C "$repo_root" hash-object -- "$untracked" 2>/dev/null || echo unreadable)"$'\n'
-done < <(git -C "$repo_root" ls-files --others --exclude-standard -- "${inputs[@]}" 2>/dev/null || true)
+done < <(git -C "$repo_root" ls-files --others --exclude-standard -- "${keyed[@]}" 2>/dev/null || true)
 # shasum on a Mac; sha256sum where perl's shasum is missing (a Linux runner reading --print-key).
 if command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256; }; else sha256() { sha256sum; }; fi
 source_key="$(printf '%s' "$key_material" | sha256 | cut -c1-16)"
