@@ -399,8 +399,8 @@ app_unchanged() { # <sha>
 # minutes to refuse its commits. Now a walk reads each commit at most once, an outage once.
 precheck_results="${CMUX_NIGHTLY_NEXT_PRECHECK_RESULTS:-https://gh-events.cmux.com/compile-checks/v1}"
 precheck_reason=""
-# fleet_verdict <sha>: pass, fail, pending, superseded (a newer push tip's check covers it), none (no
-# usable record) or down.
+# fleet_verdict <sha>: pass, fail, pending, superseded (a newer push tip's check covers it;
+# "superseded:<sha>" when the reply names that check), none (no usable record) or down.
 fleet_verdict() { # <sha>
   local cache="" body code word curl_rc=0 tick="" ttl now at held
   if [[ -n "${GITHUB_RUN_ID:-}" ]]; then
@@ -448,7 +448,9 @@ elif r.get("state") in ("pass", "fail"):
 elif r.get("state") in ("queued", "running", "deferred", "", None):
     print("pending")
 elif r.get("state") == "superseded":
-    print("superseded")
+    by = r.get("superseded_by") or ""
+    ok = len(by) == 40 and all(c in "0123456789abcdef" for c in by)
+    print("superseded:" + by if ok else "superseded")
 else:
     print("none")
 ' "$body" "$1" "$repo" 2>/dev/null)" || word=none ;;
@@ -485,9 +487,18 @@ precheck() { # <sha>
       echo "::warning title=nightly-next precheck::the compile results service did not answer for ${1:0:12}; promoting it unprechecked" >&2
       precheck_reason="the results service did not answer, so it is not prechecked"
       return 0 ;;
-    superseded)
-      # The check that covers it is the first checked push tip after it on feat-cmux-next.
-      local later
+    superseded*)
+      # The check that covers it: the one the controller names (the stored push-tip check whose Covers
+      # lists it, hq#35798), else the first checked push tip after it on feat-cmux-next. Before, only
+      # the walk ran: it stopped at the first pending commit, so c6a61b31 (cmux#50356) read "no
+      # verdict" while 735222b6, four commits on and listing it in Covers, had passed (2026-11-28).
+      local later by="${word#superseded}"
+      by="${by#:}"
+      if [[ "$by" =~ ^[0-9a-f]{40}$ ]] && git merge-base --is-ancestor "$1" "$by" 2>/dev/null \
+          && [[ "$(fleet_verdict "$by")" == pass ]]; then
+        precheck_reason="its push was superseded by ${by:0:12}, whose Release compile on the build fleet covers it and passed"
+        return 0
+      fi
       while read -r later; do
         [[ "$later" =~ ^[0-9a-f]{40}$ ]] || continue
         word="$(fleet_verdict "$later")"
