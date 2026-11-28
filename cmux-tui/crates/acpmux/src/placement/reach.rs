@@ -300,7 +300,8 @@ mod tests {
     #[test]
     fn only_the_hosts_own_refusals_count() {
         use crate::rpc::RpcError;
-        let with = |reason: &str| RpcError::invalid_params("no").with_data(json!({"reason": reason}));
+        let with =
+            |reason: &str| RpcError::invalid_params("no").with_data(json!({"reason": reason}));
         for host_fault in [
             crate::server::remote_guard::CHAT_FOLDER_REASON,
             "session_new.internal",

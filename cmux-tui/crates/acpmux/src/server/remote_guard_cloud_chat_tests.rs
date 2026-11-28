@@ -72,6 +72,9 @@ fn each_chat_folder_fault_is_named() {
         ChatFolderFault::Writable(0o40775).describe(at),
         "/h/chats is writable by its group or others (mode 775) and could not be made private"
     );
-    assert_eq!(ChatFolderFault::NotOwned(0).describe(at), "/h/chats is owned by uid 0, not this user");
+    assert_eq!(
+        ChatFolderFault::NotOwned(0).describe(at),
+        "/h/chats is owned by uid 0, not this user"
+    );
     assert_eq!(ChatFolderFault::NotADirectory.describe(at), "/h/chats is not a directory");
 }
