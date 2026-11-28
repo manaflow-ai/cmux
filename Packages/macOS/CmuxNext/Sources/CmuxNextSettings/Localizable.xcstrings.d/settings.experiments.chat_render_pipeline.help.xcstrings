@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.chat_render_pipeline.help" : {
+      "comment" : "Settings > Agent Pane > Chat Layout: the help line under the Chat Render Pipeline switch",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip rendering offscreen rows from completed turns while keeping their place in the chat."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تخطَّ عرض الصفوف خارج الشاشة من الأدوار المكتملة مع الحفاظ على مكانها في الدردشة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preskoči iscrtavanje redova van ekrana iz završenih poteza, uz zadržavanje njihovog mjesta u chatu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spring gengivelse af rækker uden for skærmen fra afsluttede ture over, mens deres plads i chatten bevares."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeilen abgeschlossener Runden außerhalb des sichtbaren Bereichs nicht rendern, ihren Platz im Chat aber beibehalten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Omite renderizar las filas fuera de pantalla de turnos completados, manteniendo su lugar en el chat."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignorer le rendu des lignes hors écran des tours terminés tout en conservant leur place dans le chat."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salta il rendering delle righe fuori schermo dei turni completati mantenendone la posizione nella chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完了したターンの画面外の行は描画を省略し、チャット内の位置は保ちます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រំលងការបង្ហាញជួរដែលនៅក្រៅអេក្រង់ពីវេនដែលបានបញ្ចប់ ខណៈរក្សាទីតាំងរបស់វានៅក្នុងការជជែក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "완료된 턴의 화면 밖 행은 렌더링을 건너뛰고 채팅에서의 위치는 유지합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hopp over gjengivelse av rader utenfor skjermen fra fullførte runder, men behold plassen deres i chatten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pomijaj renderowanie wierszy poza ekranem z zakończonych tur, zachowując ich miejsce w czacie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pula a renderização de linhas fora da tela de turnos concluídos, mantendo seu lugar no chat."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не отрисовывать строки завершённых ходов за пределами экрана, сохраняя их место в чате."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ข้ามการแสดงผลแถวที่อยู่นอกหน้าจอจากรอบที่เสร็จแล้ว โดยยังคงตำแหน่งของแถวไว้ในแชท"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tamamlanan turların ekran dışındaki satırlarını işlemeyi atla, sohbetteki yerlerini koru."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не відтворювати рядки завершених ходів поза екраном, зберігаючи їхнє місце в чаті."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bỏ qua việc hiển thị các hàng ngoài màn hình của những lượt đã xong, nhưng vẫn giữ vị trí của chúng trong cuộc trò chuyện."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跳过渲染已完成轮次中屏幕外的行，同时保留它们在聊天中的位置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "略過渲染已完成輪次中螢幕外的列，同時保留它們在聊天中的位置。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

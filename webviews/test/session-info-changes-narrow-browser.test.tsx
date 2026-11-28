@@ -13,10 +13,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser } from "playwright";
 import { settleReact } from "./support/domTeardown";
-import { gridTokenCss } from "./support/gridTokens";
+import { importWithDom } from "./support/importWithDom";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("session-info-changes-narrow-browser.test.tsx", async () => {
+  const { gridTokenCss } = await importWithDom(() => import("./support/gridTokens"));
   setDefaultTimeout(60_000);
   const { JSDOM, VirtualConsole } = await import("jsdom");
   const dom = new JSDOM("<!doctype html><div id=root></div>", {

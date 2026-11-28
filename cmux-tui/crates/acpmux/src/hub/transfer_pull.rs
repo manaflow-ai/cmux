@@ -473,6 +473,7 @@ impl Hub {
         let listing = std::time::Instant::now();
         let listed = self.list_on_mesh_now(MOVED_LISTED_WAIT).await;
         let listed_ms = listing.elapsed().as_millis() as u64;
+        let finish_steps = moved.get("finishSteps").cloned();
         let mut moved =
             json!({"sessionId": moved.get("sessionId").cloned().unwrap_or(json!(session_id))});
         moved.set("cwd", json!(cwd));
@@ -480,7 +481,8 @@ impl Hub {
             "timings",
             json!({"dialMs": dial_ms, "pages": page_count, "pageBytes": page_bytes,
                    "pagesMs": pages_ms, "finishMs": finish_ms, "via": via,
-                   "listedMs": listed.then_some(listed_ms)}),
+                   "listedMs": listed.then_some(listed_ms),
+                   "finishSteps": finish_steps}),
         );
         Ok(answer(moved))
     }

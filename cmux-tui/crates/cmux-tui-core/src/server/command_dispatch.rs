@@ -699,6 +699,9 @@ fn dispatch_command(
         Command::ListNotifications { limit, stats } => {
             cmd_frontend::list_notifications(mux, limit, stats)
         }
+        Command::RecordNotificationDelivery { notification, desktop, reason } => {
+            cmd_frontend::record_notification_delivery(mux, notification, desktop, reason)
+        }
         Command::SetTabPinned { surface, pinned } => {
             cmd_tabs::set_tab_pinned(mux, actor, surface, pinned)
         }

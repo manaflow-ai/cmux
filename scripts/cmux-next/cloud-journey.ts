@@ -136,7 +136,7 @@ import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { codeword, deviceHome as memoryDeviceHome, follow as memoryFollow, PROMPT as MEMORY_PROMPT, push as memoryPush, PUSH_STEP as MEMORY_PUSH_STEP, REPLY_STEP as MEMORY_REPLY_STEP, replyNamesCodeword } from "./cloud-memory-codeword.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
-import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoInstall, execConformanceCase, execConformanceOn, execConformanceProbe, JOURNEY_ACPMUX_DIR, JOURNEY_ACPMUX_MAX_BYTES, journeyAcpmuxAssemble, journeyAcpmuxPieces, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
+import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoStart, execConformanceCargoWait, execConformanceCase, execConformanceOn, execConformanceProbe, JOURNEY_ACPMUX_DIR, JOURNEY_ACPMUX_MAX_BYTES, journeyAcpmuxAssemble, journeyAcpmuxPieces, journeyAcpmuxWrite, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
@@ -416,6 +416,9 @@ export function preclaimPublicMeta(): Record<string, string> {
   return { mode: "preclaim" };
 }
 
+/** The step a throw outside every step is recorded as (Journey.unrecorded). */
+export const UNRECORDED_THROW_STEP = "journey stopped outside a step";
+
 export class Journey {
   readonly steps: Step[] = [];
   readonly guestDiagnostics: GuestDiagnostics[] = [];
@@ -438,8 +441,21 @@ export class Journey {
       return value;
     } catch (error) {
       this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: withNotes(String((error as Error)?.message ?? error)).slice(0, 1000) });
+      if (error !== null && typeof error === "object") this.recordedThrows.add(error);
       throw error;
     }
+  }
+  /** Errors a step recorded as its fail before rethrowing: the run's catch records any other throw (unrecorded). */
+  private readonly recordedThrows = new WeakSet<object>();
+  /**
+   * A throw that ended the run outside every step (a raw call between steps): a failed step of its own, so the run
+   * is red and names it. Without it the run read PASS with exit 0 and its later checks unrun (run 46134450737,
+   * kill-dst: the journey stopped after "GitHub connection (team status)" and the move drills never started).
+   */
+  unrecorded(error: unknown): void {
+    if (error !== null && typeof error === "object" && this.recordedThrows.has(error)) return;
+    const at = String((error as Error)?.stack ?? "").split("\n").find((l) => /cloud-journey[^/]*\.ts:\d+/.test(l))?.match(/[\w.-]+\.ts:\d+/)?.[0];
+    this.record({ step: UNRECORDED_THROW_STEP, status: "fail", ms: 0, detail: `${String((error as Error)?.message ?? error)}${at ? ` (at ${at})` : ""}`.slice(0, 1000) });
   }
   skip(name: string, why: string): void {
     this.record({ step: name, status: "skip", ms: 0, detail: why });
@@ -4446,6 +4462,14 @@ while True:
                 sid = ((r or {}).get('session') or {}).get('sessionId')
                 if sid is None:
                     raise
+                # acpmux holds a launch credential in memory only (agent_credentials.rs "Left open"): the daemon
+                # that cut this start and restarted keeps none of it, so the session taken by name runs its agent
+                # on no login, "Not logged in" (runs 46154019193, 46161132759). The start delivers it again, as the
+                # app does after a daemon handoff; acpmux answers restart "none" when the agent already carries it.
+                cred = params['_meta']['acpmux'].get('credentials')
+                if cred:
+                    call(f, s, 4, 'agent/credentials.update', {'sessionId': sid, 'env': cred['env']})
+                    mark('credential_redelivered')
                 print('@@adopted ' + str(sid), flush=True)
             print('@@session ' + str(sid), flush=True)
             used = path
@@ -5639,8 +5663,9 @@ async function surgeMode(backend: Backend, outDir: string | null, email: string 
         return { value: null, detail };
       }).catch(() => undefined);
     }
-  } catch {
-    // The failed step is recorded; cleanup still runs.
+  } catch (error) {
+    // The failed step is recorded (a throw outside every step, here); cleanup still runs.
+    J.unrecorded(error);
   } finally {
     await cleanup();
     if (!surgeMachineIds(...receipts).length) J.skip("surge delete", "no slot named a machine_id");
@@ -6690,7 +6715,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (execConformanceOn(process.env.CMUX_JOURNEY_EXEC_CONFORMANCE)) {
         await J.step(EXEC_CONFORMANCE_STEP, async () => {
           // The acpmux this job built from journey_ref, not the image's (cloud-journey-exec-conformance.ts).
-          let binNote = "";
+          // The toolchain installs while the acpmux uploads; the wait below proves it before any case runs.
+          const cargoStart = await exec(execConformanceCargoStart(), 60_000).catch((e: unknown) => ({ code: -1, stdout: "", stderr: String((e as Error)?.message ?? e) }));
+          console.log(`[exec-conformance] ${cargoStart.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ")} ${cargoStart.code ? cargoStart.stderr.slice(-200) : ""}`);
           try {
             if (!cmux) throw new Error("no --cmux binary");
             const t0 = Date.now();
@@ -6703,17 +6730,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (gz.length > JOURNEY_ACPMUX_MAX_BYTES) throw new Error(`${gz.length} bytes gzipped (${st.status === 0 ? "stripped" : `strip failed: ${String(st.stderr ?? st.error).slice(0, 120)}`})`);
             const pieces = journeyAcpmuxPieces(gz);
             await exec(`mkdir -p ${shq(JOURNEY_ACPMUX_DIR)}`, 30_000);
-            for (const p of pieces) {
-              const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: p.path, dataBase64: Buffer.from(p.data).toString("base64"), mode: 0o644 }, 120_000);
-              if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${p.path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
-            }
+            // Four writes at a time: one after another, 22 pieces took 532 s of the step's 25 minutes (run 46159895648).
+            // Each write is tried up to JOURNEY_ACPMUX_WRITE_TRIES times: run 46172370728's first piece got one 502
+            // vm_unavailable, the upload gave up, and the image's acpmux (c6cd14b59, older than the fork route fix
+            // #64491) answered every fork with the owner API's empty 404.
+            let next = 0;
+            const writer = async () => {
+              while (next < pieces.length) {
+                const p = pieces[next++];
+                await journeyAcpmuxWrite(p.path, () => api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: p.path, dataBase64: Buffer.from(p.data).toString("base64"), mode: 0o644 }, 120_000));
+              }
+            };
+            await Promise.all(Array.from({ length: Math.min(4, pieces.length) }, writer));
             const a = await exec(journeyAcpmuxAssemble(pieces.length, createHash("sha256").update(gz).digest("hex")), 180_000);
             const line = a.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ");
             if (a.code !== 0) throw new Error(`assemble exit ${a.code}: ${line} ${a.stderr.slice(-200)}`);
             console.log(`[exec-conformance] ${line} (${raw.length} bytes, ${pieces.length} pieces, ${Date.now() - t0} ms)`);
           } catch (e) {
-            binNote = `the journey's acpmux is NOT on the machine (${String((e as Error)?.message ?? e).slice(0, 200)}): the image's acpmux ran, so this run does not test journey_ref`;
-            console.log(`::warning::[exec-conformance] ${binNote}`);
+            // No row from the image's acpmux: it is not journey_ref's, so its rows prove nothing about the commit under
+            // test (run 46172370728 read a stale fork route's 404 and an old notice as differences).
+            const why = `journey acpmux not uploaded (${String((e as Error)?.message ?? e).slice(0, 300)}): no case ran, the image's acpmux is not journey_ref's`;
+            console.log(`::error::[exec-conformance] ${why}`);
+            throw new Error(why);
           }
           const probe = await exec(execConformanceProbe(), 60_000);
           const facts = probe.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ");
@@ -6723,27 +6761,54 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             // An acpmux without the suite: the image predates f7a86e4a (#58823), the commit that added it.
             throw new Error(`this image's acpmux has no exec-router conformance (predates f7a86e4a): ${facts} ${probe.stdout.slice(-300)} ${probe.stderr.slice(-200)}`);
           }
-          if (cases.includes(EXEC_CONFORMANCE_CARGO_CASE) && /cargo=none/.test(probe.stdout)) {
-            const c = await exec(execConformanceCargoInstall(), 300_000);
-            console.log(`[exec-conformance] ${c.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ")} ${c.code ? c.stderr.slice(-200) : ""}`);
+          if (cases.includes(EXEC_CONFORMANCE_CARGO_CASE)) {
+            const c = await exec(execConformanceCargoWait(420), 480_000);
+            console.log(`[exec-conformance] ${c.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ")} ${/cargo_ready=yes/.test(c.stdout) ? "" : c.stdout.slice(-300)}`);
           }
+          // The fork goes to cmux-platform's /v1/machines, which takes a cmux access token with a team claim
+          // (machines/Auth.ts), not the Stack session the sign-in holds: run 46159895648 forked every case with that
+          // and got 401 "a cmux access token with a team claim is required", so every routed side ran here. The
+          // journey's install signs one naming the team, fresh for each case (it lives 600 s).
+          const forkTeam = api.team ?? scopedTeam ?? install.team;
+          const forkToken = async (): Promise<string> => {
+            const userId = install.user ?? user.id ?? user.user?.id;
+            const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: userId, install: install.id, ...(forkTeam ? { team: forkTeam } : {}) }, {});
+            if (ch.status !== 200) throw new Error(`fork token: challenge HTTP ${ch.status} ${short(ch.body)}`);
+            const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: install.id, nonce: ch.body.nonce, signature: await sign(install.key, `${ch.body.message_prefix}${ch.body.nonce}`) }, {}, 25_000);
+            if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`fork token: HTTP ${tok.status} ${short(tok.body.error ?? tok.body)}`);
+            J.secrets.push(tok.body.access_token);
+            return tok.body.access_token as string;
+          };
           const rows: ReturnType<typeof parseRows> = [];
           for (const name of cases) {
             // A token fresh for each case (it lives 600 s; the fork backend reads it once per run).
-            if (api.remint) { api.expiresAt = 0; await api.fresh(); }
-            if (api.bearer) J.secrets.push(api.bearer);
-            const r = await exec(execConformanceCase(name, { api: api.origin, token: api.bearer, team: api.team, machine: created.id }, `/tmp/cmux-exec-conformance-${process.pid}`), 300_000);
+            const token = await forkToken();
+            const r = await exec(execConformanceCase(name, { api: api.origin, token, team: forkTeam, machine: created.id }, `/tmp/cmux-exec-conformance-${process.pid}`), 300_000);
             const got = parseRows(r.stdout);
             for (const row of got) console.log(`[exec-conformance] ${rowText(row)} ${JSON.stringify(row)}`);
             if (!got.length) console.log(`[exec-conformance] ${name}: no row (exit ${r.code}) ${r.stdout.slice(-400)} ${r.stderr.slice(-400)}`);
             rows.push(...got);
           }
+          // A fork that failed: say where it went, for which machine, and what that machine's own platform route
+          // answers with the same token (a 404 there too means the id; a 200 means the fork route).
+          const forkFailed = rows.find((row) => row.routedCause?.startsWith("fork:"));
+          if (forkFailed) {
+            let platform = "(client-config unread)";
+            let probe = "";
+            try {
+              platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+              const g = await http("GET", `${platform}/v1/machines/${encodeURIComponent(created.id)}`, undefined, { authorization: `Bearer ${await forkToken()}`, ...(forkTeam ? { "x-cmux-team": forkTeam } : {}) }, 15_000);
+              probe = `GET ${platform}/v1/machines/${created.id} -> HTTP ${g.status} ${short(g.body).slice(0, 300)}`;
+            } catch (e) {
+              probe = `probe failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`;
+            }
+            console.log(`[exec-conformance] fork failed: machine=${created.id} CMUX_CLOUD_API_URL=${api.origin} team=${forkTeam ?? "(none)"} platform=${platform}; ${probe}; cause ${forkFailed.routedCause?.slice(0, 400)}`);
+          }
           const v = verdict(cases, rows);
           console.log(`[exec-conformance] summary: ${v.line}`);
           console.log(`[exec-conformance] ${EXEC_CONFORMANCE_CARGO_CASE}: ${v.cargo}`);
-          const tail = binNote ? `; ${binNote}` : "";
-          if (!v.ok) throw new Error(`${v.line}${tail}`);
-          return { value: { total: v.total, identical: v.identical, onRunVm: v.onRunVm }, detail: `${v.line}; ${v.cargo}${tail}` };
+          if (!v.ok) throw new Error(v.line);
+          return { value: { total: v.total, identical: v.identical, onRunVm: v.onRunVm }, detail: `${v.line}; ${v.cargo}` };
         });
       }
       // A person's own create that no spare serves: the create above asks the chat start size and claims a ready spare,
@@ -7998,13 +8063,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `${created.id} ${m?.status ?? "gone"}` };
       });
     }
-  } catch {
-    // The failed step is recorded. What the machine says, then the journey-only checks the failure cut off; cleanup below.
+  } catch (error) {
+    // The failed step is recorded (a throw outside every step, here). What the machine says, then the journey-only
+    // checks the failure cut off; cleanup below.
+    J.unrecorded(error);
     await readFailureFacts();
     // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
     await saveSendTraceOnce();
-    await runJourneyOnly?.().catch(() => undefined);
-    await runScrollProbe?.().catch(() => undefined);
+    // Each may throw between its own steps too (run 46134450737's fs/write): recorded, never dropped.
+    await runJourneyOnly?.().catch((e) => J.unrecorded(e));
+    await runScrollProbe?.().catch((e) => J.unrecorded(e));
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
   }

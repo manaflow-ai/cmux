@@ -14,6 +14,7 @@ import { useState, type CSSProperties, type ReactNode } from "react";
 import { FILE_KINDS, kindTotals, type FileKind } from "../../../fileKinds";
 import { usePaneLanguage, useT, type PaneLanguage, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { Button } from "../../../ui/Button";
 import { CopyButton } from "../conversation/CopyButton";
 import { relativeTime } from "../conversation/relativeTime";
 import { usePullRequestAnswer, type LinkedPullRequest } from "./pullRequestStore";
@@ -21,7 +22,6 @@ import { githubItemRef } from "./pullRequestCardModel";
 import { repeatsTitle } from "./linkHoverCardModel";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { useLoadFade } from "../../shared/loadFade";
-import { Button } from "../../../ui/Button";
 
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
@@ -410,8 +410,8 @@ function Checks({ read, t, conflicts }: { read: LinkedPullRequest | undefined; t
         {failing > 0 ? (
           hasDrawer ? (
             <Button
-              bare
               type="button"
+              bare
               className="acpmux-pr-card__checksToggle"
               data-kind={allOnBase ? "base" : "fail"}
               aria-expanded={expanded}
@@ -444,8 +444,8 @@ function Checks({ read, t, conflicts }: { read: LinkedPullRequest | undefined; t
         ) : pending > 0 ? (
           hasDrawer ? (
             <Button
-              bare
               type="button"
+              bare
               className="acpmux-pr-card__checksToggle"
               data-kind="pending"
               aria-expanded={expanded}
