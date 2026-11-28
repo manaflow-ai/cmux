@@ -92,11 +92,14 @@ fn output_limit_never_splits_utf8() {
 
 #[tokio::test]
 async fn the_mac_lends_nothing_to_a_peer_it_is_off_for() {
-    let slots = Arc::new(tokio::sync::Semaphore::new(1));
-    let e = admit_owner("box", false, &slots).unwrap_err();
+    let slots = Arc::new(OwnerSlots::new());
+    let read = json!({"action": "read", "repo": "o/r"});
+    let e = admit_owner("box", false, &slots, &read).unwrap_err();
     assert_eq!(e.data.unwrap()["reason"], "github.denied");
-    let held = admit_owner("box", true, &slots).unwrap();
-    let e = admit_owner("box", true, &slots).unwrap_err();
+    let held: Vec<_> = (0..OWNER_SLOTS)
+        .map(|_| admit_owner("box", true, &slots, &json!({"action": "token"})).unwrap())
+        .collect();
+    let e = admit_owner("box", true, &slots, &read).unwrap_err();
     assert_eq!(e.data.unwrap()["reason"], "github.busy");
     drop(held);
     // Whatever the peer sends is checked again on the Mac.
@@ -194,4 +197,60 @@ fn every_failed_action_says_which_login_it_ran_with() {
     let data = with_source(coded, Some("keyring")).data.unwrap();
     assert_eq!(data, json!({"reason": "github.app_token", "source": "keyring"}));
     assert_eq!(with_source(RpcError::internal("x"), None).data, None);
+}
+
+/// Reads in a loop never keep an action that lands work from starting: with every read slot
+/// held, a `token` (a push), an issue or a comment still gets in, and another read does not.
+#[test]
+fn reads_never_fill_the_slots_a_push_needs() {
+    let slots = Arc::new(OwnerSlots::new());
+    let read = json!({"action": "read", "repo": "o/r"});
+    let reads: Vec<_> =
+        (0..READ_SLOTS).map(|_| admit_owner("box", true, &slots, &read).unwrap()).collect();
+    let e = admit_owner("box", true, &slots, &read).unwrap_err();
+    assert_eq!(e.data.unwrap()["reason"], "github.busy");
+    let push = admit_owner("box", true, &slots, &json!({"action": "token"})).unwrap();
+    assert_eq!(slots.available_permits(), OWNER_SLOTS - READ_SLOTS - 1);
+    drop(push);
+    // Unparseable or unknown counts as a read: the stricter lane.
+    assert!(admit_owner("box", true, &slots, &json!({})).is_err());
+    drop(reads);
+    assert_eq!(slots.available_permits(), OWNER_SLOTS);
+    assert!(is_read(&json!({"action": "merge"})));
+    assert!(!is_read(&json!({"action": "draft_pr"})));
+}
+
+#[test]
+fn a_graphql_read_has_a_rest_form_on_the_core_pool_with_the_same_fields() {
+    use crate::github_pool::{Pool, pool_of};
+    let mut view = req(GithubAction::Read);
+    assert_eq!(pool_of(&gh_args(&view)), Pool::Graphql);
+    let rest = rest_read_args(&view).unwrap();
+    assert_eq!(rest[..2], ["api", "repos/o/r"]);
+    assert_eq!(pool_of(&rest), Pool::Core);
+    view.issue = Some(3);
+    assert_eq!(pool_of(&gh_args(&view)), Pool::Graphql);
+    let rest = rest_read_args(&view).unwrap();
+    assert_eq!(rest[..2], ["api", "repos/o/r/pulls/3"]);
+    assert_eq!(pool_of(&rest), Pool::Core);
+    // Every field the `--json` view prints, the REST form prints under the same name.
+    let fields = gh_args(&view).iter().find_map(|a| a.strip_prefix("--json=").map(String::from));
+    for field in fields.unwrap().split(',') {
+        assert!(rest[2].contains(field), "{field} missing from {}", rest[2]);
+    }
+    let mut write = req(GithubAction::Comment);
+    write.issue = Some(3);
+    write.body = Some("b".into());
+    assert_eq!(rest_read_args(&write), None, "only reads fall back");
+}
+
+#[test]
+fn only_a_whole_pool_refusal_falls_back() {
+    let pool = RpcError::new(-32044, "x").with_data(json!({"reason": "github.budget.pool"}));
+    assert!(pool_refusal(&pool));
+    for other in ["github.budget.caller", "github.budget.pace", "github.command_failed"] {
+        let e = RpcError::new(-32044, "x").with_data(json!({"reason": other}));
+        assert!(!pool_refusal(&e), "{other}");
+    }
+    assert!(!pool_refusal(&RpcError::new(-32044, "x")));
 }

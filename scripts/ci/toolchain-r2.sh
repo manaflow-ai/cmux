@@ -46,6 +46,21 @@ if [[ -z "${TOOLCHAIN_R2_URL+set}" && "${GITHUB_ACTIONS:-}" == true ]]; then
 fi
 namespace="${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}"
 say() { echo "toolchain-r2: $*"; }
+
+# bun answers "error: EACCES accessing temporary directory. set $BUN_TMPDIR or $BUN_INSTALL" when the system temp
+# dir is not writable to the runner user: 6 of 22 gallery-health shards of batch run 46058976708 (hetzner-1-14,
+# -1-21, -1-25, -2-16, -2-19, -2-23; 11-27 20:17Z) failed at their first bun install so, and the bisect's probes
+# chased those legs. Every bun step after this one gets a temp dir under the runner's own $RUNNER_TEMP, which it
+# owns, on every runner and before any early exit below (scripts/cmux-next/build-web-bundles.sh and
+# fast_gate_webviews_checks.py fixed it for themselves alone).
+bun_tmpdir() {
+  [[ -z "${BUN_TMPDIR:-}" && -n "${RUNNER_TEMP:-}" && -n "${GITHUB_ENV:-}" ]] || return 0
+  mkdir -p "$RUNNER_TEMP/bun-tmp" 2>/dev/null && [[ -w "$RUNNER_TEMP/bun-tmp" ]] || return 0
+  echo "BUN_TMPDIR=$RUNNER_TEMP/bun-tmp" >> "$GITHUB_ENV"
+  say "BUN_TMPDIR=$RUNNER_TEMP/bun-tmp for the job's bun steps"
+}
+
+[[ "$mode" != restore || "$kind" != bun ]] || bun_tmpdir
 scratch=()
 trap 'for d in ${scratch[@]+"${scratch[@]}"}; do rm -rf "$d"; done' EXIT
 

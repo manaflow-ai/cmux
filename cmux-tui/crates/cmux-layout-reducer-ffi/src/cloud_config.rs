@@ -30,6 +30,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: cmux_cloud_config::capture_auth::Request = read(request)?;
             json!(cmux_cloud_config::capture_auth::next(&request))
         }
+        // The shared session store's next state and effects (Team-signed production builds).
+        b"cloud_auth_shared_session_next" => {
+            let request: cmux_cloud_config::shared_session_store::Request = read(request)?;
+            json!(cmux_cloud_config::shared_session_store::next(&request))
+        }
         // The build's Cloud from the runtime selection, with its token store's names.
         b"cloud_config_from_selection" => {
             let inputs: config::Inputs = read(request)?;
@@ -55,6 +60,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "url": config::sign_in_url(&request.auth_web_origin, &request.callback_scheme, request.state.as_deref()) })
+        }
+        // What the sign-in screens say they sign in to: the configuration's backend, named.
+        b"cloud_config_backend_label" => {
+            #[derive(Deserialize)]
+            struct Request {
+                backend: config::Backend,
+            }
+            let request: Request = read(request)?;
+            json!(config::backend_label(&request.backend))
         }
         // Sign-in with no callback (`cli_sign_in`): each request the app sends, and what each answer means.
         b"cloud_auth_cli_sign_in_start" => {
@@ -316,6 +330,21 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!(screen_picker::rows(&request.machines))
+        }
+        // The install token mint and revoke (`install_auth`): `{state, event, now_ms}` in,
+        // `{state, effect}` out; the app performs the effect and sends what it got back.
+        b"cloud_identity_install_auth_step" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                state: Option<cmux_cloud_config::install_auth::State>,
+                event: cmux_cloud_config::install_auth::Event,
+                now_ms: f64,
+            }
+            let request: Request = read(request)?;
+            let (state, effect) =
+                cmux_cloud_config::install_auth::step(request.state, request.event, request.now_ms);
+            json!({ "state": state, "effect": effect })
         }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]
