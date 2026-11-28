@@ -55,6 +55,7 @@ mod bg_folder;
 #[cfg(all(test, unix))]
 mod bg_folder_bench;
 mod bg_notify;
+mod bg_registry;
 mod bg_tasks;
 pub(crate) mod book_tee;
 mod bookmarks;
@@ -116,6 +117,7 @@ mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
 mod fork_model;
+mod fork_own_process;
 mod fork_replay;
 mod fork_request;
 #[cfg(test)]
@@ -169,6 +171,7 @@ mod hunk_summary;
 mod hybrid_hold;
 pub(super) mod idle;
 mod idle_census;
+mod idle_digest;
 mod idle_governor;
 pub(crate) mod image_size;
 pub(crate) mod inactive_archive;
@@ -291,6 +294,7 @@ mod permissions;
 pub mod person;
 /// Four session states, never unknown (`hub/session_state.rs`).
 pub(crate) mod session_state;
+mod wait_edges;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;
@@ -305,6 +309,7 @@ mod policy_source;
 mod pool;
 pub(crate) mod pool_pressure;
 // Files a prompt names, read into it as the turn starts (harness magic).
+mod move_interrupts;
 pub(crate) mod prefetch;
 pub mod presence;
 mod processes;
@@ -439,8 +444,10 @@ mod task_names;
 pub(crate) mod tasks;
 mod team_directory;
 pub use team_directory::{TeamView, view_of_book};
+mod best_of_n;
 mod team_information;
 mod team_sent;
+mod team_settings;
 mod terminal_input;
 #[cfg(test)]
 mod time_breakdown_restore_tests;
@@ -474,6 +481,7 @@ mod translator_queue_tests;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
 mod trust_wait;
+mod turn_artifacts;
 mod turn_attestation;
 pub(crate) mod turn_cap;
 mod turn_checkpoint;
@@ -1238,6 +1246,8 @@ pub struct Hub {
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// RFD 0170's team directory for the navigator, picker and Session Info (`team_directory.rs`).
     pub(super) team_directory: team_directory::TeamDirectoryCell,
+    /// RFD 0170 phase 4's customization and Slack bindings (`team_settings.rs`).
+    pub(super) team_settings: team_settings::TeamSettingsCell,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
     pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
@@ -1252,7 +1262,7 @@ pub struct Hub {
     /// Leased peers by name, with the generation of the peer each lease
     /// started (`peer_lease.rs`); never saved. Look up a peer Arc briefly, then release this and
     /// the `peers` lock before taking `remote_sessions` or a per-peer writer gate.
-    pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    pub(super) peer_leases: StdMutex<HashMap<String, PeerLease>>,
     /// Per-peer cache writers; held through the write so removal cannot be followed by an older
     /// snapshot landing on disk. Each holds what it last left on disk (`peer_cache_disk.rs`), so
     /// a save writes only what changed. Entries are removed with the peer.
@@ -1377,6 +1387,9 @@ pub struct Hub {
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
     pub(super) cold_wake: Arc<Notify>,
+    /// When each chat came back from its cold archive lately, so the automatic passes do not
+    /// archive it again right away (`cold_archive.rs` `Recent`): bounded, oldest let go first.
+    pub(super) cold_recent: Arc<StdMutex<cold_archive::Recent>>,
     /// Chats whose log sealed a segment since the cold segments' worker last looked, and its wake
     /// (`cold_segments.rs`).
     pub(super) cold_sealed: Arc<StdMutex<std::collections::BTreeSet<String>>>,
@@ -1493,6 +1506,8 @@ pub struct Hub {
     pub(super) surge_inbox: StdMutex<Option<bool>>,
     /// The fleet hold as its file last read (`session_hold.rs`).
     pub(crate) fleet_hold: StdMutex<session_hold::FleetHoldCache>,
+    /// Wakes the fleet hold's thaw task after a change (`session_hold.rs` `start_fleet_thaw`).
+    pub(crate) fleet_thaw: Notify,
     /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
     pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The thread owners every chat subscribed itself to (`surge_triage.rs`).
@@ -1586,6 +1601,7 @@ pub struct Hub {
     pub(super) cpu_pressure: StdMutex<crate::cpu_class::pressure::Controller>,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
+    pub(crate) subscriptions: Arc<crate::subscriptions::Service>,
     pub chatgpt: Arc<crate::chatgpt::Service>,
     /// One-click Claude Code tokens (`claude setup-token` in the daemon's own pty).
     pub claude_token: Arc<crate::claude_token::Service>,
@@ -1626,6 +1642,8 @@ pub struct Hub {
     pub(super) lane_reports: lane_reports::LaneReports,
     /// Authenticated parents already receiving a lane result through wait/history.
     lane_report_reads: lane_report_reads::LaneReportReads,
+    /// Who waits on whom now, for class inheritance (`wait_edges.rs`).
+    wait_edges: wait_edges::WaitEdges,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
     pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
@@ -1798,6 +1816,7 @@ impl Hub {
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
+        let team_settings_path = home.as_ref().map(|h| h.join(team_settings::FILE));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
@@ -1873,6 +1892,7 @@ impl Hub {
             pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
             team_directory: Default::default(),
+            team_settings: team_settings::TeamSettingsCell::new(team_settings_path),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
@@ -1933,6 +1953,7 @@ impl Hub {
             lifecycle_wake: Arc::new(Notify::new()),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
+            cold_recent: Default::default(),
             cold_sealed: Default::default(),
             cold_sealed_wake: Arc::new(Notify::new()),
             pack_grown: Default::default(),
@@ -1991,6 +2012,7 @@ impl Hub {
             surge_triager: StdMutex::new(None),
             surge_inbox: StdMutex::new(None),
             fleet_hold: StdMutex::new(session_hold::FleetHoldCache::default()),
+            fleet_thaw: Notify::new(),
             surge_triage_journals: StdMutex::new(HashMap::new()),
             surge_subscribers: StdMutex::new(None),
             surge_digest_pace: StdMutex::new(HashMap::new()),
@@ -2041,6 +2063,7 @@ impl Hub {
             git_watch: Default::default(),
             cpu_pressure: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            subscriptions: Arc::default(),
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
             claude_token: Arc::new(crate::claude_token::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
@@ -2065,6 +2088,7 @@ impl Hub {
             offers: Default::default(),
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
+            wait_edges: Default::default(),
             subsessions: Default::default(),
             races_running: Default::default(),
             admitting: Default::default(),
@@ -2645,6 +2669,7 @@ impl Hub {
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(fork_from),
+            agent_fork: StdMutex::new(None),
             applied: Default::default(),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
@@ -3247,6 +3272,10 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
         turn_frames::record(&session.id, kind, &msg);
+        // A check red twice in a row marks the turn for best-of-N (`best_of_n.rs`, RFD 0158 §3).
+        best_of_n::record(&session.id, kind, &msg);
+        // The turn's artifact card gathers its edits, tests and PRs (`turn_artifacts.rs`).
+        turn_artifacts::record(&session.id, kind, &msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)
@@ -3733,6 +3762,11 @@ impl Hub {
         let stored = |id: &str| {
             known.contains(id) || self.store.session_path(id).is_some_and(|d| d.exists())
         };
+        // The index is still loading and new spawns have yet to be released. A durable host
+        // can outlive this process, so keep its launch files until it exits.
+        if let Some(live) = Self::read_live_host_sessions() {
+            crate::agent::copilot_auth::sweep_inactive(&live);
+        }
         let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
         if stale.is_empty() {
             return;

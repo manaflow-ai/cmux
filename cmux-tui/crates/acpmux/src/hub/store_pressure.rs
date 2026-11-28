@@ -179,6 +179,11 @@ impl Hub {
                 if session.meta().status != SessionStatus::Closed {
                     continue;
                 }
+                // Brought back lately: a read wants it; archiving it again only churns
+                // (`cold_archive.rs` `Recent`).
+                if self.rehydrated_lately(&session) {
+                    continue;
+                }
                 let Ok(preview) = self.cold_archive_chat(&session, None, &hosted) else {
                     continue;
                 };

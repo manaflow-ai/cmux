@@ -84,7 +84,7 @@ pub(crate) use detached_spawn::STARTER_SESSION_MARKS;
 #[cfg(unix)]
 pub(crate) use detached_spawn::log_start_choice;
 #[cfg(unix)]
-use detached_spawn::{daemon_command, hand_key};
+use detached_spawn::{open_daemon_log, spawn_detached};
 mod notify;
 pub(crate) use crate::daemon_parts::first_run_listen;
 pub use crate::daemon_parts::{daemon_prefix, set_daemon_prefix};
@@ -110,6 +110,7 @@ pub use person_key::start_keyed;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod provision;
+mod runtime_stall;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;
@@ -531,7 +532,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             );
             tokio::net::UnixListener::from_std(l)?
         }
-        _ => crate::server::bind_unix(&socket_path()).await?,
+        // A handed listener this start does not serve is closed before it binds: kept open, it
+        // answers the connect that looks for a live daemon at the socket.
+        other => {
+            drop(other);
+            let ours_or_gone = listener_handover::listener_is_ours_or_gone;
+            crate::server::bind_daemon_unix(&socket_path(), ours_or_gone).await?
+        }
     };
     #[cfg(not(unix))]
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
@@ -579,6 +586,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let _ = mode;
         std::future::pending::<()>().await;
     }
+    // A runtime that stops running tasks logs it and writes its stacks (`daemon/runtime_stall.rs`).
+    runtime_stall::start();
     // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
     #[cfg(target_os = "linux")]
     watchdog::start(socket_path());
@@ -828,6 +837,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             transport.yield_to_link(&home(), LINK_HANDOFF_EVERY, SHUTDOWN_BUDGET).await;
         });
     }
+    // Migrate legacy grants once per start, including grants without a route.
+    let (_, subscription_home) = crate::routes::places(&config);
+    drop(tokio::task::spawn_blocking(move || {
+        crate::subscription_store::migrate_legacy(&subscription_home);
+    }));
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
     #[cfg(unix)]
@@ -893,6 +907,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         hub.watches.open(&home().join("watches.json"));
     }
     hub.start_watches();
+    // A fleet hold that lifts thaws its chats (`hub/session_hold.rs`).
+    hub.start_fleet_thaw();
     // What the join in config.json starts (`server/machine_enroll.rs`): the team hub's relay
     // (`server/mesh_relay.rs`), kept on the hub so a sign-in enroll can start one live, and the
     // hub carrier on the same hub and credential (`hub_carrier.rs`), through which this machine
@@ -1428,7 +1444,21 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // An update that moves this executable away swaps to the installed build, make-before-break
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    let _exe_watch = hub.scope.spawn_until_cancelled("exe-swap-watch", exe_watch);
+    let _exe_watch = hub.scope.spawn_until_cancelled("exe-swap-watch", {
+        let hub = Arc::downgrade(&hub);
+        async move {
+            exe_watch.await;
+            if let Some(hub) = hub.upgrade() {
+                tracing::info!("update: exiting for launchd to start the verified replacement");
+                supervision::stopping(cmux_supervise_core::StopCause::Update(
+                    "launchd executable swap".into(),
+                ));
+                hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                hub.shutdown.notify_waiters();
+                hub.shutdown.notify_one();
+            }
+        }
+    });
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::server::tailnet_service::Service::spawn(hub.clone());
@@ -1896,113 +1926,9 @@ pub async fn wait_for_exit() -> bool {
     wait_for_lock_release_with_budget(home().join("daemon.lock"), Some(EXIT_BUDGET)).await
 }
 
-/// Open the daemon log for append, owner-only like the config file: the log
-/// can carry agent output and request details. A log left by an older build
-/// with wider bits is narrowed to 0600.
-#[cfg(unix)]
-fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
-    crate::config::private_state_append(path)
-}
-
 #[cfg(all(test, unix))]
 #[path = "daemon/state_file_tests.rs"]
 mod state_file_tests;
-
-/// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
-/// return the read end of its readiness pipe. With `key`, the daemon also
-/// gets `--person-key-fd M`, one end of a socket pair: the key is written
-/// only after the daemon wrote [`KEY_READY`] on it.
-#[cfg(unix)]
-fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::File, u32)> {
-    let choice = start_exe::current(&home())?;
-    let this = &choice.this;
-    crate::config::private_state_dir(&home())?;
-    let mut log = open_daemon_log(&home().join("daemon.log"))?;
-    log_start_choice(&mut log, &choice);
-    let log_err = log.try_clone()?;
-    // Close-on-exec from the start (`pipe2(O_CLOEXEC)` where the OS has it):
-    // a child another thread forks meanwhile never inherits either end, and
-    // pre_exec reopens the write end for the daemon only.
-    let (reader, writer) = std::io::pipe().context("pipe for acpmux daemon readiness")?;
-    let reader = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
-    let write_fd = std::os::fd::AsRawFd::as_raw_fd(&writer);
-    // The key's socket pair: `ours` stays here, `theirs` goes to the daemon.
-    let pair = match &key {
-        Some(_) => {
-            let (ours, theirs) =
-                std::os::unix::net::UnixStream::pair().context("socket pair for the person key")?;
-            Some((ours, theirs))
-        }
-        None => None,
-    };
-    let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = daemon_command(this);
-    crate::config::scrub_nested_claude_env(&mut cmd);
-    // The daemon serves every session: its starter's turn values are not its own.
-    for k in crate::config::inherited_caller_scoped_keys() {
-        cmd.env_remove(k);
-    }
-    // Nor its starter's session marks: a daemon a chat's shell started carried that chat's id and
-    // host nonce, and so did everything it started for other sessions, which made them read as
-    // that chat's (`acpmux process owner`, `cli/process_owner.rs`).
-    for k in STARTER_SESSION_MARKS {
-        cmd.env_remove(k);
-    }
-    // The daemon must use this client's state directory and socket, including a host
-    // override that its own environment would not reproduce, absolute: it changes into
-    // its home before it binds (`login_placement::daemon_env`).
-    let cwd = std::env::current_dir().context("this command's folder")?;
-    let socket = std::env::var_os("ACPMUX_SOCKET");
-    cmd.env_remove("ACPMUX_SOCKET");
-    // A daemon a command starts has no owner app: only the app's launcher names one
-    // (`daemon/owner_exit.rs`), so a CLI run from an agent or a harness never ties the new daemon
-    // to the app that started an older one.
-    cmd.env_remove(owner_exit::OWNER_APP_PID_ENV);
-    for (key, value) in login_placement::daemon_env(&home(), socket.as_deref(), &cwd) {
-        cmd.env(key, value);
-    }
-    cmd.arg(write_fd.to_string())
-        .args(key_fd.map(|fd| ["--person-key-fd".to_owned(), fd.to_string()]).into_iter().flatten())
-        .stdin(std::process::Stdio::null())
-        .stdout(log)
-        .stderr(log_err);
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(move || {
-                // New session so the daemon outlives the terminal; keep the
-                // readiness descriptor open across exec.
-                libc::setsid();
-                libc::fcntl(write_fd, libc::F_SETFD, 0);
-                if let Some(fd) = key_fd {
-                    libc::fcntl(fd, libc::F_SETFD, 0);
-                }
-                Ok(())
-            });
-        }
-    }
-    let mut child = tokio::process::Command::from(cmd).spawn().context("spawn acpmux daemon")?;
-    let child_pid = child.id().unwrap_or_default();
-    // A lock-race loser exits promptly. Reap it even when its CLI caller keeps
-    // running (stdio/TUI); dropping std::process::Child left a zombie per retry.
-    // This async wait never holds runtime teardown open or kills the winner.
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-    });
-    // Close this process's copy so end of file means the daemon closed it.
-    drop(writer);
-    if let (Some(key), Some((ours, theirs))) = (key, pair) {
-        drop(theirs);
-        // The daemon may be alive but busy before it can read its person key.
-        // Keep that handoff off the caller's path and let EOF signal a dead
-        // child instead of imposing a wall-clock cutoff.
-        let _ = std::thread::Builder::new()
-            .name("acpmux-person-key".into())
-            .spawn(move || hand_key(ours, &key));
-    }
-    Ok((reader, child_pid))
-}
 
 /// Use the same home classification for initial launch and CLI restart.
 pub(crate) fn uses_shared_home() -> bool {
