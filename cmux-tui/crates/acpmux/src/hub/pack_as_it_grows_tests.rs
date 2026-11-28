@@ -375,3 +375,38 @@ async fn an_interrupted_seals_scratch_is_removed_at_restart_and_a_finished_one_l
     assert_eq!(work_dirs(&hub, id), want);
     std::fs::remove_dir(&own).unwrap();
 }
+
+/// A whole pack of a log larger than a piece (`WHOLE_PIECE`, 6 MiB in tests) runs in pieces,
+/// each saving its sealed segments, and makes the same pack one pass over the export does;
+/// it leaves no lines file behind.
+#[test]
+fn a_whole_pack_runs_in_pieces_and_is_the_one_pass_pack() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let hub = hub(&sessions);
+    let id = "pack-grows-pieces";
+    let session = chat(&hub, id);
+    let mut text = Text(17);
+    grow(&hub, &session, &sessions, (18 << 20) + (1 << 20), &mut text);
+    let through = session.read_meta(|m| m.last_seq);
+    let store = hub.pack_store(id).unwrap();
+    let work = root.path().join("whole");
+    let (manifest, stats, _) = hub.pack_through(&session, through, &store, &work).unwrap();
+    let raw = log_bytes(&sessions, id);
+    assert!(stats.encoded_bytes > raw.min(stats.raw_bytes), "one piece only: {stats:?}");
+    assert_eq!(stats.kept_segments, 0, "{stats:?}");
+    assert!(!work.join("history.ndjson").exists(), "the lines file is removed");
+
+    let want = export_lines(&hub, &session, root.path());
+    let fresh = pack::Store::new(root.path().join("fresh"));
+    let file = root.path().join("export.ndjson");
+    let (one_pass, _) = pack::pack(&fresh, id, &[file], &pack::Params::default(), true).unwrap();
+    assert_eq!(manifest, one_pass, "the pieces make the one-pass pack");
+    let mut back = Vec::new();
+    pack::Pack::open(&store, id).unwrap().cat(&mut back).unwrap();
+    assert!(back == want, "the pack reads back as the export's lines");
+
+    // A pack after it keeps every sealed segment the pieces saved.
+    let (_, again, _) = hub.pack_through(&session, through, &store, &work).unwrap();
+    assert_eq!(again.kept_segments as usize, sealed(&Some(one_pass)), "{again:?}");
+}
