@@ -6119,7 +6119,7 @@ jobs:
       - name: Decide the fleet build's REF capture
         id: hybrid-ref
         # Why: note-305
-        if: (vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' || inputs.hybrid_ref_capture == true) && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true') && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && (github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')) || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready'))))
+        if: (vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' || inputs.hybrid_ref_capture == true) && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready'))))
         continue-on-error: true
         # Why: note-306
         timeout-minutes: 12
@@ -6139,7 +6139,7 @@ jobs:
       # Why: 2026-11-24-cmux-scheme-compile-2.md, note-74
       - name: Look up the DEV Release app compiled on the same inputs
         id: dev-product
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true') && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && (github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')) || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -6338,7 +6338,7 @@ jobs:
           restore-keys: ${{ steps.vm-cas.outputs.prefix }}
       - name: Compile the cmux NEXT DEV Release app
         id: compile-cmux-next-dev-release
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true') && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && (github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')) || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
         env:
           CMUX_NEXT_CONFIGURATION: Release
           CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV

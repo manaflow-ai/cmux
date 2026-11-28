@@ -921,6 +921,16 @@ export const HISTORY_SHOWN_MS = 60_000;
 type TurnState = { started: number; running: boolean; status: string; detail: string };
 
 /**
+ * The turn's state as the client sees it: running once the client has streamed step `third` and not yet the last
+ * step, so the fault can be injected without a remote history read. `null` means the client's view does not decide it
+ * (too early, or the output already ended) and history must.
+ */
+export function streamingState(reached: number, third: number, n: number): TurnState | null {
+  if (reached < third || reached >= n) return null;
+  return { started: 1, running: true, status: `running (the client at step ${reached})`, detail: "" };
+}
+
+/**
  * Reads history until the sent turn shows or `budgetMs` passes. One remote read is not an answer: in run 46048495695
  * (drop 60 s) a single read failed while the client was already streaming the turn (step 99), and the catch counted
  * that as 0 turns, "never showed in the chat's history". `error` is the last failed read when no read showed it.
@@ -1253,10 +1263,16 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         reached = chat.reached(tag, from);
         if (reached >= third) break;
       }
-      const shown = await turnShown(() => turnState(ctx, marker, chat.session), HISTORY_SHOWN_MS);
+      // A client streaming step `third` already proves the turn started and runs, so the fault goes in now. Reading
+      // history first is a remote exec that can outlast the rest of the ~20 s turn (run 46116359583, relay cut: the
+      // read took over 10 s on a slow exec route and the fault landed after step 100). History is read only when the
+      // client has not seen the turn mid-way, where it decides whether the turn exists at all.
+      reached = chat.reached(tag, from);
+      const seen = streamingState(reached, third, COUNT_STEPS);
+      const shown = seen ? { state: seen, error: "" } : await turnShown(() => turnState(ctx, marker, chat.session), HISTORY_SHOWN_MS);
       const state = shown.state;
       // History is a remote read: output may have finished while it was in flight.
-      reached = chat.reached(tag, from);
+      if (!seen) reached = chat.reached(tag, from);
       if (state.started === 0) {
         out.push(failed(f.name, shown.error
           ? `the chat's history could not be read within ${HISTORY_SHOWN_MS / 1000} s, so the fault was not injected (the client saw step ${reached}; last read: ${shown.error})`
