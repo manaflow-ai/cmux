@@ -39,6 +39,7 @@ import type {
   VMStatus,
 } from "./drivers";
 import { isProviderId, vmCapabilitiesFor } from "./drivers";
+import { addressReleaseFromMetadata, isAddressReleaseRow, VM_ADDRESS_RELEASE_KEY, type VmAddressRelease } from "./addressRelease";
 import { SANDBOX_VM_IDEMPOTENCY_PREFIX, SANDBOX_VM_MARKER_KEY, isSandboxRunVm } from "../runs/model";
 import {
   VmBillingGateway,
@@ -3956,6 +3957,9 @@ function applyObservedProviderStatus(
   },
 ): Effect.Effect<boolean, VmDatabaseError> {
   return Effect.gen(function* () {
+    // A parked machine has no provider machine by design (addressRelease.ts).
+    // Reading that as gone would retire the row and lose its snapshot pointer.
+    if (isAddressReleaseRow(vm)) return false;
     const status = input.forceStatus ?? observedDbStatus(input.providerStatus);
     const usageEvent: VmUsageEventInput | undefined = status === "destroyed"
       ? {
@@ -4006,7 +4010,7 @@ function reconcileObservedProviderStatus(
 ): Effect.Effect<ProviderStatusReconcileOutcome | "unexpected_wake", never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
-    if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
+    if (!providerVmId || isRetiredProviderRow(vm) || isAddressReleaseRow(vm)) return "skipped" as const;
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
         isProviderMachineGone(vm.provider, err)
