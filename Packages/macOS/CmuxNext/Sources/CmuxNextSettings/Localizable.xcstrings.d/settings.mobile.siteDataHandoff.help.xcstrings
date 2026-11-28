@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.mobile.siteDataHandoff.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When you open a browser tab on your iPhone, share this Mac's cookies and site storage for that site."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عند فتح علامة تبويب في متصفح iPhone، شارك ملفات تعريف الارتباط وبيانات الموقع من هذا الـ Mac لهذا الموقع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kada otvorite karticu preglednika na iPhoneu, dijelite kolačiće i podatke web-mjesta s ovog Maca za tu stranicu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Når du åbner en browserfane på din iPhone, deles denne Macs cookies og webstedsdata for webstedet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn du einen Browser-Tab auf deinem iPhone öffnest, werden die Cookies und Websitedaten dieses Macs für diese Website geteilt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuando abras una pestaña del navegador en tu iPhone, se compartirán las cookies y los datos del sitio de este Mac para ese sitio."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lorsque vous ouvrez un onglet du navigateur sur votre iPhone, les cookies et les données de ce site sur ce Mac sont partagés pour ce site."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quando apri una scheda del browser sul tuo iPhone, condividi i cookie e i dati del sito di questo Mac per quel sito."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone でブラウザタブを開くと、そのサイトのこの Mac の Cookie とサイトデータを共有します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "នៅពេលអ្នកបើកផ្ទាំងកម្មវិធីរុករកនៅលើ iPhone របស់អ្នក សូមចែករំលែកខូគី និងទិន្នន័យគេហទំព័ររបស់ Mac នេះសម្រាប់គេហទំព័រនោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone에서 브라우저 탭을 열면 이 Mac의 해당 사이트 쿠키와 사이트 데이터를 공유합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Når du åpner en nettleserfane på iPhone, deles denne Macens informasjonskapsler og nettstedsdata for nettstedet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Po otwarciu karty przeglądarki na iPhonie udostępniamy pliki cookie i dane tej witryny z tego Maca."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ao abrir uma aba do navegador no iPhone, os cookies e os dados desse site neste Mac serão compartilhados."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "При открытии вкладки браузера на iPhone файлы cookie и данные этого сайта с Mac будут переданы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เมื่อคุณเปิดแท็บเบราว์เซอร์บน iPhone ระบบจะแชร์คุกกี้และข้อมูลเว็บไซต์ของ Mac เครื่องนี้สำหรับเว็บไซต์นั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone’unuzda bir tarayıcı sekmesi açtığınızda bu Mac’teki sitenin çerezleri ve site verileri paylaşılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Коли ви відкриваєте вкладку браузера на iPhone, файли cookie та дані цього сайту з Mac буде передано."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Khi bạn mở một tab trình duyệt trên iPhone, cookie và dữ liệu trang web của trang đó trên máy Mac này sẽ được chia sẻ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 iPhone 上打开浏览器标签页时，会共享这台 Mac 上该网站的 Cookie 和网站数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 iPhone 上開啟瀏覽器分頁時，會分享這台 Mac 上該網站的 Cookie 與網站資料。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -73,6 +73,7 @@ pub mod gesture;
 pub mod json_keys;
 mod new_tab_project_groups;
 pub mod new_tab_projects;
+pub mod page_request;
 pub mod params;
 pub mod prompt;
 pub mod reply;
