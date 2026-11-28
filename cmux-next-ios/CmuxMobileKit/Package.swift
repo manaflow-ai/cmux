@@ -78,7 +78,8 @@ let package = Package(
         // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
         // CmuxMobileLinkFFI: New Task's terminal line, image type and agent pick rules (TaskComposer) are Rust's task_composer.
         // CmuxMobileLinkFFI (iOS only): the cmux link grammar (CmuxLink) is Rust's cmux_link.
-        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves; the workspace row menu's rules are workspace_row_actions.
+        // CmuxMobileLinkFFI: New Workspace's rules (WorkspaceCreationRules) are Rust's workspace_creation.
+        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves; the workspace row menu's rules are workspace_row_actions; RowSpill's pages on disk are RowSpillPages (row_spill.rs).
         // CmuxMobileLinkFFI (iOS only): Mac reachability and Retry steps (MacReachability) are Rust's mac_reachability.
         .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
@@ -199,7 +200,8 @@ let package = Package(
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 // Predictive local echo: the shared Rust engine (cmux-terminal-prediction).
                 .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         // Live Chief calls and agent voice mode, portable part: the Realtime API's events and session
         // configs, the call's and voice mode's state machines, the speech filter and tools, the OpenAI key in the Keychain (Foundation and Security only).

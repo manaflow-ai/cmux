@@ -3,7 +3,35 @@
 
 use super::*;
 
+/// Whether `session` runs Codex and its model has said nothing since the running turn's prompt
+/// went out (`Session::prompt_heard`). codex-acp takes a steer that comes before the model's
+/// first output as a new prompt: the running prompt answers `cancelled` and the steer's text
+/// replaces it, so the chat's task is lost to the notice (acp-chief-issues 2026-11-27: an
+/// "expired undelivered" FYI steered into three Codex turns of one chat cancelled each, and the
+/// chat went `ready` on a status line). A steer after the model's first output goes in as one:
+/// the model's first sign wakes the inbox ([`Hub::model_answered`]).
+pub(in crate::hub) fn codex_unanswered(session: &Session, meta: &SessionMeta) -> bool {
+    super::stop_condition::is_codex(meta)
+        && session.heard.load(Ordering::SeqCst) == session.prompt_heard.load(Ordering::SeqCst)
+}
+
 impl Hub {
+    /// The running turn's model gave its first sign since its prompt went out (`tap.rs`): a
+    /// notice held back for it ([`codex_unanswered`]) goes in now, off the tap's path. Only a
+    /// Codex chat with something new in its inbox, and only on a runtime (a test's tap runs on
+    /// none).
+    pub(in crate::hub) fn model_answered(self: &Arc<Self>, session: &Arc<Session>) {
+        let held = session.read_meta(super::stop_condition::is_codex)
+            && session.inbox().items.iter().any(|i| !i.noticed);
+        if !held || tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let (hub, session) = (self.clone(), session.clone());
+        self.scope.spawn_until_cancelled("inbox-answered", async move {
+            hub.inbox_review(&session);
+        });
+    }
+
     /// Whether a prompt goes into the inbox ([`takes`]): its sender and class when it does. Out
     /// of line, so the prompt's future holds no sender lookup.
     #[inline(never)]
@@ -502,6 +530,9 @@ impl Hub {
                                 || crate::review_box::of_meta(&meta)
                             {
                                 Next::Nothing
+                            } else if codex_unanswered(session, &meta) {
+                                // The model's first sign looks again (`model_answered`).
+                                Next::Nothing
                             } else {
                                 // A refused steer is tried again no sooner than the backoff: no
                                 // loop of refusals within a turn. An FYI-only batch steers in at
@@ -540,12 +571,13 @@ impl Hub {
                             // have gone into that turn. FYIs alone are not: they would have
                             // waited there too, so the hold lets go of them and they wait for the
                             // flush or the next notice.
-                            let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
+                            let lapsed = super::super::cold_wake::coldness(&meta, now).is_some();
+                            let quiet = |i: &Item| quiet(&session.id, &meta, lapsed, i);
+                            let mut waking_items =
+                                new.iter().copied().filter(|i| wakes(&meta, i) && !quiet(i));
+                            let waking = waking_items.clone().map(|i| i.at).min();
                             // Every waking message may wait for company (`WARM_HOLD_MS`).
-                            let holds = new
-                                .iter()
-                                .filter(|i| wakes(&meta, i))
-                                .all(|i| holds_wake(&meta, i));
+                            let holds = waking_items.all(|i| holds_wake(&meta, i));
                             // No flush sooner than a message's deadline (module docs, "Deadlines")
                             // in an idle chat off the coordinator list. Each flush was a
                             // turn of its own [`FLUSH_MS`] on, past a 5-minute prompt cache, so a
@@ -568,7 +600,15 @@ impl Hub {
                             // Every held message's deadline (module docs, "Deadlines"): the
                             // oldest due one wakes the chat, and its notice carries every new
                             // message, so a quiet chat takes one turn per deadline at most.
-                            let flush = judged.min(earliest_due(&new));
+                            let flush = judged.min(if lapsed {
+                                new.iter()
+                                    .filter(|i| !folded(i))
+                                    .map(|i| due_for(i, quiet(i)))
+                                    .min()
+                                    .unwrap_or(u64::MAX)
+                            } else {
+                                due
+                            });
                             // A blocker or a fire notice wakes after the burst window; anything
                             // else that wakes a chat whose prompt cache lapsed waits for its cold
                             // batch (`cold_wake.rs`), and goes in with what else came meanwhile.
