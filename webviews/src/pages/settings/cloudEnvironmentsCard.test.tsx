@@ -292,8 +292,11 @@ test("a failed environments list offers retry in the card and keeps diagnostic t
   expect(element.textContent).not.toContain("owner.unreachable");
   const retry = [...element.querySelectorAll("button")].find((button) => button.textContent === "Try again")!;
   page.provider.environments = { ...page.provider.environments, error: null };
+  // The page's Default Image menu reads the list on open too (#51769: each read lets the host rebuild a
+  // stale Default Image), so count from before the retry: Try again sends one refresh.
+  const before = page.provider.environmentRuns.length;
   await click(retry);
-  expect(page.provider.environmentRuns).toEqual([{ action: "refresh" }, { action: "refresh" }]);
+  expect(page.provider.environmentRuns.slice(before)).toEqual([{ action: "refresh" }]);
   expect(element.querySelector("[role=alert]")).toBeNull();
   expect(element.querySelector("[data-environments-empty]")).not.toBeNull();
   page.unmount();
