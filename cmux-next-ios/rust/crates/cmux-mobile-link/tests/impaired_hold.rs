@@ -220,6 +220,15 @@ async fn hold() -> Hold {
         let mut times = vec![started];
         times.extend(arrivals.iter().copied());
         let gaps: Vec<Duration> = times.windows(2).map(|w| w[1].duration_since(w[0])).collect();
+        if let Some(flap) = FLAP_START.get() {
+            eprintln!("IH_HOLD_START t_ms={}", started.duration_since(*flap).as_millis());
+            for w in times.windows(2) {
+                let gap = w[1].duration_since(w[0]);
+                if gap >= Duration::from_millis(700) {
+                    eprintln!("IH_GAP end_t_ms={} gap_ms={}", w[1].duration_since(*flap).as_millis(), gap.as_millis());
+                }
+            }
+        }
         (
             arrivals.len(),
             gaps.iter().copied().max().unwrap_or_default(),
