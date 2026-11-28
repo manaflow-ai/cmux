@@ -306,6 +306,7 @@ export function leftovers(root: ParentNode): ShiftFlag[] {
         cause: "reflow",
         deltaPx: 0,
         frame: frameCount,
+        // l10n-allow: a layout probe's developer finding, not shown
         detail: "inline translate left after settle",
       });
   }
@@ -317,6 +318,7 @@ export function leftovers(root: ParentNode): ShiftFlag[] {
         cause: "resize",
         deltaPx: 0,
         frame: frameCount,
+        // l10n-allow: a layout probe's developer finding, not shown
         detail: "fold kept an inline height after settle",
       });
   for (const ghost of root.querySelectorAll<HTMLElement>(".acpmux-row--fold-ghost"))
@@ -326,6 +328,7 @@ export function leftovers(root: ParentNode): ShiftFlag[] {
       cause: "unmount",
       deltaPx: 0,
       frame: frameCount,
+      // l10n-allow: a layout probe's developer finding, not shown
       detail: "ghost left after settle",
     });
   return flags;
