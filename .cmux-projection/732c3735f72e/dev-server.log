@@ -1,0 +1,16 @@
+$ bun run protocol:codegen && vp dev
+$ bun scripts/pane-protocol-codegen.ts && bun scripts/acpmux-protocol-codegen.ts
+pane protocol: 0 of 4 files written to src/protocol/generated from webviews/src/protocol/ir/pane-protocol.json
+acpmux protocol: 0 of 2 files written to src/agent-session/acpmux/protocol/generated from cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+
+  VITE+ v1.3.0  ready in 24484 ms
+
+  ➜  Local:   http://127.0.0.1:4319/
+6:09:09 PM [vite+] (client) [optimizer] scanning dependencies...
+6:11:05 PM [vite+] (client) [optimizer] bundling dependencies...
+[BABEL] Note: The code generator has deoptimised the styling of /mnt/lane-data/checkouts/cmux/lane--chat-overlap-896/webviews/src/agent-session/acpmux/App.tsx as it exceeds the max of 500KB.
+[BABEL] Note: The code generator has deoptimised the styling of /mnt/lane-data/checkouts/cmux/lane--chat-overlap-896/webviews/src/agent-session/acpmux/direct.ts as it exceeds the max of 500KB.
+6:41:48 PM [vite+] (client) hmr update /src/agent-session/acpmux/App.tsx, /src/agent-session/acpmux/VirtualTranscript.tsx, /src/agent-session/acpmux/transcript/RowFrame.tsx
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1001 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1464 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
+error: script "dev" was terminated by signal SIGTERM (Polite quit request)
