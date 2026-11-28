@@ -54,6 +54,13 @@ export interface HiddenRebuildOptions {
   now?: () => number;
   /** The reload itself (tests). */
   reload?: () => void;
+  /** The page's timers (tests drive them by hand). */
+  timers?: HiddenRebuildTimers;
+}
+
+export interface HiddenRebuildTimers {
+  set(run: () => void, ms: number): number;
+  clear(id: number): void;
 }
 
 /** Why the page should not rebuild now, or null when it should. */
@@ -79,16 +86,20 @@ export function installHiddenRebuild(doc: Document = document, options: HiddenRe
   const minGapMs = options.minGapMs ?? MIN_GAP_MS;
   const now = options.now ?? Date.now;
   const reload = options.reload ?? (() => view.location.reload());
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timers: HiddenRebuildTimers = options.timers ?? {
+    set: (run, ms) => view.setTimeout(run, ms),
+    clear: (id) => view.clearTimeout(id),
+  };
+  let timer: number | undefined;
   const clear = () => {
-    if (timer !== undefined) view.clearTimeout(timer);
+    if (timer !== undefined) timers.clear(timer);
     timer = undefined;
   };
   const look = () => {
     timer = undefined;
     const block = rebuildBlock(doc, grownFrames, minGapMs, now());
     if (block === "shown") return;
-    if (block) return void (timer = view.setTimeout(look, recheckMs));
+    if (block) return void (timer = timers.set(look, recheckMs));
     try {
       view.sessionStorage.setItem(LAST_REBUILD_KEY, String(now()));
     } catch {
@@ -100,7 +111,7 @@ export function installHiddenRebuild(doc: Document = document, options: HiddenRe
   };
   const changed = () => {
     clear();
-    if (doc.visibilityState === "hidden") timer = view.setTimeout(look, hiddenMs);
+    if (doc.visibilityState === "hidden") timer = timers.set(look, hiddenMs);
   };
   doc.addEventListener("visibilitychange", changed);
   changed();
