@@ -18,6 +18,9 @@ The state, for a head:
 
   success  the head changes nothing a user sees: docs, copy (strings catalogs), tests, scripts, CI, Rust that
            renders nothing, iOS (cmux/ios-fast has it). Posted by the router at once, so a ruleset can require it
+  success  the title says it is a fix (`fix:`, `fix(area):`, "Fix ...") and it adds no new view: no look needed
+           (Leo, 2026-11-28: "you dont need to be waiting for screenshots in these cases if logically it shoul go as
+           you expect"). A failed record at the head still fails
   success  the body says `Visual: none (WHY)`: a refactor or logging change under a visual path with no output
            change. Counted as a bypass by `report`
   pending  visual, and no passing record of an accepted suite at this head whose screens were diffed against
@@ -107,6 +110,10 @@ SWIFT_VIEW = re.compile(r":\s*(?:some\s+)?(?:View|NSView|NSViewController|NSWind
                         r"\bvar body:\s*some View\b")
 DECLARED_NONE = re.compile(r"^\s*Visual:\s*none\b[\s:(—-]*(?P<why>.*)$", re.M | re.I)
 DECLARED_COMPLETE = re.compile(r"^\s*Visible-UI:\s*complete\b", re.M | re.I)
+# Leo, 2026-11-28 (ask c-601949839a): don't wait for screenshots when a fix logically does what you expect, and
+# don't hold a fix as "UI". A PR titled as a fix that adds no new view lands without a look; a failed look still fails.
+FIX_TITLE = re.compile(r"^\s*(?:fix|hotfix|bugfix)(?:\([^)]*\))?!?:|^\s*fix(?:es|ed)?\b", re.I)
+FIX_NO_LOOK = "Fix to an existing surface, no new UI: lands without a look (Leo 2026-11-28)"
 DECLARED_NOT_NEW = re.compile(r"^\s*Visible-UI:\s*none\b", re.M | re.I)
 PREVIEW = "preview: cmux app try {pr} | cmux customize use pr:{pr} | try-pr.sh {pr}"
 # A look that could not run is a failure with its reason, never a pending that waits for ever.
@@ -187,7 +194,7 @@ def new_ui(added: list[str], read=None) -> list[str]:
 
 
 def verdict(need: str, body: str, records: dict[str, dict | None], added_ui: list[str], pr: str | int = "N",
-            off: bool = False) -> tuple[str, str]:
+            off: bool = False, title: str = "") -> tuple[str, str]:
     """The (state, description) for a head. RECORDS: suite -> the newest trusted record at the head (proof_record.find)."""
     if off:
         return "success", "UI proof is off (vars.CI_UI_PROOF=0)"
@@ -204,6 +211,8 @@ def verdict(need: str, body: str, records: dict[str, dict | None], added_ui: lis
         failed = [x["name"] for x in got[0].get("runs", []) if x.get("result") in ("fail", "error")]
         return "failure", f"UI proof at this head failed: {', '.join(failed) or 'see the record'}"[:140]
     diffed = [r for r in passing if (r.get("visual") or {}).get("diffed")]
+    if not diffed and not added_ui and FIX_TITLE.search(title or ""):
+        return "success", FIX_NO_LOOK
     if not diffed:
         what = "no screens diffed against NIGHTLY" if passing else "no look at this head"
         return "pending", f"Visual change, {what}: hot-verify.py look --pr {pr} --record; {preview}"[:140]
@@ -670,6 +679,89 @@ def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = 
     return out
 
 
+# A look carries across base merges alone. The merge train's update-branch (and cmux-bot's hourly base merge) moves a
+# PR's head with no change of its own, and before this every such head was "no look at this head" again: a 2 h look
+# per move (light-class queue p90 ~98 min), and land-judge refused the land at the new head on the old look's status
+# (cmux#46235, 2026-11-28: looked at 0bbdc46b, base-merged to cca4e6ce by the train at 12:48Z and again to 4abda3b6,
+# refused "its status links run 46146803376, which tested d0e92049e172"). A trusted record at an earlier head R counts
+# at HEAD when (1) every first-parent step from HEAD back to R is a merge commit (a push of the PR's own is not), and
+# (2) every file the PR changes at HEAD (the merge commit's diff against the base tip) has the same blob at R and at
+# HEAD. Then HEAD is the base tip outside the PR's files and R's text inside them: what the look saw, on a newer base.
+# Reads are the small Git-data and directory listings (a compare of a base merge 246 commits back is over 2 MB).
+# Anything unread or past the caps carries nothing: the head waits for its own look, as before. land-judge's iOS
+# carry (leo-workspace tools/land_judge/engine.py ios_proven_carry) holds the same two conditions for a SHIP.
+CARRY_MAX_MERGES = 6
+CARRY_MAX_DIRS = 25
+CARRIED = "carried from {sha} (base merges only)"
+_RECORD_SHA = re.compile(r"<!--\s*" + re.escape(proof_record.KIND) + r"\s+\S+\s+([0-9a-f]{40})\s*-->")
+
+
+def _blobs(repo: str, ref: str, files: list[str], token: str, call) -> dict[str, str | None]:
+    """path -> its blob sha at REF (None: absent), read one directory listing per directory."""
+    out: dict[str, str | None] = {}
+    dirs: dict[str, list[str]] = {}
+    for f in files:
+        dirs.setdefault(f.rpartition("/")[0], []).append(f)
+    for d, paths in dirs.items():
+        try:
+            listing = call(f"repos/{repo}/contents/{urllib.parse.quote(d)}?ref={ref}", token) or []
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+            listing = []  # the directory is absent at REF: so is every file in it
+        if not isinstance(listing, list):
+            raise ValueError(f"{d or '/'} at {ref[:12]} is not a directory")
+        have = {e.get("path"): e.get("sha") for e in listing}
+        out.update({p: have.get(p) for p in paths})
+    return out
+
+
+def base_merge_carry(repo: str, older: str, head: str, files: list[str], token: str, call=None) -> str:
+    """"" when a look at OLDER carries to HEAD (see above), else why not. FILES: the PR's changed files at HEAD."""
+    call = call or api
+    if not (older and head and files):
+        return "unread: an older head, the head and the PR's files are all needed"
+    at, merges = head, 0
+    while at != older:
+        parents = [p.get("sha") for p in (call(f"repos/{repo}/git/commits/{at}", token) or {}).get("parents") or []]
+        if len(parents) != 2:
+            return f"{at[:12]} is not a merge commit"
+        merges += 1
+        if merges > CARRY_MAX_MERGES:
+            return f"{older[:12]} is not within {CARRY_MAX_MERGES} first-parent merges of {head[:12]}"
+        at = parents[0]
+    if len({f.rpartition("/")[0] for f in files}) > CARRY_MAX_DIRS:
+        return f"the PR's files span more than {CARRY_MAX_DIRS} directories"
+    then, now = _blobs(repo, older, files, token, call), _blobs(repo, head, files, token, call)
+    moved = [f for f in files if then.get(f) != now.get(f)]
+    if moved:
+        return f"the PR's own files differ from {older[:12]}: {', '.join(moved[:3])}"
+    return ""
+
+
+def carried_records(repo: str, sha: str, comments: list[dict], suites, bots: list[str], can_write, files,
+                    token: str, call=None) -> tuple[str, dict[str, dict | None]]:
+    """(older head, its records) for the newest older head whose trusted records carry to SHA, else ("", {})."""
+    older = []
+    for c in reversed(comments):
+        for m in _RECORD_SHA.findall(c.get("body") or ""):
+            if m != sha and m not in older:
+                older.append(m)
+    for r in older:
+        records = {s: proof_record.find(comments, s, r, bots, can_write) for s in suites}
+        if not any(records.values()):
+            continue
+        try:
+            why = base_merge_carry(repo, r, sha, list(files or []), token, call)
+        except Exception as e:  # noqa: BLE001 - unread carries nothing
+            why = f"unread ({type(e).__name__})"
+        print(f"{STATUS_CONTEXT}: look at {r[:12]} " + (f"does not carry: {why}" if why else "carries"),
+              file=sys.stderr)
+        if not why:
+            return r, records
+    return "", {}
+
+
 def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple[str, str]:
     if os.environ.get("CI_UI_PROOF", "").strip() == "0":
         return verdict("", "", {}, [], pr, off=True)
@@ -677,12 +769,19 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
     need = "app" if files is None else affects(files, read=show_both)
     if not need:
         return verdict(need, "", {}, [], pr)
-    body = (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
+    pull = api(f"repos/{repo}/pulls/{pr}", token) or {}
+    body, title = pull.get("body") or "", pull.get("title") or ""
     comments = proof_record.pr_comments(repo, pr, token)
     can_write = proof_record.writer_check(repo, proof_record.read_tokens() or [token])
     records = {s: proof_record.find(comments, s, sha, bots, can_write) for s in suites_for(need)}
     ui = new_ui(added_files(), read=show)
-    state, desc = verdict(need, body, records, ui, pr)
+    state, desc = verdict(need, body, records, ui, pr, title=title)
+    if state == "pending" and desc.startswith(NO_LOOK) and files:
+        older, carried = carried_records(repo, sha, comments, suites_for(need), bots, can_write, files, token)
+        if older:
+            c_state, c_desc = verdict(need, body, carried, ui, pr, title=title)
+            if c_state == "success":
+                return c_state, c_desc.replace("at this head", CARRIED.format(sha=older[:12]), 1)[:140]
     if state == "pending" and desc.startswith(NO_LOOK):
         try:
             kept = kept_look_failure(current_status(repo, sha, token))
@@ -726,10 +825,11 @@ def rerun_gate(repo: str, sha: str) -> str:
         for run in (runs or {}).get("workflow_runs", []):
             for j in gh("api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100").get("jobs", []):
                 if j["name"] == GATE_JOB and j.get("status") == "completed" and j.get("conclusion") != "skipped":
-                    subprocess.run(["gh", "run", "rerun", str(run["id"]), "--job", str(j["id"]), "--repo", repo],
-                                   check=True, capture_output=True)
-                    return f"reran {GATE_JOB} (job {j['id']})"
-    except (OSError, subprocess.CalledProcessError, ValueError) as e:
+                    how = proof_record.rerun_gate_job(repo, run["id"], j["id"])
+                    return f"reran {GATE_JOB} (job {j['id']}; {how})"
+    except subprocess.CalledProcessError as e:
+        return f"gate not rerun: {e}: {e.stderr or ''}".rstrip(": ")
+    except (OSError, ValueError) as e:
         return f"gate not rerun: {e}"
     return "gate job has not run yet: it reads the record when it does"
 

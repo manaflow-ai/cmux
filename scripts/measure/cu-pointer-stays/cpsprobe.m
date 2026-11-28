@@ -6,6 +6,7 @@
 //                               or "<unix s> button" when the button's action runs
 //   cpsprobe park X Y           warps the real pointer to X,Y (global points, top-left origin)
 //   cpsprobe pos                prints the real pointer as {"x":..,"y":..}
+//   cpsprobe screen             prints the main display's bounds in points as {"w":..,"h":..}
 //   cpsprobe sample X Y STOP    samples CGEventGetLocation(CGEventCreate(NULL)) every 10 ms until the
 //                               file STOP exists, then prints the farthest sample from X,Y as JSON
 #import <AppKit/AppKit.h>
@@ -93,7 +94,7 @@ static CGPoint now_pos(void) {
 
 int main(int argc, const char **argv) {
   @autoreleasepool {
-    if (argc < 2) { fprintf(stderr, "usage: cpsprobe target LOG | park X Y | pos | sample X Y STOP\n"); return 2; }
+    if (argc < 2) { fprintf(stderr, "usage: cpsprobe target LOG | park X Y | pos | screen | sample X Y STOP\n"); return 2; }
     NSString *cmd = @(argv[1]);
     if ([cmd isEqualToString:@"target"] && argc == 3) {
       logf_ = fopen(argv[2], "a");
@@ -113,6 +114,11 @@ int main(int argc, const char **argv) {
       CGPoint q = now_pos();
       printf("{\"warp_err\":%d,\"x\":%.2f,\"y\":%.2f}\n", err, q.x, q.y);
       return err == kCGErrorSuccess ? 0 : 1;
+    }
+    if ([cmd isEqualToString:@"screen"]) {
+      CGRect r = CGDisplayBounds(CGMainDisplayID());
+      printf("{\"w\":%.1f,\"h\":%.1f}\n", r.size.width, r.size.height);
+      return 0;
     }
     if ([cmd isEqualToString:@"pos"]) {
       CGPoint q = now_pos();

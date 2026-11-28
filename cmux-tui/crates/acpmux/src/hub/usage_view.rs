@@ -469,8 +469,18 @@ impl Hub {
                 .unwrap_or_default()
                 .to_owned();
             let sid = m.agent_session_id.clone().unwrap_or_default();
-            let (claude_stdio, env) = self.harness_env(&m).await;
-            let mut env = crate::route_account::spawn_env(&m, env);
+            // Where its agent writes: the env its spawn builds ([`Hub::launch_env`]), else (a
+            // spawn that would refuse now) its profile's, preset's and chat's own.
+            let (claude_stdio, mut env) = match self.launch_env(&m).await {
+                Some(launch) => launch,
+                None => {
+                    let (claude_stdio, mut env) = self.harness_env(&m).await;
+                    for (k, v) in self.config.read().await.defaults_for(&m.harness).env {
+                        env.entry(k).or_insert(v);
+                    }
+                    (claude_stdio, crate::route_account::spawn_env(&m, env))
+                }
+            };
             if family == "codex" {
                 per_chat_codex_home(&mut env, &m.id);
             }
