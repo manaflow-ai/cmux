@@ -80,6 +80,44 @@ fn percentiles(request: &Request, runs: usize) -> (u128, u128) {
     (samples[runs / 2], samples[runs * 95 / 100])
 }
 
+/// Constant cost per workspace, judged on each size's fastest run rather than its p50. On a shared CI
+/// runner the p50 carries the neighbours' load: app-ffi-release run 46066184657 read 6625 ns at 50x500
+/// against 1607 at 1x (4.1x, bound 4x) with no reducer change, and that red blocked the FFI release.
+/// A quadratic walk still shows in the fastest run. A size over the bound is measured again with
+/// its 1x base, up to three times, and fails only if every attempt is over.
+fn assert_constant_cost_per_workspace(requests: &[(Request, (usize, usize))], floor: u128) {
+    let fastest_ns = |request: &Request, workspaces: usize| {
+        let runs = if workspaces > 5_000 { 20 } else { 100 };
+        let fastest = (0..runs)
+            .map(|_| {
+                let start = Instant::now();
+                std::hint::black_box(respond(std::hint::black_box(request)));
+                start.elapsed().as_nanos()
+            })
+            .min()
+            .unwrap();
+        fastest / workspaces as u128
+    };
+    let mut over = String::new();
+    for attempt in 1..=3 {
+        let costs: Vec<u128> = requests
+            .iter()
+            .map(|(request, (_, workspaces))| fastest_ns(request, *workspaces))
+            .collect();
+        let base = costs[0].max(floor);
+        match costs.iter().zip(requests).find(|(ns, _)| **ns > base * 4) {
+            None => return,
+            Some((ns, (_, (sections, workspaces)))) => {
+                over = format!(
+                    "{sections}x{workspaces}: {ns} ns per workspace vs {base} at 1x (fastest run, attempt {attempt} of 3)"
+                );
+                println!("{over}");
+            }
+        }
+    }
+    panic!("{over}");
+}
+
 #[test]
 fn settings_still_apply_with_500_workspaces_in_one_section() {
     // One "Projects" section with 500 loose workspaces: the shape of a long
@@ -149,7 +187,7 @@ fn sidebar_customization_stress() {
     // 1x is a typical sidebar; the rest are the sizes Leo asked to break it at
     // (50+ sections, 500 workspaces) and the document's own ceiling.
     let sizes = [(8, 50), (50, 500), (MAX_SECTIONS, 5_000), (MAX_SECTIONS, MAX_ITEMS)];
-    let mut per_workspace = Vec::new();
+    let mut requests = Vec::new();
     println!("sections | workspaces | p50 us | p95 us | p50 ns/workspace | hidden | regrouped");
     for (sections, workspaces) in sizes {
         let request = request(sections, workspaces);
@@ -167,7 +205,6 @@ fn sidebar_customization_stress() {
         let runs = if workspaces > 5_000 { 40 } else { 200 };
         let (p50, p95) = percentiles(&request, runs);
         let ns = p50 / workspaces as u128;
-        per_workspace.push(ns);
         println!(
             "{sections} | {workspaces} | {} | {} | {ns} | {} | {}",
             p50 / 1_000,
@@ -175,14 +212,12 @@ fn sidebar_customization_stress() {
             reply.hidden_workspaces.len(),
             reply.workspace_groups.len()
         );
+        requests.push((request, (sections, workspaces)));
     }
     // Constant cost per workspace: the planner is one pass with map lookups,
     // so 400x more workspaces may cost at most 4x more per workspace (the
     // BTreeMap log factor and cache misses), never a quadratic walk.
-    let base = per_workspace[0].max(50);
-    for (ns, (sections, workspaces)) in per_workspace.iter().zip(sizes) {
-        assert!(*ns <= base * 4, "{sections}x{workspaces}: {ns} ns per workspace vs {base} at 1x");
-    }
+    assert_constant_cost_per_workspace(&requests, 50);
 }
 
 use crate::sidebar_row_layout::MAX_QUOTED;
@@ -278,7 +313,7 @@ fn sidebar_customization_stress_a_rule_for_every_workspace() {
     // its section's group by name, or an explicit order), up to the document's ceiling.
     let sizes = [(8, 50), (50, 500), (MAX_SECTIONS, 5_000), (MAX_SECTIONS, MAX_ITEMS)];
     println!("sections | workspaces = rules | p50 us | p95 us | p50 ns/workspace");
-    let mut per_workspace = Vec::new();
+    let mut requests = Vec::new();
     for (sections, workspaces) in sizes {
         let per = workspaces.div_ceil(sections);
         let rules: serde_json::Map<String, Value> = (0..workspaces)
@@ -303,11 +338,8 @@ fn sidebar_customization_stress_a_rule_for_every_workspace() {
         let runs = if workspaces > 5_000 { 20 } else { 100 };
         let (p50, p95) = percentiles(&request, runs);
         let ns = p50 / workspaces as u128;
-        per_workspace.push(ns);
         println!("{sections} | {workspaces} | {} | {} | {ns}", p50 / 1_000, p95 / 1_000);
+        requests.push((request, (sections, workspaces)));
     }
-    let base = per_workspace[0].max(100);
-    for (ns, (sections, workspaces)) in per_workspace.iter().zip(sizes) {
-        assert!(*ns <= base * 4, "{sections}x{workspaces}: {ns} ns per workspace vs {base} at 1x");
-    }
+    assert_constant_cost_per_workspace(&requests, 100);
 }
