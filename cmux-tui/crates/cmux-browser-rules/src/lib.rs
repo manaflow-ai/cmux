@@ -33,9 +33,9 @@ pub mod address;
 pub mod agent_url;
 pub mod automation_ops;
 pub mod calculator;
-pub mod download_policy;
 pub mod cookie_backups;
 pub mod cookies;
+pub mod download_policy;
 pub mod driver;
 pub mod frames;
 pub mod links;
@@ -43,8 +43,8 @@ pub mod load_waits;
 pub mod ops;
 pub mod password_fill;
 pub mod tab_state;
-pub mod url_filter;
 pub mod tab_watcher;
+pub mod url_filter;
 
 #[cfg(test)]
 mod address_tests;
@@ -55,11 +55,11 @@ mod automation_tests;
 #[cfg(test)]
 mod calculator_tests;
 #[cfg(test)]
-mod download_policy_tests;
-#[cfg(test)]
 mod cookie_backups_tests;
 #[cfg(test)]
 mod cookies_tests;
+#[cfg(test)]
+mod download_policy_tests;
 #[cfg(test)]
 mod driver_tests;
 #[cfg(test)]
@@ -67,12 +67,12 @@ mod frames_tests;
 #[cfg(test)]
 mod links_tests;
 #[cfg(test)]
-mod password_fill_tests;
-#[cfg(test)]
 mod load_waits_tests;
+#[cfg(test)]
+mod password_fill_tests;
 #[cfg(test)]
 mod tab_state_tests;
 #[cfg(test)]
-mod url_filter_tests;
-#[cfg(test)]
 mod tab_watcher_tests;
+#[cfg(test)]
+mod url_filter_tests;
