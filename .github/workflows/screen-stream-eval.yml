@@ -126,6 +126,7 @@ jobs:
           run-id: ${{ steps.previous.outputs.run }}
           github-token: ${{ github.token }}
       - name: eval on a fleet Mac
+        id: eval
         env:
           TARGETS: ${{ inputs.targets || 'rd,webrtc,iphone-sim' }}
           SAMPLES: ${{ inputs.samples || '200' }}
@@ -279,6 +280,36 @@ jobs:
             [[ "$status" -eq 0 ]] && status=2
           fi
           exit "$status"
+      # The board reads only pass, a fail naming the stage, or run failed, never no record: when a run with
+      # rd in its targets ends with no gate.json (the client missing, the checkout or init failing, the step
+      # cut before init), this writes the fail-by-default record naming why, the upload below keeps it,
+      # and the last step fails the job.
+      - name: gate.json kept
+        id: gatefile
+        if: always()
+        env:
+          TARGETS: ${{ inputs.targets || 'rd,webrtc,iphone-sim' }}
+          BUDGET: ${{ inputs.budget || '' }}
+          EVAL_OUTCOME: ${{ steps.eval.outcome }}
+        run: |
+          set -uo pipefail
+          out=artifacts/screen-stream-eval
+          [[ ",${TARGETS// /}," == *",rd,"* ]] || { echo "no rd target: no budget gate"; exit 0; }
+          [[ -s "$out/gate.json" ]] && { echo "gate.json kept"; exit 0; }
+          echo "missing=1" >> "$GITHUB_OUTPUT"
+          mkdir -p "$out"
+          gate_py=scripts/measure/screen-stream-eval/budget_gate.py
+          overrides=()
+          for pair in $BUDGET; do overrides+=(--budget "$pair"); done
+          if [[ -f "$gate_py" ]]; then
+            python3 "$gate_py" init --out "$out/gate.json" ${overrides[@]+"${overrides[@]}"} &&
+              python3 "$gate_py" mark-stage "gate.json missing at the job's end (eval step ${EVAL_OUTCOME:-not run})" --out "$out/gate.json"
+          fi
+          if ! [[ -s "$out/gate.json" ]]; then
+            # The gate script itself is missing: the same fail-by-default record, written here.
+            printf '{"schema": "cmux.screen-share-budget-gate/1", "probe": "screen-share", "rows": [], "over": [], "overrides": {}, "verdict": "fail", "stage": "unknown", "last_stage_reached": "gate.json missing at the job'"'"'s end (eval step %s; budget_gate.py missing)", "judged": false, "reason": "the run wrote no gate.json"}\n' "${EVAL_OUTCOME:-not run}" > "$out/gate.json"
+          fi
+          cat "$out/gate.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -290,6 +321,11 @@ jobs:
             artifacts/screen-stream-eval/gate.json
           if-no-files-found: ignore
           retention-days: 3
+      - name: the run wrote its gate.json
+        if: always() && steps.gatefile.outputs.missing == '1'
+        run: |
+          echo "::error title=screen share budget::the run ended with no gate.json; a fail-by-default record naming the eval step's end was uploaded in its place"
+          exit 1
 
   # A runner that dies (run 46185238418: "runner lost communication") never reaches the upload above, so
   # its run keeps no gate.json. This job runs after eval whatever its end and, when the run has no artifact,
