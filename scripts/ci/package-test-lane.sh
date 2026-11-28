@@ -442,6 +442,9 @@ run_package_tests() {
   has_other_error() {
     awk '
       /unexpected binary/ { next }
+      # macOS framework logging on privileged runners, not a build or test error: CoreData prints
+      # "CoreData: error: Failed to create NSXPCConnection" when a test touches it without an XPC session.
+      /CoreData: error: Failed to create NSXPCConnection/ { next }
       /^[[:space:]]*warning:/ { next }
       /:[0-9]+:[0-9]+:[[:space:]]+warning:/ { next }
       /(^|[^a-zA-Z])error:/ { found = 1 }
