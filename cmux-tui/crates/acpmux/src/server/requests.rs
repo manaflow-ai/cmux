@@ -1291,6 +1291,9 @@ async fn prepare_request<'m>(
             e,
         )
     };
+    if m == method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("q1", &params);
+    }
     // A transitive start is refused before remote mode checks, including via:web.
     if m == method::SESSION_NEW {
         super::peer_forward::refuse_peer_selector(conn.origin, m, &params)?;
@@ -1310,6 +1313,9 @@ async fn prepare_request<'m>(
         )
         .await
         .map_err(|e| challenge(e, &params))?;
+    }
+    if m == method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("q2", &params);
     }
     caller_sends_no_files(hub, conn, m, &params)?;
     // For trust writes, remote_guard retains trust.remote for forwarded Web callers.
@@ -1332,11 +1338,17 @@ async fn prepare_request<'m>(
         )
         .await
         .map_err(|e| challenge(e, &params))?;
+    if m == method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("q3", &params);
+    }
     // Again after the guard's awaits: a session that took the name meanwhile (`hub/vm_boundary.rs`).
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
     let resolved = proved_chat
         .or_else(|| super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok()));
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
+    if m == method::SESSION_PROMPT {
+        crate::prompt_probe::mark_params("q4", &params);
+    }
     // A message's class is checked here, before a peer's prompt is forwarded: an older peer
     // ignores the field, and a send queued for later would fail only once it is delivered.
     match m {
@@ -1363,9 +1375,15 @@ async fn prepare_request<'m>(
         let prompt =
             if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
         if let Some(prompt) = prompt {
+            if m == method::SESSION_PROMPT {
+                crate::prompt_probe::mark_params("q5", prompt);
+            }
             crate::sender_harness::stamp_checked(prompt, pid, carried).await;
             // The program that ran a send no session proved (`sender_program.rs`), so a prompt
             // no proof attributes still says which program sent it.
+            if m == method::SESSION_PROMPT {
+                crate::prompt_probe::mark_params("q6", prompt);
+            }
             crate::sender_program::stamp(prompt, pid, carried, conn.caller().is_none()).await;
             // Whether a local send presented this host's sender token (`sender_token.rs`): only a
             // unix connection's is read; the Web's, the app pane's and a peer link's were taken
@@ -1382,6 +1400,9 @@ async fn prepare_request<'m>(
                 }
                 None => None,
             };
+            if m == method::SESSION_PROMPT {
+                crate::prompt_probe::mark_params("q7", prompt);
+            }
             crate::sender_token::stamp(prompt, matched, carried);
             // Who sent it, as the `Sent-by:` line the daemon appends to its text (`sent_by.rs`):
             // only a local connection that proved its session, before the outbox or a peer
@@ -1396,6 +1417,9 @@ async fn prepare_request<'m>(
             // A Claude desktop session's own send, bound to its bridged chat by the same pid
             // (`hub/desktop_bridge.rs`), so an answer reaches it.
             let outbox = conn.socket_peer == crate::sender_harness::SocketPeer::Outbox;
+            if m == method::SESSION_PROMPT {
+                crate::prompt_probe::mark_params("q8", prompt);
+            }
             hub.stamp_bridged_sender(prompt, pid, outbox, conn.caller().is_some()).await;
         }
     }
