@@ -164,13 +164,22 @@ final class TerminalStatusBanner: NSView {
         made.setAccessibilityElement(false)
         addSubview(made)
         let pad: CGFloat = 4
+        // Trailing and bottom just below required: the host sizes the banner by frame
+        // (`TerminalHostView.place`), and the mark can show while the banner is still at its
+        // built zero frame, where a required pair conflicted with the mark's fixed side (a
+        // logged "Unable to simultaneously satisfy constraints" on the main thread each time).
+        // 999 still beats the fitting-size compression, so `fittingSize` stays 22 x 22.
+        let trailing = made.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -pad)
+        trailing.priority = .init(999)
+        let bottom = made.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -pad)
+        bottom.priority = .init(999)
         markEdges = [
             made.widthAnchor.constraint(equalToConstant: Self.markSide),
             made.heightAnchor.constraint(equalToConstant: Self.markSide),
             made.leadingAnchor.constraint(equalTo: leadingAnchor, constant: pad),
-            made.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -pad),
+            trailing,
             made.topAnchor.constraint(equalTo: topAnchor, constant: pad),
-            made.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -pad),
+            bottom,
         ]
         mark = made
     }
