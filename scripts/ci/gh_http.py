@@ -206,7 +206,7 @@ RATE_WAIT_BUDGET_S = 600.0
 
 
 def request_through_rate_limit(req: urllib.request.Request, seconds: float = CALL_S, *,
-                               budget_s: float = RATE_WAIT_BUDGET_S, sleep: Callable[[float], None] = time.sleep,
+                               budget_s: float = RATE_WAIT_BUDGET_S, sleep: Callable[[float], None] | None = None,
                                clock: Callable[[], float] = time.monotonic, now: Callable[[], float] = time.time,
                                log: Callable[[str], None] | None = None) -> tuple[int, bytes, deadline_http.Headers]:
     """request(REQ, SECONDS) for a WRITE that a rate limit refused, asked again until the limit resets.
@@ -218,18 +218,21 @@ def request_through_rate_limit(req: urllib.request.Request, seconds: float = CAL
     gave up after three short rounds. This waits out the refusal (each wait as refusal_wait says, at most
     MAX_WAIT_S) within BUDGET_S seconds in all. Every other answer, a 5xx included, is returned as request() gives it."""
     log = log or (lambda line: print(line, file=sys.stderr))
+    sleep = sleep or time.sleep  # read at call time: a caller that stubs time.sleep stubs this wait too
     job_left = deadline_left(clock, now)  # a wait past the job's GH_HTTP_DEADLINE_S bound is a silent cancel
     if job_left is not None:
         budget_s = min(budget_s, job_left)
     start = clock()
-    attempt = 0
+    attempt, waited = 0, 0.0
     while True:
         status, body, headers = request(req, seconds)
         if status not in (403, 429):
             return status, body, headers
         wait = refusal_wait(status, headers, body, attempt, now())
-        if wait is None or clock() - start + wait > budget_s:
+        # The waits asked count too: a stubbed sleep that does not move the clock still ends at the budget.
+        if wait is None or max(clock() - start, waited) + wait > budget_s:
             return status, body, headers
         log(f"gh_http: {req.get_method()} {req.full_url}: HTTP {status} (rate limit); asking again in {wait:.0f} s")
         sleep(wait)
+        waited += wait
         attempt += 1
