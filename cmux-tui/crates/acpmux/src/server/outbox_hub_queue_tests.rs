@@ -331,21 +331,25 @@ async fn a_stalled_hub_queues_the_send_within_the_bound_and_the_retry_delivers_i
 /// send p99 513 ms with p50 13 ms).
 #[tokio::test(start_paused = true)]
 async fn a_send_after_a_stalled_hubs_window_is_not_the_probe() {
-    let script = vec![Answer::Stall; 1000];
+    let script = vec![Answer::Stall; 100_000];
     let (hub, stub) = setup(StubHub { script: Mutex::new(script.into()), ..StubHub::default() });
     let (first, runtime, _) = timed_send(&hub, request("far-host/lane-a", "prompt-slow-a")).await;
     assert_eq!(first.unwrap()["status"], "queued");
     assert!(runtime >= crate::server::mesh_send::INLINE_WAIT, "the first send asked: {runtime:?}");
     assert!(hub.mesh.gate().shut());
-    // Past the first window (1 s): the gate would let a probe go now.
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    for n in 0..5 {
+    // A send every 400 ms for two minutes: some land after a window ended while the retry's own
+    // probe still waits on the hub, which is when a send used to draw a probe of its own.
+    let mut slow = Vec::new();
+    for n in 0..300 {
+        tokio::time::sleep(Duration::from_millis(400)).await;
         let params = request(&format!("far-host/lane-{n}"), &format!("prompt-slow-b{n}"));
         let (answer, runtime, _) = timed_send(&hub, params).await;
         assert_eq!(answer.unwrap()["status"], "queued");
-        assert!(runtime < Duration::from_millis(50), "send {n} waited on the hub: {runtime:?}");
-        tokio::time::sleep(Duration::from_secs(70)).await;
+        if runtime >= Duration::from_millis(50) {
+            slow.push((n, runtime));
+        }
     }
+    assert!(slow.is_empty(), "sends that waited on the hub: {slow:?}");
     // The outbox still probes: the retries asked the hub again, not only the first send.
     assert!(stub.posts.lock().unwrap().len() > 1, "the queued deliveries' retries probe");
 }
