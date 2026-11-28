@@ -710,7 +710,7 @@ fn every_test_touching_local_ads_holds_the_lock() {
         offenders.is_empty(),
         "these tests touch the process's local-link ads, which a parallel roam forgets; hold \
          `let _ads = local_ads().await;` for the test's body: {offenders:?}"
-    )
+    );
 }
 
 /// A Mac whose ad outlived its network (the phone left the Wi-Fi; the hub socket opens and then

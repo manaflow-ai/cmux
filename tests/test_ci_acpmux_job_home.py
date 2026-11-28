@@ -45,7 +45,9 @@ LAUNCHES = (
     re.compile(r"fast-tier\.py\b[^\n]*--kind swift"),
     re.compile(r"(?:check-action-surfaces|check-settings-exports|regenerate-[a-z-]+-exports|base-autofix-[a-z-]+-exports)\.sh"),
     re.compile(r"car_guards\.py\b[^\n]*--where mac"),
-    re.compile(r"package-test-lane\.sh run"),
+    # `run` as its own word: a comment saying "package-test-lane.sh runs each filter" launches nothing
+    # (bench-baselines-nightly.yml submits that script to a fleet Mac, whose lane gives the tests their own home).
+    re.compile(r"package-test-lane\.sh run\b"),
     # acpmux's and cmux-tui's daemon tests (cmux-tui-artifacts.yml "cargo test cmux_next_").
     re.compile(r"cmux-next-daemon-test-packages\.sh"),
     re.compile(r"cmux-next-daemon-tests\.sh"),
