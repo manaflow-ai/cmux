@@ -23,7 +23,8 @@ import { SHOWN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { WEB_SWAP_KEPT_SCROLL } from "../../../pages/shared/webSwap";
 import { FOLLOW_BOTTOM_DEADBAND_PX } from "../virtualTranscriptModel";
 import { standInElements } from "./rowFrames";
-import { JumpToLatest, JumpUp } from "./JumpButtons";
+import { JumpToLatest } from "./JumpButtons";
+import { type JumpUpBadge } from "../jumpPair.experiment";
 import { type ScrollAnchor } from "./scrollAnchors";
 import { THREAD_TOP } from "./RowFrame";
 import { WaitSpinner } from "../conversation/WaitSpinner";
@@ -105,7 +106,6 @@ export type TranscriptShellDeps = {
   renderFollowing: boolean;
   below: number;
   jumpButton: boolean;
-  behind: boolean;
   dockSpace: number;
   corner: React.ReactNode | undefined;
   dockHoles: string;
@@ -150,10 +150,10 @@ export type TranscriptShellDeps = {
   sinceRow: AcpmuxRow | undefined;
   clearTop: number;
   sinceIndex: number;
-  jumpUp: boolean;
-  upShown: boolean;
-  jumpBackHeld: boolean;
-  pressUp: () => void;
+  /// The jump control is shown, whichever way it points (jumpControl.ts).
+  jumpVisible: boolean;
+  /// Set while the control points up at the first unseen row (JumpButtons.tsx `JumpToLatest`).
+  up: { badge: JumpUpBadge; turns: number } | undefined;
   working: boolean;
   onJumpLatest: (focused: boolean) => void;
   needsYou: TranscriptNeedsYou | undefined;
@@ -180,7 +180,6 @@ export function drawTranscriptShell({
   renderFollowing,
   below,
   jumpButton,
-  behind,
   dockSpace,
   corner,
   dockHoles,
@@ -223,10 +222,8 @@ export function drawTranscriptShell({
   sinceRow,
   clearTop,
   sinceIndex,
-  jumpUp,
-  upShown,
-  jumpBackHeld,
-  pressUp,
+  jumpVisible,
+  up,
   working,
   onJumpLatest,
   needsYou,
@@ -265,7 +262,7 @@ export function drawTranscriptShell({
             data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
             // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
             // out of sight behind it instead of reading through its glass.
-            data-jump-shown={(jumpButton && behind) || undefined}
+            data-jump-shown={jumpVisible || undefined}
             // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
             // scroll a row into view above it.
             data-docked={dockSpace > 0 || undefined}
@@ -411,12 +408,12 @@ export function drawTranscriptShell({
               />
             </div>
           )}
-          {jumpUp && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
           {jumpButton && (
             <JumpToLatestMemo
               // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
-              shown={behind || (needsYou?.elsewhere ?? 0) > 0}
+              shown={jumpVisible}
               working={working}
+              up={up}
               onJump={onJumpLatest}
               lift={dockSpace}
               needsYou={needsYou}

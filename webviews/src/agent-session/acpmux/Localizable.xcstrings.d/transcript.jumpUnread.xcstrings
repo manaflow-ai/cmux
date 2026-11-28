@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "transcript.jumpBack" : {
-      "comment" : "Agent pane: the same button after a jump up: it returns the view to where it was before the jump (Esc does too)",
+    "transcript.jumpUnread" : {
+      "comment" : "Agent pane: the Jump up button while it goes to the unread line, turns that ended while the person was away from the chat (its accent dot shows)",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "العودة إلى حيث كنت"
+            "value" : "انتقل إلى الجديد"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nazad gdje ste bili"
+            "value" : "Idi gore do novog"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tilbage til, hvor du var"
+            "value" : "Gå op til det nye"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Zurück zur vorherigen Stelle"
+            "value" : "Hoch zum Neuen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Back to where you were"
+            "value" : "Jump up to what's new"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Volver a donde estabas"
+            "value" : "Subir a lo nuevo"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Revenir où vous étiez"
+            "value" : "Remonter aux nouveautés"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Torna dove eri"
+            "value" : "Vai alle novità"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "元の位置に戻る"
+            "value" : "新着へ移動"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ត្រឡប់ទៅកន្លែងដែលអ្នកនៅ"
+            "value" : "ទៅកាន់អ្វីដែលថ្មី"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "원래 위치로 돌아가기"
+            "value" : "새 항목으로 이동"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tilbake til der du var"
+            "value" : "Gå opp til det nye"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wróć tam, gdzie byłeś"
+            "value" : "Przejdź do nowych"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Voltar para onde você estava"
+            "value" : "Subir até o que é novo"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Вернуться обратно"
+            "value" : "Перейти к новому"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "กลับไปยังจุดเดิม"
+            "value" : "ขึ้นไปยังสิ่งใหม่"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bulunduğun yere dön"
+            "value" : "Yenilere çık"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Повернутися назад"
+            "value" : "Перейти до нового"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Quay lại chỗ cũ"
+            "value" : "Lên phần mới"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "回到原来的位置"
+            "value" : "跳到新内容"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "回到原來的位置"
+            "value" : "跳到新內容"
           }
         }
       }

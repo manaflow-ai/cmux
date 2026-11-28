@@ -38,8 +38,8 @@ const record = (steps: Step[], from = 1) =>
   }));
 type Recorded = ReturnType<typeof record>[number];
 
-/// A daemon over a fake socket for a chat on `harness`: attach answers with `history`; `push`
-/// sends live events.
+/// A daemon over a fake socket for a chat on `harness`: attach answers with `history` and the
+/// reader's seen cursor (`readThrough`, none: an acpmux that keeps no cursor); `push` sends live events.
 function fakeDaemon(
   history: Recorded[],
   harness: string,
@@ -47,6 +47,7 @@ function fakeDaemon(
   options: {
     older?: Recorded[];
     lastReturn?: { since: number; turns: number };
+    readThrough?: number;
   } = {},
 ) {
   let socket: any;
@@ -67,7 +68,13 @@ function fakeDaemon(
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
-        return { session, lastSeq: lastSeq(), events: history, hasMore: Boolean(options.older?.length) };
+        return {
+          session,
+          lastSeq: lastSeq(),
+          events: history,
+          hasMore: Boolean(options.older?.length),
+          ...(options.readThrough !== undefined && { readThrough: options.readThrough }),
+        };
       case "_acpmux/events":
         return { events: options.older ?? [], hasMore: false, more: false, lastSeq: lastSeq() };
       default:
@@ -135,6 +142,16 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
 }
 
 const RECAP = "You were fixing the flaky login test; the retry fix is in and CI is running.";
+/// An agent's reply: a row the seen cursor counts (jumpControl.ts `countsUnseen`), so "New since you
+/// looked" goes above it when the reader saw through an earlier record.
+const reply = (text: string): Step => [
+  "in",
+  "agent_message_chunk",
+  {
+    method: "session/update",
+    params: { sessionId: "agent-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
+  },
+];
 
 for (const mode of ["replay", "fed"] as const)
   test(`${mode} rebuilds reconstruct the latest recap in the requested event window`, () => {
@@ -214,20 +231,23 @@ test("a dismissed latest recap does not expose older summaries when attaching ag
 });
 
 test("recaps attached to the unread divider still replace and dismiss as one summary", async () => {
-  const { client, recaps } = await connect(
+  // The reader saw through the prompt; the reply after it is new, so the line goes above it.
+  const { client, recaps, snapshot } = await connect(
     fakeDaemon(
       record([
         ["mux", "user_message", { text: "fix the login test" }],
         ["mux", "recap", { text: "An older recap.", since: 1 }],
         ["mux", "recap", { text: RECAP, since: 1 }],
+        reply("The retry fix is in."),
       ]),
       "claude",
       "claude",
-      { lastReturn: { since: 1, turns: 2 } },
+      { lastReturn: { since: 1, turns: 2 }, readThrough: 1 },
     ),
   );
   try {
     expect(recaps()).toEqual([RECAP]);
+    expect(snapshot().rows.find((row) => row.kind === SINCE_DIVIDER)?.since?.recap?.text).toBe(RECAP);
     client.dismissRecap(SINCE_DIVIDER, `${CHAT}:3`);
     expect(recaps()).toEqual([]);
   } finally {
@@ -335,15 +355,23 @@ for (const attached of [false, true])
         ...Array.from({ length: REBUILD_WINDOW + 200 }, (_, index): Step =>
           index % 100 === 0
             ? ["mux", "user_message", { text: `Background turn ${index / 100}.` }]
-            : index % 100 === 99
-              ? ["mux", "turn_result", { status: "completed" }]
-              : ["mux", "noop", {}],
+            : index % 100 === 1
+              ? reply(`Background reply ${Math.floor(index / 100)}.`)
+              : index % 100 === 99
+                ? ["mux", "turn_result", { status: "completed" }]
+                : ["mux", "noop", {}],
         ),
       ];
       const history = record(steps);
       const nextSeq = history.at(-1)!.seq + 1;
       expect(rebuildCut(history, nextSeq)).toBeGreaterThan(0);
-      const daemon = fakeDaemon(history, "claude", "claude", attached ? { lastReturn: { since: 1, turns: 1 } } : {});
+      // Attached: the reader saw through the first prompt, so the line goes above the replies after it.
+      const daemon = fakeDaemon(
+        history,
+        "claude",
+        "claude",
+        attached ? { lastReturn: { since: 1, turns: 1 }, readThrough: 1 } : {},
+      );
       const { client, recaps, snapshot } = await connect(daemon);
       try {
         expect(recaps()).toEqual([RECAP]);
