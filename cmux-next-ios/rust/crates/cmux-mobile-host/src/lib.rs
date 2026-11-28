@@ -12,6 +12,7 @@
 
 pub mod acpmux_policy;
 pub mod activity;
+pub mod api;
 pub mod appearance;
 pub mod auth;
 pub mod browser;
@@ -66,6 +67,7 @@ pub mod services;
 pub mod site_data;
 pub mod size_release;
 pub mod surface;
+pub mod tab_agent_screen;
 pub mod tab_snapshots;
 pub mod traffic;
 pub mod try_pr;

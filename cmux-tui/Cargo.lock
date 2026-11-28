@@ -1880,7 +1880,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "tempfile",
  "tokio",
  "tower-http",
  "tracing",
@@ -2305,7 +2304,6 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "icu_normalizer",
- "proptest",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2374,7 +2372,6 @@ dependencies = [
  "cmux-unix-socket",
  "flate2",
  "libc",
- "proptest",
  "ring",
  "serde",
  "serde_json",
@@ -2737,6 +2734,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-phone-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-phone-page"
 version = "0.1.0"
 dependencies = [
@@ -3003,6 +3009,7 @@ dependencies = [
  "rcgen",
  "ring",
  "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3352,7 +3359,6 @@ dependencies = [
  "cmux-tasks-core",
  "fs4",
  "getrandom 0.3.4",
- "proptest",
  "serde",
  "serde_json",
  "tempfile",
@@ -3383,7 +3389,6 @@ dependencies = [
 name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "base64",
  "bytes",
  "cmux-json",
@@ -3768,7 +3773,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "socket2",
  "subsecond",
  "tar",
  "time",
