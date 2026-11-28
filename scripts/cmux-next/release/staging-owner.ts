@@ -21,7 +21,7 @@
 import { pscaleProvider, must, type Connection, type RoleJson } from "./branches.ts"
 import { contractReason, readMigrations } from "./lint.ts"
 import { grantStatements, Refusal } from "./prod-owner.ts"
-import { connectUrl, requirementsOf, schemaProblems, type Sql } from "./runner.ts"
+import { connectRetrying, connectUrl, requirementsOf, schemaProblems, type Sql } from "./runner.ts"
 import { ownerPgRoleOf, REPO_ROOT, TREES } from "./trees.ts"
 
 const tree = TREES["cmux-vm"]
@@ -105,7 +105,7 @@ export const run = async (command: string | undefined, log = (l: string) => cons
     maskUrl(conn.url)
     const temp = stagingUser(conn.url)
     log(`created the short-lived admin role ${temp} on ${DB}/${BRANCH} (2 h TTL; deleted at the end)`)
-    sql = await connectUrl(conn.url)
+    sql = await connectRetrying(connectUrl, conn.url)
     await sql.query(`GRANT ${quoteIdent(owner)} TO ${quoteIdent(temp)}`)
     granted = temp
     log(`GRANT ${owner} TO ${temp}`)
