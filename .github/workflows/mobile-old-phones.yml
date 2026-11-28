@@ -107,7 +107,7 @@ jobs:
             *) echo 'apis=["staging","prod"]' >> "$GITHUB_OUTPUT" ;;
           esac
       - name: Keep this phone list for the next run
-        if: ${{ steps.resolve.outputs.fresh == 'true' }}
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' && steps.resolve.outputs.fresh == 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .old-phones-list
@@ -209,6 +209,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          retention-days: 3
           name: old-phones-${{ matrix.api }}
           path: ${{ runner.temp }}/old-phones
           if-no-files-found: ignore

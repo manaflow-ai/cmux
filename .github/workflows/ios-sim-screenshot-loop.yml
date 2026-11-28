@@ -104,5 +104,5 @@ jobs:
             artifacts/ios-sim/ui-video.mp4
             artifacts/ios-sim/SUMMARY.md
             artifacts/ios-sim/ui-tests-failures.txt
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: warn

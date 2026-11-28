@@ -125,4 +125,4 @@ jobs:
           name: chat-move-nightly-readback
           path: ${{ runner.temp }}/chat-move-nightly-readback
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3

@@ -186,4 +186,4 @@ jobs:
             ${{ runner.temp }}/chat-size/*/chat-size-row.json
             ${{ runner.temp }}/chat-size/compare.md
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3

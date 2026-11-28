@@ -53,6 +53,8 @@ SETUP_ZIG_ON_MAIN: dict[str, str] = {}
 ALLOWED: dict[str, str] = {
     "ci-web.yml: Save the duration manifest":
         "a few kB of test durations; the next run restores the newest by prefix",
+    "mobile-old-phones.yml: Keep this phone list for the next run":
+        "a few bytes of shipped-phone SHAs, saved only on feat-cmux-next when the list changed; the next run restores the newest by prefix",
     "indexnow.yml: Save submitted URLs":
         "a few kB of submitted URLs, one scheduled job; the next run restores the newest by prefix",
     "base-coalesce.yml: Record this tip as tested":
