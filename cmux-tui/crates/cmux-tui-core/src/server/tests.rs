@@ -563,6 +563,7 @@ mod list_request_counts;
 mod list_workspaces_cost;
 mod list_workspaces_shared_text;
 mod long_connections;
+mod notification_delivery_receipt;
 mod outbound_and_scheduler;
 mod rds_input_lane;
 mod read_barrier;

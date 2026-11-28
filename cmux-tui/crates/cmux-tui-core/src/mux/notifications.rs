@@ -158,10 +158,10 @@ impl Mux {
                 crate::platform::process_executable,
             )
         });
-        self.notification_posts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(public_id.clone(), NotificationPost { notification: id, poster });
+        self.notification_posts.lock().unwrap_or_else(PoisonError::into_inner).insert(
+            public_id.clone(),
+            NotificationPost { notification: id, poster, delivery: None },
+        );
         {
             const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
             let mut ledger = self.notification_ledger.lock().unwrap();
@@ -238,6 +238,25 @@ impl Mux {
             .unwrap_or_else(PoisonError::into_inner)
             .get(notification)
             .cloned()
+    }
+
+    /// Keep the app's report of what it did with the banner of the row whose
+    /// `notification` event number is `notification`. Memory only, dropped with the
+    /// row's post. Errs when no row this run posted has that number.
+    pub fn record_notification_delivery(
+        &self,
+        notification: u64,
+        desktop: NotificationDesktopOutcome,
+        reason: Option<&'static str>,
+        at_ms: u64,
+    ) -> anyhow::Result<NotificationPublicId> {
+        let mut posts = self.notification_posts.lock().unwrap_or_else(PoisonError::into_inner);
+        let (id, post) = posts
+            .iter_mut()
+            .find(|(_, post)| post.notification == notification)
+            .ok_or_else(|| anyhow::anyhow!("no notification {notification} posted this run"))?;
+        post.delivery = Some(NotificationDelivery { desktop, reason, at_ms });
+        Ok(id.clone())
     }
 
     /// Client ids that acknowledged `notification`, sorted and unique.

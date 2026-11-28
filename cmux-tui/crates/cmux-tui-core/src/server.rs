@@ -2025,6 +2025,14 @@ enum Command {
         #[serde(default)]
         stats: bool,
     },
+    /// The app's report of what it did with a notification's banner (shown, or
+    /// suppressed and why); `list-notifications` rows carry it as `delivery`.
+    RecordNotificationDelivery {
+        notification: u64,
+        desktop: String,
+        #[serde(default)]
+        reason: Option<String>,
+    },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {
         surface: SurfaceId,

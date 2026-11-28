@@ -23180,6 +23180,52 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "record-notification-delivery": {
+   "authority": "control",
+   "since": 12,
+   "capability": "notification-ack-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "notification": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "desktop": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "shown or suppressed."
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "set-tab-pinned": {
    "authority": "control",
    "since": 12,
