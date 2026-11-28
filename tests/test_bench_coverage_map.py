@@ -126,7 +126,14 @@ class BenchCoverageMapTest(unittest.TestCase):
         missing = {name: path for name, path in found.items() if name not in listed}
         self.assertFalse(missing, "Swift bench suites missing from the map's Swift table")
         pending = {n for line in body.splitlines() if "| pending lane/" in line for n in re.findall(r"^\|\s*`([^`]+)`", line)}
-        gone = sorted(listed - set(found) - pending)
+        # A row whose own file declares its suite is live even when the name escapes the detector's pattern
+        # (WorkspaceCacheSaveBurstPerfTests, a "PerfTests" suite).
+        rows = [line for line in body.splitlines() if line.startswith("|") and not set(line) <= set("|-: ")]
+        pairs = [(n[0], p[0]) for n, p in ((first_cells(r, 0), first_cells(r, 1)) for r in rows) if n and p]
+        declared = {name for name, path in pairs
+                    if (ROOT / path).is_file() and re.search(
+                        rf"\b(?:struct|class|enum|actor) +{re.escape(name)}\b", (ROOT / path).read_text(encoding="utf-8"))}
+        gone = sorted(listed - set(found) - pending - declared)
         self.assertFalse(gone, "the map's Swift table lists suites that no Tests/ folder defines")
         for path in first_cells(body, 1):
             self.assertTrue((ROOT / path).is_file(), f"the Swift table names {path}, which does not exist")

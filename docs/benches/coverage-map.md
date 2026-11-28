@@ -128,6 +128,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `agent-quota` | CI and agents | one PR | no |
 | `agent-turn` | acpmux daemon | stand-in model | no |
 | `app-stream-bytes` | agent pane transport | 20 chats | no |
+| `app-try-plan` | dev loop (`cmux app try dir:` plan phase) | unchanged tree | no |
 | `ask-card-wait` | agent chat | replayed logs | no |
 | `autocloud-repo-ready` | cloud | real repo | no |
 | `bundle` | app bundle | n/a | no |
