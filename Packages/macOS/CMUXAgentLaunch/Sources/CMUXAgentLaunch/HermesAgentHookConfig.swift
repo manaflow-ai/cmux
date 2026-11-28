@@ -292,12 +292,28 @@ public enum HermesAgentHookConfig {
 
     /// Whether a hook entry inside the markers is cmux's.
     ///
-    /// Every command cmux has written here runs its CLI, so an entry that
-    /// names cmux anywhere counts. Reading it that broadly means a cmux entry
-    /// in an older or newer form is never kept as another tool's and then
-    /// written a second time.
+    /// Every command cmux has written here runs its CLI, so inspect the command
+    /// value itself. Other entry fields may mention cmux while belonging to a
+    /// user-owned command.
     private static func isCmuxHookEntry(_ item: ArraySlice<String>) -> Bool {
-        item.contains { $0.range(of: "cmux", options: .caseInsensitive) != nil }
+        guard let commandLine = item.first(where: {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("- command:")
+        }) else {
+            return false
+        }
+        let commandValue = String(commandLine)
+            .drop(while: { $0 == " " || $0 == "\t" })
+            .dropFirst("- command:".count)
+            .trimmingCharacters(in: .whitespaces)
+        if commandValue.range(of: "cmux", options: .caseInsensitive) != nil { return true }
+
+        let commandIndex = item.firstIndex(of: commandLine) ?? item.startIndex
+        // A scalar continues deeper than the mapping fields after the list dash.
+        let fieldIndent = leadingWhitespace(commandLine).count + 2
+        let continuation = item[item.index(after: commandIndex)...].prefix {
+            !isSignificantLine($0) || leadingWhitespace($0).count > fieldIndent
+        }
+        return continuation.contains { $0.range(of: "cmux", options: .caseInsensitive) != nil }
     }
 
     private static func isListItemLine(_ line: String) -> Bool {
