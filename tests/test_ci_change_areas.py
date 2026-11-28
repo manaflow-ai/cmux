@@ -6028,3 +6028,21 @@ if __name__ == "__main__":
         print("PASS: CI change area filter")
     else:
         sys.exit(1)
+
+
+def test_helper_walk_dead_ends_on_fixtures_docs_tables_comments_and_step_table() -> None:
+    # Each of these failed every helper it names open (all areas) before the
+    # walk placed it: #64464's fixture, #61514's docs table, #48644's comment.
+    assert module.referrer_role("tests/fixtures/cmux-63557-acpmux.yml") == "data"
+    assert module.referrer_role("docs/benches/relevance-map.toml") == "documentation"
+    assert module.referrer_role("ci/steps.toml") == "workflow"
+    text = "// runs scripts/x.sh\n/* scripts/y.sh */\nconst u = 'https://e.com/z';\n"
+    stripped = module._without_slash_comments(text)
+    assert "x.sh" not in stripped and "y.sh" not in stripped
+    assert "https://e.com/z" in stripped
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "run.sh").write_text("#!/bin/sh\n# calls helper.py once\necho hi\n")
+        (root / "real.sh").write_text("#!/bin/sh\npython3 helper.py\n")
+        assert module._shell_runner_names(root, "run.sh", "helper.py") is False
+        assert module._shell_runner_names(root, "real.sh", "helper.py") is True
