@@ -1250,9 +1250,15 @@ jobs:
       - name: Changed notice inputs
         id: inputs
         env:
+          EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           set -euo pipefail
+          # A pull request compares with the base its merge commit was made on (the first parent);
+          # the event's base.sha can be older, and then base commits read as this change.
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          fi
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
@@ -1355,6 +1361,40 @@ jobs:
       - name: Set up pinned cmux-tui Rust
         if: steps.inputs.outputs.run == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The compiled dependencies come from R2 (public reads, no credentials), seeded on feat-cmux-next by
+      # app-store-shelf-cargo-seed.yml under the same key. A miss or a slow restore builds cold, as before.
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        if: ${{ steps.inputs.outputs.run == 'true' && github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') }}
+        continue-on-error: true
+        run: bash scripts/ci/app-store-shelf-cargo-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore the cargo build from R2
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+
+      - name: Restore the cargo registry from R2
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
 
       - name: Every Discover listing installs and shows something
         if: steps.inputs.outputs.run == 'true'
