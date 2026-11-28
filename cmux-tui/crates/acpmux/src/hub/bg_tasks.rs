@@ -327,6 +327,17 @@ impl Hub {
             .collect()
     }
 
+    /// The chat's running tasks' records, for what a move would interrupt (`move_interrupts.rs`).
+    pub(super) fn bg_running_records(&self, session: &Session) -> Vec<Record> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .map(|t| t.record.clone())
+            .collect()
+    }
+
     /// The chat's running tasks that are re-armable waits (`rearm.rs`), as `bgWaits` rows:
     /// `{id, kind, form, repo, number, sha, until, deadlineMs, description, notify, resultLine}`.
     /// A session move starts each again at the destination (`server/bg_rearm.rs`).
