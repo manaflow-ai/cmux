@@ -34,7 +34,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-pr-pipeline-ios-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-next-pr-pipeline-ios-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -127,6 +129,9 @@ jobs:
   # kit-sim-pool).
   ios:
     name: ios
+    # The batch is this commit's only run of the `alone` steps (nothing re-runs it): they run on a red job too.
+    env:
+      CI_RUN_ALONE_ON_RED: "1"
     needs: [ios-runner]
     if: ${{ (inputs.only == '' || inputs.only == 'ios') && github.repository == 'manaflow-ai/cmux' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || needs.ios-runner.outputs.runs_on) }}
@@ -255,7 +260,7 @@ jobs:
   ios-macos:
     name: ios macos
     if: ${{ (inputs.only == '' || inputs.only == 'ios') && github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_BLACKSMITH_MACOS == 'on' && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_BLACKSMITH_MACOS == 'on' && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     # pr-pipeline.yml's bound for the same job.
     timeout-minutes: 70
     permissions:

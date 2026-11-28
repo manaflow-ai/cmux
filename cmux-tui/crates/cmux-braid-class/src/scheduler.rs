@@ -42,8 +42,14 @@ impl<T> Scheduler<T> {
         Self { queues: limits.map(|limit| Queue { items: VecDeque::new(), bytes: 0, limit }) }
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "Class::rank is the discriminant for the four-element queue array"
+    )]
     pub fn offer(&mut self, class: Class, stream: u64, len: usize, item: T) -> Offer<T> {
-        let queue = &mut self.queues[class.rank() as usize];
+        let Some(queue) = self.queues.get_mut(class.rank() as usize) else {
+            return Offer::Refused(item);
+        };
         match class.drop_rule() {
             DropRule::LatestWins => {
                 if let Some(slot) = queue.items.iter_mut().find(|(s, _, _)| *s == stream) {
@@ -81,17 +87,25 @@ impl<T> Scheduler<T> {
     }
 
     /// The next item to send: the highest class with anything queued, oldest first.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "Class::rank is the discriminant for the four-element queue array"
+    )]
     pub fn pop(&mut self) -> Option<(Class, T)> {
         Class::ALL.into_iter().find_map(|class| {
-            let queue = &mut self.queues[class.rank() as usize];
+            let queue = self.queues.get_mut(class.rank() as usize)?;
             let (_, len, item) = queue.items.pop_front()?;
             queue.bytes -= len;
             Some((class, item))
         })
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "Class::rank is the discriminant for the four-element queue array"
+    )]
     pub fn queued_bytes(&self, class: Class) -> usize {
-        self.queues[class.rank() as usize].bytes
+        self.queues.get(class.rank() as usize).map_or(0, |q| q.bytes)
     }
 
     pub fn is_empty(&self) -> bool {

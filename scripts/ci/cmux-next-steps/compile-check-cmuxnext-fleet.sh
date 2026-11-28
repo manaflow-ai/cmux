@@ -5,7 +5,7 @@ set -uo pipefail
 # Why: note-452
 for target in $SWIFT_CANARY_TARGETS; do
   case "$target" in
-    CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview)
+    CmuxNextServerHelperDaemon|CmuxNextSettingsExport|CmuxNextUiLayerPreview)
       echo "::notice title=Build fleet compile check::$target is not linked into the app; the Mac canary runs."
       echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
       exit 0 ;;
@@ -36,8 +36,14 @@ fi
 # Why: note-551
 if [[ "$word" == superseded ]]; then
   authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-  head="$(git -c "http.extraHeader=Authorization: Basic $authorization" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 \
-    ls-remote "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "$GITHUB_REF" 2>/dev/null | awk 'NR==1{print $1}')" || head=""
+  # A failed read says so in the log (origin-net.test.sh: no remote read swallows its failure) and compiles here.
+  head=""
+  if refs="$(bash scripts/ci/timeout.sh 60 git -c "http.extraHeader=Authorization: Basic $authorization" \
+    -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "$GITHUB_REF")"; then
+    head="$(awk 'NR==1{print $1}' <<<"$refs")"
+  else
+    echo "::warning title=Build fleet compile check::could not read the head of $GITHUB_REF (exit $?); not taking the superseded answer"
+  fi
   if [[ -n "$head" && "$head" != "$REF" ]]; then
     echo "::notice title=Build fleet compile check::superseded push $REF: the branch head is $head, whose tip check covers this push; not compiled here"
     echo "verdict=superseded" >> "$GITHUB_OUTPUT"

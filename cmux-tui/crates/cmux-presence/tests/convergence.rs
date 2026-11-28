@@ -97,7 +97,7 @@ fn wire_delta_clears_fields_without_repeating_unchanged_data() {
     let mut replica = Lease::new(OWNER, a, 0);
     assert_eq!(replica.apply(OWNER, serde_json::from_value(encoded).unwrap(), 1), Merge::Applied);
     assert_eq!(replica.get(1), Some(&b));
-    assert!(std::mem::size_of::<Presence>() < 200);
+    assert!(size_of::<Presence>() < 200);
     assert!(serde_json::to_vec(&b).unwrap().len() < 200);
 }
 

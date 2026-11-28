@@ -28,6 +28,7 @@ impl VirtualDevice {
 
     /// Queue a decrypted packet for smoltcp to receive on the next poll.
     pub(crate) fn push_rx(&mut self, packet: Vec<u8>) {
+        crate::stall_trace::tcp_segment("rx", &packet);
         self.rx.push_back(packet);
     }
 
@@ -103,6 +104,7 @@ impl phy::TxToken for TxToken<'_> {
     {
         let mut packet = vec![0u8; len];
         let result = f(&mut packet);
+        crate::stall_trace::tcp_segment("tx", &packet);
         self.queue.push_back(packet);
         result
     }

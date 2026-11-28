@@ -87,16 +87,36 @@ fn rustc_and_llvm_use_their_published_minimums() {
     );
     assert_eq!(precheck("./x test tidy", &default_vm(), &nowhere()), None, "only a build");
 
-    let w = precheck("cmake -S llvm -B build -G Ninja", &default_vm(), &nowhere()).unwrap();
-    assert_eq!(w.project, Some(Project::Llvm));
-    assert_eq!(w.text, "LLVM needs 15 to 20 GB of disk; this machine has 20 GB free.");
-    assert_eq!(w.short, vec![Short::Disk], "LLVM publishes no memory minimum");
     let small = Shape { disk_free: 10 * GB, ..default_vm() };
+    let w = precheck("cmake -S llvm -B build -G Ninja", &small, &nowhere()).unwrap();
+    assert_eq!(w.project, Some(Project::Llvm));
+    assert_eq!(w.text, "LLVM needs 15 to 20 GB of disk; this machine has 10 GB free.");
+    assert_eq!(w.short, vec![Short::Disk], "LLVM publishes no memory minimum");
     let in_llvm = Place { cwd: Some("/home/me/llvm-project/build"), checkout_bytes: None };
     assert_eq!(precheck("ninja", &small, &in_llvm).unwrap().project, Some(Project::Llvm));
     let w = precheck("cmake -G Ninja ../llvm", &small, &nowhere()).unwrap();
     assert_eq!(w.project, Some(Project::Llvm));
     assert_eq!(w.needs_memory, None);
+}
+
+#[test]
+fn published_disk_minimums_warn_only_below_the_boundary() {
+    for (project, command) in [
+        (Project::Chromium, "fetch chromium"),
+        (Project::Llvm, "cmake -S llvm -B build"),
+        (Project::Rustc, "./x.py build"),
+    ] {
+        let (disk, _) = project.minimums();
+        for disk_free in [disk - 1, disk, disk + 1] {
+            let shape = Shape { disk_free, ..big_vm() };
+            let warning = precheck(command, &shape, &nowhere());
+            assert_eq!(warning.is_some(), disk_free < disk, "{command}: {disk_free}");
+            if let Some(warning) = warning {
+                assert_eq!(warning.short, vec![Short::Disk]);
+                assert_eq!(warning.project, Some(project));
+            }
+        }
+    }
 }
 
 #[test]
@@ -110,6 +130,8 @@ fn a_big_build_warns_only_in_a_checkout_past_eight_times_free_memory() {
         "make -j8",
         "make --jobs=4",
         "bazel build //...",
+        "bazelisk build //...",
+        "bazel build //foo:bar //...",
     ] {
         let w = precheck(script, &shape, &big).unwrap_or_else(|| panic!("{script} warns"));
         assert_eq!(w.project, None);
@@ -132,6 +154,10 @@ fn what_is_not_a_known_heavy_job_never_warns() {
         "cargo test",
         "make",
         "bazel build //foo:bar",
+        "bazelisk build //foo:bar",
+        "bazel build //foo/...",
+        "bazel build //foo:all",
+        "bazel query //...",
         "echo 'fetch chromium'",
         "git log -- autoninja",
         "ninja -C build",
@@ -169,4 +195,46 @@ fn the_warning_serializes_camel_case_for_the_chat_row() {
     assert_eq!(v["short"], json!(["disk", "memory"]));
     assert_eq!(v["needsDisk"], 100 * GB);
     assert_eq!(v["needsMemory"], 16 * GB);
+}
+
+#[test]
+fn a_known_heavy_project_floors_the_run_vm_at_its_published_memory() {
+    assert_eq!(memory_floor("fetch --nohooks chromium", None), Some((Project::Chromium, 16 * GB)));
+    assert_eq!(memory_floor("./x.py build", None), Some((Project::Rustc, 8 * GB)));
+    // The largest of several wins.
+    assert_eq!(
+        memory_floor("./x.py build && autoninja -C out/Default chrome", None),
+        Some((Project::Chromium, 16 * GB))
+    );
+    // LLVM publishes only disk; a big build has no published minimum; the rest is not heavy.
+    assert_eq!(memory_floor("cmake -S llvm -B build", None), None);
+    assert_eq!(memory_floor("cargo build", None), None);
+    assert_eq!(memory_floor("ls -la", None), None);
+}
+
+#[test]
+fn the_three_button_warning_is_a_notice_row_that_says_what_happens() {
+    let w = precheck("fetch --nohooks chromium", &default_vm(), &nowhere()).expect("warns");
+    let row = notice(&w, true);
+    assert!(row.starts_with("[autosize] Chromium needs 100 GB of disk"), "{row}");
+    assert!(row.ends_with("Running it here; this machine grows as it works."), "{row}");
+    assert!(!row.contains('?'), "a notice, not a question: {row}");
+    assert!(notice(&w, false).ends_with("Running it here as it is."));
+}
+
+#[test]
+fn only_known_heavy_commands_read_the_machine() {
+    assert!(is_known_heavy("fetch chromium", None));
+    assert!(is_known_heavy("cd src && cargo build --release", None));
+    assert!(!is_known_heavy("cargo test", None));
+    assert!(!is_known_heavy("git status", None));
+}
+
+#[test]
+fn meminfo_reads_total_and_available_in_bytes() {
+    let text =
+        "MemTotal:        4028264 kB\nMemFree:          123 kB\nMemAvailable:    3000000 kB\n";
+    assert_eq!(parse_meminfo(text), (Some(4028264 * 1024), Some(3000000 * 1024)));
+    assert_eq!(parse_meminfo("MemTotal: 10 kB\n"), (Some(10 * 1024), None));
+    assert_eq!(parse_meminfo(""), (None, None));
 }

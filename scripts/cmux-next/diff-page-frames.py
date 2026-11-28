@@ -41,6 +41,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402
@@ -97,6 +98,29 @@ def runtime(app, browser: int, expression: str, timeout: float = 60):
         return json.loads(value)
     except ValueError as error:
         return {"error": str(error)}
+
+
+def runtime_long(app, browser: int, expression: str, timeout: float = 180, settle: float = 0.0):
+    """`expression` (a promise of JSON text) started in the page, its value read back by short calls: a build's
+    `debug.cef_page_devtools` before `timeout_ms` answers within 5 s, and a measured scroll or click takes longer. The
+    first read waits `settle` seconds, so the reads stay out of the frames they measure."""
+    key = f"__dpf_{uuid.uuid4().hex}"
+    started = runtime(app, browser, f"""(async()=>{{window.{key}={{done:false}};Promise.resolve().then(()=>{expression}).then(
+v=>{{window.{key}={{done:true,value:v}}}},e=>{{window.{key}={{done:true,value:JSON.stringify({{error:String(e)}})}}}});
+return JSON.stringify({{started:true}})}})()""", timeout=30)
+    if started.get("started") is not True:
+        return started
+    time.sleep(settle)
+    read = f"""(async()=>{{const r=window.{key};if(!r||!r.done)return JSON.stringify({{pending:true}});
+delete window.{key};return typeof r.value==='string'?r.value:JSON.stringify({{error:'not JSON text'}})}})()"""
+    deadline = time.monotonic() + timeout
+    while True:
+        got = runtime(app, browser, read, timeout=30)
+        if got.get("pending") is not True:
+            return got
+        if time.monotonic() > deadline:
+            return {"error": f"the page gave no answer in {timeout:.0f} s"}
+        time.sleep(1)  # test script: the page's script is still running; read again
 
 
 TOGGLE_STATE = """(async()=>{const t=document.getElementById('plain-english-toggle');return JSON.stringify(
@@ -256,12 +280,13 @@ def main() -> int:
                    "the new terminal's content in the focused pane", timeout=20, raise_on_timeout=False)
         started = time.monotonic()
         opened = app.action("openDiffViewer", focus=True, path=repo)
-        # `wait` answers at 90 s at most; a 100k-line open on a loaded Mac may take longer, so the waits chain
+        # Short waits (5 s each) chained: a wait asked before the tab's page exists can sit to its own timeout,
+        # which made the open time read as one wait's 90 s; a 100k-line open on a loaded Mac may take longer, so they chain
         # up to --open-timeout seconds (a "no live page" answer, before the tab's page exists, waits too).
         waits = []
         while True:
             waited = app.call("debug.page", {"page": PAGE, "action": "wait", "selector": ".file-header",
-                                             "timeout_ms": 90000}, timeout=100) or {}
+                                             "timeout_ms": 5000}, timeout=15) or {}
             waits.append({k: waited[k] for k in ("matched", "error", "ms") if k in waited})
             if waited.get("matched") is True or time.monotonic() - started > args.open_timeout:
                 break
@@ -291,7 +316,7 @@ def main() -> int:
         # count hold for 1 s.
         wait_stable(lambda: (lambda s: (s.get("headers"), s.get("nodes")))(runtime(app, browser, TOGGLE_STATE, timeout=30)),
                     "the code view's DOM", timeout=30, interval=0.25, reads=5, raise_on_timeout=False)
-        paint = runtime(app, browser, FIRST_PAINT, timeout=150)
+        paint = runtime_long(app, browser, FIRST_PAINT, timeout=150, settle=3)
         out["plain_english"] = paint
         print(f"DIFF-FRAMES {args.label} plain_english {json.dumps(paint)}", flush=True)
         if paint.get("error") or paint.get("click_to_paint_ms") is None:
@@ -322,7 +347,7 @@ def main() -> int:
         out["passes"] = []
         script = SCROLL.replace("FRAMES", str(args.frames)).replace("STEP", str(args.step))
         for index in range(args.passes):
-            got = runtime(app, browser, script, timeout=180)
+            got = runtime_long(app, browser, script, timeout=180, settle=args.frames / 60 + 1)
             deltas = got.pop("deltas", []) if isinstance(got, dict) else []
             got.update(stats(deltas), deltas=deltas, index=index + 1)
             out["passes"].append(got)

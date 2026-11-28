@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextPhone
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     static let phone = InternalPageID(rawValue: "phone")
 }
 

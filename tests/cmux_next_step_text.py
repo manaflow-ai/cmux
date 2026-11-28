@@ -14,12 +14,22 @@ ROOT = Path(__file__).resolve().parents[1]
 STEP_CALL = re.compile(r"^bash -e (?:\.\./)*(scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)$")
 
 
+# The checks job's slow commands moved out of the workflow into this manifest (#59284); the step that starts them
+# feeds it to the pool on stdin, so its commands are that step's commands.
+SLOW_CHECKS = "scripts/ci/cmux-next-slow-checks.txt"
+
+
 def step_body(path: str) -> str:
-    """A moved step's script without its shebang and leading comment header."""
+    """A moved step's script without its shebang and leading comment header, plus the slow-check manifest's
+    commands when the script runs them."""
     lines = (ROOT / path).read_text().splitlines(keepends=True)
     while lines and lines[0].startswith("#"):
         lines.pop(0)
-    return "".join(lines)
+    body = "".join(lines)
+    if SLOW_CHECKS in body:
+        manifest = (ROOT / SLOW_CHECKS).read_text().splitlines()
+        body = body.rstrip("\n") + "\n" + "".join(line + "\n" for line in manifest if line.strip() and not line.startswith("#"))
+    return body
 
 
 def step_run(step: dict) -> str:

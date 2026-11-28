@@ -19,8 +19,8 @@
 //! stat data as the mount serves it, so `git status` over the lower finds every file clean
 //! without reading (fetching) it. No `.git`, no worktree, no build output links: each checkout on
 //! top keeps its own. `--sparse FILE` (a sparse-checkout pattern file, cone or not) leaves the
-//! rest out of the tree and the index. `--trees DIR` (default `KEEP/trees`) holds each commit's
-//! listing: lowers of one mirror that share it list a new commit from the last one's sizes. Blobs come as `git-mount`'s do, on first read.
+//! rest out of the tree and the index. `--trees DIR` (default `MIRROR/cmux-projection-trees`, one per mirror) holds each commit's
+//! listing: every mount of one mirror lists a new commit from the last one's sizes. Blobs come as `git-mount`'s do, on first read.
 //! `--allow-other` lets other users in, root among them: a kernel overlay mounted with `sudo`
 //! reads its lower as root (it needs `user_allow_other` in `/etc/fuse.conf`).
 //!
@@ -667,7 +667,7 @@ mod cli {
         let listing = args
             .trees
             .clone()
-            .unwrap_or_else(|| keep.join("trees"))
+            .unwrap_or_else(|| git::shared_trees(&git_dir))
             .join(git::tree_of(&git_dir, &commit)?);
         let missing = 0;
         let fetch_ms = ms(phase);
@@ -801,7 +801,7 @@ mod cli {
         let listing = args
             .trees
             .clone()
-            .unwrap_or_else(|| keep.join("trees"))
+            .unwrap_or_else(|| git::shared_trees(&git_dir))
             .join(git::tree_of(&git_dir, &commit)?);
         let missing = 0;
         let fetch_ms = ms(phase);

@@ -12,7 +12,7 @@ use crate::resource::{
     ScreenPublicId, SplitPublicId, TabPublicId, TabResourceIdentity, WorkspacePublicId,
 };
 use crate::resource_mutation::ResourceMutationPlan;
-use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
+use crate::server_protocol::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::terminal_end::DetachProof;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryTab, RegistryViewportColumn, ResourceCreationPreparation,

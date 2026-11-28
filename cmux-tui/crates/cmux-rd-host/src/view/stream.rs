@@ -207,6 +207,18 @@ struct Stats {
     started_ns: u64,
     first_frame_ms: Option<f64>,
     luma_variance: Option<f64>,
+    /// When the first and the newest frame decoded: the decode rate.
+    first_decoded_ns: Option<u64>,
+    last_decoded_ns: u64,
+}
+
+impl Stats {
+    /// Frames decoded per second from the first decoded frame to the newest, once two are.
+    fn decoded_fps(&self) -> Option<f64> {
+        let first = self.first_decoded_ns?;
+        let span = self.last_decoded_ns.saturating_sub(first);
+        (self.decoded >= 2 && span > 0).then(|| (self.decoded - 1) as f64 / (span as f64 / 1e9))
+    }
 }
 
 /// Runs the session until it ends: the link's events, the hub's messages and the window's input.
@@ -252,6 +264,8 @@ pub fn run(
         started_ns: now_ns(),
         first_frame_ms: None,
         luma_variance: None,
+        first_decoded_ns: None,
+        last_decoded_ns: 0,
     };
     let (mut last_feedback_ns, mut released_since_feedback) = (0u64, false);
     let mut last_input_send_ns = 0u64;
@@ -293,6 +307,10 @@ pub fn run(
                 NetEvent::Endpoint(EndpointEvent::PathChanged {
                     kind: Some(k), rtt_us, ..
                 }) => {
+                    // A current path again: the host learns it is back from the first
+                    // feedback after the silence (D12), so that goes now, not at the
+                    // next keepalive.
+                    last_feedback_ns = 0;
                     let name = k.wire_name().to_owned();
                     let relayed = cmux_hub_host::rd_doc::is_relayed(&name);
                     let _ = to_hub.send(ToHub::Path(if relayed { "relay" } else { "direct" }));
@@ -417,6 +435,7 @@ pub fn run(
             "mbit_per_s": stats.bytes as f64 * 8.0 / secs.max(1e-3) / 1e6,
             "decode_ms": pct(&mut stats.decode_ms),
             "first_frame_ms": stats.first_frame_ms,
+            "decoded_fps": stats.decoded_fps(),
             "luma_variance": stats.luma_variance,
             "hub_approval": config.hub_approval,
             "presented": window_report.presented,
@@ -521,7 +540,11 @@ fn on_datagram(
                         let t1 = now_ns();
                         stats.decode_ms.push((t1 - t0) as f64 / 1e6);
                         stats.decoded += 1;
-                        if stats.first_frame_ms.is_none() {
+                        stats.last_decoded_ns = t1;
+                        if stats.first_decoded_ns.is_none() {
+                            stats.first_decoded_ns = Some(t1);
+                            // A watcher (the share e2e) times the first picture by this line.
+                            eprintln!("First frame decoded");
                             stats.first_frame_ms = Some((t1 - stats.started_ns) as f64 / 1e6);
                             stats.luma_variance = Some(luma_variance(&current.y));
                         }

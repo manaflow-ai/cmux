@@ -313,28 +313,54 @@ impl App {
                         SLOW_DELAY.as_secs()
                     ),
                 );
-                let preparation = MachineSessionPreparation {
-                    initial_size: content_size_for_rect(
-                        self.content_area,
-                        self.config.scrollbar.position,
-                        self.config.pane.padding,
-                    ),
-                    generation: self.session_generation.wrapping_add(1).max(1),
-                    pty_input: self.pty_input.sender(),
-                    surface_filter: self.surface_only,
-                };
-                if let Err(error) = self.daemon_reconnect.start(
-                    window,
-                    self.session_label.clone(),
-                    preparation,
-                    self.app_events.clone(),
-                ) {
-                    crate::client_log::error("reconnect", &format!("{error:#}"));
-                    return None;
-                }
-                Some(self.show_reconnecting())
+                self.start_daemon_reconnect(window)
             }
         }
+    }
+
+    /// A connection that broke with no shutdown notice (the daemon crashed,
+    /// the socket dropped) is followed the way an unannounced departure is:
+    /// the client reconnects for [`UNANNOUNCED_WINDOW`] instead of exiting
+    /// with "reconnect" advice whose only answer is yes. `None` when this
+    /// client has no reconnector (machine, provider, scoped, in-process).
+    pub(super) fn reconnect_after_transport_loss(&mut self) -> Option<RenderAction> {
+        if self.daemon_reconnect.in_progress() {
+            return Some(RenderAction::None);
+        }
+        if !self.follows_daemon_departures() || self.session.disconnected_by_peer() {
+            return None;
+        }
+        crate::client_log::info(
+            "reconnect",
+            &format!(
+                "the session connection broke; reconnecting for {} s",
+                UNANNOUNCED_WINDOW.as_secs()
+            ),
+        );
+        self.start_daemon_reconnect(UNANNOUNCED_WINDOW)
+    }
+
+    fn start_daemon_reconnect(&mut self, window: Duration) -> Option<RenderAction> {
+        let preparation = MachineSessionPreparation {
+            initial_size: content_size_for_rect(
+                self.content_area,
+                self.config.scrollbar.position,
+                self.config.pane.padding,
+            ),
+            generation: self.session_generation.wrapping_add(1).max(1),
+            pty_input: self.pty_input.sender(),
+            surface_filter: self.surface_only,
+        };
+        if let Err(error) = self.daemon_reconnect.start(
+            window,
+            self.session_label.clone(),
+            preparation,
+            self.app_events.clone(),
+        ) {
+            crate::client_log::error("reconnect", &format!("{error:#}"));
+            return None;
+        }
+        Some(self.show_reconnecting())
     }
 
     /// Puts "reconnecting" back on the status line.

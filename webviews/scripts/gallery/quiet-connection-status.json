@@ -1,0 +1,101 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "overlay-2-not-responding",
+      "entry": "ui.app-health.footer-row",
+      "variant": "overlay-2-not-responding",
+      "width": 350,
+      "height": 530,
+      "setup": "if (document.querySelector(\".ahf-overlay, .ahf-badge\")) throw new Error(\"automatic recovery rendered a notice\");"
+    },
+    {
+      "name": "overlay-3-repairing",
+      "entry": "ui.app-health.footer-row",
+      "variant": "overlay-3-repairing",
+      "width": 350,
+      "height": 530,
+      "setup": "if (document.querySelector(\".ahf-overlay, .ahf-badge\")) throw new Error(\"automatic recovery rendered a notice\");"
+    },
+    {
+      "name": "overlay-4-needs-repair",
+      "entry": "ui.app-health.footer-row",
+      "variant": "overlay-4-needs-repair",
+      "width": 350,
+      "height": 530
+    },
+    {
+      "name": "overlay-5-queued-close",
+      "entry": "ui.app-health.footer-row",
+      "variant": "overlay-5-queued-close",
+      "width": 350,
+      "height": 530,
+      "setup": "if (document.querySelector(\".ahf-overlay, .ahf-badge\")) throw new Error(\"automatic recovery rendered a notice\");"
+    },
+    {
+      "name": "badge-2-not-responding",
+      "entry": "ui.app-health.footer-row",
+      "variant": "badge-2-not-responding",
+      "width": 350,
+      "height": 530,
+      "setup": "if (document.querySelector(\".ahf-overlay, .ahf-badge\")) throw new Error(\"automatic recovery rendered a notice\");"
+    },
+    {
+      "name": "badge-3-repairing",
+      "entry": "ui.app-health.footer-row",
+      "variant": "badge-3-repairing",
+      "width": 350,
+      "height": 530,
+      "setup": "if (document.querySelector(\".ahf-overlay, .ahf-badge\")) throw new Error(\"automatic recovery rendered a notice\");"
+    },
+    {
+      "name": "badge-4-needs-repair",
+      "entry": "ui.app-health.footer-row",
+      "variant": "badge-4-needs-repair",
+      "width": 350,
+      "height": 530
+    },
+    {
+      "name": "badge-5-queued-close",
+      "entry": "ui.app-health.footer-row",
+      "variant": "badge-5-queued-close",
+      "width": 350,
+      "height": 530,
+      "setup": "if (document.querySelector(\".ahf-overlay, .ahf-badge\")) throw new Error(\"automatic recovery rendered a notice\");"
+    },
+    {
+      "name": "hidden-2-not-responding",
+      "entry": "ui.app-health.footer-row",
+      "variant": "hidden-2-not-responding",
+      "width": 350,
+      "height": 530,
+      "setup": "if (document.querySelector(\".ahf-overlay, .ahf-badge\")) throw new Error(\"automatic recovery rendered a notice\");"
+    },
+    {
+      "name": "hidden-3-repairing",
+      "entry": "ui.app-health.footer-row",
+      "variant": "hidden-3-repairing",
+      "width": 350,
+      "height": 530,
+      "setup": "if (document.querySelector(\".ahf-overlay, .ahf-badge\")) throw new Error(\"automatic recovery rendered a notice\");"
+    },
+    {
+      "name": "hidden-4-needs-repair",
+      "entry": "ui.app-health.footer-row",
+      "variant": "hidden-4-needs-repair",
+      "width": 350,
+      "height": 530
+    },
+    {
+      "name": "hidden-5-queued-close",
+      "entry": "ui.app-health.footer-row",
+      "variant": "hidden-5-queued-close",
+      "width": 350,
+      "height": 530,
+      "setup": "if (document.querySelector(\".ahf-overlay, .ahf-badge\")) throw new Error(\"automatic recovery rendered a notice\");"
+    }
+  ]
+}

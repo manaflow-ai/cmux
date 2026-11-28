@@ -338,6 +338,7 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
             stubs = {
                 "scripts/ci/ensure-system-chrome.sh":
                     '#!/bin/sh\nprintf "CMUX_CHROME_HEADLESS_SHELL=%s\\n" "$TEST_BROWSER" >> "$GITHUB_ENV"\n',
+                "scripts/ci/pin-browser-test-font.sh": "#!/bin/sh\nexit 0\n",
                 "bin/git": '#!/bin/sh\nprintf "%s\\n" "$GITHUB_WORKSPACE"\n',
                 "bin/bun": '#!/bin/sh\nif [ "$1" = health.ts ]; then\n'
                     '  printf "%s\\n" "${CMUX_CHROME_HEADLESS_SHELL:-chrome}" >> "$TEST_LAUNCHES"\nfi\n',
@@ -454,7 +455,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         on = triggers()
         self.assertNotIn("pull_request", on)
         self.assertNotIn("push", on)
-        self.assertEqual(set(on["workflow_call"]["inputs"]), {"sha", "only", "base"})
+        self.assertEqual(set(on["workflow_call"]["inputs"]), {"sha", "only", "job", "base", "states"})
         self.assertIn("workflow_dispatch", on)
         self.assertEqual(json.loads(BATCH_MANIFEST.read_text(encoding="utf-8"))["suites"]["gallery-health"]["workflow"],
                          "gallery-health.yml")
@@ -616,6 +617,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         touched = {"all": False, "entries": ["a"], "reasons": {"a": [
             "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/cancelled.json"]}}
         for path in ("Resources/ghostty/themes/Token Dark", "webviews/bun.lock", "scripts/ci/test_reds.py",
+                     "scripts/ci/pin-browser-test-font.sh",
                      "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"):
             self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [path])
         # An imported fixture renders only the entries that import it; an unreached webviews/src file and an
@@ -824,6 +826,26 @@ class GalleryHealthTime(unittest.TestCase):
                              "a push that touched entries renders them all")
             self.assertEqual(shards(per + 1, all_="true", ids="", RUN_NUMBER="3", **push), [0, 1],
                              "a split no wider than the slice renders whole")
+
+            # A bisect probe of one red leg renders that leg alone, at the same split (2026-11-27, Leo: "de facto,
+            # im asking for 99% fewer minutes of ci time, period."): 22 legs were ~440 runner-minutes a probe.
+            self.assertEqual(size["env"]["PROBE_JOB"], "${{ inputs.job }}")
+            self.assertEqual(size["env"]["PROBE_ALL_LEGS"], "${{ vars.GALLERY_HEALTH_PROBE_ALL_LEGS }}")
+            probe = {"EVENT": "workflow_dispatch", "PROBE_JOB": "gallery-health / health (8)"}
+            self.assertEqual(shards(17000, all_="true", ids="", **probe), [8])
+            self.assertEqual(shards(17000, all_="true", ids="", PROBE_ALL_LEGS="1", **probe), list(range(22)),
+                             "the off switch")
+            self.assertEqual(shards(17000, all_="true", ids="", EVENT="workflow_dispatch",
+                                    PROBE_JOB="gallery-health / health"), list(range(22)), "no leg: every leg")
+            self.assertEqual(shards(per + 1, all_="true", ids="", **probe), [0, 1],
+                             "a leg past the probe's split: every leg")
+
+    def test_a_probe_passes_its_red_job_and_a_batch_none(self) -> None:
+        caller = yaml.safe_load((ROOT / ".github/workflows/cmux-next-post-merge.yml").read_text(encoding="utf-8"))
+        self.assertEqual(caller["jobs"]["gallery-health"]["with"]["job"], "${{ needs.plan.outputs.job }}")
+        self.assertEqual(caller["jobs"]["plan"]["outputs"]["job"], "${{ inputs.mode == 'probe' && inputs.job || '' }}")
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertEqual(workflow[True]["workflow_call"]["inputs"]["job"]["default"], "")
 
     def test_the_plan_checks_out_what_the_shards_do(self) -> None:
         self.assertEqual(plan_step("Checkout")["with"], step("Checkout")["with"])

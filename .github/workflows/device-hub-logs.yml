@@ -34,7 +34,7 @@ concurrency:
 jobs:
   read:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: holds the Cloudflare API token; keeps the ephemeral_only linux_4 pool
     environment: cmux-next-production
     timeout-minutes: 10
     steps:

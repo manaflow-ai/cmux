@@ -785,6 +785,72 @@ class NoBaseBudgetTests(BusyFixture):
         self.assertIn("'--deadline'", source)
 
 
+class SharedDeadlineTests(BusyFixture):
+    def test_update_and_metadata_share_the_absolute_deadline(self):
+        calls = []
+
+        def cargo(args, cwd, env, timeout, out=None):
+            calls.append((args[0], timeout))
+            if args[0] == "update":
+                self.now += 80
+                return 0, ""
+            self.now += timeout
+            return 124, "timed out waiting for metadata"
+
+        self.module.cargo = cargo
+        results = self.module.check(self.repo, jobs=1, deadline=100)
+        self.assertEqual(self.now, 100, calls)
+        self.assertEqual(calls, [("update", 100), ("metadata", 20)])
+        self.assertTrue(all(verdict == "timeout" for verdict, _ in results.values()))
+        self.assertEqual(set(results), set(ROOTS))
+
+    def test_touched_workspace_runs_first_without_dropping_other_locks(self):
+        results = self.module.check(self.repo, jobs=1, touched={"other"}, deadline=100)
+        self.assertEqual(self.calls[0][0], "other")
+        self.assertEqual(set(results), set(ROOTS))
+        self.assertEqual(len(self.calls), len(ROOTS))
+
+
+class ManifestScanTests(BusyFixture):
+    def setUp(self):
+        super().setUp()
+        for root in ROOTS:
+            self.write(f"{root}/Cargo.lock", 'version = 4\n[[package]]\nname = "a"\nversion = "0.1.0"\n')
+
+        def cargo(args, cwd, env, timeout, out=None):
+            if args[0] == "metadata":
+                out.append('{"packages": [{"name": "a", "version": "0.1.0"}]}')
+            return 0, ""
+
+        self.module.cargo = cargo
+
+    def test_manifest_scan_is_once_per_run_including_concurrent_workspaces(self):
+        with unittest.mock.patch.object(self.module, "manifest_names", return_value={"a"}) as names:
+            for invocation in range(1, 3):
+                results = self.module.check(self.repo, jobs=len(ROOTS), deadline=100)
+                self.assertTrue(all(verdict == "ok" for verdict, _ in results.values()))
+                self.assertEqual(names.call_count, invocation)
+
+    def test_failed_manifest_scan_is_not_repeated_for_every_workspace(self):
+        with unittest.mock.patch.object(self.module, "manifest_names", return_value=None) as names:
+            self.module.check(self.repo, jobs=len(ROOTS), deadline=100)
+            self.assertEqual(names.call_count, 1)
+
+    def test_manifest_scan_uses_remaining_deadline(self):
+        limits = []
+
+        def names(repo, timeout=30):
+            limits.append(timeout)
+            self.now += timeout
+            return None
+
+        with unittest.mock.patch.object(self.module, "manifest_names", names):
+            results = self.module.check(self.repo, jobs=1, deadline=10)
+        self.assertEqual(limits, [10])
+        self.assertEqual(self.now, 10)
+        self.assertTrue(all(verdict == "timeout" for verdict, _ in results.values()))
+
+
 class CiPassesTheBaseTests(unittest.TestCase):
     """The CI step names the change's base, so a timeout in a workspace the change does not touch only warns."""
 

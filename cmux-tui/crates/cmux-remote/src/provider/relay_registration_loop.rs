@@ -88,6 +88,10 @@ async fn run_registration_attempts(
             Err(error) if is_credential_source_error(error) => {
                 RegistrationState::CredentialUnavailable { error: error.to_string() }
             }
+            Err(ProviderError::RelayBusy { retry_after, .. }) => RegistrationState::RelayBusy {
+                error: result.as_ref().err().map(ToString::to_string).unwrap_or_default(),
+                retry_after: *retry_after,
+            },
             Err(error) => RegistrationState::RelayUnavailable { error: error.to_string() },
         });
         // A pause the registration did not survive outlived its circuits too.
@@ -110,6 +114,8 @@ async fn run_registration_attempts(
             Ended::Resumed
         } else if credential_failure {
             Ended::Credential
+        } else if let Err(ProviderError::RelayBusy { retry_after, .. }) = &result {
+            Ended::Busy { retry_after: *retry_after }
         } else {
             Ended::Relay
         };
@@ -384,6 +390,16 @@ async fn run_registration_once(
             _ = interval.tick() => {
                 match liveness.check(Instant::now(), wall_now()) {
                     Check::Idle => continue,
+                    Check::Stalled(gap) => {
+                        if let Some(label) = &log.label {
+                            eprintln!(
+                                "{label}: the registration loop stalled {} ms with a ping out; \
+                                 waiting for its answer again",
+                                gap.as_millis()
+                            );
+                        }
+                        continue;
+                    }
                     Check::Ping => {
                         nonce = nonce.wrapping_add(1);
                         match send_control(&mut socket, &RelayControl::Ping { nonce }).await {

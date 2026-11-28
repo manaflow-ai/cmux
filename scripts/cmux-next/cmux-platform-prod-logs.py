@@ -127,6 +127,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.claim_fence_retry_read_failed",
     "cloud.claim_fence_retry_reset_failed",
     "cloud.claim_fence_retry_write_failed",
+    "cloud.commit_probe.size",
     "cloud.connect.read",
     "cloud.create.adopted",
     "cloud.create.approved",
@@ -143,6 +144,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.egress.read",
     "cloud.entitlement.profile_heal_failed",
     "cloud.entitlement.read_failed",
+    "cloud.flight_join.long",
     "cloud.fold.parked",
     "cloud.fold.read",
     "cloud.fold.read_failed",
@@ -205,6 +207,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.prune_probe.long",
     "cloud.quota.vm_limit",
     "cloud.record.reconcile_failed",
+    "cloud.rows.scan_large",
     "cloud.record.stale",
     "cloud.record.unknown",
     "cloud.room.failed",
@@ -236,6 +239,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.verify.slow",
     "cloud.wake_echo.note_failed",
     "cloud.wake_served.note_failed",
+    "cloud.wake_probe.long",
     "cloud.work_machine.failed",
     "cloud.work_machine.not_ready",
     "cloud.work_machine.ready",
@@ -358,6 +362,7 @@ PLATFORM_MSGS = frozenset({
     "mesh.device.intent_pending",
     "mesh.device.mesh_unknown",
     "mesh.device.unavailable",
+    "mesh.hub.slow",
     "mesh.hub.unavailable",
     "mesh.node.detached",
     "native network target",
@@ -475,7 +480,15 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  # call, claim to fill start, the fill's age; and how many spares a claim could take.
                  "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT,
                  # cloud.prune_probe.long (cmux-platform#2391): ledger rows pruneAt walked on one commit, and how many abandoned.
-                 "walked": INT, "abandoned": INT}
+                 "walked": INT, "abandoned": INT,
+                 # cmux-platform#2407's busy-object probe: cloud.commit_probe.size (state and last event's sizes, commits
+                 # in the minute), cloud.wake_probe.long (an alarm run split drain/onWake), cloud.flight_join.long.
+                 "state_bytes": INT, "effects_bytes": INT, "commits": INT, "drain_ms": INT, "wake_ms": INT,
+                 "waited_ms": INT,
+                 # cloud.rows.scan_large (cmux-platform#2511, AllRows.ts eachRow): the table a scan walked, rows it
+                 # read and kept; its `at` frames are kept only as function names (scan_callers). cmux-platform#2546
+                 # adds the call site (the shared `site` above) and the pages it read.
+                 "table": TOKEN, "rows": INT, "yielded": INT, "pages": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
@@ -536,6 +549,10 @@ POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms")
 # claim; only these say which spare wake they were. Each is kept only as one of its fixed words, any other dropped.
 START_KINDS = frozenset({"person", "window", "refresh", "warm"})
 START_BEFORE = frozenset({"paused", "stopped", "pausing", "starting", "running", "other"})
+# A create trace's `kind`, why the create ran (cmux-platform#2507 CloudCore.ts createKind): an unclaimed spare's, a
+# restore's or fork's, else a start kind. cmux-vm's create queue is 3 slots, shared by development and staging, and
+# 2026-11-28 01:36-01:48Z it refused 61 of 69 creates; only this says who filled it. Fixed words only, as above.
+CREATE_KINDS = START_KINDS | {"spare", "restore"}
 
 
 # cloud.start.first_reply (cmux-platform StartTrace.ts firstReplyOf): `steps`, each hop's ms of one real chat's start
@@ -708,14 +725,51 @@ PROVIDER_STEP_HTTP = re.compile(r"^(file write|mesh ACL apply|mesh ACL read|mesh
 PROVIDER_JS_ERROR = re.compile(r"^(Error|TypeError|RangeError|SyntaxError|ReferenceError|AbortError|TimeoutError)(?=:|$)")
 
 
+# cmux-platform src/server/cloud/ownhost/CloudProvider.ts: every call names its step ("find VM", "create VM",
+# `${verb} VM`), then a fixed tail. Dev 2026-11-27 12:26Z: twelve creates in a row read only "own-host: other" while
+# the host's origin no longer resolved, so the class never said whether the daemon answered at all.
+OWN_HOST_STEPS = frozenset({"create VM", "delete VM", "exec", "find VM", "list VMs", "power VM", "read VM",
+                            "resume VM", "pause VM", "write file"})
+OWN_HOST_TAILS = frozenset({
+    "no readable answer", "no VM in the answer", "no VM state in the answer", "no receipt in the answer",
+    "the receipt names another request", "the receipt names another VM", "the host answered refused",
+    "the host answered failed", "wrong VM answer", "no such VM", "invalid answer", "unreadable resources",
+    "HTTP 409 and no VM under the name", "the VM is failed", "the VM is deleted", "invalid path or mode",
+    "unconfirmed write", "invalid timeout",
+})
+OWN_HOST_WHOLE = frozenset({
+    "invalid VM id", "invalid VM name", "invalid report selector", "no snapshots", "no resize", "no TLS edge rules",
+    "no machine without internet", "only the configured template boots", "no disk-depth pause",
+})
+# A step's daemon status and its safe error code (codeOf: the daemon's own token, never its message).
+OWN_HOST_HTTP = re.compile(r"^HTTP ([1-5][0-9]{2})(?: \(([a-z][a-z0-9_.]{0,63})\))?$")
+
+
+def _own_host_class(rest):
+    if rest in OWN_HOST_WHOLE:
+        return rest
+    step, sep, tail = rest.partition(": ")
+    if not sep or step not in OWN_HOST_STEPS:
+        return "other"
+    if tail in OWN_HOST_TAILS:
+        return f"{step}: {tail}"
+    m = OWN_HOST_HTTP.match(tail)
+    if m:
+        return f"{step}: HTTP {m.group(1)}" + (f" ({m.group(2)})" if m.group(2) else "")
+    return f"{step}: other"
+
+
 def provider_error_class(message):
     """A fixed class for a provider call's error message: its source prefix (PROVIDER_SOURCES) and then a
     PROVIDER_ERROR_PHRASES phrase, "HTTP <status>", "<step> HTTP <status>", "boot image is not listed yet", a JS
-    error name, or other. No text past a known phrase is ever kept."""
+    error name, or other. An own-host message keeps its step and fixed tail (OWN_HOST_*). No text past a known
+    phrase is ever kept."""
     if not isinstance(message, str):
         return "other"
     source = next((p for p in PROVIDER_SOURCES if message.startswith(p)), "")
     rest = message[len(source):]
+    if source == "own-host: ":
+        return source + _own_host_class(rest)
     return source + _provider_phrase_class(rest) if source else _provider_phrase_class(rest)
 
 
@@ -936,10 +990,18 @@ def work_machine(j):
 # met (admitWaitMs, admitQueueMs, admitInFlight, admitQueued), and on a refusal its fixed reason and estimated wait;
 # vm_create_admission_unavailable is the line of a create sent without the queue because the queue could not be
 # reached. Without them a staging burst after the deploy could not say whether the queue held creates back at all.
-VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable"})
+#
+# vm_start (handlers/vms.ts timedStart) is a start's or resume's line: startMs, the provider's start call, and totalMs,
+# the handler's whole time with its caller gate, ownership read and audit. totalMs - startMs is cmux-vm's own share of a
+# start; the platform's power call_ms minus totalMs is the hop. wake-echo run 46000366770: call_ms minus provider_ms
+# was 1-2 s a start, and without this line no read could say which side held it.
+VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable", "vm_start"})
 VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
                "providerTotalMs", "totalMs", "admitWaitMs", "admitQueueMs", "admitRetryAfterMs", "admitInFlight",
-               "admitQueued")
+               "admitQueued", "readMs", "startMs", "ownMs", "gateMs")
+# vm_start's fixed words: its route, and the VM's state before and after (workers/cmux-vm src/api.ts VmState).
+VM_START_ROUTES = ("start", "resume")
+VM_STATES = ("starting", "running", "pausing", "paused", "stopped", "unknown")
 VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined")
 VM_ADMISSION_REASONS = ("queue_full", "wait_expired")
 
@@ -959,6 +1021,11 @@ def vm_event(j):
         out["imageVariant"] = variant
     if j.get("admission") in VM_ADMISSION_REASONS:
         out["admission"] = j["admission"]
+    if j.get("route") in VM_START_ROUTES:
+        out["route"] = j["route"]
+    for k in ("stateBefore", "stateAfter"):
+        if j.get(k) in VM_STATES:
+            out[k] = j[k]
     timings = token_counts(j.get("providerTimingsMs"))
     if timings is not None:
         out["providerTimingsMs"] = timings
@@ -994,12 +1061,64 @@ def image_rev(image):
     return m.group(1) if m else None
 
 
+# cloud.rows.scan_large's `at` is three V8 stack frames joined by " < " ("at CloudDO.approvalAhead (index.js:9:1)").
+# Only each frame's function name is kept, when it is a plain identifier path of our code; file, line, column and any
+# other text are dropped. The 2026-11-28 04:40-05:06Z staging read kept 0 rows because the msg was unlisted.
+SCAN_FRAME = re.compile(r"^at (?:async )?([A-Za-z_$][A-Za-z0-9_$.]{0,63})(?: \[as [A-Za-z0-9_$]{1,32}\])? \(")
+
+
+def scan_callers(at):
+    if not isinstance(at, str):
+        return None
+    names = []
+    for frame in at.split(" < ")[:3]:
+        m = SCAN_FRAME.match(frame.strip())
+        if m and not base.ID_LIKE.search(m.group(1)):
+            names.append(m.group(1))
+    return names or None
+
+
+# The hourly sweep's snapshot reaper (cmux-platform src/server/cloud/Sweep.ts reapSnapshots, on in development since
+# cmux-platform#2532) and its sweep's failure write `{"event": ...}` lines, no `msg`, so a read dropped them all as
+# unlisted: run 46141895410 (development, 11-28 09:30-11:40Z) scanned 2428 events and kept 0 while the probe team still
+# hit cloud.quota.exceeded. The census says what holds a team's snapshot budget: listed, outside our prefix (foreign),
+# named by a record, or unnamed and old enough to reap. Only its counts, flags and mode are kept; a reaped or failed
+# snapshot's line keeps only its event name and whether it had a machine, never its id, slug, time or error text.
+SNAPSHOT_EVENTS = frozenset({"cloud.snapshot.census", "cloud.snapshot.reaped", "cloud.snapshot.would_reap",
+                             "cloud.snapshot.reap_failed", "cloud.snapshot.reap_list_failed",
+                             "cloud.orphan.sweep_failed"})
+SNAPSHOT_COUNTS = ("listed", "foreign", "named", "unnamed", "unnamed_due", "oldest_unnamed_h", "age_h")
+REAP_MODES = ("off", "warn", "on")
+SWEEP_CODE = re.compile(r"^[a-z][a-z_]{0,31}(?:\.[a-z][a-z_]{0,31}){0,4}$")
+
+
+def snapshot_event(j):
+    """The kept fields of a SNAPSHOT_EVENTS line: its event, counts, flags and fixed words only."""
+    out = {"event": j["event"]}
+    for k in SNAPSHOT_COUNTS:
+        v = base.typed(INT, j.get(k))
+        if v is not None:
+            out[k] = v
+    if isinstance(j.get("complete"), bool):
+        out["complete"] = j["complete"]
+    if j.get("mode") in REAP_MODES:
+        out["mode"] = j["mode"]
+    if "machine" in j:
+        out["has_machine"] = j["machine"] is not None
+    code = j.get("code")
+    if isinstance(code, str) and SWEEP_CODE.match(code):
+        out["code"] = code
+    return out
+
+
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg or cmux-vm event, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
         return None, "tenant"
     if "msg" not in j and j.get("event") in VM_EVENTS:
         return vm_event(j), None
+    if "msg" not in j and j.get("event") in SNAPSHOT_EVENTS:
+        return snapshot_event(j), None
     msg = j.get("msg")
     if not isinstance(msg, str) or msg not in PLATFORM_MSGS:
         return None, "unlisted"
@@ -1026,6 +1145,10 @@ def public_log(j):
         power = power_split(j.get("power"))
         if power is not None:
             out["power"] = power
+    if msg == "cloud.create.trace":
+        out.pop("kind", None)
+        if j.get("kind") in CREATE_KINDS:
+            out["kind"] = j["kind"]
     if msg == "cloud.start.trace":
         out.pop("kind", None)
         if j.get("kind") in START_KINDS:
@@ -1038,6 +1161,10 @@ def public_log(j):
         rev = image_rev(j.get("image"))
         if rev is not None:
             out["image_rev"] = rev
+    if msg == "cloud.rows.scan_large":
+        callers = scan_callers(j.get("at"))
+        if callers:
+            out["callers"] = callers
     if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
         out["kicked"] = j["kicked"]
     if msg in SPARE_COUNT_MSGS:
@@ -1134,8 +1261,16 @@ def vm_log(text):
     code = base.typed(TOKEN, pairs.get("code"))
     if code is not None:
         out["code"] = code
+    # Why a dependency call threw, as one of workers/cmux-vm/src/handlers/common.ts failureClass's fixed words.
+    if pairs.get("cause_class") in VM_CAUSE_CLASSES:
+        out["cause_class"] = pairs["cause_class"]
     return out, None
 
+
+VM_CAUSE_CLASSES = frozenset({
+    "overloaded", "memory_limit", "cpu_limit", "connection_lost", "object_reset", "timeout", "write_unconfirmed",
+    "retryable", "other", "unknown",
+})
 
 UNLISTED_NAMED_MAX = 24
 
@@ -1174,7 +1309,7 @@ def line(e, counts=None):
             rec["log"] = log
         else:
             counts[f"logs_dropped_{why}"] = counts.get(f"logs_dropped_{why}", 0) + 1
-            name = j.get("msg") if j is not None and why == "unlisted" else None
+            name = (j.get("msg") or j.get("event")) if j is not None and why == "unlisted" else None
             # A dropped msg that is a plain token (never an id, never free text) is named, so a platform msg this list
             # lacks shows in the read that needed it instead of only as a count.
             if isinstance(name, str) and base.typed(TOKEN, name) == name:
@@ -1280,7 +1415,8 @@ def window_needle(needles):
     """A window read asks the query for one msg's events when its only needle is an allowlisted platform msg literal:
     a busy production hour holds more events than PAGES pages, and cloud.idle.kept is a few of them (cmux#54889).
     The literal is our own constant, never a tenant's word; any other needle filters only the rows, as before."""
-    return needles[0] if len(needles) == 1 and (needles[0] in PLATFORM_MSGS or needles[0] in VM_EVENTS) else None
+    return needles[0] if len(needles) == 1 and (needles[0] in PLATFORM_MSGS or needles[0] in VM_EVENTS
+                                                    or needles[0] in SNAPSHOT_EVENTS) else None
 
 
 def query(token, service, frm, to, offset=None, needle=None):

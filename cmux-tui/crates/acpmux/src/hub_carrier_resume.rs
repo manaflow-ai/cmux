@@ -46,6 +46,29 @@ pub(super) async fn open(
     let target = gate.admit(port).await?;
     let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
     let serving = async move {
+        // The pipe's far end lives in the pipe host, so it outlives this daemon
+        // (`hub_carrier_pipe_host.rs`); without one, in this process as before.
+        #[cfg(unix)]
+        if crate::hub_carrier_pipe_host::enabled() {
+            use crate::hub_carrier_pipe_host as host;
+            let socket = host::socket_path(&crate::config::home());
+            match host::connect(&socket, &host::header(&from, target)).await {
+                Ok(conn) => {
+                    host::bridge(theirs, conn).await;
+                    tracing::debug!(
+                        port,
+                        "hub carrier: a held pipe's stream to the pipe host ended"
+                    );
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        port,
+                        "hub carrier: no pipe host, this daemon holds the pipe: {e}"
+                    );
+                }
+            }
+        }
         let connect = || async move {
             let daemon = TcpStream::connect(target).await?;
             let _ = daemon.set_nodelay(true);

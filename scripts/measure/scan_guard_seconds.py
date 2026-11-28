@@ -10,7 +10,9 @@ guard sees is exactly the pull request's. It also checks that the two runs agree
 It checks the commits out in a throwaway worktree of its own under --scratch and removes it at the end.
 
 Run it: python3 scripts/measure/scan_guard_seconds.py --guard tests/test_outbound_hosts.py \\
-          --overlay tests/guard_delta.py tests/test_outbound_hosts.py --commits 20 --whole 3 [--ref origin/main]
+          --overlay tests/guard_delta.py tests/test_outbound_hosts.py --commits 20 --whole 3 [--ref origin/main] \\
+          [--test EgressGate.test_no_new_ungated_site]   (run just that test, so the file's other tests do not
+                                                          decide the exit code)
 """
 
 from __future__ import annotations
@@ -33,12 +35,12 @@ def git(cwd: Path, *args: str, data: bytes | None = None) -> str:
                           capture_output=True).stdout.decode().strip()
 
 
-def run(tree: Path, guard: str, base: str | None) -> tuple[float, int]:
+def run(tree: Path, guard: str, base: str | None, tests: list[str]) -> tuple[float, int]:
     env = {k: v for k, v in os.environ.items() if k != "CMUX_GUARDS_BASE_SHA"}
     if base:
         env["CMUX_GUARDS_BASE_SHA"] = base
     start = time.monotonic()
-    p = subprocess.run(["python3", guard], cwd=tree, env=env, capture_output=True)
+    p = subprocess.run(["python3", guard, *tests], cwd=tree, env=env, capture_output=True)
     return time.monotonic() - start, p.returncode
 
 
@@ -50,6 +52,7 @@ def main() -> None:
     ap.add_argument("--whole", type=int, default=3)
     ap.add_argument("--ref", default="HEAD")
     ap.add_argument("--scratch", default=tempfile.gettempdir())
+    ap.add_argument("--test", action="append", default=[], help="a unittest name in the guard to run alone")
     args = ap.parse_args()
 
     overlay = {rel: (ROOT / rel).read_bytes() for rel in args.overlay}
@@ -73,10 +76,10 @@ def main() -> None:
                 git(tree, "apply", "--index", "--whitespace=nowarn", data=patch)
             git(tree, "-c", "user.name=m", "-c", "user.email=m@m", "commit", "-q", "--allow-empty", "-m", "head")
             files = len(git(tree, "diff", "--name-only", base, "HEAD").split())
-            changed_s, changed_rc = run(tree, args.guard, base)
+            changed_s, changed_rc = run(tree, args.guard, base, args.test)
             row = {"commit": commit[:12], "files": files, "changed_s": round(changed_s, 2), "changed_rc": changed_rc}
             if i < args.whole:
-                whole_s, whole_rc = run(tree, args.guard, None)
+                whole_s, whole_rc = run(tree, args.guard, None, args.test)
                 row |= {"whole_s": round(whole_s, 2), "whole_rc": whole_rc}
             rows.append(row)
             print(json.dumps(row), flush=True)

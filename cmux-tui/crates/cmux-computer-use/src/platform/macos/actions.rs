@@ -87,39 +87,47 @@ fn outcome_after(
 
 /// How long a foreground action waits for its app to become the active app.
 const RAISE_WAIT: std::time::Duration = std::time::Duration::from_millis(1000);
+/// How many times a foreground action asks its app to come forward.
+const RAISE_ASKS: usize = 2;
 
 impl MacDesktop {
     /// Raises the window and its app for a Foreground delivery. This is the
     /// only path that changes what is in front, and only when asked.
     fn raise(&self, t: &Target) -> DResult<()> {
-        let (app, win) = self.ax_window(t)?;
-        win.perform("AXRaise").map_err(|e| ax_error(e, "raising the window"))?;
-        if let Some(yes) = Cf::boolean(true) {
-            app.set("AXFrontmost", &yes).map_err(|e| ax_error(e, "bringing the app forward"))?;
-        }
         // AXFrontmost asks the app to activate; the window server makes it
         // the active app a little later (and may refuse under cooperative
         // activation). System-wide input (the HID tap) goes to whatever is
         // really active, so wait for the app's activation notification, up to
-        // RAISE_WAIT, and refuse rather than send input elsewhere.
+        // RAISE_WAIT, and refuse rather than send input elsewhere. Asking is
+        // no input, so an app that did not come forward is asked once more
+        // before the refusal.
         let pid = t.window.pid;
-        if super::ax::wait_activated(pid, RAISE_WAIT, &|| super::frontmost_pid() == Some(pid)) {
-            return Ok(());
+        for _ in 0..RAISE_ASKS {
+            let (app, win) = self.ax_window(t)?;
+            win.perform("AXRaise").map_err(|e| ax_error(e, "raising the window"))?;
+            if let Some(yes) = Cf::boolean(true) {
+                app.set("AXFrontmost", &yes)
+                    .map_err(|e| ax_error(e, "bringing the app forward"))?;
+            }
+            if super::ax::wait_activated(pid, RAISE_WAIT, &|| super::frontmost_pid() == Some(pid)) {
+                return Ok(());
+            }
         }
         Err(DesktopError::Unsupported(format!(
-            "window {}'s app did not come to the front when asked, so system-wide input would reach another app; try again, or use delivery background",
+            "window {}'s app did not come to the front when asked twice (macOS may hold another app active), so system-wide input would reach another app and nothing was sent; use delivery background",
             t.window.id
         )))
     }
 
-    /// The route for pointer events into a window.
+    /// The route for pointer events into a window: its process, never the
+    /// HID tap, which moves the person's pointer (input.rs).
     fn pointer_route(&self, t: &Target, delivery: Delivery) -> DResult<Route> {
         self.require_input()?;
         match delivery {
             Delivery::Foreground => {
                 super::refuse_if_locked("foreground input")?;
                 self.raise(t)?;
-                Ok(Route::Hid)
+                Ok(Route::Pid { pid: t.window.pid, window: t.window.id })
             }
             Delivery::Background if t.window.on_screen => {
                 Ok(Route::Pid { pid: t.window.pid, window: t.window.id })
@@ -138,7 +146,8 @@ impl MacDesktop {
     fn check_menu_item(&self, t: &Target, el: &Ax, delivery: Delivery) -> DResult<()> {
         // Read strictly: an element whose place cannot be read is not
         // let past the menu checks as if it were not a menu item.
-        match super::ax::try_in_menu_bar(el) {
+        // An app that did not answer is asked again for a moment first.
+        match crate::reread::reread(crate::reread::REREAD_WAIT, || super::ax::try_in_menu_bar(el)) {
             Some(false) => return Ok(()),
             Some(true) => {}
             None => return Err(DesktopError::Unsupported(roles::MENU_PLACE_UNREAD.into())),
@@ -151,15 +160,20 @@ impl MacDesktop {
         if let Some(why) = roles::submenu_refusal(&role, has_submenu) {
             return Err(DesktopError::Unsupported(why.into()));
         }
-        let check = match el.attr("AXTitle") {
-            Ok(v) => {
-                self.menu_item_check_titled(el, &v.and_then(|v| v.as_string()).unwrap_or_default())
-            }
-            // Unreadable: refused, whatever the deny list, with its own reason.
-            Err(_) => {
-                return Err(DesktopError::Unsupported(menus::UNREADABLE_ITEM_REFUSAL.into()));
-            }
-        };
+        let title =
+            match crate::reread::reread_result(crate::reread::REREAD_WAIT, || el.attr("AXTitle")) {
+                Ok(v) => v.and_then(|v| v.as_string()).unwrap_or_default(),
+                // Unreadable: refused, whatever the deny list, with its own reason.
+                Err(_) => {
+                    return Err(DesktopError::Unsupported(menus::UNREADABLE_ITEM_REFUSAL.into()));
+                }
+            };
+        let mut check = self.menu_item_check_titled(el, &title);
+        // The app names are still loading (just after start): checked again
+        // once they are, within NAMES_WAIT.
+        if check == roles::ItemCheck::Unknown && workspace::app_names_ready_soon() {
+            check = self.menu_item_check_titled(el, &title);
+        }
         if check == roles::ItemCheck::Unknown {
             return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
         }
@@ -182,6 +196,21 @@ impl MacDesktop {
     /// window, so in the background they are sent only when the target is
     /// that window or the app's only window.
     fn key_route(&self, t: &Target, delivery: Delivery) -> DResult<Route> {
+        // Which window has the keys is read again for a moment when the app
+        // did not answer (it may be activating); nothing is sent meanwhile.
+        crate::reread::reread_result(crate::reread::REREAD_WAIT, || {
+            match self.key_route_once(t, delivery) {
+                Err(DesktopError::Unsupported(why)) if why.starts_with(FOCUS_UNREAD) => {
+                    Err(DesktopError::Unsupported(why))
+                }
+                Err(other) => Ok(Err(other)),
+                Ok(route) => Ok(Ok(route)),
+            }
+        })
+        .unwrap_or_else(Err)
+    }
+
+    fn key_route_once(&self, t: &Target, delivery: Delivery) -> DResult<Route> {
         self.require_input()?;
         if delivery == Delivery::Foreground {
             super::refuse_if_locked("foreground input")?;
@@ -353,8 +382,9 @@ impl MacDesktop {
     /// says; a menu item there that leads to a denied app is refused too.
     fn menu_at(&self, t: &Target, at: Point) -> DResult<Option<Ax>> {
         // A hit test that fails says nothing about a menu there: refused.
-        let Some(hit) = Ax::application(t.window.pid).and_then(|app| app.element_at(at.x, at.y))
-        else {
+        let Some(hit) = crate::reread::reread(crate::reread::REREAD_WAIT, || {
+            Ax::application(t.window.pid).and_then(|app| app.element_at(at.x, at.y))
+        }) else {
             return Err(DesktopError::Unsupported(roles::MENU_UNREAD_REFUSAL.into()));
         };
         let mut el = Some(hit);
@@ -435,6 +465,11 @@ const MENU_CANDIDATES: &[&str] =
 /// Read strictly: an unreadable role, or children that cannot be read, may
 /// be a menu opener, and are refused (`Err`) rather than let through.
 fn menu_role(el: &Ax) -> DResult<Option<String>> {
+    // A read the app did not answer is read again for a moment first.
+    crate::reread::reread_result(crate::reread::REREAD_WAIT, || menu_role_once(el))
+}
+
+fn menu_role_once(el: &Ax) -> DResult<Option<String>> {
     let unread = || DesktopError::Unsupported(roles::MENU_UNREAD_REFUSAL.into());
     let Some(role) = el.try_string("AXRole").map_err(|_| unread())? else { return Ok(None) };
     if !MENU_CANDIDATES.contains(&role.as_str()) {
@@ -448,10 +483,13 @@ fn menu_role(el: &Ax) -> DResult<Option<String>> {
 /// The refusal when which window has the keys cannot be read.
 fn focus_unread(t: &Target) -> DesktopError {
     DesktopError::Unsupported(format!(
-        "which window of the app has the keys could not be read, so no keys were sent to window {}; try again",
+        "{FOCUS_UNREAD} for over a second, so no keys were sent to window {}; take a screenshot of the app, or use set_value or perform_action",
         t.window.id
     ))
 }
+
+/// The start of [`focus_unread`]'s text, which [`MacDesktop::key_route`] reads again on.
+const FOCUS_UNREAD: &str = "which window of the app has the keys did not answer";
 
 /// Whether the element is, or sits inside, web content (an `AXWebArea`),
 /// read strictly: a read that fails on the way, or a walk past its bound,
@@ -1223,6 +1261,7 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
     // again (the deny list, the protected apps and its place were checked
     // above and by prime_block_of, outside the scope).
     let mut title_before: Option<String> = None;
+    let mut place_before: Option<super::ax::MenuContext> = None;
     // A menu bar item's title and check mark before any scope: read back
     // after the settle (a toggle changes one of them).
     let item_toggle = if in_menu_bar { readback::Check::menu_item(&el) } else { None };
@@ -1259,6 +1298,9 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
             .map_err(|why| DesktopError::Unsupported(why.into()))?;
         // Readable here: prime_block_of blocks an unreadable title.
         title_before = el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
+        // Its place, read before the scope: a title the app changes while
+        // validating it is held to the deny list again without an AX read.
+        place_before = super::ax::menu_context(&el);
         let (key, short) = enable_menu_item(d, &t, &el, element_id)?;
         item_timeout = Some(short);
         Some(key)
@@ -1286,12 +1328,16 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
             press_actions(spec.button).iter().find(|a| available.iter().any(|x| x == *a))
     {
         // In a scope: focus still on the target, the item's title as before
-        // (short reads), then live (not stopped, not past its bound, the
+        // or a new one the deny list allows (short reads), then live (not stopped, not past its bound, the
         // person did not switch to the app) last, right before the press.
         if let Some(key) = menu_key.as_ref() {
             let title_now = el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
             if let Err(why) = roles::primed_press(true, focused_on_target(&t), false)
-                .and_then(|()| roles::same_item(title_before.as_deref(), title_now.as_deref()))
+                .and_then(|()| {
+                    roles::same_or_allowed(title_before.as_deref(), title_now.as_deref(), |now| {
+                        d.menu_item_check_in(place_before.as_ref(), now, &workspace::apps_named)
+                    })
+                })
                 .and_then(|()| roles::primed_press(key.live(), true, false))
             {
                 return Err(scope_refusal(menu_key.take(), why));
@@ -1362,7 +1408,9 @@ fn web_value_eligible(t: &Target, el: &Ax, text: &str) -> Result<roles::WebField
             "this web field could not be focused for keys in the background, and the text has Enter, Tab or other keys, which are never typed into its value; send the plain text, then press the keys with delivery foreground",
         );
     }
-    let field = web_field(el, &t.window.frame).ok_or(roles::WEB_FIELD_UNREAD)?;
+    let field =
+        crate::reread::reread(crate::reread::REREAD_WAIT, || web_field(el, &t.window.frame))
+            .ok_or(roles::WEB_FIELD_UNREAD)?;
     roles::web_value_gate_but_view(&field, roles::SecureField::Refuse)?;
     Ok(field)
 }
@@ -1396,47 +1444,63 @@ fn web_value_write(
     roles::web_value_gate(Some(&field), roles::SecureField::Refuse)
         .map_err(|why| DesktopError::Unsupported(why.into()))?;
     // Read, decided and written inside the app's input lock; the value
-    // and selection are read again right before the write.
-    let gated = persons_caret_write(d, t, el, false, || -> Option<WebWrite> {
-        let before = readback::Known::value(el)?;
-        let range = el.try_selected_range().ok()??;
-        let Some(new_value) = roles::insert_at(before.get(), text, range.location, range.length)
-        else {
-            return Some(WebWrite::OutOfRange);
-        };
-        let cf = Cf::string(&new_value)?;
-        let check = readback::Check::value_from(
-            el,
-            &before,
-            readback::Wanted::from_request(new_value.clone()),
-            0.0,
-        );
-        // Changed since the first read: nothing written.
-        let again = readback::Known::value(el)?;
-        if again.get() != before.get() || el.try_selected_range().ok()?? != range {
-            return Some(WebWrite::Changed);
-        }
-        // Safari writes a text field's AXValue into whichever field holds
-        // the page's focus: only while this one does.
-        if !roles::holds_page_focus(el.try_bool("AXFocused").ok()?) {
-            return Some(WebWrite::NotFocused);
-        }
-        let error = el.set("AXValue", &cf).err();
-        if error.is_none() {
-            let caret = super::sys::CFRange {
-                location: range.location + text.encode_utf16().count() as isize,
-                length: 0,
+    // and selection are read again right before the write. A field that
+    // changed or did not answer in between (nothing was written) is decided
+    // again from fresh reads, for up to REREAD_WAIT.
+    let started = std::time::Instant::now();
+    let mut step = crate::reread::FIRST_STEP;
+    let gated = loop {
+        let gated = persons_caret_write(d, t, el, false, || -> Option<WebWrite> {
+            let before = readback::Known::value(el)?;
+            let range = el.try_selected_range().ok()??;
+            let Some(new_value) =
+                roles::insert_at(before.get(), text, range.location, range.length)
+            else {
+                return Some(WebWrite::OutOfRange);
             };
-            let _ = el.set_selected_range(caret);
+            let cf = Cf::string(&new_value)?;
+            let check = readback::Check::value_from(
+                el,
+                &before,
+                readback::Wanted::from_request(new_value.clone()),
+                0.0,
+            );
+            // Changed since the first read: nothing written.
+            let again = readback::Known::value(el)?;
+            if again.get() != before.get() || el.try_selected_range().ok()?? != range {
+                return Some(WebWrite::Changed);
+            }
+            // Safari writes a text field's AXValue into whichever field holds
+            // the page's focus: only while this one does.
+            if !roles::holds_page_focus(el.try_bool("AXFocused").ok()?) {
+                return Some(WebWrite::NotFocused);
+            }
+            let error = el.set("AXValue", &cf).err();
+            if error.is_none() {
+                let caret = super::sys::CFRange {
+                    location: range.location + text.encode_utf16().count() as isize,
+                    length: 0,
+                };
+                let _ = el.set_selected_range(caret);
+            }
+            Some(WebWrite::Wrote {
+                new_value,
+                check,
+                at: range.location,
+                replaced: range.length,
+                error,
+            })
+        })?;
+        let unwritten = matches!(
+            &gated,
+            CaretWrite::Wrote { value: None | Some(WebWrite::Changed), moved_onto: false }
+        );
+        if !unwritten || started.elapsed() >= crate::reread::REREAD_WAIT {
+            break gated;
         }
-        Some(WebWrite::Wrote {
-            new_value,
-            check,
-            at: range.location,
-            replaced: range.length,
-            error,
-        })
-    })?;
+        std::thread::sleep(step);
+        step = (step * 2).min(crate::reread::MAX_STEP);
+    };
     let CaretWrite::Wrote { value: written, moved_onto } = gated else {
         return Err(DesktopError::Unsupported(roles::CARET_ON_TARGET.into()));
     };
@@ -1451,7 +1515,7 @@ fn web_value_write(
         }
         WebWrite::Changed => {
             return nothing(
-                "the field changed while it was read, so nothing was written; try again",
+                "the field kept changing while it was read for over a second (the page rewrites it), so nothing was written; take a screenshot to see what changes it",
             );
         }
         WebWrite::OutOfRange => {
@@ -2227,41 +2291,59 @@ fn ax_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<Option<
     if !el.settable("AXValue") {
         return Ok(None);
     }
-    let wanted = format!("{before}{text}");
-    let Some(value) = Cf::string(&wanted) else { return Ok(None) };
-    let check = if secure {
-        length_check()
-    } else {
-        Some(readback::Check::value_from(
-            el,
-            &known,
-            readback::Wanted::from_request(wanted.clone()),
-            0.0,
-        ))
-    };
     // The whole value is replaced through the gate (in the person's app
     // only where their caret is not); the value is read again right before
-    // the write, and a change writes nothing.
-    let gated = persons_caret_write(d, t, el, false, || match readback::Known::value(el) {
-        None => Fallback::Unread,
-        Some(again) if again.get() != &before => Fallback::Changed,
-        Some(_) => Fallback::Wrote(el.set("AXValue", &value).err()),
-    })?;
-    let CaretWrite::Wrote { value: written, moved_onto } = gated else {
-        return Err(DesktopError::Unsupported(roles::CARET_ON_TARGET.into()));
-    };
-    let error = match written {
-        Fallback::Wrote(error) => error,
-        Fallback::Changed => {
+    // the write, and a change writes nothing. A field that changed (an app
+    // reformatting it, a page script) or did not answer is read afresh and
+    // the write decided again, for up to REREAD_WAIT: nothing was written
+    // or posted before it.
+    let started = std::time::Instant::now();
+    let mut step = crate::reread::FIRST_STEP;
+    let (mut known, mut before) = (known, before);
+    let (wanted, check, error, moved_onto) = loop {
+        let wanted = format!("{before}{text}");
+        let Some(value) = Cf::string(&wanted) else { return Ok(None) };
+        let check = if secure {
+            length_check()
+        } else {
+            Some(readback::Check::value_from(
+                el,
+                &known,
+                readback::Wanted::from_request(wanted.clone()),
+                0.0,
+            ))
+        };
+        let gated = persons_caret_write(d, t, el, false, || match readback::Known::value(el) {
+            None => Fallback::Unread,
+            Some(again) if again.get() != &before => Fallback::Changed,
+            Some(_) => Fallback::Wrote(el.set("AXValue", &value).err()),
+        })?;
+        let CaretWrite::Wrote { value: written, moved_onto } = gated else {
+            return Err(DesktopError::Unsupported(roles::CARET_ON_TARGET.into()));
+        };
+        let unwritten = match written {
+            Fallback::Wrote(error) => break (wanted, check, error, moved_onto),
+            Fallback::Changed => {
+                "the field kept changing while it was read for over a second (the app or page rewrites it), so nothing was written and no keys were posted; take a screenshot to see what changes it"
+            }
+            Fallback::Unread => {
+                "the field's value did not answer right before the write for over a second, so nothing was written and no keys were posted; take a screenshot of the field, or use set_value"
+            }
+        };
+        let fresh = if moved_onto || started.elapsed() >= crate::reread::REREAD_WAIT {
+            None
+        } else {
+            std::thread::sleep(step);
+            step = (step * 2).min(crate::reread::MAX_STEP);
+            readback::Known::value(el)
+        };
+        let Some(fresh) = fresh else {
             let mut out = ActionOutcome::delivered("ax_set_value");
-            out.note = "the field changed while it was read, so nothing was written and no keys were posted; try again".into();
+            out.note = unwritten.into();
             return Ok(Some(out));
-        }
-        Fallback::Unread => {
-            let mut out = ActionOutcome::delivered("ax_set_value");
-            out.note = "the field's value could not be read again right before the write, so nothing was written and no keys were posted; try again".into();
-            return Ok(Some(out));
-        }
+        };
+        before = fresh.get().clone();
+        known = fresh;
     };
     if moved_onto {
         let mut out = ActionOutcome::delivered("ax_set_value").showing("text");
@@ -2657,6 +2739,11 @@ fn press_keys_inner(
                 if let Some(why) = first.iter().find_map(|(el, _)| prime_block_of(el, None)) {
                     return Err(DesktopError::Unsupported(why.into()));
                 }
+                // Each match's place in the menus, read before any scope:
+                // a title its app changes while validating is held to the
+                // deny list again inside the scope without reading AX.
+                let places: Vec<Option<super::ax::MenuContext>> =
+                    first.iter().map(|(el, _)| super::ax::menu_context(el)).collect();
                 if let Some(key) = key_in_app(d, &t) {
                     // Every AX read inside the scope is short; restored on
                     // every exit.
@@ -2680,22 +2767,27 @@ fn press_keys_inner(
                         // enabled state are read again (short timeout, the
                         // bound checked between reads); the deny list and
                         // the protected apps were checked in the first walk,
-                        // outside it. A changed title fails closed.
+                        // outside it. A changed title is checked again (with
+                        // the place read before the scope); an unreadable one
+                        // fails closed.
                         let mut again = Vec::new();
-                        for (el, m0) in first {
+                        for ((el, m0), place) in first.into_iter().zip(places) {
                             if !key.live() {
                                 return Err(scope_refusal(
                                     Some(key),
                                     roles::primed_press(false, true, false).unwrap_err(),
                                 ));
                             }
-                            let mut m = m0.clone();
-                            m.enabled = el.bool("AXEnabled") == Some(true);
                             let title =
                                 el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
-                            if roles::same_item(Some(&m0.title), title.as_deref()).is_err() {
-                                m.blocked = true;
-                            }
+                            // A retitled item (TextEdit's "Make Rich Text"
+                            // reads "Make Plain Text" once validated) is held
+                            // to the deny list again with the place read
+                            // before the scope: no AX read here.
+                            let mut m = roles::retitled_match(&m0, title.as_deref(), |now| {
+                                d.menu_item_check_in(place.as_ref(), now, &workspace::apps_named)
+                            });
+                            m.enabled = el.bool("AXEnabled") == Some(true);
                             again.push((el, m));
                         }
                         primed = Some(key);
@@ -3087,8 +3179,6 @@ pub(super) fn move_pointer(
         PointerTarget::Point { point, .. } => d.point_in(&t, *point)?,
         PointerTarget::Element { element_id, .. } => d.element_center(&t, element_id)?,
     };
-    // Background: the window must be on screen (pointer_route refuses
-    // otherwise); foreground raises it and posts at the HID tap.
     let route = d.pointer_route(&t, delivery)?;
     unprimed(route, |p| input::move_to(p, at))?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
@@ -3200,7 +3290,8 @@ pub(super) fn set_value(
         }
         let unsupported = |why: &str| DesktopError::Unsupported(why.into());
         let field =
-            web_field(&el, &t.window.frame).ok_or_else(|| unsupported(roles::WEB_FIELD_UNREAD))?;
+            crate::reread::reread(crate::reread::REREAD_WAIT, || web_field(&el, &t.window.frame))
+                .ok_or_else(|| unsupported(roles::WEB_FIELD_UNREAD))?;
         roles::web_value_gate_but_view(&field, roles::SecureField::Allow).map_err(unsupported)?;
         let (field, moved) = web_field_in_view(d, &t, &el, field, roles::SecureField::Allow);
         scrolled = moved;
@@ -3376,6 +3467,10 @@ fn pick_closed(
 ) -> DResult<Option<ActionOutcome>> {
     // Unreadable children: no pick here (the caller opens the menu).
     let Some(Some(menu)) = menu_of(el) else { return Ok(None) };
+    // `items` snapshots the names source while deriving each item's denied
+    // flag. Wait for the index first so the subsequent pick gate and those
+    // flags observe the same readiness state.
+    let names_ready = workspace::app_names_ready_soon();
     let items = super::menus::items(d, &menu);
     if items.is_empty() {
         return Ok(None);
@@ -3385,7 +3480,7 @@ fn pick_closed(
     let mut items = items;
     // Items are checked against the app names: none is chosen while they
     // load (the protected apps always apply).
-    let picked = super::menus::gated_pick(workspace::app_names_ready(), &titles, &hidden, value)
+    let picked = super::menus::gated_pick(names_ready, &titles, &hidden, value)
         .map_err(|why| DesktopError::Unsupported(why.into()))?;
     let item = match picked {
         menus::Pick::Item(i) => {

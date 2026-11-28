@@ -159,10 +159,12 @@ name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
  "cmux-unix-socket",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -356,6 +358,10 @@ version = "0.1.0"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "cmux-upstream-error"
+version = "0.1.0"
 
 [[package]]
 name = "color_quant"
@@ -1100,6 +1106,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server-core",
  "cmux-unix-socket",
+ "cmux-upstream-error",
  "image",
  "libc",
  "optchat-chief",
@@ -1128,6 +1135,7 @@ name = "optchat-host"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "cmux-upstream-error",
  "libc",
  "optchat-core",
  "rusqlite",
