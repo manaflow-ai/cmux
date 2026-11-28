@@ -355,7 +355,7 @@ pub(crate) fn apply_machine_login(
     let at = argv.iter().position(|arg| arg == "--").unwrap_or(argv.len());
     // Claude takes only the last flag. Keep file settings in place, including policy rules,
     // and refuse a launch that would require copying an existing flag's settings into argv.
-    if argv[..at].iter().any(|arg| arg == "--settings" || arg.starts_with("--settings=")) {
+    if argv.iter().take(at).any(|arg| arg == "--settings" || arg.starts_with("--settings=")) {
         return false;
     }
     let clears = [
