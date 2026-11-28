@@ -280,7 +280,11 @@ jobs:
                   darwin_builder == "linux" and target["target"].endswith("-apple-darwin")
               )
               if target["darwin_on_linux"]:
-                  target["runner"] = os.environ["LINUX_RUNNER"]
+                  # The fat-LTO macOS cross legs compile the same acpmux lib rustc as the musl legs, so on the
+                  # nightly path they take the same uncapped VM: on a cmux-linux slot (memory.max 14 GiB) the
+                  # kernel OOM-killed it in group 2 and group 10's alone rerun, 4 kills, no tree published
+                  # (cmux-tui-artifacts run 46179078616, build aarch64-apple-darwin job 141088848848).
+                  target["runner"] = os.environ["LINUX_FAT_RUNNER"] or os.environ["LINUX_RUNNER"]
                   target["cross"] = True
 
           target_set = os.environ["TARGET_SET"]
