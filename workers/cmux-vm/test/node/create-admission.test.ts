@@ -18,6 +18,7 @@ import {
   parseCreateAdmission,
   type CreateAdmission,
   type CreateAdmissionSettings,
+  type CreateQueueObservation,
 } from "../../src/limits/create-admission.ts";
 import { memoryLedgerStorage } from "../../src/limits/ledger.ts";
 import { upstreamConfigOf } from "../../src/upstream/live.ts";
@@ -217,6 +218,59 @@ describe("CreateAdmissionQueue", () => {
     answers.forEach((_, index) => { void queue.admit(`w${index}`, SETTINGS).then((answer) => { answers[index] = answer; }); });
     await settle();
     expect(queue.state.queued).toBeGreaterThan(3);
+  });
+});
+
+describe("create queue observations", () => {
+  it("reports saturation, priority, queue age and a wait expiry without identifiers", async () => {
+    const events: CreateQueueObservation[] = [];
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage(), undefined, (event) => { events.push(event); });
+    await queue.admit("private-spare-a", SETTINGS, true);
+    await queue.admit("private-spare-b", SETTINGS, true);
+    await queue.admit("private-person-a", SETTINGS);
+    const spare = queue.admit("private-spare-c", SETTINGS, true);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const person = queue.admit("private-person-b", SETTINGS);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(events.at(-1)).toMatchObject({
+      transition: "queued", atMs: 1_000, foregroundInFlight: 1, backgroundInFlight: 2,
+      foregroundQueued: 1, backgroundQueued: 1, oldestForegroundWaitMs: 0, oldestBackgroundWaitMs: 1_000,
+    });
+    const refused = await queue.admit("private-spare-d", { ...SETTINGS, queueWaitMs: 0 }, true);
+    expect(refused).toMatchObject({ admitted: false, reason: "queue_full" });
+    expect(events.at(-1)).toMatchObject({ transition: "queue_full", background: true, waitedMs: 0 });
+    await vi.advanceTimersByTimeAsync(DEFAULT_CREATE_QUEUE_WAIT_MS);
+    expect(await spare).toMatchObject({ admitted: false, reason: "wait_expired" });
+    expect(await person).toMatchObject({ admitted: false, reason: "wait_expired" });
+    expect(events.at(-1)).toMatchObject({
+      transition: "wait_expired", background: false, waitedMs: DEFAULT_CREATE_QUEUE_WAIT_MS,
+      foregroundQueued: 0, backgroundQueued: 0, oldestForegroundWaitMs: null, oldestBackgroundWaitMs: null,
+    });
+    await queue.release("private-person-a");
+    expect(events.at(-1)).toMatchObject({ transition: "released", foregroundInFlight: 0, backgroundInFlight: 2 });
+    expect(JSON.stringify(events)).not.toContain("private-");
+  });
+
+  it("observes a lost worker's lease expiring and the next create being admitted", async () => {
+    const events: CreateQueueObservation[] = [];
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage(), undefined, (event) => { events.push(event); });
+    const lease = { ...SETTINGS, cap: 1, queueWaitMs: 20_000, leaseMs: 10_000 };
+    await queue.admit("dead", lease);
+    const waiting = queue.admit("next", lease);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await waiting).toMatchObject({ admitted: true, waitedMs: 10_000 });
+    expect(events.slice(-2)).toMatchObject([
+      { transition: "lease_expired", expiredSlots: 1, foregroundInFlight: 0, foregroundQueued: 1 },
+      { transition: "admitted", waitedMs: 10_000, foregroundInFlight: 1, foregroundQueued: 0 },
+    ]);
+  });
+
+  it("keeps admitting and releasing if the diagnostic sink throws", async () => {
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage(), undefined, () => { throw new Error("sink unavailable"); });
+    expect(await queue.admit("a", SETTINGS)).toMatchObject({ admitted: true });
+    await queue.release("a");
+    expect(queue.state.inFlight).toBe(0);
   });
 });
 
