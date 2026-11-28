@@ -75,7 +75,10 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .measure
-          sparse-checkout: scripts/measure/ios-first-connect-simctl.sh
+          sparse-checkout: |
+            scripts/measure/ios-first-connect-simctl.sh
+            scripts/measure/ios-premain-breakdown.sh
+            scripts/measure/ios-launch-floor
           sparse-checkout-cone-mode: false
 
       - name: One harness for both legs
@@ -84,7 +87,8 @@ jobs:
           cp .harness/scripts/ci/cmux-next-ios-sim.sh scripts/ci/cmux-next-ios-sim.sh
           rm -rf .harness
           mkdir -p "$RUNNER_TEMP/measure"
-          cp .measure/scripts/measure/ios-first-connect-simctl.sh "$RUNNER_TEMP/measure/"
+          cp .measure/scripts/measure/ios-first-connect-simctl.sh .measure/scripts/measure/ios-premain-breakdown.sh "$RUNNER_TEMP/measure/"
+          cp -R .measure/scripts/measure/ios-launch-floor "$RUNNER_TEMP/measure/"
           rm -rf .measure
           echo "harness: scripts/ci/cmux-next-ios-sim.sh at 3281c18a (cmux#58989)"
 
@@ -156,6 +160,18 @@ jobs:
                       f.write(f"| {k} | {v['n']} | {v['p50_ms']} | {v['p90_ms']} |\n")
           PY
 
+      # Where the ~2.4 s before main() goes: a one-file floor app through the same simctl arm (the simulator's own
+      # spawn and dyld cost), the app's embedded frameworks and load commands, and one xctrace App Launch trace
+      # exported to its tables. (scripts/measure/ios-premain-breakdown.sh)
+      - name: Pre-main breakdown (floor, inventory, App Launch trace)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        run: |
+          set -uo pipefail
+          bash "$RUNNER_TEMP/measure/ios-premain-breakdown.sh" --measure-dir "$RUNNER_TEMP/measure" --out artifacts/ios-sim \
+            2>&1 | tee artifacts/ios-sim/premain.log
+          grep '^PREMAIN ' artifacts/ios-sim/premain.log | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY" || true
+
       - name: Upload launch samples
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -170,5 +186,10 @@ jobs:
             artifacts/ios-sim/simctl-first-connect.json
             artifacts/ios-sim/simctl-launch-marks.ndjson
             artifacts/ios-sim/simctl.log
+            artifacts/ios-sim/simctl-launch-pids.txt
+            artifacts/ios-sim/simctl-first-connect-floor.json
+            artifacts/ios-sim/simctl-launch-marks-floor.ndjson
+            artifacts/ios-sim/premain*
+            artifacts/ios-sim/premain-trace/
           retention-days: 3
           if-no-files-found: warn
