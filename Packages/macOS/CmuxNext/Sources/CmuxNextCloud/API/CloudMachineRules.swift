@@ -33,6 +33,11 @@ public nonisolated struct CloudMachineRules: Sendable {
             throw CloudAPIError.decoding("\(context): the app FFI did not answer")
         }
         guard let read = reply.value else { throw CloudAPIError.decoding("\(context): \(reply.error ?? "unreadable")") }
+        // The pinned app FFI can omit the environment the Cloud API supplied.
+        if var machine = read as? CloudMachine, machine.environmentId == nil {
+            machine.environmentId = value["environment_id"]?.stringValue?.nonEmpty ?? value["environmentId"]?.stringValue?.nonEmpty
+            if let restored = machine as? T { return restored }
+        }
         return read
     }
 

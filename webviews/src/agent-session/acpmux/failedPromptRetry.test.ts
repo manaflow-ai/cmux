@@ -166,6 +166,20 @@ test("a failed send says one plain sentence by its cause, and keeps the raw erro
   }
 });
 
+test("a Claude login switch that is waiting on work gives the send its own retry message", async () => {
+  const refusing = Object.assign(new Error("daemon fallback"), { data: { reason: "credentials.claude_login_busy" } });
+  const pane = await paneWith(() => refusing);
+  try {
+    await pane.client.send("ship it").catch(() => undefined);
+    const row = pane.rows().find((row) => row.kind === "user" && row.text === "ship it");
+    expect(row?.error).toBe(
+      "This chat is moving to this machine's Claude sign-in. Send again when its background work ends.",
+    );
+  } finally {
+    pane.client.close?.();
+  }
+});
+
 // The host spends one click's gesture on one session/prompt, so a card's Retry for several failed
 // prompts sends them as one prompt: the texts in order, over the last one's bubble.
 test("Retry on a run of failed prompts sends them again as one prompt", async () => {

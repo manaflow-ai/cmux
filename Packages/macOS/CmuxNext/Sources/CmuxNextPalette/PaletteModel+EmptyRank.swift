@@ -10,14 +10,19 @@ struct PaletteEmptyRankInput: Sendable {
     /// The page's section table (`PaletteSearchEntry.sectionIndex` indexes it).
     let sections: [PaletteSection]
     let showsRecent: Bool
+    /// The rows are an open's first frame: some providers read after it (`PaletteModel.deferredLoads`), so they are
+    /// not the page's rows. Its rank shows on that frame but is not kept for the next open, nor ranked again when
+    /// usage changes (``PaletteModel/prewarmEmptyRanks()``): the page's last full rank stays.
+    let isFirstFrame: Bool
 
-    init(page: PalettePageSpec, state: PageState) {
+    init(page: PalettePageSpec, state: PageState, isFirstFrame: Bool = false) {
         pageID = page.id
         entries = state.entries
         version = state.version
         ids = state.items.map(\.id)
         sections = state.sections
         showsRecent = page.showsRecent
+        self.isFirstFrame = isFirstFrame
     }
 
     var sectionOrders: [Int] { sections.map(\.order) }
@@ -107,7 +112,8 @@ extension PaletteModel {
         }
         let standIn = cached.map { $0.resolve(on: state) }.flatMap { $0.isEmpty ? nil : $0 } ?? Self.unranked(state)
         deliver(Self.leading(queryItems?(query), standIn), to: state, generation: generation, provisional: true)
-        let rank = requestEmptyRank(PaletteEmptyRankInput(page: page, state: state))
+        let firstFrame = deferredLoads.contains { $0.state === state }
+        let rank = requestEmptyRank(PaletteEmptyRankInput(page: page, state: state, isFirstFrame: firstFrame))
         searchTask = Task { [weak self, weak state] in
             let ranked = await rank.value
             guard let self, let state, searchID == self.searchGeneration else { return }
@@ -144,7 +150,7 @@ extension PaletteModel {
             guard let self, self.emptyRankRequests[pageID]?.token == token else { return nil }
             self.emptyRankRequests[pageID] = nil
             let rank = PaletteEmptyRank(input: input, frecencyRevision: revision, ranked: ranked)
-            self.storeEmptyRank(rank)
+            if !input.isFirstFrame { self.storeEmptyRank(rank) }
             return rank
         }
         emptyRankRequests[pageID] = PaletteEmptyRankRequest(token: token, version: input.version,

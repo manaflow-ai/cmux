@@ -73,6 +73,9 @@ pub struct HereParams {
     /// Only who shows this chat or workspace; agents match by session id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// Include acknowledgement state for peers this daemon has exchanged chat state with.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub include_sync: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -121,8 +124,23 @@ pub struct HereMember {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
 pub struct HereResult {
     /// Active first, then idle, then away; people before agents; then by name.
     pub here: Vec<HereMember>,
+    /// Absent unless requested. Empty means no peer has exchanged yet, not globally synced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync: Option<Vec<HereSyncPeer>>,
+}
+
+/// A peer's last acknowledged chat-state vector, separate from its current connectivity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct HereSyncPeer {
+    pub peer: String,
+    pub connected: bool,
+    /// Both vectors were equal at this read. A disconnected peer can still have new offline edits.
+    pub acknowledged: bool,
+    /// Local edit sequences not covered by the peer's last acknowledgement; not a chunk count.
+    pub unacknowledged_edits: u64,
 }

@@ -690,6 +690,14 @@ impl Hub {
                         let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}});
                         self.append_at(session, "in", "agent_message_chunk", update, None, at);
                     }
+                    // A line Claude Code wrote into the open turn (a task notification, a peer's
+                    // message): the turn's work, marked with its origin (`_meta.lineOrigin`), as
+                    // an adopted chat replays it (`native_history::turn_records`).
+                    Step::Harness(origin, text) => {
+                        let Some(turn) = open.as_ref() else { continue };
+                        let msg = json!({"text": text, "client": "watch", "promptId": format!("{}-harness-{}", turn.prompt_id, uuid::Uuid::now_v7()), "turnId": turn.turn_id, "steer": true, "_meta": {"lineOrigin": origin.wire()}});
+                        self.append_at(session, "mux", "user_message", msg, None, at);
+                    }
                     Step::Tool(_) | Step::ToolResult(_) => {}
                 }
             }

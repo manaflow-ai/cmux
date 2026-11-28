@@ -124,6 +124,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_SESSION_AUTH,
     method::MUX_SESSION_FILES,
     method::MUX_SESSION_HOLD,
+    method::MUX_SESSION_RESOURCES,
     method::MUX_SET_DIRECTORIES,
     method::MUX_SET_POLICY,
     method::MUX_SET_TOOLS,
@@ -144,6 +145,9 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TASKS,
     method::MUX_TASK_NEW,
     method::MUX_TEAM_ACK,
+    method::MUX_TEAM_CUSTOMIZATION,
+    method::MUX_TEAM_CUSTOMIZE,
+    method::MUX_TEAM_HANDOFF,
     method::MUX_TEAM_INBOX,
     method::MUX_TEAM_LISTEN,
     method::MUX_TEAM_NAVIGATOR,
@@ -187,6 +191,7 @@ const FEATURES: &[&str] = &[
     "eventPaging",
     "eventStream",
     "harnessInventory",
+    crate::cli::last_reply::LAST_REPLY_FEATURE,
     "messageSuperseded",
     "permissionGroups",
     "personChallenge",
@@ -265,6 +270,9 @@ pub(super) fn initialize(
     }
     // Also set in order before the next request runs (`note_initialize`).
     note_initialize(conn, params);
+    // Its ABI hello, counted once here for `_acpmux/status` (`note_initialize` runs twice per
+    // `initialize`); nothing in it can fail the connection.
+    crate::abi_hello::note(crate::abi_hello::read(params));
     // A client that only observes (cmux-tui's chat notices watch) keeps no daemon whose
     // owner app exited (`daemon/unused_exit.rs`, R-LIFECYCLE ORPHANS).
     if params.pointer("/_meta/acpmux/observer").and_then(Value::as_bool) == Some(true) {

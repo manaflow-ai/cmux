@@ -266,6 +266,15 @@ pub struct AwayRecap {
     pub dismissed: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ClaudeTokenRecovery {
+    MachineLogin,
+    // A saved setup-token rejection, including metadata written before chat-scoped recovery.
+    #[serde(rename = "rejected")]
+    LegacyRejected,
+}
+
 /// A chat's model switch for a sustained overload (`SessionMeta::capacity_fallback`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CapacityFallback {

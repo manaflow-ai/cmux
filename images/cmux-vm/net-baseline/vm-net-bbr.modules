@@ -1,0 +1,2 @@
+# the Cloud VM image (web/scripts/cmux-vm-image/net-baseline.ts; fleet VMs: leo-workspace tools/vm_net_baseline.py): load BBR at boot where the kernel has it.
+tcp_bbr

@@ -912,6 +912,22 @@ impl Hub {
         if !no_queue {
             self.hold_retry_start(session, &prompt_id).await;
         }
+        if (session.read_meta(super::credentials::claude_login_needs_restart)
+            || (session.route_switch.load(Ordering::SeqCst) && self.route_child_is_idle(session)))
+            && let Err(e) = Box::pin(self.restart_on_route(session)).await
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        if let Err(e) = Box::pin(self.refresh_disconnected_subscription_before_turn(session)).await
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        self.refresh_local_chatgpt_between_turns(session).await;
+        self.refresh_local_kimi_between_turns(session).await;
         if session.cancels.load(Ordering::SeqCst) != cancels {
             // A continuation or retry of a cut turn is refused as one Stop overtook
             // (`auto_resume.stopped`): its callers answer `retry.stopped` and record the skip.
@@ -1217,11 +1233,15 @@ impl Hub {
         // Only this turn's start resumes the cut turn, never a later one.
         session.resume_cut_ask.store(false, Ordering::SeqCst);
         let started = match started {
-            Ok(child) => session
-                .meta()
-                .agent_session_id
-                .map(|sid| (child, sid))
-                .ok_or_else(|| RpcError::internal("no agent session")),
+            Ok(child) => match Box::pin(self.check_local_subscription_child(session, &child)).await
+            {
+                Ok(()) => session
+                    .meta()
+                    .agent_session_id
+                    .map(|sid| (child, sid))
+                    .ok_or_else(|| RpcError::internal("no agent session")),
+                Err(e) => Err(e),
+            },
             Err(e) => Err(e),
         };
         let (mut child, agent_sid) = match started {
@@ -1376,8 +1396,23 @@ impl Hub {
         } else {
             *session.prefetch.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
+        // A person's first prompt that is a task asks for a plan and a stop (`plan_first.rs`).
+        if !resumed
+            && person
+            && session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count == 1
+            && super::forum::slash_command(&blocks).is_none()
+            && let Some(block) = super::plan_first::start(&session.id, &turn_id, &text)
+        {
+            blocks.push(block);
+        }
         // A turn rule that matches this prompt, and the end rule the last turn left (`turn_rules.rs`).
         if !resumed && let Some(said) = self.turn_rules_start(session, &text) {
+            blocks.push(
+                json!({"type": "text", "text": said, "_meta": {"acpmux": {"context": true}}}),
+            );
+        }
+        // What a sidecar rule found at the last turn's end, said once (`sidecars.rs`).
+        if !resumed && let Some(said) = self.sidecars_start(session) {
             blocks.push(
                 json!({"type": "text", "text": said, "_meta": {"acpmux": {"context": true}}}),
             );
@@ -1395,6 +1430,8 @@ impl Hub {
             .seq;
         // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.
         super::turn_shots::turn_began(session, &turn_id);
+        // The gap it ends joins the chat's rhythm (`residency.rs`).
+        self.rhythm_turn_began(session);
         // Its frames as the page forms (`turn_frames.rs`), at no agent tokens.
         super::turn_frames::turn_began(session, &turn_id);
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
@@ -1613,7 +1650,12 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = Box::pin(self.child_for_since(session, stops)).await;
+                let fallback = match Box::pin(self.child_for_since(session, stops)).await {
+                    Ok(child) => Box::pin(self.check_local_subscription_child(session, &child))
+                        .await
+                        .map(|()| child),
+                    Err(e) => Err(e),
+                };
                 let refusal = match &fallback {
                     Ok(_) => match self
                         .check_dispatch(
