@@ -53,6 +53,7 @@ mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
 mod session_records;
+pub(crate) use session_records::ClaudeTokenRecovery;
 pub use session_records::{
     ApprovedPlan, AwayRecap, CapacityFallback, EventRecord, ForkBefore, ForkRequest, ForkStart,
     LastReturn, NewestWindow, SessionStatus, TerminalDriver, TerminalInput, WaitReason,
@@ -287,6 +288,22 @@ pub trait Store: Send + Sync {
         after: u64,
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back(id, after, before, skip, visit)
+    }
+    /// `scan_back` for a reader that wants only some records: a line `may_match(line, dir, kind)`
+    /// is false for holds none of them, and a file store passes it without parsing it (a store
+    /// that holds parsed records may ignore it; `visit` still decides on the rest). A subagent
+    /// pane's newest page of a long chat parsed every line back to that subagent's records (Leo,
+    /// 2026-11-27: "these take way too long to load").
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        _may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_back(id, after, before, skip, visit)
@@ -722,6 +739,11 @@ pub trait Store: Send + Sync {
     /// Where the approvals audit trail is kept (`hub/audit_log.rs`): `audit/` beside
     /// `sessions/`, or none (in memory) for the memory store.
     fn audit_dir(&self) -> Option<PathBuf> {
+        None
+    }
+    /// Where each chat's usage tracker is saved (`hub/usage_view.rs`): `usage-trackers/` beside
+    /// `sessions/`, or none (in memory, read over by each daemon) for the memory store.
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -1763,7 +1785,19 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, visit, false)
+        self.scan_back_in(id, after, before, skip, None, visit, false)
+    }
+
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_in(id, after, before, skip, Some(may_match), visit, false)
     }
 
     fn scan_back_indexed(
@@ -1774,7 +1808,7 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, visit, true)
+        self.scan_back_in(id, after, before, skip, None, visit, true)
     }
 
     fn flush(&self) -> Result<()> {
@@ -2026,6 +2060,10 @@ impl Store for LocalStore {
 
     fn audit_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("audit"))
+    }
+
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("usage-trackers"))
     }
 }
 
