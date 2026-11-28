@@ -39,14 +39,6 @@ the Linux Rust steps compile and test it, and the full matrix after merge builds
 file it cannot read, and any other file there still build. Before: 7 of 10 sampled Mac runs (11-27 22:00-23:30Z,
 693 Mac min in 1.5 h) were a Cargo.lock bump, a crate's internals or its tests.
 
-A head whose `cmux/ios-fast` already passed on the same iOS inputs does not take a Mac again. The plan hashes the
-merge commit's routed files (every path the ios-kit step routes and this check's own files, by blob) with the plan
-itself, and a pass names that digest in its description (`Passed: [inputs D] ...`). Each pull_request event on an
-unchanged head (a label, a body edit, a land handoff) reruns the pipeline; when one of the head's earlier statuses is
-such a pass with the same digest, the plan builds nothing and the status says it reused it. A base that moved the
-iOS inputs changes the digest, so the merged tree is built again. Before: in the 4 h to 2026-11-27 23:00Z, 30 of 156
-ios fast verdict jobs (405 of 2154 Mac min) rebuilt a head whose verdict had already passed.
-
     python3 scripts/ci/ios_fast_verdict.py plan [--paths-file FILE] [--root DIR]
     python3 scripts/ci/ios_fast_verdict.py status STATE DESCRIPTION   (env REPO, SHA, TOKENS; never fails the job)
 
@@ -57,7 +49,6 @@ prints the plan as JSON and, under GitHub Actions, writes `run`, `plan` and `sum
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -237,80 +228,7 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None,
     }
 
 
-# The tag a pass carries in its description, and the reuse's own description.
-INPUTS_TAG = "[inputs {}]"
-REUSED = "Reused the pass at this head " + INPUTS_TAG
-
-
-def inputs_digest(result: dict, step: ci_steps.Step | None = None, rev: str = "HEAD") -> str | None:
-    """The iOS inputs of REV (the merge commit) and the plan, as 12 hex: every path the ios-kit step routes and this
-    check's own files, with mode and blob (`git ls-tree`, no blobs read). None when the tree cannot be listed."""
-    step = step or kit_step()
-    try:
-        out = subprocess.run(["git", "ls-tree", "-r", "-z", "--full-tree", rev], check=True, capture_output=True,
-                             text=True).stdout
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    inputs = [ci_steps.glob_pattern(g) for g in step.inputs]
-    ignores = [(ci_steps.glob_pattern(g.lstrip("!")), g.startswith("!")) for g in reversed(step.ignore)]
-
-    def routed(path: str) -> bool:  # routes_ios with the globs compiled once (77k paths)
-        if not any(g.match(path) for g in inputs):
-            return False
-        return next((keep for g, keep in ignores if g.match(path)), True)
-
-    digest = hashlib.sha256(json.dumps([result["tests"], result["build"], result["app"]]).encode())
-    for entry in out.split("\0"):
-        meta, _, path = entry.partition("\t")
-        if path and (path in SELF or routed(path)):
-            digest.update(f"{meta}\t{path}\0".encode())
-    return digest.hexdigest()[:12]
-
-
-def passed_at(repo: str, sha: str, digest: str, token: str) -> bool:
-    """Whether a `cmux/ios-fast` pass at SHA (the PR head) names DIGEST. Any read failure is no."""
-    tag = INPUTS_TAG.format(digest)
-    req = urllib.request.Request(f"https://api.github.com/repos/{repo}/commits/{sha}/statuses?per_page=100",
-                                 headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
-                                          "X-GitHub-Api-Version": "2022-11-28"})
-    try:
-        status, body, _ = gh_http.request(req, 20)
-        rows = json.loads(body) if status == 200 else []
-    except Exception as e:  # noqa: BLE001 - no reuse; the Mac builds as before
-        print(f"{STATUS_CONTEXT}: earlier statuses not read ({type(e).__name__}: {e}); building", file=sys.stderr)
-        return False
-    return any(r.get("context") == STATUS_CONTEXT and r.get("state") == "success"
-               and str(r.get("description") or "").startswith("Passed: " + tag) for r in rows if isinstance(r, dict))
-
-
-def head_sha(rev: str = "HEAD") -> str:
-    """The PR head: the merge commit's second parent."""
-    try:
-        return subprocess.run(["git", "rev-parse", "-q", "--verify", rev + "^2"], check=True, capture_output=True,
-                              text=True).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        return ""
-
-
-def reuse(result: dict, env: dict | None = None) -> dict:
-    """RESULT with its digest; with run false and `reused` set when the head already passed on these inputs."""
-    env = os.environ if env is None else env
-    if not result["run"]:
-        return result
-    digest = inputs_digest(result)
-    if not digest:
-        return result
-    result = {**result, "inputs": digest}
-    repo, token, sha = env.get("REPO", ""), env.get("GH_TOKEN", ""), head_sha()
-    if repo and token and sha and passed_at(repo, sha, digest, token):
-        result.update(run=False, proof=False, reused=True,
-                      why=[f"{sha[:12]} passed on the same iOS inputs ({digest}): no Mac"] + result["why"])
-    return result
-
-
 def summary(p: dict) -> str:
-    if p.get("reused"):
-        return REUSED.format(p["inputs"])
     if not p["run"]:
         return "no iOS target changed"
     parts = []
@@ -320,8 +238,7 @@ def summary(p: dict) -> str:
         parts.append("kit build")
     if p["app"]:
         parts.append("app build")
-    tag = INPUTS_TAG.format(p["inputs"]) + " " if p.get("inputs") else ""
-    return tag + "; ".join(parts)
+    return "; ".join(parts)
 
 
 def post_status(state: str, description: str, repo: str, sha: str, tokens: list[str], target_url: str = "",
@@ -383,8 +300,6 @@ def main(argv: list[str] | None = None) -> int:
                   "why": ["no merge commit to diff: the full matrix runs"]}
     else:
         result = plan(paths, Path(args.root), base_marked=base_marked_paths(paths) if not args.paths_file else set())
-        if not args.paths_file:
-            result = reuse(result)
     print(json.dumps(result, indent=2))
     out = os.environ.get("GITHUB_OUTPUT")
     if out:

@@ -371,8 +371,13 @@ RUN bash -n /etc/cmux/bashrc \
 # (about 0.25 s, seconds on a slow clone) without the keymap one. Both cache homes are seeded: the
 # XDG seed copied by cmux-bashrc from /etc/cmux/blesh-cache-seed, and
 # <blesh>/cache.d for uid 0 plus the uid-1000 work user (numeric chown: the
-# provider's name for that user is not guaranteed).
-RUN mkdir -p /etc/cmux/blesh-cache-seed \
+# provider's name for that user is not guaranteed). The seed home's .bashrc
+# swaps in an ASCII PS1: the cmux prompt's \w plus λ makes ble.sh probe the
+# terminal's Unicode width version, nothing answers under script(1), and the
+# probe's "press RET to continue" eats the seed's exit before keymap.emacs is
+# built. Neither cache depends on PS1.
+RUN mkdir -p /etc/cmux/blesh-cache-seed /tmp/blesh-seed-home \
+  && echo 'PS1="$ "' > /tmp/blesh-seed-home/.bashrc \
   && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do \
        echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
          script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \

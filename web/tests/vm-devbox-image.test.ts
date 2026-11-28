@@ -618,6 +618,16 @@ describe("devbox image template", () => {
     expect(bashrc).toContain("/usr/local/share/blesh/lib/keymap.emacs.sh");
   });
 
+  test("seed shells use an ASCII prompt so ble.sh builds keymap.emacs", () => {
+    // The cmux prompt (\w plus λ) sets off ble.sh's Unicode width probe; under
+    // script(1) nothing answers it and its "press RET to continue" eats the
+    // seed's `exit` before keymap.emacs exists (rebake 46100366318).
+    expect(dockerfile).toContain(`&& echo 'PS1="$ "' > /tmp/blesh-seed-home/.bashrc`);
+    expect(readScript("build-devbox-freestyle.ts")).toContain(
+      `&& echo 'PS1="$ "' >> /tmp/blesh-seed-home/.bashrc && for term in`,
+    );
+  });
+
   test("publishes each ble.sh cache seed atomically", () => {
     // Shells that start at once must never read a half-copied seed: copy into a
     // same-directory temp file, then rename it into place (#11348).

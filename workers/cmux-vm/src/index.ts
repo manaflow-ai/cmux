@@ -35,7 +35,6 @@ import { deletedVmIds, recordedVmIds, sweepableTunnelDevices } from "./db/orphan
 import { sweepOrphanTunnels, sweepOrphanVms } from "./upstream/orphan-sweep.ts";
 import { sweepIdleVms } from "./upstream/idle-sweep.ts";
 import { cronPlan } from "./cron-plan.ts";
-import type { DeferringHandler } from "./after-response.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -172,8 +171,7 @@ const meshServices = (env: Env) =>
   );
 
 interface Served {
-  /** Answers one request; `defer` (waitUntil) keeps it alive for the work it does after answering (its audit rows). */
-  readonly handler: DeferringHandler;
+  readonly handler: (request: Request) => Promise<Response>;
   /** One agent reaper run, or nothing when the service is not configured, its schema is not applied, or the environment does not reap (src/cron-plan.ts). */
   readonly reap: () => Promise<void>;
   /** One run of the orphan sweeps this environment runs (src/cron-plan.ts), or nothing when the schema is not applied. */
@@ -263,7 +261,7 @@ const makeServed = (env: Env): Served => {
     // A deploy must never run ahead of its migration: 503 "schema not applied" until the tables this build needs exist.
     const check = () => Effect.runPromise(Effect.provide(checkSchema, hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)));
     return {
-      handler: makeSchemaGate(check, (incoming, defer) => handler(incoming, defer)),
+      handler: makeSchemaGate(check, (incoming) => handler(incoming)),
       // The reaper deletes VMs: it runs only against the schema this build was written for.
       reap: async () => {
         if (!cronPlan(env.ENVIRONMENT).reap) return;
@@ -308,8 +306,8 @@ export const withCommit = (response: Response, env: Pick<Env, "COMMIT_SHA">): Re
 };
 
 export default {
-  async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
-    const response = await served(env).handler(request, (work) => context.waitUntil(work));
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const response = await served(env).handler(request);
     return new URL(request.url).pathname === "/healthz" ? withCommit(response, env) : response;
   },
   /** Cron (wrangler.jsonc triggers): the agent reaper and the orphan sweep. */
