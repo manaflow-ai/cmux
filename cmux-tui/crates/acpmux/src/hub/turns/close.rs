@@ -367,16 +367,17 @@ impl Hub {
             // (`before_shutdown(|| set_retry(...))`). Take the plan fence first here
             // as well; taking the retry mark and then calling `hands_off` inverted
             // that order and could deadlock a late retry against shutdown.
-            let Some(child) = self.before_shutdown(|| {
-                session.auto_resume.try_with_current(generation, || {
-                    let child = slot.take()?;
-                    session.detaching.store(true, Ordering::SeqCst);
-                    Some(child)
+            let Some(child) = self
+                .before_shutdown(|| {
+                    session.auto_resume.try_with_current(generation, || {
+                        let child = slot.take()?;
+                        session.detaching.store(true, Ordering::SeqCst);
+                        Some(child)
+                    })
                 })
-            }) else {
-                return false;
-            };
-            let Some(child) = child else {
+                .flatten()
+                .flatten()
+            else {
                 return false;
             };
             Some(child)

@@ -607,6 +607,20 @@ impl Hub {
         self.child_for(session).await.map(|_| ())
     }
 
+    /// Defer a route switch or harness update at turn end while its child still hosts work.
+    /// The quiet reaper can take over once the work ends, or a later turn can finish the switch.
+    pub(super) fn restart_waits_for_work_below(self: &Arc<Self>, session: &Session) -> bool {
+        if !self.holds_work_below(session) {
+            return false;
+        }
+        tracing::info!(
+            session = %session.id,
+            "a restart left for the turn's end waits: work runs below it; it restarts once quiet"
+        );
+        self.respawn_when_quiet(session);
+        true
+    }
+
     /// `_acpmux/sessions/restart_harness {harnesses?, sessions?}` (Update
     /// Everything, cx-1mbnu; a chat's "Restart chat"): every live session of
     /// this daemon (none mirrored from a peer; none of the Home Chief's unless

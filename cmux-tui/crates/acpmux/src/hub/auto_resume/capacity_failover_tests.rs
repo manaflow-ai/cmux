@@ -53,7 +53,7 @@ async fn automatic_restart_capacity_switch_and_restore_preserve_background_work(
     let child = session.child.lock().await.clone().unwrap();
     *session.work_below_since.lock().unwrap() = 1;
 
-    hub.fail_over_on_capacity(&session, "cut", 1).await;
+    hub.fail_over_on_capacity(&session, "cut", 1, "529 Overloaded").await;
     assert_eq!(session.meta().model_request.as_deref(), Some(SONNET));
     assert!(session.respawn_when_quiet.load(Ordering::SeqCst));
     assert!(Arc::ptr_eq(&child, session.child.lock().await.as_ref().unwrap()));
