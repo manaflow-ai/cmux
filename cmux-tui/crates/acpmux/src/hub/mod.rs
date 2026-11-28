@@ -840,7 +840,13 @@ impl EventRow {
     /// The cell of a peer's row for a connection that wants its `tools` and, when `lean`, no
     /// time breakdown.
     pub fn peer_cell(&self, tools: bool, lean: bool) -> &SharedRow {
-        &self.peers[usize::from(tools) * 2 + usize::from(lean)]
+        let [full, full_lean, tooled, tooled_lean] = &self.peers;
+        match (tools, lean) {
+            (false, false) => full,
+            (false, true) => full_lean,
+            (true, false) => tooled,
+            (true, true) => tooled_lean,
+        }
     }
 
     /// The last receiver took the event: every row held for the others goes now.
