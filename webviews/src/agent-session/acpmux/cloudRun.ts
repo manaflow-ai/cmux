@@ -83,6 +83,17 @@ export function composerCloudStartFolder(
   return cloudStartFolder(shownChatFolder(summary, "local", false));
 }
 
+/// The folder chip a New Tab page's Cloud send puts back on the chat composer when it ends without
+/// opening its chat (a refusal, a failure): the folder that send named, so the chip says what the
+/// start card said and a send from the composer names it again; `""` (No folder) for a start in the
+/// machine's home; undefined (the chip unchanged) for a start that named neither. Before, the
+/// composer took the prompt back but kept its own chip: the card read "cmuxterm-hq" over a chip
+/// reading "No folder" (cmux#63348).
+export function cloudPageFolderBack(start: { cwd?: string; home?: boolean }): string | undefined {
+  if (start.cwd) return start.cwd;
+  return start.home ? "" : undefined;
+}
+
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 /// The New Tab page's project pick goes to the host on its click (workspace.useFolder), so a Cloud
