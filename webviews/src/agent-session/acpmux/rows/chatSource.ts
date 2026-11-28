@@ -20,9 +20,10 @@ export const chatRowsState = (): ChatRowsState => state;
 /// (`CHAT_ROWS_OTHER_SID`): each fell that chat to v1 once, and left the switch as it was.
 let otherSids = 0;
 export const chatRowsOtherSids = (): number => otherSids;
-/// A test's fresh page.
-export function resetChatRowsState(): void {
-  state = "unknown";
+/// A test's fresh page; `said` makes it one a host already opened a chat on (`hostSaidOn`), as every
+/// page is after its first open: its next open guesses the switch (0-RTT, `direct.ts` `HandshakeGuess`).
+export function resetChatRowsState(said?: "on"): void {
+  state = said ?? "unknown";
   otherSids = 0;
 }
 
@@ -86,6 +87,12 @@ export class ChatSource {
   /// without the hold (read from each handshake's capabilities, never remembered).
   asks(capabilities: ReadonlySet<string> | undefined): boolean {
     return state !== "off" && capabilities?.has(HOLD_ATTACH_CAPABILITY) === true;
+  }
+
+  /// A host on this page opened a chat on the store: an open asked before its handshake answers
+  /// may guess the switch (`direct.ts` `HandshakeGuess`), checked against that handshake after.
+  hostSaidOn(): boolean {
+    return state === "on";
   }
 
   /// The chat's rows come from the store: its v1 attach is the hold.
@@ -180,6 +187,12 @@ export class ChatSource {
     return shown?.chat === chat && shown.view !== undefined && this.host.page(shown.sid, "before");
   }
 
+  /// Opens one closed row-store fold after its disclosure is clicked.
+  pageFold(chat: string, fold: number): boolean {
+    const shown = this.shown;
+    return shown?.chat === chat && this.host.page(shown.sid, "after", { fold });
+  }
+
   /// Leaves the chat on the store, keeping its last window: on a select of another chat and at the
   /// client's close. A fall leaves it too, keeping nothing (`onFall`).
   close(): void {
@@ -196,6 +209,18 @@ export class ChatSource {
     // Left before its first window: the window it drew is still its last.
     else if (drawing?.chat === shown.chat) this.kept.set(shown.chat, drawing.kept);
     this.host.close(shown.sid);
+  }
+
+  /// The cmux host refused the chat's hold (holdKinds.ts `holdAttachRefused`): the chat leaves the
+  /// store and is v1 until another chat is chosen, as after a fall; its caller asks the plain attach.
+  holdRefused(chat: string): void {
+    const shown = this.shown;
+    if (shown?.chat !== chat) return;
+    this.shown = undefined;
+    shown.stop();
+    this.host.close(shown.sid);
+    this.fallen.add(chat);
+    this.toV1(chat);
   }
 
   /// A batch from the host, as the document's receiver (`window.cmuxChatRows`) takes it.

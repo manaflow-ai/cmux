@@ -42,12 +42,12 @@ jobs:
     environment:
       name: cmux-pr-autofix
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a write token for an autofix branch; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for an autofix branch; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The history names the commit that brought each import in.
           fetch-depth: 200

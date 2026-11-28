@@ -34,16 +34,31 @@ export const isHeldEntry = (entry: QueuedEntry) => entry.awaitingOwner === true 
 /// Whether a queue entry draws in the transcript rather than as a composer-queue row.
 const inTranscript = (entry: QueuedEntry) => isAgentEntry(entry) || isHeldEntry(entry);
 
+/// Whether a queue entry is acpmux's own prompt to the chat's agent (a surge digest, a subagent's
+/// resume, a cut turn's continuation: model.ts `system`, acpmux hub/queue_origin.rs). Leo,
+/// 2026-11-24: "why would a user steer or whatever on these? they should be separated out from the
+/// user visible steer ui area. maybe not even interactable?" It draws as a quiet note apart from the
+/// steer rows, with none of the person's actions (ComposerQueue.tsx `SystemNotes`).
+export const isSystemEntry = (entry: QueuedEntry) => entry.system !== undefined || entry.retry !== undefined;
+
+const notOwn = (entry: QueuedEntry) => inTranscript(entry) || isSystemEntry(entry);
+
 /// The person's own queued prompts, in the queue's order: the composer's queue rows.
 export function ownQueue(queue: AcpmuxSnapshot["queue"]): AcpmuxSnapshot["queue"] {
-  return queue.some(inTranscript) ? queue.filter((entry) => !inTranscript(entry)) : queue;
+  return queue.some(notOwn) ? queue.filter((entry) => !notOwn(entry)) : queue;
+}
+
+/// acpmux's own prompts waiting in the queue, in its order: the notes apart from the steer rows.
+export function systemQueue(queue: AcpmuxSnapshot["queue"]): AcpmuxSnapshot["queue"] {
+  return queue.filter((entry) => !inTranscript(entry) && isSystemEntry(entry));
 }
 
 /// Whether a queue entry shows at once. A person's prompt does: one the person just sent is a whole
 /// queued row in the frame the composer clears (Leo, 2026-11-11; test/agent-pane-queue-collapse),
 /// and a held one waits on someone (the folder's trust, a waking machine, the owner), never on the
 /// turn. So does another agent's message a Stop holds: it waits for the person, not for a batch.
-const showsAtOnce = (entry: QueuedEntry) => !isAgentEntry(entry) || entry.heldByStop === true;
+const showsAtOnce = (entry: QueuedEntry) =>
+  (!isAgentEntry(entry) && !isSystemEntry(entry)) || entry.heldByStop === true;
 
 const entryKey = (entry: QueuedEntry) => entry.id;
 

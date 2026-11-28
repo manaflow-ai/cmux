@@ -3,7 +3,7 @@ import { chromium, webkit, type Browser, type BrowserType, type CDPSession, type
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile, rm } from "node:fs/promises";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -43,6 +43,14 @@ export const DEFAULT_CASE_TIMEOUT_MS = 30_000;
 const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
 /** Browsers run only inside a Freestyle VM (or CI), never on a developer laptop. */
 const IN_VM = process.env.CMUX_GALLERY_IN_VM === "1";
+/** `CMUX_GALLERY_RECORD_VIDEO=1`: one WebM per case and engine (`<case>-<engine>.webm`, `video` in results.json),
+ *  for a focused motion review run (undeclared-run.sh); never a gate. */
+const RECORD_VIDEO = process.env.CMUX_GALLERY_RECORD_VIDEO === "1";
+/** `CMUX_GALLERY_ECHO_TRACE=1`: the page's `motion-trace` console lines go to the runner's output (a frame trace while
+ *  finding an undeclared move; undeclared-run.sh). */
+const ECHO_TRACE = process.env.CMUX_GALLERY_ECHO_TRACE === "1";
+const INPUT_KEYS_PATH = process.env.CMUX_GALLERY_INPUT_KEYS;
+const INPUT_KEYS = INPUT_KEYS_PATH && existsSync(INPUT_KEYS_PATH) ? JSON.parse(readFileSync(INPUT_KEYS_PATH, "utf8")) as Record<string, unknown> : undefined;
 const LEDGER_PATH = process.env.CMUX_GALLERY_FREESTYLE_LEDGER ?? "/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json";
 /** Published matrix runs (tailnet, every member): https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix/<run>/ */
 const PUBLISH_URL = "https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix";
@@ -236,9 +244,14 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
   const height = Number(params.height ?? DEFAULT_HEIGHT);
   const flag = (value: Scalar | undefined) => value === true || value === 1 || value === "1" || value === "true";
   // UTC and the gallery's own clock (src/gallery/clock.ts) keep times the same in every run.
-  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference" });
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference", ...(RECORD_VIDEO ? { recordVideo: { dir: join(outputDir, ".video"), size: { width, height } } } : {}) });
+  const videoName = RECORD_VIDEO ? `${safeFilePart(item.id)}-${engine}.webm` : undefined;
+  let recording: { path(): Promise<string> } | null = null;
   try {
     const page = await context.newPage();
+    // Only a recording context has a video; the runner's tests pass page doubles without `video()`.
+    if (RECORD_VIDEO) recording = page.video();
+    if (ECHO_TRACE) page.on("console", (message) => { const text = message.text(); if (text.startsWith("motion-trace")) console.log(`${item.id} ${text}`); });
     // The renderer's main-thread CPU time (Chromium's Performance metrics, `ThreadTime`): the work the
     // stage did to get ready, which a loaded runner does not stretch the way it stretches wall time.
     // Optional: a context with no CDP (another engine, a test double) is held to wall time instead.
@@ -377,7 +390,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // The design specs' geometry rules, read from the stage as screenshotted (webviews/src/gallery/invariants.ts): gallery health's geometry gate.
     const invariants = await page.evaluate(() => (window as unknown as { cmuxGalleryInvariants?: () => unknown }).cmuxGalleryInvariants?.() ?? null).catch(() => null);
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, readyCpuMs, readyCaptureCpuMs: cpuReady && captureCpuKnown ? Math.round(captureCpuS * 1000) : null, revision, play, load, invariants, ...(experiment ? { experiment } : {}) };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, readyCpuMs, readyCaptureCpuMs: cpuReady && captureCpuKnown ? Math.round(captureCpuS * 1000) : null, revision, play, load, invariants, ...(experiment ? { experiment } : {}), ...(videoName ? { video: videoName } : {}) };
     if (workflow) result.workflowEvidence = { beforeSteps, afterSteps, final: { screenshot: screenshotName, axDigest: await axDigest() }, timingIncludesEvidenceCapture: false };
     if (geometrySelections) result.geometry = await collectGeometry(page, geometrySelections, { schemaVersion: 1, revision, capture: { caseId: item.id, engine, theme: String(params.colorScheme), viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, screenshot: screenshotName, screenshotSha256: "", coordinateSpace: "css-px" } }, outputDir);
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);
@@ -392,7 +405,10 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
       } else result.diff = { percentage: null, passed: true, missingBaseline: true };
     }
     return result;
-  } finally { await context.close(); }
+  } finally {
+    await context.close();
+    if (recording && videoName) await rename(await recording.path(), join(outputDir, videoName)).catch(() => undefined);
+  }
 }
 
 export function renderIndex(results: Record<string, unknown>[]): string {
@@ -421,14 +437,37 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
   const workers: Map<Engine, Browser>[] = [];
   const launch = async (engine: Engine): Promise<Browser> => browserTypes[engine].launch({ headless: true, timeout: 30_000, ...(engine === "chromium" ? (process.env.CMUX_CHROME_HEADLESS_SHELL ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL } : { channel: "chrome" }) : {}) });
   const screenshotName = (item: MatrixCase, engine: Engine) => `${safeFilePart(item.id)}-${engine}.png`;
-  const failedResult = (item: MatrixCase, engine: Engine, error: unknown): Record<string, unknown> => ({
-    id: item.id,
-    engine,
-    screenshot: screenshotName(item, engine),
-    params: item.params ?? {},
-    ready: "error",
-    error: error instanceof Error ? error.message : String(error),
-  });
+  const inputKey = (engine: Engine): Record<string, unknown> | undefined => {
+    const variants = INPUT_KEYS?.variants;
+    const value = variants && typeof variants === "object" ? (variants as Record<string, unknown>)[engine] : undefined;
+    if (!value || typeof value !== "object") return undefined;
+    const raw = value as Record<string, unknown>;
+    const family = typeof INPUT_KEYS?.family === "string" ? INPUT_KEYS.family : "desktop-gallery";
+    const key = typeof raw.key === "string" ? raw.key : undefined;
+    if (!key) return undefined;
+    return {
+      schema: "cmux.desktop-input-key/v1",
+      family,
+      runtime: "linux-gallery",
+      variant: engine,
+      key,
+      files: raw.files,
+      revision: raw.revision ?? raw.rev ?? INPUT_KEYS?.revision,
+      store: `${family}-linux-gallery-${engine}-${key}`,
+    };
+  };
+  const failedResult = (item: MatrixCase, engine: Engine, error: unknown): Record<string, unknown> => {
+    const key = inputKey(engine);
+    return {
+      id: item.id,
+      engine,
+      screenshot: screenshotName(item, engine),
+      params: item.params ?? {},
+      ready: "error",
+      error: error instanceof Error ? error.message : String(error),
+      ...(key ? { input_key: key } : {}),
+    };
+  };
   const renderOne = async (browsers: Map<Engine, Browser>, item: MatrixCase, engine: Engine): Promise<Record<string, unknown>> => {
     const started = Date.now();
     let result: Record<string, unknown>;
@@ -465,6 +504,8 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
         result = failedResult(item, engine, secondError);
       }
     }
+    const key = inputKey(engine);
+    if (key) result.input_key = key;
     console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms`);
     return result;
   };

@@ -37,10 +37,10 @@ env:
 jobs:
   chromium:
     name: browser host real-Chromium tests
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -87,7 +87,10 @@ jobs:
             echo "::error::no ignored Chromium test selected" >&2
             exit 1
           }
-          cargo test -p cmux-browser-host --test chromium --locked -- --ignored \
+          # Four tests at a time: each starts its own Chromium, and at the default one per core of a shared
+          # pool machine they starved each other until the first CDP call after launch (Browser.setPermission)
+          # timed out at 10 s in 18 tests (run 45252519852; reproduced with 32 threads on one core).
+          cargo test -p cmux-browser-host --test chromium --locked -- --ignored --test-threads=4 \
             | tee "$RUNNER_TEMP/results.txt"
           # The headful tests ran (not filtered out or skipped) and passed.
           for name in a_headful_tab_gets_its_first_click headful_leaves_a_persons_chooser_to_the_browser; do

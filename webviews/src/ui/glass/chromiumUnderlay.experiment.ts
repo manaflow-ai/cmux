@@ -1,12 +1,14 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../experiments/experiment";
 
-/// Chromium over the window glass (Leo 2026-10-22: "we can't be having unstyled main chat panes"):
-/// how much of the theme surface a floating glass lays under its tint in a see-through Chromium
-/// page, so the page text under it fades instead of reading crisp through the tint (glass.css,
-/// "CHROMIUM OVER THE WINDOW GLASS"). WebKit and an opaque window never draw it. desktop.ts puts the
-/// arm on `<html>` as data-glass-underlay; to try another, set `cmux.experiments` to
-/// `{"chromium-glass-underlay":"light"}` in the pane's web inspector and reload.
+/** Chromium over the window glass (Leo 2026-10-22: "we can't be having unstyled main chat panes"):
+ * how much of the theme surface a floating glass lays under its tint in a see-through Chromium
+ * page, so the page text under it fades instead of reading crisp through the tint (glass.css,
+ * "CHROMIUM OVER THE WINDOW GLASS"). WebKit and an opaque window never draw it. desktop.ts puts the
+ * arm on `<html>` as data-glass-underlay; to try another, set `cmux.experiments` to
+ * `{"chromium-glass-underlay":"light"}` in the pane's web inspector and reload.
+ * @status experimental
+ */
 export const chromiumGlassUnderlay = defineExperiment({
   id: "chromium-glass-underlay",
   title: "Chromium glass underlay",
@@ -18,7 +20,7 @@ export const chromiumGlassUnderlay = defineExperiment({
     medium: {
       label: "Medium",
       description:
-        "The design scale's underlay, 40% under the tint: a menu covers 88% of the text under it, a faint trace (design/glass-system.md).",
+        "The design scale's underlay, 40% under the tint (57% in dark): a menu covers 88% of the text under it in both, a faint trace (design/glass-system.md).",
     },
     heavy: {
       label: "Heavy",

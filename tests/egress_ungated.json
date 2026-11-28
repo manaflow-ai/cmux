@@ -1,0 +1,7 @@
+{
+ "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; tests/test_egress_gate.py keeps it exact.",
+ "ungated": 0,
+ "file_count": 0,
+ "by_language": {},
+ "files": {}
+}

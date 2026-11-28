@@ -71,14 +71,14 @@ jobs:
     # publishes another name.
     name: ${{ github.event.action == 'edited' && !github.event.changes.base && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:'))) && 'classic-api-guard metadata edit (ignored)' || 'classic-api-guard' }}
     if: ${{ !(github.event.action == 'edited' && !github.event.changes.base && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
     steps:
       - name: Check out the guard from the base commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 1
@@ -86,6 +86,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/classic_api_guard.py
             scripts/ci/classic-auto-deploy.json
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check the changed paths against classic's auto-deploys

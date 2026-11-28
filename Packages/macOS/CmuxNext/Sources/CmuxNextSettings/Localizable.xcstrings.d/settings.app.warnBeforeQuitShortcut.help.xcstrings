@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.app.warnBeforeQuitShortcut.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يسأل ⌘Q قبل الإنهاء؛ اضغط عليه مرة أخرى للإنهاء. يُنهي عنصر قائمة الإنهاء وDock التطبيق فورًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q pita prije izlaska; pritisnite ga ponovo za izlazak. Stavka menija Izađi i Dock izlaze odmah."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q spørger før afslutning; tryk igen for at afslutte. Menupunktet Afslut og Dock afslutter med det samme."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q fragt vor dem Beenden nach; drücke es erneut, um zu beenden. Der Menübefehl „Beenden“ und das Dock beenden sofort."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q pregunta antes de salir; púlsalo de nuevo para salir. El elemento de menú Salir y el Dock salen de inmediato."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q demande confirmation avant de quitter ; appuyez de nouveau pour quitter. L’élément de menu Quitter et le Dock quittent immédiatement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q chiede conferma prima di uscire; premilo di nuovo per uscire. La voce di menu Esci e il Dock escono subito."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Qは終了前に確認します。もう一度押すと終了します。「終了」メニュー項目とDockからはすぐに終了します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q សួរមុនពេលចាកចេញ ចុចវាម្ដងទៀតដើម្បីចាកចេញ។ ធាតុម៉ឺនុយ ចាកចេញ និង Dock ចាកចេញភ្លាមៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q는 종료하기 전에 묻습니다. 한 번 더 누르면 종료합니다. 종료 메뉴 항목과 Dock은 바로 종료합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q spør før avslutning; trykk igjen for å avslutte. Menyvalget Avslutt og Dock avslutter med en gang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q pyta przed zamknięciem; naciśnij ponownie, aby zakończyć. Polecenie menu Zakończ i Dock zamykają od razu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q pergunta antes de encerrar; pressione de novo para encerrar. O item de menu Encerrar e o Dock encerram na hora."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q спрашивает перед выходом; нажмите его ещё раз, чтобы выйти. Пункт меню «Завершить» и Dock завершают сразу."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q จะถามก่อนออก กดอีกครั้งเพื่อออก รายการเมนูออกและ Dock จะออกทันที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q çıkmadan önce sorar; çıkmak için tekrar basın. Çık menü öğesi ve Dock hemen çıkar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q запитує перед виходом; натисніть його ще раз, щоб вийти. Пункт меню «Завершити» і Dock завершують одразу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q hỏi trước khi thoát; nhấn lại để thoát. Mục menu Thoát và Dock thoát ngay."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q 会在退出前询问；再按一次即可退出。“退出”菜单项和程序坞会立即退出。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌘Q 會在結束前詢問；再按一次即可結束。「結束」選單項目和 Dock 會立即結束。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

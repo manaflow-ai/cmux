@@ -16,11 +16,14 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { PageClient } from "../src/pages/shared/pageClient";
-import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
-import { PreviewIntent, previewEntries, type IntentTimers } from "../src/pages/changelog/updatedPreview";
+import type { IntentTimers } from "../src/pages/changelog/updatedPreview";
 import { settleReact, teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { MOTION_SETTLE, MOTION_SETTLE_MS } = await importWithDom(() => import("../src/motion/scale.generated"));
+const { PreviewIntent, previewEntries } = await importWithDom(() => import("../src/pages/changelog/updatedPreview"));
 
 /** Yields macrotasks until `done` holds, at most `capMs`. */
 async function until(done: () => boolean, capMs = 2000) {
@@ -495,14 +498,14 @@ describe("the card", () => {
   // Lawrence 2026-11-07, "this ui is very bad": What's New beside the title cut it to "Updated to ...".
   // The title line is the title alone; open, the header goes on with the full version and What's New.
   test("the title line is the title alone; open, the header shows the full version and What's New, which opens the full page", async () => {
-    const { host, opened } = await render({ previewOpen: true });
+    const { host, opened } = await render({ previewOpen: true, shape: "two-line" });
     const head = host.querySelector(".wn-card-head")!;
     expect(head.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
     expect(head.querySelector(".wn-card-link")).toBeNull();
     expect(host.querySelector(".wn-card-primary")).toBeNull();
     expect(host.querySelector(".wn-card-version")?.textContent).toBe(data.version);
     const link = host.querySelector<HTMLButtonElement>(".wn-preview-whatsnew")!;
-    expect(link.textContent).toBe("What's New ↗");
+    expect(link.textContent).toBe("What's New");
     await act(async () => link.click());
     expect(opened).toEqual(["open"]);
   });
@@ -717,8 +720,9 @@ describe("the card", () => {
       dismiss: () => undefined,
     };
     let host: HTMLElement;
-    ({ host } = await render({ hostPointer: false, drag, onPreviewSize: (h: number) => sizes.push(h) }));
-    ({ host } = await render({ hostPointer: true, drag, onPreviewSize: (h: number) => sizes.push(h) }));
+    const shape = "two-line"; // the change line the drag starts on
+    ({ host } = await render({ hostPointer: false, drag, shape, onPreviewSize: (h: number) => sizes.push(h) }));
+    ({ host } = await render({ hostPointer: true, drag, shape, onPreviewSize: (h: number) => sizes.push(h) }));
     const state = () => host.querySelector(".wn-card")?.getAttribute("data-preview");
     await until(() => state() === "open");
     expect(sizes).toEqual([168]);

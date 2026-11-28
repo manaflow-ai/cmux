@@ -101,7 +101,7 @@ on:
     branches: [feat-cmux-next]
 jobs:
   fast-check-route:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     outputs:
       gate: ${{ steps.route.outputs.gate }}
     steps:
@@ -163,7 +163,7 @@ jobs:
         heavy = self.WORKFLOW.replace(f"    runs-on: {route.ROUTE_RUNS_ON}\n    outputs:", "    runs-on: big\n    outputs:")
         problems = self.tree(["scripts/ci/gate.py", "scripts/ci/helper.py", "data/", "other/", "docs/"],
                              workflow=heavy)
-        self.assertTrue(any("not the 2-vCPU pool" in p for p in problems), problems)
+        self.assertTrue(any("not the one Linux label" in p for p in problems), problems)
 
     def test_no_push_and_no_cover(self):
         no_push = self.WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]\n", "")
@@ -171,6 +171,38 @@ jobs:
                              workflow=no_push)
         self.assertTrue(any("no feat-cmux-next push starts" in p for p in problems), problems)
 
+
+class ReactDoctorRouteRunsOnlyWhereItsGateCanTest(unittest.TestCase):
+    """The React Doctor route job skips where its gate job cannot run (into feat-cmux-next without full-ci): 2,563
+    route runs and 2,944 runner-min in 10 h of 2026-11-25 fed a gate that ran 246 times, base pushes included."""
+
+    @staticmethod
+    def runs(expr: str, base: str, labels: tuple[str, ...], event: str = "pull_request", draft: bool = False) -> bool:
+        import re  # noqa: PLC0415
+        py = expr.strip().removeprefix("${{").removesuffix("}}")
+        py = re.sub(r"contains\(github\.event\.pull_request\.labels\.\*\.name, '([^']*)'\)",
+                    lambda m: repr(m.group(1) in labels), py)
+        py = re.sub(r"startsWith\(github\.event\.pull_request\.base\.ref, '([^']*)'\)",
+                    lambda m: repr(base.startswith(m.group(1))), py)
+        py = py.replace("(vars.CI_DRAFT_CHEAP_TIER || '1')", "'1'").replace("vars.CI_FORK_LINUX_RUNNER", "''")
+        py = re.sub(r"needs\.[a-z-]+\.outputs\.[a-z_]+", "''", py)
+        py = py.replace("!cancelled()", "True")
+        py = py.replace("github.event.pull_request.draft", repr(draft)).replace("github.event_name", repr(event))
+        py = py.replace("&&", " and ").replace("||", " or ").replace("!=", " __NE__ ").replace("==", " __EQ__ ")
+        py = py.replace("!", " not ").replace(" __NE__ ", " != ").replace(" __EQ__ ", " == ")
+        py = py.replace("true", "True").replace("false", "False")
+        return bool(eval(py, {"__builtins__": {}}, {}))  # noqa: S307 - the input is this repository's workflow
+
+    def test_the_route_runs_exactly_where_the_gate_can(self):
+        import yaml  # noqa: PLC0415
+        jobs = yaml.safe_load((ROOT / DOCTOR).read_text(encoding="utf-8"))["jobs"]
+        route_if, gate_if = jobs["fast-check-route"]["if"], jobs["react-doctor"]["if"]
+        for base, labels in (("feat-cmux-next", ()), ("feat-cmux-next", ("full-ci",)), ("main", ()),
+                             ("main", ("full-ci",))):
+            self.assertEqual(self.runs(route_if, base, labels), self.runs(gate_if, base, labels), (base, labels))
+        self.assertFalse(self.runs(route_if, "feat-cmux-next", ()))
+        self.assertTrue(self.runs(route_if, "feat-cmux-next", ("full-ci",)))
+        self.assertFalse(self.runs(route_if, "", (), event="push"))  # a push runs the gate on every project
 
 if __name__ == "__main__":
     unittest.main()

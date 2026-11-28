@@ -17,10 +17,21 @@
 //! - Exit or crash: started again after [`Backoff`] (200 ms doubling to 30 s,
 //!   reset after a healthy run) while Computer Use is on. Its state directory
 //!   is the same on every launch, so grants and saved approvals survive.
+//! - Hot upgrade: a worker whose executable was replaced on disk (a newer
+//!   build swapped the signed helper in at its fixed path, or cmux-tui was
+//!   updated) lets its running calls finish, says `replaced` and exits
+//!   (`cmux_computer_use::replaced`); the next worker starts at once, from the
+//!   new executable, with no backoff and no relaunch of the app or the daemon.
 //! - No desktop (a headless box without DISPLAY): `unavailable` with the
 //!   reason; tried again on the next request.
 //! - Off (`computerUse.mode` = off): the worker is stopped (stdin closed) and
 //!   the endpoint answers `off`.
+//! - Restart ([`ComputerUseHost::restart`], `remote-host-call restart
+//!   {worker: computer-use}`, the app's Restart Computer Use Helper): the
+//!   running worker is stopped and waited for (killed by its pid when it
+//!   outlives [`RESTART_EXIT_WAIT`]), then a new one starts. macOS answers a
+//!   process's grant checks from what it read when the process started, so a
+//!   grant given after that reaches agents only through a new worker.
 //! - Policy: [`config`] (owner file, then settings); sent to the running
 //!   worker whenever it changes.
 //! - Questions (`ask`) go to the cmux app when one is attached (a
@@ -30,7 +41,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
@@ -69,6 +80,9 @@ const HEALTHY_RUN: Duration = Duration::from_secs(30);
 const ASK_LIFETIME: Duration = Duration::from_secs(120);
 /// How long a control request (`approvals list`) waits for the worker.
 const CONTROL_WAIT: Duration = Duration::from_secs(5);
+/// How long a restart waits for the old worker to exit after its stdin
+/// closes, before it kills it.
+pub(crate) const RESTART_EXIT_WAIT: Duration = Duration::from_secs(5);
 
 /// A started worker process, as a launcher hands it over.
 pub(crate) struct WorkerProcess {
@@ -133,6 +147,13 @@ struct Link {
     input: Mutex<Option<Box<dyn Write + Send>>>,
     started: Instant,
     secret: String,
+    /// The worker's pid from its `ready` line.
+    pid: Mutex<Option<u64>>,
+    /// Set once the worker's output ended and it is being reaped.
+    exited: Mutex<bool>,
+    exit: Condvar,
+    /// The worker said its executable was replaced: start the new one at once.
+    replaced: AtomicBool,
 }
 
 impl Link {
@@ -148,6 +169,40 @@ impl Link {
     /// Closes the worker's stdin: it stops serving and exits.
     fn close(&self) {
         self.input.lock().unwrap_or_else(PoisonError::into_inner).take();
+    }
+
+    /// The worker's output ended.
+    fn mark_exited(&self) {
+        *lock(&self.exited) = true;
+        self.exit.notify_all();
+    }
+
+    /// Waits up to `wait` for the worker's output to end; whether it did.
+    fn wait_exit(&self, wait: Duration) -> bool {
+        let exited = lock(&self.exited);
+        let (exited, _) = self
+            .exit
+            .wait_timeout_while(exited, wait, |exited| !*exited)
+            .unwrap_or_else(PoisonError::into_inner);
+        *exited
+    }
+
+    /// Kills the worker by the pid it reported, unless it already exited.
+    #[cfg(unix)]
+    fn kill(&self) -> bool {
+        let Some(pid) = *lock(&self.pid) else { return false };
+        let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+        if *lock(&self.exited) || pid <= 1 || u32::try_from(pid).ok() == Some(std::process::id()) {
+            return false;
+        }
+        // SAFETY: SIGKILL to the worker this daemon started, which has not
+        // been reaped (its output has not ended), so its pid is still its own.
+        unsafe { libc::kill(pid, libc::SIGKILL) == 0 }
+    }
+
+    #[cfg(not(unix))]
+    fn kill(&self) -> bool {
+        false
     }
 }
 
@@ -325,6 +380,45 @@ impl ComputerUseHost {
         )
     }
 
+    /// Stops the running worker, waits for it to exit (killing it when it
+    /// outlives [`RESTART_EXIT_WAIT`]), starts a new one and waits up to
+    /// `wait` for it to be ready. A new process reads the grants afresh: a
+    /// grant given while the old one ran takes effect without a manual kill.
+    pub(crate) fn restart(&self, wait: Duration) -> Value {
+        let Some((config, _)) = self.config() else {
+            return json!({"restarted": false, "state": "unavailable", "reason": "this daemon runs no Computer Use worker"});
+        };
+        if config.mode == Mode::Off {
+            return json!({"restarted": false, "state": "off", "reason": "Computer Use is off (Settings > Computer Use)"});
+        }
+        let old = {
+            // A start in progress finishes first; the link it made is the one stopped.
+            let _starting = lock(&self.inner.starting);
+            lock(&self.inner.link).take()
+        };
+        let mut previous = Value::Null;
+        if let Some(link) = old {
+            let pid = *lock(&link.pid);
+            lock(&self.inner.asks).retain(|_, ask| ask.generation != link.generation);
+            link.close();
+            let mut exited = link.wait_exit(RESTART_EXIT_WAIT);
+            let killed = !exited && link.kill();
+            if killed {
+                exited = link.wait_exit(RESTART_EXIT_WAIT);
+            }
+            previous = json!({"pid": pid, "exited": exited, "killed": killed});
+        }
+        self.inner.set_phase(Phase::Idle);
+        let mut answer = self.endpoint(wait);
+        if let Some(fields) = answer.as_object_mut() {
+            fields.remove("secret");
+            fields.remove("socket");
+            fields.insert("restarted".into(), json!(true));
+            fields.insert("previous".into(), previous);
+        }
+        answer
+    }
+
     pub(crate) fn pending(&self) -> Vec<Value> {
         let mut asks = lock(&self.inner.asks);
         asks.retain(|_, ask| ask.asked.elapsed() < ASK_LIFETIME);
@@ -416,6 +510,10 @@ impl Inner {
             input: Mutex::new(Some(process.input)),
             started: Instant::now(),
             secret: secret.clone(),
+            pid: Mutex::new(None),
+            exited: Mutex::new(false),
+            exit: Condvar::new(),
+            replaced: AtomicBool::new(false),
         });
         let configure = json!({
             "type": "configure", "config": config, "socket": paths.endpoint, "secret": secret,
@@ -460,6 +558,7 @@ impl Inner {
                 "ready" if current => {
                     was_ready = true;
                     let socket = message.get("socket").and_then(Value::as_str).unwrap_or_default();
+                    *lock(&link.pid) = message.get("pid").and_then(Value::as_u64);
                     inner.set_phase(Phase::Ready {
                         socket: socket.to_string(),
                         secret: link.secret.clone(),
@@ -475,6 +574,7 @@ impl Inner {
                     said_unavailable = Some(reason);
                 }
                 "ask" => Self::asked(&inner, link, &message),
+                "replaced" => link.replaced.store(true, Ordering::SeqCst),
                 "approvals" => {
                     if let Some(id) = message.get("id").and_then(Value::as_u64)
                         && let Some(waiting) = lock(&inner.replies).remove(&id)
@@ -485,6 +585,7 @@ impl Inner {
                 _ => {}
             }
         }
+        link.mark_exited();
         reap();
         let Some(inner) = this.upgrade() else { return };
         Self::gone(&inner, link, was_ready, said_unavailable);
@@ -524,6 +625,17 @@ impl Inner {
         }
         if !this.wanted() {
             this.set_phase(Phase::Idle);
+            return;
+        }
+        // An update, not a failure: the new executable starts now, and the
+        // backoff starts over.
+        if link.replaced.load(Ordering::SeqCst) {
+            eprintln!("cmux-tui: the Computer Use helper was updated; starting the new one");
+            if let Some(backoff) = lock(&this.backoff).as_mut() {
+                backoff.reset();
+            }
+            this.set_phase(Phase::Idle);
+            Self::start_in_background(this);
             return;
         }
         if !was_ready {
@@ -585,7 +697,7 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     #[cfg(unix)]
     let (endpoint, log) = {
         let mut runtime = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
-        if !crate::server::unix_socket_path_fits(&runtime.join("cu.sock")) {
+        if !crate::socket_path::unix_socket_path_fits(&runtime.join("cu.sock")) {
             runtime = crate::platform::fallback_runtime_dir().join(&leaf);
         }
         (

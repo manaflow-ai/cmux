@@ -100,6 +100,15 @@ public final class ScreenSession {
     /// the Mac then leaves its cursor out of the video. Set before
     /// connecting; an app that never sets it gets the cursor in the picture.
     @ObservationIgnored public var drawsPointers = false
+    /// Follow mode's camera, which the app supplies (nil: no Follow button).
+    public var camera: (any ScreenCamera)?
+    /// One message of a screen stream's `focus` channel: a JSON focus event
+    /// from the Mac (main actor). The camera reads it.
+    @ObservationIgnored public var onFocus: ((Data) -> Void)?
+    /// The Mac's cursor shape on a screen stream, its own image (nil: none
+    /// yet, or a Mac that sends none). Only with ``drawsPointers`` (main actor).
+    @ObservationIgnored public var onStreamCursor: ((ScreenStreamCursor?) -> Void)?
+    @ObservationIgnored private var streamCursors = ScreenStreamCursorCache()
     /// "Direct" or "Relay" once WebRTC picks a path.
     public private(set) var streamPath = "WebRTC"
     /// What the screen stream's Mac accepts beyond the first protocol, from
@@ -204,6 +213,24 @@ public final class ScreenSession {
     /// stops reading as a hiccup. A reattach lands well under it on a short drop.
     public nonisolated static let reconnectNoticeDelay: Duration = .seconds(10)
     @ObservationIgnored private var reconnectNoticeTask: Task<Void, Never>?
+    /// A first connect has run for ``connectNoticeDelay``: only now does the view say
+    /// "Connecting to …". One that answers within it (the usual case) never flashes the card.
+    public private(set) var connectNoticeDue = false
+    /// How long a first connect stays silent: the shared bound for a connection state the person
+    /// can do nothing about (`schemas/notice-timing/notice-timing.json` `connectionQuietMs`, 10 s;
+    /// hq `docs/handbook/connection-state-with-no-action-or-bound.md`), the same as a reconnect.
+    public nonisolated static let connectNoticeDelay: Duration = reconnectNoticeDelay
+    @ObservationIgnored private var connectNoticeTask: Task<Void, Never>?
+    /// The clock both notice waits run on; tests give it one they control.
+    @ObservationIgnored public var noticeClock: any Clock<Duration> = ContinuousClock()
+    /// Whether the connecting card says anything yet (Leo, 2026-11-14: "i also want all our
+    /// connectivity stuff to shut the f*** up"): a reconnect only past ``reconnectNoticeDelay``,
+    /// a first connect only past ``connectNoticeDelay``. Under them the view draws no card, over
+    /// the last frame on a reconnect. A failure is its own phase and is never held.
+    public var connectingNoticeShown: Bool {
+        guard case .connecting = phase else { return false }
+        return isReconnecting ? reconnectNoticeDue : connectNoticeDue
+    }
     /// An owner that gets a fresh ticket for a dropped stream (a device hub viewer, whose
     /// `reconnectLimit` is 0): a drop calls it, and when the owner takes the drop (true) the
     /// session stays reconnecting over its last frame instead of showing the failed card first.
@@ -249,6 +276,11 @@ public final class ScreenSession {
     }
     /// The remote pointer in framebuffer pixels.
     @ObservationIgnored public private(set) var pointer = CGPoint(x: 100, y: 100)
+
+    /// The RFB handshake's rules (cmux-vnc) for a VNC connection and the demo desktop: the app
+    /// that makes the session sets its channel (the phone's cmux-mobile-link-ffi `vnc_json`).
+    /// Without one a VNC connection fails; a screen stream does not need them.
+    @ObservationIgnored public var vncRules = VNCRules()
 
     /// A VNC server reached directly (LAN, tailnet).
     public init(title: String, endpoint: VNCEndpoint, credentials: VNCCredentials = VNCCredentials(),
@@ -307,6 +339,7 @@ public final class ScreenSession {
         guard !isClosed else { return }
         disconnect(silently: true)
         phase = .connecting
+        armConnectNotice()
         if let makeSignaling {
             guard let signaling = makeSignaling() else {
                 phase = .failed(message: "There is no session to connect with.", needsSignIn: false)
@@ -323,7 +356,7 @@ public final class ScreenSession {
             guard let self else { return }
             var target = endpoint
             if target == nil {
-                let server = demo ?? VNCDemoServer(configuration: .init(width: 1440, height: 900, name: "cmux VNC demo desktop"))
+                let server = demo ?? VNCDemoServer(configuration: .init(width: 1440, height: 900, name: "cmux VNC demo desktop", rules: vncRules))
                 demo = server
                 guard let port = try? await server.start() else {
                     phase = .failed(message: "The demo desktop could not start.", needsSignIn: false)
@@ -332,7 +365,7 @@ public final class ScreenSession {
                 target = VNCEndpoint(host: "127.0.0.1", port: port)
             }
             guard let target else { return }
-            let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor)
+            let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor, rules: vncRules)
             start(VNCClient(endpoint: target, options: options, transport: pairing.map { WebRTCRFBTransport(pairing: $0) }))
         })
     }
@@ -376,10 +409,18 @@ public final class ScreenSession {
 
     // MARK: Stream
 
+    /// A new or ended stream: its Mac's cursor shapes start over.
+    private func resetStreamCursor() {
+        let had = streamCursors.current != nil
+        streamCursors.reset()
+        if had { onStreamCursor?(nil) }
+    }
+
     private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
         // The last stream's pointers: a new host may send none (it draws its cursor).
         onTelepointers?(nil, nil)
+        resetStreamCursor()
         if let reconnectStarted { viewer.openTimeout = Self.attemptTimeout(elapsed: Date().timeIntervalSince(reconnectStarted)) }
         relayErrors = []
         isStalled = false
@@ -440,9 +481,25 @@ public final class ScreenSession {
         viewer.onTelepointers = { [weak self, weak viewer] message in
             let point = { (pointer: ScreenHostMessage.Pointer?) in pointer.map { CGPoint(x: $0.x, y: $0.y) } }
             let (person, agent) = (point(message.person), point(message.agent))
+            let shape = message.shape
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
+                if self.streamCursors.select(shape) { self.onStreamCursor?(self.streamCursors.current) }
                 self.onTelepointers?(person, agent)
+            }
+        }
+        viewer.onFocus = { [weak self, weak viewer] message in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.onFocus?(message)
+            }
+        }
+        viewer.onCursorShape = { [weak self, weak viewer] shape in
+            // Decoded here, off the main actor.
+            guard let cursor = ScreenStreamCursor(shape) else { return }
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                if self.streamCursors.add(cursor) { self.onStreamCursor?(self.streamCursors.current) }
             }
         }
         viewer.onState = { [weak self, weak viewer] message in
@@ -527,11 +584,27 @@ public final class ScreenSession {
         reconnectNoticeTask = nil
         if reconnectNoticeDue { reconnectNoticeDue = false }
         guard isReconnecting else { return }
+        let clock = noticeClock
         reconnectNoticeTask = Task { [weak self] in
             // wakeup-allow: one-shot, cancellable notice deadline; a recovered stream cancels it
-            try? await Task.sleep(for: Self.reconnectNoticeDelay)
+            try? await clock.sleep(for: Self.reconnectNoticeDelay)
             guard !Task.isCancelled, let self, isReconnecting else { return }
             reconnectNoticeDue = true
+        }
+    }
+
+    /// Starts the clock after which a first connect is said out loud (a reconnect has its own).
+    private func armConnectNotice() {
+        connectNoticeTask?.cancel()
+        connectNoticeTask = nil
+        if connectNoticeDue { connectNoticeDue = false }
+        guard !isReconnecting else { return }
+        let clock = noticeClock
+        connectNoticeTask = Task { [weak self] in
+            // wakeup-allow: one-shot, cancellable notice deadline; the next connect cancels it
+            try? await clock.sleep(for: Self.connectNoticeDelay)
+            guard !Task.isCancelled, let self, case .connecting = phase else { return }
+            connectNoticeDue = true
         }
     }
 
@@ -638,6 +711,7 @@ public final class ScreenSession {
         }
         stream = nil
         onTelepointers?(nil, nil)
+        resetStreamCursor()
         stats.targetFps = nil
         if !silently { phase = .ended }
     }

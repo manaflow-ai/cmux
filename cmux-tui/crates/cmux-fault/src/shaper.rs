@@ -13,13 +13,23 @@
 //!   line), which is what an app over TCP sees;
 //! - **loss**: a segment is lost with `loss_percent`; a lost segment arrives one retransmission
 //!   timeout later (`max(rto_min_ms, 2 * rtt_ms)`, doubling while the retransmission is lost too);
-//! - **blackout** ([`Shaper::blackout`]): nothing arrives for the window; a segment sent into it
-//!   arrives at the first retransmission after it ends, on TCP's doubling backoff (so a 30 s
-//!   blackout can cost far more than 30 s, as it does on a phone), and a new connection's SYN
-//!   backs off from 1 s the same way;
+//! - **blackout** ([`Shaper::blackout`]): nothing arrives for the window. Each connection keeps
+//!   one retransmission timer per direction, as TCP does (RFC 6298 5.1): it starts when the first
+//!   segment goes into the dark and doubles from there, and the first try after the window ends
+//!   carries that segment; the rest of the backlog, and anything sent while the timer was still
+//!   backing off, follows it at the link's rate (so a 30 s blackout can cost far more than 30 s,
+//!   as it does on a phone). A new connection's SYN backs off from 1 s the same way;
 //! - **address change** ([`Shaper::address_change`]): the phone's address changes, so every live
 //!   connection goes silent for good (no reset reaches the phone: its peer's packets go to the
-//!   old address) and new connections stall for the profile's handoff stall, then flow.
+//!   old address) and new connections stall for the profile's handoff stall, then flow, on the
+//!   profile's `then` link when it names one (Wi-Fi to cellular). A NAT rebinding is an address
+//!   change with no stall;
+//! - **internet down** ([`Shaper::internet_down`]): the phone has two paths to the Mac, the LAN
+//!   (the shaper's own address) and the internet ([`Shaper::open_internet_path`], a second
+//!   listener to its own upstream, such as a relay). The internet path goes dead: its live
+//!   connections go silent for good and new ones are refused at once, while the LAN path keeps
+//!   the profile's numbers and never drops. The internet path rides the same radio link (one
+//!   phone, one Wi-Fi); the WAN leg past the router is not modeled, only up or down.
 //!
 //! [`UdpShaper`] is the same link for datagrams (the phone's real transport is UDP): no
 //! retransmission, jitter reorders, plus a NAT rebinding and one-way loss.
@@ -29,7 +39,7 @@
 
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -97,7 +107,51 @@ pub enum Disruption {
     /// Nothing gets through for `duration_ms`.
     Blackout { duration_ms: u64 },
     /// The address changes; new connections stall a seeded draw in `stall_ms` (inclusive).
-    AddressChange { stall_ms: [u64; 2] },
+    /// With `then`, the link becomes that named profile's link from the change on (Wi-Fi to
+    /// cellular: the old path goes dark, the new one has its own numbers).
+    AddressChange {
+        stall_ms: [u64; 2],
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        then: Option<String>,
+    },
+    /// The internet path dies; the LAN path (the shaper's own address) keeps its numbers.
+    InternetDown,
+}
+
+impl LinkProfile {
+    /// The profile the link becomes at the address change, if the disruption names one.
+    pub fn then(&self) -> Option<&str> {
+        match &self.disruption {
+            Some(Disruption::AddressChange { then: Some(then), .. }) => Some(then),
+            _ => None,
+        }
+    }
+
+    /// The link after the profile's address change: the `then` profile from the shipped file,
+    /// or this link unchanged.
+    pub fn after_change(&self) -> LinkProfile {
+        self.then()
+            .and_then(|then| ProfileFile::builtin().get(then).cloned())
+            .unwrap_or_else(|| self.clone())
+    }
+
+    /// Whether the profile's disruption drops the LAN link the shaper's own address carries
+    /// (a blackout or an address change); an internet-only outage does not.
+    pub fn disrupts_lan(&self) -> bool {
+        matches!(
+            self.disruption,
+            Some(Disruption::Blackout { .. } | Disruption::AddressChange { .. })
+        )
+    }
+}
+
+/// Which of the phone's two paths a connection takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Route {
+    /// Phone and Mac on one network: the shaper's own address.
+    Lan,
+    /// Through the internet (a relay): [`Shaper::open_internet_path`].
+    Internet,
 }
 
 impl ProfileFile {
@@ -107,6 +161,11 @@ impl ProfileFile {
         for profile in &file.profiles {
             if !(0.0..100.0).contains(&profile.loss_percent) {
                 return Err(format!("link profile {}: loss_percent is 0 to <100", profile.name));
+            }
+            if let Some(then) = profile.then()
+                && file.get(then).is_none()
+            {
+                return Err(format!("link profile {}: then names no profile {then}", profile.name));
             }
         }
         Ok(file)
@@ -130,6 +189,15 @@ impl ProfileFile {
 }
 
 impl LinkProfile {
+    /// The name a result row carries: `lte@1`, or `lte@1+relay-80@1` behind a relay hop
+    /// ([`Shaper::start_through`]).
+    pub fn label(&self, relay: Option<&LinkProfile>) -> String {
+        match relay {
+            Some(hop) => format!("{}@{}+{}@{}", self.name, self.version, hop.name, hop.version),
+            None => format!("{}@{}", self.name, self.version),
+        }
+    }
+
     fn one_way(&self) -> Duration {
         Duration::from_micros(self.rtt_ms * 500)
     }
@@ -157,13 +225,40 @@ struct Link {
     orphaned_below: u64,
     /// New connections wait until then (an address change's stall).
     stalled_until: Option<Instant>,
+    /// The internet path is dead: its connections are silent and new ones refused.
+    internet_down: bool,
 }
 
 impl Link {
-    /// When a segment sent at `sent` arrives: its serialization, the delay, jitter, loss and a
+    /// Whether connection `index` on `path` delivers nothing (an old address, a dead path).
+    fn silent(&self, index: u64, path: Route) -> bool {
+        index < self.orphaned_below || (path == Route::Internet && self.internet_down)
+    }
+
+    /// When a segment sent now arrives: [`Link::schedule_at`].
+    fn schedule(
+        &mut self,
+        bytes: usize,
+        down: bool,
+        rng: &mut Rng,
+        floor: Instant,
+        recovery: &mut Option<Recovery>,
+    ) -> Instant {
+        self.schedule_at(Instant::now(), bytes, down, rng, floor, recovery)
+    }
+
+    /// When a segment sent at `now` arrives: its serialization, the delay, jitter, loss and a
     /// blackout's retransmission backoff, never before `floor` (TCP's in-order delivery).
-    fn schedule(&mut self, bytes: usize, down: bool, rng: &mut Rng, floor: Instant) -> Instant {
-        let now = Instant::now();
+    /// `recovery` is the direction's one retransmission timer through a blackout.
+    fn schedule_at(
+        &mut self,
+        now: Instant,
+        bytes: usize,
+        down: bool,
+        rng: &mut Rng,
+        floor: Instant,
+        recovery: &mut Option<Recovery>,
+    ) -> Instant {
         let lane = usize::from(down);
         let free_at = lane_mut(&mut self.free_at, lane);
         let start = (*free_at).max(now);
@@ -179,20 +274,34 @@ impl Link {
             arrive += rto;
             rto = (rto * 2).min(RTO_MAX);
         }
-        if let Some((from, until)) = self.dark {
-            // Sent into the dark (or still on the air when it fell): retransmitted on the
-            // doubling ladder from when it left until a try lands after the window.
-            if left < until && arrive > from {
-                let mut retry = left.max(from) + self.profile.rto();
-                let mut rto = self.profile.rto();
-                while retry < until {
-                    rto = (rto * 2).min(RTO_MAX);
-                    retry += rto;
-                }
-                arrive = retry + self.profile.one_way();
+        if let Some(window @ (from, until)) = self.dark {
+            // The connection's timer through this window, if a segment already started it.
+            let held = recovery.filter(|timer| timer.window == window).map(|timer| timer.drain);
+            // Sent into the dark (or still on the air when it fell), or sent while the timer is
+            // still backing off (cwnd is down to one segment: nothing new goes out before the
+            // retransmission lands).
+            if (left < until && arrive > from) || held.is_some_and(|drain| left < drain) {
+                // The first such segment starts the one timer; the first try after the window
+                // carries it, and the backlog drains behind it at the link's rate.
+                let start = held.unwrap_or_else(|| self.retry_after(left.max(from), until));
+                let sent = start.max(left) + self.profile.serialize(bytes, down);
+                *recovery = Some(Recovery { window, drain: sent });
+                arrive = sent + self.profile.one_way();
             }
         }
         arrive.max(floor)
+    }
+
+    /// The first try on the doubling ladder from a timer started at `started` that lands at or
+    /// after `until`.
+    fn retry_after(&self, started: Instant, until: Instant) -> Instant {
+        let mut rto = self.profile.rto();
+        let mut retry = started + rto;
+        while retry < until {
+            rto = (rto * 2).min(RTO_MAX);
+            retry += rto;
+        }
+        retry
     }
 
     /// When a new connection's handshake completes, or `None` while the link is dark for good.
@@ -215,6 +324,14 @@ impl Link {
         }
         at
     }
+}
+
+/// One direction's retransmission timer through a blackout: TCP keeps one per connection, not
+/// one per segment (#59268). `drain` is when the radio is free behind the backlog it carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Recovery {
+    window: (Instant, Instant),
+    drain: Instant,
 }
 
 fn lost(rng: &mut Rng, percent: f64) -> bool {
@@ -244,6 +361,27 @@ struct Counting {
     up_turns: AtomicU64,
     /// Which way the last chunk went (1 up, 2 down), across every connection.
     last: AtomicU64,
+    /// [`Shaper::trace_wire`]: each connection's open and every read, into the run's trace.
+    wire: Mutex<Option<Trace>>,
+    /// Lines `wire` may still take (a bulk run reads thousands of chunks).
+    wire_left: AtomicU64,
+    /// [`Shaper::trace_wire_text`]: each read's line also carries its first bytes, printable.
+    wire_text: AtomicBool,
+}
+
+impl Counting {
+    /// One wire line, while the budget lasts; nothing when the wire trace is off.
+    fn wire(&self, line: impl FnOnce() -> String) {
+        let trace = lock(&self.wire);
+        let Some(trace) = trace.as_ref() else { return };
+        if self
+            .wire_left
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            trace.note(line());
+        }
+    }
 }
 
 pub struct Shaper {
@@ -275,29 +413,12 @@ impl Shaper {
             dark: None,
             orphaned_below: 0,
             stalled_until: None,
+            internet_down: false,
         }));
         let counting = Arc::new(Counting::default());
         let epoch = Arc::new(watch::channel(0_u64).0);
         let scope = Arc::new(Scope::new("cmux-fault shaper"));
-        scope.spawn_until_cancelled("shaper accept", {
-            let (link, counting, epoch) = (link.clone(), counting.clone(), epoch.clone());
-            let weak = Arc::downgrade(&scope);
-            async move {
-                let mut number = 0_u64;
-                while let Ok((near, _)) = listener.accept().await {
-                    let Some(scope) = weak.upgrade() else { return };
-                    let index = number;
-                    number += 1;
-                    counting.connections.fetch_add(1, Ordering::SeqCst);
-                    let (link, counting, epoch) =
-                        (link.clone(), counting.clone(), epoch.subscribe());
-                    scope.spawn_until_cancelled("shaper connection", async move {
-                        connection(near, upstream, index, seed, link, counting, epoch).await;
-                    });
-                }
-            }
-        });
-        Ok(Self {
+        let shaper = Self {
             addr,
             link,
             seed,
@@ -306,7 +427,61 @@ impl Shaper {
             epoch,
             scope,
             trace: trace.clone(),
-        })
+        };
+        shaper.accept(listener, upstream, Route::Lan);
+        Ok(shaper)
+    }
+
+    /// Opens the phone's second path, through the internet to `upstream` (a relay), on a free
+    /// loopback port, and returns it. It shares the radio link with the LAN path and dies with
+    /// [`Shaper::internet_down`].
+    pub async fn open_internet_path(&self, upstream: SocketAddr) -> std::io::Result<SocketAddr> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        self.trace.note(format!("shaper internet path {addr}"));
+        self.accept(listener, upstream, Route::Internet);
+        Ok(addr)
+    }
+
+    fn accept(&self, listener: TcpListener, upstream: SocketAddr, path: Route) {
+        let (link, counting, epoch) =
+            (self.link.clone(), self.counting.clone(), self.epoch.clone());
+        let weak = Arc::downgrade(&self.scope);
+        let seed = self.seed;
+        self.scope.spawn_until_cancelled("shaper accept", async move {
+            while let Ok((near, _)) = listener.accept().await {
+                let Some(scope) = weak.upgrade() else { return };
+                // One numbering across both paths: the seed's streams and an address change's
+                // cut-off both key on it.
+                let index = counting.connections.fetch_add(1, Ordering::SeqCst);
+                let (link, counting, epoch) = (link.clone(), counting.clone(), epoch.subscribe());
+                scope.spawn_until_cancelled("shaper connection", async move {
+                    connection(near, upstream, path, index, seed, link, counting, epoch).await;
+                });
+            }
+        });
+    }
+
+    /// The phone's link to a peer one more hop away: `profile` in front of `relay` (a second
+    /// shaped link, the relay between a Mac and its Cloud machine) in front of `upstream`. Each
+    /// hop ends its own TCP connection, as a relaying host does. The first shaper is the phone's
+    /// link (its address, counters and disruptions); the second is the hop, alive as long as
+    /// the caller keeps it. Without `relay` it is [`Shaper::start`].
+    pub async fn start_through(
+        upstream: SocketAddr,
+        profile: LinkProfile,
+        relay: Option<&LinkProfile>,
+        seed: u64,
+        trace: &Trace,
+    ) -> std::io::Result<(Self, Option<Self>)> {
+        let hop = match relay {
+            Some(relay) => {
+                Some(Self::start(upstream, relay.clone(), seed ^ 0x5E1A_7000, trace).await?)
+            }
+            None => None,
+        };
+        let upstream = hop.as_ref().map_or(upstream, Self::addr);
+        Ok((Self::start(upstream, profile, seed, trace).await?, hop))
     }
 
     pub fn addr(&self) -> SocketAddr {
@@ -324,6 +499,21 @@ impl Shaper {
             down_bytes: self.counting.down_bytes.load(Ordering::SeqCst),
             up_turns: self.counting.up_turns.load(Ordering::SeqCst),
         }
+    }
+
+    /// Notes every connection's open and every read (`c3 up 517B, lands +35ms`) in the trace
+    /// this shaper was started with, up to `lines` lines: the round trips a dial takes, one by
+    /// one. Off unless called; a read costs one mutex check while it is off.
+    pub fn trace_wire(&self, lines: u64) {
+        self.counting.wire_left.store(lines, Ordering::SeqCst);
+        *lock(&self.counting.wire) = Some(self.trace.clone());
+    }
+
+    /// [`Self::trace_wire`], each read's line ending in its first [`WIRE_TEXT_BYTES`] bytes
+    /// (printable ASCII, others `.`): a relay's control frames read as their JSON.
+    pub fn trace_wire_text(&self, lines: u64) {
+        self.counting.wire_text.store(true, Ordering::SeqCst);
+        self.trace_wire(lines);
     }
 
     pub fn reset_counters(&self) {
@@ -351,7 +541,7 @@ impl Shaper {
     pub fn address_change(&self, stall: Option<Duration>) -> Instant {
         let mut link = lock(&self.link);
         let stall = stall.unwrap_or_else(|| match link.profile.disruption {
-            Some(Disruption::AddressChange { stall_ms: [lo, hi] }) => {
+            Some(Disruption::AddressChange { stall_ms: [lo, hi], .. }) => {
                 Duration::from_millis(lock(&self.rng).range(lo, hi.max(lo)))
             }
             _ => Duration::from_secs(2),
@@ -359,13 +549,29 @@ impl Shaper {
         let until = Instant::now() + stall;
         link.orphaned_below = self.counting.connections.load(Ordering::SeqCst);
         link.stalled_until = Some(until);
+        let stepped = link.profile.then().is_some().then(|| link.profile.after_change());
+        if let Some(next) = &stepped {
+            link.profile = next.clone();
+        }
         drop(link);
         self.trace.note(format!("fault address-change stall {} ms", stall.as_millis()));
+        if let Some(next) = stepped {
+            self.trace.note(format!("fault step to {} v{}", next.name, next.version));
+        }
         self.epoch.send_modify(|epoch| *epoch += 1);
         until
     }
 
-    /// The profile's own disruption, if it has one; returns when the link is back.
+    /// The internet path dies now (and stays dead): its live connections go silent, new ones are
+    /// refused. The LAN path is untouched, so this returns now.
+    pub fn internet_down(&self) -> Instant {
+        lock(&self.link).internet_down = true;
+        self.trace.note("fault internet-down");
+        self.epoch.send_modify(|epoch| *epoch += 1);
+        Instant::now()
+    }
+
+    /// The profile's own disruption, if it has one; returns when the LAN link is back.
     pub fn disrupt(&self) -> Option<Instant> {
         let disruption = lock(&self.link).profile.disruption.clone()?;
         Some(match disruption {
@@ -373,6 +579,7 @@ impl Shaper {
                 self.blackout(Duration::from_millis(duration_ms))
             }
             Disruption::AddressChange { .. } => self.address_change(None),
+            Disruption::InternetDown => self.internet_down(),
         })
     }
 
@@ -391,17 +598,27 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|error| error.into_inner())
 }
 
+#[allow(clippy::too_many_arguments, reason = "one connection: each is its own part")]
 async fn connection(
     near: TcpStream,
     upstream: SocketAddr,
+    path: Route,
     index: u64,
     seed: u64,
     link: Arc<Mutex<Link>>,
     counting: Arc<Counting>,
     epoch: watch::Receiver<u64>,
 ) {
+    // A dead internet path refuses at once (the router answers; the uplink behind it is out).
+    if path == Route::Internet && lock(&link).internet_down {
+        return;
+    }
     let ready = lock(&link).connect_at(Instant::now());
-    tokio::time::sleep_until(ready).await;
+    crate::timer::sleep_until(ready).await;
+    if lock(&link).silent(index, path) {
+        return;
+    }
+    counting.wire(|| format!("c{index} open (connect landed)"));
     let Ok(far) = TcpStream::connect(upstream).await else { return };
     let _ = near.set_nodelay(true);
     let _ = far.set_nodelay(true);
@@ -416,14 +633,28 @@ async fn connection(
         near_read,
         far_write,
         false,
+        path,
         index,
         up_rng,
         link.clone(),
         counting.clone(),
         epoch.clone(),
     );
-    let down = direction(far_read, near_write, true, index, down_rng, link, counting, epoch);
+    let down = direction(far_read, near_write, true, path, index, down_rng, link, counting, epoch);
     tokio::select! { () = up => {}, () = down => {} }
+}
+
+/// How many of a read's bytes [`Shaper::trace_wire_text`] shows.
+pub const WIRE_TEXT_BYTES: usize = 96;
+
+/// A read's first bytes for the wire trace: printable ASCII as is, anything else `.`.
+fn wire_text(chunk: &[u8]) -> String {
+    let text: String = chunk
+        .iter()
+        .take(WIRE_TEXT_BYTES)
+        .map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' })
+        .collect();
+    format!("|{text}|")
 }
 
 #[allow(
@@ -434,6 +665,7 @@ async fn direction(
     mut from: tokio::net::tcp::OwnedReadHalf,
     mut to: tokio::net::tcp::OwnedWriteHalf,
     down: bool,
+    path: Route,
     index: u64,
     mut rng: Rng,
     link: Arc<Mutex<Link>>,
@@ -444,9 +676,10 @@ async fn direction(
     let writer_link = link.clone();
     let writer = async move {
         while let Some((at, segment)) = receive.recv().await {
-            tokio::time::sleep_until(at).await;
-            // Still on the air when the address changed: it goes to the old address too.
-            if index < lock(&writer_link).orphaned_below {
+            crate::timer::sleep_until(at).await;
+            // Still on the air when the address changed (it goes to the old address too) or the
+            // internet path died.
+            if lock(&writer_link).silent(index, path) {
                 continue;
             }
             if to.write_all(&segment).await.is_err() {
@@ -457,6 +690,7 @@ async fn direction(
     let reader = async move {
         let mut buffer = vec![0_u8; 64 * 1024];
         let mut floor = Instant::now();
+        let mut recovery = None;
         loop {
             let read = tokio::select! {
                 read = from.read(&mut buffer) => read,
@@ -472,22 +706,42 @@ async fn direction(
             if counting.last.swap(way, Ordering::SeqCst) != way && !down {
                 counting.up_turns.fetch_add(1, Ordering::SeqCst);
             }
+            let read_at = Instant::now();
+            let mut lands = None;
             for segment in chunk.chunks(SEGMENT) {
                 let at = {
                     let mut link = lock(&link);
-                    if index < link.orphaned_below {
+                    if link.silent(index, path) {
                         None
                     } else {
-                        Some(link.schedule(segment.len(), down, &mut rng, floor))
+                        Some(link.schedule(segment.len(), down, &mut rng, floor, &mut recovery))
                     }
                 };
-                // An orphaned connection's bytes go to an address that is gone.
+                // An orphaned connection's bytes go to an address that is gone, a dead path's
+                // nowhere.
                 let Some(at) = at else { continue };
+                lands = Some(at);
                 floor = at;
                 if send.send((at, segment.to_vec())).await.is_err() {
                     return;
                 }
             }
+            counting.wire(|| {
+                let way = if down { "down" } else { "up" };
+                let line = match lands {
+                    Some(at) => format!(
+                        "c{index} {way} {}B, lands +{}ms",
+                        chunk.len(),
+                        at.saturating_duration_since(read_at).as_millis()
+                    ),
+                    None => format!("c{index} {way} {}B, dropped (link silent)", chunk.len()),
+                };
+                if counting.wire_text.load(Ordering::Relaxed) {
+                    format!("{line} {}", wire_text(chunk))
+                } else {
+                    line
+                }
+            });
         }
     };
     tokio::select! { () = writer => {}, () = reader => {} }
@@ -505,124 +759,5 @@ pub(crate) fn lane_mut<T>(pair: &mut [T; 2], lane: usize) -> &mut T {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{ProfileFile, Shaper};
-    use crate::trace::Trace;
-    use std::time::Duration;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::{TcpListener, TcpStream};
-
-    async fn echo_server() -> std::net::SocketAddr {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            while let Ok((mut socket, _)) = listener.accept().await {
-                tokio::spawn(async move {
-                    let mut buffer = vec![0_u8; 64 * 1024];
-                    while let Ok(n) = socket.read(&mut buffer).await {
-                        if n == 0 || socket.write_all(&buffer[..n]).await.is_err() {
-                            return;
-                        }
-                    }
-                });
-            }
-        });
-        addr
-    }
-
-    async fn round_trip(stream: &mut TcpStream, bytes: usize) -> Duration {
-        let started = std::time::Instant::now();
-        stream.write_all(&vec![7_u8; bytes]).await.unwrap();
-        let mut answer = vec![0_u8; bytes];
-        stream.read_exact(&mut answer).await.unwrap();
-        started.elapsed()
-    }
-
-    #[test]
-    fn every_profile_parses_and_names_its_source() {
-        let file = ProfileFile::builtin();
-        assert!(
-            file.profiles.len() >= 7,
-            "{:?}",
-            file.profiles.iter().map(|p| &p.name).collect::<Vec<_>>()
-        );
-        for name in [
-            "good-wifi",
-            "lte",
-            "5g-lte-handoff",
-            "lossy-3",
-            "lossy-10",
-            "elevator-30s",
-            "2g-trickle",
-        ] {
-            let profile = file.get(name).unwrap_or_else(|| panic!("no profile {name}"));
-            assert!(!profile.source.is_empty(), "{name} cites no source");
-        }
-    }
-
-    #[tokio::test]
-    async fn the_lte_link_costs_its_round_trip_and_rate() {
-        let profile = ProfileFile::builtin().get("lte").unwrap().clone();
-        let shaper = Shaper::start(echo_server().await, profile, 1, &Trace::new()).await.unwrap();
-        let mut client = TcpStream::connect(shaper.addr()).await.unwrap();
-        let small = round_trip(&mut client, 10).await;
-        assert!(small >= Duration::from_millis(70), "{small:?}");
-        assert!(small < Duration::from_millis(400), "{small:?}");
-        // 120 kB at 12 Mbit/s is 80 ms on the air; the echo answers each segment as it lands, so
-        // the two ways overlap: about 80 ms plus the 70 ms round trip.
-        let big = round_trip(&mut client, 120_000).await;
-        assert!(big >= Duration::from_millis(145), "{big:?}");
-        let counters = shaper.counters();
-        assert_eq!(counters.up_bytes, 120_010);
-        assert_eq!(counters.down_bytes, 120_010);
-    }
-
-    #[tokio::test]
-    async fn a_blackout_holds_bytes_until_a_retransmission_after_it() {
-        let profile = ProfileFile::builtin().get("lte").unwrap().clone();
-        let shaper = Shaper::start(echo_server().await, profile, 1, &Trace::new()).await.unwrap();
-        let mut client = TcpStream::connect(shaper.addr()).await.unwrap();
-        round_trip(&mut client, 10).await;
-        shaper.blackout(Duration::from_millis(500));
-        let took = round_trip(&mut client, 10).await;
-        // 200 ms RTO doubling from the send: 200, 600 (past 500) and the one-way delay.
-        assert!(took >= Duration::from_millis(600), "{took:?}");
-        assert!(took < Duration::from_millis(1_500), "{took:?}");
-    }
-
-    #[tokio::test]
-    async fn an_address_change_silences_live_connections_and_stalls_new_ones() {
-        let profile = ProfileFile::builtin().get("5g-lte-handoff").unwrap().clone();
-        let shaper = Shaper::start(echo_server().await, profile, 1, &Trace::new()).await.unwrap();
-        let mut old = TcpStream::connect(shaper.addr()).await.unwrap();
-        round_trip(&mut old, 10).await;
-        let flows = shaper.address_change(Some(Duration::from_millis(1_500)));
-        old.write_all(b"ping").await.unwrap();
-        let mut answer = [0_u8; 4];
-        let silent =
-            tokio::time::timeout(Duration::from_millis(800), old.read_exact(&mut answer)).await;
-        assert!(silent.is_err(), "the old connection answered");
-        // Dialed inside the stall: its first round trip lands only after the stall ends.
-        let mut new = TcpStream::connect(shaper.addr()).await.unwrap();
-        round_trip(&mut new, 10).await;
-        let now = tokio::time::Instant::now();
-        assert!(now >= flows, "answered {:?} before the stall ended", flows - now);
-    }
-
-    #[tokio::test]
-    async fn one_seed_is_one_link() {
-        async fn run(seed: u64) -> Vec<u128> {
-            let profile = ProfileFile::builtin().get("lossy-10").unwrap().clone();
-            let shaper =
-                Shaper::start(echo_server().await, profile, seed, &Trace::new()).await.unwrap();
-            let mut client = TcpStream::connect(shaper.addr()).await.unwrap();
-            let mut took = Vec::new();
-            for _ in 0..6 {
-                // Rounded to 50 ms: the scheduler's own wake-up noise is below it.
-                took.push((round_trip(&mut client, 3_000).await.as_millis() + 25) / 50);
-            }
-            took
-        }
-        assert_eq!(run(9).await, run(9).await);
-    }
-}
+#[path = "shaper_tests.rs"]
+mod tests;

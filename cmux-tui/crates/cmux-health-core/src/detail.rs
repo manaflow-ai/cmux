@@ -23,6 +23,10 @@ pub enum Cause {
         ms: u64,
     },
     PageCrashed,
+    /// Its document is loading: a navigation the host started (`navigationStarted`).
+    PageLoading {
+        ms: u64,
+    },
     RendererUnresponsive {
         ms: u64,
     },
@@ -100,6 +104,7 @@ pub fn cause(cause: Cause) -> String {
             duration(ms)
         ),
         Cause::PageCrashed | Cause::RendererCrashed => "Stopped unexpectedly.".into(),
+        Cause::PageLoading { ms } => format!("Loading for {}.", duration(ms)),
         Cause::RendererUnresponsive { ms } => format!("Not responding for {}.", duration(ms)),
         Cause::AcpmuxDisconnected => "Agent sessions are disconnected.".into(),
         Cause::AcpmuxSilent { ms } => {
@@ -198,7 +203,11 @@ pub fn receipt_recovered(kind: Kind) -> String {
     }
 }
 
-/// The receipt of a part that gave up.
+/// The receipt of a part that gave up. It is not a dead end: once the oldest
+/// repair leaves the window (`policy::REPAIR_WINDOW_MS`), the part starts over
+/// from the first step by itself, so the words say that instead of asking the
+/// person to try again.
 pub fn receipt_gave_up(max: u32) -> String {
-    format!("Gave up after {max} repairs; waiting for you to try again.")
+    let minutes = crate::policy::REPAIR_WINDOW_MS / 60_000;
+    format!("Stopped after {max} repairs; cmux starts over by itself within {minutes} minutes.")
 }

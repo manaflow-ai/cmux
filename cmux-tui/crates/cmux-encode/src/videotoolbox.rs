@@ -26,6 +26,8 @@ type CVPixelBufferRef = *mut c_void;
 type CMSampleBufferRef = *mut c_void;
 type CMBlockBufferRef = *mut c_void;
 type CMFormatDescriptionRef = *mut c_void;
+type CVPixelBufferPoolRef = *mut c_void;
+type VTPixelTransferSessionRef = *mut c_void;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -42,6 +44,8 @@ const CODEC_H264: u32 = u32::from_be_bytes(*b"avc1");
 const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
 const CF_NUMBER_SINT32: c_long = 3;
 const CF_NUMBER_FLOAT64: c_long = 6;
+/// H.264's largest QP: a ceiling there is no ceiling.
+const H264_MAX_QP: u8 = 51;
 
 #[repr(C)]
 struct CFDictionaryKeyCallBacks {
@@ -49,10 +53,6 @@ struct CFDictionaryKeyCallBacks {
 }
 #[repr(C)]
 struct CFDictionaryValueCallBacks {
-    _p: [u8; 0],
-}
-#[repr(C)]
-struct CFArrayCallBacks {
     _p: [u8; 0],
 }
 
@@ -64,12 +64,14 @@ crate::framework! {
         static kCFBooleanFalse: CFBooleanRef;
         ref kCFTypeDictionaryKeyCallBacks: CFDictionaryKeyCallBacks;
         ref kCFTypeDictionaryValueCallBacks: CFDictionaryValueCallBacks;
-        ref kCFTypeArrayCallBacks: CFArrayCallBacks;
-        fn CFArrayCreate(a: CFAllocatorRef, values: *const CFTypeRef, n: c_long, cb: *const CFArrayCallBacks) -> CFArrayRef;
+        ref kCFTypeArrayCallBacks: c_void;
         fn CFDictionaryCreate(a: CFAllocatorRef, keys: *const CFTypeRef, values: *const CFTypeRef, n: c_long, kcb: *const CFDictionaryKeyCallBacks, vcb: *const CFDictionaryValueCallBacks) -> CFDictionaryRef;
         fn CFNumberCreate(a: CFAllocatorRef, t: c_long, v: *const c_void) -> CFNumberRef;
         fn CFArrayGetCount(a: CFArrayRef) -> c_long;
         fn CFArrayGetValueAtIndex(a: CFArrayRef, i: c_long) -> CFTypeRef;
+        fn CFArrayCreate(a: CFAllocatorRef, values: *const CFTypeRef, n: c_long, callbacks: *const c_void) -> CFArrayRef;
+        fn CFDictionaryGetValue(d: CFDictionaryRef, k: CFTypeRef) -> CFTypeRef;
+        fn CFNumberGetValue(n: CFNumberRef, t: c_long, out: *mut c_void) -> u8;
         fn CFDictionaryContainsKey(d: CFDictionaryRef, k: CFTypeRef) -> u8;
         fn CFRelease(v: CFTypeRef);
     }
@@ -136,7 +138,17 @@ crate::framework! {
         fn VTSessionSetProperty(s: *mut c_void, key: CFStringRef, value: CFTypeRef) -> OSStatus;
         fn VTCompressionSessionEncodeFrame(s: VTCompressionSessionRef, pb: CVPixelBufferRef, pts: CMTime, duration: CMTime, props: CFDictionaryRef, frame_refcon: *mut c_void, info: *mut u32) -> OSStatus;
         fn VTCompressionSessionCompleteFrames(s: VTCompressionSessionRef, until: CMTime) -> OSStatus;
+        fn VTCompressionSessionPrepareToEncodeFrames(s: VTCompressionSessionRef) -> OSStatus;
         fn VTCompressionSessionInvalidate(s: VTCompressionSessionRef);
+    }
+}
+
+crate::framework! {
+    mod vt_ltr_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_EnableLTR: CFStringRef;
+        static kVTEncodeFrameOptionKey_AcknowledgedLTRTokens: CFStringRef;
+        static kVTEncodeFrameOptionKey_ForceLTRRefresh: CFStringRef;
+        static kVTSampleAttachmentKey_RequireLTRAcknowledgementToken: CFStringRef;
     }
 }
 use vt_sys::*;
@@ -150,10 +162,48 @@ crate::framework! {
     }
 }
 
+// The sRGB transfer key, bound apart from `cv_sys` like the speed keys: were it missing, the
+// session would tag BT.709 transfer as before rather than fail `frameworks()`.
+crate::framework! {
+    mod cv_srgb_sys = "/System/Library/Frameworks/CoreVideo.framework/CoreVideo" {
+        static kCVImageBufferTransferFunction_sRGB: CFStringRef;
+    }
+}
+
+// The QP ceiling (macOS 12+), bound apart for the same reason: without it the session has
+// no ceiling and `set_max_qp` counts as refused.
+crate::framework! {
+    mod vt_qp_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_MaxAllowedFrameQP: CFStringRef;
+    }
+}
+
+// Scaling a captured surface down to the resolution ladder's picture (surface.rs): the
+// GPU's pixel transfer into pooled IOSurface-backed buffers. Bound apart from `vt_sys` and
+// `cv_sys`: only a scaled encode needs them, so a missing symbol fails that encode, not
+// `frameworks()`.
+crate::framework! {
+    mod vt_transfer_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        fn VTPixelTransferSessionCreate(a: CFAllocatorRef, out: *mut VTPixelTransferSessionRef) -> OSStatus;
+        fn VTPixelTransferSessionTransferImage(s: VTPixelTransferSessionRef, src: CVPixelBufferRef, dst: CVPixelBufferRef) -> OSStatus;
+        fn VTPixelTransferSessionInvalidate(s: VTPixelTransferSessionRef);
+    }
+}
+
+crate::framework! {
+    mod cv_pool_sys = "/System/Library/Frameworks/CoreVideo.framework/CoreVideo" {
+        static kCVPixelBufferPixelFormatTypeKey: CFStringRef;
+        static kCVPixelBufferWidthKey: CFStringRef;
+        static kCVPixelBufferHeightKey: CFStringRef;
+        fn CVPixelBufferPoolCreate(a: CFAllocatorRef, pool_attrs: CFDictionaryRef, pb_attrs: CFDictionaryRef, out: *mut CVPixelBufferPoolRef) -> i32;
+        fn CVPixelBufferPoolCreatePixelBuffer(a: CFAllocatorRef, pool: CVPixelBufferPoolRef, out: *mut CVPixelBufferRef) -> i32;
+    }
+}
+
 // Ultra's QP floor, bound apart for the same reason (MinAllowedFrameQP is a newer key): without
 // it an ultra session keeps its frame budget and has no floor.
 crate::framework! {
-    mod vt_qp_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+    mod vt_min_qp_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
         static kVTCompressionPropertyKey_MinAllowedFrameQP: CFStringRef;
     }
 }
@@ -197,6 +247,14 @@ fn ultra_min_qp(env: Option<&str>) -> i32 {
         .unwrap_or(ULTRA_MIN_QP)
 }
 
+/// A QP floor no higher than the session's QP ceiling (`None`: no ceiling). VideoToolbox fails
+/// each frame whose MinAllowedFrameQP passes its MaxAllowedFrameQP with -12902
+/// (kVTParameterErr): the frame-size guard's floor reaches 51 on a small budget, and the
+/// resolution ladder's ceiling is 40.
+fn floor_under_ceiling(floor: i32, ceiling: Option<u8>) -> i32 {
+    ceiling.map_or(floor, |c| floor.min(i32::from(c)))
+}
+
 /// Whether a profile runs the frame-size guard: on unless its env var says `off` (a sweep).
 fn guard_enabled(env: Option<&str>) -> bool {
     env.map(str::trim) != Some("off")
@@ -223,6 +281,7 @@ struct Output {
     status: OSStatus,
     /// The callback ran for the current frame.
     produced: bool,
+    ltr_token: Option<u64>,
 }
 
 pub struct VideoToolbox {
@@ -236,10 +295,26 @@ pub struct VideoToolbox {
     height: usize,
     fps: u32,
     baseline: bool,
+    /// Long-term references on (`with_ltr`): the session enables LTR and each frame carries the
+    /// viewer's acknowledged tokens. Off, the session is a plain IDR-recovery encoder.
+    ltr: bool,
     kbps: u32,
     /// The color tag the session carries (surface path); `None` until set.
     color: Option<ColorTag>,
+    /// The resolution ladder's picture size: larger surfaces are scaled down to it
+    /// (surface.rs), and DataRateLimits is loose (`loose_budget`). `None`: no ladder.
+    picture: Option<(usize, usize)>,
+    /// Scales surfaces to `picture` on the GPU; made at the first scaled frame.
+    scaler: Option<surface::Scaler>,
+    /// The QP ceiling asked for, and the one the current session has.
+    max_qp: Option<u8>,
+    max_qp_on_session: Option<u8>,
+    /// The encoder refused the QP ceiling once: not asked again.
+    max_qp_refused: bool,
     name: String,
+    acknowledged_ltr_tokens: Vec<u64>,
+    ltr_token: Option<u64>,
+    force_ltr_refresh: bool,
     /// The ultra profile: frame rate first ([`VideoToolbox::set_ultra`]).
     ultra: bool,
     /// Ultra's QP floor ([`ULTRA_MIN_QP`] or its override).
@@ -293,6 +368,15 @@ fn frame_budget(kbps: u32, fps: u32) -> (i32, f64) {
     (i32::try_from(bytes.max(1)).unwrap_or(i32::MAX), 1.0 / f64::from(fps))
 }
 
+/// The resolution ladder's DataRateLimits: (bytes, seconds) of twice the average rate over
+/// one second, only a safety against a runaway frame. With the ladder the picture size and
+/// the QP ceiling keep frames in size; a one-frame window under a QP ceiling made the
+/// encoder drop most motion frames (design D3, correction of 2026-11-16).
+fn loose_budget(kbps: u32) -> (i32, f64) {
+    let bytes = u64::from(kbps.min(2_000_000)) * 1000 / 8 * 2;
+    (i32::try_from(bytes.max(1)).unwrap_or(i32::MAX), 1.0)
+}
+
 /// Ultra's per-frame budget at `kbps` and `fps` for a `pixels` picture: one frame interval's
 /// share of the rate ([`frame_budget`]) times `budgets`, at most [`ULTRA_MAX_BITS_PER_PIXEL`].
 fn ultra_frame_budget(kbps: u32, fps: u32, pixels: usize, budgets: u64) -> (i32, f64) {
@@ -318,6 +402,10 @@ fn session_name(baseline: bool, ultra: bool) -> String {
 /// re-plan its rate control.
 fn bitrate_change_applies(current: u32, next: u32) -> bool {
     next < current || u64::from(next - current) * 20 >= u64::from(current)
+}
+
+fn number_i64(v: i64) -> CFNumberRef {
+    unsafe { CFNumberCreate(null(), 4, (&v as *const i64).cast()) }
 }
 
 fn dict(pairs: &[(CFStringRef, CFTypeRef)]) -> CFDictionaryRef {
@@ -362,6 +450,22 @@ extern "C" fn on_output(
                 kCMSampleAttachmentKey_NotSync(),
             ) != 0;
         out.keyframe = !not_sync;
+        if vt_ltr_sys::available().is_ok()
+            && !attachments.is_null()
+            && CFArrayGetCount(attachments) > 0
+        {
+            let attachment = CFArrayGetValueAtIndex(attachments, 0);
+            let value = CFDictionaryGetValue(
+                attachment,
+                vt_ltr_sys::kVTSampleAttachmentKey_RequireLTRAcknowledgementToken(),
+            );
+            if !value.is_null() {
+                let mut token = 0i64;
+                if CFNumberGetValue(value as CFNumberRef, 4, (&mut token as *mut i64).cast()) != 0 {
+                    out.ltr_token = Some(token as u64);
+                }
+            }
+        }
         if out.keyframe {
             let desc = CMSampleBufferGetFormatDescription(sb);
             let mut count = 0usize;
@@ -420,6 +524,7 @@ fn create_session(
     height: usize,
     fps: u32,
     baseline: bool,
+    ltr: bool,
     low_latency: bool,
     out: &Mutex<Output>,
 ) -> Res<VTCompressionSessionRef> {
@@ -455,6 +560,9 @@ fn create_session(
     // SAFETY: setting properties on our live session with CF values we release.
     unsafe {
         let set = |k: CFStringRef, v: CFTypeRef| VTSessionSetProperty(session, k, v);
+        if ltr && vt_ltr_sys::available().is_ok() {
+            set(vt_ltr_sys::kVTCompressionPropertyKey_EnableLTR(), kCFBooleanTrue());
+        }
         set(kVTCompressionPropertyKey_RealTime(), kCFBooleanTrue());
         set(kVTCompressionPropertyKey_AllowFrameReordering(), kCFBooleanFalse());
         let profile = if baseline {
@@ -487,10 +595,25 @@ fn create_session(
 
 impl VideoToolbox {
     /// `baseline`: constrained baseline (for openh264-decoded checks); otherwise High.
+    /// Long-term references stay off; see [`VideoToolbox::with_ltr`].
     pub fn new(width: u32, height: u32, fps: u32, kbps: u32, baseline: bool) -> Res<Self> {
+        Self::with_ltr(width, height, fps, kbps, baseline, false)
+    }
+
+    /// [`VideoToolbox::new`] with long-term references on when `ltr` is true and this macOS has
+    /// them: only for a session whose viewer negotiated the `video.ltr` cap.
+    pub fn with_ltr(
+        width: u32,
+        height: u32,
+        fps: u32,
+        kbps: u32,
+        baseline: bool,
+        ltr: bool,
+    ) -> Res<Self> {
         frameworks()?;
         let out: Box<Mutex<Output>> = Box::default();
-        let session = create_session(width as usize, height as usize, fps, baseline, true, &out)?;
+        let session =
+            create_session(width as usize, height as usize, fps, baseline, ltr, true, &out)?;
         let mut pixel_buffer: CVPixelBufferRef = null_mut();
         // SAFETY: creating an IOSurface-backed 420v buffer; attrs released after use.
         let pb_status = unsafe {
@@ -525,8 +648,14 @@ impl VideoToolbox {
             height: height as usize,
             fps,
             baseline,
+            ltr,
             kbps: kbps.max(100),
             color: None,
+            picture: None,
+            scaler: None,
+            max_qp: None,
+            max_qp_on_session: None,
+            max_qp_refused: false,
             idr_cause: None,
             name: session_name(baseline, false),
             ultra: false,
@@ -539,6 +668,9 @@ impl VideoToolbox {
             standard_guard_on: guard_enabled(
                 std::env::var("CMUX_RD_VT_STANDARD_GUARD").ok().as_deref(),
             ),
+            acknowledged_ltr_tokens: Vec::new(),
+            ltr_token: None,
+            force_ltr_refresh: false,
             applied_min_qp: NO_MIN_QP,
             last_guarded_pts: None,
             session_low_latency: true,
@@ -554,8 +686,15 @@ impl VideoToolbox {
         if self.session_size == (width, height) && self.session_low_latency == low_latency {
             return Ok(false);
         }
-        let session =
-            create_session(width, height, self.fps, self.baseline, low_latency, &self.out)?;
+        let session = create_session(
+            width,
+            height,
+            self.fps,
+            self.baseline,
+            self.ltr,
+            low_latency,
+            &self.out,
+        )?;
         // SAFETY: invalidating and releasing our previous session once.
         unsafe {
             VTCompressionSessionInvalidate(self.session);
@@ -566,11 +705,94 @@ impl VideoToolbox {
         self.session_low_latency = low_latency;
         self.color = None;
         self.apply_bitrate(self.kbps);
+        // A new session has no QP floor or ceiling: set them again when asked for, the floor
+        // under the ceiling.
         self.applied_min_qp = NO_MIN_QP;
+        self.max_qp_on_session = None;
+        self.apply_max_qp();
         if self.ultra_min_qp != NO_MIN_QP && self.ultra {
-            self.apply_min_qp(self.ultra_min_qp);
+            self.apply_min_qp(floor_under_ceiling(self.ultra_min_qp, self.max_qp_on_session));
         }
         Ok(true)
+    }
+
+    /// Builds the session for the profile set now and has VideoToolbox allocate the encoder's
+    /// resources, so the first frame (the session's keyframe) does not pay for either. A session
+    /// opened during the link's handshake (`cmux-rd serve`) does this before the viewer starts.
+    /// Best effort: a refusal leaves the session to set itself up on the first frame, as before.
+    pub fn prepare(&mut self) -> Res<()> {
+        self.ensure_session(self.width, self.height)?;
+        // SAFETY: preparing our live session; it has no frame in flight.
+        let _ = unsafe { VTCompressionSessionPrepareToEncodeFrames(self.session) };
+        Ok(())
+    }
+
+    /// Encodes captured surfaces scaled down to `size` (the resolution ladder's picture,
+    /// design D5; surface.rs scales on the GPU), or at their own size with `None`. A size
+    /// that is not smaller than a surface encodes the surface as it is. While a size is set,
+    /// DataRateLimits is only a loose safety (`loose_budget`) and the QP ceiling
+    /// ([`VideoToolbox::set_max_qp`]) and the ladder keep frames in size; `None` keeps the
+    /// one-frame budget (`frame_budget`).
+    pub fn set_picture_size(&mut self, size: Option<(u32, u32)>) {
+        let size = size.map(|(w, h)| (w as usize, h as usize));
+        if size == self.picture {
+            return;
+        }
+        let loose_changed = size.is_some() != self.picture.is_some();
+        self.picture = size;
+        if loose_changed {
+            self.apply_bitrate(self.kbps);
+        }
+    }
+
+    /// The encoder's QP ceiling (kVTCompressionPropertyKey_MaxAllowedFrameQP), kept across
+    /// session changes. `None`: no ceiling (a new session gets none set; a session that had
+    /// one gets H.264's largest QP). An encoder that refuses it (or an OS before macOS 12)
+    /// is remembered and not asked again: [`VideoToolbox::max_qp_refused`].
+    pub fn set_max_qp(&mut self, qp: Option<u8>) {
+        self.max_qp = qp;
+        self.apply_max_qp();
+    }
+
+    /// The encoder refused the QP ceiling; frames encode without one.
+    pub fn max_qp_refused(&self) -> bool {
+        self.max_qp_refused
+    }
+
+    fn apply_max_qp(&mut self) {
+        if self.max_qp_refused || self.max_qp_on_session == self.max_qp {
+            return;
+        }
+        if vt_qp_sys::available().is_err() {
+            self.max_qp_refused = true;
+            return;
+        }
+        // A floor already on the session comes down to the new ceiling first: a ceiling under
+        // the floor is refused, and the floor over it fails every frame (-12902).
+        if let Some(ceiling) = self.max_qp {
+            let floor = floor_under_ceiling(self.applied_min_qp, Some(ceiling));
+            if floor != self.applied_min_qp {
+                self.apply_min_qp(floor);
+            }
+        }
+        // H.264's largest QP lifts a ceiling the session already has.
+        let qp = number_i32(i32::from(self.max_qp.unwrap_or(H264_MAX_QP)));
+        // SAFETY: our live session and a CF number released after use (the session keeps
+        // its own value).
+        let status = unsafe {
+            let s = VTSessionSetProperty(
+                self.session,
+                vt_qp_sys::kVTCompressionPropertyKey_MaxAllowedFrameQP(),
+                qp,
+            );
+            CFRelease(qp);
+            s
+        };
+        if status != 0 {
+            self.max_qp_refused = true;
+            return;
+        }
+        self.max_qp_on_session = self.max_qp;
     }
 
     /// Turns the ultra profile on or off from the next frame, which recreates the session (and
@@ -634,7 +856,7 @@ impl VideoToolbox {
     /// Sets the session's QP floor. Optional like the speed keys: an OS without the key, or an
     /// encoder that refuses it, keeps the frame budget alone.
     fn apply_min_qp(&mut self, qp: i32) -> bool {
-        if vt_qp_sys::available().is_err() {
+        if vt_min_qp_sys::available().is_err() {
             return false;
         }
         let value = number_i32(qp);
@@ -642,7 +864,7 @@ impl VideoToolbox {
         let status = unsafe {
             let s = VTSessionSetProperty(
                 self.session,
-                vt_qp_sys::kVTCompressionPropertyKey_MinAllowedFrameQP(),
+                vt_min_qp_sys::kVTCompressionPropertyKey_MinAllowedFrameQP(),
                 value,
             );
             CFRelease(value);
@@ -670,10 +892,19 @@ impl VideoToolbox {
                 kVTCompressionPropertyKey_ColorPrimaries(),
                 primaries,
             );
+            // Screen pixels are sRGB-encoded (the capture asks for sRGB, and Display P3
+            // uses the same curve), so the stream says sRGB (H.264 transfer 13), as
+            // crate::color::SCREEN does: a BT.709 transfer tag makes a colour-managed
+            // viewer apply a camera curve to them.
+            let transfer = if cv_srgb_sys::available().is_ok() {
+                cv_srgb_sys::kCVImageBufferTransferFunction_sRGB()
+            } else {
+                kCVImageBufferTransferFunction_ITU_R_709_2()
+            };
             VTSessionSetProperty(
                 self.session,
                 kVTCompressionPropertyKey_TransferFunction(),
-                kCVImageBufferTransferFunction_ITU_R_709_2(),
+                transfer,
             );
             VTSessionSetProperty(
                 self.session,
@@ -686,9 +917,10 @@ impl VideoToolbox {
 
     /// Sets the average rate and the per-frame byte budget (`frame_budget`): VideoToolbox's
     /// DataRateLimits over one frame interval, so one frame drains within one frame interval
-    /// at the current rate. A budget the encoder refuses leaves only the average rate.
-    /// Ultra: the same one frame interval's share, within the per-pixel ceiling
-    /// ([`ultra_frame_budget`]).
+    /// at the current rate. With the resolution ladder (a picture size is set) the limit is
+    /// only a loose safety (`loose_budget`). Ultra: the same one frame interval's share,
+    /// within the per-pixel ceiling ([`ultra_frame_budget`]). A budget the encoder refuses
+    /// leaves only the average rate.
     fn apply_bitrate(&mut self, kbps: u32) {
         self.apply_rate(kbps, 1);
     }
@@ -698,7 +930,9 @@ impl VideoToolbox {
     fn apply_rate(&mut self, kbps: u32, budgets: u64) {
         let bps = number_i32((kbps.min(2_000_000) * 1000) as i32);
         let pixels = self.session_size.0 * self.session_size.1;
-        let (bytes, seconds) = if self.ultra {
+        let (bytes, seconds) = if self.picture.is_some() {
+            loose_budget(kbps)
+        } else if self.ultra {
             ultra_frame_budget(kbps, self.fps, pixels, budgets)
         } else {
             frame_budget(kbps, self.fps)
@@ -764,6 +998,9 @@ impl H264Encoder for VideoToolbox {
         self.idr_cause = None;
         // A surface of another size may have resized the session.
         let resized = self.ensure_session(self.width, self.height)?;
+        // The pictures are BT.709 video range from sRGB (crate::color::SCREEN): the same
+        // matrix and primaries as a captured surface, so tag them the same way.
+        self.apply_color(ColorTag::Srgb);
         self.fill(pic)?;
         let pb = self.pixel_buffer;
         self.idr_cause = (resized && !force_idr).then_some("resize");
@@ -785,6 +1022,19 @@ impl H264Encoder for VideoToolbox {
         self.name.clone()
     }
 
+    fn set_acknowledged_ltr_tokens(&mut self, tokens: &[u64]) {
+        self.acknowledged_ltr_tokens.clear();
+        self.acknowledged_ltr_tokens.extend_from_slice(tokens);
+    }
+
+    fn set_force_ltr_refresh(&mut self, refresh: bool) {
+        self.force_ltr_refresh = refresh;
+    }
+
+    fn ltr_token(&self) -> Option<u64> {
+        self.ltr_token
+    }
+
     fn idr_cause(&self) -> Option<&'static str> {
         self.idr_cause
     }
@@ -800,6 +1050,7 @@ impl VideoToolbox {
         pts: i64,
         out: &mut Vec<u8>,
     ) -> Res<bool> {
+        self.ltr_token = None;
         if let Ok(mut o) = self.out.lock() {
             *o = Output::default();
         }
@@ -847,6 +1098,9 @@ impl VideoToolbox {
             // on standard, as before the guard).
             self.configured_min_qp()
         };
+        // Never above the session's QP ceiling (the resolution ladder's): VideoToolbox fails a
+        // frame whose MinAllowedFrameQP passes its MaxAllowedFrameQP (-12902, kVTParameterErr).
+        let floor = floor_under_ceiling(floor, self.max_qp_on_session);
         if floor != self.applied_min_qp {
             self.apply_min_qp(floor);
         }
@@ -877,11 +1131,37 @@ impl VideoToolbox {
         // SAFETY: encoding our pixel buffer on our session; CompleteFrames runs the output
         // callback before it returns, so the result is ready afterwards.
         let status = unsafe {
-            let props = if force_idr {
-                dict(&[(kVTEncodeFrameOptionKey_ForceKeyFrame(), kCFBooleanTrue())])
-            } else {
-                null()
-            };
+            let mut owned_arrays = Vec::new();
+            let mut pairs = Vec::new();
+            if force_idr {
+                pairs.push((kVTEncodeFrameOptionKey_ForceKeyFrame(), kCFBooleanTrue()));
+            }
+            if self.ltr && vt_ltr_sys::available().is_ok() {
+                if !self.acknowledged_ltr_tokens.is_empty() {
+                    let values: Vec<CFTypeRef> = self
+                        .acknowledged_ltr_tokens
+                        .iter()
+                        .map(|token| number_i64(*token as i64) as CFTypeRef)
+                        .collect();
+                    let array = CFArrayCreate(
+                        null(),
+                        values.as_ptr(),
+                        values.len() as c_long,
+                        kCFTypeArrayCallBacks(),
+                    );
+                    owned_arrays.push((array, values));
+                    pairs
+                        .push((vt_ltr_sys::kVTEncodeFrameOptionKey_AcknowledgedLTRTokens(), array));
+                }
+                if self.force_ltr_refresh && !force_idr && !self.acknowledged_ltr_tokens.is_empty()
+                {
+                    pairs.push((
+                        vt_ltr_sys::kVTEncodeFrameOptionKey_ForceLTRRefresh(),
+                        kCFBooleanTrue(),
+                    ));
+                }
+            }
+            let props = if pairs.is_empty() { null() } else { dict(&pairs) };
             let mut info = 0u32;
             let s = VTCompressionSessionEncodeFrame(
                 self.session,
@@ -894,6 +1174,12 @@ impl VideoToolbox {
             );
             if !props.is_null() {
                 CFRelease(props);
+            }
+            for (array, values) in owned_arrays {
+                CFRelease(array as CFTypeRef);
+                for value in values {
+                    CFRelease(value);
+                }
             }
             if s == 0 { VTCompressionSessionCompleteFrames(self.session, INVALID_TIME) } else { s }
         };
@@ -911,6 +1197,7 @@ impl VideoToolbox {
         }
         out.clear();
         out.extend_from_slice(&result.annexb);
+        self.ltr_token = result.ltr_token;
         Ok(result.keyframe && !out.is_empty())
     }
 }
@@ -927,69 +1214,5 @@ impl Drop for VideoToolbox {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_frame_budget_is_one_frame_intervals_share_of_the_rate() {
-        assert_eq!(frame_budget(8_000, 60), (16_666, 1.0 / 60.0));
-        assert_eq!(frame_budget(1_000, 30).0, 4_166);
-        assert_eq!(frame_budget(100, 0), (12_500, 1.0), "fps 0 counts as 1");
-        assert!(frame_budget(u32::MAX, 1).0 > 0, "clamped, never negative");
-    }
-
-    #[test]
-    fn ultra_holds_frame_rate_first_within_a_per_pixel_ceiling() {
-        const P1080: usize = 1920 * 1080;
-        // 150 Mbps at 120 fps: one frame interval's share, as standard.
-        assert_eq!(ultra_frame_budget(150_000, 120, P1080, 1), frame_budget(150_000, 120));
-        assert_eq!(ultra_frame_budget(150_000, 120, P1080, 1).0, 156_250);
-        // An uncapped target (the sweep's 770 Mbps) stops at 3 bits per pixel: under 1 MB.
-        assert_eq!(ultra_frame_budget(770_000, 120, P1080, 1), (777_600, 1.0 / 120.0));
-        assert_eq!(ultra_frame_budget(u32::MAX, 1, P1080, 1).0, 777_600);
-        // The refinement gets four budgets, still within the ceiling.
-        assert_eq!(ultra_frame_budget(150_000, 120, P1080, 4).0, 625_000);
-        assert_eq!(ultra_frame_budget(400_000, 120, P1080, 4).0, 777_600);
-        assert!(ultra_frame_budget(100, 120, 0, 1).0 > 0, "never zero");
-    }
-
-    #[test]
-    fn the_frame_guard_is_on_unless_a_sweep_says_off() {
-        assert!(guard_enabled(None));
-        assert!(guard_enabled(Some("on")));
-        assert!(guard_enabled(Some("")));
-        assert!(!guard_enabled(Some("off")));
-        assert!(!guard_enabled(Some(" off\n")));
-    }
-
-    #[test]
-    fn ultras_qp_floor_defaults_and_overrides() {
-        assert_eq!(ultra_min_qp(None), NO_MIN_QP, "no floor by default");
-        assert_eq!(ultra_min_qp(Some("20")), 20);
-        assert_eq!(ultra_min_qp(Some(" 22 ")), 22);
-        assert_eq!(ultra_min_qp(Some("0")), NO_MIN_QP, "0 is out of range");
-        assert_eq!(ultra_min_qp(Some("52")), NO_MIN_QP, "past H.264's range");
-        assert_eq!(ultra_min_qp(Some("x")), NO_MIN_QP);
-    }
-
-    #[test]
-    fn the_name_says_which_rate_control_runs() {
-        assert_eq!(
-            session_name(false, false),
-            "videotoolbox h264 high low-latency-rc realtime no-reordering gop=inf"
-        );
-        assert_eq!(
-            session_name(true, true),
-            "videotoolbox h264 constrained-baseline frame-budget-rc realtime no-reordering gop=inf ultra"
-        );
-    }
-
-    #[test]
-    fn a_bitrate_cut_applies_at_once_and_a_small_rise_waits() {
-        assert!(bitrate_change_applies(10_000, 9_900), "a 1% cut");
-        assert!(bitrate_change_applies(10_000, 5_000));
-        assert!(!bitrate_change_applies(10_000, 10_400), "a 4% rise");
-        assert!(bitrate_change_applies(10_000, 10_500), "a 5% rise");
-        assert!(!bitrate_change_applies(10_000, 10_000));
-    }
-}
+#[path = "videotoolbox_tests.rs"]
+mod tests;

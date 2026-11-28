@@ -16,7 +16,7 @@ terminal_echo, both from launch-ready's LR-RUN. Everything else in the round is 
   run.py --out OUT --rounds N --repo REPO --edit PATH
   run.py --self-test     (the parsers and the sweep, on any OS)
 """
-import argparse, ctypes, datetime, json, os, re, shlex, signal, socket, statistics, subprocess, sys, tempfile, threading, time
+import argparse, ctypes, datetime, importlib.util, json, os, re, shlex, signal, socket, statistics, subprocess, sys, tempfile, threading, time
 
 TAG = "dlc-startup"
 STAGES = ["compile", "link", "sign", "quit", "launch", "ready"]
@@ -24,6 +24,7 @@ GRAPH = {"compile": [], "link": ["compile"], "sign": ["link"], "quit": [], "laun
 ANCHOR = 'defer { DebugTimings.markLaunch("did_finish_launching_end") }'
 IDLE_S = 15  # after a launch: time for the window, the typed key's echo and the app to go idle before the next step
 EXEC_SETTLE_MS = 5000  # a new process's path can still change by exec this long after its start (Watcher.sweep)
+FRONT_WAIT_S = 10  # tab.focus to the seeded terminal tab back in front (front_drift); the app answers in well under 1 s
 LAUNCH_WAIT_S = 180  # LaunchServices' open to the app's process: a few s; 60 s once ran out (step a8b4d181c32ad2c06b3a0126)
 
 
@@ -195,12 +196,39 @@ def frontend_command(text, suffix):
         s = line.strip()
         if s.startswith("cd "):
             cwd = shlex.split(s)[1]
-        if "builtin-swiftTaskExecution -- " in s and "-primary-file" in s:
-            argv = shlex.split(s.split("builtin-swiftTaskExecution -- ", 1)[1])
-            prim = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "-primary-file"]
-            if any(p.endswith(suffix) for p in prim):
-                return argv, cwd
+        if "-primary-file" not in s or "swift-frontend" not in s:
+            continue
+        # Xcode writes the command after "builtin-swiftTaskExecution -- " or as a bare line; either way argv[0] is the
+        # swift-frontend binary.
+        try:
+            words = shlex.split(s.split(" -- ", 1)[1] if " -- " in s else s)
+        except ValueError:
+            continue
+        at = next((i for i, w in enumerate(words) if os.path.basename(w) == "swift-frontend"), None)
+        if at is None:
+            continue
+        argv = words[at:]
+        prim = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "-primary-file"]
+        if any(p.endswith(suffix) for p in prim):
+            return argv, cwd
     return None, None
+
+
+def log_census(paths, suffix):
+    """What the build logs held, for an error when no compile command matched: size, swift-frontend lines, lines naming
+    the edited file, and the first of those."""
+    parts = []
+    for p in paths:
+        if not os.path.exists(p):
+            parts.append("%s: missing" % os.path.basename(p))
+            continue
+        lines = open(p, errors="replace").read().splitlines()
+        named = [l.strip() for l in lines if os.path.basename(suffix) in l]
+        parts.append("%s: %d lines, %d swift-frontend, %d -primary-file, %d naming %s%s" % (
+            os.path.basename(p), len(lines), sum("swift-frontend" in l for l in lines),
+            sum("-primary-file" in l for l in lines), len(named), os.path.basename(suffix),
+            (", first: " + named[0][:240]) if named else ""))
+    return "; ".join(parts) or "no round logs"
 
 
 def remap_frontend(argv, suffix, tmp):
@@ -298,6 +326,7 @@ class Loop:
         if ANCHOR not in self.original:
             raise RuntimeError("edit anchor not found in %s: %s" % (args.edit, ANCHOR))
         self.notes, self.rounds, self.floors = [], [], dict((s, []) for s in STAGES)
+        self.front_tab, self.front_drift = None, []  # hold_front
         self.started = now_ms()
         self.watch = Watcher()
         self.launches = []  # Popen of every launch-ready this run started
@@ -441,15 +470,57 @@ class Loop:
                               text=True, timeout=180)
         with open(os.path.join(self.out, "logs", "seed.out"), "w") as f:
             f.write(seed.stdout + seed.stderr)
+        # The terminal tab the seed left in front, read while the priming app still runs: every quit leaves it in front
+        # again (hold_front), since the typed key needs a restored terminal.
+        self.front_tab = self.seeder().front().get("tab") if seed.returncode == 0 else None
         self.finish_launch("prime", p, outp)
         if seed.returncode != 0:
-            raise RuntimeError("seed of a terminal front failed: " + (seed.stdout + seed.stderr)[-800:])
+            # The step returns only report.json, so carry the priming launch's own words too.
+            prime = " | ".join("%s: %s" % (os.path.basename(f), open(f, errors="replace").read()[-500:].strip())
+                               for f in (outp, outp + ".err") if os.path.exists(f))
+            raise RuntimeError("seed of a terminal front failed: " + (seed.stdout + seed.stderr)[-800:]
+                               + (" (prime launch: %s)" % prime if prime else ""))
+
+    def seeder(self):
+        """launch-ready-seed.py's Seed on this app's control socket, for its front() and action()."""
+        spec = importlib.util.spec_from_file_location("lr_seed", os.path.join(self.repo, "scripts", "measure",
+                                                                               "launch-ready-seed.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.Seed(os.path.join(self.sock_dir, "app.sock"), 1, 1, front="tab")
+
+    def hold_front(self, label):
+        """Before an idle instance quits: the seeded terminal tab in front, so the next launch restores a terminal for the
+        probe's key. 2026-11-26 step 3c18a959dc22bfdcf2bd0fd0: floor2 failed "no terminal_echo mark" with
+        terminal.first_key.page_shown and home.saved_page_shown: floor1's session saved Home's docked page in front, so
+        floor2's key reached no PTY. A front that moved off the tab is put back with tab.focus, untimed (before the quit's
+        clock starts), and counted in the report's front_drift: what the app did with an untouched session is a finding."""
+        if not self.front_tab:
+            raise RuntimeError("launch %s: no seeded terminal tab to keep in front" % label)
+        seed = self.seeder()
+        front = seed.front()
+        if front.get("tab") == self.front_tab and not front.get("home"):
+            return
+        self.front_drift.append({"launch": label, "front": front})
+        log(label, "front drifted off the seeded tab", json.dumps(front))
+        seed.action("tab.focus", target="tab:%s" % self.front_tab)
+        end = time.time() + FRONT_WAIT_S
+        while time.time() < end:  # measurement script: a bounded wait for the app's own front
+            front = seed.front()
+            if front.get("tab") == self.front_tab and not front.get("home"):
+                return
+            time.sleep(0.1)
+        raise RuntimeError("launch %s: the seeded terminal tab %s is not in front %d s after tab.focus (front %s)"
+                           % (label, self.front_tab, FRONT_WAIT_S, json.dumps(front)))
 
     def idle_instance(self, label):
         p, outp, t, pid = self.launch(label, 3600)
+        # sleep-ok: the floor measures quitting an idle app; launch-ready reports its window and echo only at exit,
+        # so this fixed idle window is the condition itself, not a wait on one.
         time.sleep(IDLE_S)
         if not alive(pid):
             raise RuntimeError("launch %s: app %d ended by itself" % (label, pid))
+        self.hold_front(label)
         return p, outp, pid
 
     def run_floors_launch(self, n):
@@ -501,6 +572,7 @@ class Loop:
             time.sleep(IDLE_S)
             if not alive(pid):
                 raise RuntimeError("round %s: relaunched app %d ended by itself" % (label, pid))
+            self.hold_front(label)
             old_p, old_out, old_pid = p, outp, pid
             log(label, "reload", round(r1 - r0), dict((c, round(v)) for c, v in build.items()))
         os.kill(old_pid, signal.SIGTERM)
@@ -540,7 +612,8 @@ class Loop:
                      and frontend_command(open(p, errors="replace").read(), suffix)[0]), "")
         argv, cwd = frontend_command(text, suffix)
         if not argv:
-            raise RuntimeError("compile floor: no swift-frontend command for AppDelegate.swift in the round build logs")
+            raise RuntimeError("compile floor: no swift-frontend command for AppDelegate.swift in the round build logs (%s)"
+                               % log_census(logs, suffix))
         cmd = remap_frontend(argv, suffix, tmp)
         for _ in range(n):
             self.floors["compile"].append(round(timed(cmd, cwd), 1))
@@ -623,6 +696,7 @@ def main():
     if loop is not None:
         doc["rounds"], doc["floors_ms"] = loop.rounds, dict((s, v) for s, v in loop.floors.items())
         doc["notes"] = loop.notes
+        doc["front_tab"], doc["front_drift"] = loop.front_tab, loop.front_drift
     doc["notes"] += notes(args.rounds)
     if doc["error"] is None:
         short = [s for s in STAGES if len(doc["floors_ms"].get(s, [])) < args.rounds]
@@ -690,6 +764,9 @@ def self_test():
     ])
     argv, cwd = frontend_command(log_text, "/CmuxNextApp/AppDelegate.swift")
     assert cwd == "/r/Packages" and argv[0] == "/X/swift-frontend", (argv, cwd)
+    bare = log_text.replace("builtin-swiftTaskExecution -- ", "")
+    assert frontend_command(bare, "/CmuxNextApp/AppDelegate.swift") == (argv, cwd), "a bare swift-frontend line"
+    assert frontend_command(log_text, "/CmuxNextApp/Other.swift") == (None, None)
     cmd = remap_frontend(argv, "/CmuxNextApp/AppDelegate.swift", "/t")
     assert cmd.count("-primary-file") == 1 and cmd[cmd.index("-o") + 1] == "/t/floor.o" and cmd.count("-o") == 1, cmd
     assert cmd[cmd.index("-index-store-path") + 1] == "/t/Index", cmd

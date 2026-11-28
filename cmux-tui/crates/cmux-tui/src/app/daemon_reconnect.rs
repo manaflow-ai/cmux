@@ -4,8 +4,12 @@
 //! of a session: the old daemon sends `daemon-shutdown`, closes every client
 //! and exits, and a new daemon adopts the same terminals on the same socket.
 //! A plain session client keeps its view, shows "reconnecting" in the status
-//! line, and connects again with a bounded backoff; the new session is
-//! installed in place the way a machine switch installs one. After
+//! line, and connects again until a daemon answers: quickly for the notice's
+//! window, then every [`SLOW_DELAY`] for as long as it takes (it never gives
+//! up and exits; the person can still detach or quit). The new session is
+//! installed in place the way a machine switch installs one. Leo,
+//! 2026-11-24: "let's just keep optimistically connecting and reinforcing
+//! the connection". After
 //! `cmux daemon stop` (the notice says `restart: false`) the client exits
 //! with a message instead.
 
@@ -29,19 +33,22 @@ use crate::session::{DaemonShutdownNotice, Session};
 /// Opens a new connection to the session this client attached to.
 pub(crate) type SessionReconnector = Arc<dyn Fn() -> anyhow::Result<Session> + Send + Sync>;
 
-/// How long the client tries after the daemon announced a restart.
+/// How long the client tries quickly after the daemon announced a restart.
 pub(super) const RESTART_WINDOW: Duration = Duration::from_secs(30);
-/// How long the client tries when the daemon announced its shutdown without
-/// saying whether a replacement follows (an older daemon, an app or update
+/// How long the client tries quickly when the daemon announced its shutdown
+/// without saying whether a replacement follows (an older daemon, an app or update
 /// handoff).
 pub(super) const UNANNOUNCED_WINDOW: Duration = Duration::from_secs(10);
 const FIRST_DELAY: Duration = Duration::from_millis(100);
 const MAX_DELAY: Duration = Duration::from_secs(1);
+/// The wait between attempts once the quick window has passed: forever.
+pub(super) const SLOW_DELAY: Duration = Duration::from_secs(5);
 
 /// What the client does when its session's event stream ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum StreamLossPlan {
-    /// Connect again for up to `window`, keeping the view.
+    /// Connect again, quickly for `window` and then slowly until it does,
+    /// keeping the view.
     Reconnect { window: Duration },
     /// The session was stopped: exit and say so.
     Stopped,
@@ -73,26 +80,31 @@ pub(super) fn plan_for_stream_loss(
     }
 }
 
-/// The waits between connection attempts: 100 ms doubling to 1 s, until
-/// `window` from the start has passed.
+/// The waits between connection attempts: 100 ms doubling to 1 s until
+/// `window` from the start has passed, then [`SLOW_DELAY`], never an end.
 #[derive(Debug)]
 pub(super) struct ReconnectBackoff {
-    deadline: Instant,
+    quick_until: Instant,
     next: Duration,
 }
 
 impl ReconnectBackoff {
     pub(super) fn new(started: Instant, window: Duration) -> Self {
-        Self { deadline: started + window, next: FIRST_DELAY }
+        Self { quick_until: started + window, next: FIRST_DELAY }
     }
 
-    /// The wait before the next attempt, or `None` once the window is over.
-    /// The last wait is cut short so the final attempt falls at the deadline.
-    pub(super) fn next_delay(&mut self, now: Instant) -> Option<Duration> {
-        let remaining = self.deadline.checked_duration_since(now).filter(|left| !left.is_zero())?;
+    /// The wait before the next attempt. Inside the window the last quick
+    /// wait is cut short so an attempt falls at its end; after it, every
+    /// wait is [`SLOW_DELAY`].
+    pub(super) fn next_delay(&mut self, now: Instant) -> Duration {
+        let Some(remaining) =
+            self.quick_until.checked_duration_since(now).filter(|left| !left.is_zero())
+        else {
+            return SLOW_DELAY;
+        };
         let delay = self.next.min(remaining);
         self.next = (self.next * 2).min(MAX_DELAY);
-        Some(delay)
+        delay
     }
 }
 
@@ -119,15 +131,11 @@ impl Drop for ReconnectAttempt {
     }
 }
 
-/// What a reconnect attempt reports to the event loop.
+/// What a reconnect attempt reports to the event loop: it only ever ends
+/// connected (or cancelled, with no outcome).
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ReconnectOutcome<T> {
     Connected(T),
-    /// The window passed; the last connection error.
-    Failed {
-        window: Duration,
-        error: String,
-    },
 }
 
 /// The outcome the worker sends: a session ready to install.
@@ -186,31 +194,38 @@ impl DaemonReconnect {
     }
 }
 
-/// Runs `connect` until it succeeds or `window` (read on `now`) passes,
-/// waiting [`ReconnectBackoff`] delays between attempts. Returns `None`
-/// when cancelled.
+/// Runs `connect` until it succeeds, waiting [`ReconnectBackoff`] delays
+/// between attempts (quick for `window`, read on `now`, then slow). Returns
+/// `None` when cancelled.
 pub(super) fn reconnect_until<T>(
     window: Duration,
     cancellation: &EventCancellation,
     now: impl Fn() -> Instant,
+    connect: impl FnMut() -> anyhow::Result<T>,
+) -> Option<ReconnectOutcome<T>> {
+    // A bounded wait that a cancellation (the TUI quitting) cuts short.
+    let wait =
+        |delay| matches!(cancellation.receiver.recv_timeout(delay), Err(RecvTimeoutError::Timeout));
+    reconnect_until_with_wait(window, now, wait, connect)
+}
+
+/// [`reconnect_until`] with its wait given: `wait(delay)` waits, false when
+/// cancelled.
+pub(super) fn reconnect_until_with_wait<T>(
+    window: Duration,
+    now: impl Fn() -> Instant,
+    mut wait: impl FnMut(Duration) -> bool,
     mut connect: impl FnMut() -> anyhow::Result<T>,
 ) -> Option<ReconnectOutcome<T>> {
     let mut backoff = ReconnectBackoff::new(now(), window);
-    let mut last_error = String::from("no attempt");
     loop {
-        let Some(delay) = backoff.next_delay(now()) else {
-            return Some(ReconnectOutcome::Failed { window, error: last_error });
-        };
-        // A bounded wait that a cancellation (the TUI quitting) cuts short.
-        match cancellation.receiver.recv_timeout(delay) {
-            Err(RecvTimeoutError::Timeout) => {}
-            Ok(()) | Err(RecvTimeoutError::Disconnected) => return None,
+        if !wait(backoff.next_delay(now())) {
+            return None;
         }
         match connect() {
             Ok(connected) => return Some(ReconnectOutcome::Connected(connected)),
             Err(error) => {
                 crate::client_log::info("reconnect", &format!("attempt failed: {error:#}"));
-                last_error = format!("{error:#}");
             }
         }
     }
@@ -292,30 +307,60 @@ impl App {
             StreamLossPlan::Reconnect { window } => {
                 crate::client_log::info(
                     "reconnect",
-                    &format!("the session daemon left; reconnecting for {} s", window.as_secs()),
-                );
-                let preparation = MachineSessionPreparation {
-                    initial_size: content_size_for_rect(
-                        self.content_area,
-                        self.config.scrollbar.position,
-                        self.config.pane.padding,
+                    &format!(
+                        "the session daemon left; reconnecting (quickly for {} s, then every {} s)",
+                        window.as_secs(),
+                        SLOW_DELAY.as_secs()
                     ),
-                    generation: self.session_generation.wrapping_add(1).max(1),
-                    pty_input: self.pty_input.sender(),
-                    surface_filter: self.surface_only,
-                };
-                if let Err(error) = self.daemon_reconnect.start(
-                    window,
-                    self.session_label.clone(),
-                    preparation,
-                    self.app_events.clone(),
-                ) {
-                    crate::client_log::error("reconnect", &format!("{error:#}"));
-                    return None;
-                }
-                Some(self.show_reconnecting())
+                );
+                self.start_daemon_reconnect(window)
             }
         }
+    }
+
+    /// A connection that broke with no shutdown notice (the daemon crashed,
+    /// the socket dropped) is followed the way an unannounced departure is:
+    /// the client reconnects for [`UNANNOUNCED_WINDOW`] instead of exiting
+    /// with "reconnect" advice whose only answer is yes. `None` when this
+    /// client has no reconnector (machine, provider, scoped, in-process).
+    pub(super) fn reconnect_after_transport_loss(&mut self) -> Option<RenderAction> {
+        if self.daemon_reconnect.in_progress() {
+            return Some(RenderAction::None);
+        }
+        if !self.follows_daemon_departures() || self.session.disconnected_by_peer() {
+            return None;
+        }
+        crate::client_log::info(
+            "reconnect",
+            &format!(
+                "the session connection broke; reconnecting for {} s",
+                UNANNOUNCED_WINDOW.as_secs()
+            ),
+        );
+        self.start_daemon_reconnect(UNANNOUNCED_WINDOW)
+    }
+
+    fn start_daemon_reconnect(&mut self, window: Duration) -> Option<RenderAction> {
+        let preparation = MachineSessionPreparation {
+            initial_size: content_size_for_rect(
+                self.content_area,
+                self.config.scrollbar.position,
+                self.config.pane.padding,
+            ),
+            generation: self.session_generation.wrapping_add(1).max(1),
+            pty_input: self.pty_input.sender(),
+            surface_filter: self.surface_only,
+        };
+        if let Err(error) = self.daemon_reconnect.start(
+            window,
+            self.session_label.clone(),
+            preparation,
+            self.app_events.clone(),
+        ) {
+            crate::client_log::error("reconnect", &format!("{error:#}"));
+            return None;
+        }
+        Some(self.show_reconnecting())
     }
 
     /// Puts "reconnecting" back on the status line.
@@ -342,23 +387,15 @@ impl App {
             return Ok(RenderAction::None);
         }
         let runtime = &localization::catalog().runtime;
-        match outcome {
-            ReconnectOutcome::Connected(prepared) => {
-                let mut prepared = *prepared;
-                // Keep this client's workspace, screen, pane and tab where
-                // the new daemon still has them.
-                preserve_client_view(&self.tree, &mut prepared.tree);
-                self.install_prepared_machine_session(prepared, true);
-                crate::client_log::info("reconnect", "reconnected to the session daemon");
-                self.status_message = Some(runtime.session_reconnected(&self.session_label));
-                Ok(RenderAction::Draw)
-            }
-            ReconnectOutcome::Failed { window, error } => {
-                crate::client_log::error("reconnect", &format!("gave up: {error}"));
-                let label = &self.session_label;
-                anyhow::bail!(runtime.session_reconnect_failed(label, window.as_secs(), &error))
-            }
-        }
+        let ReconnectOutcome::Connected(prepared) = outcome;
+        let mut prepared = *prepared;
+        // Keep this client's workspace, screen, pane and tab where the new
+        // daemon still has them.
+        preserve_client_view(&self.tree, &mut prepared.tree);
+        self.install_prepared_machine_session(prepared, true);
+        crate::client_log::info("reconnect", "reconnected to the session daemon");
+        self.status_message = Some(runtime.session_reconnected(&self.session_label));
+        Ok(RenderAction::Draw)
     }
 }
 

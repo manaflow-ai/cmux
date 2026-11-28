@@ -1,4 +1,5 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
+// cmux-web-test-timeout: 300
 // A long queue above the composer, as Leo asked on 2026-10-14 (PR #20391): the row's actions sit
 // on the row itself, with no fade drawn over its text, and many queued prompts fold behind one
 // "N more queued" row that opens in place to the whole list and closes back. The page is the

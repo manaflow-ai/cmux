@@ -30,6 +30,10 @@ EDITS = {
     "acpmux_leaf": "crates/acpmux/src/harness_icon_set.rs",
     "shared_struct": "crates/cmux-host-budget/src/lib.rs",
     "test_only": "crates/acpmux/src/harness_icon_set.rs",
+    # The daemon's server code: a field in `identify` (rust-live.py's own edit).
+    "tui_server": "crates/cmux-tui/src/bin/cmux-tui/identify.rs",
+    # cmux-tui-core outside the server: a statement in a Mux method body.
+    "tui_core": "crates/cmux-tui-core/src/mux/resource_effects.rs",
 }
 BUILD = ["build", "--locked", "-p", "cmux-tui", "-p", "acpmux", "--bins"]
 CHECK = ["check", "--locked", "-p", "cmux-tui", "-p", "acpmux"]
@@ -311,6 +315,12 @@ def edit(path: Path, n: int, scenario: str) -> None:
             f"            load1_per_core: 1.0,\n            measurement_marker: [0; {n}],\n",
             1,
         )
+    elif scenario == "tui_server":
+        needle = '        "daemon_handoff": 1,\n'
+        insert = MARK_BEGIN + f'        "measurement_marker": {n},\n' + MARK_END
+    elif scenario == "tui_core":
+        needle = "    pub fn registry_identity(&self) -> (String, String) {\n"
+        insert = MARK_BEGIN + f"        let _measurement_marker = {n}u32;\n        let _ = _measurement_marker;\n" + MARK_END
     elif scenario == "test_only":
         needle = "mod tests {\n    use super::*;\n"
         insert = MARK_BEGIN + f"    const _: u32 = {n};\n" + MARK_END
@@ -346,6 +356,7 @@ def main() -> int:
     ap.add_argument("--custom", action="append", default=[],
                     help="NAME:CONFIG[;CONFIG...] a variant of cargo --config entries (repeatable)")
     ap.add_argument("--timings", action="store_true", help="after the rounds, per-unit --timings of one edit per crate (base)")
+    ap.add_argument("--load", type=int, default=0, help="busy processes running beside the edit rounds")
     ap.add_argument("--zig-packages", default="", help="a zig global cache p/ already holding Ghostty's packages")
     ap.add_argument("--target-root", default="", help="where the per-variant target directories go (default OUT/target)")
     a = ap.parse_args()
@@ -450,10 +461,18 @@ def main() -> int:
                 spec["skip"] = "clean build failed"
         chosen = {k: s for k, s in chosen.items() if not s.get("skip")}
 
-    for k, spec in chosen.items():
-        dt, rc, comp = cargo(spec, targets[k], TEST, out / f"{targets[k].name}.log")
-        rec(k, "baseline-test", dt, rc, comp, 0)
+    # The baseline test run only serves the test_only scenario; others skip it (an acpmux test
+    # that hangs would otherwise eat the whole budget before the first timed edit).
+    if "test_only" in scen:
+        for k, spec in chosen.items():
+            dt, rc, comp = cargo(spec, targets[k], TEST, out / f"{targets[k].name}.log")
+            rec(k, "baseline-test", dt, rc, comp, 0)
 
+    # --load N: N busy processes beside the timed edit rounds (the dev loop under load).
+    load = [subprocess.Popen([sys.executable, "-c", "while True: pass"], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True) for _ in range(a.load)]
+    if load:
+        log(f"DEVLOOP-LOAD {a.load} busy processes")
     try:
         # Round -> scenario -> variant: one edit, then every variant builds it, so each target
         # sees exactly one changed crate since its last build (cargo dirties by mtime, and the
@@ -482,6 +501,9 @@ def main() -> int:
                 for p in set(EDITS.values()):
                     restore(ws / p)
     finally:
+        for proc in load:
+            proc.kill()
+            proc.wait()
         for p in EDITS.values():
             restore(ws / p)
         if "blaze" in names and shutil.which("blaze"):
@@ -501,6 +523,8 @@ def main() -> int:
         env_t = targets["base"]
         cargo({}, env_t, BUILD, out / "timings.log")  # the restored tree, untimed
         for s_name, rel in EDITS.items():
+            if s_name not in scen:
+                continue
             edit(ws / rel, 9999, s_name)
             html = []
             try:
@@ -517,6 +541,7 @@ def main() -> int:
                 units = json.loads(m.group(1)) if m else []
             except ValueError:
                 units = []
+            (out / f"timings-{s_name}.json").write_text(json.dumps(units, indent=1))
             for u in sorted(units, key=lambda u: -u.get("duration", 0))[:8]:
                 log(f"DEVLOOP-UNIT {s_name} {u.get('name')} {u.get('target', '').strip() or 'lib'} "
                     f"total={u.get('duration', 0):.2f}s rmeta={u.get('rmeta_time') or 0:.2f}s "

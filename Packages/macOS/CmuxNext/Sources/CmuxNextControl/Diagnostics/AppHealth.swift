@@ -54,9 +54,11 @@ public final class AppHealth: Sendable {
         case reloadPage, restartRenderer, reconnect, restartConnection, restartPageHost, holdReplace, none
     }
 
-    /// The contract's events (`event {id, event}`).
+    /// The contract's events (`event {id, event}`). `navigationStarted`: the host started loading a page's
+    /// document (a reload, crash recovery, a repair), so the page loads and is not hung until `loaded` (a
+    /// model older than ABI 3 ignores it).
     public enum Event: String, Sendable {
-        case crashed, loaded, unresponsive, responsive, connected, disconnected, loadFailed, listenerMissing
+        case crashed, loaded, navigationStarted, unresponsive, responsive, connected, disconnected, loadFailed, listenerMissing
         case started, ready, exited, restoreProgress, restoreStarted, restoreFinished
     }
 
@@ -69,13 +71,19 @@ public final class AppHealth: Sendable {
         /// The model's token for this action, sent back with its result so a late result never
         /// lands on a newer attempt (nil from a model that sends none).
         public var token: UInt64?
+        /// The part's label and why it is repaired ("Not answering for 12 s."), for the log (nil from a model
+        /// older than ABI 3).
+        public var label: String?
+        public var cause: String?
 
-        public init(id: String, kind: Kind, action: Repair, attempt: Int, token: UInt64? = nil) {
+        public init(id: String, kind: Kind, action: Repair, attempt: Int, token: UInt64? = nil, label: String? = nil, cause: String? = nil) {
             self.id = id
             self.kind = kind
             self.action = action
             self.attempt = attempt
             self.token = token
+            self.label = label
+            self.cause = cause
         }
     }
 
@@ -123,6 +131,8 @@ public final class AppHealth: Sendable {
         var restoreProgressAt: UInt64?
     }
 
+    // Lock carve-out: owners feed signals synchronously from any thread (scheme handlers, the daemon
+    // reader, the main actor), one short swap around one model call, never a wait or an await.
     private let box = Mutex(Box())
     /// The version last delivered to the subscribers. Delivery runs under this lock, outside the
     /// model's, so two ops racing to publish never land an older snapshot after a newer one.
@@ -363,7 +373,10 @@ public final class AppHealth: Sendable {
             if reply["actions"]?.arrayValue?.contains(where: { $0["action"]?.stringValue == Repair.holdReplace.rawValue }) == true {
                 box.holdReplaceAt = now
             }
-            if reply["nextTickMs"] != nil { arm(&box, next: reply["nextTickMs"]?.doubleValue.flatMap { $0 > 0 ? UInt64(exactly: $0.rounded(.up)) : 0 }, now: now) }
+            if reply["nextTickMs"] != nil {
+                arm(&box, next: reply["nextTickMs"]?.doubleValue.flatMap { $0 > 0 ? UInt64(exactly: $0.rounded(.up)) : 0 },
+                    part: reply["nextTickId"]?.stringValue, now: now)
+            }
             // Compared by value: the first op's quiet snapshot equals the initial one and publishes nothing.
             guard let data = box.model.call("snapshot", Data()), let snapshot = try? JSONValue.parse(data),
                   snapshot != box.snapshot else { return (reply, nil) }
@@ -386,7 +399,8 @@ public final class AppHealth: Sendable {
 
     /// The one timer: armed to `next` (model ms), replaced only when the deadline moved; cancelled
     /// when the model has none.
-    private func arm(_ box: inout Box, next: UInt64?, now: UInt64) {
+    /// `part`: the part the deadline is for (the model's `nextTickId`), which the wakeup ledger names.
+    private func arm(_ box: inout Box, next: UInt64?, part: String? = nil, now: UInt64) {
         guard box.armedAt != next || (next != nil && !timer.isScheduled) else { return }
         box.armedAt = next
         guard let next else {
@@ -395,7 +409,16 @@ public final class AppHealth: Sendable {
         }
         let delay = Duration.milliseconds(Int64(clamping: next > now ? next - now : 0))
         // wakeup-allow: one one-shot deadline at the model's next expiry; cancelled when it has none.
-        timer.schedule(after: delay) { [weak self] in self?.tick() }
+        timer.schedule(after: delay, reason: part.map { "deadline " + Self.ledgerName($0) } ?? "deadline") { [weak self] in
+            self?.tick()
+        }
+    }
+
+    /// A part id for the ledger: its kind and a short name (`page:4F2A…` keeps 8 characters after the kind).
+    static func ledgerName(_ id: String) -> String {
+        let parts = id.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, let kind = parts.first, let name = parts.last else { return String(id.prefix(24)) }
+        return kind + ":" + name.prefix(8)
     }
 
     private func tick() {
@@ -408,7 +431,8 @@ public final class AppHealth: Sendable {
             guard let id = value["id"]?.stringValue, let kind = Kind(rawValue: value["kind"]?.stringValue ?? ""),
                   let action = Repair(rawValue: value["action"]?.stringValue ?? "") else { return nil }
             let token = value["token"]?.doubleValue.flatMap { UInt64(exactly: $0) }
-            return Action(id: id, kind: kind, action: action, attempt: value["attempt"]?.intValue ?? 1, token: token)
+            return Action(id: id, kind: kind, action: action, attempt: value["attempt"]?.intValue ?? 1, token: token,
+                          label: value["label"]?.stringValue, cause: value["cause"]?.stringValue)
         }
     }
 
@@ -420,7 +444,9 @@ public final class AppHealth: Sendable {
                 report(action, ok: false)
                 continue
             }
-            logger.notice("health: \(action.action.rawValue, privacy: .public) for \(action.kind.rawValue, privacy: .public), attempt \(action.attempt)")
+            // Which part (its id and label) and why: "health: reloadPage for page page:12 (Agent chat), attempt 1:
+            // Not answering for 10 s." A bare "for page" named no chat and no cause (cosmic-gray, 2026-11-22 06:41Z).
+            logger.notice("health: \(action.action.rawValue, privacy: .public) for \(action.kind.rawValue, privacy: .public) \(action.id, privacy: .public) (\(action.label ?? "?", privacy: .public)), attempt \(action.attempt): \(action.cause ?? "no cause given", privacy: .public)")
             // task-owner: one repair per model action; ends when the owner's handler returns (each is bounded).
             Task(priority: .utility) { [weak self] in
                 let ok = await handler(action)

@@ -59,6 +59,7 @@ work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the 
 | Turn off a paired machine's Full access | `acpmux machine ticket full-access mini-2 off` |
 | Whether a machine is dedicated: agents run with no per-session sandbox, the VM is the boundary | `acpmux machine dedicated [NAME] [on\|off]` |
 | This machine's load now, one JSON object (cmux Cloud sizes its machines from it) | `acpmux machine load --json` |
+| Watch this machine once a second; one JSON line when memory available falls under 25% (`warn`) or 10% (`grow`), an OOM kill lands, CPU is 90% busy with a run queue over the vCPUs for 5 minutes, or disk is under 10% or 2 GiB, and again when it clears (lines move with `--mem-warn`, `--mem-grow`, `--cpu-busy`, `--cpu-hold-secs`, `--disk-fraction`, `--disk-bytes`, `--interval-ms`) | `acpmux machine load --watch` |
 | The shadow admission verdict for host readings given as JSON on stdin; defers nothing (inputs: `cmux-host-budget/testdata/shadow-verdict-v2.json`) | `acpmux machine verdict --json` |
 | Add one muted line to every live chat here | `acpmux machine notice --text TEXT` |
 
@@ -73,6 +74,11 @@ Its `host_pressure` carries the readings this machine's verdict uses beside the 
 (`cores`, `pressure`, `available_ram_fraction`, `swap_mb_per_min`): `cpus`, `pressureAgeMs` (the
 meter sample's age), `load` (the OS load averages; the verdict reads `load[0]`), `ram.totalBytes`
 and `swap.usedBytes`/`swap.totalBytes`, so a reader builds the same inputs placement does.
+The meter also reports CPU busy: `cpu_busy_pct` (all CPUs, since its last sample) and, once its own
+samples cover a minute, `cpu_p50_pct`, their time-weighted p50 over the last ten minutes, with
+`cpu_window_s`, the seconds behind it. Each machine's `_acpmux/host_health` `pressure` carries all
+three, so `acpmux machine status --json` shows them per peer and lane-place sizes a host's measured
+lane cap from the link; a host with no p50 yet is unknown there, not full.
 
 Screen and control consent, an allow, and turning Full access on are the person's: the daemon takes
 them only from the cmux app, never from a shell or an agent.

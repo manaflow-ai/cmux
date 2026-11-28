@@ -50,6 +50,9 @@ base_red_excuse.py reads the newest base verdict, not a given commit's. With the
 (2026-10-31) base tier runs waited up to two hours and 682 of their 826 Mac minutes in a day started
 after a newer base tier run had been dispatched. A run whose Mac job had started when read is never
 cancelled, nor is anything that is not a base tier run (a nightly, DEV or promote build above all).
+A run whose Mac job waits for a Mac runner keeps its place in the Mac queue and is not cancelled either,
+and while one waits the kick dispatches nothing (KEEP_QUEUED; CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0 turns
+that off). With a Mac queue wait longer than the window, cancelling queued runs meant none ever reached a Mac.
 Needs GH_TOKEN with actions: write and contents: read.
 """
 
@@ -92,8 +95,9 @@ DISPATCH_RESERVE_S = REQUEST_TIMEOUT_S + SETTLE_S
 # The compare API lists at most this many files; a longer diff counts as relevant.
 COMPARE_FILES_MAX = 300
 # The base tier's Mac jobs (cmux-next.yml's daemon-test, generated-files and cmux-scheme-compile names).
-# A base tier run where one of these has started (or finished) is never cancelled.
-MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)")
+# A base tier run where one of these has started (or finished) is never cancelled. generated-files is the
+# Mac fallback; "cmux-next generated files" is now generated-files-linux, a Linux job.
+MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files (Mac fallback)", "cmux app scheme compile (Debug)")
 # A run in one of these states has not finished.
 OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -105,6 +109,15 @@ MARGIN_S = 2 * 60
 # dispatch, SETTLE_S and the cancels. A window that would leave less is not waited for.
 AFTER_WINDOW_S = DISPATCH_RESERVE_S + 30
 STARTED = time.monotonic()
+# Default on since 2026-11-22: a base tier run whose Mac job waits for a Mac runner keeps its place in the
+# Mac queue. It is never cancelled as superseded, and no run is dispatched while one waits, so a started
+# (or queued) generated-files job runs to its verdict. Before, a Mac queue wait longer than the 15-minute
+# window meant the next kick cancelled a run before any Mac took it (run 45053417691: its generated-files
+# job waited 12 minutes with no runner and the kick cancelled it at 18:25:18Z), and its replacement went
+# to the back of the Mac queue.
+# The repository variable CMUX_NEXT_BASE_TIER_KEEP_QUEUED = '0' (the kick's env) turns it off: queued
+# runs are superseded and cancelled again, as before.
+KEEP_QUEUED = os.environ.get("CMUX_NEXT_BASE_TIER_KEEP_QUEUED", "").strip() != "0"
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -199,20 +212,48 @@ def base_tier_runs(api: Api, repo: str) -> dict[str, float]:
     return firsts
 
 
-def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
-    """Whether a Mac job of the base tier run has started. Anything unreadable counts as started."""
+def mac_state(api: Api, repo: str, run_id: int) -> str:
+    """Where the base tier run's Mac jobs are: "started" (one is running or has a verdict; anything
+    unreadable counts as started), "queued" (none started, one waits for a Mac runner) or "none" (no Mac
+    job yet, or every one skipped or cancelled)."""
     try:
         listed = api.get(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
     except (RuntimeError, TimeoutError):  # TimeoutError: no full answer within the client's request bound
-        return True
+        return "started"
+    queued = False
     for job in listed.get("jobs") or []:
         if job.get("name") not in MAC_JOBS:
             continue
         if job.get("status") == "in_progress":
-            return True
+            return "started"
         if job.get("status") == "completed" and job.get("conclusion") not in ("skipped", "cancelled"):
-            return True
-    return False
+            return "started"
+        if job.get("status") in OPEN:
+            queued = True
+    return "queued" if queued else "none"
+
+
+def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
+    """Whether a Mac job of the base tier run has started. Anything unreadable counts as started."""
+    return mac_state(api, repo, run_id) == "started"
+
+
+def waiting_in_mac_queue(api: Api, repo: str) -> tuple[int, str] | None:
+    """The open base tier run (id, sha) whose Mac jobs wait for a Mac runner with none started, or None.
+    A listing or job list that cannot be read holds nothing back (the dispatch goes ahead, as before)."""
+    try:
+        listed = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={BRANCH}"
+                         f"&event=workflow_dispatch&per_page=100")
+    except (RuntimeError, TimeoutError):
+        return None
+    for run in listed.get("workflow_runs") or []:
+        title = run.get("display_title") or run.get("name") or ""
+        sha = title[len(TITLE):].strip() if title.startswith(TITLE) else ""
+        run_id = run.get("id")
+        if SHA.match(sha) and isinstance(run_id, int) and run.get("status") in OPEN \
+                and mac_state(api, repo, run_id) == "queued":
+            return run_id, sha
+    return None
 
 
 def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], None] = print) -> list[int]:
@@ -242,8 +283,13 @@ def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], Non
         if (sha in keep or at >= latest_at or not isinstance(run_id, int) or run.get("status") not in OPEN
                 or run.get("run_attempt", 1) != 1):
             continue
-        if mac_job_started(api, repo, run_id):
+        state = mac_state(api, repo, run_id)
+        if state == "started":
             log(f"base tier run {run_id} ({sha[:12]}) has a Mac job running or done; left alone")
+            continue
+        if state == "queued" and KEEP_QUEUED:
+            log(f"base tier run {run_id} ({sha[:12]}) has a Mac job waiting for a Mac runner; it keeps its "
+                f"place in the Mac queue; left alone")
             continue
         # Posted right after that fresh job read. The client never retries a write after a wait (a
         # Mac job may have started by then); a cancel refused on the spent quota is left to the next kick.
@@ -417,6 +463,12 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
             continue
         if decided:
             break
+    # A run waiting in the Mac queue keeps its place (KEEP_QUEUED): no run is dispatched to replace it,
+    # so at most one base tier run waits for a Mac while the started ones run to their verdicts.
+    if KEEP_QUEUED and (held := waiting_in_mac_queue(api, repo)):
+        log(f"base tier run {held[0]} ({held[1][:12]}) waits for a Mac runner with no Mac job started; not "
+            f"dispatching {tip[:12]} to replace it; the first push's kick after its Mac jobs start dispatches")
+        return None
     # The settle is reserved before the dispatch, never skipped after it (Codex review of #40471): a
     # dispatch with no settle frees the kick's concurrency slot before GitHub lists the new run, and the
     # next kick, seconds later, finds no run at the tip and dispatches the same Mac work again.

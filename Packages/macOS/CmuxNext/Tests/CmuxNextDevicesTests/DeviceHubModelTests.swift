@@ -63,6 +63,33 @@ import Testing
         #expect(hub.pushCount == 1)
     }
 
+    /// "My agents can turn screen sharing and control on my machines": off until the hub says
+    /// otherwise, read again on its push, and off for a hub with no such route.
+    @Test func theAgentsPermissionFollowsTheHubAndDefaultsOff() async throws {
+        let value = Locked("true")
+        let stub = StubHub { request in
+            if request.url.path == "/v1/auth/stack" { return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#) }
+            if request.method == "PUT", request.url.path == "/v1/settings" {
+                return (200, #"{"settings":{"agentsMayShare":false,"updatedAt":1,"updatedBy":"d"}}"#)
+            }
+            if request.url.path == "/v1/settings" { return (200, #"{"settings":{"agentsMayShare":\#(value.value),"updatedAt":1,"updatedBy":"d"}}"#) }
+            return (404, #"{"error":{"code":"not_found","message":"no route"}}"#)
+        }
+        let hub = makeHub(stub)
+        #expect(hub.agentsMayShare == false)
+        await hub.handle(.push(.settingsChanged))
+        #expect(hub.agentsMayShare == true)
+        try await hub.setAgentsMayShare(false)
+        #expect(hub.agentsMayShare == false)
+        #expect(stub.requests.contains { $0.method == "PUT" && $0.url.path == "/v1/settings" })
+        #expect(DeviceHubPush(text: #"{"type":"settings.changed"}"#) == .settingsChanged)
+
+        let old = makeHub(StubHub.routes([:]))
+        await old.refreshSettings()
+        #expect(old.agentsMayShare == false)
+        #expect(old.lastError == nil)
+    }
+
     /// A relay deleted elsewhere: its opened secret leaves this Mac's keychain too.
     @Test func deletedRelaysLoseTheirSecrets() async {
         let secrets = MemoryRelaySecretStore()
@@ -184,6 +211,23 @@ import Testing
         await hub.handle(.push(.sessionRequest(SessionRequest(id: "s", viewerId: "v", viewerName: "V", scope: .view))))
         hub.stop()
         #expect(hub.status == .idle && hub.pendingRequests.isEmpty && hub.devices.isEmpty)
+    }
+
+    /// A socket that never connects still reads the list once registered, so This Mac draws (CMUX-13 on the Mac hub).
+    @Test func startReadsTheListWithoutTheSocket() async {
+        let me = self.me
+        let stub = StubHub { request in
+            if request.url.path == "/v1/auth/stack" { return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#) }
+            if request.method == "POST" { return (200, #"{"device":{"id":"\#(me.id)","name":"Studio"}}"#) }
+            return (200, devicesJSON([(me, "Studio")]))
+        }
+        let hub = DeviceHub(client: makeClient(stub, identity: me), socket: DeviceHubSocket(connector: FakeConnector([])),
+                            secrets: MemoryRelaySecretStore(), deviceName: "Studio", now: fixedNow)
+        await hub.start()
+        #expect(hub.devicesListed)
+        #expect(hub.thisDevice?.id == me.id)
+        #expect(stub.requests.contains { $0.method == "GET" && $0.url.path == "/v1/devices" })
+        hub.stop()
     }
 
     @Test func aRemovedDeviceRegistersAgainAsANewDevice() async {

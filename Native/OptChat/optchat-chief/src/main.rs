@@ -45,7 +45,7 @@ optchat-chief pack list | status|login|wait|paste|share|logout|token|check|insta
 optchat-chief github status | login | wait [SECONDS] | pat FILE|- | mac | logout [--json] [--mux-home DIR]
                                                            this Chief's GitHub login (default: the Mac's gh): `pack ... github`
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
-     OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-cr when acpmux has a configured CodeRouter route, else claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
+     OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (default claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
      CMUX_SOCKET_PATH, OPTCHAT_ANTHROPIC_BASE_URL (compactor; the team subrouter)";
 
@@ -54,6 +54,17 @@ fn main() -> std::process::ExitCode {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // `--version`: the crate version and, in a published build, the commit it
+    // was built from (the Cloud machine's updater smoke-runs a download with it).
+    if matches!(args.as_slice(), [a] if a == "--version" || a == "-V" || a == "version") {
+        match option_env!("OPTCHAT_CHIEF_BUILD_COMMIT") {
+            Some(commit) if !commit.is_empty() => {
+                println!("optchat-chief {} ({commit})", env!("CARGO_PKG_VERSION"));
+            }
+            _ => println!("optchat-chief {}", env!("CARGO_PKG_VERSION")),
+        }
+        return std::process::ExitCode::SUCCESS;
+    }
     // Agent memory parses its own arguments: note text keeps every word,
     // including the Chief's own flags below.
     if args.first().is_some_and(|a| a == "agent-memory") {
@@ -200,8 +211,9 @@ fn main() -> std::process::ExitCode {
             tool @ ("zoom" | "date" | "recall" | "follow_up" | "follow_ups" | "check_ins"
             | "nothing" | "ask" | "memory_read" | "memory_write" | "memory_forget"
             | "spawn" | "tell" | "peers" | "react" | "reply" | "send" | "stop" | "sleep"
-            | "watch" | "remember" | "transcript" | "control" | "profile" | "chiefs"
-            | "escalate-auth" | "escalate_auth" | "cloud-workspace" | "cloud_workspace"),
+            | "watch" | "remember" | "transcript" | "control" | "automation" | "profile"
+            | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
+            | "cloud_workspace"),
         ) => {
             let socket = flags
                 .value("socket")

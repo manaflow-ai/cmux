@@ -8,10 +8,44 @@ public struct CloudMoveStrings {
     public static var moving: String {
         String(localized: "cloud.move.moving", defaultValue: "Moving this chat to Cloud…", table: "Cloud", bundle: .localizedModule)
     }
+    /// A moving chat's sidebar row before the move's first step line (``ChatMoves``).
+    public static var movingRow: String {
+        String(localized: "cloud.move.movingRow", defaultValue: "Moving…", table: "Cloud", bundle: .localizedModule)
+    }
     public static func moved(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.moved", defaultValue: "This chat now runs on %@.", table: "Cloud", bundle: .localizedModule), machine)
     }
+    /// This chat's own Cloud VM could not start; `cause` is Rust's (`signIn`, `planLimit`, `capacity`, `offline`), none when not known.
+    /// Each chat has its own VM, so this never says a shared pool had none free.
+    public static func vmCouldNotStart(cause: String?) -> String {
+        switch cause {
+        case "signIn": String(localized: "cloud.move.vmCouldNotStart.signIn", defaultValue: "Its Cloud VM could not start: sign in to cmux Cloud first.", table: "Cloud", bundle: .localizedModule)
+        case "planLimit": String(localized: "cloud.move.vmCouldNotStart.planLimit", defaultValue: "Its Cloud VM could not start: your plan's limit of Cloud machines is reached.", table: "Cloud", bundle: .localizedModule)
+        case "capacity": String(localized: "cloud.move.vmCouldNotStart.capacity", defaultValue: "Its Cloud VM could not start: Cloud has no capacity for it right now. Try again in a moment.", table: "Cloud", bundle: .localizedModule)
+        case "offline": String(localized: "cloud.move.vmCouldNotStart.offline", defaultValue: "Its Cloud VM could not start: this Mac could not reach Cloud.", table: "Cloud", bundle: .localizedModule)
+        default: String(localized: "cloud.move.vmCouldNotStart", defaultValue: "Its Cloud VM could not start.", table: "Cloud", bundle: .localizedModule)
+        }
+    }
+    /// The palette's place and Evacuate actions while Settings > Experiments' Cloud Toggle (`experiments.cloudToggle`) is off.
+    public static var placeExperimentOff: String {
+        String(localized: "cloud.place.experimentOff", defaultValue: "Turn on Cloud Toggle in Settings > Experiments first.", table: "Cloud", bundle: .localizedModule)
+    }
+    /// Why the palette's place and Evacuate actions are refused while Settings > Experiments' Cloud Toggle
+    /// (`experiments.cloudToggle`, default off) is off, as the page's controls are hidden; nil while it is on.
+    public static func placeOff(_ switches: [String: Bool]?) -> String? { switches?["cloudToggle"] == true ? nil : placeExperimentOff }
     public static var retry: String { String(localized: "cloud.move.retry", defaultValue: "Retry", table: "Cloud", bundle: .localizedModule) }
+    /// An agent's or a socket's run of a chat place action (Local, Cloud, Auto, Evacuate, Bring Back All, Cancel, Retry).
+    public static var placeIsPersons: String {
+        String(localized: "cloud.place.personOnly", defaultValue: "Only you can move chats between this Mac and Cloud, with a click in cmux.", table: "Cloud", bundle: .localizedModule)
+    }
+    /// A second Evacuate or Bring Back All while one runs.
+    public static var bulkRunning: String {
+        String(localized: "cloud.place.bulkRunning", defaultValue: "Chats are already moving. Wait for that to finish, or cancel it.", table: "Cloud", bundle: .localizedModule)
+    }
+    /// An Evacuate or Bring Back All's chats that never started because the Cloud account or team changed under it.
+    public static var identityChanged: String {
+        String(localized: "cloud.place.identityChanged", defaultValue: "Not moved: the Cloud account or team changed after this started.", table: "Cloud", bundle: .localizedModule)
+    }
     public static var notAChat: String {
         String(localized: "cloud.move.notAChat", defaultValue: "Move to Cloud works on a chat tab.", table: "Cloud", bundle: .localizedModule)
     }
@@ -96,6 +130,19 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.unknownMachine", defaultValue: "cmux can't confirm who owns %@, so the chat stays on this Mac.",
                               table: "Cloud", bundle: .localizedModule), machine)
     }
+    /// The machine's chat service was restarting (`agent_transfer.unavailable`): the CLI waited to its
+    /// deadline and gave the chat back, so nothing moved and the same move may work again.
+    /// The folder's last changes did not reach the other machine (`sync_failed`: it did not answer
+    /// in time, say), so the chat stayed frozen where it was; a Retry moves it again.
+    public static var lastChangesFailed: String {
+        String(localized: "cloud.move.lastChangesFailed", defaultValue: "The folder's last changes didn't copy, so the chat stayed where it was. Retry to move it.",
+               table: "Cloud", bundle: .localizedModule)
+    }
+
+    public static func restarting(_ machine: String) -> String {
+        String(format: String(localized: "cloud.move.restarting", defaultValue: "%@ is restarting, so the chat stayed where it was. Retry in a moment.",
+                              table: "Cloud", bundle: .localizedModule), machine)
+    }
     public static func unreachable(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.unreachable", defaultValue: "Lost the connection to %@ during the move. Retry to finish it.",
                               table: "Cloud", bundle: .localizedModule), machine)
@@ -105,14 +152,26 @@ public struct CloudMoveStrings {
     /// any other one a ``CloudMoveFailure``.
     public static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
         guard answer.0.ok else {
+            if answer.0.errorCode == "environment_mismatch" { throw CloudStartSessionStrings.environmentMismatch }
             if let code = answer.0.errorCode, CloudSizeLocked.isCode(code) { throw CloudSizeLocked(details: answer.0.sizeLocked) }
             if let tooSmall = CloudSeedRefusal.planRefusal(answer.0) { throw tooSmall } // the folder is more than its machine has room for
-            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMoveFailure(message: moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
+            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMoveFailure(message: moveFailed(answer.0.error ?? answer.0.errorCode ?? ""), sendAgain: answer.0.retryable)
         }
         return answer.1
     }
     public static func moveFailed(_ detail: String) -> String {
         String(format: String(localized: "cloud.move.failedPlain", defaultValue: "Couldn't move the chat. %@", table: "Cloud", bundle: .localizedModule), detail)
+    }
+    /// A move to the person's own machine whose chosen agent login could not be read: it stays here.
+    public static func loginFailed(_ machine: String, _ detail: String) -> String {
+        String(format: String(localized: "cloud.move.loginFailed", defaultValue: "The chat stays here: your agent login for %1$@ couldn't be read: %2$@",
+                              table: "Cloud", bundle: .localizedModule), machine, detail)
+    }
+    /// The move can read the chosen connection, but cannot carry it to the machine.
+    package static var loginUnsupported: String {
+        String(localized: "cloud.move.loginUnsupported",
+               defaultValue: "This chat stays on your Mac because Move to Cloud can't carry its model connection. Choose a different connection and try again.",
+               table: "Cloud", bundle: .localizedModule)
     }
     public static func tabFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",

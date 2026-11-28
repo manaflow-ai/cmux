@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 public import AppKit
 
 /// Checked row lookups for `NSTableView` and `NSOutlineView`.
@@ -20,3 +21,4 @@ public extension NSTableView {
         return row >= 0 && row < numberOfRows ? row : nil
     }
 }
+#endif

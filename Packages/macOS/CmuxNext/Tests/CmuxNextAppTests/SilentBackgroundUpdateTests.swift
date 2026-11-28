@@ -194,16 +194,13 @@ import Testing
         #expect(updater.availableButton == nil)
     }
 
-    /// Automatic download is opt-in on every channel but cmux NEXT's nightly ring (Leo 2026-10-27:
-    /// "ask before the download + install step"; 2026-11-10, for the nightly: "automatically
-    /// downloads and installs/unpacks and you simply click"). The relaunch always asks.
-    @Test func automaticDownloadsAreOptInOnEveryChannelButTheNightlyRing() {
-        #expect(!UpdateTrack.stable.downloadsAutomaticallyByDefault)
-        #expect(!UpdateTrack.rc.downloadsAutomaticallyByDefault)
-        #expect(!UpdateTrack.nightly.downloadsAutomaticallyByDefault)
-        #expect(!UpdateTrack.development.downloadsAutomaticallyByDefault)
-        // cmux NEXT's nightly ring is the one exception (Leo 2026-11-10: "the nightly automatically downloads").
-        #expect(UpdateTrack.nightlyNext.downloadsAutomaticallyByDefault)
+    /// Automatic download is on by default on every channel; the relaunch still waits for Restart to
+    /// Update (Leo 2026-11-07: "Yeah, let's do that, man. Let's get it done.").
+    @Test func automaticDownloadsAreOnByDefaultOnEveryChannel() {
+        #expect(UpdateTrack.stable.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.rc.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.nightly.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.development.downloadsAutomaticallyByDefault)
     }
 
     /// `updates.status` (and `cmux version`) report whether this app downloads by itself, from its

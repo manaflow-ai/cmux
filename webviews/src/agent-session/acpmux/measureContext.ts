@@ -20,8 +20,12 @@ import { prepare } from "@chenglou/pretext";
 
 type MeasureContext = Pick<OffscreenCanvasRenderingContext2D, "font" | "measureText">;
 
-/// About 2.4 MB of Blink's measured texts at most (1.2 KB each in the god chat's snapshot).
-export const MEASURES_PER_CANVAS = 2_000;
+/// About 0.3 MB of Blink's measured texts at most (1.2 KB each in the god chat's snapshot). Every
+/// open chat is a page with its own canvas, so this is paid once per chat: at 2,000 it was 2.5 MB of
+/// FrameShapeCache and 1.8 MB of PlainTextNode a grown chat's page (chat-100k-flat grown_x5's heap
+/// retainers), the most a grown page held over an empty one of any one place. Blink's copy saves no
+/// work: the library measures each word once and keeps its widths, so a new canvas costs only itself.
+export const MEASURES_PER_CANVAS = 250;
 
 let real: MeasureContext | undefined;
 let adopted = false;
@@ -72,7 +76,17 @@ function adopt(): void {
   adopted = asked;
   if (!adopted) real = undefined;
 }
-adopt();
+
+let tried = false;
+
+/// Gives the library `delegate` as its canvas before its first measure. Every `prepare` and
+/// `prepareWithSegments` in the chat calls this first, so the swap waits for the first text the
+/// chat lays out instead of running while the pane's modules evaluate, ahead of the handshake.
+export function ensureMeasureContext(): void {
+  if (tried) return;
+  tried = true;
+  adopt();
+}
 
 /// Puts the library's measures on a new canvas, so Blink lets go of every text the last one held.
 /// The font carries over: the library sets it once per font, not before each measure. False when the

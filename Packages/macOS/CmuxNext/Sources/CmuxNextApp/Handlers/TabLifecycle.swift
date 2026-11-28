@@ -237,10 +237,10 @@ enum TabLifecycle {
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
         if openBrowserFromDock(ctx, invocation, pane: invoked, url: url, engine: engine, profile: profileRequest) { return }
-        // From the docked agent chat, a tab in the strip (ChatColumnPlacement), not in the chat's pane; the header's Preview as an agent's.
+        // From the docked agent chat, a tab in the strip (ChatColumnPlacement); the header's Preview as an agent's. A lone chat's New Browser Tab (Shift-Cmd-L, menus, palette) stays a tab in its pane, never docks (#49625).
         let pane: PaneModel
         var docked = false
-        if invocation.origin == .user, !invocation.besideCaller, let chat = ctx.services.paneController(for: invoked) {
+        if invocation.origin == .user, !invocation.besideCaller, let chat = ctx.services.paneController(for: invoked), ChatColumnPlacement.resolve(from: chat, services: ctx.services) != .dockChat {
             let respawn = chatRespawn(ctx, url: url, engine: engine, profile: profileRequest)
             if let target = ChatColumnPlacement.route(from: chat, respawn: respawn, services: ctx.services) {
                 pane = target.pane
@@ -272,7 +272,7 @@ enum TabLifecycle {
         var agentTab: (@MainActor (SurfaceID) -> Void)?
         var homePlacement = false
         if placement?.agentDriven ?? scripted {
-            agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface) }
+            agentTab = { @MainActor [weak cache, session = invocation.callerAgentSession] surface in cache?.markAgentDriven(surface: surface, session: session) }
         }
         let beside = invocation.besideCaller ? ctx.services.paneController(for: pane) : nil // An agent's tab beside its chat: selected there, or moved out (AgentBesidePlacement).
         if invocation.besideCaller {

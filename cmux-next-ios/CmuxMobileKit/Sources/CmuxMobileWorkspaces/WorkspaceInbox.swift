@@ -173,7 +173,7 @@ public struct WorkspaceInbox: Hashable, Sendable {
     public var isLoading: Bool
     /// An online Mac in scope is linking and its list has not arrived (cached rows may show).
     public var isUpdating: Bool
-    /// Rows from a Mac's last-known list (not the Mac's live answer): dimmed,
+    /// Rows from a Mac's last-known list (not the Mac's live answer): full strength,
     /// and their agent state is not shown (it may be stale).
     public var stale: Set<String>
     /// Scope is All and every Mac is offline.
@@ -279,7 +279,12 @@ public struct WorkspaceInbox: Hashable, Sendable {
             default: return false
             }
         }
-        isLoading = isUpdating && needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && !searching
+        // Loading means nothing known yet: a Mac still dialing for its first answer. A Mac whose
+        // last answer was empty (`.cached` with no rows) is empty while it reconnects, as a Mac
+        // with cached rows keeps them: every redial used to bring back "Loading workspaces…"
+        // over a Mac that had already said it has none, so it never settled.
+        let firstAnswerPending = online.contains { context.listState($0.id) == .loading }
+        isLoading = firstAnswerPending && needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && !searching
         showsMacNames = scope == .all && Set(recent.map(\.macID)).count > 1
         self.statuses = statuses
         var rowIndex: [String: Workspace] = [:]

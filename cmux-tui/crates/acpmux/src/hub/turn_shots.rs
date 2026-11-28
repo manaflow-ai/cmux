@@ -84,7 +84,7 @@ fn root() -> PathBuf {
 }
 
 /// A session or turn id as one path segment: ids are letters, digits, `-` and `_`.
-fn segment(id: &str) -> Option<&str> {
+pub(super) fn segment(id: &str) -> Option<&str> {
     let safe = !id.is_empty()
         && id.len() <= 128
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
@@ -190,13 +190,44 @@ fn capture(
     tab: Option<&str>,
     out: &Path,
 ) -> Option<String> {
+    capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures").map(|page| page.id)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct CapturedPage {
+    pub id: String,
+    pub url: Option<String>,
+}
+
+/// The chat's page now, for a turn's frames (`turn_frames.rs`): [`capture`] in the REPL session
+/// `repl` of the browser host this daemon finds, so a frame never queues behind a turn's before or
+/// after. The captured tab's id and URL, or none with no file left.
+pub(super) fn capture_page(
+    base: &Path,
+    workspace: &str,
+    out: &Path,
+    repl: &str,
+    label: &str,
+) -> Option<CapturedPage> {
+    capture_in(&host_socket(), base, workspace, None, out, repl, label)
+}
+
+fn capture_in(
+    socket: &Path,
+    base: &Path,
+    workspace: &str,
+    tab: Option<&str>,
+    out: &Path,
+    repl: &str,
+    label: &str,
+) -> Option<CapturedPage> {
     if !socket.exists() {
         return None;
     }
     let params = json!({
-        "session": REPL_SESSION,
+        "session": repl,
         "engine": "cef",
-        "label": "Turn pictures",
+        "label": label,
         "cwd": base.display().to_string(),
         "code": capture_code(workspace, out, tab),
         "timeoutMs": CAPTURE_LIMIT.as_millis() as u64 - 2_000,
@@ -207,7 +238,10 @@ fn capture(
             let text = result.get("output")?.as_str()?;
             let marker = text.lines().find_map(|l| l.strip_prefix("TURN_SHOT "))?;
             let shown: Value = serde_json::from_str(marker).ok()?;
-            Some(shown.get("id")?.as_str()?.to_owned())
+            Some(CapturedPage {
+                id: shown.get("id")?.as_str()?.to_owned(),
+                url: shown.get("url").and_then(Value::as_str).map(str::to_owned),
+            })
         });
     let kept = taken.filter(|_| {
         std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES)
@@ -242,7 +276,7 @@ pub(crate) fn settle(base: &Path, session_dir: &Path, turn_dir: &Path) {
 }
 
 /// Removes all but the `keep` newest folders of `dir` (by modification time).
-fn prune(dir: &Path, keep: usize) {
+pub(super) fn prune(dir: &Path, keep: usize) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut folders: Vec<(std::time::SystemTime, PathBuf)> = entries
         .flatten()

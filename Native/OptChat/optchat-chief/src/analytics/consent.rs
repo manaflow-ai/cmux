@@ -15,10 +15,16 @@
 //!    host that outlives the app;
 //! 4. `app.sendAnonymousTelemetry: false` in the cmux settings file: off;
 //! 5. `CI` set: off;
-//! 6. a build that is not a release (a debug compile, a DEV or tagged app):
-//!    off unless `CMUX_CHIEF_ANALYTICS=dev`, which sends with
-//!    `environment: dev` (the staging route: same project, filtered out of
-//!    every dashboard).
+//! 6. `CMUX_CHIEF_ANALYTICS=dev`: sends with `environment: dev` (the
+//!    staging route: same project, filtered out of every dashboard), a
+//!    developer's own explicit switch;
+//! 7. nobody turned it on: off. Analytics are opt-in: the app's own
+//!    `sendAnonymousTelemetry` choice `true`, or, with no app choice (a CLI
+//!    or Cloud host), `app.sendAnonymousTelemetry: true` in the settings
+//!    file. A fresh install sends nothing (Leo, 2026-11-24: "whatever we
+//!    do, we need to make sure it's opt out by defautl i assume?");
+//! 8. a build that is not a release (a debug compile, a DEV or tagged app):
+//!    off.
 
 use serde_json::Value;
 
@@ -77,6 +83,12 @@ pub fn decide(inputs: &Inputs<'_>) -> Consent {
     let dev = chief.as_deref().map(str::trim) == Some("dev");
     if dev {
         return Consent::Send("dev");
+    }
+    let opted_in = inputs
+        .app_choice
+        .unwrap_or(setting == Some(&Value::Bool(true)));
+    if !opted_in {
+        return Consent::Off("anonymous telemetry was never turned on");
     }
     if !inputs.release_build {
         return Consent::Off("not a release build");

@@ -21,7 +21,12 @@ on:
     inputs:
       cells:
         description: comma-separated cells (cloud-chat-matrix.ts --list); default every app-start cell
-        default: claude-app-start,codex-app-start,gemini-app-start,grok-app-start,cursor-app-start,opencode-app-start
+        default: claude-app-start,codex-app-start,gemini-app-start,grok-app-start,cursor-app-start,opencode-app-start,antigravity-app-start
+  # A lane that cannot dispatch runs it by landing a change to this file on feat-cmux-next: its last line is the cells.
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/cloud-harness-matrix/request
 
 permissions:
   contents: read
@@ -37,19 +42,21 @@ env:
 jobs:
   matrix:
     if: github.repository_owner == 'manaflow-ai' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')
-    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 90
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           submodules: recursive
       - name: Install Linux cmux-tui build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
+        run: |
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then echo "clang libclang-dev pkg-config: already installed"; else sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config; fi
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Resolve Ghostty Zig version
@@ -76,6 +83,11 @@ jobs:
           cargo build -p cmux-tui --bin cmux-tui --locked
           test -x target/debug/cmux-tui
           echo "path=$PWD/target/debug/cmux-tui" >> "$GITHUB_OUTPUT"
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -90,6 +102,10 @@ jobs:
           CELLS: ${{ inputs.cells }}
         run: |
           set -uo pipefail
+          if [ -z "$CELLS" ] && [ -f .github/cloud-harness-matrix/request ]; then
+            CELLS=$(grep -v '^[[:space:]]*#' .github/cloud-harness-matrix/request | grep -v '^[[:space:]]*$' | tail -n 1 | tr -d '[:space:]')
+          fi
+          if [ -z "$CELLS" ]; then echo "no cells: give the cells input or a cells line in .github/cloud-harness-matrix/request" >&2; exit 2; fi
           out="$RUNNER_TEMP/cloud-harness-matrix"
           bun scripts/cmux-next/cloud-chat-matrix.ts --backend staging --cells "$CELLS" --out "$out"
           code=$?

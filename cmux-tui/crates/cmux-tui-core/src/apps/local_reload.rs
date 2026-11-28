@@ -390,6 +390,9 @@ impl Supervisor {
                 self.seed_customize_locked(&mut inner);
                 outs.extend(self.grant_new_customize_reads_locked(&mut inner));
             }
+            for app in changed.iter().filter(|id| id.starts_with(catalog::SETUP_LAYER_PREFIX)) {
+                self.seed_setup_layer_locked(&mut inner, app);
+            }
             for app in &changed {
                 // A save is a fix: a paused app runs again.
                 outs.extend(self.resume_locked(&mut inner, app, "saved"));
@@ -397,6 +400,11 @@ impl Supervisor {
             }
             for app in &removed {
                 outs.extend(self.stop_app_locked(&mut inner, app, "removed"));
+            }
+            // A save can add or drop `storage:synced`: the stream and a
+            // regranted replica's resync follow, as after an `apps-set`.
+            if !changed.is_empty() || !removed.is_empty() {
+                self.appkv_refresh_locked(&inner);
             }
             for app in changed.iter().chain(&removed) {
                 outs.push(Out::Broadcast(json!({
@@ -495,6 +503,22 @@ impl Supervisor {
 }
 
 impl Supervisor {
+    /// Installs setup layer `app` the first time it appears while cmux
+    /// runs, as `seed_customize` installs the customization app.
+    fn seed_setup_layer_locked(&self, inner: &mut super::supervisor::Inner, app: &str) {
+        let Some(next) = inner
+            .catalog
+            .packages
+            .get(app)
+            .and_then(|package| seed_customize(&inner.mirror, package))
+        else {
+            return;
+        };
+        if self.persist(&next).is_ok() {
+            inner.mirror = next;
+        }
+    }
+
     /// The read scopes a save of the customization app declares for the first
     /// time, granted as its first install would have (read scopes need no
     /// prompt). A scope offered before keeps whatever the person set, so a
@@ -544,17 +568,22 @@ impl Supervisor {
 /// would be: read scopes only and the sandbox on (more needs the user's
 /// grant), never the deployment default's wider grant. `None` when the
 /// mirror already has a record for it.
+///
+/// A setup's views layer (`local/setup-...`, `Sources::setups`) installs the
+/// same way: the person said yes to the setup's card, and anything past
+/// read scopes still waits for them.
 pub(super) fn seed_customize(mirror: &mirror::Mirror, package: &Package) -> Option<mirror::Mirror> {
     let facts = package.facts();
-    let seed = Op::Seed { app: CUSTOMIZE_APP.into(), hidden: false };
+    let app = package.id.clone();
+    let seed = Op::Seed { app: app.clone(), hidden: false };
     let outcome =
         mirror::reduce(mirror, &seed, Some(&facts)).ok().filter(|outcome| outcome.changed)?;
     let mut next = outcome.mirror;
     // This app appeared after the migration snapshot. Preserve its
     // eligibility if a failed migration retries on the next start.
-    next.sidebar_auto_place.insert(CUSTOMIZE_APP.into());
+    next.sidebar_auto_place.insert(app.clone());
     let (grants, sandboxed) = facts.install_defaults();
-    if let Some(record) = next.apps.get_mut(CUSTOMIZE_APP) {
+    if let Some(record) = next.apps.get_mut(&app) {
         record.grants = grants;
         record.sandboxed = sandboxed;
         record.source = Source::Local;
@@ -574,7 +603,14 @@ fn watched_dirs(sources: &catalog::Sources) -> Vec<PathBuf> {
 /// The watched folders whose subfolders are app packages. An empty entry
 /// (`CMUX_APPS_DIRS=":~/ext"` splits into "" and "~/ext") names no folder.
 fn package_dirs(sources: &catalog::Sources) -> impl Iterator<Item = &PathBuf> {
-    sources.local.iter().chain(&sources.extra).filter(|dir| !dir.as_os_str().is_empty())
+    // The setups folder too: each of its layers is a package folder (which
+    // of them load, and in what order, its `layers.json` says).
+    sources
+        .local
+        .iter()
+        .chain(&sources.extra)
+        .chain(&sources.setups)
+        .filter(|dir| !dir.as_os_str().is_empty())
 }
 
 /// Whether `dir` (a package folder) is one the watch covers: the

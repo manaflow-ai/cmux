@@ -25,6 +25,25 @@ import Testing
         #expect(relaunched.text(for: ComposerDraftStore.key(macID: "mini", tabID: "s7")) == nil)
     }
 
+    /// Typing never writes the file on the main thread: the encode and the write go to the
+    /// store's writer queue (`ComposerLinkUITests` counts it in the app).
+    @Test func typingWritesTheFileOffTheMainThread() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        var mainWrites = 0
+        ComposerDraftStore.mainThreadWrite = { mainWrites += 1 }
+        defer { ComposerDraftStore.mainThreadWrite = nil }
+        let key = ComposerDraftStore.key(macID: "cosmic", tabID: "s7")
+        let store = ComposerDraftStore(url: url, writeDelay: .milliseconds(1))
+        for text in ["g", "gi", "git", "git s", "git st"] {
+            store.save(text, for: key)
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        store.flush()
+        #expect(mainWrites == 0)
+        #expect(ComposerDraftStore(url: url).text(for: key) == "git st")
+    }
+
     @Test func anEmptiedComposerRemovesItsDraft() {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -33,6 +52,22 @@ import Testing
         store.save("ls", for: key)
         store.save("", for: key)
         store.flush()
+        #expect(ComposerDraftStore(url: url).text(for: key) == nil)
+    }
+
+    /// A send's removal is on disk without waiting: an app killed right after a send (the
+    /// LaunchTTI bench's terminate, a swipe-away) never brings the sent text back.
+    @Test func aSentDraftIsOffTheDiskAtOnce() {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let key = ComposerDraftStore.key(macID: "cosmic", tabID: "s7")
+        let store = ComposerDraftStore(url: url, writeDelay: .seconds(60))
+        store.save("~", for: key)
+        store.flush()
+        #expect(ComposerDraftStore(url: url).text(for: key) == "~")
+        store.save("", for: key)
+        // No flush: only what the writer already has (a kill now loses the pending wait).
+        ComposerDraftStore.waitForWriter()
         #expect(ComposerDraftStore(url: url).text(for: key) == nil)
     }
 

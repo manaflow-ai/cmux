@@ -3,12 +3,13 @@
 // goes as the person's message, a send that fails says so and keeps the buttons, and Dismiss is
 // kept for the chat across a reload (waitingAskStore.ts).
 import { afterEach, expect, test } from "bun:test";
-import { act, type ReactNode } from "react";
+import { act, type ReactNode, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { nextStepAsk } from "./nextStepAsk";
-import { PendingAsks } from "./PendingAsks";
+import { nextStepAsk, pinnedAsk } from "./nextStepAsk";
+import { foldMotion } from "./fold";
+import { PendingAsks, useLeavingAsks, withLeaving } from "./PendingAsks";
 import {
   answeredAsks,
   askKey,
@@ -18,6 +19,7 @@ import {
   resetAnswerClaims,
   shownAsks,
   withAnswered,
+  subscribeAnswers,
 } from "./waitingAskStore";
 import { NextStepRow } from "../rows/NextStepRow";
 import { TurnActionsContext } from "./turnActions";
@@ -111,12 +113,26 @@ test("a send that fails says so and keeps the answers", async () => {
   expect(named(container, "Box").disabled).toBe(false);
 });
 
+// https://github.com/manaflow-ai/cmux/issues/52766: "this text over text thing is weird". The
+// "Needs your input" line was a row of its own, cut out of the transcript's mask (data-dock-clear),
+// so the chat's words drew under it. It is now the card's own bar, on the card's fill.
+test("the Needs your input line is inside the card, never a see-through row over the transcript", async () => {
+  const container = await render(
+    <PendingAsks asks={[asked]} onAnswer={() => Promise.resolve()} onDismiss={() => undefined} />,
+  );
+  const bar = container.querySelector(".acpmux-pending-ask .acpmux-next-step__bar")!;
+  expect(bar).not.toBeNull();
+  expect(bar.parentElement?.classList.contains("acpmux-next-step")).toBe(true);
+  expect(container.querySelectorAll(".acpmux-pending-ask > :not(.acpmux-next-step)")).toHaveLength(0);
+  expect(container.querySelector(".acpmux-pending-ask [data-dock-clear]")).toBeNull();
+});
+
 test("Dismiss names the card, and the chat keeps it across a reload", async () => {
   const dismissed: string[] = [];
   const container = await render(
     <PendingAsks asks={[asked]} onAnswer={() => Promise.resolve()} onDismiss={(key) => dismissed.push(key)} />,
   );
-  const dismiss = container.querySelector<HTMLButtonElement>(".acpmux-pending-ask__dismiss")!;
+  const dismiss = container.querySelector<HTMLButtonElement>(".acpmux-pending-ask .acpmux-next-step__bar .ui-dismiss")!;
   await act(async () => dismiss.click());
   expect(dismissed).toEqual([askKey(asked)]);
   dismissAsk("s1", askKey(asked));
@@ -211,4 +227,157 @@ test("a send that fails brings the card back with its buttons", async () => {
   await act(async () => named(container, "Red").click());
   expect(container.querySelectorAll(".acpmux-next-step__answer")).toHaveLength(2);
   expect(answeredAsks().has(askKey(failing))).toBe(false);
+});
+
+// The pinned copy leaves while its answer goes, so a typed answer that fails comes back with its words.
+test("a typed answer that fails comes back with its words", async () => {
+  let reject: (error: Error) => void = () => undefined;
+  const container = await render(
+    <PendingAsks
+      asks={[asked]}
+      onAnswer={() => new Promise((_, fail) => (reject = fail))}
+      onDismiss={() => undefined}
+    />,
+  );
+  const field = () => container.querySelector<HTMLInputElement>(".acpmux-next-step__other input")!;
+  const window = dom!.window;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(field(), "Both");
+    field().dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    field().dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  expect(container.querySelector(".acpmux-next-step__other")).toBeNull();
+  await act(async () => reject(new Error("refused")));
+  expect(field().value).toBe("Both");
+  expect(container.querySelector("output")).not.toBeNull();
+});
+
+// A pane that cannot send (View Only) still shows the pinned card: the same card read only, with its
+// answers, the reason, and its close.
+test("a pinned card in a pane that cannot send is the same card read only, and keeps its close", async () => {
+  const dismissed: string[] = [];
+  const container = await render(
+    <PendingAsks asks={[asked]} blocked="watching" onDismiss={(key) => dismissed.push(key)} />,
+  );
+  expect([...container.querySelectorAll("li.acpmux-next-step__answer")].map((row) => row.textContent)).toEqual([
+    "1Box",
+    "2Inline",
+  ]);
+  expect(container.querySelector(".acpmux-next-step__reason")?.textContent).toBe("Take over to answer");
+  expect(container.querySelector("input")).toBeNull();
+  // The close is the card's only button.
+  expect(container.querySelectorAll(".acpmux-pending-ask button")).toHaveLength(1);
+  const dismiss = container.querySelector<HTMLButtonElement>(".acpmux-pending-ask .acpmux-next-step__bar .ui-dismiss")!;
+  await act(async () => dismiss.click());
+  expect(dismissed).toEqual([askKey(asked)]);
+});
+
+test("the pinned copy's ask is one object per ask, without its recap, so the card's memo holds", () => {
+  const ask = nextStepAsk(
+    "Done: the fix is in.\n\n[taste] Should I allow GitHub-hosted runners until the pool is back?",
+  )!;
+  const withRecap = { ...ask, recap: "Done: the fix is in." };
+  expect(pinnedAsk(withRecap)).toBe(pinnedAsk(withRecap));
+  expect("recap" in pinnedAsk(withRecap)).toBe(false);
+  expect(pinnedAsk(withRecap).question).toBe(ask.question);
+});
+
+// Doc step 4 (docs/design/transcript-motion-model.md, rule 9): the pinned copy leaves on the shared
+// clock with the transcript card's fold, instead of unmounting in the frame it is answered.
+type Played = { onfinish: (() => void) | null; oncancel: (() => void) | null; cancel: () => void };
+function playFolds(): Played[] {
+  const played: Played[] = [];
+  dom!.window.HTMLElement.prototype.animate = function () {
+    const animation: Played & { currentTime: number; effect: null } = {
+      onfinish: null,
+      oncancel: null,
+      currentTime: 0,
+      effect: null,
+      cancel() {
+        animation.oncancel?.();
+      },
+    };
+    played.push(animation);
+    return animation as never;
+  } as never;
+  return played;
+}
+
+/// App's wiring: the waiting asks less the ones answered here, drawn through `useLeavingAsks`.
+function Pinned({ rows, folded }: { rows: readonly AcpmuxRow[]; folded?: string[] }) {
+  const answered = useSyncExternalStore(subscribeAnswers, answeredAsks, answeredAsks);
+  const drawn = useLeavingAsks(shownAsks(rows, withAnswered(new Set(), answered)), "s1");
+  return (
+    <PendingAsks
+      asks={drawn.asks}
+      leaving={drawn.leaving}
+      onFolded={(key) => (folded?.push(key), drawn.folded(key))}
+      onAnswer={() => new Promise(() => undefined)}
+      onDismiss={() => undefined}
+    />
+  );
+}
+
+const sections = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>(".acpmux-pending-ask")];
+
+test("an answered pinned ask stays drawn, answered and inert, until its fold ends", async () => {
+  resetAnswerClaims();
+  const reduced = foldMotion.reducedMotion;
+  foldMotion.reducedMotion = () => false;
+  try {
+    const first = card(11_000, "[taste] Which side?\n- Left\n- Right");
+    const second = card(12_000, "[taste] Which size?\n- Small\n- Large");
+    const folded: string[] = [];
+    const container = await render(<Pinned rows={[first, second]} folded={folded} />);
+    const played = playFolds();
+    await act(async () => named(container, "Left").click());
+    // The click frame: the card reads answered, and its box starts folding instead of leaving.
+    const [leaving, staying] = sections(container);
+    expect(leaving!.dataset.leaving).toBeDefined();
+    expect(leaving!.hasAttribute("inert")).toBe(true);
+    expect(leaving!.textContent).toContain("Which side?");
+    expect(staying!.dataset.leaving).toBeUndefined();
+    expect(played).toHaveLength(1);
+    expect(folded).toEqual([]);
+    await act(async () => played[0]!.onfinish?.());
+    expect(folded).toEqual([askKey(first)]);
+    expect(sections(container).map((node) => node.textContent?.includes("Which size?"))).toEqual([true]);
+  } finally {
+    foldMotion.reducedMotion = reduced;
+  }
+});
+
+test("an ask settled elsewhere folds out where it stood; with no motion it goes at once", async () => {
+  const reduced = foldMotion.reducedMotion;
+  foldMotion.reducedMotion = () => false;
+  try {
+    const a = card(21_000, "[taste] A?\n- Yes\n- No");
+    const b = card(22_000, "[taste] B?\n- Yes\n- No");
+    const container = await render(<Pinned rows={[a, b]} />);
+    const played = playFolds();
+    await act(async () => root!.render(<Pinned rows={[b]} />));
+    expect(sections(container).map((node) => [node.textContent?.includes("A?"), node.dataset.leaving])).toEqual([
+      [true, "true"],
+      [false, undefined],
+    ]);
+    await act(async () => played[0]!.onfinish?.());
+    expect(sections(container)).toHaveLength(1);
+    // Reduce Motion: the fold applies at once, so the ask leaves in the frame it is settled.
+    foldMotion.reducedMotion = () => true;
+    await act(async () => root!.render(<Pinned rows={[]} />));
+    expect(sections(container)).toHaveLength(0);
+  } finally {
+    foldMotion.reducedMotion = reduced;
+  }
+});
+
+test("a leaving ask keeps its place among the waiting ones", () => {
+  const [a, b, c, d] = [1, 2, 3, 4].map((at) => card(at * 1_000, `[taste] Q${at}?\n- Yes\n- No`));
+  const drawn = withLeaving([a!, b!, c!], [a!, c!, d!]);
+  expect(drawn.asks).toEqual([a!, b!, c!, d!]);
+  expect([...drawn.leaving]).toEqual([askKey(b!)]);
+  // It comes back (an undo): it is waiting again, not leaving.
+  expect(withLeaving(drawn.asks, [a!, b!, c!, d!]).leaving.size).toBe(0);
 });

@@ -40,7 +40,7 @@ pub(in crate::cli::mcp) const COMPUTER_USE_DEFER_NOTE: &str = " It includes cmux
     password, sending a message or deleting that they did not ask for, and say what is left.";
 /// How a script drives Computer Use, in `cmux_exec`'s description.
 pub(in crate::cli::mcp) const COMPUTER_USE_SCRIPTING: &str = " Script Computer Use as one cmux_exec call: \
-    `await cu.list_windows({app_id})`, `cu.get_ui_tree({window_id})`, `cu.click({window_id, \
+    `cu.get_ui_tree({window_id})` (title or app name), `cu.click({window_id, \
     element_id})`, `cu.type_text`, `cu.press_key`, `cu.wait`, ... (cu.<tool> is \
     cmux.cu_<tool>), with loops and conditions between them. In a script an acting call skips \
     its after-action screenshot unless you pass observe: true. A result's images come back as \
@@ -97,7 +97,7 @@ pub(in crate::cli::mcp) fn only_descriptor(tools: &[Value]) -> Value {
              a refused call (computer_use_off, app_denied, look_only, person_in_control) is \
              final for that step: call cu.status and tell the person which setting in \
              Settings > Computer Use would allow it. Only Computer Use runs here: the other \
-             cmux tools need the person to choose Turn On in Settings > Agents > cmux Tools for \
+             cmux tools need the person to choose On in Settings > Agents > cmux Tools for \
              Agents in cmux (cmux settings set agents.cmuxMcp on --confirm)."
         ),
         "inputSchema": {
@@ -189,7 +189,7 @@ pub(in crate::cli::mcp) fn out_of_scope(name: &str) -> Option<Value> {
         "code": "tool.not_allowed",
         "message": format!(
             "{name} is a cmux tool beyond Computer Use; this agent has only cmux Computer Use \
-             until the person chooses Turn On in Settings > Agents > cmux Tools for Agents in \
+             until the person chooses On in Settings > Agents > cmux Tools for Agents in \
              cmux (cmux settings set agents.cmuxMcp on --confirm)"
         ),
         "details": {},
@@ -207,7 +207,7 @@ pub(in crate::cli::mcp) fn initialize(params: &Value, defer: bool, code_mode: bo
         acpmux::computer_use::tools::INSTRUCTIONS
     };
     let how = if code_mode {
-        " cmux Computer Use runs through cmux_exec scripts: `await cu.list_windows({})`, \
+        " cmux Computer Use runs through cmux_exec scripts: `await cu.get_ui_tree({window_id})`, \
          `cu.click({window_id, element_id})` and the rest, several steps in one call; \
          `cmux.docs(\"cu\")` has the tools and example scripts."
     } else {

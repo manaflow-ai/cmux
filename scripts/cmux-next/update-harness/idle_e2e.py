@@ -14,7 +14,7 @@ no harness feed, and only the nightly key could sign one for it). Steps:
      takes the daemon handoff a real nightly update takes), a throwaway EdDSA key, the signed appcast served on
      127.0.0.1. v1 gets its own cmux-next.json: updates.installWhenIdle on (--install-when-idle on, the opt-in; unset leaves
      the build's default), installWhenIdleMinutes N (1), a low
-     idleInstallQuietSeconds, downloadAutomatically on, automatic checks off.
+     idleInstallQuietSeconds, updates.automatic "idle" (or "download" for the off run).
   2. Before the update stages: agent session A finishes a turn; agent session B starts a turn that waits on a FIFO
      (acpmux's fake agent, `gate:`); a new chat gets an unsent draft typed into its composer (`debug.key`, the path a
      key press takes). The acpmux agent host census is taken (the hosts records, their live pids, `acpmux ls --json`).
@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 from run import Marks, first, wait_exit, wait_socket, rpc, plist_set, run, log, end_tag, processes_under  # noqa: E402
 from sessions import Agent, Owned, alive, bundle_commit, patch_build_stamp  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_until  # noqa: E402
 import re  # noqa: E402
 
 CHECK_ACTION = "palette.checkForUpdates"
@@ -106,13 +107,25 @@ def census(acp_home, acpmux_bin):
     return out
 
 
-def type_keys(sock, codes, gap_ms=40):
-    """Key presses into the focused pane's page (debug.key, the path a real key takes), one down and up per code."""
+def composer_length(sock):
+    return (rpc(sock, "debug.agent_pane", {"action": "readiness"}, timeout=10).get("result") or {}).get("composer_text_length")
+
+
+def type_keys(sock, codes, gap_ms=40, composer_length_after=None):
+    """Key presses into the focused pane's page (debug.key, the path a real key takes), one down and up per code.
+    The sequence plays after the reply: with `composer_length_after`, wait until the composer holds that many
+    characters (the keys landed); best effort, the readback after it records what the composer holds."""
     steps = []
     for code in codes:
         steps += [{"key_code": code, "down": True, "after_ms": gap_ms}, {"key_code": code, "down": False, "after_ms": 15}]
     reply = rpc(sock, "debug.key", {"key_window": "page", "sequence": steps}, timeout=15)
-    time.sleep(len(codes) * 0.06 + 0.5)  # the sequence plays after the reply; this is its length plus a margin
+    if composer_length_after is not None:
+        bound = max(10.0, len(codes) * (gap_ms + 15) / 1000 * 3 + 5)
+        if not wait_until(lambda: composer_length(sock) == composer_length_after,
+                          f"the composer to hold {composer_length_after} characters", timeout=bound, interval=0.05,
+                          raise_on_timeout=False):
+            log("type_keys", f"the composer never held {composer_length_after} characters in {bound:g} s "
+                f"(it holds {composer_length(sock)})")
     return reply.get("result", reply)
 
 
@@ -289,10 +302,11 @@ def main():
         # Its own config, never the Mac's shared ~/.config/cmux/cmux-next.json (cmux#45598).
         config = os.path.join(work, "cmux-next.json")
         with open(config, "w") as f:
+            # Automatic Updates (updates.automatic): Install When Idle, or Download Automatically for the
+            # "off" run. The check is the harness's Check for Updates; a day's interval keeps the timer out.
             updates = {"installWhenIdleMinutes": a.idle_minutes, "idleInstallQuietSeconds": a.quiet_seconds,
-                       "downloadAutomatically": True, "checkAutomatically": False}
-            if a.install_when_idle == "on":
-                updates["installWhenIdle"] = True
+                       "automatic": "idle" if a.install_when_idle == "on" else "download",
+                       "checkIntervalSeconds": 86400}
             json.dump({"updates": updates}, f)
         result["config"] = json.load(open(config))
         marks = Marks(marks_path)
@@ -331,9 +345,12 @@ def main():
         remember_tag()
         result["new_chat"] = rpc(sock, "action.run", {"id": NEW_CHAT_ACTION,
                                                       "arguments": {"harness": "fake", "cwd": os.path.join(work, "draft")}}, timeout=20)
-        time.sleep(3.0)  # the chat page loads and its composer mounts; focus_composer below waits for the page itself
+        # The chat page loads and its composer mounts (focus_composer below waits for the page itself too).
+        if not wait_until(lambda: (rpc(sock, "debug.agent_pane", {"action": "readiness"}, timeout=10).get("result") or {})
+                          .get("composer_visible"), "the new chat's composer", timeout=30, raise_on_timeout=False):
+            log("new chat", "its composer was not visible after 30 s; focus_composer waits for the page")
         result["draft_focus"] = rpc(sock, "debug.agent_pane", {"action": "focus_composer"}, timeout=60).get("result")
-        result["draft_typed"] = type_keys(sock, [KEY_CODES[c] for c in DRAFT_TEXT])
+        result["draft_typed"] = type_keys(sock, [KEY_CODES[c] for c in DRAFT_TEXT], composer_length_after=len(DRAFT_TEXT))
         result["draft_readback"] = rpc(sock, "debug.agent_pane", {"action": "readiness"}, timeout=60).get("result")
         result["census_setup"] = census(acp_home, os.path.join(v1, "Contents/Resources/bin/acpmux"))
         log("census at setup", json.dumps({k: result["census_setup"][k] for k in ("host_records", "live_hosts", "ls_count")}))
@@ -364,7 +381,7 @@ def main():
         hold(a, sock, marks, v1_pid, result, "draft_only", hold_s)
 
         # The draft goes: Delete in the composer, as a person clears it; that is input too.
-        result["draft_cleared_keys"] = type_keys(sock, [DELETE_KEY] * (len(DRAFT_TEXT) + 2))
+        result["draft_cleared_keys"] = type_keys(sock, [DELETE_KEY] * (len(DRAFT_TEXT) + 2), composer_length_after=0)
         result["draft_cleared_at"] = time.time()
         result["draft_readback_cleared"] = rpc(sock, "debug.agent_pane", {"action": "readiness"}, timeout=60).get("result")
         last_input = touch_input(sock, result, "draft cleared") or result["draft_cleared_at"]

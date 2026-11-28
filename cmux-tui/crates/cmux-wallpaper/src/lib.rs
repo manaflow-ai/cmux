@@ -1,0 +1,106 @@
+//! cmux NEXT live wallpapers (plans/cmux-next/live-wallpapers.md): a window
+//! backdrop drawn by a small WGSL program, one fragment function the GPU runs
+//! for each pixel.
+//!
+//! - [`manifest`]: `wallpaper.json`, parsed and checked; errors carry a JSON pointer.
+//! - `program` (feature `compile`): the program's sandbox (no bindings, entry
+//!   points, textures, samplers, storage, `var<workgroup>` or `var<private>`)
+//!   and its translation with naga to Metal Shading Language (the Mac) and
+//!   GLSL ES 3.00. build.rs runs the same code on every first-party program,
+//!   so shipped binaries carry Metal source and no shader compiler.
+//! - [`frame`]: the 432-byte `Frame` uniform (`prelude.wgsl`) and the pointer's
+//!   smoothing (velocity, presence), so the host does no math.
+//! - [`grade`]: the tritone grade the host's `fs_main` runs over every program
+//!   (`Frame.grade`), in Rust for its tests.
+//! - [`trail`]: the pointer's recent path (`Frame.trail`), a ring of 16 samples.
+//! - [`schedule`]: when a wallpaper draws: hold at zero work, idle, the frame
+//!   cap and the GPU budget.
+//! - [`first_party`]: the wallpapers under `wallpapers/`, embedded in the
+//!   binary with their build-time Metal.
+//! - [`signature`]: an agent's dot glyph, made from its session id and the
+//!   `particles` wallpaper's variants.
+//!
+//! Pure: no I/O, no globals, no threads. The caller passes every byte in.
+
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6), as in cmux-app-manifest.
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit,
+        clippy::indexing_slicing
+    )
+)]
+
+pub mod first_party;
+pub mod frame;
+pub mod grade;
+pub mod manifest;
+#[cfg(feature = "compile")]
+pub mod program;
+pub mod scene;
+pub mod schedule;
+pub mod signature;
+pub mod trail;
+
+pub use first_party::{
+    FirstParty, SCENE_ENGINE_GLSL, SCENE_ENGINE_MSL, SCENE_ENGINE_SOURCE, embedded_by_id,
+    first_party, first_party_at, first_party_by_id, smoke,
+};
+pub use frame::{
+    ActivityState, FRAME_BYTES, FRAME_FLOATS, FrameInput, PointerState, pack_frame, srgb_to_linear,
+};
+pub use manifest::{Manifest, ManifestError, ManifestErrorKind, Param, Still, Variant};
+#[cfg(feature = "compile")]
+pub use program::{
+    Compiled, ProgramError, ProgramErrorKind, compile, compile_bytes, compile_scene_engine,
+};
+pub use scene::{Player, SCENE_BYTES, SCENE_FLOATS, Scene};
+pub use schedule::{Decision, HoldReason, ScheduleInput, gpu_strikes, idle_after, schedule};
+pub use signature::{Dot, Glyph, Signer, glyph};
+pub use trail::{TRAIL_LIFE_S, TRAIL_POINTS, TRAIL_STEP_S, TrailPoint, TrailState};
+
+/// The largest program accepted (`program::MAX_SOURCE_BYTES`, also without `compile`).
+pub const MAX_SOURCE_BYTES: usize = 64 * 1024;
+
+/// True when this build checks programs (feature `compile`).
+pub const CHECKS_PROGRAMS: bool = cfg!(feature = "compile");
+
+/// What [`check_program`] found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProgramCheck {
+    /// The program passed the sandbox and translates to Metal and GLSL.
+    Passed,
+    /// Refused, with the line and column (1-based) in the source when known.
+    Refused { message: String, location: Option<(u32, u32)> },
+    /// This build has no program check (feature `compile` is off): nothing
+    /// was checked, and the program is neither passed nor refused.
+    NotChecked,
+}
+
+/// Checks a program's bytes when this build can ([`CHECKS_PROGRAMS`]). Nothing
+/// of the check stays alive after it returns.
+pub fn check_program(source: &[u8]) -> ProgramCheck {
+    #[cfg(feature = "compile")]
+    {
+        match compile_bytes(source) {
+            Ok(_) => ProgramCheck::Passed,
+            Err(e) => ProgramCheck::Refused { message: e.message, location: e.location },
+        }
+    }
+    #[cfg(not(feature = "compile"))]
+    {
+        let _ = source;
+        ProgramCheck::NotChecked
+    }
+}
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;

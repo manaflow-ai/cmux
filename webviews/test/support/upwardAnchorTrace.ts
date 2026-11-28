@@ -54,6 +54,7 @@ export async function traceUpwardAnchors({
     worked: 9,
     card: 10,
     liveStep: 12,
+    liveThought: 13,
   } as const;
 
   function gridPx(name: string, within: HTMLElement = document.body): number {
@@ -73,12 +74,18 @@ export async function traceUpwardAnchors({
       return transcriptMark.worked;
     // The live line right under a step or status row (model.ts isLiveStep): its gap is the scroller's
     // --cv-live-step-gap (transcriptGrid.ts MARK_LIVE_STEP, transcriptLiveVars).
-    if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine") {
-      if (row.classList.contains("acpmux-row--below") && row.classList.contains("acpmux-row--after-step"))
-        return transcriptMark.liveStep;
+    if (kind === "acpmux-working" || kind === "acpmux-thinking") {
+      if (row.classList.contains("acpmux-row--below") && row.classList.contains("acpmux-row--after-step")) {
+        // Under a step row that ends on a thought it stands the run gap (MARK_LIVE_THOUGHT, model.ts isLiveThought).
+        const above = row.previousElementSibling;
+        const steps = above?.classList.contains("acpmux-activity") ? above.querySelectorAll(".cv-tool") : undefined;
+        return steps?.length && steps[steps.length - 1]!.classList.contains("cv-thought")
+          ? transcriptMark.liveThought
+          : transcriptMark.liveStep;
+      }
       if (row.classList.contains("acpmux-row--after-step")) return transcriptMark.indicator;
       if (row.classList.contains("acpmux-row--below")) return transcriptMark.footerSlot;
-      return kind === "acpmux-activityLine" ? transcriptMark.step : transcriptMark.indicator;
+      return transcriptMark.indicator;
     }
     // An edited-files card (VirtualTranscript rowKind "editedFiles"; transcriptGrid.ts MARK_CARD): the
     // run gap from the one-line rows and prose around it, a step row toward a footer or a prompt.
@@ -121,6 +128,7 @@ export async function traceUpwardAnchors({
     if (previous === null || next === null) return 0;
     const { footer, block, turn, run, liveStep } = tokens;
     if (next === transcriptMark.liveStep && previous !== transcriptMark.worked) return liveStep;
+    if (next === transcriptMark.liveThought && previous !== transcriptMark.worked) return run;
     // transcriptGrid.ts transcriptGap: none after "Worked for" inside its turn; elsewhere a step row.
     if (previous === transcriptMark.worked && next !== transcriptMark.prompt) return 0;
     if (previous === transcriptMark.worked) previous = transcriptMark.step;

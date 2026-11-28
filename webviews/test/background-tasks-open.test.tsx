@@ -64,6 +64,13 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
+// The folded header counts its groups in words (trayFoldHead.experiment.ts `groups`); its default is now
+// the one `line` ("N subagents working"), which draws the panel button only while open.
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "subagent-tray-fold-head": "groups" };
+afterAll(() => {
+  const pins = globalThis.cmuxExperiments as Record<string, string> | undefined;
+  if (pins) delete pins["subagent-tray-fold-head"];
+});
 
 const now = Date.now();
 const agent = (id: string, task: string, startedAgo: number): Subagent => ({
@@ -104,9 +111,9 @@ describe("the running tray opens the Background tasks panel", () => {
       // A sibling of the header's own button (a button holds no button), over its slot.
       expect(bar.head().contains(button)).toBe(false);
       expect(bar.head().querySelector(".acpmux-running-tray__open-slot")).not.toBeNull();
-      // The folded header keeps its names (#33104, #33364): the longest-running one, then +N more
-      // (subagents/trayHeadOrder.ts).
-      expect(bar.head().querySelector(".acpmux-running-tray__title")?.textContent).toBe("Review the tray");
+      // The folded header counts its two groups in words while they fit (the `groups` default,
+      // trayFoldHead.experiment.ts; an unmeasured header draws its richest step); running needs no word.
+      expect(bar.head().querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents");
       await act(async () => button!.click());
       expect(opened).toBe(1);
       expect(bar.head().getAttribute("aria-expanded")).toBe("false");
@@ -245,7 +252,8 @@ describe("the Background tasks panel", () => {
     const view = await panel();
     try {
       const heads = [...view.host.querySelectorAll(".acpmux-bg__section-head")].map((node) => node.textContent);
-      expect(heads).toEqual(["Running1", "Finished2"]);
+      // Running is its mark and count, no word (Leo, 2026-11-23: ""running" doesn't need text").
+      expect(heads).toEqual(["1", "Finished2"]);
       const live = view.host.querySelector('[data-group="agent:live"]')!;
       expect(live.querySelector(".acpmux-bg__fold")?.textContent).toBe("3 tasks, 1 failed");
       // A heading folds its agents: Finished starts folded, as Claude Desktop's panel opens.
@@ -316,16 +324,18 @@ describe("Background tasks opens as a tab in the right column", () => {
     expect(await openBackgroundPane(async () => Promise.reject(new Error("no host")), "Background tasks")).toBe(false);
   });
 
-  test("in its own tab the header keeps Clear finished, without Expand or Close", async () => {
+  test("in its own tab there is no header: no title, no Expand or Close, and Clear finished is on the Finished heading", async () => {
     const host = dom.window.document.getElementById("root")!;
     const root = createRoot(host);
     await act(async () =>
       root.render(createElement(BackgroundTasksPanel, { groups: GROUPS, views: VIEWS, onClearFinished: () => {} })),
     );
-    const labels = [...host.querySelectorAll(".acpmux-bg__head button")].map((b) => b.getAttribute("aria-label"));
-    expect(labels).not.toContain("Expand");
-    expect(labels).not.toContain("Close");
-    expect(host.querySelector(".acpmux-bg__title")?.textContent).toBe("Background tasks");
+    // The tab already says "Background tasks" (Leo, 2026-11-24: "could be cut entirely").
+    expect(host.querySelector(".acpmux-bg__head")).toBeNull();
+    expect(host.querySelector(".acpmux-bg__title")).toBeNull();
+    const clear = host.querySelector('[data-section="finished"] .acpmux-bg__clear');
+    expect(clear?.textContent).toBe("Clear finished");
+    expect(host.querySelector(".acpmux-bg__head .acpmux-bg__clear")).toBeNull();
     await act(async () => root.unmount());
   });
 });

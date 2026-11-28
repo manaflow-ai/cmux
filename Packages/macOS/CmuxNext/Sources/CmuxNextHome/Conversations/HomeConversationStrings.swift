@@ -120,6 +120,7 @@ enum HomeConversationStrings {
     static var requestGroupUntitled: String {
         String(localized: "home.requests.groupUntitled", defaultValue: "Invited you to a group", bundle: .localizedModule)
     }
+    // retry-prompt-ok: re-running a conversation action the person started (paid or side-effecting)
     static var requestFailed: String { String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .localizedModule) }
 
     // MARK: New Message
@@ -179,7 +180,7 @@ enum HomeConversationStrings {
     static var inviteTitle: String { String(localized: "home.invite.title", defaultValue: "Invite to cmux-next", bundle: .localizedModule) }
     static var inviteBody: String {
         String(localized: "home.invite.body",
-               defaultValue: "They get an email with a link to join. You can message them here as soon as they accept.",
+               defaultValue: "They get an email link. You can message them once they join.",
                bundle: .localizedModule)
     }
     static var inviteEmail: String { String(localized: "home.invite.email", defaultValue: "Email address", bundle: .localizedModule) }
@@ -210,7 +211,7 @@ enum HomeConversationStrings {
     static func seatImpact(_ impact: HomeTeamSeatImpact) -> String {
         switch impact {
         case .paidSeat:
-            String(localized: "home.teamInvite.paidSeat", defaultValue: "When they join, the Team plan bills one more seat, prorated.",
+            String(localized: "home.teamInvite.paidSeat", defaultValue: "Adds one paid seat when they join (prorated).",
                    bundle: .localizedModule)
         case .capped(let members, let limit):
             String(format: String(localized: "home.teamInvite.capped", defaultValue: "The plan has room for %2$d members; %1$d are in the team now.",
@@ -228,6 +229,10 @@ enum HomeConversationStrings {
     // MARK: New Chief
 
     static var chiefTitle: String { String(localized: "home.chief.new.title", defaultValue: "New Chief", bundle: .localizedModule) }
+    /// A Chief row's preview before its first message (classic cmux's `chief.list.emptyPreview`).
+    static var chiefEmptyPreview: String {
+        String(localized: "home.chief.emptyPreview", defaultValue: "Ask Chief anything", bundle: .localizedModule)
+    }
     static var chiefBody: String {
         String(localized: "home.chief.new.body",
                defaultValue: "A Chief is an agent with its own conversation and memory. Chiefs are optional.", bundle: .localizedModule)
@@ -235,6 +240,9 @@ enum HomeConversationStrings {
     static var chiefName: String { String(localized: "home.chief.new.name", defaultValue: "Name", bundle: .localizedModule) }
     static var chiefCreate: String { String(localized: "home.chief.new.create", defaultValue: "Create", bundle: .localizedModule) }
     static var chiefBackend: String { String(localized: "home.chief.new.backend", defaultValue: "Backend", bundle: .localizedModule) }
+    static var chiefOwnMachine: String { String(localized: "home.chief.new.ownMachine", defaultValue: "On its own Cloud machine", bundle: .localizedModule) }
+    /// New Chief's opt-in: a Claude Chief made on this Mac's Chief owner instead of the cloud `chief.create`.
+    static var chiefThisMac: String { String(localized: "home.chief.new.thisMac", defaultValue: "Make it on this Mac", bundle: .localizedModule) }
 
     // MARK: Sidebar previews
 

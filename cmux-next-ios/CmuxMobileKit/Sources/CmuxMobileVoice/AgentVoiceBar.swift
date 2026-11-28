@@ -50,7 +50,7 @@ public struct AgentVoiceBar: View {
         .padding(.leading, 14)
         .padding(.trailing, 8)
         .padding(.vertical, 8)
-        .glassEffect(.regular, in: .rect(cornerRadius: 22, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 22, style: .continuous))
         .padding(.horizontal, 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("voiceMode.bar")
@@ -125,7 +125,7 @@ public struct AgentVoiceBar: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
-                .cmuxMobilePressBackground(Color.red, in: .circle)
+                .cmuxMobilePressBackground(CmuxMobileTheme.standard.colors.danger.color, in: .circle)
         }
         .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(AgentVoiceText.end)

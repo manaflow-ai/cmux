@@ -1,0 +1,138 @@
+name: Platform fleet inventory
+
+# The fleet's own GCE and Freestyle VMs into cmux-platform-production's fleet inventory listing
+# (cmux-platform src/server/cloud/FleetInventory.ts, POST /v1/internal/fleet-inventory): each provider's whole list,
+# a listing only, never a machine row. cmuxterm-hq's NOW publishes the lists (now_machines_table.py `inventory`: the
+# GCE snapshot's every VM and the Freestyle lane VMs, in now.json on reconciler-state/now) and counts the names the
+# census hands back as in the platform table (the every-machine-in-table goal).
+#
+# Leo (ask-8f3dbc1dac): "cmux vm ls lists every machine we run: zero GCP VMs outside fleet-registry.json, every GCP and
+# Freestyle machine in the platform machine table, agent lanes on Freestyle with only the CI pool and 1-2 fallback lane
+# hosts left on GCP".
+#
+# Why here and not in cmux-platform's cloud-team-census.yml, which has the same step: reading now.json needs an org
+# App token for private cmuxterm-hq, and cmux-platform holds no App key (that step skips, cmux-platform#2083). This
+# repository holds both halves already: the manaflow-glaeda-route App (as cmux-platform-prod-logs.yml uses it on
+# cmuxterm-hq) and the cmux-next-production CLOUDFLARE_API_TOKEN that writes cmux-platform-production's Worker
+# secrets (platform-prod-secrets.yml).
+#
+# Like the census, it places a fresh one-time FLEET_INVENTORY_TOKEN on the Worker, posts with it and deletes it in an
+# always() step. That token reaches only the inventory route. The census places and deletes the same name at :23 each
+# hour, so NOW dispatches this run outside minutes 15-32 only (fleet-reconciler-now.yml promote step, hq#26360).
+#
+# Dispatched at feat-cmux-next. Public logs: only counts and the route's answer status are printed, never a name.
+#
+# The push trigger is how GitHub learns this workflow exists: a workflow only on feat-cmux-next, not on the default
+# branch, is unknown to the Actions API until it has run once, so NOW's `gh workflow run` and `gh run list --workflow`
+# both answered 404 (no run ever started). A push that changes this file runs it once and registers it.
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/platform-fleet-inventory.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-fleet-inventory
+  cancel-in-progress: false
+
+jobs:
+  write:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    environment: cmux-next-production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: Mint the cmuxterm-hq read token
+        id: hq-token
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-contents: read
+      - name: Read NOW's provider lists
+        env:
+          HQ_TOKEN: ${{ steps.hq-token.outputs.token }}
+        run: |
+          set +x
+          set -euo pipefail
+          now="$RUNNER_TEMP/now.json"
+          curl -sSf --max-time 120 -o "$now" -H 'accept: application/vnd.github.raw' \
+            -H @<(printf 'authorization: Bearer %s\n' "$HQ_TOKEN") \
+            "https://api.github.com/repos/manaflow-ai/cmuxterm-hq/contents/now.json?ref=reconciler-state/now"
+          python3 - "$now" "$RUNNER_TEMP" <<'PY'
+          import json, os, sys
+          now, out = sys.argv[1:]
+          inv = (json.load(open(now)).get("machines_table") or {}).get("inventory") or {}
+          wrote = 0
+          for provider in ("gce", "freestyle"):
+              machines = inv.get(provider) or []
+              if not machines:
+                  print(f"{provider}: NOW lists none (its snapshot unusable?): the platform keeps its last list")
+                  continue
+              # The census team: cmux-platform's MACHINE_TABLE_CENSUS_TEAM default (Leo's production team).
+              body = {"team": "team_a104498f37e7f4a3327d", "provider": provider, "complete": True, "machines": machines}
+              json.dump(body, open(os.path.join(out, f"inventory-{provider}.json"), "w"))
+              print(f"{provider}: {len(machines)} listed")
+              wrote += 1
+          if not wrote:
+              sys.exit("NOW lists no provider: nothing to write")
+          PY
+      - name: Place the one-time token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+        run: |
+          set +x
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          token=$(openssl rand -hex 32)
+          echo "::add-mask::$token"
+          # The value stays in the runner's temp directory (removed with the job), never in an output.
+          printf '%s' "$token" > "$RUNNER_TEMP/fleet-token"
+          printf '%s' "$token" | npx -y wrangler@4.156.0 secret put FLEET_INVENTORY_TOKEN --name cmux-platform-production >/dev/null
+      - name: Write the fleet inventory
+        run: |
+          set +x
+          set -euo pipefail
+          token=$(cat "$RUNNER_TEMP/fleet-token")
+          echo "::add-mask::$token"
+          failed=0
+          for provider in gce freestyle; do
+            body="$RUNNER_TEMP/inventory-$provider.json"
+            [ -f "$body" ] || continue
+            # A fresh secret takes a few seconds to reach every edge: 401 or no answer is retried.
+            for _ in 1 2 3 4 5 6 7 8; do
+              code=$(curl -sS -o "$RUNNER_TEMP/inventory-answer.json" -w '%{http_code}' -X POST \
+                -H 'content-type: application/json' -H @<(printf 'authorization: Bearer %s\n' "$token") \
+                --data @"$body" "https://cmux-platform-production.debussy.workers.dev/v1/internal/fleet-inventory") || code=000
+              [ "$code" != 401 ] && [ "$code" != 000 ] && break
+              sleep 10
+            done
+            # The answer carries counts and an error code only (worker.ts), no machine name.
+            echo "$provider: HTTP $code $(head -c 400 "$RUNNER_TEMP/inventory-answer.json")"
+            [ "$code" = 200 ] || failed=1
+          done
+          exit "$failed"
+      - name: Delete the one-time token
+        # Runs on failure and cancel too; the token file exists from just before the secret put.
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+        run: |
+          [ -f "$RUNNER_TEMP/fleet-token" ] || exit 0
+          rm -f "$RUNNER_TEMP/fleet-token"
+          cd "$RUNNER_TEMP"
+          if ! npx -y wrangler@4.156.0 secret delete FLEET_INVENTORY_TOKEN --name cmux-platform-production </dev/null >/dev/null 2>&1; then
+            echo "::error::FLEET_INVENTORY_TOKEN was not deleted from cmux-platform-production; delete it by hand or rerun this workflow"
+            exit 1
+          fi

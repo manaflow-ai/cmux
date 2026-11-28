@@ -3,7 +3,12 @@ import { exportJWK, generateKeyPair } from "jose"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { defineConfig } from "vitest/config"
+import { tmpdir } from "node:os"
 import { unstable_readConfig } from "wrangler"
+
+// workerd's SQLite writes its temp files to SQLITE_TMPDIR, else TMPDIR, else /var/tmp: on a runner whose /var/tmp was
+// unlinked that failed Durable Object writes with SQLITE_CANTOPEN (backend/apps/api/vitest.config.ts has the runs).
+process.env.SQLITE_TMPDIR ||= process.env.RUNNER_TEMP || tmpdir()
 
 // Test-only fake Stack signing key: its JWKS replaces Stack's published keys when ENVIRONMENT=test.
 const stack = await generateKeyPair("ES256", { extractable: true })
@@ -25,6 +30,8 @@ export default defineConfig({
         bindings: {
           ENVIRONMENT: "test",
           TEAM_HUB_RETIRE_RETRY_MS: "0",
+          // test/link-relay.test.ts: a small per-user relay budget, so its cap shows within a few MiB.
+          LINK_RELAY_USER_MIB_PER_MIN: "2",
           // A fake server key for the primary (dev) project: team creation runs its real Stack requests,
           // which test/teams.test.ts answers with a fake Stack fetch. Membership and invites stay on the
           // ENVIRONMENT=test fixtures below.

@@ -99,6 +99,47 @@ max}` over the last 60 round trips and 120 frames. It is read-only: it never
 connects, disconnects or sends input, and carries no credential or screen
 content.
 
+`app mac-screen-replay --path <movie> [--tab <tab>] [--frames <1-120>]
+[--loops <1-1000>] [--timeout <1-600>]` works with every build: the app's
+`mac_screen.replay` plays the movie (an MP4 the Screen Sharing toolbar's Record
+wrote, or any H.264 or HEVC movie; a relative path is the caller's) `--loops`
+times (default 20) through a Screen Sharing tab's own decoder and presenter,
+with no host peer: the tab `--tab` names, else one showing its home page (`tab
+new-mac-screen --json` opens one). That tab then lists in `app mac-screens`
+with `decode_ms`, `glass_ms` and `decode_present_ms`. The CLI reads
+`mac_screen.state` until the pane has presented `--frames` frames (default
+120, the whole window) and prints `{ok, tab, store_tab, frames_presented,
+decode_present_ms, decode_ms, glass_ms, present_ms, unpresented_frames, ...}`
+(exit 0); past `--timeout` seconds (default 60) it prints what it has with `ok:
+false` (exit 1). A tab off screen presents nothing. Home or closing the tab
+ends the replay; it never connects or sends input.
+
+`app chat memory [--empty-tab <tab>] [--empty-bytes <n>]` works with every build
+and reads on request only (no timer, no sampler, no cache between runs). The
+app's `agent.chat.memory` hands over pids only (the app, its local daemons, and
+per open chat the pid of its WebKit web content process or null); the CLI reads
+each distinct pid's memory once (macOS `phys_footprint`, the number Activity
+Monitor calls Memory, through `proc_pid_rusage`; `metric` names it) and returns
+`{metric, app, daemons, empty, chats, processes, summary}`. Chats that share one
+web content process are grouped by pid and the process is counted once in
+`processes` and `summary.web_total_bytes`; each such chat lists the others in
+`shared_with`. `empty` is the baseline page: `--empty-bytes`, else the chat in
+`--empty-tab`, else a New Tab page alone in its process (`source`
+`bytes`/`tab`/`new_tab`; `reason` when there is none and every ratio is null; a
+shared process is never a baseline). Each chat's `ratio` is its process's
+footprint over the baseline; `summary.ratio_median` and `ratio_max` run over
+processes that hold a chat with content, once each, never the baseline's own.
+
+`tab <tab> show --json` on a Mac Screen tab adds `mac_screen`, the same read
+shaped for an agent: `tab`, `device`, `device_id`, `route` (the daemon's: what
+the tab shows), `state`, `connect_stage`, `hub_phase`, `phase`, `connected`,
+`has_frame`, `first_frame_ms`, `fps`, `transport` (the stream's path, `Direct`
+or `Relayed`), `carrier` (the transport under it), `scope`, `error`, `failure`
+and `timed_out_at`. With no app, or a tab the app does not list, `mac_screen`
+is `{route, unavailable}` with the reason and the tab's record stands. `tab
+new-mac-screen --json` answers with the opened tab's id as `tab` and its
+`mac_screen`, when the app lists the tab once the open returns.
+
 `app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
 app's `agent.chat.perf` runs the chat page's own capture for that many
 seconds (default 5) and returns `{tab, seconds, duration_ms, measured,
@@ -113,6 +154,16 @@ frames, so `measured` is false with `unmeasured_reason` `page_hidden` or
 `no_frames`. Nothing in the page measures outside a capture. A tab that is
 not an agent chat is `invalid_params`; a chat whose page this launch never
 made is `unavailable`.
+
+`app chat perf --page-source` (no `--tab`, no `--seconds`) works with every
+build and answers at once: `agent.chat.perf {"page_source": true}` returns
+`{page_source: {spare_adopted, spare_empty, spare_unready, spare_refused,
+kept, cold, cold_why, refused_why}}`, how each chat page made since launch got
+its page (the warm spare, a Reopen Closed chat's kept page, or a cold build,
+with why as `{reason: count}`), and `pages: {chat, new_tab, frozen,
+released}`: the chat and New Tab pages built now, how many chat pages are
+asleep, and how many were let go while hidden since launch. It reads no tab and runs nothing in a page, so
+an unloaded or asleep chat changes nothing, and it never resets the counts.
 
 `app machines [--no-refresh]` works with every build: it reads the app's
 `machine.list`, the right sidebar's Machines section as the person sees it,
@@ -209,7 +260,7 @@ daemon inject, so no flags are needed.
 | `CMUX_BUNDLE_ID` | App bundle id; derives the app socket and daemon session. |
 | `CMUX_TAG` | Tagged dev build; derives `~/.local/state/cmux/cmux-debug-<tag>.sock`, session `cmux-app-<tag>` and, with the bundle id, the acpmux home `~/.acpmux/builds/<build key>`. |
 | `CMUX_TUI_SOCKET` | Daemon session socket. |
-| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it. `current` selectors do not use it. |
+| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it, and `current` selectors resolve to its tab, pane, screen and workspace. |
 | `ACPMUX_HOME` | acpmux state directory. Wins over the tag rule. |
 
 App socket order: `--app-socket`, then `CMUX_SOCKET_PATH`/`CMUX_BUNDLE_ID`/`CMUX_TAG`,
@@ -238,14 +289,24 @@ Every instance selector accepts:
 1. a public id: `ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`, `browser_…`,
    `split_…`, `notification_…`, `agent_…`. Ids are persisted and survive app and
    daemon restarts;
-2. `current`;
+2. `caller` or `current`, the caller's own object, or `focused`, the one the
+   person looks at;
 3. an exact name. `name:<value>` forces name interpretation and is required for
    names equal to `current`, names shaped like ids, and names containing `_`.
 
-For a `current` or name selector, missing structural ancestors default to
-`current`, so `cmux pane current split --right` means the session's active
-workspace, screen and pane (what the user sees), not the caller's. To act on
-the caller's own terminal, pass `$CMUX_TUI_TERMINAL_ID`. An id selector needs no ancestors. Nested forms name the chain
+For a `caller`, `current` or name selector, missing structural ancestors
+default to `current` (for `focused`, to `focused`). `caller` and `current` are
+the caller's own place: from a cmux terminal (`$CMUX_TUI_TERMINAL_ID`) the CLI
+reads the tab, pane, screen and workspace that hold it; from an agent chat
+(`$CMUX_AGENT_SESSION`) or a Chief turn it asks the app that owns the daemon
+where the chat is. So `cmux pane current split --right` splits the caller's
+own pane even while the person looks at another workspace, and
+`cmux tab create terminal` from a terminal with no `--workspace`, `--screen` or
+`--pane` opens in the caller's pane. `caller` fails without a caller; `current`
+is then the session's active object, as it is outside cmux and with
+`--socket`, `--session` or `--machine`. `focused` is the app's focused
+workspace, screen and pane, and the daemon's active ones without an app that
+owns the daemon. An id selector needs no ancestors. Nested forms name the chain
 explicitly: `cmux workspace api screen current pane current split --down`.
 
 A selector id, or an id given to `--workspace`, `--screen`, `--pane`, `--tab`,
@@ -677,6 +738,10 @@ cmux settings get [<path>]
 cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
 cmux settings unset <path> [--confirm]
+cmux settings history
+cmux settings undo
+cmux settings restore <revision>
+cmux settings reset --group <section>|<section.group>
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
             [--timeout <duration>] [--until <name>|<prefix>*] [--match <path>=<value>]...
 ```
@@ -687,6 +752,17 @@ cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats
 Mac on a native sheet and waits for the answer with no client deadline; a
 declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 `cmux settings set <path> -- --confirm` sets the string "--confirm".
+`settings history` lists the last 100 changes of the settings file, newest
+first, whoever made them (the Settings page, the palette, the CLI, MCP agents,
+a hand edit: origin `file`): revision, time, origin and changed keys.
+`settings undo` takes back the newest change not yet undone, so repeated undo
+walks back one change at a time; `settings restore <revision>` puts the file
+back to its text just before that change. Both are changes of their own, so an
+undo takes them back too. `settings reset --group <g>` resets every setting of
+a Settings section (`appearance`) or of one group in it (`appearance.sidebar`)
+in one change; an unknown group lists the groups. These go to the daemon; a
+change that touches a key only the person may change is refused for them
+(`settings.agent_refused`).
 `events` streams JSON lines until interrupted, or until `--timeout` (exit 124,
 with a last `{"type":"timeout","timed_out":true}` line in JSON modes); with
 `--until`/`--match` it prints the first matching event and exits 0.
@@ -732,31 +808,6 @@ Move to New Window is `cmux <noun> move-to-new-window --target <id>` for
 `workspace-group`; `cmux <noun> move-to-window --new --target <id>` is the
 same command. The new window opens beside the old one and takes the focus;
 terminals keep running and pages keep their state.
-
-## `cmux coderouter`
-
-```text
-cmux coderouter status [--team <id>]
-cmux coderouter machines [--team <id>]
-cmux coderouter claude list [--team <id>]
-cmux coderouter claude add oauth-token|api-key [--label <l>] [--stdin] [--team <id>]
-cmux coderouter claude add bedrock [--label <l>] [--region <r>] [--model <claude>=<bedrock>]... [--team <id>]
-cmux coderouter claude remove|disable|enable <account> [--team <id>]
-cmux coderouter claude clear [--team <id>]
-cmux coderouter <other verb> ...          # the bundled CodeRouter CLI
-cmux cr ...                               # the bundled CodeRouter CLI
-```
-
-The owned verbs go to the app (`auth.status`, `coderouter.claude_upstream.get|add|update|remove|clear`,
-`coderouter.machines`), which calls CodeRouter as the signed-in user and bounds
-each call at 20 s. `claude add` reads its secret from `CLAUDE_CODE_OAUTH_TOKEN` or
-`ANTHROPIC_API_KEY`, from stdin (`--stdin`, or any stdin that is not a
-terminal), or from a hidden prompt; a secret on the command line is refused.
-Bedrock reads `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`.
-`<account>` is the id, label or masked identifier. Every other `coderouter`
-verb and all of `cr` exec `Contents/Resources/bin/coderouter` of the app bundle
-that contains this `cmux`, with every `CMUX_*` variable removed; arguments and
-the exit code pass through.
 
 ## `cmux acp`
 

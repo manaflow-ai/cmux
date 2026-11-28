@@ -98,7 +98,7 @@ impl SegmentStarts {
         let (mut lo, mut hi) = (1usize, segments.len());
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            let (index, path) = &segments[mid];
+            let Some((index, path)) = segments.get(mid) else { return Ok(0) };
             if self.first_seq(id, *index, path)?.is_some_and(|first| first <= bound) {
                 lo = mid + 1;
             } else {
@@ -106,6 +106,29 @@ impl SegmentStarts {
             }
         }
         Ok(lo - 1)
+    }
+
+    /// Exclusive end of the segments that can hold records before `before`. A reverse page
+    /// starts here instead of checking every newer segment. An unreadable head keeps the old
+    /// conservative scan: it cannot prove that a segment holds no requested record.
+    pub(crate) fn end(&self, id: &str, segments: &[(u32, PathBuf)], before: u64) -> Result<usize> {
+        if before == u64::MAX {
+            return Ok(segments.len());
+        }
+        let (mut lo, mut hi) = (0, segments.len());
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let Some((index, path)) = segments.get(mid) else { return Ok(segments.len()) };
+            let Some(first) = self.first_seq(id, *index, path)? else {
+                return Ok(segments.len());
+            };
+            if first < before {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        Ok(lo)
     }
 }
 

@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxMobileAgentChat
 import CmuxMobileTransport
 import Foundation
 
@@ -161,14 +162,15 @@ public struct ChiefTurnFailure: Equatable, Sendable {
         // Addresses first: a port or an IP must not read as a status code.
         let text = withoutAddresses(detail).lowercased()
         func has(_ needles: String...) -> Bool { needles.contains { text.contains($0) } }
-        // Capacity before the generic 5xx: the subrouter answers 503 "no
-        // non-exhausted ... accounts" when every account is used up.
-        if has("429", "rate limit", "rate_limit", "non-exhausted", "usage limit", "quota", "too many requests",
-               "529", "overloaded", "at capacity") {
+        // Capacity before the generic 5xx, read as the Mac reads it (``UpstreamError``): a 503 or 529
+        // as a number of its own ("id 5290" is not), the subrouter's 503 "no non-exhausted ...
+        // accounts", the worker gateway's 502 "at its call limit", an account's 429. Chief's own
+        // extras stay: an account's usage limit or quota.
+        if UpstreamError.isCapacity(text) || UpstreamError.isAccountLimit(text) || has("non-exhausted", "usage limit", "quota") {
             return .modelBusy
         }
         if has("401", "403", "unauthorized", "forbidden", "authentication", "invalid api key", "invalid x-api-key",
-               "oauth", "not logged in", "please run /login", "credential") {
+               "oauth", "not logged in", "not signed in", "please run /login", "credential") {
             return .modelSignIn
         }
         if has("api error: 5", "status 5", " 500", " 502", " 503", " 504", "server-side issue",
@@ -203,12 +205,14 @@ public enum ChiefEngineProblem: Equatable, Sendable {
     /// Something else failed on the Mac.
     case failed
 
-    /// The sentence the settings page shows for a failed load.
+    /// The sentence the settings page shows for a failed load, beside Try
+    /// Again. A transient one waits out the shared quiet bound there, and
+    /// never narrates the page's own retries.
     public var loadText: String {
         switch self {
-        case .macUnreachable: String(localized: "mobile.chief.macRetrying", defaultValue: "Mac unavailable · Retrying…", bundle: .module)
-        case .chiefBusy: String(localized: "mobile.chief.busyRetrying", defaultValue: "Chief busy · Retrying…", bundle: .module)
-        case .modelsUnavailable: String(localized: "mobile.chief.modelsRetrying", defaultValue: "Models unavailable · Retrying…", bundle: .module)
+        case .macUnreachable: String(localized: "mobile.chief.engineMacUnavailable", defaultValue: "Mac unavailable", bundle: .module)
+        case .chiefBusy: String(localized: "mobile.chief.engineBusy", defaultValue: "Chief busy", bundle: .module)
+        case .modelsUnavailable: String(localized: "mobile.chief.engineModelsUnavailable", defaultValue: "Models unavailable", bundle: .module)
         case .chiefDown(let text), .refused(let text): text
         case .failed: String(localized: "mobile.chief.settingsFailed", defaultValue: "Couldn't load Chief's settings.", bundle: .module)
         }

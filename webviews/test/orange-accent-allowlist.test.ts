@@ -14,21 +14,24 @@ const lookIds = (
   }
 ).looks.map((look) => look.id);
 
-test("the allowlisted looks are exactly the Claude and Tandem golden looks, and both exist", () => {
-  expect((allowlist.looks ?? []).map((look) => look.id).sort()).toEqual(["claude", "tandem-addon"]);
+test("the allowlisted looks are exactly the Claude, Tandem and Plush Clay golden looks, and each exists", () => {
+  expect((allowlist.looks ?? []).map((look) => look.id).sort()).toEqual(["claude", "plush-clay-addon", "tandem-addon"]);
   for (const look of allowlist.looks ?? []) expect(lookIds).toContain(look.id);
 });
 
 test("a look is honored on its own looks.golden stage and nowhere else", () => {
-  for (const id of ["claude", "tandem-addon"]) {
+  for (const id of ["claude", "tandem-addon", "plush-clay-addon"]) {
     expect(allowed({ entry: GOLDEN_LOOKS_ENTRY, variant: id, theme: undefined })).toBe(true);
+    // The golden Settings page draws the same look on its own stages.
+    expect(allowed({ entry: "looks.golden.settings.appearance", variant: id, theme: undefined })).toBe(true);
+    expect(allowed({ entry: "looks.golden.settings.chat", variant: id, theme: "Dracula" })).toBe(false);
     // Another entry with a variant of the same name, or the same stage under another theme, is not admitted.
     expect(allowed({ entry: "agent-pane.composer", variant: id, theme: undefined })).toBe(false);
     expect(allowed({ entry: "looks.golden.extra", variant: id, theme: undefined })).toBe(false);
     expect(allowed({ entry: GOLDEN_LOOKS_ENTRY, variant: id, theme: "Dracula" })).toBe(false);
   }
   // Every other golden look stays under the orange rule.
-  for (const id of lookIds.filter((id) => id !== "claude" && id !== "tandem-addon"))
+  for (const id of lookIds.filter((id) => !["claude", "tandem-addon", "plush-clay-addon"].includes(id)))
     expect(allowed({ entry: GOLDEN_LOOKS_ENTRY, variant: id, theme: undefined })).toBe(false);
 });
 

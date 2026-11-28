@@ -118,6 +118,11 @@ fn setting(key: &str, max: u32) -> Option<u32> {
     Some(n.floor().clamp(1.0, f64::from(max)) as u32)
 }
 
+/// [`setting`] for another module's key (`lane_fanout.rs`).
+pub(super) fn setting_u32(key: &str, max: u32) -> Option<u32> {
+    setting(key, max)
+}
+
 /// Where a limit value came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
@@ -191,6 +196,21 @@ pub struct StartRequest {
     /// A refusal may name this host and its paths: false for a Web client, here or
     /// through a peer (`server/requests.rs`).
     pub local: bool,
+}
+
+impl StartRequest {
+    /// Options that require starting a separate harness or checkout.
+    pub(crate) fn own_launch_option(&self) -> Option<&'static str> {
+        [
+            ("harness", self.harness.is_some()),
+            ("model", self.model.is_some()),
+            ("effort", self.effort.is_some()),
+            ("cwd", self.cwd.is_some()),
+            ("worktree", self.worktree),
+        ]
+        .into_iter()
+        .find_map(|(field, given)| given.then_some(field))
+    }
 }
 
 /// A sub-session's new worktree (and the folder it was made from) until its
@@ -468,19 +488,12 @@ impl Hub {
         if req.prompt.trim().is_empty() {
             return Err(RpcError::invalid_params("prompt must not be empty"));
         }
-        if req.fork {
-            let own = [
-                ("harness", req.harness.is_some()),
-                ("model", req.model.is_some()),
-                ("effort", req.effort.is_some()),
-                ("cwd", req.cwd.is_some()),
-                ("worktree", req.worktree),
-            ];
-            if let Some((field, _)) = own.iter().find(|(_, given)| *given) {
-                return Err(RpcError::invalid_params(format!(
-                    "a fork runs your harness, model and folder: start_session with fork takes no {field}"
-                )));
-            }
+        if req.fork
+            && let Some(field) = req.own_launch_option()
+        {
+            return Err(RpcError::invalid_params(format!(
+                "a fork runs your harness, model and folder: start_session with fork takes no {field}"
+            )));
         }
         let pm = parent.meta();
         if pm.status == SessionStatus::Closed {
@@ -526,7 +539,9 @@ impl Hub {
         // was in flight did not see the child: close it now, not orphaned
         // (and its worktree, dropped unkept, is removed).
         if parent.meta().status == SessionStatus::Closed {
-            let _ = self.kill(&child, false).await;
+            let why =
+                crate::close_why::CloseWhy::by("daemon", "its parent closed while it started");
+            let _ = self.kill_why(&child, false, why).await;
             return Err(RpcError::invalid_params(
                 "the session closed while its sub-session started",
             ));
@@ -579,6 +594,13 @@ impl Hub {
                 peers: req.local,
                 // A child's name is made unique before this (`unique_name`).
                 name: None,
+                // A family lives on one daemon: a child starts beside its parent.
+                redirect: false,
+                auto: false,
+                waiting: None,
+                harness: Some(harness.clone()),
+                // The parent's lane holds this child (`lane_fanout.rs`).
+                caller: Some(parent.id.as_str()),
             })
             .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.
@@ -624,6 +646,7 @@ impl Hub {
                     false,
                     Some(sub),
                     None,
+                    Default::default(),
                 ))
                 .await?;
             return self.started_reply(parent, pm, fork, &req, &cwd, short, depth, None).await;
@@ -672,7 +695,8 @@ impl Hub {
             return Err(self.close_refused(&probe, e).await);
         }
         if !Self::race_active(parent, req.race_id.as_deref()) {
-            let _ = self.kill(&probe, false).await;
+            let why = crate::close_why::CloseWhy::by("daemon", "its race ended while it started");
+            let _ = self.kill_why(&probe, false, why).await;
             return Err(Self::race_cancelled());
         }
         let cm = probe.meta();
@@ -932,7 +956,7 @@ impl Hub {
         // The last turn's text, and the running turn's again (a turn that changed between the
         // two reads above): a parent may have pasted a key into it, and what it does now is a
         // tool call's title, often a command with its arguments.
-        let turn_text = ["/turn/prompt", "/turn/activity", "/turn/planStep"];
+        let turn_text = ["/turn/prompt", "/turn/activity"];
         for pointer in ["/lastTurn/errorText", "/lastTurn/prompt"].into_iter().chain(turn_text) {
             if let Some(slot) = row.pointer_mut(pointer)
                 && let Some(text) = slot.as_str()
@@ -1053,6 +1077,18 @@ impl Hub {
         target: &Arc<Session>,
         close: bool,
     ) -> Result<Value, RpcError> {
+        let why = crate::close_why::CloseWhy::by("daemon", "a race or review it ran ended");
+        self.subsession_stop_why(target, close, why).await
+    }
+
+    /// `subsession_stop`, recording who closed each session and why (`close_why.rs`): the
+    /// target takes `why`; each session under it is recorded as closed with its ancestor.
+    pub async fn subsession_stop_why(
+        self: &Arc<Self>,
+        target: &Arc<Session>,
+        close: bool,
+        why: crate::close_why::CloseWhy,
+    ) -> Result<Value, RpcError> {
         if !close {
             // A start or message still waiting for a run slot is stopped too: it never runs.
             if self.waits_for_slot(&target.meta()) {
@@ -1079,7 +1115,15 @@ impl Hub {
             // A family prompt still queued would take a run slot later and open it again.
             self.withdraw_family_prompts(s, "closed");
             if s.meta().status != SessionStatus::Closed {
-                self.kill(s, false).await?;
+                let mut why = why.clone();
+                if s.id != target.id {
+                    why.reason = Some(format!(
+                        "closed with its ancestor {}: {}",
+                        target.id,
+                        why.reason.as_deref().unwrap_or("unrecorded")
+                    ));
+                }
+                self.kill_why(s, false, why).await?;
                 closed.push(Value::String(s.id.clone()));
             }
         }
@@ -1280,77 +1324,5 @@ fn text_block(text: &str) -> Vec<Value> {
 }
 
 #[cfg(test)]
-mod reply_tests {
-    use super::*;
-    use crate::store::{MemoryStore, SessionMeta};
-
-    #[test]
-    fn unbounded_reply_keeps_long_reviewer_text() {
-        let text = format!(r#"{{"winnerId":"c1","reason":"{}"}}"#, "x".repeat(4_480));
-        let events = text
-            .chars()
-            .enumerate()
-            .map(|(index, chunk)| crate::store::EventRecord {
-                seq: u64::try_from(index + 1).unwrap(),
-                at: 0,
-                dir: "in".into(),
-                kind: "agent_message_chunk".into(),
-                msg: json!({
-                    "method": method::SESSION_UPDATE,
-                    "params": {"update": {"content": {"text": chunk.to_string()}}}
-                }),
-                host_seq: None,
-            })
-            .collect::<Vec<_>>();
-        let last = u64::try_from(events.len()).unwrap();
-        assert!(events.len() > MAX_REPLY_CHARS);
-        assert_eq!(masked_reply(&events, last, None).unwrap(), text);
-        assert!(masked_reply(&events, last, Some(MAX_REPLY_CHARS)).unwrap().ends_with('…'));
-    }
-
-    #[test]
-    fn unbounded_reply_pages_past_four_thousand_stored_chunks() {
-        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
-        config.store.mode = crate::config::StoreMode::Memory;
-        let hub = Hub::new(config, Box::new(MemoryStore::default()));
-        let session: Arc<Session> = hub.insert_test_session(
-            serde_json::from_value::<SessionMeta>(json!({
-                "schema": crate::store::META_SCHEMA,
-                "id": "race-review",
-                "name": "race review",
-                "harness": "codex",
-                "cwd": "/tmp",
-                "status": "running",
-                "createdAt": 1,
-                "updatedAt": 2
-            }))
-            .unwrap(),
-        );
-        hub.save_meta(&session);
-        let mut chunk_id = 0u64;
-        let mut update = |text: &str| {
-            chunk_id += 1;
-            hub.append(
-                &session,
-                "in",
-                "agent_message_chunk",
-                json!({
-                    "method": method::SESSION_UPDATE,
-                    "params": {"update": {"content": {"text": text}, "chunkId": chunk_id}}
-                }),
-            );
-        };
-        hub.append(&session, "mux", "turn_started", json!({"turnId": "old"}));
-        update("old turn");
-        hub.append(&session, "mux", "turn_started", json!({"turnId": "review"}));
-        let expected = format!(r#"{{"winnerId":"c1","reason":"{}"}}"#, "x".repeat(4_480));
-        for chunk in expected.chars() {
-            update(&chunk.to_string());
-        }
-
-        let got = hub.last_reply_unbounded(&session).expect("review reply");
-        assert_eq!(got, expected);
-        assert!(got.len() > MAX_REPLY_CHARS);
-        assert!(serde_json::from_str::<Value>(&got).is_ok());
-    }
-}
+#[path = "subsessions_reply_tests.rs"]
+mod reply_tests;

@@ -93,9 +93,21 @@
   font-variant-numeric: tabular-nums;
 }
 .acpmux-status-island__count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* The running mark beside another state (an ask, an error): the island's running dot, small, in the
+   accent, so the number needs no word. */
+.acpmux-status-island__count-dot {
+  flex: none;
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-accent);
 }
 
 .acpmux-status-island__card {
@@ -104,7 +116,18 @@
   gap: var(--ds-space-1);
   box-sizing: border-box;
   width: min(320px, calc(100vw - 24px));
+  /* Never taller than the pane has room for under the island's top (StatusIsland.tsx measures it
+     into --acpmux-status-island-room; the window's height until it has), less the gap the island
+     keeps at the top: a short split pane scrolls the card, so every answer stays reachable. */
+  max-height: calc(var(--acpmux-status-island-room, 100vh) - var(--ds-space-3));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
+}
+/* The card scrolls; its rows keep their height (a clipped ask line would otherwise shrink to
+   nothing under the height cap instead of scrolling). */
+.acpmux-status-island__card > * {
+  flex-shrink: 0;
 }
 .acpmux-status-island__head {
   display: flex;
@@ -143,7 +166,7 @@
   margin-left: 0;
 }
 .acpmux-status-island__collapse:hover {
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-text);
 }
 
@@ -188,7 +211,7 @@
 
 /* Allow and Deny sit in one row at the right; a row that runs out of room wraps, never clips. A
    question's choices (up to four, any length) stack one per row across the card, each label wrapping,
-   so every answer stays visible and clickable inside the island's clipped box. */
+   so every answer stays clickable inside the island's clipped box (the card scrolls in a short pane). */
 .acpmux-status-island__actions {
   display: flex;
   flex-wrap: wrap;
@@ -206,7 +229,7 @@
   padding: var(--grid-half-step) var(--ds-space-3);
   border: 0;
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-text);
   font: inherit;
   white-space: nowrap;

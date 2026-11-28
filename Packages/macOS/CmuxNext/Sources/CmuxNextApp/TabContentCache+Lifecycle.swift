@@ -88,7 +88,7 @@ extension TabContentCache {
     /// `byPerson`: the person's Hibernate Workspace (its pages never wake on a hover).
     func hibernateTabs(_ keys: [String], byPerson: Bool = false) {
         for key in keys {
-            evictHiddenTerminal(key)
+            evictHiddenTerminal(key); lastFrames.stow(key) // its last frame goes to disk (TerminalDormantFrames)
             if browsers[key] != nil { hibernation?.hibernateForWorkspace(key, byPerson: byPerson) }
             hibernation?.agentPages?.pages.releaseForWorkspace(key)
         }
@@ -174,6 +174,7 @@ extension TabContentCache {
     }
 
     private func conceal(_ key: String, token: ContentLifecycle<String>.Token) {
+        onConceal?(key)
         if let entry = terminals[key] {
             // No picture on a switch: hover and drag render one on demand (`previewImage`), or `evict` keeps one.
             entry.session.isRenderingSuspended = true

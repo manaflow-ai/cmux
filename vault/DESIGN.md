@@ -44,7 +44,13 @@ Stack `user.id`, and presigned URLs are only minted for keys owned by that user.
 The web server never proxies transcript bytes; clients upload and download
 directly over TLS using short-lived presigned URLs.
 
-Follow-ups: client-side encryption before upload, optional local redaction rules
+Redaction: `sync` pipes every transcript through `cmux-redact` (cmux-tui/crates/cmux-redact, the
+same gitleaks-based masker acpmux uses) before it is compressed, hashed and uploaded, so the object
+store never holds known secret shapes. The binary is found by `CMUX_VAULT_REDACT_BIN`, next to
+`cmux-vault`, or on PATH; if it is missing, sync refuses rather than upload raw. Opt out with
+`sync --no-redact` or `CMUX_VAULT_NO_REDACT=1`. The local transcript is never modified.
+
+Follow-ups: client-side encryption before upload, user-supplied redaction rules
 for common secret formats, and explicit delete/GC API routes so users can remove
 cloud copies without waiting for retention policy.
 

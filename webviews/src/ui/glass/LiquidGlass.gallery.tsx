@@ -13,6 +13,7 @@ import { chromiumGlassUnderlay } from "./chromiumUnderlay.experiment";
 import { Glass } from "./Glass";
 import { installSvgRefraction } from "./svgRefraction";
 import type { GlassMode } from "./glassState";
+import { KeyHint } from "../KeyHint";
 
 type Scheme = "dark" | "light";
 /** The lens's look, as tokens on the root (glass.css): unset keeps the mode's own. */
@@ -194,7 +195,7 @@ function TranscriptUnderGlass() {
         <div style={{ display: "flex", gap: 8, fontSize: "var(--text-control)", ...secondary }}>
           <span>Plan</span>
           <span>Claude</span>
-          <span style={{ marginInlineStart: "auto" }}>⌘↩</span>
+          <KeyHint keys="⌘↩" style={{ marginInlineStart: "auto" }} />
         </div>
       </Glass>
     </div>
@@ -263,7 +264,7 @@ function LiquidGlassGallery({ mode, scheme, transcript = false, seeThrough = fal
         <div style={{ display: "flex", gap: 8, fontSize: "var(--text-control)", ...secondary }}>
           <span>Plan</span>
           <span>Claude</span>
-          <span style={{ marginInlineStart: "auto" }}>⌘↩</span>
+          <KeyHint keys="⌘↩" style={{ marginInlineStart: "auto" }} />
         </div>
       </Glass>
     </div>

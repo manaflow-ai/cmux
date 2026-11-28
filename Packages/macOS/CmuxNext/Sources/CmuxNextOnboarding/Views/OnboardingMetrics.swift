@@ -8,9 +8,16 @@ enum OnboardingMetrics {
 }
 
 extension OnboardingModel.Step {
-    /// The tool window's fixed content size: one calm size, a smaller one for Computer Use.
+    /// The tool window's fixed content size: one calm size, a smaller one for Computer Use and a taller
+    /// one for Make cmux Yours (cmux#49636: five densities, two rows of backgrounds, Opacity and Material;
+    /// 720 since the Where chats run row, cmux#51876: at 620 Opacity and Material sat over Skip and Continue, and
+    /// the intro walk probe, webviews/scripts/intro-walk.mjs, walks at this size and checks the footer is clickable).
     var windowSize: NSSize {
-        self == .computerUse ? NSSize(width: 520, height: 480) : NSSize(width: 640, height: 520)
+        switch self {
+        case .computerUse: NSSize(width: 520, height: 480)
+        case .makeItYours: NSSize(width: 640, height: 720)
+        default: NSSize(width: 640, height: 520)
+        }
     }
 }
 

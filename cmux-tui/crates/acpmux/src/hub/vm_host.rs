@@ -57,16 +57,89 @@ impl Hub {
         self.vm_marker_root.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// The gateway fallback (`agent_login::GATEWAY_FALLBACK_ENV`) for `session`, whose Claude has
-    /// no credential on a machine whose team cmux's gateway serves: records the gateway as
-    /// Claude's way in here (`cr use team claude`) and restarts the chat's agent on it, after the
-    /// turn under way when there is one. Whether the choice was recorded.
-    pub(crate) fn use_gateway_now(self: &Arc<Self>, session: &Arc<Session>) -> bool {
-        let machine = crate::agent_login::Machine {
-            root: self.vm_marker_root(),
-            home: dirs::home_dir().unwrap_or_default(),
+    /// A route change cannot supersede an unfinished credential recovery or a delivered grant.
+    pub(super) fn check_claude_route_change(&self, session: &Session) -> Result<(), RpcError> {
+        if session.read_meta(super::credentials::claude_login_needs_restart) {
+            return Err(super::credentials::claude_login_busy());
+        }
+        if self.has_delivered_credential(session) {
+            return Err(RpcError::invalid_params(
+                "this chat uses a provider route; sign in to that route",
+            )
+            .with_data(json!({"reason": "route.unavailable"})));
+        }
+        Ok(())
+    }
+
+    /// Save the explicit team choice, or return the next launch to its route binding. The
+    /// caller holds the spawn lease and has checked that no recovery restart is pending.
+    pub(super) fn save_claude_launch_auth(
+        &self,
+        session: &Session,
+        team: bool,
+    ) -> Result<(), RpcError> {
+        const AUTH: &str = "CMUX_CLAUDE_AUTH";
+        const TEAM: &str = crate::claude_cloud_auth::REQUIRED_TEAM;
+        let (previous_auth, previous_team, previous_recovery, previous_pending) = {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let previous_auth = meta.session_env.remove(AUTH);
+            let previous_team = meta.session_env.remove(TEAM);
+            let previous_recovery = meta.claude_token_recovery;
+            let previous_pending = meta.claude_login_restart_pending;
+            if super::credentials::uses_claude_machine_login(&meta) {
+                meta.claude_token_recovery = None;
+                meta.claude_login_restart_pending = None;
+            }
+            if team {
+                meta.session_env.insert(TEAM.into(), "1".into());
+            } else if previous_auth.is_none()
+                && previous_team.is_none()
+                && meta.claude_token_recovery == previous_recovery
+            {
+                return Ok(());
+            }
+            (previous_auth, previous_team, previous_recovery, previous_pending)
         };
-        match machine.choose_team(crate::agent_login::Agent::Claude) {
+        if let Err(error) = self.save_meta_answered(session) {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            meta.session_env.remove(TEAM);
+            meta.session_env.extend(previous_auth.map(|value| (AUTH.into(), value)));
+            meta.session_env.extend(previous_team.map(|value| (TEAM.into(), value)));
+            meta.claude_token_recovery = previous_recovery;
+            meta.claude_login_restart_pending = previous_pending;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// A named Claude chat keeps its gateway choice across a restart. Automatic fallback
+    /// is only available when the chat has no explicit machine-login choice.
+    pub(crate) async fn select_claude_gateway(
+        &self,
+        session: &Session,
+        automatic: bool,
+    ) -> Result<bool, RpcError> {
+        let _spawn = self.spawn_lease(session).await;
+        let meta = session.meta();
+        if automatic && super::spawn::launch_requires_claude_machine_login(&meta) {
+            return Ok(false);
+        }
+        self.check_claude_route_change(session)?;
+        if self.config.read().await.family(&meta.harness).as_deref() != Some("claude") {
+            return Err(RpcError::invalid_params(
+                "the login agent does not match the chat's harness",
+            ));
+        }
+        if meta.session_env.contains_key(crate::claude_cloud_auth::REQUIRED_TEAM) {
+            return Ok(false);
+        }
+        self.save_claude_launch_auth(session, true)?;
+        Ok(true)
+    }
+
+    /// Record the automatic gateway choice before scheduling the restart of this chat.
+    pub(crate) async fn use_gateway_now(self: &Arc<Self>, session: &Arc<Session>) -> bool {
+        match self.select_claude_gateway(session, true).await {
             Ok(true) => {}
             Ok(false) => return false,
             Err(e) => {
@@ -74,13 +147,24 @@ impl Hub {
                 return false;
             }
         }
+        self.schedule_gateway_restart(session);
+        true
+    }
+
+    fn schedule_gateway_restart(self: &Arc<Self>, session: &Arc<Session>) {
+        self.restart_agent_after_turn(session);
+    }
+
+    /// Restarts `session`'s agent, after the turn under way when there is one, so its next spawn
+    /// reads its environment again (the gateway fallback above; a Cloud machine's model route
+    /// that resolved after the spawn, `hub/turns.rs`).
+    pub(crate) fn restart_agent_after_turn(self: &Arc<Self>, session: &Arc<Session>) {
         let hub = Arc::clone(self);
         let ids = std::collections::BTreeSet::from([session.id.clone()]);
         // task-owner: one restart of one chat's agent; it ends with the restart.
         drop(tokio::spawn(async move {
             let _ = hub.restart_harnesses(None, Some(&ids)).await;
         }));
-        true
     }
 
     /// Whether the creation marker says cmux created this machine as one
@@ -120,57 +204,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::cmux_vm_at;
-
-    /// A fresh machine root with these markers (removed by the caller).
-    fn root(kind: Option<&str>, team: bool) -> std::path::PathBuf {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static N: AtomicU32 = AtomicU32::new(0);
-        let n = N.fetch_add(1, Ordering::SeqCst);
-        let d = std::env::temp_dir().join(format!("acpmux-vm-marker-{}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        if let Some(kind) = kind {
-            std::fs::create_dir_all(d.join("etc/cmux")).unwrap();
-            std::fs::write(d.join("etc/cmux/vm-kind"), format!("{kind}\n")).unwrap();
-        }
-        if team {
-            std::fs::create_dir_all(d.join("srv/team")).unwrap();
-        }
-        d
-    }
-
-    fn admits(kind: Option<&str>, team: bool) -> bool {
-        let d = root(kind, team);
-        let admitted = cmux_vm_at(&d);
-        let _ = std::fs::remove_dir_all(&d);
-        admitted
-    }
-
-    #[test]
-    fn only_an_owner_vm_without_team_files_is_cmux_created() {
-        assert!(admits(Some("owner"), false));
-        assert!(!admits(Some("owner"), true), "team files: shared");
-        assert!(!admits(Some("team"), false), "a team VM");
-        assert!(!admits(None, false), "a personal or SSH-added machine");
-        assert!(!admits(Some("ownerx"), false));
-    }
-
-    /// A team files root this user cannot see into (a root-only `/srv`) is not "absent".
-    #[cfg(unix)]
-    #[test]
-    fn a_team_files_root_that_cannot_be_checked_counts_as_there() {
-        use std::os::unix::fs::PermissionsExt;
-        let d = root(Some("owner"), true);
-        std::fs::set_permissions(d.join("srv"), std::fs::Permissions::from_mode(0o000)).unwrap();
-        // Root reads through a 000 folder: this check means nothing there.
-        let blocked = std::fs::symlink_metadata(d.join("srv/team")).is_err();
-        let admitted = cmux_vm_at(&d);
-        std::fs::set_permissions(d.join("srv"), std::fs::Permissions::from_mode(0o755)).unwrap();
-        let _ = std::fs::remove_dir_all(&d);
-        if blocked {
-            assert!(!admitted, "an unreadable /srv/team must refuse");
-        }
-    }
-}
+#[path = "vm_host_tests.rs"]
+mod tests;

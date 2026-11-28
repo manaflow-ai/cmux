@@ -26,7 +26,8 @@
       "paths": [
         "webviews/src/ui/Tooltip.tsx",
         "webviews/src/ui/titleTooltips.ts",
-        "webviews/src/ui/tooltipTokens.ts"
+        "webviews/src/ui/tooltipTokens.ts",
+        "webviews/scripts/check-key-hints.ts"
       ]
     },
     "onboarding": {
@@ -354,8 +355,7 @@
         "home inbox"
       ],
       "paths": [
-        "webviews/src/pages/home-channels/",
-        "webviews/src/pages/home-messages/"
+        "webviews/src/pages/home-channels/"
       ]
     },
     "diff-viewer": {

@@ -13,6 +13,7 @@ import type { NativePopupTransport } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { onVisualViewport, visualViewportScale } from "./visualViewportBox";
 import { listPlacement } from "./listPlacement";
+import { ROW_ATTRIBUTE } from "./menuWindow";
 
 export interface PopupItem {
   id: string;
@@ -136,6 +137,16 @@ const ROWS = '[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"]
 /** Room kept from the page's edge, as Base UI's collision padding. */
 const EDGE = 5;
 
+/** A tooltip's or a row's shortcut for the native host: the keys a KeyHint holds (`data-keys`, as the
+ * call site wrote them, "⌘↩"), which the host draws its own way; else the column's text (a count). */
+function shortcutOf(column: Element | null): string | undefined {
+  if (!column) return undefined;
+  const keys = (column.matches("[data-keys]") ? column : column.querySelector("[data-keys]"))?.getAttribute(
+    "data-keys",
+  );
+  return (keys ?? column.textContent)?.trim() || undefined;
+}
+
 /** The surface's rows as the host draws them: each row's text without its check or shortcut. */
 export function popupItems(
   popup: Element,
@@ -145,7 +156,7 @@ export function popupItems(
   if (kind === "tooltip") {
     const copy = popup.cloneNode(true) as Element;
     copy.querySelectorAll(".ui-tooltip-hint").forEach((node) => node.remove());
-    const shortcut = popup.querySelector(".ui-tooltip-hint")?.textContent?.trim();
+    const shortcut = shortcutOf(popup.querySelector(".ui-tooltip-hint"));
     const label = (copy.textContent ?? "").replace(/\s+/g, " ").trim();
     return {
       items: label ? [{ id: "0", label, ...(shortcut ? { shortcut } : {}) }] : [],
@@ -173,7 +184,7 @@ export function popupItems(
     // A row's muted description (`data-popup-detail`) follows its title after a dash: the host draws
     // one line of text, and the two ran together ("PlanPlan reads and p…", Leo 2026-10-31).
     copy.querySelectorAll("[data-popup-detail]").forEach((node) => node.prepend(" — "));
-    const shortcut = row.querySelector(".ui-menu-shortcut")?.textContent?.trim();
+    const shortcut = shortcutOf(row.querySelector(".ui-menu-shortcut"));
     return {
       id,
       label: (copy.textContent ?? "").replace(/\s+/g, " ").trim(),
@@ -367,16 +378,23 @@ export function useEscapingPopup(
       // Another surface shows the panel: this one stays in the page.
       if (host.owner() && host.owner() !== me) return;
       const at = anchorRef.current();
-      const flat = kind !== "menu" || !element.querySelector("[aria-haspopup], input, textarea, [contenteditable]");
+      // A windowed menu (menuWindow.tsx) has only the rows near its viewport mounted: the host would
+      // get those rows alone and no way to scroll to the rest, so it stays in the page's popup,
+      // which scrolls in whatever room the pane has.
+      const flat =
+        kind !== "menu" ||
+        !element.querySelector(`[aria-haspopup], input, textarea, [contenteditable], [${ROW_ATTRIBUTE}]`);
       const { items } = popupItems(element, kind, active);
       const room = at?.getBoundingClientRect();
+      if (!flat || !items.length || !room) return;
+      const height = naturalHeight(element);
       const fits =
-        !room ||
+        (element.hasAttribute("data-pointer-menu") && height <= window.innerHeight) ||
         (shrinks
-          ? !listPlacement(room, window.innerHeight, naturalHeight(element), { gap }).escapes
-          : fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
+          ? !listPlacement(room, window.innerHeight, height, { gap }).escapes
+          : fitsInPage(room, height, gap, window.innerHeight, flip ? undefined : side) &&
             (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
-      if (!flat || items.length === 0 || fits) return;
+      if (fits) return;
       const first = model();
       if (!first) return;
       escaped = true;

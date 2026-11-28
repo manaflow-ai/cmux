@@ -57,8 +57,14 @@ export function bySize(context: Pick<WidgetContext, "size">, views: { small: () 
   return views.small()
 }
 
-/** The type scale, in points (Apple's widget text styles). */
-export const WIDGET_TYPE = { bigNumber: 34, title: 15, label: 13, body: 13, caption: 12, footnote: 11 } as const
+export { DURATION, RADIUS, SPACE, TYPE_ROLES, WIDGET_TYPE, type Space, type TypeRole } from "./tokens.ts"
+import { SPACE, TYPE_ROLES, WIDGET_TYPE, type Space, type TypeRole } from "./tokens.ts"
+
+/** Text in a type role: its size and weight, one line unless `lines` says more. */
+export function TextIn(role: TypeRole, text: string | number | (() => string | number), options: { lines?: number } = {}): View {
+  const { size, weight } = TYPE_ROLES[role]
+  return Text(text).font(size).weight(weight).lineLimit(options.lines ?? 1)
+}
 /** The tile's inset on each side, in points (Apple's standard widget margin), and the sidebar's tighter one. */
 export const WIDGET_INSET = { newtab: 16, sidebar: 12 } as const
 
@@ -69,7 +75,7 @@ export const WIDGET_INSET = { newtab: 16, sidebar: 12 } as const
  */
 export function WidgetFrame(
   children: Array<View | null | undefined | false>,
-  options: { place?: WidgetPlace; spacing?: number; background?: string } = {}
+  options: { place?: WidgetPlace; spacing?: Space; background?: string } = {}
 ): View {
   const inset = options.place === "sidebar" ? WIDGET_INSET.sidebar : WIDGET_INSET.newtab
   const frame = VStack({ spacing: options.spacing ?? 4, alignment: "leading" }, children)
@@ -81,31 +87,55 @@ export function WidgetFrame(
 /** The tile's header: an optional symbol and a short name, tinted (Apple's widget heading). */
 export function WidgetTitle(text: string | (() => string), options: { symbol?: string; tint?: string } = {}): View {
   const tint = options.tint ?? "accent"
-  const label = Text(text).font(WIDGET_TYPE.label).weight("semibold").color(tint).lineLimit(1)
+  const label = TextIn("label", text).color(tint)
   if (!options.symbol) return label
   return HStack({ spacing: 4 }, [Icon(options.symbol).size(WIDGET_TYPE.label).color(tint), label])
 }
 
 /** The glanceable value: a large, semibold, single-line number or word (a time, a temperature, a count). Its
  * digits roll when it changes (Apple's numeric content transition; a crossfade under Reduce Motion). */
-export function BigNumber(text: string | number | (() => string | number), options: { size?: number; tint?: string } = {}): View {
-  const view = Text(text).font(options.size ?? WIDGET_TYPE.bigNumber).weight("semibold").lineLimit(1).contentTransition("numericText")
+export function BigNumber(
+  text: string | number | (() => string | number),
+  options: {
+    role?: "numeral" | "heading"
+    /** The lower tier: a point size off the type scale, which `cmux ext dev` warns about. */
+    size?: number
+    tint?: string
+  } = {}
+): View {
+  const role = TextIn(options.role ?? "numeral", text)
+  const view = (options.size === undefined ? role : role.font(options.size)).contentTransition("numericText")
   return options.tint ? view.color(options.tint) : view
 }
 
+/** A large heading: a tile's one word when there is no number (a place, a condition). */
+export function Heading(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("heading", text, options)
+}
+
 /** A line of emphasis under or over the big number. */
-export function Headline(text: string | (() => string)): View {
-  return Text(text).font(WIDGET_TYPE.title).weight("semibold").lineLimit(1)
+export function Headline(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("title", text, options)
+}
+
+/** A short emphasized line: a row's title, a key in a key-value pair. */
+export function Label(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("label", text, options)
+}
+
+/** Running text, up to `lines` lines (one by default). */
+export function Body(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("body", text, options)
 }
 
 /** Secondary text: a date, a place, a condition. */
-export function Caption(text: string | (() => string)): View {
-  return Text(text).font(WIDGET_TYPE.caption).color("secondary").lineLimit(1)
+export function Caption(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("caption", text, options).color("secondary")
 }
 
 /** The quietest text: an updated time, a source. */
-export function Footnote(text: string | (() => string)): View {
-  return Text(text).font(WIDGET_TYPE.footnote).color("tertiary").lineLimit(1)
+export function Footnote(text: string | (() => string), options: { lines?: number } = {}): View {
+  return TextIn("footnote", text, options).color("tertiary")
 }
 
 /** A symbol at a widget size (SF Symbols names; cmux maps them to its own set). */
@@ -122,40 +152,61 @@ export function Gauge(value: number | (() => number), options: { label?: string 
 }
 
 /** One row of a widget list: a tinted bar (as Apple's Calendar widget marks an event), a title and a detail.
- * `done` strikes the title through and dims it (a checked reminder). */
-export type ListItem = { id: string; title: string; detail?: string; trailing?: string; tint?: string; symbol?: string; done?: boolean; onTap?: () => unknown }
+ * `done` strikes the title through and dims it (a checked reminder). `check` leads the row with a round
+ * checkbox instead (Apple's Reminders widget): a ring, filled with `tint` once `done`. `menu` is the
+ * row's right-click menu and `help` its tooltip. */
+export type ListItem = {
+  id: string
+  title: string
+  detail?: string
+  trailing?: string
+  tint?: string
+  symbol?: string
+  done?: boolean
+  check?: boolean
+  onTap?: () => unknown
+  menu?: () => View[]
+  help?: string
+}
+
+/** Reminders' round checkbox, drawn with shapes so every renderer draws it the same. */
+function checkbox(item: () => ListItem): () => View {
+  const side = WIDGET_TYPE.body + 6
+  return () => (item().done ? Circle().fill(item().tint ?? "accent").size(side) : Circle().stroke("tertiary").strokeWidth(1.5).size(side))
+}
 
 /**
  * A compact list for medium and large tiles: at most `max` rows (Apple's widgets show 2 to 4 in a
  * medium, 6 to 8 in a large), each a title, an optional detail under it and a trailing value.
  * Rows slide in and out as the list changes; the host animates it.
  */
-export function RowList(items: () => readonly ListItem[], options: { max?: number; spacing?: number } = {}): View {
+export function RowList(items: () => readonly ListItem[], options: { max?: number; spacing?: Space } = {}): View {
   const max = options.max ?? 4
   return VStack({ spacing: options.spacing ?? 6, alignment: "leading" }, [
     ForEach({ items: () => (items() ?? []).slice(0, max), key: (item) => item.id }, (item) => {
-      const leading = item().symbol
+      const leading = item().check
+        ? checkbox(item)
+        : item().symbol
         ? Icon(() => item().symbol ?? "").size(WIDGET_TYPE.label).color(() => item().tint ?? "accent")
         : VStack([]).frame({ width: 3, minHeight: 28 }).background(() => item().tint ?? "accent").cornerRadius(1.5)
       const row = HStack({ spacing: 8 }, [
         leading,
-        VStack({ spacing: 1, alignment: "leading" }, [
-          Text(() => item().title)
-            .font(WIDGET_TYPE.body)
-            .weight("semibold")
-            .lineLimit(1)
+        VStack({ spacing: SPACE.hairline, alignment: "leading" }, [
+          TextIn(item().check ? "body" : "label", () => item().title)
             .strikethrough(() => item().done === true)
             .color(() => (item().done ? "secondary" : "primary"))
             .animation("smooth"),
           () => (item().detail ? Caption(() => item().detail ?? "") : null),
         ]),
         Spacer(),
-        () => (item().trailing ? Text(() => item().trailing ?? "").font(WIDGET_TYPE.caption).color("secondary") : null),
+        () => (item().trailing ? Caption(() => item().trailing ?? "") : null),
       ])
       // Rows slide in when added and out when removed (a crossfade under Reduce Motion).
       row.transition("slide")
-      const tap = item().onTap
-      return tap ? row.onTap(tap) : row
+      const { onTap, menu, help } = item()
+      if (help) row.help(help)
+      if (menu) row.contextMenu(menu)
+      return onTap ? row.cursor("pointer").onTap(onTap) : row
     }),
   ])
 }
@@ -164,7 +215,7 @@ export function RowList(items: () => readonly ListItem[], options: { max?: numbe
 export function WidgetEmpty(title: string, options: { message?: string; symbol?: string } = {}): View {
   return VStack({ spacing: 4, alignment: "leading" }, [
     options.symbol ? WidgetSymbol(options.symbol, { size: 18, tint: "secondary" }) : null,
-    Text(title).font(WIDGET_TYPE.body).weight("semibold"),
+    Label(title),
     options.message ? Caption(options.message) : null,
   ])
 }
@@ -220,7 +271,7 @@ export function Timeline(options: {
   label?: (hour: number) => string
 }): View {
   const hourHeight = options.hourHeight ?? 32
-  const labelWidth = options.labelWidth ?? 34
+  const labelWidth = options.labelWidth ?? 40
   const gridWidth = Math.max(0, options.width - labelWidth)
   const label = options.label ?? ((hour: number) => `${hour % 12 || 12} ${hour % 24 < 12 ? "AM" : "PM"}`)
   const hours: number[] = []
@@ -231,8 +282,10 @@ export function Timeline(options: {
     hours.map((hour) =>
       HStack({ spacing: 4, alignment: "top" }, [
         Text(label(hour)).font(WIDGET_TYPE.footnote).color("tertiary").lineLimit(1).frame({ width: labelWidth - 4 }).offset({ y: -6 }),
-        Line({ stroke: "separator" }),
-      ]).frame({ height: hour === options.endHour ? 1 : hourHeight })
+        // The grid's width, not the parent's: a row that only wraps its content would leave a frameless
+        // Line no width and squeeze the hour label out.
+        Line({ stroke: "separator" }).frame({ width: gridWidth }),
+      ]).frame({ width: options.width, height: hour === options.endHour ? 1 : hourHeight })
     )
   )
   const events = ForEach({ items: () => options.events(), key: (event) => event.id }, (event) => {

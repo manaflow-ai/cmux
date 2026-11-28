@@ -28,7 +28,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstring
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings	hands.presence.unavailable	24	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/AgentDialogs.xcstrings	agentDialogs.nameTheItem	17	6
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Bookmarks.xcstrings	bookmarks.importBrowser.none	16	10
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserImportOffer.xcstrings	browserImportOffer.syncStopped	19	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserProfiles.xcstrings	browserProfiles.deleteTitle	7	6
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserProfiles.xcstrings	browserProfiles.refusal.invalidName	8	6
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/ClipboardReads.xcstrings	clipboardRead.title	7	6
@@ -53,8 +52,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	clas
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	sessionTransfer.error.chatFolderMissing	26	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	sessionTransfer.error.peerRefused	21	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	sessionTransfer.error.sourceAgentsStopped	16	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings	mobilePairing.page.ready.list	18	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings	mobilePairing.page.ready.scan	13	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Passwords.xcstrings	passwords.csv.guide.name.other	10	6
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.browser.notConnected	14	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.install.body	36	25
@@ -113,7 +110,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport/Resources/CookieImport.xcst
 Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport/Resources/CookieImport.xcstrings	cookieImport.error.nothingMatched	11	10
 Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport/Resources/CookieImport.xcstrings	cookieImport.error.reasonRequired	25	20
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/AgentShare.xcstrings	agentShare.consent.detail	29	25
-Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/AgentShare.xcstrings	agentShare.invite.consent.detail	27	25
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/Cloud.xcstrings	cloud.cli.execUnavailable	38	30
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/Cloud.xcstrings	cloud.cli.machineWorkspaceHasNoPane	32	30
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/Cloud.xcstrings	cloud.cli.machineWorkspacesNotLoaded	34	30
@@ -138,7 +134,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextHome/Resources/Localizable.xcstrings	hom
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Resources/Localizable.xcstrings	home.firstRun.introFocus	34	25
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/Resources/Home.xcstrings	home.chief.notRunning	13	12
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/Resources/Home.xcstrings	home.chief.welcomeBackground	27	25
-Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/Resources/Home.xcstrings	home.engine.reactions.note	26	25
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/Resources/Home.xcstrings	home.engine.renameInvalidName	10	6
 Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/Resources/HostedChief.xcstrings	home.chief.hostedBrainFailed	21	20
 Packages/macOS/CmuxNext/Sources/CmuxNextImportSuggestions/Resources/ImportSuggestions.xcstrings	importSuggestions.settings.empty	15	10
@@ -220,13 +215,13 @@ webviews/src/pages/home-channels/Localizable.xcstrings	chief.backend.none	14	10
 webviews/src/pages/home-channels/Localizable.xcstrings	chief.field.personalityPlaceholder	8	6
 webviews/src/pages/home-channels/Localizable.xcstrings	chief.field.rolePlaceholder	7	6
 webviews/src/pages/home-channels/Localizable.xcstrings	connect.listenerRefused	21	20
-webviews/src/pages/home-messages/cards/Localizable.xcstrings	home.firstRun.hero.body	31	25
-webviews/src/pages/home-messages/cards/Localizable.xcstrings	home.firstRun.intro	41	25
-webviews/src/pages/home-messages/cards/Localizable.xcstrings	home.firstRun.introFocus	34	25
 webviews/src/pages/markdown/Localizable.xcstrings	run.all.title	17	6
 webviews/src/pages/markdown/Localizable.xcstrings	run.title	8	6
 webviews/src/pages/onboarding/Localizable.xcstrings	onboarding.access.none	11	10
 webviews/src/pages/onboarding/Localizable.xcstrings	onboarding.passwords.firefoxOnly	43	25
 webviews/src/pages/onboarding/Localizable.xcstrings	onboarding.unlock.line	22	12
+webviews/src/pages/setup-card/Localizable.xcstrings	home.firstRun.hero.body	31	25
+webviews/src/pages/setup-card/Localizable.xcstrings	home.firstRun.intro	41	25
+webviews/src/pages/setup-card/Localizable.xcstrings	home.firstRun.introFocus	34	25
 webviews/src/pages/stash/Localizable.xcstrings	stash.empty	20	10
 webviews/src/viewer-empty/Localizable.xcstrings	picker.placeholder	10	6

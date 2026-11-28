@@ -13,7 +13,11 @@
 # (the fleet's artifact store refuses one). A step returns one file, so a lane
 # without a Mac regenerates a pull request's exports with
 #   cmux-ci run --class light --script scripts/cmux-next/regenerate-action-exports.sh \
-#     --ref <pushed head> --key <key> --arg .build/exports --artifact .build/exports.patch
+#     --ref <pushed head> --key <key> --arg .build/exports --artifact .build/exports.patch \
+#     --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
+# (the --env pins the step's Xcode in the worker's own log; without it
+# lib/warm-swiftpm.sh still builds with the repository's pin via
+# select-ci-xcode.sh, never the host's default Xcode).
 #   cmux-ci artifact <step id> exports.patch
 #   git apply --allow-empty exports.patch   # no diff when nothing was stale
 #
@@ -23,7 +27,7 @@ set -euo pipefail
 # swift test builds and runs cmux-next's test host: fleet or GitHub runner only.
 # shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
-cmux_next_require_fleet regenerate-action-exports.sh "swift test" "cmux-next PR autofix / action exports"
+cmux_next_require_fleet regenerate-action-exports.sh "swift test" "cmux-next PR autofix (advisory) / action exports"
 # shellcheck source-path=SCRIPTDIR source=lib/warm-swiftpm.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/warm-swiftpm.sh"
 out="$(mkdir -p "${1:?usage: $0 OUT}" && cd "$1" && pwd)"

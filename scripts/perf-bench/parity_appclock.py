@@ -120,7 +120,7 @@ def now_ns():
 
 
 def pause(seconds):
-    time.sleep(seconds)  # bench: pacing of synthetic input, never a wait for app state
+    time.sleep(seconds)  # sleep-ok: bench pacing of synthetic input, never a wait for app state
 
 
 def sleep_until(deadline_ns):
@@ -231,7 +231,7 @@ class Cmux:
         self.out = out
         self.movies = []  # the movies this app's recordings kept, in order
         config = {"appearance": {"backgroundOpacity": 1},
-                  "updates": {"checkAutomatically": False, "downloadAutomatically": False}}
+                  "updates": {"automatic": "off"}}
         self.app = BenchApp(bundle, out=out, config=config, window=cp.WINDOW, screen=screen)
         with open(os.path.join(self.app.scratch, "ghostty"), "w") as f:
             f.write("cursor-style-blink = false\n")

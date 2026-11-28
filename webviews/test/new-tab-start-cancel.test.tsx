@@ -4,9 +4,11 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { translate as t } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { translate: t } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -215,12 +217,15 @@ test("a stale folder reply ends its New Tab send without using its folder, so th
       return undefined;
     },
   );
-  // The person picks project A on the page (Add folder…): a send there goes through the host first.
+  // The person picks project A with the folder chooser. A send there goes through the host first.
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!.click());
-  const browse = [...dom.window.document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (node) => node.textContent === t("composer.addFolder"),
+  const addProject = [...dom.window.document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (node) => node.textContent === t("project.add"),
   );
-  expect(browse, "Add folder…").toBeDefined();
+  expect(addProject).toBeDefined();
+  await act(async () => addProject!.click());
+  const browse = dom.window.document.querySelector<HTMLElement>('.acpmux-add-project-palette [data-source="browse"]');
+  expect(browse, "Folder on this Mac").toBeDefined();
   await act(async () => {
     browse!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
     browse!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1 }));

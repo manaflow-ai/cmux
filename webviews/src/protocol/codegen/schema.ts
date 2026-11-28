@@ -507,27 +507,26 @@ export class ValidatorBuilder {
       out += `${indent}if (Object.hasOwn(${value}, ${JSON.stringify(key)})) {\n`;
       out += `${indent}  const ${prop}: unknown = ${value}[${JSON.stringify(key)}];\n${body}${indent}}\n`;
     }
+    // `additionalProperties: false` is not enforced: a peer one version newer may add a field,
+    // and refusing the whole message over it breaks every older reader. Only a schema-valued
+    // `additionalProperties` (a map's values) is checked.
     const extra = schema.additionalProperties;
-    if (extra !== undefined && extra !== true) {
+    if (extra !== undefined && extra !== true && extra !== false) {
       const known = this.fresh("KNOWN_");
       this.constants.push(`const ${known}: ReadonlySet<string> = new Set(${JSON.stringify(Object.keys(properties))});`);
       const key = this.fresh("key");
       out += `${indent}for (const ${key} of Object.keys(${value})) {\n`;
       out += `${indent}  if (${known}.has(${key})) continue;\n`;
-      if (extra === false) {
-        out += `${indent}  ${errs}.push({ path: ${path}, message: \`unexpected property \${JSON.stringify(${key})}\` });\n`;
-      } else {
-        const item = this.fresh("extra");
-        out += `${indent}  const ${item}: unknown = ${value}[${key}];\n`;
-        out += this.compile(
-          extra as JsonSchema,
-          item,
-          `${path} + "/" + ${key}.replaceAll("~", "~0").replaceAll("/", "~1")`,
-          errs,
-          `${where}.additionalProperties`,
-          `${indent}  `,
-        );
-      }
+      const item = this.fresh("extra");
+      out += `${indent}  const ${item}: unknown = ${value}[${key}];\n`;
+      out += this.compile(
+        extra as JsonSchema,
+        item,
+        `${path} + "/" + ${key}.replaceAll("~", "~0").replaceAll("/", "~1")`,
+        errs,
+        `${where}.additionalProperties`,
+        `${indent}  `,
+      );
       out += `${indent}}\n`;
     }
     return out;

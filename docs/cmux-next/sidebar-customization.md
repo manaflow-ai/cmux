@@ -19,7 +19,7 @@ settings reload is atomic and reversible, so a malformed customization falls
 back to the native projection without affecting the session.
 
 CMUX-383 adds a native projection layer for the sidebar document. The document
-continues to own placement and persistence; \`cmux-next.json\` supplies bounded
+continues to own placement and persistence; `cmux-next.json` supplies bounded
 user overrides that Rust validates before the Swift view applies them. The
 projection is re-read on every settings watcher update, including an atomic
 file replacement, so saving the file is the hot-reload action.
@@ -28,7 +28,7 @@ file replacement, so saving the file is the hot-reload action.
 
 The settings live under two keys:
 
-\`\`\`json
+```json
 {
   "sidebar": {
     "sections": {
@@ -44,15 +44,24 @@ The settings live under two keys:
     }
   }
 }
-\`\`\`
+```
 
-Section \`hidden\` accepts section ids or their stable keys. \`order\` ranks
-sections within their existing \`top\`, \`middle\`, or \`bottom\` region; it never
+Section `hidden` accepts section ids or their stable keys. `order` ranks
+sections within their existing `top`, `middle`, or `bottom` region; it never
 crosses those fixed bands. Workspace entries can hide a row, assign it to a
 same-section group by id or unambiguous display name, and rank it within its
 current loose/group list. Unknown ids, malformed values, duplicate ids, and
 oversized lists produce diagnostics and leave document placement intact.
 The selected workspace always keeps its section and row visible.
+
+`sidebar.sections.hidden` and `sidebar.sections.order` are settings rows, so
+the Settings page (Sidebar, Sidebar Sections card), the command palette,
+`cmux settings get|set`, the MCP `settings_set` tool and a look or customize
+profile set them like any other key, for example
+`"settings": {"sidebar.sections.hidden": ["recents"]}` in a profile. Each takes
+at most 256 distinct ids of 1 to 128 characters; a profile with any other value
+is refused. Both default to an empty list: nothing hidden, the default order.
+`sidebar.workspaces` is not a row yet, so a profile cannot set it.
 
 ## Rows, sections, density, and scope
 
@@ -71,7 +80,7 @@ hide or move never becomes permanent state.
 
 The gallery covers the default projection, hidden/reordered sections, and a
 workspace moved and ranked within its section. The watcher test writes a
-temporary \`cmux-next.json\` through an atomic replacement and observes the new
+temporary `cmux-next.json` through an atomic replacement and observes the new
 projection without a restart.
 
 ## A nav block of cmux actions: `sidebar.nav`
@@ -95,7 +104,7 @@ is an action id (`cmux action list` names them), optionally followed by a title 
 The rows draw in the built-in look (an icon and a label, no fill at rest, the hover fill), above
 Home, and follow `sidebar.sectionLook`. A row with no title or symbol takes the action's own. Rust
 checks the list (`cmux-layout-reducer` `sidebar_nav.rs`): an unknown id, a debug-only or destructive
-action, a duplicate, or more than 12 rows is dropped with a diagnostic, and the rest still draw. The
+action (or one that quits, closes, signs out, clears, resets or removes), a duplicate, or more than 12 rows is dropped with a diagnostic, and the rest still draw. The
 rows are never written to the sidebar document, so removing the key, or the look that set it, leaves
 your sidebar as it was. Empty (the default) draws no block. Together with `sidebar.groupBy: recents`
 (Projects and Recents headers) and Pinned, this gives a sidebar the shape of the Codex app's.
@@ -103,10 +112,11 @@ your sidebar as it was. Empty (the default) draws no block. Together with `sideb
 # Sidebar looks
 
 `sidebar.look` draws the sidebar like another app's: `claude` (the Claude desktop app), `codex`
-(the Codex app), `studio` (a coding studio: threads under a heading per project, status in words and icons) or
-`cmux`, the default, which is today's sidebar. The transcript (`agentPane.display.transcriptLook`)
-and the composer (`agentPane.display.composerLook`) use the same four names, so one word sets the
-whole window's look.
+(the Codex app), `studio` (threads grouped by project, with status text and icons), or `rex`
+(a flat list of sessions with the status before the name). The default is `cmux`. Settings >
+Customize lists the sidebar looks. The transcript setting (`agentPane.display.transcriptLook`)
+accepts `cmux`, `claude`, `codex`, and `studio`. The composer setting (`agentPane.composerLook`)
+accepts `auto` and `studio`. The `rex` look applies only to the sidebar.
 
 ```sh
 cmux settings set sidebar.look claude
@@ -210,7 +220,7 @@ Two detectors hold this:
 - Swift (`AASidebarLookPresetGalleryTests`, CmuxNextAppTests): through the real sidebar list, for
   every look, a row changing state (working, busy, waiting, error, done, unread, idle) and a hot
   reload move no row's frame; switching looks keeps the list width and one workspace row height
-  across all four looks; and switching away and back returns every row frame exactly. Its gallery
+  across every look; and switching away and back returns every row frame exactly. Its gallery
   (`CMUX_TEST_REQUIRE_GUI=1`) writes `sidebar-look-presets-gallery/`, one column per look, dark
   above light.
 
@@ -234,7 +244,10 @@ heights, title and detail type) so the two can be compared number by number.
 
 What each look sets to match: Claude groups by project, hides the time, draws a dot; Codex groups by
 project, shows the time and draws the thin ring (`arc`); Studio groups by project, shows the time and draws an
-icon for each status.
+icon for each status. Rex lists every session flat (no folders, headings or counts), draws the
+status first in the icon's place (it keeps that slot while idle, so the name never moves) and hides
+the icon, color and time. Rex is not in the table: no capture of its sidebar has been measured yet,
+so its gallery column draws at the default width.
 
 Width and row pitch are not set by a look (No shift). To match a reference's numbers, set them
 yourself: `appearance.metrics.sidebarWidth` (for example 256, 288 or 300) and `sidebar.density`.

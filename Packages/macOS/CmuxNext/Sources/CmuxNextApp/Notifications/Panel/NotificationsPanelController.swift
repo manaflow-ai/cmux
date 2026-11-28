@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextNotifications
 import Observation
 
 /// The notifications panel (`showNotifications`, ⌘I): the daemon's
@@ -24,6 +25,9 @@ final class NotificationsPanelController {
         let card = NotificationsPanelView()
         card.onMarkAllRead = { [weak self] in self?.perform("markAllNotificationsRead", nil) }
         card.onClearAll = { [weak self] in self?.perform("clearAllNotifications", nil) }
+        card.list.open = { [weak self] row in self?.perform("notificationOpen", row) }
+        card.list.dismiss = { [weak self] row in self?.perform("notificationDismiss", row) }
+        card.list.rowMenu = { [weak self] row in self?.menu(for: row) ?? NSMenu() }
         cardView = card
         return card
     }
@@ -166,17 +170,10 @@ final class NotificationsPanelController {
         render()
     }
 
+    /// Shows the rows: the list keeps the views of rows that did not change.
     private func render() {
-        let now = Date()
-        let views = rows.map { row in
-            NotificationRowView(row: row, now: now, callbacks: .init(
-                open: { [weak self] in self?.perform("notificationOpen", row) },
-                dismiss: { [weak self] in self?.perform("notificationDismiss", row) },
-                menu: { [weak self] in self?.menu(for: row) ?? NSMenu() }
-            ))
-        }
-        let height = card.show(views, loaded: loaded)
-        card.select(selection.index(in: rows))
+        let height = card.show(rows, loaded: loaded, now: Date())
+        card.select(selection.id)
         guard let panel, panel.isVisible else { return }
         let top = panel.frame.maxY
         let frame = NSRect(x: panel.frame.minX, y: top - height, width: NotificationsPanelView.width, height: height)
@@ -224,7 +221,7 @@ final class NotificationsPanelController {
             close()
         case 125, 126:
             selection.move(by: event.keyCode == 125 ? 1 : -1, in: rows)
-            card.select(selection.index(in: rows))
+            card.select(selection.id)
         case 36, 76:
             guard let selected else { return false }
             perform("notificationOpen", selected)

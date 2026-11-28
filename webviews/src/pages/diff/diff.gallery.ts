@@ -15,6 +15,23 @@ async function turnOnPlainEnglish(ctx: PlayContext): Promise<void> {
   await ctx.click({ selector: '[data-option="plain-english"]' });
 }
 
+/** Marks the first three files viewed from their headers' Viewed buttons (hq #19495). */
+async function markThreeViewed(ctx: PlayContext): Promise<void> {
+  // Every file first (thirty files add 59 lines), so the count's total is the whole diff's.
+  await ctx.waitFor(() => ctx.document.querySelector(".source-pill-additions")?.textContent === "+59", {
+    capMs: 10_000,
+  });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".file-review-viewed").length >= 3, { capMs: 10_000 });
+  for (let index = 0; index < 3; index += 1) {
+    const unviewed = ctx.document.querySelector<HTMLElement>('.file-review-viewed[aria-pressed="false"]');
+    unviewed?.click();
+    await ctx.waitFor(
+      () => ctx.document.querySelectorAll('.file-review-viewed[aria-pressed="true"]').length >= index + 1,
+      { capMs: 5_000 },
+    );
+  }
+}
+
 const before = `export function request(url: string) {
   return fetch(url).then((response) => response.json());
 }
@@ -185,7 +202,8 @@ export default diffPageEntry({
         await ctx.click({ selector: "#files-toggle" });
         await ctx.waitFor(() => ctx.document.querySelector("#jump-to-file-button"), { capMs: 10_000 });
         await ctx.click({ selector: "#jump-to-file-button" });
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".jump-palette-row").length === many.length);
+        // The palette draws only the rows in view: each names the whole list's length.
+        await ctx.waitFor(() => ctx.document.querySelector(`.jump-palette-row[aria-setsize="${many.length}"]`));
       },
     },
     "branch-base-overflow": {
@@ -204,7 +222,8 @@ export default diffPageEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".base-picker-button"), { capMs: 10_000 });
         await ctx.click({ selector: ".base-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".base-picker-row").length === 40);
+        // The picker draws only the rows in view: each names the whole list's length.
+        await ctx.waitFor(() => ctx.document.querySelector('.base-picker-row[aria-setsize="40"]'));
       },
     },
     "committed-overflow": {
@@ -301,6 +320,40 @@ export default diffPageEntry({
       note: "Thirty files in six folders (the file tree).",
       files: many,
     },
+    "viewed-progress-menu": {
+      note: 'Three of thirty files viewed: the "..." menu\'s Hide viewed files row says "3 of 30 viewed" (shipped).',
+      files: many,
+      play: async (ctx) => {
+        await markThreeViewed(ctx);
+        await ctx.click({ selector: "#options-button" });
+        await ctx.waitFor(
+          () => ctx.document.querySelector("#hide-viewed-toggle .menu-detail")?.textContent?.includes("30"),
+          { capMs: 10_000 },
+        );
+      },
+    },
+    "viewed-progress-tooltip": {
+      note: 'Three of thirty files viewed: the source pill\'s tooltip reads "Branch: +59 -29 · 3 of 30 files viewed" (shipped).',
+      files: many,
+      play: async (ctx) => {
+        await markThreeViewed(ctx);
+        await ctx.hover({ selector: "#source-menu .source-pill-stats" });
+        await ctx.waitFor(() => ctx.document.querySelector(".ui-title-tooltip")?.textContent?.includes("30"), {
+          capMs: 10_000,
+        });
+      },
+    },
+    "viewed-progress-suffix": {
+      note: 'The pill-suffix arm (not shipped): the source pill shows "· 3/30" after its counts.',
+      files: many,
+      experiments: { "diff-viewed-progress": "suffix" },
+      play: async (ctx) => {
+        await markThreeViewed(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".source-pill-progress")?.textContent?.includes("/30"), {
+          capMs: 10_000,
+        });
+      },
+    },
     "word-diff": {
       note: "Edits inside lines, unified: the changed words are marked (on by default).",
       layout: "unified",
@@ -329,6 +382,29 @@ export default diffPageEntry({
       ],
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector("#comments-send"), { capMs: 10_000 });
+      },
+    },
+    "review-from-link": {
+      note: "A review worktree (cmux git review start <url>): the agent's drafts, Post to GitHub, and the pull request's line with Send to agent.",
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      commentsSend: true,
+      commentsReview: {
+        url: "https://github.com/acme/net/pull/482",
+        repo: "acme/net",
+        number: 482,
+        title: "Retry uploads with backoff",
+        head: "4f1c2e9",
+        base: "9a0b3d1",
+      },
+      comments: [
+        reviewComment("r1", "src/net/client.ts", 3, "Three attempts is low for uploads; take it from config."),
+        reviewComment("r2", "src/net/retry.ts", 5, "Back off between attempts instead of retrying at once."),
+      ],
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("#comments-post"), { capMs: 10_000 });
       },
     },
     "plain-english": {

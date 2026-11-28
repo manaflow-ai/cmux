@@ -314,6 +314,38 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("app"),
         ..Action::DEFAULT
     },
+    // Leo, 2026-11-22: "approved ways to simply do the update and restart button's flow should be
+    // available". Quits with Keep Sessions and opens the bundle installed now (a newer nightly
+    // replaced under a running app included); `--if-newer` refuses when it is the running build.
+    Action {
+        id: "relaunchKeepSessions",
+        group: GROUP,
+        title: t("ActionCatalog", "action.relaunchKeepSessions", "Relaunch and Keep Sessions"),
+        keywords: &["restart", "reopen", "update", "installed", "build", "nightly"],
+        category: "window",
+        symbol: "arrow.clockwise",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("endsApp"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::KEEP_SESSIONS.optional(), args::IF_NEWER.optional()],
+        cli_name: "app relaunch",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    // Ends the process even with app.backgroundReady on, where Cmd-Q leaves a hidden ready copy
+    // (cmux-background-ready's on_quit). No main_menu row: the app adds it to the app menu itself,
+    // only while the setting is on.
+    Action {
+        id: "quitCompletely",
+        group: GROUP,
+        title: t("ActionCatalog", "action.quitCompletely", "Quit Completely"),
+        keywords: &["exit", "close", "background", "stay ready", "hidden"],
+        category: "window",
+        symbol: "power",
+        surfaces: PALETTE | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("endsApp"), ..SurfacePlan::DEFAULT },
+        cli_name: "app quit-completely",
+        ..Action::DEFAULT
+    },
     Action {
         id: "showHideAllWindows",
         group: GROUP,

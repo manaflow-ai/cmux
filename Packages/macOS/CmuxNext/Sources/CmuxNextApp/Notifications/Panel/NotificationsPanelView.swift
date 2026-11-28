@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextCompat
+import CmuxNextNotifications
 
 /// The panel's window: a borderless child panel of the shell window (so it
 /// stays above Chromium page windows and moves with the window). It takes
@@ -61,13 +62,13 @@ final class NotificationsPanelView: NSView {
     private let body = NSView()
     private let markAllRead = NSButton()
     private let clearAll = NSButton()
-    private let scroll = OverlayScrollView()
-    private let list = NSStackView()
+    private let scroll = NotificationsPanelScrollView()
+    /// The rows, windowed: only the visible ones have views.
+    let list = NotificationsPanelList()
     private let empty = NSStackView()
     private let emptyIcon = NSImageView()
     private var listHeight: NSLayoutConstraint?
-    private var tinted: [(ChromeLabel, NotificationRowView.Tone)] = []
-    private(set) var rowViews: [NotificationRowView] = []
+    private var tinted: [(ChromeLabel, NotificationsPanelStyle.Tone)] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -78,20 +79,12 @@ final class NotificationsPanelView: NSView {
         glass.samplesBehindWindow = true
         addSubview(glass)
         addSubview(background)
-        NSLayoutConstraint.activate([
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            background.leadingAnchor.constraint(equalTo: leadingAnchor),
-            background.trailingAnchor.constraint(equalTo: trailingAnchor),
-            background.topAnchor.constraint(equalTo: topAnchor),
-            background.bottomAnchor.constraint(equalTo: bottomAnchor),
-            body.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            body.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            body.topAnchor.constraint(equalTo: background.topAnchor),
-            body.bottomAnchor.constraint(equalTo: background.bottomAnchor),
-        ])
+        // The glass and the background fill the view, and the body fills the background.
+        let fills: [(NSView, NSView)] = [(glass, self), (background, self), (body, background)]
+        NSLayoutConstraint.activate(fills.flatMap { view, host in
+            [view.leadingAnchor.constraint(equalTo: host.leadingAnchor), view.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+             view.topAnchor.constraint(equalTo: host.topAnchor), view.bottomAnchor.constraint(equalTo: host.bottomAnchor)]
+        })
         build()
     }
 
@@ -102,7 +95,7 @@ final class NotificationsPanelView: NSView {
 
     private func build() {
         let titleFont = NSFont.systemFont(ofSize: Typography.body.pointSize + 2, weight: .semibold)
-        let title = NotificationRowView.label(NotificationsPanelStrings.title, font: titleFont)
+        let title = NotificationsPanelStyle.label(NotificationsPanelStrings.title, font: titleFont)
         for (button, text, action, id) in [(markAllRead, NotificationsPanelStrings.markAllRead, #selector(markAllPressed), "markAllRead"),
                                            (clearAll, NotificationsPanelStrings.clearAll, #selector(clearAllPressed), "clearAll")] {
             button.title = text
@@ -117,18 +110,16 @@ final class NotificationsPanelView: NSView {
         let header = NSStackView(views: [title, spacer, markAllRead, clearAll])
         header.spacing = Metrics.space3
 
-        list.orientation = .vertical
-        list.alignment = .leading
-        list.spacing = 0
-        let document = FlippedView()
-        document.addSubview(list)
-        list.translatesAutoresizingMaskIntoConstraints = false
-        scroll.documentView = document
+        // The list sizes itself (its rows' heights), so its frame is set, not constrained.
+        list.frame = NSRect(x: 0, y: 0, width: Self.listWidth, height: 0)
+        list.maxViewportHeight = Self.maxListHeight
+        scroll.documentView = list
+        // A scroll step mounts the rows it reveals and touches no other.
+        scroll.onScroll = { [weak list = self.list] in list?.realize() }
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         // Thin, shown only while scrolling (SCROLLBARS-THIN).
         SystemScrollers.follow(scroll)
-        document.translatesAutoresizingMaskIntoConstraints = false
 
         emptyIcon.image = NSImage.icon(.notification, size: 28)
         emptyIcon.image?.accessibilityDescription = NotificationsPanelStrings.title
@@ -136,8 +127,8 @@ final class NotificationsPanelView: NSView {
         emptyIcon.translatesAutoresizingMaskIntoConstraints = false
         emptyIcon.widthAnchor.constraint(equalToConstant: 28).isActive = true
         emptyIcon.heightAnchor.constraint(equalToConstant: 28).isActive = true
-        let emptyTitle = NotificationRowView.label(NotificationsPanelStrings.emptyTitle, font: Typography.bodyEmphasized)
-        let emptyDetail = NotificationRowView.label(NotificationsPanelStrings.emptySubtitle, font: Typography.caption)
+        let emptyTitle = NotificationsPanelStyle.label(NotificationsPanelStrings.emptyTitle, font: Typography.bodyEmphasized)
+        let emptyDetail = NotificationsPanelStyle.label(NotificationsPanelStrings.emptySubtitle, font: Typography.caption)
         tinted = [(title, .primary), (emptyTitle, .secondary), (emptyDetail, .tertiary)]
         empty.setViews([emptyIcon, emptyTitle, emptyDetail], in: .center)
         empty.orientation = .vertical
@@ -164,39 +155,30 @@ final class NotificationsPanelView: NSView {
             listHeight,
             empty.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
             empty.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
-            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
-            document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
-            // Rows wrap at their real width, so the list measures true.
-            list.widthAnchor.constraint(equalToConstant: Self.listWidth),
-            list.leadingAnchor.constraint(equalTo: document.leadingAnchor),
-            list.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            list.topAnchor.constraint(equalTo: document.topAnchor),
-            list.bottomAnchor.constraint(equalTo: document.bottomAnchor),
         ])
     }
 
-    /// Replaces the rows; returns the card height it needs. Until the
-    /// first ledger reply (`loaded` false) an empty list shows nothing
-    /// rather than the empty state.
-    func show(_ rows: [NotificationRowView], loaded: Bool) -> CGFloat {
-        rowViews = rows
-        list.setViews(rows, in: .top)
-        for row in rows { row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true }
+    /// Shows the rows; returns the card height it needs. Until the first
+    /// ledger reply (`loaded` false) an empty list shows nothing rather than
+    /// the empty state. The list measures its rows by their text, so no
+    /// layout pass walks them.
+    func show(_ rows: [NotificationsPanelRow], loaded: Bool, now: Date) -> CGFloat {
+        // Rows wrap at their real width, so the list measures true.
+        list.show(rows, width: Self.listWidth, now: now)
         empty.isHidden = !rows.isEmpty || !loaded
-        markAllRead.isEnabled = rows.contains { $0.row.unread }
+        markAllRead.isEnabled = rows.contains { $0.unread }
         clearAll.isEnabled = !rows.isEmpty
-        list.layoutSubtreeIfNeeded()
-        let content = rows.isEmpty ? (loaded ? empty.fittingSize.height : 0) : list.fittingSize.height
-        listHeight?.constant = min(ceil(content), Self.maxListHeight)
+        let content = rows.isEmpty ? (loaded ? empty.fittingSize.height : 0) : list.contentHeight
+        let height = min(ceil(content), Self.maxListHeight)
+        if listHeight?.constant != height { listHeight?.constant = height }
         layoutSubtreeIfNeeded()
+        // The list mounts for the viewport the layout gave it.
+        list.realize()
         return fittingSize.height
     }
 
-    func select(_ index: Int?) {
-        for (offset, row) in rowViews.enumerated() { row.isSelected = offset == index }
-        if let index, rowViews.indices.contains(index) { rowViews[index].scrollToVisible(rowViews[index].bounds) }
-    }
+    /// Selects the row `id` names (nil: none) and scrolls it into view.
+    func select(_ id: String?) { list.select(id) }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -221,6 +203,30 @@ final class NotificationsPanelView: NSView {
     @objc private func clearAllPressed() { onClearAll?() }
 }
 
-private final class FlippedView: NSView {
-    nonisolated override var isFlipped: Bool { true }
+/// The list's scroll view: tells the list each time the clip view moves, so
+/// it mounts the rows a scroll reveals. A clip-view callback, not a
+/// NotificationCenter observer (no process-wide observer lifetime).
+private final class NotificationsPanelScrollView: OverlayScrollView {
+    var onScroll: (() -> Void)? {
+        didSet { clip.onScroll = onScroll }
+    }
+
+    private let clip = NotificationsPanelClipView(frame: .zero)
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        contentView = clip
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+}
+
+private final class NotificationsPanelClipView: NSClipView {
+    var onScroll: (() -> Void)?
+
+    override func setBoundsOrigin(_ newOrigin: NSPoint) {
+        super.setBoundsOrigin(newOrigin)
+        onScroll?()
+    }
 }

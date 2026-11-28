@@ -25,16 +25,13 @@ enum FirstPartyPageSchemes {
         case outsideBundle(String)
     }
 
-    /// The agent pane's bundled page folder (`agent-pane`).
-    @MainActor static var agentPaneRoot: URL? { AgentPaneView.bundledPage?.deletingLastPathComponent() }
-
     /// The bundled root of each first-party page that ships one.
     ///
     /// - Parameter registered: The root another module registered for a page id (the viewer pages'
     ///   shared `webviews-app` folder in the app's resources, `PageID.bundledRoot(for:)`).
     @MainActor static func bundledRoots(registered: (String) -> URL? = PageID.bundledRoot(for:)) -> [String: URL] {
         var roots: [String: URL] = [:]
-        roots[PageDescriptor.agent.id] = agentPaneRoot
+        roots[PageDescriptor.agent.id] = AgentPaneView.bundledPage?.deletingLastPathComponent()
         for page in descriptors where page != .agent { roots[page.id] = page.pagesBundleRoot ?? registered(page.id) }
         return roots.filter { id, _ in descriptors.contains { $0.id == id } }
     }
@@ -66,7 +63,6 @@ enum FirstPartyPageSchemes {
         .chiefUsage,
         .cloud,
         .cloudProgress,
-        .coderouter,
         .debugSettings,
         .diff,
         .editor,
@@ -76,12 +72,9 @@ enum FirstPartyPageSchemes {
         .groupEditor,
         .history,
         .homeChannels,
-        .homeMessages,
         .iconPicker,
         .keybindings,
-        .machines,
         .markdown,
-        .mobilePairing,
         .onboarding,
         .passwords,
         .serverCards,
@@ -90,6 +83,7 @@ enum FirstPartyPageSchemes {
         .stats,
         .taskManager,
         .tasks,
+        .terminalHistory,
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.

@@ -177,7 +177,7 @@ Budget for an idle machine (no client attached, no agent running): total under 0
 
 ### 4.11 CI bake and smoke test
 
-- Workflow `cloud-vm-image-bake.yml` runs only on dispatch, because every bake spends Freestyle resources (coordinator decision, 2026-10-04). Changes to `images/cmux-vm/**` and `web/scripts/cmux-vm-image/**` run `cloud-vm-image-lock.yml` instead: the lock and sshd policy tests, no Freestyle access, under 1 minute. Snapshots are account-scoped, so a promotion bakes on the account that serves production (`cmux-vm-<date>-<sha>`), as today; branch bakes use `cmuxnp-…` names and are deleted by id after the smoke. A separate non-production Freestyle account would isolate branch bakes (decision in the lane report). The bake derives the size ladder (about 30 s with parallel rows, as today) and takes about 1 minute (66 s for the prototype, versus about 4 minutes today).
+- Workflow `cloud-vm-image-bake.yml` runs only on dispatch, because every bake spends Freestyle resources (coordinator decision, 2026-10-04). Changes to `images/cmux-vm/**` and `web/scripts/cmux-vm-image/**` run the `cloud-vm-image-lock` step of `ci/steps.toml` instead: the lock and sshd policy tests, no Freestyle access, under 1 minute. Snapshots are account-scoped, so a promotion bakes on the account that serves production (`cmux-vm-<date>-<sha>`), as today; branch bakes use `cmuxnp-…` names and are deleted by id after the smoke. A separate non-production Freestyle account would isolate branch bakes (decision in the lane report). The bake derives the size ladder (about 30 s with parallel rows, as today) and takes about 1 minute (66 s for the prototype, versus about 4 minutes today).
 - Smoke (gate before any manifest change), on two clones of each new snapshot: daemon listening under the latency budget; bound instance id equals the provider's; every identity item differs between the two clones (machine-id, SSH host keys, daemon identity, WireGuard key, first `/dev/urandom` bytes); every store package runs (`--version`); `cr capabilities --json`; the agents' first interactive launch reaches the composer (the tmux screen check today's verifier does); idle CPU over 120 s under the budget and no process creations other than the sampler's; the secret scan; the SBOM generated and signed; Postgres reachable on the team role; the updater applies and rolls back a test manifest.
 - Promotion stays a reviewed change to the image manifest; rollback is its revert (as today).
 - Operator bake (development; coordinator decision 2026-10-05): `workflow_dispatch` needs the workflow on the default branch and cmux-next never opens a PR into `main`, so development bakes run from an operator worktree of feat-cmux-next at a pushed, clean HEAD, with the cmux-next dev key passed by path (read in process, never printed). Names stay `cmuxnp-dev-vmimg-<tag>`; every VM is deleted through the run's ledger; the snapshot is kept only after a passing smoke:
@@ -413,12 +413,19 @@ The script bakes once (about 4 min), runs the verifier on the bake, derives the 
 4. The derive summary: one id per size, each booted and checked.
 5. The secret check: the model-plane file holds no `crt_` token (the bake's own step).
 
-### 13.8 Canary and rollout
+### 13.8 NEXT development validation
 
-1. After the PR merges, wait for the production deploy to be READY. Then create a machine through the production API with the sanctioned smoke (`bun scripts/cloud-vm/smoke-vm-api.mjs production --create --provider default --paid --edge-check`, the form the canary workflow uses). Attach from a released Mac app to the md machine, run one agent, and delete the machines.
-2. Watch the scheduled `Cloud VM canary` workflow (every 5 min against production) for three consecutive green runs. Watch create errors and attach failures in Axiom (`cmux-prod-otel-traces`, `POST /api/vm`, `POST /api/vm/[id]/attach-endpoint`) for 60 minutes against the previous day's rate.
-3. Roll back (section 13.2) on any of these: a failed canary that passes again after the revert; an attach failure rate above the previous day's; a verifier or smoke regression found later.
-4. Running machines are not touched. If the old host loop on long-lived machines needs fixing before users recreate them, that is a separate, opt-in fleet action: new terminals need a new host. `upgrade-fleet-cmux-tui.ts` replaces only the daemon, and the daemon adopts old hosts.
+The classic production smoke and scheduled canary procedure is retired. It no
+longer creates or inspects classic Cloud machines. For current development
+validation, switch to `feat-cmux-next` and run from `web/`:
+
+```bash
+bun scripts/cmux-vm-image/dev-e2e.ts --out-dir /tmp/cmux-next-e2e
+bun scripts/cmux-vm-image/dev-idle-e2e.ts --out-dir /tmp/cmux-next-idle-e2e
+```
+
+These checks exercise the NEXT development API and delete only their own
+machines by exact id. Existing classic customer machines are unchanged.
 
 ### 13.9 Prototype evidence (2026-10-02, no production change)
 

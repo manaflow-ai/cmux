@@ -12,6 +12,7 @@ import {
   followWorktreeSetup,
   forgetWorktreeSetup,
   rememberWorktreeSetup,
+  setupDuration,
   type SetupView,
 } from "./worktreeSetup";
 
@@ -197,4 +198,93 @@ test("Creating worktree… and a running setup draw in the same row, with no Dis
   expect(line.textContent).toContain("Running setup script");
   expect(line.querySelector(".acpmux-worktree-setup__drawer")!.getAttribute("data-open")).toBe("false");
   expect([...line.querySelectorAll("button")].some((button) => button.textContent === "Dismiss")).toBe(false);
+});
+
+const waitingRecipe = {
+  setup: "make setup",
+  run: null,
+  teardown: "make clean",
+  include: [".env", "local.json"],
+  repository: { setup: "make setup", teardown: "make clean", include: [".env"] },
+  files: [".cmux/worktree.toml"],
+  approval: { fingerprint: "ab12", approved: false },
+};
+
+test("a repository setup waiting for the person shows what it would run and copy, and Run Setup approves it", async () => {
+  const element = mount();
+  const runs: (string | undefined)[] = [];
+  const view: SetupView = {
+    run: { state: "awaiting_approval", port: 40_010, output: "", outputStart: "0", outputEnd: "0" },
+    output: "",
+    read: true,
+    recipe: waitingRecipe,
+  };
+  await act(async () => {
+    root = createRoot(element);
+    root.render(<WorktreeSetupLine view={view} onRun={(approve) => runs.push(approve)} onDismiss={() => {}} />);
+  });
+  const line = element.querySelector<HTMLElement>(".acpmux-worktree-setup")!;
+  expect(line.dataset.state).toBe("awaiting_approval");
+  expect(line.textContent).toContain("Review setup before it runs");
+  expect(line.querySelector(".acpmux-worktree-setup__drawer")!.getAttribute("data-open")).toBe("true");
+  const parts = [...line.querySelectorAll<HTMLElement>(".acpmux-worktree-setup__review-part")];
+  expect(parts.map((part) => part.dataset.part)).toEqual(["setup", "teardown", "include"]);
+  expect(parts[0]!.textContent).toContain("make setup");
+  expect(parts[1]!.textContent).toContain("make clean");
+  expect(parts[2]!.textContent).toContain("this worktree only");
+  expect(parts[2]!.textContent).toContain(".env\nlocal.json");
+  const runButton = [...line.querySelectorAll("button")].find((button) => button.textContent === "Run Setup")!;
+  await act(async () => runButton.click());
+  expect(runs).toEqual(["ab12"]);
+});
+
+test("a failed setup offers Retry, which runs it again without a new approval; a pending run waits", async () => {
+  const element = mount();
+  const runs: (string | undefined)[] = [];
+  const view: SetupView = {
+    run: { state: "failed", exitCode: 3, output: "broke\n", outputStart: "0", outputEnd: "6" },
+    output: "broke\n",
+    read: true,
+    recipe: { ...waitingRecipe, approval: { fingerprint: "ab12", approved: true } },
+  };
+  await act(async () => {
+    root = createRoot(element);
+    root.render(<WorktreeSetupLine view={view} onRun={(approve) => runs.push(approve)} />);
+  });
+  const line = element.querySelector<HTMLElement>(".acpmux-worktree-setup")!;
+  expect([...line.querySelectorAll("button")].some((button) => button.textContent === "Run Setup")).toBe(false);
+  const retry = [...line.querySelectorAll("button")].find((button) => button.textContent === "Retry")!;
+  await act(async () => retry.click());
+  expect(runs).toEqual([undefined]);
+  await act(async () =>
+    root!.render(<WorktreeSetupLine view={view} onRun={(approve) => runs.push(approve)} runPending />),
+  );
+  const waiting = [...element.querySelectorAll("button")].find((button) => button.textContent === "Retry")!;
+  expect(waiting.disabled).toBe(true);
+});
+
+test("a succeeded or running setup offers neither Run Setup nor Retry", async () => {
+  const element = mount();
+  const view = (state: "succeeded" | "running"): SetupView => ({
+    run: { state, output: "", outputStart: "0", outputEnd: "0", startedMs: Date.now() },
+    output: "",
+    read: true,
+    recipe: { ...waitingRecipe, approval: { fingerprint: "ab12", approved: true } },
+  });
+  for (const state of ["succeeded", "running"] as const) {
+    await act(async () => {
+      root ??= createRoot(element);
+      root.render(<WorktreeSetupLine view={view(state)} onRun={() => {}} />);
+    });
+    const names = [...element.querySelectorAll("button")].map((button) => button.textContent);
+    expect(names).not.toContain("Run Setup");
+    expect(names).not.toContain("Retry");
+  }
+});
+
+test("a setup step under a second reads 0s, never <1s", () => {
+  expect(setupDuration(1_000, 1_300, 9_000)).toBe("0s");
+  expect(setupDuration(1_000, undefined, 1_999)).toBe("0s");
+  expect(setupDuration(1_000, 2_000, 9_000)).toBe("1s");
+  expect(setupDuration(1_000, 5_200, 9_000)).toBe("4.2s");
 });

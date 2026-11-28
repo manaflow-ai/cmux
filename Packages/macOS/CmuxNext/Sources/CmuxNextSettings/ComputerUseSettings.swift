@@ -33,16 +33,22 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
 /// - `mode` (`fullAccess` by default): off, look only, ask every time, approved apps or full access.
 /// - `deniedApps`: apps no agent may use in any mode. Each entry is an app id (`com.apple.Terminal`),
 ///   an id prefix (`com.1password.*`) or `name:App Name`. The default is the engine's list
-///   (password managers, System Settings, terminals, cmux itself); the person may remove entries.
+///   (password managers and System Settings; agents may act in cmux and in terminals); the person
+///   may remove or add entries.
 /// - `allowOwnMachines` (on): agents on the person's other machines (same account) may use this one.
 /// - `pauseOnTakeover` (on): agents pause while the person uses the mouse or keyboard.
 /// - `showCursor` (on): the blue agent cursor shows where an agent acts.
 /// - `cursorTag` (`hover`): when an agent cursor shows its tag (the agent's workspace name, or a tag
 ///   the agent set): while the person's pointer is over it, always, or never.
-/// - `settle` (`adaptive`): what the engine waits for after each action before it looks again.
+/// - `settle` (`openai`: look at once; `adaptive` waits for the screen to settle): what the engine waits for after each action before it looks again.
 /// - `allowForeground` (off): agents may send input that takes focus or moves the real pointer.
 /// - `livePreview` (on): a chat shows a small live view of the app its agent uses.
+/// - `floatingPreview` (off, prototype): that live view also floats over every app in a panel that
+///   never takes focus; the menu bar's Computer Use menu shows and hides it.
 /// - `menus` (`open`): agents may open pop-up and context menus of background apps (`refuse`: never).
+/// - `whileLocked` (off): while the screen is locked, agents keep using app windows (lists, window
+///   captures, background input to a window); without it every call but status is refused
+///   (`cmux-tui/crates/cmux-computer-use/src/locked.rs`).
 ///
 /// `computerUse.enabled` and `computerUse.driver` are retired. An old file's
 /// `"enabled": false` still turns Computer Use off (mode `off`) until the person picks a mode
@@ -55,8 +61,8 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
 
     /// The engine's default deny list, entry for entry
     /// (`cmux-tui/crates/cmux-computer-use/src/policy.rs`, `default_denied_apps`;
-    /// `ComputerUseSettingsTests` compares the two): password managers and keychains, System
-    /// Settings, terminals and cmux itself.
+    /// `ComputerUseSettingsTests` compares the two): password managers and keychains, and System
+    /// Settings.
     public static var defaultDeniedApps: [String] { deniedAppsDefault }
 
     public var mode = ComputerUseSettings.modeDefault
@@ -68,7 +74,9 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public var cursorTag = ComputerUseSettings.cursorTagDefault
     public var settle = ComputerUseSettings.settleDefault
     public var livePreview = ComputerUseSettings.livePreviewDefault
+    public var floatingPreview = ComputerUseSettings.floatingPreviewDefault
     public var menus = ComputerUseSettings.menusDefault
+    public var whileLocked = ComputerUseSettings.whileLockedDefault
     public init() {}
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
@@ -89,7 +97,9 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         if let value = reader.choice("cursorTag", ComputerUseCursorTag.self) { settings.cursorTag = value }
         if let value = reader.choice("settle", ComputerUseSettle.self) { settings.settle = value }
         if let value = reader.bool("livePreview") { settings.livePreview = value }
+        if let value = reader.bool("floatingPreview") { settings.floatingPreview = value }
         if let value = reader.choice("menus", ComputerUseMenus.self) { settings.menus = value }
+        if let value = reader.bool("whileLocked") { settings.whileLocked = value }
         diagnostics = reader.diagnostics
         if let value = root.value(at: deniedAppsPath) {
             if let items = value.arrayValue, items.allSatisfy({ !($0.stringValue ?? "").isEmpty }) {
@@ -115,7 +125,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         let config = PolicyConfig(mode: mode.rawValue, deniedApps: deniedApps, allowOwnMachines: allowOwnMachines,
                                   pauseOnTakeover: pauseOnTakeover, allowForeground: allowForeground,
                                   showCursor: showCursor, cursorTag: cursorTag.rawValue, settle: settle.rawValue, cloudVm: false,
-                                  menus: menus.rawValue, livePreview: livePreview)
+                                  menus: menus.rawValue, livePreview: livePreview, whileLocked: whileLocked)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         // A struct of strings and booleans always encodes; an empty object is the engine's default.
@@ -135,5 +145,57 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         let menus: String
         /// `computerUse.livePreview`: off, the worker streams no window and every card goes.
         let livePreview: Bool
+        /// `computerUse.whileLocked`: the engine's `PolicyConfig.while_locked`. The app's push replaces
+        /// the policy the daemon read from the settings, so a key left out here is off on a Mac.
+        let whileLocked: Bool
+    }
+}
+
+extension ComputerUseSettings {
+    /// SECURITY: Computer Use may act in cmux itself (Leo, 2026-11-22: "why not. it should be able to"),
+    /// so Settings > Computer Use (`computerUse.*`: the mode, the deny list, foreground input, the saved
+    /// approvals) changes only with the person's own click or key, never one an agent posted to cmux:
+    /// the Settings page, its Reset All, the `--confirm` sheet and Saved approvals check this.
+    public static func isPersonOnly(_ path: [String]) -> Bool { path.first == modePath.first }
+
+    /// The entries earlier default deny lists held that today's does not: the terminals and cmux
+    /// itself (Leo, 2026-11-22: "why not. it should be able to"). The engine's list, entry for entry
+    /// (`policy.rs`, `retired_default_denied_apps`; `ComputerUseSettingsTests` compares the two).
+    public static let retiredDefaultDeniedApps = [
+        "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "net.kovidgoyal.kitty",
+        "com.github.wez.wezterm", "org.alacritty", "dev.warp.*", "windowsterminal.exe", "cmd.exe",
+        "powershell.exe", "pwsh.exe", "org.gnome.Terminal", "org.gnome.Ptyxis", "org.kde.konsole",
+        "com.cmuxterm.app", "com.cmuxterm.app.*",
+    ]
+
+    /// A stored deny list as it applies today, or nil when it stays as it is: a list that still holds
+    /// every retired entry was copied from an earlier default (an edit of the list stores all of it),
+    /// so those entries leave and the person's own stay. A list missing any of them was shaped by the
+    /// person (a terminal kept on purpose stays). The engine's `migrate_denied_apps`, the same rule.
+    public static func migratedDeniedApps(_ list: [String]) -> [String]? {
+        let trimmed = Set(list.map { $0.trimmingCharacters(in: .whitespaces) })
+        guard retiredDefaultDeniedApps.allSatisfy(trimmed.contains) else { return nil }
+        return list.filter { !retiredDefaultDeniedApps.contains($0.trimmingCharacters(in: .whitespaces)) }
+    }
+}
+
+extension SettingsController {
+    /// Once at launch (``runLaunchMigrations(marker:)``): a stored `computerUse.deniedApps` copied from an
+    /// earlier default loses the terminals and cmux (``ComputerUseSettings/migratedDeniedApps(_:)``),
+    /// so agents may act there as on a new install; the person's own entries stay. A list equal to
+    /// today's default is removed (the key follows the default again). A managed list is the
+    /// organization's and is left alone. Returns whether it wrote.
+    @discardableResult
+    public func migrateComputerUseDeniedApps() async throws -> Bool {
+        let path = ComputerUseSettings.deniedAppsPath
+        guard managedKeys[path.joined(separator: ".")] == nil, case .array(let items)? = try await file.value(at: path),
+              let kept = ComputerUseSettings.migratedDeniedApps(items.compactMap(\.stringValue)) else { return false }
+        if kept == ComputerUseSettings.deniedAppsDefault {
+            try await removePruning(path)
+        } else {
+            try await file.set(.array(kept.map(JSONValue.string)), at: path)
+            await reloadAfterWrite()
+        }
+        return true
     }
 }

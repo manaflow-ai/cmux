@@ -64,14 +64,14 @@
 "{\"kind\":\"chatWindow\",\"replaces\":false,\"window\":{\"sid\":\"rows.1\",\"cursor\":31,\"edition\":2,\"rows\":[{\"id\":22,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 22 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":23,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 23 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":24,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 24 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":25,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 25 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":26,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 26 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":27,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 27 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":28,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 28 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":29,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 29 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":30,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 30 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}}],\"hasBefore\":true,\"hasAfter\":false,\"open\":[],\"queue\":{\"entries\":[{\"id\":\"p1\",\"text\":\"and then the tests\",\"len\":18,\"at\":1000}],\"count\":1},\"seen\":31}}"
 {"step":"page-turns"}
 {"call":"chat_page","request":{"before":13,"sid":"rows.1","turns":true}}
-{"feed":[7497,7969]}
-"{\"kind\":\"chatPage\",\"page\":{\"sid\":\"rows.1\",\"edition\":2,\"rows\":[{\"id\":7,\"rev\":1,\"kind\":\"group\",\"turn\":6,\"at\":21,\"open\":false,\"body\":{\"calls\":1,\"head\":\"prompt 2\",\"last\":10,\"ms\":5000,\"out\":[[9,9]],\"prompt\":6,\"promptId\":\"p2\",\"status\":\"completed\"},\"est\":1},{\"id\":12,\"rev\":1,\"kind\":\"group\",\"turn\":11,\"at\":31,\"open\":false,\"body\":{\"calls\":1,\"head\":\"prompt 3\",\"last\":15,\"ms\":5000,\"out\":[[14,14]],\"prompt\":11,\"promptId\":\"p3\",\"status\":\"completed\"},\"est\":1}],\"hasBefore\":true,\"hasAfter\":false,\"turns\":true}}"
+{"feed":[7497,8037]}
+"{\"kind\":\"chatPage\",\"page\":{\"sid\":\"rows.1\",\"edition\":2,\"rows\":[{\"id\":7,\"rev\":1,\"kind\":\"group\",\"turn\":6,\"at\":21,\"open\":false,\"phase\":\"settled\",\"body\":{\"calls\":1,\"head\":\"prompt 2\",\"last\":10,\"ms\":5000,\"out\":[[9,9]],\"prompt\":6,\"promptId\":\"p2\",\"startMs\":22000,\"status\":\"completed\"},\"est\":1},{\"id\":12,\"rev\":1,\"kind\":\"group\",\"turn\":11,\"at\":31,\"open\":false,\"phase\":\"settled\",\"body\":{\"calls\":1,\"head\":\"prompt 3\",\"last\":15,\"ms\":5000,\"out\":[[14,14]],\"prompt\":11,\"promptId\":\"p3\",\"startMs\":32000,\"status\":\"completed\"},\"est\":1}],\"hasBefore\":true,\"hasAfter\":false,\"turns\":true}}"
 {"step":"page-turns-unsupported"}
 {"call":"chat_page","request":{"before":13,"sid":"rows.1","turns":true}}
-{"feed":[7969,8428]}
+{"feed":[8037,8564]}
 "{\"kind\":\"chatError\",\"sid\":\"rows.1\",\"method\":\"page\",\"id\":null,\"code\":\"turns_unsupported\"}"
 {"step":"sub-error"}
-{"feed":[8428,8487]}
+{"feed":[8564,8623]}
 "{\"kind\":\"chatError\",\"sid\":\"rows.1\",\"method\":\"sub\",\"id\":null,\"code\":\"source_failed\"}"
 {"step":"after-end"}
-{"feed":[8487,8638]}
+{"feed":[8623,8774]}

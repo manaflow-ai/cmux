@@ -42,6 +42,9 @@ class FakeSmoke:
     def own_pids(self, *_):
         return []
 
+    def forget_apps(self, *_):
+        pass
+
 
 class UpdateArm(unittest.TestCase):
     def setUp(self):
@@ -111,6 +114,46 @@ class UpdateArm(unittest.TestCase):
             with self.assertRaises(SystemExit) as raised:
                 M.main(["--dmg", "x.dmg", "--out", str(self.tmp / "o"), "--arms", "update", "--rounds", "1"])
         self.assertEqual(raised.exception.code, 9)  # past argparse: an unknown choice exits 2 before load_smoke
+
+
+class PageWait(unittest.TestCase):
+    """2026-11-22 run 44973349615: the update arm ran with --seconds 0, the watch ended at Home's tab (~1 s), and the
+    app was stopped before home.first_page, so update_launch_reading read "did not render Home with app marks"."""
+
+    class Alive:
+        def poll(self):
+            return None
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="nfl-page-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.marks = self.tmp / "marks"
+        self.marks.write_text("main_start 33.0\nfirst_window_frame_committed 624.6\n")
+        self.read, self.write = os.pipe()
+        os.set_blocking(self.read, False)
+        self.addCleanup(os.close, self.read)
+
+    def smoke(self):
+        import types
+        return types.SimpleNamespace(read_marks=lambda path: dict(
+            (line.rpartition(" ")[0], float(line.rpartition(" ")[2])) for line in path.read_text().splitlines() if line))
+
+    def test_waits_for_homes_page_mark(self):
+        os.write(self.write, b"reveal.pane 883.3\nhome.first_page 2410.0\n")
+        os.close(self.write)
+        M.wait_for_page(self.smoke(), self.Alive(), self.read, self.marks, timeout=5)
+        self.assertIn("home.first_page", self.smoke().read_marks(self.marks))
+
+    def test_a_reveal_deadline_ends_it_too(self):
+        self.assertTrue(M.page_shown({"reveal.home.by_deadline": 4000.0}))
+        self.assertFalse(M.page_shown({"first_window_frame_committed": 624.6, "reveal.home": 700.0}))
+
+    def test_gives_up_at_its_timeout_without_a_page(self):
+        os.write(self.write, b"reveal.pane 883.3\n")
+        M.wait_for_page(self.smoke(), self.Alive(), self.read, self.marks, timeout=0.3)
+        os.close(self.write)
+        self.assertNotIn("home.first_page", self.smoke().read_marks(self.marks))
+        self.assertIn("reveal.pane", self.smoke().read_marks(self.marks))
 
 
 if __name__ == "__main__":

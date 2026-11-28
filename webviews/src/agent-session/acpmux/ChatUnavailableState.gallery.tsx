@@ -25,7 +25,7 @@ export default componentEntry<ComponentProps<typeof ChatUnavailableState>>({
   height: 420,
   variants: {
     before: {
-      note: "Before: paused and deleted machines both offered Reconnect.",
+      note: "Offline: Reconnecting… with when it was last seen. The pane reads the machines and the chat list again on its own, so there is no Reconnect button (Leo, 2026-11-22).",
       props: { ...base, unavailable: { reason: "offline", machine: "Demo machine" } },
     },
     paused: {
@@ -50,6 +50,35 @@ export default componentEntry<ComponentProps<typeof ChatUnavailableState>>({
         ...base,
         unavailable: { reason: "paused", machine: "Demo machine" },
         resuming: true,
+      },
+    },
+    "resume-long": {
+      note: "Resuming past a minute: one line says it is taking longer than usual, Resume machine works again, and Resume from Transcript stays; the reads go on.",
+      props: {
+        ...base,
+        unavailable: { reason: "paused", machine: "Demo machine" },
+        resuming: true,
+        resumeLong: true,
+      },
+    },
+    "resume-long-line": {
+      note: "The same long resume as a line over the chat's last-read rows.",
+      props: {
+        ...base,
+        line: true,
+        unavailable: { reason: "paused", machine: "Demo machine" },
+        resuming: true,
+        resumeLong: true,
+      },
+    },
+    "resume-long-no-transcript": {
+      note: "A long resume on a tab with no transcript action: Resume machine and Close Tab only.",
+      props: {
+        ...base,
+        onResume: undefined,
+        unavailable: { reason: "paused", machine: "Demo machine" },
+        resuming: true,
+        resumeLong: true,
       },
     },
     "resume-failed": {

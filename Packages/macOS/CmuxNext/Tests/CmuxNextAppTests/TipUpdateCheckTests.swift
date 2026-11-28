@@ -152,6 +152,28 @@ import CmuxNextWakeupsTestSupport
         #expect(h.updater.tipCheck.asked == "500")
     }
 
+    // MARK: Release push, no delta wait
+
+    /// A pushed NIGHTLY build whose deltas are not listed yet is checked for at once and downloads in
+    /// the background at once: no Download prompt waits for deltas that list 40 to 70 minutes later
+    /// (Leo 2026-11-27: "background + incremental should be on by default").
+    @Test func aPushedBuildWithoutDeltasDownloadsAtOnce() async throws {
+        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 1, deltas: false))
+        #expect(h.updater.downloadsFoundUpdates)
+        h.updater.tipCheck.readNow(h.updater)
+        try #require(await eventually { h.checks.count == 1 }, "the pushed build was not checked for at once")
+        #expect(h.updater.tipCheck.asked == "500")
+        #expect(h.updater.downloadsFoundUpdates, "the pushed build's background download was held")
+    }
+
+    /// A pushed build whose deltas are listed downloads at once the same way.
+    @Test func aPushedBuildWithDeltasDownloadsAtOnce() async throws {
+        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 1, deltas: true))
+        h.updater.tipCheck.readNow(h.updater)
+        try #require(await eventually { h.checks.count == 1 })
+        #expect(h.updater.downloadsFoundUpdates)
+    }
+
     @Test(arguments: [UpdateIndicatorPhase.checking, .downloading(.starting), .ready(version: "5.0.0"), .installing])
     func noCheckWhileAnUpdateIsFoundStagedOrInstalling(phase: UpdateIndicatorPhase) async throws {
         let h = Self.make()

@@ -172,8 +172,40 @@ pub struct Injector {
     /// The core keyboard's focus at the person's last key press: a key follows the core
     /// focus only once it moved (see [`Injector::follow_core_focus`]).
     core_focus_seen: Option<Window>,
-    /// Events with no XTest mapping (for example text), counted for stats.
+    /// Spare keycodes text is typed through (see [`Injector::type_text`]).
+    text_keys: TextKeys,
+    /// Events with no XTest mapping, counted for stats.
     pub unsupported: u64,
+}
+
+/// The keycodes with no keysym on this display, which text binds a character to before it
+/// presses one, as xdotool does. A slot keeps its character until it is the least recently
+/// used one and another character needs it, so a client that reads the mapping late still
+/// reads the character it was sent; they are cleared when control ends.
+#[derive(Default)]
+struct TextKeys {
+    /// Found on the first text event; None until then.
+    slots: Option<Vec<u8>>,
+    /// (keycode, keysym) bound now, least recently used first.
+    bound: Vec<(u8, u32)>,
+    /// A connection with the core ClientPointer: a core mapping request changes the master
+    /// keyboard of the sender's ClientPointer (and its slaves), clients read the core
+    /// keyboard's, and this injector's ClientPointer is the person master.
+    core: Option<RustConnection>,
+}
+
+/// The X keysym that types `c`: Latin-1 is its codepoint, other Unicode 0x01000000 + it,
+/// Return, Tab and BackSpace their function keysyms; None for other control characters.
+fn char_keysym(c: char) -> Option<u32> {
+    let cp = u32::from(c);
+    match c {
+        '\n' | '\r' => Some(0xff0d),
+        '\t' => Some(0xff09),
+        '\u{8}' => Some(0xff08),
+        _ if c.is_control() => None,
+        _ if (0x20..=0x7e).contains(&cp) || (0xa0..=0xff).contains(&cp) => Some(cp),
+        _ => Some(0x0100_0000 + cp),
+    }
 }
 
 impl Injector {
@@ -198,6 +230,7 @@ impl Injector {
             last_pointer: None,
             hold: HoldGuard::default(),
             core_focus_seen: None,
+            text_keys: TextKeys::default(),
             unsupported: 0,
         })
     }
@@ -248,6 +281,100 @@ impl Injector {
     fn person_focus_unset(&self, m: PersonMaster) -> Res<bool> {
         let mine = self.conn.xinput_xi_get_focus(m.keyboard)?.reply()?.focus;
         Ok(mine == x11rb::NONE || mine == 1 || mine == self.root)
+    }
+
+    /// Types `text` as its characters, whatever the keyboard layout: each character is
+    /// bound to a spare keycode (in both Shift levels), pressed and released, with the
+    /// modifiers the person holds let go meanwhile and pressed again after, so the window
+    /// gets that character and not a shifted or Alt one. Before, the host dropped text, so
+    /// a viewer typing an emoji, an accent or through a tool that posts characters with
+    /// key code 0 typed nothing, or "a" for each character (CMUX-572).
+    fn type_text(&mut self, text: &str) -> Res<()> {
+        let held: Vec<u8> = (0xE0..=0xE7)
+            .filter_map(|usage| hid_to_x(0x0007_0000 | usage))
+            .filter(|code| self.keys.contains(code))
+            .collect();
+        for &code in &held {
+            self.fake(KEY_RELEASE_EVENT, code, 0, 0)?;
+        }
+        for c in text.chars() {
+            let code = match char_keysym(c) {
+                Some(sym) => self.text_key(sym)?,
+                None => None,
+            };
+            match code {
+                Some(code) => {
+                    self.fake(KEY_PRESS_EVENT, code, 0, 0)?;
+                    self.fake(KEY_RELEASE_EVENT, code, 0, 0)?;
+                }
+                None => self.unsupported += 1,
+            }
+        }
+        for &code in &held {
+            self.fake(KEY_PRESS_EVENT, code, 0, 0)?;
+        }
+        Ok(())
+    }
+
+    /// The keycode `sym` is bound to, binding it to the least recently used spare one
+    /// first if needed; None when the display has no spare keycode.
+    fn text_key(&mut self, sym: u32) -> Res<Option<u8>> {
+        if self.text_keys.core.is_none() {
+            self.text_keys.core = Some(x11rb::connect(Some(&self.display))?.0);
+        }
+        let Some(core) = self.text_keys.core.as_ref() else { return Ok(None) };
+        let slots = match &self.text_keys.slots {
+            Some(slots) => slots,
+            None => {
+                let setup = core.setup();
+                let (min, max) = (setup.min_keycode, setup.max_keycode);
+                let map = core.get_keyboard_mapping(min, max - min + 1)?.reply()?;
+                let per = usize::from(map.keysyms_per_keycode).max(1);
+                let spare = map
+                    .keysyms
+                    .chunks(per)
+                    .zip(min..=max)
+                    .filter(|(row, _)| row.iter().all(|&s| s == 0))
+                    .map(|(_, code)| code)
+                    .collect();
+                self.text_keys.slots.insert(spare)
+            }
+        };
+        let bound = &mut self.text_keys.bound;
+        if let Some(i) = bound.iter().position(|&(_, s)| s == sym) {
+            let entry = bound.remove(i);
+            bound.push(entry);
+            return Ok(Some(entry.0));
+        }
+        let code = match slots.iter().find(|code| !bound.iter().any(|(c, _)| c == *code)) {
+            Some(&code) => code,
+            None if bound.is_empty() => return Ok(None),
+            None => bound.remove(0).0,
+        };
+        bound.push((code, sym));
+        Self::bind(&self.conn, core, code, sym)?;
+        Ok(Some(code))
+    }
+
+    /// Binds `code` to `sym` in both Shift levels (0 unbinds it) on the person master (this
+    /// injector's ClientPointer) and on the core keyboard (`core`'s), each with its slaves,
+    /// and waits for both, so the press after it reads the new mapping.
+    fn bind(conn: &RustConnection, core: &RustConnection, code: u8, sym: u32) -> Res<()> {
+        conn.change_keyboard_mapping(1, code, 2, &[sym, sym])?;
+        core.change_keyboard_mapping(1, code, 2, &[sym, sym])?;
+        conn.sync()?;
+        core.sync()?;
+        Ok(())
+    }
+
+    /// Unbinds the keycodes text bound, before the person master goes.
+    fn unbind_text_keys(&mut self) -> Res<()> {
+        let bound = std::mem::take(&mut self.text_keys.bound);
+        let Some(core) = self.text_keys.core.as_ref() else { return Ok(()) };
+        for (code, _) in bound {
+            Self::bind(&self.conn, core, code, 0)?;
+        }
+        Ok(())
     }
 
     fn fake(&self, ty: u8, detail: u8, x: i32, y: i32) -> Res<()> {
@@ -556,8 +683,15 @@ impl Injector {
                 }
                 always = true;
             }
+            InputEvent::Text(text) => {
+                if let Some(m) = person {
+                    self.follow_core_focus(m)?;
+                }
+                self.type_text(text)?;
+                always = true;
+            }
             // Desktop sessions do not offer the input.service cap.
-            InputEvent::Text(_) | InputEvent::Service { .. } => self.unsupported += 1,
+            InputEvent::Service { .. } => self.unsupported += 1,
         }
         if let Some(m) = person {
             self.note_person(m, always);
@@ -578,6 +712,7 @@ impl Injector {
             for b in std::mem::take(&mut self.buttons) {
                 self.fake(BUTTON_RELEASE_EVENT, b, 0, 0)?;
             }
+            self.unbind_text_keys()?;
             self.conn.flush()?;
             Ok(())
         })();
@@ -686,783 +821,5 @@ fn remove_person_master(conn: &RustConnection, master: PersonMaster) -> Res<()> 
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-
-    impl Injector {
-        fn master(&self) -> Option<PersonMaster> {
-            match self.person {
-                Person::Attached(m) => Some(m),
-                _ => None,
-            }
-        }
-    }
-
-    #[test]
-    fn add_master_len_pads_the_name_to_four_bytes() {
-        assert_eq!(add_master_len(""), 2);
-        assert_eq!(add_master_len("abcd"), 3);
-        assert_eq!(add_master_len(PERSON_MASTER), 2 + 3); // 11 bytes -> 12
-    }
-
-    #[test]
-    fn pick_master_needs_the_named_pointer_and_its_paired_keyboard() {
-        let rows = vec![
-            (2, DeviceType::MASTER_POINTER, 3, b"Virtual core pointer".to_vec()),
-            (3, DeviceType::MASTER_KEYBOARD, 2, b"Virtual core keyboard".to_vec()),
-            (11, DeviceType::MASTER_POINTER, 12, b"cmux person pointer".to_vec()),
-            (12, DeviceType::MASTER_KEYBOARD, 11, b"cmux person keyboard".to_vec()),
-        ];
-        assert_eq!(
-            pick_master(&rows, PERSON_MASTER),
-            Some(PersonMaster { pointer: 11, keyboard: 12, core: 2, core_keyboard: 3 })
-        );
-        assert_eq!(pick_master(&rows, "agent"), None);
-        assert_eq!(pick_master(&rows[..3], PERSON_MASTER), None);
-    }
-
-    #[test]
-    fn person_property_is_versioned_json() {
-        let v: serde_json::Value = serde_json::from_str(&person_property(
-            PersonMaster { pointer: 11, keyboard: 12, core: 2, core_keyboard: 3 },
-            0x40_0001,
-            true,
-            1_700_000_000_000,
-        ))
-        .unwrap();
-        assert_eq!(v["button_held"], true);
-        assert_eq!(v["v"], 1);
-        assert_eq!(v["window"], 0x40_0001);
-        assert_eq!(v["pointer"], 11);
-        assert_eq!(v["last_input_unix_ms"], 1_700_000_000_000u64);
-        assert_eq!(v["pid"], std::process::id());
-    }
-
-    fn press() -> InputEvent {
-        InputEvent::Button { button: 1, down: true }
-    }
-    fn release() -> InputEvent {
-        InputEvent::Button { button: 1, down: false }
-    }
-    fn motion(x: i32) -> InputEvent {
-        InputEvent::Pointer { x, y: 10 }
-    }
-
-    #[test]
-    fn hold_guard_passes_everything_while_the_agent_holds_nothing() {
-        let mut g = HoldGuard::default();
-        let t = Instant::now();
-        assert_eq!(g.push(motion(1), t, || false), vec![motion(1)]);
-        assert_eq!(g.push(press(), t, || false), vec![press()]);
-        assert_eq!(g.push(release(), t, || false), vec![release()]);
-        assert!(!g.waiting());
-    }
-
-    #[test]
-    fn hold_guard_never_asks_x_for_motion() {
-        let mut g = HoldGuard::default();
-        let t = Instant::now();
-        let out = g.push(motion(1), t, || panic!("motion needs no query"));
-        assert_eq!(out, vec![motion(1)]);
-    }
-
-    #[test]
-    fn hold_guard_waits_a_press_and_what_follows_until_the_agent_lets_go() {
-        let mut g = HoldGuard::default();
-        let t = Instant::now();
-        assert_eq!(g.push(motion(1), t, || true), vec![motion(1)], "motion is not held");
-        assert!(g.push(press(), t, || true).is_empty());
-        let t1 = t + Duration::from_millis(100);
-        assert!(g.push(motion(2), t1, || true).is_empty(), "queued behind the press");
-        assert!(g.push(release(), t1, || true).is_empty());
-        assert!(g.release(t + Duration::from_millis(500), || true).is_empty());
-        assert!(g.waiting());
-        // The agent released: the press and everything after it go, in order.
-        let out = g.release(t + Duration::from_millis(600), || false);
-        assert_eq!(out, vec![press(), motion(2), release()]);
-        assert!(!g.waiting());
-    }
-
-    #[test]
-    fn hold_guard_sends_a_press_anyway_after_the_limit() {
-        let mut g = HoldGuard::default();
-        let t = Instant::now();
-        assert!(g.push(press(), t, || true).is_empty());
-        assert!(g.release(t + HOLD_LIMIT - Duration::from_millis(1), || true).is_empty());
-        assert_eq!(g.release(t + HOLD_LIMIT, || true), vec![press()]);
-        // The next press waits again, with its own limit.
-        let t2 = t + HOLD_LIMIT + Duration::from_millis(10);
-        assert_eq!(g.push(release(), t2, || true), vec![release()]);
-        assert!(g.push(press(), t2, || true).is_empty());
-        assert!(g.release(t2 + Duration::from_secs(1), || true).is_empty());
-    }
-
-    #[test]
-    fn hold_guard_counts_each_press_from_when_it_arrived() {
-        let mut g = HoldGuard::default();
-        let t = Instant::now();
-        assert!(g.push(press(), t, || true).is_empty());
-        assert!(g.push(release(), t, || true).is_empty());
-        let t1 = t + Duration::from_millis(1500);
-        assert!(g.push(press(), t1, || true).is_empty(), "a second press in the burst");
-        assert!(g.push(release(), t1, || true).is_empty());
-        // The first press's limit ends: it goes, and the second waits out its own.
-        assert_eq!(g.release(t + HOLD_LIMIT, || true), vec![press(), release()]);
-        assert!(g.release(t1 + HOLD_LIMIT - Duration::from_millis(1), || true).is_empty());
-        assert_eq!(g.release(t1 + HOLD_LIMIT, || true), vec![press(), release()]);
-        // A burst queued long ago goes at once: no press restarts its wait at the front.
-        let mut g = HoldGuard::default();
-        for _ in 0..5 {
-            assert!(g.push(press(), t, || true).is_empty());
-            assert!(g.push(release(), t, || true).is_empty());
-        }
-        assert_eq!(g.release(t + HOLD_LIMIT, || true).len(), 10);
-    }
-
-    #[test]
-    fn hold_guard_holds_scrolls_like_presses_and_clears_on_release_all() {
-        let mut g = HoldGuard::default();
-        let t = Instant::now();
-        let scroll = InputEvent::Scroll { dx: 0, dy: 300, precise: false };
-        assert!(presses(&scroll));
-        assert!(!presses(&InputEvent::Scroll { dx: 0, dy: 50, precise: false }), "no wheel click");
-        assert!(g.push(scroll, t, || true).is_empty());
-        g.clear();
-        assert!(!g.waiting());
-        assert_eq!(g.push(press(), t, || false), vec![press()]);
-    }
-
-    #[test]
-    fn hold_guard_sends_everything_when_the_queue_overflows() {
-        let mut g = HoldGuard::default();
-        let t = Instant::now();
-        assert!(g.push(press(), t, || true).is_empty());
-        for i in 0..HOLD_QUEUE_MAX - 1 {
-            assert!(g.push(motion(i as i32), t, || true).is_empty());
-        }
-        assert_eq!(g.push(release(), t, || true).len(), HOLD_QUEUE_MAX + 1);
-        assert!(!g.waiting());
-    }
-
-    /// On a real Xvfb: an app focuses its window the usual way (core SetInputFocus), and
-    /// the person's keys reach it through the person master. Before the person keyboard
-    /// followed the core focus they reached no window (CMUX-572). The window sits away from
-    /// the person's pointer, so only the focus can route the key there.
-    #[test]
-    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
-    fn person_master_keys_reach_the_window_the_core_focus_names() {
-        use x11rb::protocol::xproto::{CreateWindowAux, EventMask, InputFocus, WindowClass};
-        use x11rb::protocol::Event;
-        let xvfb = Xvfb::start();
-        let display = xvfb.display.clone();
-        let (app, screen) = x11rb::connect(Some(&display)).unwrap();
-        let root = app.setup().roots[screen].root;
-        let win = app.generate_id().unwrap();
-        app.create_window(
-            0,
-            win,
-            root,
-            10,
-            10,
-            100,
-            100,
-            0,
-            WindowClass::INPUT_OUTPUT,
-            0,
-            &CreateWindowAux::new().event_mask(EventMask::KEY_PRESS),
-        )
-        .unwrap();
-        app.map_window(win).unwrap();
-        app.set_input_focus(InputFocus::PARENT, win, x11rb::CURRENT_TIME).unwrap();
-        app.sync().unwrap();
-
-        let mut person = Injector::new(&display).unwrap();
-        person.apply(&InputEvent::Pointer { x: 700, y: 500 }).unwrap();
-        person.apply(&InputEvent::Key { usage: 0x0007_0004, down: true }).unwrap();
-        person.apply(&InputEvent::Key { usage: 0x0007_0004, down: false }).unwrap();
-        person.conn.sync().unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let mut pressed = false;
-        while !pressed && Instant::now() < deadline {
-            while let Some(event) = app.poll_for_event().unwrap() {
-                pressed |= matches!(event, Event::KeyPress(k) if k.event == win);
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        person.release_all().unwrap();
-        assert!(pressed, "the person's key press reached the focused window");
-    }
-
-    /// On a real Xvfb with openbox, the desktop a Linux host shares: openbox focuses the
-    /// newest window, then the person clicks the other one and types. openbox focuses on
-    /// that click while it holds the person pointer's grab, so the server gives the person
-    /// keyboard the focus and the core keyboard keeps the old window. The key must reach
-    /// the window the person clicked (CMUX-572: the viewer's clicks moved windows, but no
-    /// typed key ever arrived).
-    #[test]
-    #[ignore = "needs Xvfb and openbox; run with --ignored on a Linux host"]
-    fn person_keys_reach_the_window_the_person_clicked_under_openbox() {
-        use x11rb::protocol::xproto::{CreateWindowAux, EventMask, WindowClass};
-        use x11rb::protocol::Event;
-        let xvfb = Xvfb::start();
-        let display = xvfb.display.clone();
-        let _wm = Openbox::start(&display);
-        let (app, screen) = x11rb::connect(Some(&display)).unwrap();
-        let root = app.setup().roots[screen].root;
-        let make = |x: i16| {
-            let win = app.generate_id().unwrap();
-            app.create_window(
-                0,
-                win,
-                root,
-                x,
-                100,
-                300,
-                200,
-                0,
-                WindowClass::INPUT_OUTPUT,
-                0,
-                &CreateWindowAux::new().event_mask(EventMask::KEY_PRESS),
-            )
-            .unwrap();
-            app.map_window(win).unwrap();
-            app.sync().unwrap();
-            win
-        };
-        let clicked = make(100);
-        std::thread::sleep(Duration::from_millis(300));
-        let newest = make(600);
-        std::thread::sleep(Duration::from_millis(500));
-        let at = app.translate_coordinates(clicked, root, 150, 100).unwrap().reply().unwrap();
-        let (x, y) = (i32::from(at.dst_x), i32::from(at.dst_y));
-
-        let mut person = Injector::new(&display).unwrap();
-        person.apply(&InputEvent::Pointer { x, y }).unwrap();
-        person.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
-        person.apply(&InputEvent::Button { button: 1, down: false }).unwrap();
-        person.conn.sync().unwrap();
-        std::thread::sleep(Duration::from_millis(300));
-        person.apply(&InputEvent::Key { usage: 0x0007_0004, down: true }).unwrap();
-        person.apply(&InputEvent::Key { usage: 0x0007_0004, down: false }).unwrap();
-        person.conn.sync().unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let (mut on_clicked, mut on_newest) = (false, false);
-        while !on_clicked && Instant::now() < deadline {
-            while let Some(event) = app.poll_for_event().unwrap() {
-                if let Event::KeyPress(k) = event {
-                    on_clicked |= k.event == clicked;
-                    on_newest |= k.event == newest;
-                }
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        person.release_all().unwrap();
-        assert!(
-            on_clicked,
-            "the key reached the clicked window (it went to the other one: {on_newest})"
-        );
-    }
-
-    /// The person types in window A, a new window B then takes the core focus, and the person
-    /// clicks A and types again. The core change came before the click, so the click wins and
-    /// the second key reaches A, not B (review on #47957: copying the core focus at the next
-    /// key undid the click).
-    #[test]
-    #[ignore = "needs Xvfb and openbox; run with --ignored on a Linux host"]
-    fn a_click_after_a_new_window_took_the_core_focus_keeps_the_keys_on_the_clicked_window() {
-        use x11rb::protocol::xproto::{CreateWindowAux, EventMask, WindowClass};
-        use x11rb::protocol::Event;
-        let xvfb = Xvfb::start();
-        let display = xvfb.display.clone();
-        let _wm = Openbox::start(&display);
-        let (app, screen) = x11rb::connect(Some(&display)).unwrap();
-        let root = app.setup().roots[screen].root;
-        let make = |x: i16| {
-            let win = app.generate_id().unwrap();
-            app.create_window(
-                0,
-                win,
-                root,
-                x,
-                100,
-                300,
-                200,
-                0,
-                WindowClass::INPUT_OUTPUT,
-                0,
-                &CreateWindowAux::new().event_mask(EventMask::KEY_PRESS),
-            )
-            .unwrap();
-            app.map_window(win).unwrap();
-            app.sync().unwrap();
-            win
-        };
-        // Which windows the person's key presses reached, read for up to 2 s until `want`.
-        let read = |want: Window| {
-            let deadline = Instant::now() + Duration::from_secs(2);
-            let mut got = Vec::new();
-            while !got.contains(&want) && Instant::now() < deadline {
-                while let Some(event) = app.poll_for_event().unwrap() {
-                    if let Event::KeyPress(k) = event {
-                        got.push(k.event);
-                    }
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            got
-        };
-        let type_a = |person: &mut Injector| {
-            person.apply(&InputEvent::Key { usage: 0x0007_0004, down: true }).unwrap();
-            person.apply(&InputEvent::Key { usage: 0x0007_0004, down: false }).unwrap();
-            person.conn.sync().unwrap();
-        };
-        let click = |person: &mut Injector, win: Window| {
-            let at = app.translate_coordinates(win, root, 150, 100).unwrap().reply().unwrap();
-            person
-                .apply(&InputEvent::Pointer { x: i32::from(at.dst_x), y: i32::from(at.dst_y) })
-                .unwrap();
-            person.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
-            person.apply(&InputEvent::Button { button: 1, down: false }).unwrap();
-            person.conn.sync().unwrap();
-            std::thread::sleep(Duration::from_millis(300));
-        };
-        let clicked = make(100);
-        std::thread::sleep(Duration::from_millis(500));
-        let mut person = Injector::new(&display).unwrap();
-        click(&mut person, clicked);
-        type_a(&mut person);
-        let first = read(clicked);
-        assert!(first.contains(&clicked), "the first key reached A, the only window: {first:?}");
-
-        let newest = make(600);
-        std::thread::sleep(Duration::from_millis(500));
-        click(&mut person, clicked);
-        type_a(&mut person);
-        let second = read(clicked);
-        person.release_all().unwrap();
-        assert!(
-            second.contains(&clicked) && !second.contains(&newest),
-            "the key after the click reached A (clicked {clicked}, newest {newest}): {second:?}"
-        );
-    }
-
-    /// openbox on a test display, ended with the test. It reads no config of the host's
-    /// session: `--sm-disable` and an empty HOME for its rc lookup.
-    struct Openbox(std::process::Child);
-
-    impl Openbox {
-        fn start(display: &str) -> Self {
-            let home = std::env::temp_dir().join(format!("cmux-rd-openbox-{}", std::process::id()));
-            std::fs::create_dir_all(&home).unwrap();
-            let child = std::process::Command::new("openbox")
-                .arg("--sm-disable")
-                .env("DISPLAY", display)
-                .env("HOME", &home)
-                .env_remove("XDG_CONFIG_HOME")
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .expect("openbox");
-            // openbox owns the screen once it holds WM_S0.
-            let (conn, _) = x11rb::connect(Some(display)).unwrap();
-            let atom = conn.intern_atom(false, b"WM_S0").unwrap().reply().unwrap().atom;
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while conn.get_selection_owner(atom).unwrap().reply().unwrap().owner == x11rb::NONE {
-                assert!(Instant::now() < deadline, "openbox took the screen");
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Self(child)
-        }
-    }
-
-    impl Drop for Openbox {
-        fn drop(&mut self) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
-        }
-    }
-
-    /// On a real Xvfb: the person's XTest moves the person master, not the core pointer,
-    /// the property names the window under it, and ending the session removes the master.
-    /// `cargo test -- --ignored person_master` on a Linux host with Xvfb.
-    #[test]
-    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
-    fn person_master_keeps_the_core_pointer_for_the_agent() {
-        use x11rb::protocol::xproto::{CreateWindowAux, WindowClass};
-        let mut xvfb = Xvfb::start();
-        let display = xvfb.display.clone();
-
-        // The "agent": a second client whose XTest drives the core pointer.
-        let (agent, screen) = x11rb::connect(Some(&display)).unwrap();
-        let root = agent.setup().roots[screen].root;
-        agent.xinput_xi_query_version(2, 2).unwrap().reply().unwrap();
-        // A toplevel at (600,400)-(900,600) for the person to point at.
-        let win = agent.generate_id().unwrap();
-        agent
-            .create_window(
-                0,
-                win,
-                root,
-                600,
-                400,
-                300,
-                200,
-                0,
-                WindowClass::INPUT_OUTPUT,
-                0,
-                &CreateWindowAux::new(),
-            )
-            .unwrap();
-        agent.map_window(win).unwrap();
-        let core = |c: &RustConnection| {
-            let r = c.query_pointer(root).unwrap().reply().unwrap();
-            (r.root_x, r.root_y)
-        };
-        agent.xtest_fake_input(MOTION_NOTIFY_EVENT, 0, 0, root, 100, 100, 0).unwrap();
-        agent.sync().unwrap();
-        assert_eq!(core(&agent), (100, 100));
-
-        let mut person = Injector::new(&display).unwrap();
-        person.apply(&InputEvent::Pointer { x: 700, y: 500 }).unwrap();
-        person.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
-        person.apply(&InputEvent::Button { button: 1, down: false }).unwrap();
-        person.conn.sync().unwrap();
-        let master = person.master().expect("person master");
-        assert_ne!(master.pointer, 2, "the person master is not the core pointer");
-
-        // The agent's core pointer did not move; the person's master is where they pointed.
-        assert_eq!(core(&agent), (100, 100));
-        let p = agent.xinput_xi_query_pointer(root, master.pointer).unwrap().reply().unwrap();
-        assert_eq!((p.root_x >> 16, p.root_y >> 16), (700, 500));
-        // The agent moves while the person holds control: the person's pointer stays.
-        agent.xtest_fake_input(MOTION_NOTIFY_EVENT, 0, 0, root, 200, 150, 0).unwrap();
-        agent.sync().unwrap();
-        let p = agent.xinput_xi_query_pointer(root, master.pointer).unwrap().reply().unwrap();
-        assert_eq!((p.root_x >> 16, p.root_y >> 16), (700, 500));
-        assert_eq!(core(&agent), (200, 150));
-
-        // The agent holds a button: the person's press waits until the agent lets go.
-        let person_buttons = |c: &RustConnection| {
-            let r = c.xinput_xi_query_pointer(root, master.pointer).unwrap().reply().unwrap();
-            r.buttons.first().copied().unwrap_or(0) & 0x3fe
-        };
-        agent.xtest_fake_input(BUTTON_PRESS_EVENT, 1, 0, root, 0, 0, 0).unwrap();
-        agent.sync().unwrap();
-        assert!(Injector::agent_holds(&agent, root, master));
-        person.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
-        person.conn.sync().unwrap();
-        assert_eq!(person_buttons(&agent), 0, "the person's press waits");
-        assert_eq!(person.pump().unwrap(), Some(HOLD_POLL), "still waiting");
-        agent.xtest_fake_input(BUTTON_RELEASE_EVENT, 1, 0, root, 0, 0, 0).unwrap();
-        agent.sync().unwrap();
-        person.pump().unwrap();
-        assert!(!person.hold.waiting(), "sent once the agent let go");
-        person.conn.sync().unwrap();
-        assert_ne!(person_buttons(&agent), 0, "the person's button is down now");
-        person.apply(&InputEvent::Button { button: 1, down: false }).unwrap();
-        person.conn.sync().unwrap();
-        assert_eq!(person_buttons(&agent), 0);
-
-        // The marker names the window under the person's pointer.
-        let atom =
-            agent.intern_atom(false, PERSON_PROPERTY.as_bytes()).unwrap().reply().unwrap().atom;
-        let read = |c: &RustConnection| {
-            let r = c
-                .get_property(false, root, atom, AtomEnum::STRING, 0, 1024)
-                .unwrap()
-                .reply()
-                .unwrap();
-            (!r.value.is_empty())
-                .then(|| serde_json::from_slice::<serde_json::Value>(&r.value).unwrap())
-        };
-        let v = read(&agent).expect("marker while the person holds control");
-        assert_eq!(v["window"], win);
-        assert_eq!(v["pointer"], master.pointer);
-        assert_eq!(v["button_held"], false);
-
-        // A second injector (another session, or a restart) reuses the same master.
-        let mut again = Injector::new(&display).unwrap();
-        again.apply(&InputEvent::Pointer { x: 650, y: 450 }).unwrap();
-        assert_eq!(again.master(), Some(master));
-        drop(again);
-        assert!(find_master(&agent, PERSON_MASTER).unwrap().is_some(), "still in use");
-
-        // Ending the last session removes the master and the marker.
-        drop(person);
-        agent.sync().unwrap();
-        assert_eq!(find_master(&agent, PERSON_MASTER).unwrap(), None);
-        assert!(read(&agent).is_none());
-        xvfb.alive();
-    }
-
-    /// Xvfb on a display it picks itself (-displayfd), killed when the test ends, passed
-    /// or failed.
-    pub(crate) struct Xvfb {
-        child: std::process::Child,
-        pub(crate) display: String,
-    }
-
-    impl Xvfb {
-        pub(crate) fn start() -> Self {
-            use std::io::BufRead;
-            let mut child = std::process::Command::new("Xvfb")
-                .args([
-                    "-displayfd",
-                    "1",
-                    "-screen",
-                    "0",
-                    "1280x800x24",
-                    "-nolisten",
-                    "tcp",
-                    "-noreset",
-                ])
-                .stdout(std::process::Stdio::piped())
-                .spawn()
-                .expect("Xvfb");
-            let mut line = String::new();
-            std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
-            let n: u32 = line.trim().parse().expect("Xvfb printed its display");
-            let mut xvfb = Self { child, display: format!(":{n}") };
-            xvfb.alive();
-            xvfb
-        }
-
-        pub(crate) fn alive(&mut self) {
-            assert!(self.child.try_wait().expect("Xvfb status").is_none(), "Xvfb exited");
-        }
-    }
-
-    impl Drop for Xvfb {
-        fn drop(&mut self) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-    }
-
-    /// The crashing host for the next test: holds a button on the person master, then
-    /// aborts with no cleanup. Does nothing unless the next test runs it.
-    #[test]
-    #[ignore = "a helper process for crash_reuse_releases_a_crashed_hosts_button"]
-    fn crash_helper_holds_a_button_and_aborts() {
-        let Ok(display) = std::env::var("CMUX_RD_CRASH_DISPLAY") else { return };
-        let mut host = Injector::new(&display).unwrap();
-        host.apply(&InputEvent::Pointer { x: 300, y: 300 }).unwrap();
-        host.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
-        host.conn.sync().unwrap();
-        std::process::abort();
-    }
-
-    /// A host that crashed holding a button leaves its master holding it (the server does
-    /// not release a dead client's XTest input). The next host replaces that master, so
-    /// nothing stays held.
-    #[test]
-    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
-    fn crash_reuse_releases_a_crashed_hosts_button() {
-        let mut xvfb = Xvfb::start();
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "inject::tests::crash_helper_holds_a_button_and_aborts",
-                "--include-ignored",
-                "--nocapture",
-            ])
-            .env("CMUX_RD_CRASH_DISPLAY", &xvfb.display)
-            .stderr(std::process::Stdio::null())
-            .status()
-            .unwrap();
-        assert!(!status.success(), "the helper aborted");
-
-        let (agent, screen) = x11rb::connect(Some(&xvfb.display)).unwrap();
-        let root = agent.setup().roots[screen].root;
-        agent.xinput_xi_query_version(2, 2).unwrap().reply().unwrap();
-        let held = |c: &RustConnection, m: PersonMaster| {
-            let r = c.xinput_xi_query_pointer(root, m.pointer).unwrap().reply().unwrap();
-            r.buttons.first().copied().unwrap_or(0) & 0x3fe
-        };
-        let stale = find_master(&agent, PERSON_MASTER).unwrap().expect("the crashed host's master");
-        assert_ne!(held(&agent, stale), 0, "the crashed host's button is still down");
-
-        let mut host = Injector::new(&xvfb.display).unwrap();
-        host.apply(&InputEvent::Pointer { x: 310, y: 310 }).unwrap();
-        host.conn.sync().unwrap();
-        let fresh = host.master().expect("a person master");
-        assert_eq!(find_master(&agent, PERSON_MASTER).unwrap(), Some(fresh));
-        assert_eq!(held(&agent, fresh), 0, "nothing stays held");
-        let core = agent.xinput_xi_query_pointer(root, fresh.core).unwrap().reply().unwrap();
-        assert_eq!(
-            core.buttons.first().copied().unwrap_or(0) & 0x3fe,
-            0,
-            "nor on the core pointer"
-        );
-        drop(host);
-        xvfb.alive();
-    }
-
-    /// The person's marker on `root`, if any.
-    fn marker(c: &RustConnection, root: Window) -> Option<serde_json::Value> {
-        let atom = c.intern_atom(false, PERSON_PROPERTY.as_bytes()).unwrap().reply().unwrap().atom;
-        let r =
-            c.get_property(false, root, atom, AtomEnum::STRING, 0, 1024).unwrap().reply().unwrap();
-        (!r.value.is_empty()).then(|| serde_json::from_slice(&r.value).unwrap())
-    }
-
-    fn connect(display: &str) -> (RustConnection, Window) {
-        let (c, screen) = x11rb::connect(Some(display)).unwrap();
-        let root = c.setup().roots[screen].root;
-        c.xinput_xi_query_version(2, 2).unwrap().reply().unwrap();
-        (c, root)
-    }
-
-    const KEY_A: u32 = 0x0007_0004;
-
-    /// Chromium takes keys from the last master keyboard only, so the master must not
-    /// outlast the person's input: it goes after PERSON_IDLE with nothing held, with the
-    /// marker, and the next input makes it again where the person's pointer was.
-    #[test]
-    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
-    fn person_master_goes_when_idle_and_comes_back_where_the_person_left() {
-        let mut xvfb = Xvfb::start();
-        let (agent, root) = connect(&xvfb.display);
-        let mut person = Injector::new(&xvfb.display).unwrap();
-        assert!(marker(&agent, root).is_none(), "nothing before the first input");
-        person.apply(&InputEvent::Pointer { x: 700, y: 500 }).unwrap();
-        person.conn.sync().unwrap();
-        assert!(find_master(&agent, PERSON_MASTER).unwrap().is_some());
-        assert!(marker(&agent, root).is_some(), "the marker comes with the master");
-        let wake = person.pump().unwrap().expect("a wake for the idle check");
-        assert!(wake <= PERSON_IDLE);
-
-        // A held key keeps the master, however long.
-        person.apply(&InputEvent::Key { usage: KEY_A, down: true }).unwrap();
-        person.last_input = Some(Instant::now() - PERSON_IDLE * 2);
-        assert_eq!(person.pump().unwrap(), None);
-        assert!(person.master().is_some(), "a held key keeps the master");
-        person.apply(&InputEvent::Key { usage: KEY_A, down: false }).unwrap();
-
-        // Idle with nothing held: the master and the marker go together.
-        person.last_input = Some(Instant::now() - PERSON_IDLE);
-        assert_eq!(person.pump().unwrap(), None);
-        agent.sync().unwrap();
-        assert_eq!(person.master(), None);
-        assert_eq!(find_master(&agent, PERSON_MASTER).unwrap(), None);
-        assert!(marker(&agent, root).is_none());
-
-        // The next input makes it again, with the pointer where the person left it.
-        person.apply(&InputEvent::Key { usage: KEY_A, down: true }).unwrap();
-        person.apply(&InputEvent::Key { usage: KEY_A, down: false }).unwrap();
-        person.conn.sync().unwrap();
-        let m = find_master(&agent, PERSON_MASTER).unwrap().expect("made again");
-        assert_eq!(person.master(), Some(m));
-        let p = agent.xinput_xi_query_pointer(root, m.pointer).unwrap().reply().unwrap();
-        assert_eq!((p.root_x >> 16, p.root_y >> 16), (700, 500));
-        assert!(marker(&agent, root).is_some());
-
-        // Control ends: both go at once.
-        person.release_all().unwrap();
-        agent.sync().unwrap();
-        assert_eq!(find_master(&agent, PERSON_MASTER).unwrap(), None);
-        assert!(marker(&agent, root).is_none());
-        xvfb.alive();
-    }
-
-    /// The marker's `button_held` covers a press waiting behind the agent's button.
-    #[test]
-    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
-    fn marker_shows_a_press_waiting_behind_the_agent() {
-        let mut xvfb = Xvfb::start();
-        let (agent, root) = connect(&xvfb.display);
-        let mut person = Injector::new(&xvfb.display).unwrap();
-        person.apply(&InputEvent::Pointer { x: 300, y: 300 }).unwrap();
-        agent.xtest_fake_input(BUTTON_PRESS_EVENT, 1, 0, root, 0, 0, 0).unwrap();
-        agent.sync().unwrap();
-        person.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
-        person.conn.sync().unwrap();
-        assert!(person.hold.waiting());
-        assert_eq!(marker(&agent, root).unwrap()["button_held"], true);
-        agent.xtest_fake_input(BUTTON_RELEASE_EVENT, 1, 0, root, 0, 0, 0).unwrap();
-        agent.sync().unwrap();
-        person.pump().unwrap();
-        person.apply(&InputEvent::Button { button: 1, down: false }).unwrap();
-        person.conn.sync().unwrap();
-        assert_eq!(marker(&agent, root).unwrap()["button_held"], false);
-        drop(person);
-        xvfb.alive();
-    }
-
-    /// Stands in for another live host process for the next test.
-    #[test]
-    #[ignore = "a helper process for person_master_another_live_host_uses_is_kept"]
-    fn host_helper_sleeps() {
-        if std::env::var_os("CMUX_RD_SLEEP_HELPER").is_some() {
-            std::thread::sleep(Duration::from_secs(60));
-        }
-    }
-
-    /// A master another live host lists is reused and never removed under it; once that
-    /// host is gone, the next host replaces it, so nothing it held stays held.
-    #[test]
-    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
-    fn person_master_another_live_host_uses_is_kept() {
-        let mut xvfb = Xvfb::start();
-        let (other, root) = connect(&xvfb.display);
-        let mut helper = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "inject::tests::host_helper_sleeps", "--include-ignored"])
-            .env("CMUX_RD_SLEEP_HELPER", "1")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        // The other host made the master, holds a button on it and lists its pid.
-        let change = HierarchyChange {
-            len: add_master_len(PERSON_MASTER),
-            data: HierarchyChangeData::AddMaster(HierarchyChangeDataAddMaster {
-                send_core: true,
-                enable: true,
-                name: PERSON_MASTER.as_bytes().to_vec(),
-            }),
-        };
-        other.xinput_xi_change_hierarchy(&[change]).unwrap().check().unwrap();
-        let theirs = find_master(&other, PERSON_MASTER).unwrap().unwrap();
-        other.xinput_xi_set_client_pointer(x11rb::NONE, theirs.pointer).unwrap().check().unwrap();
-        other.xtest_fake_input(BUTTON_PRESS_EVENT, 1, 0, root, 0, 0, 0).unwrap();
-        let hosts =
-            other.intern_atom(false, HOSTS_PROPERTY.as_bytes()).unwrap().reply().unwrap().atom;
-        other
-            .change_property32(PropMode::REPLACE, root, hosts, AtomEnum::CARDINAL, &[helper.id()])
-            .unwrap();
-        other.sync().unwrap();
-        let held = |m: PersonMaster| {
-            let r = other.xinput_xi_query_pointer(root, m.pointer).unwrap().reply().unwrap();
-            r.buttons.first().copied().unwrap_or(0) & 0x3fe
-        };
-        assert_ne!(held(theirs), 0);
-
-        let mut person = Injector::new(&xvfb.display).unwrap();
-        person.apply(&InputEvent::Pointer { x: 400, y: 300 }).unwrap();
-        person.conn.sync().unwrap();
-        assert_eq!(person.master(), Some(theirs), "reused, not replaced");
-        assert_ne!(held(theirs), 0, "the other host's button stays down");
-        drop(person);
-        other.sync().unwrap();
-        assert_eq!(find_master(&other, PERSON_MASTER).unwrap(), Some(theirs), "kept for it");
-        let listed = other
-            .get_property(false, root, hosts, AtomEnum::CARDINAL, 0, 16)
-            .unwrap()
-            .reply()
-            .unwrap();
-        assert_eq!(listed.value32().unwrap().collect::<Vec<_>>(), vec![helper.id()]);
-
-        // The other host dies holding the button: the next host replaces the master.
-        helper.kill().unwrap();
-        helper.wait().unwrap();
-        let mut next = Injector::new(&xvfb.display).unwrap();
-        next.apply(&InputEvent::Pointer { x: 410, y: 310 }).unwrap();
-        next.conn.sync().unwrap();
-        let fresh = next.master().expect("a person master");
-        assert_eq!(held(fresh), 0, "nothing stays held");
-        drop(next);
-        other.sync().unwrap();
-        assert_eq!(find_master(&other, PERSON_MASTER).unwrap(), None);
-        xvfb.alive();
-    }
-}
+#[path = "inject_tests.rs"]
+pub(crate) mod tests;

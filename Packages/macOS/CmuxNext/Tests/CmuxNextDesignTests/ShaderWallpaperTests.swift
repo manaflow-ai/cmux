@@ -11,7 +11,9 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct ShaderWallpaperTests {
     @Test func everyShaderIsAPickerChoiceTheSettingReadsBack() {
         let ids = BackdropCatalog.shaders.map(\.id)
-        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:aero"])
+        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:aero",
+                        "shader:sakura", "shader:sumi", "shader:koi", "shader:snowfall", "shader:lanterns", "shader:rain",
+                        "shader:matrix"])
         for choice in BackdropCatalog.shaders {
             #expect(BackdropSelection(id: choice.id) == choice, "\(choice.id) does not read back")
             #expect(choice.pickerCollection?.id == BackdropShader.collection)
@@ -38,9 +40,10 @@ import Testing
     }
 
     @Test func theUniformsMatchTheShaderLayout() {
-        // float2, float2, 4 floats, then float4[4] at 32: 96 bytes in Metal.
-        #expect(MemoryLayout<BackdropShaderUniforms>.stride == 96)
+        // float2, float2, 4 floats, float4[4] at 32, then float2, float2 at 96: 112 bytes in Metal.
+        #expect(MemoryLayout<BackdropShaderUniforms>.stride == 112)
         #expect(MemoryLayout<BackdropShaderUniforms>.offset(of: \.rings) == 32)
+        #expect(MemoryLayout<BackdropShaderUniforms>.offset(of: \.pointer) == 96)
     }
 
     /// Slow dark gradients band in an 8-bit drawable; every shader's last step is the 1-step
@@ -57,6 +60,14 @@ import Testing
             #expect(!returns.isEmpty && returns.allSatisfy { $0.hasPrefix("dither(") },
                     "\(shader) returns a color that skips the dither: it bands in dark gradients")
         }
+    }
+
+    /// A slowly drifting noise field shows the lattice's creases with the cubic fade; the noise
+    /// uses the quintic one (reading note motion-backgrounds-procedural-art, "Perlin noise").
+    @Test func theNoiseFadesQuinticallySoSlowDriftShowsNoGrid() {
+        let source = BackdropShaderSource.source
+        #expect(source.contains("f * f * f * (f * (f * 6.0 - 15.0) + 10.0)"), "vnoise lost the quintic fade")
+        #expect(!source.contains("f * f * (3.0 - 2.0 * f)"), "a noise uses the cubic fade: slow drift shows grid creases")
     }
 
     @Test func everyShaderCompilesAndDrawsAStillThatIsNotFlat() throws {
@@ -130,6 +141,22 @@ import Testing
         #expect(!h.shader.moves, "a window no one can see keeps drawing")
     }
 
+    @Test func aWarmMacHalvesTheFrameRateAndASeriousOneHoldsTheFrame() {
+        let h = make(.shader(.aurora))
+        defer { h.close() }
+        h.shader.thermalOverride = .nominal
+        #expect(h.shader.ceilingFramesPerSecond == BackdropShaderView.maximumFramesPerSecond)
+        h.shader.thermalOverride = .fair
+        #expect(h.shader.ceilingFramesPerSecond == BackdropShaderView.warmFramesPerSecond)
+        #expect(h.shader.framesPerSecond == BackdropShaderView.warmFramesPerSecond)
+        #expect(BackdropShaderView.warmFramesPerSecond * 2 == BackdropShaderView.maximumFramesPerSecond)
+        #expect(h.shader.moves || h.backdrop.shaderView.metalLayer.device == nil, "a warm Mac stops the wallpaper instead of slowing it")
+        h.shader.thermalOverride = .serious
+        #expect(!h.shader.moves, "a serious thermal state keeps a living wallpaper drawing")
+        h.shader.thermalOverride = .nominal
+        #expect(h.shader.ceilingFramesPerSecond == BackdropShaderView.maximumFramesPerSecond)
+    }
+
     @Test func thePointerIsEasedAndItsSpeedBecomesEnergyThatFades() {
         let h = make(.shader(.field))
         defer { h.close() }
@@ -149,6 +176,60 @@ import Testing
                 "the shown pointer never reaches the real one")
     }
 
+    @Test func aResumeEasesTheClockUpFromStillInsteadOfJumpingToFullSpeed() {
+        let h = make(.shader(.field))
+        defer { h.close() }
+        let view = h.shader
+        view.resumed()
+        let start = view.currentUniforms.time
+        view.advance(by: 1 / 30)
+        let first = view.currentUniforms.time - start
+        #expect(first > 0 && first < Float(1.0 / 30) * 0.01, "a resume starts the clock at full speed")
+        var steps: [Float] = []
+        for _ in 0..<Int(BackdropShaderView.resumeRampSeconds * 30) {
+            let before = view.currentUniforms.time
+            view.advance(by: 1 / 30)
+            steps.append(view.currentUniforms.time - before)
+        }
+        #expect(zip(steps, steps.dropFirst()).allSatisfy { $1 >= $0 - 1e-5 }, "the clock slows down during a resume")
+        let before = view.currentUniforms.time
+        view.advance(by: 1 / 30)
+        #expect(abs(view.currentUniforms.time - before - Float(1.0 / 30)) < 1e-4, "the clock never reaches full speed")
+        let total = view.currentUniforms.time - start
+        let ramp = Float(BackdropShaderView.resumeRampSeconds)
+        #expect(abs(total - (ramp / 2 + Float(2.0 / 30))) < 0.02, "the eased clock does not resume where it held")
+    }
+
+    /// ask-4b6ce9c1aa (Leo: "it doesnt actually follow the cursor"): the eased pointer lags a moving
+    /// cursor by about 0.11 s, so a glow drawn there trails it. `pointer` is the cursor this frame,
+    /// and Block Matrix centers its glow and core on it, keeping the eased one only for its trail.
+    @Test func blockMatrixCentersOnThePointerThisFrameNotTheEasedOne() throws {
+        let h = make(.shader(.matrix))
+        defer { h.close() }
+        let view = h.shader
+        let scale = Float(view.pixelSize.width / view.bounds.width)
+        view.pointerOverride = CGPoint(x: 10, y: 10)
+        view.advance(by: 1 / 60)
+        view.pointerOverride = CGPoint(x: 300, y: 180)
+        view.advance(by: 1 / 60)
+        let moved = view.currentUniforms
+        #expect(abs(moved.pointer.x - 300 * scale) < 0.5 && abs(moved.pointer.y - 180 * scale) < 0.5,
+                "the unsmoothed pointer is not where the cursor is this frame")
+        #expect(moved.mouse.x < moved.pointer.x - 50 * scale, "the eased pointer no longer lags: the trail is gone")
+        let source = BackdropShaderSource.source
+        let start = try #require(source.range(of: "static float bmField("))
+        let end = try #require(source.range(of: "fragment float4 wp_matrix(")).upperBound
+        let rest = source[end...]
+        let matrix = String(source[start.lowerBound..<end]) + String(rest[..<(rest.range(of: "\n    }\n")?.upperBound ?? rest.endIndex)])
+        #expect(matrix.contains("float2 p = u.pointer / pitch;") && matrix.contains("bmGauss(x - u.pointer / pitch"),
+                "Block Matrix centers its glow on the eased pointer: it trails the cursor")
+        // The class: anything drawn under the cursor reads it this frame. Dot Field parts its dots there;
+        // the fluid stirs (Currents, Ripples, Aurora, Aero's bubbles) keep the eased pointer as their inertia.
+        let field = try #require(source.range(of: "fragment float4 wp_field("))
+        let fieldBody = source[field.upperBound...].prefix(2000)
+        #expect(fieldBody.contains("center - u.pointer"), "Dot Field parts its dots where the cursor was, not where it is")
+    }
+
     @Test func clicksSendRingsAndTheOldestIsReplaced() {
         let h = make(.shader(.ripples))
         defer { h.close() }
@@ -162,6 +243,29 @@ import Testing
         // The fifth click took the first click's slot.
         #expect(rings[0].x == Float(80) * Float(view.pixelSize.width / view.bounds.width))
         #expect(rings[0].z > rings[3].z, "the newest ring is not in the oldest slot")
+    }
+
+    @Test func itDrawsAtTheCalmRateUntilThePointerOrAClickMovesIt() {
+        let h = make(.shader(.currents))
+        defer { h.close() }
+        let view = h.shader
+        view.pointerOverride = CGPoint(x: 40, y: 40)
+        for _ in 0..<120 { view.advance(by: 1 / 60) }
+        #expect(view.framesPerSecond == BackdropShaderView.calmFramesPerSecond, "a resting pointer keeps the full rate")
+        view.pointerOverride = CGPoint(x: 300, y: 180)
+        view.advance(by: 1 / 60)
+        #expect(view.framesPerSecond == BackdropShaderView.maximumFramesPerSecond, "a moving pointer stays at the calm rate")
+        for _ in 0..<240 { view.advance(by: 1 / 60) }
+        #expect(view.framesPerSecond == BackdropShaderView.calmFramesPerSecond, "the rate never falls back once the pointer rests")
+        view.ring(at: CGPoint(x: 100, y: 100))
+        for _ in 0..<120 { view.advance(by: 1 / 60) }
+        #expect(view.framesPerSecond == BackdropShaderView.maximumFramesPerSecond, "a spreading ring is drawn at the calm rate")
+        for _ in 0..<300 { view.advance(by: 1 / 60) }
+        #expect(view.framesPerSecond == BackdropShaderView.calmFramesPerSecond, "a faded ring keeps the full rate")
+        view.thermalOverride = .fair
+        view.pointerOverride = CGPoint(x: 20, y: 20)
+        view.advance(by: 1 / 60)
+        #expect(view.framesPerSecond == BackdropShaderView.warmFramesPerSecond, "a stirring pointer lifts a warm Mac past its cap")
     }
 
     /// The darkest, brightest and mean lightness (0...1) of `image`.

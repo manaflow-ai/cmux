@@ -117,6 +117,8 @@ fn source() -> DResult<Cf> {
 }
 
 fn post(route: Route, event: &Cf) {
+    // Ours, so the takeover watch never reads it as the person (idle.rs).
+    super::idle::mark_injection();
     // SAFETY: event is a live CGEvent.
     unsafe {
         match route {
@@ -274,6 +276,17 @@ pub fn drag(p: &Posting, from: Point, to: Point, button: Button, front: bool) ->
         }
     }
     post_mouse(route, aim, &press(up, to)?, to);
+    Ok(())
+}
+
+/// Moves the pointer to `at` and presses nothing (a hover). On a process
+/// route the move names the window and its point inside it, as a scroll
+/// does: a mouse-moved event raises no window, so it is always addressed.
+/// On the HID route it moves the real pointer.
+pub fn move_to(p: &Posting, at: Point) -> DResult<()> {
+    let route = p.route();
+    let src = source()?;
+    post_mouse(route, Aim::of(route), &mouse_event(&src, MOUSE_MOVED, at, Button::Left, 0)?, at);
     Ok(())
 }
 

@@ -27,9 +27,10 @@ import { inboxCounts } from "./inboxNotice";
 import { joinsReceivedRow } from "./laneNoticeBatches";
 import { isWaitingMessage } from "./pendingMessages";
 import { awaitsPermission, countsFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
-import { toolRunPhrases } from "./toolRunSummary";
+import { toolRunPhrases, toolRunCategories } from "./toolRunSummary";
 import { visibleToolItems } from "./mcpPresentation";
 import type { Folds } from "./viewFolds";
+import { RowMemo } from "../../shared/rowMemo";
 
 export const messageRunRowId = (firstId: string) => `${MESSAGE_RUN}-${firstId}`;
 
@@ -50,13 +51,15 @@ type Member = {
   work: AcpmuxActivity[];
   failed: number;
   running: boolean;
+  /// The kinds of its line's phrases in the order they came ("sent", "received", a work category).
+  order: string[];
 };
 
 /// Each row's `member`, by the row: a function of the row alone, read for every row of the running
 /// turn on every record, and a run's member groups its calls and parses each command line
 /// (`toolGroups`). The running turn's earlier runs keep their row objects across records (turns.ts
 /// `earlierRun`), so a record reads only the rows it changed.
-const memberOf = new WeakMap<AcpmuxRow, Member | null>();
+const memberOf = new RowMemo<AcpmuxRow, Member | null>();
 
 function member(row: AcpmuxRow): Member | undefined {
   let kept = memberOf.get(row);
@@ -73,6 +76,7 @@ function readMember(row: AcpmuxRow): Member | undefined {
       work: [],
       failed: 0,
       running: row.compaction?.state === "running",
+      order: [],
     };
   // A tool's fire stays in sight: it ends a run, never folds into its line.
   if (isReceivedLine(row) && row.incoming?.kind === "message" && row.incoming.message.notice?.severity === "fire")
@@ -87,6 +91,7 @@ function readMember(row: AcpmuxRow): Member | undefined {
       work: [],
       failed: 0,
       running: false,
+      order: ["received"],
     };
   }
   // A folded run (codexRuns, shapeTurn): its lines as ToolRows draws them (`runStretches`).
@@ -105,6 +110,7 @@ function readMember(row: AcpmuxRow): Member | undefined {
         group.type === "agentCall" ||
         group.type === "dispatch" ||
         group.type === "whoElse" ||
+        group.type === "forum" ||
         (group.type === "subsession" && group.call.tool !== "send"),
     )
   )
@@ -129,6 +135,10 @@ function readMember(row: AcpmuxRow): Member | undefined {
     work,
     failed: items.filter((item) => item.tool && countsFailed(item.tool)).length,
     running: items.some((item) => item.tool && isRunning(item.tool)),
+    // Its calls' kinds in the order they ran: a message sent, or the work's category.
+    order: items.flatMap((item) =>
+      sentItems.has(item) ? ["sent"] : item.tool ? (toolRunCategories([item]) as string[]) : [],
+    ),
   };
 }
 
@@ -202,6 +212,8 @@ function foldedRun(members: readonly AcpmuxRow[]): FoldedRun {
       work: parts.flatMap((part) => part.work),
       failed: parts.reduce((sum, part) => sum + part.failed, 0),
       running: parts.some((part) => part.running),
+      // Each phrase's kind in the order it first came, for the line's order (`messageRunSummary`).
+      order: [...new Set(parts.flatMap((part) => part.order))],
       // A folded copy of an edit run is drawn under its source row's id and a suffix (turns.ts FOLDED).
       rows: members.flatMap((row) => [
         row.id,
@@ -340,13 +352,33 @@ export function messageRunFoldFor(drawn: readonly AcpmuxRow[], rowId: string): s
 /// file, received a message". The work between is counted as a run of tool calls counts
 /// (toolRunSummary.ts).
 export function messageRunSummary(t: Translate, run: AcpmuxMessageRun): string {
-  const phrases = [
-    ...(run.sent ? [run.sent === 1 ? t("messageRun.sent.one") : t("messageRun.sent.other", { n: run.sent })] : []),
-    ...toolRunPhrases(t, run.work),
-    ...(run.received
-      ? [run.received === 1 ? t("messageRun.received.one") : t("messageRun.received.other", { n: run.received })]
-      : []),
-  ];
+  const sent = run.sent
+    ? [run.sent === 1 ? t("messageRun.sent.one") : t("messageRun.sent.other", { n: run.sent })]
+    : [];
+  const received = run.received
+    ? [run.received === 1 ? t("messageRun.received.one") : t("messageRun.received.other", { n: run.received })]
+    : [];
+  const work = toolRunPhrases(t, run.work);
+  // Each phrase in the order its kind first came in the run (`order`), so the line only grows at its
+  // end while the run runs, and reads the same once it ended: a message sent after a command never
+  // jumps in before it. A finished background task's lead stays first (toolRunSummary.ts).
+  const categories = toolRunCategories(run.work) as string[];
+  const lead = work.slice(0, work.length - categories.length);
+  const byKind = new Map<string, string>([
+    ...(sent.length ? [["sent", sent[0]!] as const] : []),
+    ...(received.length ? [["received", received[0]!] as const] : []),
+    ...categories.map((category, at) => [category, work[lead.length + at]!] as const),
+  ]);
+  const ordered = (run.order ?? []).flatMap((kind) => {
+    const phrase = byKind.get(kind);
+    byKind.delete(kind);
+    return phrase === undefined ? [] : [phrase];
+  });
+  // A run read before it kept its order draws as it did: messages sent, the work, then received.
+  const rest = [...sent, ...work.slice(lead.length), ...received].filter((phrase) =>
+    [...byKind.values()].includes(phrase),
+  );
+  const phrases = [...lead, ...ordered, ...rest];
   const text = phrases.join(t("toolRun.separator"));
   return text.charAt(0).toUpperCase() + text.slice(1);
 }

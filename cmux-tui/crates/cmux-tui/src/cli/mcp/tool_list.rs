@@ -6,9 +6,10 @@ use serde_json::Value;
 use super::{
     action_tools, agent_dispatch_tools, agent_events_tool, agent_tools, agent_wait_tool,
     automation_tools, browser_tools, chat_tools, cloud_connect_tools, cloud_repo_tools,
-    customize_library_tool, customize_tools, device_tools, keybinding_tools, keys_tools,
-    live_code_tools, open_tool, remote_tools, render_tool, settings_tools, terminal_talk_tools,
-    v2_tools, video_tools, workflow_tools,
+    cloud_tools, customize_kit_tools, customize_library_tool, customize_tools, device_tools,
+    keybinding_tools, keys_tools, live_code_tools, open_tool, remote_tools, render_tool,
+    settings_tools, slides_tool, terminal_talk_tools, token_tools, usage_insights_tool, v2_tools,
+    vault_tools, video_tools, workflow_tools,
 };
 
 pub(super) fn first_party() -> Vec<Value> {
@@ -21,6 +22,7 @@ pub(super) fn first_party() -> Vec<Value> {
     tools.extend(agent_dispatch_tools::descriptors());
     tools.push(workflow_tools::descriptor());
     tools.extend(cloud_repo_tools::descriptors());
+    tools.extend(cloud_tools::descriptors());
     tools.extend(cloud_connect_tools::descriptors());
     tools.extend(chat_tools::descriptors());
     tools.extend(live_code_tools::descriptors());
@@ -30,14 +32,19 @@ pub(super) fn first_party() -> Vec<Value> {
     tools.extend(terminal_talk_tools::descriptors());
     tools.push(render_tool::descriptor());
     tools.push(open_tool::descriptor());
+    tools.push(slides_tool::descriptor());
     tools.extend(keys_tools::descriptors());
+    tools.extend(vault_tools::descriptors());
     tools.extend(video_tools::descriptors());
+    tools.push(usage_insights_tool::descriptor());
     tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
     tools.extend(device_tools::descriptors());
+    tools.extend(token_tools::descriptors());
     tools.extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
     tools.extend(automation_tools::descriptors());
     tools.extend(customize_tools::descriptors());
     tools.push(customize_library_tool::descriptor());
+    tools.extend(customize_kit_tools::descriptors());
     tools.extend(
         keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
     );

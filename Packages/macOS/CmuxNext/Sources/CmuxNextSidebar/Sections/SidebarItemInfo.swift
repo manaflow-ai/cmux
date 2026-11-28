@@ -26,6 +26,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isHidden: Bool
     /// The item's action shortcut as menus show it (`⌘,`), for the tooltip.
     public var shortcut: String?
+    /// A caller-supplied tooltip, used for transient rows whose title is only a short state word.
+    public var tooltip: String?
     /// The shorter caption a tile draws under its glyph; nil uses `title`.
     public var caption: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
@@ -41,11 +43,11 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var textOnly = false
     /// The item's icon is its workspace's shown tab's (``SidebarWorkspace/iconFromShownTab``), not the workspace's own.
     public var iconFromShownTab = false
-    /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
+    /// A pin leading the row, before its icon and title. The sidebar's own rows leave it off: a pinned workspace leads
+    /// as its list row does (Leo 2026-11-23, ask c-b5d3e0efb6: "it puts a symbol at the left").
     public var leadingPin = false
-    /// The open workspace a workspace tile names: its row shows a workspace row's hover more
-    /// button, and no close x, since the item is pinned (`SidebarItemRowView+HoverActions`,
-    /// Lawrence msg 19392). Nil for every other item.
+    /// The open workspace a workspace tile names: its row shows a workspace row's hover controls, the ✕, the ⋮ and
+    /// Unpin (`SidebarItemRowView+HoverActions`). Nil for every other item.
     public var workspace: WorkspaceID?
     /// The open workspace's own row, as the workspace list maps it (`SidebarMapping.row`): a pinned
     /// workspace row opens the list's workspace hover card from it, the card a list row shows. Nil for
@@ -68,17 +70,15 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// What VoiceOver reads for the row; nil reads `title`. For a row whose title only makes sense
     /// under the item before it (a remote machine's room row names its machine here).
     public var accessibilityTitle: String?
-    /// The item's agent chat's task progress (a Chief subagent's `taskList`): a row look draws its quiet "3/7" before
-    /// the trailing marks, as a chat row does (`WorkspaceRowContent.trailingStatus`); nil draws nothing.
-    public var taskProgress: SidebarTaskProgress?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
-                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, tooltip: String? = nil, brand: String? = nil,
                 emoji: String? = nil) {
         self.icon = icon
         self.emoji = emoji
         self.brand = brand
         self.shortcut = shortcut
+        self.tooltip = tooltip
         self.isHidden = isHidden
         self.caption = caption
         self.title = title
@@ -156,7 +156,7 @@ extension SidebarBuiltIn {
     /// SF Symbol of the built-in.
     public var symbol: String {
         switch self {
-        case .home: "sparkles" // the Home item is the Chief (2026-11-20)
+        case .home: "house" // the Chief's row keeps Home's house (Lucas 2026-11-23)
         case .settings: "gearshape"
         case .account: "person.crop.circle"
         case .notifications: "bell"
@@ -170,13 +170,17 @@ extension SidebarBuiltIn {
         case .searchChats: "magnifyingglass"
         case .chief: "sparkles"
         case .automations: "clock.badge.checkmark"
+        case .forum: "text.bubble"
         }
     }
 
-    /// The built-in's cmux icon.
-    public var icon: IconName {
+    /// The built-in's cmux icon, or nil where its SF Symbol (``symbol``) draws.
+    ///
+    /// The Chief Activity item draws the pack's `sparkles` glyph, not the `agent.chief` crown (Lawrence
+    /// 2026-11-23, msg 48175: "get rid of the crown"); the Chief's top row draws Home's house (#53281).
+    public var icon: IconName? {
         switch self {
-        case .home: .agentChief
+        case .home: .home
         case .settings: .settings
         case .account: .account
         case .notifications: .notification
@@ -188,8 +192,9 @@ extension SidebarBuiltIn {
         case .newAgentChat: .agentChatNew
         case .customize: .theme
         case .searchChats: .search
-        case .chief: .agentChief
+        case .chief: .sparkles
         case .automations: .automation
+        case .forum: .agentChatList
         }
     }
 
@@ -215,6 +220,7 @@ extension SidebarBuiltIn {
         case .searchChats: SectionStrings.searchChats
         case .chief: SectionStrings.chief
         case .automations: SectionStrings.automations
+        case .forum: SectionStrings.forum
         }
     }
 
@@ -228,12 +234,17 @@ extension SidebarBuiltIn {
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
 
-    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready.
-    /// - Parameter showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
-    /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false.
-    public func defaultInfo(showsStore: Bool) -> SidebarItemInfo {
+    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready, and for the Forum while its
+    /// experiment is off.
+    /// - Parameters:
+    ///   - showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
+    ///   - showsForum: Whether the Forum shows (`CmuxConfigSnapshot.showsForum`, `experiments.forum` on).
+    /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false, the Forum's
+    ///   when `showsForum` is false.
+    public func defaultInfo(showsStore: Bool, showsForum: Bool = false) -> SidebarItemInfo {
         var info = defaultInfo
         if self == .appStore, !showsStore { info.isHidden = true }
+        if self == .forum, !showsForum { info.isHidden = true }
         return info
     }
 }
@@ -242,7 +253,7 @@ extension SidebarItemInfo {
     /// An icon's tooltip: the title, and the shortcut when there is one
     /// ("Settings (⌘,)").
     public var toolTip: String {
-        shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
+        tooltip ?? shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
     }
 }
 

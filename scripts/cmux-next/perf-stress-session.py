@@ -82,6 +82,7 @@ kind, busy terminals, Chromium pages elsewhere and the build time.
 import argparse, http.server, json, os, signal, socket, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import StateWaitTimeout, wait_stable  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -97,7 +98,7 @@ WINDOW_SIZE = (1600, 1000)  # width, height in points (debug.window_frame)
 # here, bottom-left screen points, as before.
 LEGACY_ORIGIN = (80, 40)
 MINIMUM_PANE = {"layout.minimumPaneWidth": 80, "layout.minimumPaneHeight": 32}
-WEB_DEV_CONFIG = os.path.expanduser("~/.config/cmux/web-dev.json")  # routes pages to a dev server when present
+WEB_DEV_CONFIG = os.path.expanduser("~/.config/" + ("cmux-next" if sys.platform == "darwin" else "cmux") + "/web-dev.json")  # routes pages to a dev server when present
 # The LARGE session (module docstring, plans/cmux-next/main-thread-scheduling.md 1.5).
 LARGE_WORKSPACES = 60
 LARGE_MIX = ("terminal", "terminal", "terminal", "chat", "chromium", "webkit")  # the first terminal comes with the workspace
@@ -159,6 +160,9 @@ class Pages:
     """Local pages for the Chromium and WebKit tabs (no network): text, a grid of cards, a spinner on rAF."""
 
     def __init__(self):
+        pages = self
+        self.served = 0  # pages answered: a load burst has ended when this stops growing
+
         def body(index):
             return ("<!doctype html><meta charset='utf-8'><title>stress %d</title>"
                     "<style>body{margin:0;font:16px -apple-system,sans-serif;background:#f4f4f6}"
@@ -178,6 +182,7 @@ class Pages:
                 except ValueError:
                     index = 0
                 data = body(index)
+                pages.served += 1
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
                 self.send_header("Content-Length", str(len(data)))
@@ -234,8 +239,36 @@ class Stress:
         if isinstance(reply, dict) and reply.get("error"):
             self.refusals.append(f"{name}: {str(reply['error'])[:160]}")
         if settle:
-            time.sleep(settle)  # test script: the layout settles before the next step
+            # The layout settles before the next step: the windows' frames and dividers stop moving. `settle` (s) is
+            # how long it used to sleep; the wait is ten times that at most.
+            try:
+                wait_stable(self.layout, f"the layout after {name}", timeout=max(5.0, settle * 10), interval=0.05)
+            except StateWaitTimeout as error:
+                self.log(f"note: {error}")
         return reply
+
+    def layout(self):
+        """Each `debug.layers` window's id, frame and divider areas: the shown layout."""
+        layers = self.rpc("debug.layers")
+        windows = ((layers or {}).get("windows") or []) if isinstance(layers, dict) else []
+        return json.dumps([(w.get("id"), w.get("frame"), w.get("divider_areas_in_window")) for w in windows])
+
+    def settle_pages(self, what):
+        """Waits until the page loads ended (the local server answered no new page for about half of `settle` s) and the
+        measured workspace has no provisional tab. Nothing when settle is 0."""
+        if not self.settle:
+            return
+
+        def read():
+            measured = self.workspace(getattr(self, "measured", None))
+            pending = sum(1 for p in self.panes(measured) for t in p.get("tabs") or [] if provisional(t))
+            if pending:
+                raise RuntimeError(f"{pending} provisional tabs")  # not settled: wait_stable starts its count again
+            return self.pages.served
+        try:
+            wait_stable(read, what, timeout=max(10.0, self.settle * 10), interval=0.1, reads=max(3, round(self.settle / 0.2)))
+        except StateWaitTimeout as error:
+            self.log(f"note: {error} (pages still loading or a tab still provisional)")
 
     def topology(self):
         reply = self.rpc("snapshot.get")
@@ -448,7 +481,7 @@ class Stress:
         self.show(self.measured)
         self.focus_pane(self.large_panes[self.measured])
         self.streams = [self.first_terminal(order[index]) for index in TITLE_STREAM_WORKSPACES]
-        time.sleep(self.settle)  # test script: first page loads before a measure
+        self.settle_pages("the large session's first page loads")
         summary = self.summary_large()
         summary["build_s"] = round(time.monotonic() - start, 1)
         if check:
@@ -680,7 +713,7 @@ class Stress:
             raise StressShapeError(f"the app already has {existing} workspaces; STRESS has {WORKSPACES} in all")
         self.build_background(count=WORKSPACES - 1 - existing)
         self.build_measured()
-        time.sleep(self.settle)  # test script: first page loads and the busy output start before a measure
+        self.settle_pages("the first page loads before a measure")
         summary = self.summary()
         summary["build_s"] = round(time.monotonic() - start, 1)
         if check:

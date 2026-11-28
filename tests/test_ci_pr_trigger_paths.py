@@ -9,6 +9,7 @@ script its own jobs decide with) derives. The fix the failure names: `pr_trigger
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -20,6 +21,11 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+sys.modules[_git_fixture_spec.name] = git_fixture_env
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 if str(ROOT / "scripts" / "ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import pr_trigger_paths as router  # noqa: E402
@@ -27,8 +33,9 @@ import pr_trigger_paths as router  # noqa: E402
 
 def git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True,
-                   env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-                        "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin", "HOME": "/nonexistent"})
+                   env=git_fixture_env.fixture_env({
+                       "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                       "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin", "HOME": "/nonexistent"}))
 
 
 class Fixture:
@@ -166,7 +173,7 @@ class DerivedTests(unittest.TestCase):
             data["derived"] = {".github/workflows/classic-api-guard.yml": data["derived"][
                 ".github/workflows/classic-api-guard.yml"]}
             (root / router.MAP).write_text(json.dumps(data))
-            git(root, "init", "-q")
+            git_fixture_env.init_repo(root)
             git(root, "add", ".")
             self.assertEqual(router.check(root), [])
             config = json.loads((root / "scripts/ci/classic-auto-deploy.json").read_text())

@@ -29,18 +29,22 @@ pub fn run(args: &[String]) -> i32 {
     run_with(host)
 }
 
-/// [`run`] with the desktop's host services given (the helper's own screen capture).
+/// [`run`] with the desktop's host services given (the helper's own screen capture). AppKit
+/// runs on the main thread for the agent cursor (`macos::run_with_app`); the worker runs on its
+/// own thread, and its code comes back here when it ends.
 pub fn run_with(host: Option<Arc<dyn HostServices>>) -> i32 {
-    worker::run(
-        std::io::stdin().lock(),
-        std::io::stdout(),
-        move || Ok(platform(host)),
-        worker::ASK_TIMEOUT,
-    )
+    cmux_computer_use::platform::macos::run_with_app(move || {
+        worker::run(
+            std::io::BufReader::new(std::io::stdin()),
+            std::io::stdout(),
+            move || Ok(platform(host)),
+            worker::ASK_TIMEOUT,
+        )
+    })
 }
 
-/// The Mac desktop over `host`. No agent cursor or takeover watch here: on a Mac those were
-/// cmux Remote's Swift worker's, and this helper has none yet.
+/// The Mac desktop over `host`, with the agent cursor (`macos/overlay.rs`) and the takeover
+/// watch (`macos/idle.rs`, the person's HID input).
 fn platform(host: Option<Arc<dyn HostServices>>) -> Platform {
     Platform {
         desktop: Arc::new(MacDesktop::new(host)),
@@ -50,9 +54,5 @@ fn platform(host: Option<Arc<dyn HostServices>>) -> Platform {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn extra_arguments_are_refused_before_any_desktop_opens() {
-        assert_eq!(super::run(&["--control".into(), "x".into()]), 2);
-    }
-}
+#[path = "computer_use_worker_tests.rs"]
+mod tests;

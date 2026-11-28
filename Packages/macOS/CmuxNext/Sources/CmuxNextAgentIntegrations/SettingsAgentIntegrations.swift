@@ -2,6 +2,7 @@ public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
 public import Observation
+import CmuxNextCompat
 
 /// Settings > Agents > Agent integrations: optional help for the coding-agent hooks that report an
 /// agent's state to cmux. The rows are the bundled CLI's `cmux --json agent hook status`; Install
@@ -111,7 +112,7 @@ public final class SettingsAgentIntegrations: PageProvider {
             }
             guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no cmux CLI") }
             let verb = action == "remove" ? "uninstall" : "install"
-            let reply = try? await runCLI(cli, ["--json", "agent", "hook", verb, id])
+            let reply = try? await awaitConcurrently({ try await runCLI(cli, ["--json", "agent", "hook", verb, id]) })
             let refusal = reply.map { Self.refusal(of: id, $0) } ?? .kind("noAnswer")
             await refresh()
             if let refusal, let index = rows.firstIndex(where: { $0.id == id }) {
@@ -136,7 +137,7 @@ public final class SettingsAgentIntegrations: PageProvider {
         generation += 1
         let mine = generation
         loading = true
-        let reply = try? await runCLI(cli, ["--json", "agent", "hook", "status"])
+        let reply = try? await awaitConcurrently({ try await runCLI(cli, ["--json", "agent", "hook", "status"]) })
         guard mine == generation else { return }
         loading = false
         // A provider status could not read (invalid JSON) fails the command, with the rows it did
