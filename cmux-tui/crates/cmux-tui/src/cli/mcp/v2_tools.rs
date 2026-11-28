@@ -253,6 +253,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.vm.publication_api_keys", CLOUD_API_REASON),
     ("cloud.vm.publications", CLOUD_API_REASON),
     ("cloud.vm.revoke_publication_api_key", CLOUD_API_REASON),
+    ("cloud.vm.agent_key_create", CLOUD_API_REASON),
     ("cloud.vm.scp_endpoint", CLOUD_API_REASON),
     ("cloud.vm.tunnel_attach", CLOUD_API_REASON),
     ("cloud.vm.tunnel_detach", CLOUD_API_REASON),

@@ -37,6 +37,7 @@ final class CEFResizeFences {
     @discardableResult
     func join(window: NSWindow, layer: CALayer, timeoutMs: Int32, refreshMs: Double, ask: Join) -> Bool {
         let key = ObjectIdentifier(window)
+        let asked = CEFTrackerStats.now()
         let fence: CEFResizeFence
         if let open = current[key] {
             fence = open
@@ -64,6 +65,7 @@ final class CEFResizeFences {
         }
         let joined = ask(fence.port) { [weak fence] presented in
             if presented { CEFHostView.trackerStats.resizeFencePresented += 1 } else { CEFHostView.trackerStats.resizeFenceMissed += 1 }
+            CEFHostView.trackerStats.resizeFenceReplied(after: CEFTrackerStats.now() - asked)
             guard let fence else { return }
             fence.outstanding -= 1
             if fence.outstanding <= 0, fence.sealed { fence.drop() }

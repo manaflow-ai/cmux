@@ -348,6 +348,122 @@ class BindingErrorTests(unittest.TestCase):
 
 
 
+class IfTrueTests(unittest.TestCase):
+    """`encode: if_true`: a flag the app sends only when true, so an older daemon sees the request it always saw."""
+
+    def source(self, **override: Any) -> str:
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["order"] = ["split", "ratio", "confirm_close"]
+        request["fields"] = {"confirm_close": {"encode": "if_true", **override}}
+        return rendered(bindings=bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_if_true_is_a_plain_bool_false_by_default_encoded_only_when_true(self) -> None:
+        source = self.source()
+        self.assertIn("public var confirmClose: Bool\n", source)
+        self.assertIn("confirmClose: Bool = false", source)
+        self.assertIn("if confirmClose { try container.encode(true, forKey: .confirmClose) }", source)
+        self.assertIn('case confirmClose = "confirm_close"', source)
+
+    def test_if_true_says_false_for_a_daemon_without_the_capability(self) -> None:
+        document = layout_document()
+        document["commands"]["set-split-ratio"]["request"]["fields"]["confirm_close"]["capability"] = "x-v1"
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["fields"] = {"confirm_close": {"encode": "if_true"}}
+        source = rendered(document, bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+        self.assertIn("leave it false for a daemon that does not serve it", source)
+
+    def test_if_true_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases = {
+            "not a boolean": ("transaction", {"encode": "if_true"}),
+            "a required field": ("ratio", {"encode": "if_true"}),
+            "with optional": ("confirm_close", {"encode": "if_true", "optional": True}),
+            "with a type": ("confirm_close", {"encode": "if_true", "type": "Int"}),
+            "with a true default": ("confirm_close", {"encode": "if_true", "default": "true"}),
+        }
+        for label, (wire, override) in cases.items():
+            bindings = layout_bindings()
+            bindings["families"]["Layout"]["requests"]["set-split-ratio"]["fields"] = {wire: override}
+            with self.subTest(label), self.assertRaises(BindingError):
+                rendered(bindings=bindings)
+
+    def test_if_true_is_refused_on_a_field_whose_schema_default_is_not_false(self) -> None:
+        document = layout_document()
+        document["commands"]["set-split-ratio"]["request"]["fields"]["confirm_close"]["default"] = True
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["requests"]["set-split-ratio"]["fields"] = {
+            "confirm_close": {"encode": "if_true"}
+        }
+        with self.assertRaises(BindingError):
+            rendered(document, bindings)
+
+
+class SentWithTests(unittest.TestCase):
+    """`with`: a field sent only when another is true or set, as the hand-written types left it off alone."""
+
+    def source(self, **fields: Any) -> str:
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["order"] = ["split", "ratio", "confirm_close", "transaction"]
+        request["fields"] = fields
+        return rendered(bindings=bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_with_an_if_true_flag_sends_the_field_only_when_the_flag_is_true(self) -> None:
+        source = self.source(confirm_close={"encode": "if_true"}, transaction={"with": "confirm_close"})
+        self.assertIn(
+            "if confirmClose { try container.encodeIfPresent(transaction, forKey: .transaction) }", source
+        )
+        self.assertIn("/// Sent only with `confirmClose`.\n    public var transaction:", source)
+
+    def test_with_an_optional_sends_the_field_only_when_it_is_set(self) -> None:
+        source = self.source(confirm_close={"with": "transaction"})
+        self.assertIn(
+            "if transaction != nil { try container.encodeIfPresent(confirmClose, forKey: .confirmClose) }", source
+        )
+
+    def test_with_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases = {
+            "itself": {"transaction": {"with": "transaction"}},
+            "a field the schema lacks": {"transaction": {"with": "nope"}},
+            "on a required field": {"ratio": {"with": "transaction"}},
+            "on an always encoded field": {"transaction": {"with": "confirm_close", "encode": "always"}},
+            "gated by a required field": {"transaction": {"with": "ratio"}},
+        }
+        for name, fields in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(**fields)
+
+
+class DecimalTests(unittest.TestCase):
+    """`encode: decimal`: a UInt64 the wire carries as a decimal string."""
+
+    def source(self, constraints: list[Any] | None = None, **override: Any) -> str:
+        document = layout_document()
+        document["commands"]["set-split-ratio"]["request"]["fields"]["revision"] = _field(
+            {"kind": "scalar", "name": "string"}, required=False, nullable=True,
+            constraints=[{"format": "decimal uint64"}] if constraints is None else constraints,
+        )
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["fields"] = {"revision": {"encode": "decimal", **override}}
+        return rendered(document, bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_decimal_is_a_uint64_sent_as_its_string(self) -> None:
+        source = self.source()
+        self.assertIn("public var revision: UInt64?\n", source)
+        self.assertIn("try container.encodeIfPresent(revision.map(String.init), forKey: .revision)", source)
+
+    def test_decimal_is_refused_without_the_schema_format(self) -> None:
+        for name, (constraints, override) in {
+            "no format": ([], {}),
+            "with type": (None, {"type": "Int"}),
+            "with optional": (None, {"optional": True}),
+        }.items():
+            with self.subTest(name), self.assertRaisesRegex(BindingError, "encode decimal"):
+                self.source(constraints, **override)
+
+
 def mutation_document() -> dict[str, Any]:
     """A write command carrying the four mutation identity fields."""
     document = layout_document()
@@ -433,6 +549,60 @@ class FieldOverrideTests(unittest.TestCase):
         bindings["families"]["Layout"]["requests"]["swap-pane"]["mutation"] = True
         with self.assertRaises(BindingError):
             rendered(bindings=bindings)
+def workspace_ref_document() -> dict[str, Any]:
+    """A write command that targets a workspace by handle or key."""
+    document = mutation_document()
+    fields = document["commands"]["rename-pane"]["request"]["fields"]
+    document["commands"]["rename-pane"]["request"]["fields"] = {
+        "workspace": _field(ID, required=False, nullable=True),
+        "key": _field({"kind": "scalar", "name": "string"}, required=False, nullable=True),
+        **fields,
+    }
+    return document
+
+
+class WorkspaceRefTests(unittest.TestCase):
+    """`workspace_ref`: the schema's `workspace` and `key` become one `WorkspaceRef`, encoded flat."""
+
+    def source(self, order: list[str] | None = None, document: dict[str, Any] | None = None, **binding: Any) -> str:
+        bindings = mutation_bindings()
+        request = bindings["families"]["Layout"]["requests"]["rename-pane"]
+        request["workspace_ref"] = True
+        if order is not None:
+            request["order"] = order
+        request.update(binding)
+        document = document or workspace_ref_document()
+        return rendered(document, bindings)["Layout/RenamePaneRequest.generated.swift"]
+
+    def test_workspace_ref_is_one_required_parameter_where_order_puts_it(self) -> None:
+        source = self.source(["workspace", "pane", "title", "index", "mutation"])
+        self.assertIn("public var workspace: WorkspaceRef\n", source)
+        self.assertIn("public init(workspace: WorkspaceRef, pane: PaneID,", source)
+        self.assertNotIn("case key", source)
+        self.assertNotIn("case workspace", source)
+        encode = source[source.index("func encode"):]
+        ref = encode.index("try WorkspaceRefFields(ref: workspace).encode(to: encoder)")
+        self.assertLess(encode.index("forKey: .index"), ref)
+        self.assertLess(ref, encode.index("try MutationFields(identity: mutation)"))
+
+    def test_workspace_ref_left_out_of_order_comes_after_the_fields_before_mutation(self) -> None:
+        source = self.source()
+        self.assertIn("index: Int, workspace: WorkspaceRef, mutation: MutationIdentity? = nil)", source)
+
+    def test_workspace_ref_is_refused_without_both_optional_fields(self) -> None:
+        missing = workspace_ref_document()
+        del missing["commands"]["rename-pane"]["request"]["fields"]["key"]
+        required = workspace_ref_document()
+        required["commands"]["rename-pane"]["request"]["fields"]["workspace"] = _field(ID)
+        for name, document in {"no key": missing, "a required workspace": required}.items():
+            with self.subTest(name), self.assertRaisesRegex(BindingError, "workspace_ref needs"):
+                self.source(document=document)
+        with self.assertRaisesRegex(BindingError, "owns the workspace and key"):
+            self.source(fields={"key": {"type": "String"}})
+        with self.assertRaisesRegex(BindingError, "workspace_ref is true or false"):
+            self.source(workspace_ref="yes")
+
+
 def read_bindings(objects: dict[str, Any]) -> dict[str, Any]:
     bindings = layout_bindings()
     bindings["families"]["Layout"]["objects"] = objects
@@ -491,6 +661,18 @@ class ReadTypeTests(unittest.TestCase):
             " ?? container.decodeIfPresent(PaneID.self, forKey: .pane)", source)
         self.assertIn('case zoomedPane = "zoomed_pane"', source)
         self.assertNotIn("var zoomedPane", source)
+
+    def test_decode_is_the_whole_read(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"default": "false", "decode": "readZoomed(container)"}}}}))
+        source = files["Layout/ZoomState.generated.swift"]
+        self.assertIn("        zoomed = readZoomed(container)\n", source)
+        self.assertIn("zoomed: Bool = false", source)
+
+    def test_decode_needs_a_default_and_no_other_read_option(self) -> None:
+        for field in ({"decode": "x"}, {"decode": "x", "default": "false", "lenient": True}, {"decode": "", "default": "false"}):
+            with self.assertRaises(emit.BindingError):
+                rendered(bindings=read_bindings({"ZoomState": {"type": "ZoomPaneResult", "fields": {"zoomed": field}}}))
 
     def test_optional_makes_a_required_field_optional(self) -> None:
         files = rendered(bindings=read_bindings({"ZoomState": {

@@ -87,20 +87,21 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Key the seed
-        id: key
+        id: r2-cargo-key
         run: |
           set -euo pipefail
           inputs="$(bash scripts/ci/clippy-base-seed.sh inputs)"
           {
             echo "deps-key=cmux-tui-clippy-seed-deps-v1-$inputs"
-            echo "deps-prefix=cmux-tui-clippy-seed-deps-v1-"
+            echo "target-prefix=cmux-tui-clippy-seed-deps-v1-"
+            echo "ws-base=cmux-tui-clippy-seed-ws-v1-"
             echo "ws-key=cmux-tui-clippy-seed-ws-v1-$inputs-$GITHUB_SHA"
             echo "ws-prefix=cmux-tui-clippy-seed-ws-v1-$inputs-"
             echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore the dependency entry from R2
-        id: deps
+        id: r2-cargo-target
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -109,10 +110,22 @@ jobs:
         with:
           backend: r2
           path: ${{ env.CARGO_TARGET_DIR }}
-          key: ${{ steps.key.outputs.deps-key }}
-          restore-keys: ${{ steps.key.outputs.deps-prefix }}
+          key: ${{ steps.r2-cargo-key.outputs.deps-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+
+      # Prefer the delta built on the dependency entry actually restored, including a prefix hit.
+      - name: Key the workspace delta to the restored dependency entry
+        id: r2-cargo-ws-base
+        if: ${{ steps.r2-cargo-target.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        env:
+          MATCHED: ${{ steps.r2-cargo-target.outputs.cache-matched-key }}
+          TARGET_PREFIX: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+          WS_BASE: ${{ steps.r2-cargo-key.outputs.ws-base }}
+        run: scripts/ci/cargo-delta-prefix.sh "$MATCHED" "$TARGET_PREFIX" "$WS_BASE" >> "$GITHUB_OUTPUT"
 
       - name: Restore the newest workspace delta from R2
+        id: r2-cargo-ws
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -121,8 +134,10 @@ jobs:
         with:
           backend: r2
           path: ${{ runner.temp }}/clippy-seed-delta
-          key: ${{ steps.key.outputs.ws-key }}
-          restore-keys: ${{ steps.key.outputs.ws-prefix }}
+          key: ${{ steps.r2-cargo-key.outputs.ws-key }}
+          restore-keys: |
+            ${{ steps.r2-cargo-ws-base.outputs.prefix }}
+            ${{ steps.r2-cargo-key.outputs.ws-prefix }}
 
       - name: Apply the workspace delta
         id: apply
@@ -161,15 +176,15 @@ jobs:
         with:
           backend: r2
           path: ${{ runner.temp }}/clippy-seed-delta-out
-          key: ${{ steps.key.outputs.ws-key }}
+          key: ${{ steps.r2-cargo-key.outputs.ws-key }}
 
       # The dependency entry for these inputs, when R2 lacks it: dependencies only (the delta above holds the workspace).
       - name: Strip the workspace's own output before the dependency save
         id: strip
-        if: ${{ steps.pack.outcome == 'success' && steps.deps.outputs.cache-hit != 'true' }}
+        if: ${{ steps.pack.outcome == 'success' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
         continue-on-error: true
         env:
-          REGISTRY: ${{ steps.key.outputs.registry }}
+          REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
         run: |
           set -euo pipefail
           cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml > "$RUNNER_TEMP/cargo-metadata.json"
@@ -189,4 +204,4 @@ jobs:
         with:
           backend: r2
           path: ${{ env.CARGO_TARGET_DIR }}
-          key: ${{ steps.key.outputs.deps-key }}
+          key: ${{ steps.r2-cargo-key.outputs.deps-key }}

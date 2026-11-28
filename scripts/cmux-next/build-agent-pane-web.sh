@@ -14,6 +14,8 @@
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
+# Joins an inherited BUN_OPTIONS preload and gives bun a writable temp dir (EACCES on Hetzner slots, run 46063462029).
+. "$ROOT/scripts/lib/bun-options.sh"
 SRC="$ROOT/webviews/src/agent-session"
 OUT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"

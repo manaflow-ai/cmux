@@ -4,15 +4,11 @@
 //! [`SubagentTree`], [`WorkFold`]), stepped one head at a time, so an adoption resumes them from
 //! the chat's adoption checkpoint (`checkpoint.rs`) and reads only the records after it.
 
-use super::checkpoint::{Checkpoint, FoldInputs, Folds};
+use super::checkpoint::{Checkpoint, FoldInputs, Folds, UNSTARTED};
 use super::*;
 use crate::store::RecordHead;
 use crate::subagents::SubagentTree;
 use std::collections::{HashMap, HashSet};
-
-/// The incarnation a checkpoint saved with no host running folds for: none's. No record names
-/// it, so through its record it is every host's fold that started after it.
-pub(in crate::hub) const UNSTARTED: &str = "\u{0}unstarted";
 
 impl Hub {
     pub(super) fn recovery_work(
@@ -43,11 +39,29 @@ impl Hub {
             }
         }
         drop(state);
-        // The next adoption of this host reads only what follows it.
-        if let Some(checkpoint) = checkpoint {
-            self.save_adoption_checkpoint(session, checkpoint);
+        // The next adoption of this host reads only what follows it. The table it keeps is
+        // saved, then moved to the adoption's rebuild (`recover_work`), never copied: a long
+        // chat's is its every process (32 MB of a 4 GB chat's checkpoint), and each copy was
+        // the restart's peak (cmux#51494).
+        if let Some(checkpoint) = self.keep_processes(session, &mut work, checkpoint) {
+            work.processes = self.save_adoption_checkpoint(session, checkpoint);
         }
         work
+    }
+
+    /// `checkpoint` with the chat's process table through its record, from the one the resumed
+    /// checkpoint kept (taken from `work.processes`): no read covers more than the records after
+    /// a checkpoint.
+    fn keep_processes(
+        &self,
+        session: &Session,
+        work: &mut OpenWork,
+        checkpoint: Option<Checkpoint>,
+    ) -> Option<Checkpoint> {
+        let mut checkpoint = checkpoint?;
+        checkpoint.processes =
+            Some(self.processes_through(session, work.processes.take(), checkpoint.seq));
+        Some(checkpoint)
     }
 
     /// Folds `session`'s log for host `incarnation` once, from its adoption checkpoint when it
@@ -61,10 +75,9 @@ impl Hub {
         }
         self.catch_up(session);
         let settled = self.settled_seq(session);
-        let (_, checkpoint) =
-            self.fold_open_work(session, incarnation, Fold::Resume { settled: Some(settled) });
-        if let Some(checkpoint) = checkpoint {
-            self.save_adoption_checkpoint(session, checkpoint);
+        // With the process table, so the adoption that resumes it reads no copy of it either.
+        if let Some(checkpoint) = self.fold_checkpoint(session, incarnation, settled) {
+            let _ = self.save_adoption_checkpoint(session, checkpoint);
         }
     }
 
@@ -248,6 +261,39 @@ impl Hub {
         self.store.scan_heads_from(&session.id, from.0, from.1, &mut |head, _| visit(head))
     }
 
+    /// Under the host link lease, verify a previously incomplete adoption without replaying
+    /// any work handlers. The inbound loop has handled the late host entries normally.
+    pub(in crate::hub) async fn verify_recovery_replay(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &ChildAgent,
+    ) -> bool {
+        if !child.recovery_replay_retryable() || replay_stalls() {
+            return false;
+        }
+        let Some(record) = child.host_record() else { return false };
+        let Some(end) = child.learn_replay_end(REPLAY_STALL).await else { return false };
+        if !child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await
+            || !Self::drain_inbound(session).await
+        {
+            return false;
+        }
+        let incarnation = record.incarnation;
+        let idle = self
+            .read_whole_log(session, move |hub, s| {
+                hub.catch_up(s);
+                hub.fold_open_work(s, &incarnation, Fold::Resume { settled: None })
+                    .0
+                    .can_end_replayed_host()
+            })
+            .await
+            .unwrap_or(false);
+        if idle {
+            child.mark_recovery_replay_complete();
+        }
+        idle
+    }
+
     /// Scan the log for the work in flight under host `incarnation`. Agent
     /// requests, answers and permission records count only within this
     /// incarnation: every harness restarts its own request ids.
@@ -303,36 +349,53 @@ impl Hub {
         // knew a later last turn: a checkpoint ends before an open last turn's start, so each
         // record it holds was read as every later fold reads it.
         let turn_bound = if last_turn_starts { last_turn - 1 } else { u64::MAX };
-        let resumed = resume
+        let mut resumed = resume
             .then(|| self.adoption_checkpoint(session, incarnation, &inputs))
             .flatten()
             .filter(|c| c.seq <= turn_bound);
-        let ((from, next), mut folds) = match resumed {
-            Some(c) => ((c.seq + 1, c.next), c.folds),
-            None => ((0, None), Folds::new(&inputs)),
+        // The process table it kept goes on beside the work (`keep_processes`).
+        let resumed_processes = resumed.as_mut().and_then(|c| {
+            let seq = c.seq;
+            c.processes.take().filter(|p| p.through <= seq)
+        });
+        // Beside them, while saving a checkpoint, the folds of an incarnation not started yet,
+        // which the next host's first adoption resumes from (`checkpoint.rs` `unstarted`).
+        let unstarted_too = resume && settled.is_some() && incarnation != UNSTARTED;
+        let ((from, next), mut folds, mut unstarted) = match resumed {
+            Some(c) => {
+                let unstarted = c.unstarted.filter(|_| unstarted_too);
+                // Saved before this fold kept them: read from the start.
+                if unstarted_too && unstarted.is_none() {
+                    ((0, None), Folds::new(&inputs), Some(Folds::new(&inputs)))
+                } else {
+                    ((c.seq + 1, c.next), c.folds, unstarted)
+                }
+            }
+            None => ((0, None), Folds::new(&inputs), unstarted_too.then(|| Folds::new(&inputs))),
         };
         // The last record a checkpoint may hold.
         let bound = settled.map(|settled| settled.min(turn_bound));
         let mut folded = from.saturating_sub(1);
-        let mut kept: Option<(u64, Option<crate::store::LinePos>, Folds)> = None;
+        let mut kept: Option<(u64, Option<crate::store::LinePos>, Folds, Option<Folds>)> = None;
         let scanned = self.store.scan_heads_from(&session.id, from, next, &mut |head, at| {
             if let Some(bound) = bound
                 && kept.is_none()
                 && head.seq > bound
             {
-                kept = Some((folded, at, folds.clone()));
+                kept = Some((folded, at, folds.clone(), unstarted.clone()));
             }
-            folds.env.step(head, incarnation);
-            folds.host_seq.step(head, incarnation);
-            seed_step(&mut folds.subagents, head);
-            folds.work.step(head, incarnation, &inputs, reads, last_turn);
+            folds.step(head, incarnation, &inputs, reads, last_turn);
+            if let Some(unstarted) = unstarted.as_mut() {
+                unstarted.step(head, UNSTARTED, &inputs, reads, last_turn);
+            }
             folded = folded.max(head.seq);
             true
         });
         if bound.is_some() && kept.is_none() {
-            kept = Some((folded, None, folds.clone()));
+            kept = Some((folded, None, folds.clone(), unstarted.clone()));
         }
-        let (work, host_seq_at) = folds.work.finish(scanned.is_err());
+        let (mut work, host_seq_at) = folds.work.finish(scanned.is_err());
+        work.processes = resumed_processes;
         // A line cut short showed it: the whole records decide, as before.
         if let Some(seq) = host_seq_at
             && !self.logs_host_seq(session, seq, work.last_host_seq)
@@ -342,10 +405,52 @@ impl Hub {
         // None when the log could not be read to its end, or when it is the one resumed from.
         let checkpoint = kept
             .filter(|(seq, ..)| *seq > 0 && *seq >= from && scanned.is_ok())
-            .and_then(|(seq, next, folds)| {
-                Some(Checkpoint::new(seq, next, incarnation, inputs, folds, stamp?))
+            .and_then(|(seq, next, folds, unstarted)| {
+                // An unstarted fold's own checkpoint is its own unstarted one too.
+                let unstarted =
+                    if incarnation == UNSTARTED { Some(folds.clone()) } else { unstarted };
+                Some(Checkpoint::new(seq, next, incarnation, inputs, folds, unstarted, stamp?))
             });
         (work, checkpoint)
+    }
+}
+
+impl Hub {
+    /// `incarnation`'s checkpoint through `settled` (the log's last seq while no append ran),
+    /// with the folds of an incarnation not started yet beside it: what
+    /// `prime_adoption_checkpoint` saves.
+    pub(super) fn fold_checkpoint(
+        &self,
+        session: &Session,
+        incarnation: &str,
+        settled: u64,
+    ) -> Option<Checkpoint> {
+        let (mut work, checkpoint) =
+            self.fold_open_work(session, incarnation, Fold::Resume { settled: Some(settled) });
+        self.keep_processes(session, &mut work, checkpoint)
+    }
+
+    /// The checkpoint of an incarnation not started yet through `settled`.
+    #[cfg(test)]
+    pub(super) fn fold_unstarted(&self, session: &Session, settled: u64) -> Option<Checkpoint> {
+        self.fold_checkpoint(session, UNSTARTED, settled)
+    }
+}
+
+impl Folds {
+    /// Every fold steps `head`, as adopting `incarnation` reads it.
+    fn step(
+        &mut self,
+        head: &RecordHead<'_>,
+        incarnation: &str,
+        inputs: &FoldInputs,
+        reads: Reads,
+        last_turn: u64,
+    ) {
+        self.env.step(head, incarnation);
+        self.host_seq.step(head, incarnation);
+        seed_step(&mut self.subagents, head);
+        self.work.step(head, incarnation, inputs, reads, last_turn);
     }
 }
 

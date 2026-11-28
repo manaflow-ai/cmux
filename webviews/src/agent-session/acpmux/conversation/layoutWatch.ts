@@ -368,18 +368,6 @@ export function expect(
 /// The declared moves live now (tests, debug automation).
 export const liveExpectations = (at = performance.now()) => live(expects, at);
 
-/// The watch's flags so far, newest last, and a count per invariant (debug automation, the metric).
-export function layoutWatchReport(): { flags: ShiftFlag[]; counts: Record<string, number>; unexplained: number } {
-  let unexplained = 0;
-  for (const value of counts.values()) unexplained += value;
-  return { flags: [...kept], counts: Object.fromEntries(counts), unexplained };
-}
-
-export function onLayoutFlags(listener: (flags: ShiftFlag[]) => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
 /// Forget flags and declared moves (tests).
 export function resetLayoutWatch(): void {
   expects = [];

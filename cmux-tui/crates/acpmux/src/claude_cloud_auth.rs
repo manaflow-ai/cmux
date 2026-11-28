@@ -34,6 +34,9 @@ use serde_json::{Map, Value};
 
 use crate::codex_cloud_auth::{Inputs, PLACEHOLDER_KEY};
 
+/// Persisted in the session env by the owner start RPC, separate from a profile's team preference.
+pub(crate) const REQUIRED_TEAM: &str = "ACPMUX_CLAUDE_TEAM_REQUIRED";
+
 /// The model-plane pair to add to a Claude launch in team mode, or None (own mode, a pair already
 /// set, or not an owner Cloud image). `env` is the launch's effective env (`inputs.var` reads the
 /// same), `cwd` its project for project settings, and `resolves` answers whether the team
@@ -54,13 +57,56 @@ where
         return None;
     }
     let origin = inputs.team_origin()?;
+    let base = inputs.model_plane_var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
+    let key =
+        inputs.model_plane_var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
+    cloud_pair(origin, base, key, resolves).await
+}
+
+/// An explicit Cloud start uses the image's team plane even if the profile carries a personal key.
+/// Managed settings can outrank our settings flag, so refuse if they control provider selection.
+pub(crate) async fn required_team_pair<F, Fut>(
+    inputs: &Inputs<'_>,
+    resolves: F,
+) -> Option<[(String, String); 2]>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    if !inputs.root.join("etc/cmux/agent-auth.sh").is_file()
+        || managed_provider_override(inputs.root)
+    {
+        return None;
+    }
+    let path = inputs.root.join("etc/cmux/model-plane.env");
+    let owner = inputs.owner_cloud_image();
+    let var = |key| {
+        if owner {
+            inputs.model_plane_var(key)
+        } else {
+            crate::codex_cloud_auth::file_var(&path, key)
+        }
+    };
+    let origin = var("CMUX_CODEROUTER_URL").filter(|origin| origin.starts_with("https://"))?;
+    let base = var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
+    let key = var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
+    cloud_pair(origin, base, key, resolves).await
+}
+
+async fn cloud_pair<F, Fut>(
+    origin: String,
+    base: String,
+    key: String,
+    resolves: F,
+) -> Option<[(String, String); 2]>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
     let host = origin.trim_start_matches("https://").split(['/', '?', '#']).next()?.to_owned();
     if host.is_empty() || !resolves(host).await {
         return None;
     }
-    let base = inputs.model_plane_var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
-    let key =
-        inputs.model_plane_var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
     Some([("ANTHROPIC_BASE_URL".to_owned(), base), ("ANTHROPIC_API_KEY".to_owned(), key)])
 }
 
@@ -269,6 +315,92 @@ fn managed_credential(path: &Path) -> bool {
         || HELPERS.iter().any(|h| settings.get(*h).is_some_and(on))
 }
 
+/// Managed provider settings outrank the endpoint's launch environment.
+pub(crate) fn managed_provider_override(root: &Path) -> bool {
+    managed_credential(&root.join(MANAGED_SETTINGS))
+}
+
+/// Keep the endpoint credential's launch independent of file and profile settings.
+pub(crate) fn isolate_endpoint_settings(argv: &mut Vec<String>) {
+    let Some((program, args)) = argv.split_first() else { return };
+    let mut isolated = vec![program.clone(), "--setting-sources".to_owned(), String::new()];
+    let (args, _) = settings_args(args);
+    let mut words = args.into_iter();
+    while let Some(word) = words.next() {
+        if word == "--setting-sources" {
+            words.next();
+        } else if word == "--" {
+            isolated.push(word);
+            isolated.extend(words);
+            break;
+        } else if !word.starts_with("--setting-sources=") {
+            isolated.push(word);
+        }
+    }
+    *argv = isolated;
+}
+
+/// Start on the CLI's machine-wide account, clearing credentials from the profile, inherited
+/// environment and Claude settings. The OAuth store remains in the same home as auth status.
+pub(crate) fn apply_machine_login(
+    env: &mut BTreeMap<String, String>,
+    argv: &mut Vec<String>,
+    mut account: BTreeMap<String, String>,
+    generated_settings: Option<&Map<String, Value>>,
+) -> bool {
+    let at = argv.iter().position(|arg| arg == "--").unwrap_or(argv.len());
+    // Claude takes only the last flag. Keep file settings in place, including policy rules,
+    // and refuse a launch that would require copying an existing flag's settings into argv.
+    if argv[..at].iter().any(|arg| arg == "--settings" || arg.starts_with("--settings=")) {
+        return false;
+    }
+    let clears = [
+        ("ANTHROPIC_BASE_URL".to_owned(), String::new()),
+        ("ANTHROPIC_API_KEY".to_owned(), String::new()),
+    ];
+    argv.splice(at..at, ["--settings".to_owned(), team_settings(generated_settings, &clears, "")]);
+    let unset = TEAM_CLEARS
+        .into_iter()
+        .chain([
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "CMUX_CLAUDE_TEAM_API_KEY",
+            "CMUX_CLAUDE_TEAM_BASE_URL",
+            "HOME",
+            "CLAUDE_CONFIG_DIR",
+            TEAM_MARKER,
+            crate::routes::NAME_KEY,
+            crate::routes::PROFILE_ROUTE_KEY,
+            crate::byo_endpoint::OWN_ENDPOINT_KEY,
+        ])
+        .chain(env.get(crate::routes::UNSET_KEY).into_iter().flat_map(|list| list.split(',')))
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned)
+        .collect();
+    account.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+    crate::routes::apply(env, &crate::routes::RouteEnv { set: account, unset });
+    true
+}
+
+/// The key itself stays in the process environment. The last settings overlay
+/// pins the official origin and disables competing credential sources.
+pub(crate) fn isolate_api_key_settings(argv: &mut Vec<String>) {
+    isolate_endpoint_settings(argv);
+    let at = argv.iter().position(|arg| arg == "--").unwrap_or(argv.len());
+    argv.splice(at..at, ["--settings".to_owned(), api_key_settings(None)]);
+}
+
+pub(crate) fn api_key_settings(settings: Option<&Map<String, Value>>) -> String {
+    team_settings(
+        settings,
+        &[
+            ("ANTHROPIC_BASE_URL".to_owned(), "https://api.anthropic.com".to_owned()),
+            ("CLAUDE_CODE_USE_BEDROCK".to_owned(), String::new()),
+        ],
+        "",
+    )
+}
+
 /// The credentials and provider switches team mode must not keep, as the image's launcher clears
 /// them for a shared machine (`agent-auth.sh`): a personal token next to the pair would be sent to
 /// the team's endpoint (`ANTHROPIC_AUTH_TOKEN` outranks `ANTHROPIC_API_KEY`), and a provider switch
@@ -341,13 +473,18 @@ pub(crate) fn flag_settings(
     }
 }
 
+/// Whether the last settings flag references a file.
+pub(crate) fn has_file_flag_settings(argv: &[String]) -> bool {
+    settings_args(argv).1.is_some_and(|value| !value.trim_start().starts_with('{'))
+}
+
 /// `argv` without any `--settings` (before a `--`): the rest of its words, in order.
 pub(crate) fn without_settings(argv: &[String]) -> Vec<String> {
     settings_args(argv).0
 }
 
 /// `argv` without any `--settings` (before a `--`), and the last one's value.
-fn settings_args(argv: &[String]) -> (Vec<String>, Option<String>) {
+pub(crate) fn settings_args(argv: &[String]) -> (Vec<String>, Option<String>) {
     let mut rest = Vec::with_capacity(argv.len());
     let mut last = None;
     let mut words = argv.iter();
@@ -377,6 +514,44 @@ pub(crate) fn team_settings(
     pair: &[(String, String); 2],
     headers: &str,
 ) -> String {
+    Value::Object(team_settings_map(flag, pair, headers)).to_string()
+}
+
+/// Check only the parts of a settings file that survive the team overlay.
+pub(crate) fn team_settings_would_copy_secret(flag: &Map<String, Value>) -> bool {
+    let blank_pair = [
+        ("ANTHROPIC_BASE_URL".to_owned(), String::new()),
+        ("ANTHROPIC_API_KEY".to_owned(), String::new()),
+    ];
+    let settings = Value::Object(team_settings_map(Some(flag), &blank_pair, ""));
+    contains_settings_secret(&settings, false)
+}
+
+fn contains_settings_secret(value: &Value, sensitive: bool) -> bool {
+    match value {
+        Value::Object(fields) => fields.iter().any(|(key, value)| {
+            !crate::secret_scan::find(key).is_empty()
+                || contains_settings_secret(
+                    value,
+                    sensitive
+                        || crate::config::profiles::secret_looking(key)
+                        || key.eq_ignore_ascii_case("headers"),
+                )
+        }),
+        Value::Array(items) => items.iter().any(|item| contains_settings_secret(item, sensitive)),
+        Value::String(text) => {
+            !text.trim().is_empty() && (sensitive || !crate::secret_scan::find(text).is_empty())
+        }
+        Value::Number(_) => sensitive,
+        Value::Null | Value::Bool(_) => false,
+    }
+}
+
+fn team_settings_map(
+    flag: Option<&Map<String, Value>>,
+    pair: &[(String, String); 2],
+    headers: &str,
+) -> Map<String, Value> {
     let mut settings = flag.cloned().unwrap_or_default();
     let env = settings.entry("env").or_insert_with(|| Value::Object(Map::new()));
     if !env.is_object() {
@@ -396,7 +571,7 @@ pub(crate) fn team_settings(
     for helper in HELPERS {
         settings.insert(helper.to_owned(), Value::String(String::new()));
     }
-    Value::Object(settings).to_string()
+    settings
 }
 
 /// Put team mode in a Claude launch: the pair in the profile env, without [`TEAM_CLEARS`] there,
@@ -418,9 +593,9 @@ pub(crate) fn apply_team(
     let kept = cmux_headers(headers);
     if !remote && let Some((program, args)) = argv.split_first() {
         let mut rest = settings_args(args).0;
+        let at = rest.iter().position(|arg| arg == "--").unwrap_or(rest.len());
+        rest.splice(at..at, ["--settings".to_owned(), team_settings(flag, &pair, &kept)]);
         rest.insert(0, program.clone());
-        rest.push("--settings".to_owned());
-        rest.push(team_settings(flag, &pair, &kept));
         *argv = rest;
     }
     let mut unset: Vec<String> = env

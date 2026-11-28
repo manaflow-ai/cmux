@@ -1,6 +1,6 @@
 /// A width change for an existing column (a close's `layout.closeSizing`
 /// share, `LayoutModel.columnResizes`). A new column never brings one (R3b).
-public nonisolated struct ColumnResize: Hashable, Sendable {
+public nonisolated struct ColumnResize: Hashable, Sendable, Decodable {
     public var column: ColumnID
     public var width: Double
 

@@ -29,6 +29,19 @@ public struct CloudCLICall: Sendable {
         return Data(line)
     }
 
+    /// A long-running `cmux` call answering in lines: arguments, stdin, environment (nil: the app's), each stdout line.
+    public typealias Lines = @Sendable (_ arguments: [String], _ stdin: Data, _ environment: [String: String]?,
+                                        _ line: @escaping @Sendable (Data) -> Void) async -> Void
+
+    /// ``Lines`` on this build's `cmux`, bounded by `timeout`; cancelling the caller ends the child.
+    public func lines(timeout: Duration) -> Lines {
+        { [cli] arguments, stdin, environment, line in
+            guard let binary = await cli.resolve() else { return }
+            _ = try? await ProcessRunner.run(executable: binary, arguments: arguments, environment: environment, stdin: stdin,
+                                             timeout: timeout, stdoutLine: { if !$0.isEmpty { line(Data($0.utf8)) } }, clock: ContinuousClock())
+        }
+    }
+
     /// `cmux cloud automation-relay` as the signed-in person of `auth`: what `cmux automation
     /// --target cloud`, the Automations page and the Chief's automation tool call (the app's
     /// `cloud.automation`). The forward takes `{op, params?, idempotency_key?}` as JSON bytes and
@@ -391,7 +404,7 @@ public struct CloudDaemon: Sendable {
     /// child (a child past it is killed: `timedOut`, since the call may have run).
     /// `auth` is the credential's kind as cmux-cloud-api reads it: `owner` (the Stack session) or `worker`
     /// (this Mac's install token). A misconfigured dev build refuses before anything runs.
-    public func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner") async throws -> Data {
+    public func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner", tail: Data? = nil) async throws -> Data {
         try buildSpace.check()
         let run: @Sendable (Data, Duration) async throws -> Data
         if let daemonCall {
@@ -408,7 +421,9 @@ public struct CloudDaemon: Sendable {
         if let team = await teamID() { request["team"] = team }
         let output: Data
         do {
-            output = try await run(try JSONSerialization.data(withJSONObject: request), timeout)
+            var input = try JSONSerialization.data(withJSONObject: request)
+            if let tail { input.append(0x0A); input.append(tail) }
+            output = try await run(input, timeout)
         } catch let noAnswer as CloudMachineIO.NoAnswer {
             // Never started: nothing ran. Started and then killed or crashed: the call may have run.
             if noAnswer.dispatched { throw CloudAPIError.timedOut("cloud.\(call)") }

@@ -437,6 +437,56 @@ def table(report):
     return "\n".join(lines)
 
 
+def row_table(report, budget_ms=None):
+    """The per-PR table (goal instant-splits): one row per cell x transition, worst first. `first_frame_ms` is input to
+    the first frame that moved; `blank_frames` is the worst round's count of frames where a pane showed one flat
+    color that is neither its before nor its final content (a blank mid-animation). `flag` is "slow" over the budget,
+    "blank" with any blank frame, "unmeasured" with no first frame or a failed round (joined with "+"); "" when the
+    row is ok. The order: flagged rows before ok ones, blank before slow, then first frame descending."""
+    budget = TARGETS["first_frame_ms"] if budget_ms is None else budget_ms
+    rows = []
+    for cell, per in (report.get("cells") or {}).items():
+        for name, s in per.items():
+            first, blank = s.get("first_frame_ms"), s.get("blank_frames")
+            flags = []
+            if first is None or s.get("failed_rounds"):
+                flags.append("unmeasured")
+            elif first > budget:
+                flags.append("slow")
+            if blank:
+                flags.append("blank")
+            rows.append({"cell": cell, "transition": name, "first_frame_ms": first, "blank_frames": blank,
+                         "settled_ms": s.get("settled_ms"), "flag": "+".join(flags)})
+    rows.sort(key=lambda r: (not r["flag"], "unmeasured" not in r["flag"], "blank" not in r["flag"],
+                             -(r["first_frame_ms"] if r["first_frame_ms"] is not None else 1e9), r["cell"], r["transition"]))
+    return rows
+
+
+def row_table_ok(rows):
+    """True when every row is measured, under the budget and has no blank frame (no rows is not ok)."""
+    return bool(rows) and not any(r["flag"] for r in rows)
+
+
+def row_table_markdown(rows, budget_ms=None):
+    """`row_table()` as a Markdown table, worst first, a verdict line above; flagged rows are in bold."""
+    budget = TARGETS["first_frame_ms"] if budget_ms is None else budget_ms
+    if not rows:
+        return "split table: no rows measured (not ok)"
+    worst, flagged = rows[0], sum(1 for r in rows if r["flag"])
+
+    def fmt(v):
+        return "-" if v is None else f"{v:g}"
+    lines = [f"**split table: {'ok' if row_table_ok(rows) else 'over'}** - worst row {worst['cell']} {worst['transition']}, "
+             f"first frame {fmt(worst['first_frame_ms'])} ms, blank frames {fmt(worst['blank_frames'])}; "
+             f"{flagged} of {len(rows)} rows over {budget:g} ms, blank or unmeasured.", "",
+             "| cell | transition | first frame ms | blank frames | settled ms | |", "|---|---|---:|---:|---:|---|"]
+    for r in rows:
+        mark = f"**{r['flag']}**" if r["flag"] else "ok"
+        lines.append(f"| {r['cell']} | {r['transition']} | {fmt(r['first_frame_ms'])} | {fmt(r['blank_frames'])} | "
+                     f"{fmt(r['settled_ms'])} | {mark} |")
+    return "\n".join(lines)
+
+
 def _settled(summary, unsettled_ms=None):
     """(settled ms the headline counts, whether it is a floor); inf when nothing was measured."""
     value = summary.get("settled_ms")

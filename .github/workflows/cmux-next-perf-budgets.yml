@@ -332,7 +332,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    # A plan takes about a minute; a result run may wait up to an hour for the rate limit's reset first.
+    # A plan takes about a minute; any tick may wait up to an hour for a spent rate limit's reset first.
     timeout-minutes: 75
     outputs:
       action: ${{ steps.plan.outputs.action }}
@@ -353,8 +353,12 @@ jobs:
       job_minutes: ${{ steps.plan.outputs.job_minutes }}
       frame_pacing: ${{ steps.plan.outputs.frame_pacing }}
       # The one place the Linux parts' runner label is computed: every linux leg runs on it, and its rows carry it as
-      # their host (rows are compared only within one runner class).
-      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+      # their host (rows are compared only within one runner class). A part measures the machine it runs on, so it
+      # takes a one-job VM of one machine type (cmuxterm-hq runner_pool.py PERF_JIT_LABEL: n2d-standard-8, on-demand,
+      # never a persistent pool runner), not cmux-linux: a pool VM runs four slots of whatever CI is queued, and run
+      # 45901305500's parts there read the bench's calibration canary at 102-191 ms across measurements against 55-58 ms
+      # on blacksmith-8vcpu. vars.CMUX_NEXT_PERF_CRON_LINUX_RUNNER names another label without a code change.
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CMUX_NEXT_PERF_CRON_LINUX_RUNNER || 'cmux-gcp-perf-jit-x64' }} # owned-pool-unfit: a bench needs its VM to itself
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.
@@ -367,10 +371,29 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      # The run's own token shares the repository's hourly limit with every other workflow, which they spend:
+      # 2026-11-27 12:20Z-13:27Z five ticks in a row read no state ("GitHub rate limit (the state was not read)")
+      # while the cron needs about 16 calls a tick. The cmux-bot App (which the dispatcher already mints) has its own
+      # limit; the run's token stays the fallback when it is not configured or does not mint.
+      - name: Mint the cmux-bot read token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
       - name: Read the state and pick this tick's work
         id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          # Reads go on with the run's token and the CI pool Apps once GH_TOKEN's hour is spent (perf-cron.py
+          # read_tokens; each token once), and only past all of them does --wait-limit wait for a reset.
+          PERF_CRON_POOL_TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           MAC_GATEWAY: ${{ vars.CI_PERF_CRON_GATEWAY }}
           MAC_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_CONTROLLER }}
           LINUX_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER }}
@@ -386,10 +409,11 @@ jobs:
           [ -n "$MAC_GATEWAY" ] || [ "$MAC_CONTROLLER" != 1 ] || route=(--controller)
           # The Linux parts on the build controller first, the linux job only after unanswered requests.
           [ "$LINUX_CONTROLLER" != 1 ] || route+=(--linux-controller)
-          # A result run carries the result of a part that ran on the bench: it waits out a spent rate limit (it
-          # resets within the hour) instead of dropping the result. A plain tick does nothing and the next one tries.
-          wait=()
-          [ -z "$PERF_RESULT" ] || wait=(--wait-limit 3600)
+          # Every tick waits out a spent rate limit (it resets within the hour) and then reads the state: a tick that
+          # gave up met the same spent limit at the next tick, all hour (2026-11-27: five ticks in a row). The
+          # dispatcher starts no tick while one is in progress, so a waiting tick holds no other back. A result run
+          # waits the same way instead of dropping its result.
+          wait=(--wait-limit 3600)
           python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$dir" ${wait[@]+"${wait[@]}"}
           # The plan itself takes about a minute. Run 44731310755 (2026-11-20) printed nothing for 74 minutes after
           # fetch-state, held by the job's cap: its prints sat in a pipe buffer, so the log named no line. Unbuffered,
@@ -413,7 +437,7 @@ jobs:
     needs: plan
     # Its own gateway label only (see the top of this file); unset, this job is skipped.
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_PERF_CRON_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_PERF_CRON_GATEWAY (#54437)
     permissions:
       contents: read
     # The plan sizes both timeouts from the part's run_seconds (perf-cron.py part_minutes: fleet-check, the
@@ -696,6 +720,8 @@ jobs:
         id: report
         env:
           GH_TOKEN: ${{ github.token }}
+          # Reads go on with the CI pool Apps once the repo's GITHUB_TOKEN hour is spent (perf-cron.py read_tokens).
+          PERF_CRON_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           PART: ${{ needs.measure.result != 'skipped' && needs.plan.outputs.part || '' }}
           RESULT_PARTS: ${{ needs.plan.outputs.action == 'result' && needs.plan.outputs.result_parts || '' }}
           LINUX_MATRIX: ${{ needs.linux.result != 'skipped' && needs.plan.outputs.linux_matrix || '[]' }}
@@ -733,6 +759,8 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          # Reads go on with the CI pool Apps once the repo's GITHUB_TOKEN hour is spent (perf-cron.py read_tokens).
+          PERF_CRON_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
         run: |
           set -euo pipefail
           gh workflow run cmux-next-frame-pacing.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f ref=feat-cmux-next
@@ -766,4 +794,6 @@ jobs:
         if: ${{ steps.report.outputs.next_now == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          # Reads go on with the CI pool Apps once the repo's GITHUB_TOKEN hour is spent (perf-cron.py read_tokens).
+          PERF_CRON_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
         run: python3 -I scripts/cmux-next/perf-cron.py dispatch-next --repo "$GITHUB_REPOSITORY"

@@ -300,6 +300,7 @@ pub struct StartChatPlan {
     /// a person's own create direct, since a retry must take the first send's route.
     pub keeps_create_route: bool,
     pub environment_id: Option<String>,
+    pub ensured_environment: Option<String>,
     pub setup: Option<Setup>,
     /// `machine` was made for this send by this plan (the platform's workspace machine it created
     /// now): a start that can't go on after it deletes it, as it deletes one the app made for it.
@@ -327,6 +328,10 @@ pub fn start_chat_plan(
         create_route: string(object, "create_route"),
         keeps_create_route: boolean(object, "create_routes").unwrap_or(false),
         environment_id: info.environment_id,
+        ensured_environment: object
+            .get("ensured")
+            .and_then(Value::as_object)
+            .and_then(|ensured| string(ensured, "selected_environment")),
         setup: info.setup,
         made_for_send: string(object, "machine").is_some()
             && object

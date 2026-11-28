@@ -59,7 +59,7 @@ env:
 
 jobs:
   rails:
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     services:
@@ -75,7 +75,10 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          fetch-depth: 0
+          # One commit, not the whole history: the full clone ran to the 15 min limit on 39 of 40 `rails` jobs in the
+          # timing feed's 24 h to 20Z (591 runner-min, 0 green). lint.ts reads only the base's files (git show,
+          # ls-tree), so the base is fetched as one commit below. RELEASE_RAILS_FULL_CLONE=1 restores the old depth.
+          fetch-depth: ${{ vars.RELEASE_RAILS_FULL_CLONE == '1' && 0 || 1 }}
           persist-credentials: false
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
@@ -98,7 +101,7 @@ jobs:
         run: |
           # A new branch (all-zero BEFORE) lints against origin/feat-cmux-next; a base that cannot be resolved fails.
           if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then BASE=origin/feat-cmux-next; fi
-          git cat-file -e "${BASE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags origin "$BASE" || { echo "::error title=Migration lint::cannot resolve the base $BASE; refusing to lint without it"; exit 1; }
+          git cat-file -e "${BASE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "$BASE" || { echo "::error title=Migration lint::cannot resolve the base $BASE; refusing to lint without it"; exit 1; }
           bun lint.ts --base "$BASE"
       - name: Rails tests (scratch Postgres, fake PlanetScale, fake wrangler, fake image provider)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
@@ -108,7 +111,7 @@ jobs:
 
   # The Worker's schema gate now reads src/db/schema-requirements.ts (shared with the deploy gate).
   cmux-vm-schema-gate:
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     defaults:

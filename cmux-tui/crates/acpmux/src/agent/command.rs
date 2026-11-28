@@ -6,6 +6,9 @@ use anyhow::{Result, anyhow};
 use std::process::Stdio;
 use tokio::process::Command;
 
+#[cfg(unix)]
+mod grok_key;
+
 /// A spawn-only profile marker: remote-origin harnesses start from the
 /// explicit base below, never the daemon's ambient environment. Removed
 /// before the profile env is applied.
@@ -39,6 +42,15 @@ fn claude_name_args(
     if name.is_empty() || remote || own { Vec::new() } else { vec!["--name".into(), name.into()] }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("Reconnect GitHub Copilot in Settings > Models.")]
+pub(crate) struct CopilotReconnect;
+
+#[cfg(unix)]
+#[derive(Debug, thiserror::Error)]
+#[error("Unlock your Mac's keychain to use GitHub Copilot.")]
+pub(crate) struct CopilotKeychainLocked;
+
 /// `harness_command` for a spawn, the one every spawn path builds: when its
 /// final env plan takes a login value only the shell holds (a cached start),
 /// wait for the shell (at most `login_env::TIMEOUT`) and build it again with
@@ -53,7 +65,7 @@ pub(crate) async fn harness_command_ready(
     cwd: &std::path::Path,
     command_line: Option<(String, Vec<String>)>,
     session: Option<(&str, &str)>,
-) -> Result<Command> {
+) -> Result<(Command, Option<tempfile::TempDir>)> {
     let family = crate::config::derive_family(name, profile);
     // Labs `labs.bundledCodexAppServer` (off by default): plain `codex app-server` runs the
     // bundle cmux ships when it is whole (`codex_bundle.rs`); a profile's CODEX_PATH still wins.
@@ -69,13 +81,33 @@ pub(crate) async fn harness_command_ready(
         remote: profile.env.get(REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1"),
         explicit: None,
     };
-    crate::login_env::build_ready(
+    let cmd = crate::login_env::build_ready(
         &mut plan,
         || harness_command(name, profile, cwd, command_line.clone(), session),
         |cmd| explicit_env(cmd.as_std()),
         |e| anyhow!(e),
     )
-    .await
+    .await?;
+    if selected_grok_key(&family, profile) {
+        #[cfg(unix)]
+        {
+            let mut cmd = cmd;
+            let scratch = grok_key::isolate(&mut cmd, cwd, session.map(|(id, _)| id), plan.remote)?;
+            return Ok((cmd, scratch));
+        }
+        #[cfg(not(unix))]
+        return Err(anyhow!("This Grok connection cannot launch the native runner"));
+    }
+    Ok((cmd, None))
+}
+
+fn selected_grok_key(family: &str, profile: &HarnessProfile) -> bool {
+    let key = crate::provider_cloud_auth::Provider::Grok.api_key();
+    family == "grok"
+        && profile.env.contains_key(key)
+        && (profile.env.get(crate::agent_credentials::LOCAL_REDACTION).map(String::as_str)
+            == Some(key)
+            || profile.env.get(crate::agent_credentials::MARKER).map(String::as_str) == Some(key))
 }
 
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
@@ -176,6 +208,71 @@ fn build_harness_command(
         owned
     };
     let mut env = resolved_profile_env(profile)?;
+    env.remove(crate::subscriptions::LOCAL_SUBSCRIPTION_ROUTE);
+    env.remove(crate::chatgpt::LOCAL_EXPIRY_ENV);
+    let kimi = env.remove(crate::subscriptions::LOCAL_KIMI_EXPIRY).is_some();
+    let local_codex_route = crate::codex_app_server::is_launch(&owned.0, &owned.1)
+        && !env.contains_key(crate::agent_credentials::MARKER)
+        && env.contains_key(crate::routes::NAME_KEY);
+    let owned = if local_codex_route {
+        let mut argv = vec![owned.0];
+        argv.extend(owned.1);
+        crate::agent_credentials::configure_local_codex_route(&mut argv, &mut env);
+        let mut argv = argv.into_iter();
+        (argv.next().ok_or_else(|| anyhow!("agent {name} has an empty argv"))?, argv.collect())
+    } else {
+        owned
+    };
+    let grok_route = env.remove(crate::subscriptions::grok_hook::ROUTE);
+    let family_name = crate::config::derive_family(name, profile);
+    if family_name == "grok"
+        && (grok_route.is_some() || env.contains_key(crate::agent_credentials::GROK_PLAN_TOKEN))
+    {
+        return Err(anyhow!("This Grok connection cannot launch the native runner"));
+    }
+    env.remove("ACPMUX_COPILOT_ROUTE");
+    env.remove("ACPMUX_COPILOT_ROUTE_HOME");
+    if env.remove(crate::agent_credentials::COPILOT_TOKEN).is_some() {
+        return Err(CopilotReconnect.into());
+    }
+    let config_key = crate::opencode_ask::CONFIG_ENV;
+    if family_name == "openrouter" {
+        if !env.contains_key("OPENROUTER_API_KEY") {
+            return Err(anyhow!("Connect OpenRouter in Models"));
+        }
+        env.insert(
+            config_key.into(),
+            serde_json::json!({
+                "enabled_providers": ["openrouter"],
+                "provider": {"openrouter": {"options": {
+                    "baseURL": "https://openrouter.ai/api/v1",
+                    "apiKey": "{env:OPENROUTER_API_KEY}"
+                }}}
+            })
+            .to_string(),
+        );
+    }
+    let kimi = family_name == "opencode" && kimi;
+    if kimi {
+        let mut config: serde_json::Value = env
+            .get(config_key)
+            .and_then(|value| serde_json::from_str(value).ok())
+            .filter(serde_json::Value::is_object)
+            .ok_or_else(|| anyhow!("invalid OpenCode launch configuration"))?;
+        // ACP restores and replays a saved model only while its provider is available.
+        config["enabled_providers"] = serde_json::json!([crate::byo_endpoint::OPENCODE_PROVIDER]);
+        env.insert(config_key.into(), config.to_string());
+    }
+    if kimi || family_name == "openrouter" {
+        // OpenCode's inline auth replaces its saved auth without moving its session database.
+        env.insert("OPENCODE_AUTH_CONTENT".into(), "{}".into());
+    }
+    if family_name == "opencode"
+        && let Some((id, _)) = session
+        && let Some(config) = env.get_mut(config_key)
+    {
+        crate::byo_endpoint::configure_opencode_session(config, id);
+    }
     let remote_environment = env.remove(REMOTE_ENV_POLICY_KEY).as_deref() == Some("1");
     // Internal projection marker, never profile-controlled. A hosted agent
     // reconstructs the command's complete environment from this removal.
@@ -204,11 +301,18 @@ fn build_harness_command(
     env.remove(crate::agent_displays::WORKSPACE_KEY);
     // The chat's turned-off servers are for the fold only (agent_tools.rs).
     env.remove(crate::agent_tools::OFF_ENV);
+    // So is the manifest's tool listing (`session_manifest.rs`).
+    env.remove(crate::session_manifest::RECORDED_ENV);
     // A person's chat asks sr2 for its reserve (`sr2_priority.rs`): the mark is the daemon's,
     // for the request header below only.
     let sr2_person = env.remove(crate::sr2_priority::PERSON_ENV).as_deref() == Some("1");
     // OpenCode asked to ask (`opencode_ask.rs`): its config is set below.
     let opencode_ask = env.remove(crate::opencode_ask::MARKER).is_some();
+    // The person's `agents.envExclude` (agent_env.rs): removed last, below.
+    let env_exclude = env
+        .remove(crate::agent_env::EXCLUDE_MARKER)
+        .map(|marker| crate::agent_env::patterns(&marker))
+        .unwrap_or_default();
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
@@ -237,7 +341,6 @@ fn build_harness_command(
     // Startup files changed since the last read: refresh in the background.
     crate::login_env::refresh_if_changed();
     // The login shell's allow-list for this harness's family (login_env.rs).
-    let family_name = crate::config::derive_family(name, profile);
     let family = Some(family_name.as_str());
     if remote_environment {
         crate::login_env::apply_remote_tokio(&mut cmd);
@@ -300,8 +403,16 @@ fn build_harness_command(
         cmd.env_remove(key);
     }
     cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
+    cmd.env_remove(crate::agent_credentials::MARKER);
+    cmd.env_remove(crate::agent_credentials::ENDPOINT_MARKER);
+    cmd.env_remove(crate::subscriptions::LOCAL_SUBSCRIPTION_ROUTE);
+    cmd.env_remove(crate::agent_credentials::COPILOT_TOKEN);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
+    }
+    if family_name == "grok" && env.contains_key("GROK_AUTH_PATH") {
+        cmd.env_remove(crate::subscriptions::grok_hook::COMMAND);
+        cmd.env_remove(crate::subscriptions::grok_hook::PROXY);
     }
     // An endpoint harness: no inherited key (CMUX_BYO_API_KEY) and, for an
     // Anthropic one, no inherited ANTHROPIC_* or Claude provider switch (the
@@ -333,6 +444,17 @@ fn build_harness_command(
         if let Some(bin) = crate::cli_caller::own_bin() {
             cmd.env(crate::cli_caller::BIN_ENV, bin);
         }
+        // Opt-in (off unless ACPMUX_HOOK_TOKEN_FILE names a file): a local Claude Code session
+        // gets that file's token as HOOK_DAEMON_TOKEN, so an http hook can send
+        // `${HOOK_DAEMON_TOKEN}` instead of a literal in settings.json. Read at each spawn, so a
+        // rotated token reaches the next session; a profile's own value wins.
+        if !remote_environment
+            && family_name == "claude"
+            && !env.contains_key(HOOK_DAEMON_TOKEN_ENV)
+            && let Some(token) = hook_daemon_token(|k| std::env::var_os(k))
+        {
+            cmd.env(HOOK_DAEMON_TOKEN_ENV, token);
+        }
         // Its own temporary folder (`session_tmp.rs`); a profile's TMPDIR
         // (applied below) still wins. A remote-origin chain keeps its base.
         #[cfg(unix)]
@@ -360,6 +482,21 @@ fn build_harness_command(
     cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     let launch =
         crate::harness_limits::launch_args(codex_launch, args, session.map(|_| (cwd, &env)));
+    // `agents.sandbox.network` `allow` (agent_sandbox.rs): a chat's Codex sandbox reaches the
+    // network. A remote chain's launch runs only what its plan checked.
+    let launch = if codex_launch && session.is_some() && !remote_environment {
+        let home = env.get("CODEX_HOME").map(std::path::PathBuf::from);
+        crate::agent_sandbox::codex_args(crate::agent_sandbox::Sandbox::current(), launch, || {
+            crate::harness_limits::codex_sets(
+                args,
+                cwd,
+                home,
+                crate::agent_sandbox::CODEX_NETWORK_KEY,
+            )
+        })
+    } else {
+        launch
+    };
     // A remote chain's sandboxed launch runs only what its plan checked: no hook.
     let codex = (!remote_environment && codex_launch).then(|| (program.clone(), launch.clone()));
     let (launch, codex) = match codex {
@@ -369,6 +506,12 @@ fn build_harness_command(
         codex => (launch, codex),
     };
     cmd.args(launch).envs(env.iter());
+    // Recovery trusts the daemon's session stamp on a marked launch.
+    if env.contains_key(crate::agent_credentials::MARKER)
+        && let Some((id, _)) = session
+    {
+        cmd.env(crate::agent_tools::AGENT_SESSION_ENV, id);
+    }
     // The subagent mark is the daemon's to give (a workflow runner a subagent started,
     // `hub/workflow_runs.rs`), never a profile's: an agent's MCP servers would send as it.
     cmd.env_remove(crate::sender_env::SUBAGENT_ENV);
@@ -508,6 +651,15 @@ fn build_harness_command(
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
     }
+    // `agents.envExclude`, last: whoever set a name (the daemon, the login shell, a profile,
+    // `agents.env`, acpmux above), the agent never gets it; acpmux's session wiring stays.
+    if !env_exclude.is_empty() {
+        for (key, _) in command_env_with(&cmd, !remote_environment) {
+            if crate::agent_env::excluded(&key, &env_exclude) {
+                cmd.env_remove(&key);
+            }
+        }
+    }
     // The hosted and direct translators take the hook home from this launch. Only the
     // selected local plugin enables its callbacks, regardless of inherited or profile env.
     cmd.env_remove(crate::bg_hook::HOME_ENV);
@@ -550,6 +702,23 @@ fn is_sr_launcher(program: &str) -> bool {
 /// `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT`, a reference resolved as the launch
 /// resolves it. The hub labels the questions with it (`hub/tools.rs`) and
 /// `harness_command` pins the agent to it, so the two never disagree.
+pub(crate) const HOOK_DAEMON_TOKEN_ENV: &str = "HOOK_DAEMON_TOKEN";
+/// The setting that turns the token hand-off on: a path to a token file. Unset or empty, nothing
+/// is read and no session gets HOOK_DAEMON_TOKEN.
+pub(crate) const HOOK_TOKEN_FILE_ENV: &str = "ACPMUX_HOOK_TOKEN_FILE";
+
+/// The token in the file `ACPMUX_HOOK_TOKEN_FILE` names. None when the setting is unset, or the
+/// file is missing, unreadable or not 32-128 hex characters, so a stray file never becomes a header.
+pub(crate) fn hook_daemon_token(
+    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<String> {
+    let path = getenv(HOOK_TOKEN_FILE_ENV).filter(|v| !v.is_empty())?;
+    let text = std::fs::read_to_string(std::path::PathBuf::from(path)).ok()?;
+    let token = text.trim();
+    (token.len() >= 32 && token.len() <= 128 && token.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| token.to_owned())
+}
+
 pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::questions::PreviewFormat {
     use crate::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
     let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -615,7 +784,7 @@ pub(crate) fn command_env_cleared(cmd: &Command) -> Vec<(String, String)> {
     command_env_with(cmd, false)
 }
 
-fn command_env_with(cmd: &Command, inherit_ambient: bool) -> Vec<(String, String)> {
+pub(super) fn command_env_with(cmd: &Command, inherit_ambient: bool) -> Vec<(String, String)> {
     let changes: Vec<(String, Option<String>)> = cmd
         .as_std()
         .get_envs()
@@ -712,6 +881,70 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn local_subscription_launch_keeps_tokens_out_of_arguments() {
+        let codex = crate::config::HarnessProfile {
+            kind: crate::config::HarnessKind::Acp,
+            argv: vec!["codex".into(), "app-server".into(), "--stdio".into()],
+            env: [
+                (crate::routes::NAME_KEY.to_owned(), "ChatGPT".into()),
+                (
+                    crate::agent_credentials::CHATGPT_TOKEN.to_owned(),
+                    "fixture-chatgpt-token".into(),
+                ),
+                (crate::routes::UNSET_KEY.to_owned(), "OPENAI_API_KEY,OPENAI_BASE_URL".into()),
+            ]
+            .into_iter()
+            .collect(),
+            description: None,
+            fallback: None,
+            family: Some("codex".into()),
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let command = harness_command("codex", &codex, &std::env::temp_dir(), None, None).unwrap();
+        let args: Vec<_> = command.as_std().get_args().map(|arg| arg.to_string_lossy()).collect();
+        assert_eq!(args[0], "app-server");
+        assert!(args.iter().any(|arg| arg.contains("backend-api/codex")));
+        assert!(args.iter().all(|arg| !arg.contains("fixture-chatgpt-token")));
+        let env: std::collections::BTreeMap<_, _> =
+            explicit_env(command.as_std()).into_iter().collect();
+        assert_eq!(
+            env[crate::agent_credentials::CHATGPT_TOKEN].as_deref(),
+            Some("fixture-chatgpt-token")
+        );
+        assert!(env["OPENAI_API_KEY"].is_none());
+
+        let claude = crate::config::HarnessProfile {
+            argv: vec!["claude".into()],
+            env: [(
+                crate::agent_credentials::CLAUDE_OAUTH.to_owned(),
+                "fixture-claude-token".into(),
+            )]
+            .into_iter()
+            .collect(),
+            family: Some("claude".into()),
+            ..codex
+        };
+        let command =
+            harness_command("claude", &claude, &std::env::temp_dir(), None, None).unwrap();
+        assert!(
+            command
+                .as_std()
+                .get_args()
+                .all(|arg| !arg.to_string_lossy().contains("fixture-claude-token"))
+        );
+        let env: std::collections::BTreeMap<_, _> =
+            explicit_env(command.as_std()).into_iter().collect();
+        assert_eq!(
+            env[crate::agent_credentials::CLAUDE_OAUTH].as_deref(),
+            Some("fixture-claude-token")
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn remote_outer_command_scrubs_loader_env() {
         let p = serde_json::from_value(serde_json::json!({
             "argv": ["/usr/bin/true"], "env": {"ACPMUX_REMOTE_ENV_POLICY": "1",
@@ -728,6 +961,26 @@ mod tests {
     }
 
     use super::*;
+
+    /// `agents.envExclude` (agent_env.rs) removes its names from the agent's whole env, the
+    /// profile's and the inherited ones, last; acpmux's own session wiring and the marker stay out.
+    #[test]
+    fn env_exclude_removes_names_last_but_keeps_acpmux_wiring() {
+        let p = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"],
+            "env": {"SECRET_TOKEN": "x", "SECRET_OTHER": "y", "KEEP": "1", "PATH": "/usr/bin",
+                (crate::agent_env::EXCLUDE_MARKER): "SECRET_*,HOME,ACPMUX_*"}
+        }))
+        .unwrap();
+        let cmd =
+            harness_command("t", &p, &std::env::temp_dir(), None, Some(("s1", "n1"))).unwrap();
+        let env = command_env(&cmd);
+        let has = |k: &str| env.iter().any(|(n, _)| n == k);
+        assert!(!has("SECRET_TOKEN") && !has("SECRET_OTHER") && !has("HOME"));
+        assert!(has("KEEP"));
+        assert!(has("ACPMUX_SESSION_ID") && has("ACPMUX_SOCKET"));
+        assert!(!has(crate::agent_env::EXCLUDE_MARKER));
+    }
 
     /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
     /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
@@ -749,6 +1002,24 @@ mod tests {
 
     /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
+    #[test]
+    fn the_hook_daemon_token_is_off_unless_its_setting_names_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("token");
+        let tok = "0123456789abcdef".repeat(3);
+        std::fs::write(&file, format!("{tok}\n")).unwrap();
+        let home = dir.path().to_path_buf();
+        let unset = |k: &str| (k == "HOME").then(|| home.clone().into_os_string());
+        assert_eq!(super::hook_daemon_token(unset), None, "off by default, whatever is on disk");
+        let set =
+            |k: &str| (k == super::HOOK_TOKEN_FILE_ENV).then(|| file.clone().into_os_string());
+        assert_eq!(super::hook_daemon_token(set).as_deref(), Some(tok.as_str()));
+        std::fs::write(&file, "not hex at all, not a token\n").unwrap();
+        assert_eq!(super::hook_daemon_token(set), None, "a stray file never becomes a header");
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(super::hook_daemon_token(set), None, "no file, no token");
+    }
+
     #[test]
     fn a_claude_session_is_launched_under_its_acpmux_name() {
         let mut profile: HarnessProfile = serde_json::from_value(serde_json::json!({

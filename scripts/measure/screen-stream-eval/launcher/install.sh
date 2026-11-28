@@ -44,6 +44,7 @@ cat >"$work/$name.app/Contents/Info.plist" <<'EOF'
   <key>CFBundleShortVersionString</key><string>1</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSUIElement</key><true/>
+  <key>NSLocalNetworkUsageDescription</key><string>The screen stream eval sends its stream to the other Mac on this network.</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
 </dict>
 </plist>

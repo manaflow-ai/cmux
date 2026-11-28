@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { DERIVE_MAX_RETRIED_ROWS, deriveRowFailureAction, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -179,6 +179,38 @@ describe("retryFreestyleOverload", () => {
     expect(calls).toBeGreaterThan(1);
   });
 
+  test("asks again after a 409 VM_NON_RESPONSIVE start, and rethrows other 409s", async () => {
+    // Rebake run 46028301324 attempt 3: the verify's second vms.create answered 409 VM_NON_RESPONSIVE.
+    const nonResponsive = Object.assign(new Error("vm stopped responding: timed out reading from guest agent"), { status: 409, code: "VM_NON_RESPONSIVE" });
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 2) throw nonResponsive;
+      return "vm-2";
+    }, 1_000, 1);
+    expect(vm).toBe("vm-2");
+    expect(calls).toBe(2);
+    const conflict = Object.assign(new Error("name taken"), { status: 409, code: "CONFLICT" });
+    calls = 0;
+    await expect(retryFreestyleOverload("t", async () => { calls += 1; throw conflict; }, 1_000, 1)).rejects.toBe(conflict);
+    expect(calls).toBe(1);
+  });
+
+  test("an ask that outlasts the budget in Freestyle's queue is still asked again", async () => {
+    // Rebake run 46028301324: the verify start sat ten minutes in the capacity queue, then 429.
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        throw overloaded;
+      }
+      return "vm-1";
+    }, 30, 5);
+    expect(vm).toBe("vm-1");
+    expect(calls).toBe(3);
+  });
+
   test("with isFreestyleTransient asks again after a 500, as a resize needs, and still rethrows a 4xx", async () => {
     // Rebake run 45889121287: POST /v5/vms/ID/resize answered 500 INTERNAL_ERROR once.
     const internal = Object.assign(new Error("Internal server error"), { status: 500, code: "INTERNAL_ERROR" });
@@ -194,5 +226,28 @@ describe("retryFreestyleOverload", () => {
     expect(isFreestyleTransient(bad)).toBe(false);
     expect(isFreestyleTransient(overloaded)).toBe(true);
     await expect(retryFreestyleOverload("t", async () => { throw internal; }, 1_000, 1)).rejects.toBe(internal);
+  });
+});
+
+describe("deriveRowFailureAction", () => {
+  test("a 429 row always waits for its solo retry", () => {
+    const overload = Object.assign(new Error("overloaded"), { status: 429 });
+    expect(deriveRowFailureAction(overload, 0)).toBe("defer");
+    expect(deriveRowFailureAction(overload, DERIVE_MAX_RETRIED_ROWS + 3)).toBe("defer");
+  });
+
+  test("a row lost to a guest flake retries alone, up to the cap", () => {
+    // Rebake 46094043731: 2xl's daemon wait came back empty on the verify VM.
+    const flake = new Error("2xl: cmux-tui daemon did not come up on the derived snapshot sh-x: ");
+    for (let retried = 0; retried < DERIVE_MAX_RETRIED_ROWS; retried += 1) {
+      expect(deriveRowFailureAction(flake, retried)).toBe("defer");
+    }
+    // Every row failing is a regression, not a flake: the ladder fails fast.
+    expect(deriveRowFailureAction(flake, DERIVE_MAX_RETRIED_ROWS)).toBe("fail");
+  });
+
+  test("the derive ladder asks the policy rather than retrying 429s alone", () => {
+    const derive = readFileSync(path.join(here, "..", "scripts", "derive-devbox-sizes.ts"), "utf8");
+    expect(derive).toContain('deriveRowFailureAction(error, retriedRows) === "defer"');
   });
 });

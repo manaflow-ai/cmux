@@ -20,7 +20,17 @@
 // daemon says the watch is on (one `status` read when the page first connects, the Inspector's
 // Perf tab, or a report's answer), and all of them go when it says off.
 
-import { acpmuxPerf, type AcpmuxPerf, type AgentMark, type PerfSendMark, type PerfTransport } from "./perf";
+import {
+  acpmuxPerf,
+  keyDroppedFrames,
+  percentile,
+  typingFrameInterval,
+  type AcpmuxPerf,
+  type AgentMark,
+  type TypingSample,
+  type PerfSendMark,
+  type PerfTransport,
+} from "./perf";
 import { acpWire, type AcpWireLog, type WireEntry } from "./wire";
 
 /** Sends one `_acpmux/perf` request (the page's client, direct.ts `perf`). */
@@ -190,6 +200,48 @@ export function workspaceSwitchSpan(
   };
   if (!isSettled) span.detail = { settled: false };
   return span;
+}
+
+/** Keys a key-to-paint span carries their own times for, at most (a second of fast typing is about 10). */
+const KEY_PAINT_KEYS = 64;
+/** A key whose frame-after mark has not come this long after its paint is reported without it (a hidden page). */
+const KEY_NEXT_FRAME_WAIT_MS = 1_000;
+
+/**
+ * The composer's typing since the last report as one span (Leo: "we need typing in the gui to be fast too and
+ * smootha nd stuff"): each key from its keydown to after the frame that drew it (perf.ts's composer key
+ * listener: one rAF, then a task after it, the post-paint mark). The span's total is the slowest key, judged
+ * against `composer.key_paint`; its parts are that key's stages (to the page's listener, the edit done, the
+ * frame start, the paint). `detail` has every key's paint time, so a reader takes p50/p95/p99 over many
+ * reports, the dropped frames (`keyDroppedFrames`) and the prompt's length. Undefined with no keys.
+ */
+export function keyPaintSpan(
+  samples: readonly TypingSample[],
+  nominal = typingFrameInterval(samples),
+): PerfSpan | undefined {
+  if (!samples.length) return undefined;
+  const slowest = samples.reduce((worst, sample) => (sample.paint > worst.paint ? sample : worst));
+  const stages: [string, number][] = [];
+  if (slowest.listener !== undefined) stages.push(["listener", slowest.listener]);
+  if (slowest.work !== undefined) stages.push(["edit", slowest.work]);
+  stages.push(["frame", slowest.frame], ["paint", slowest.paint]);
+  const sorted = samples.map((sample) => sample.paint).sort((a, b) => a - b);
+  return {
+    name: "key to paint",
+    budget: "composer.key_paint",
+    ms: round(slowest.paint),
+    parts: partsOf(stages, 0),
+    detail: {
+      keys: samples.length,
+      p50Ms: round(percentile(sorted, 0.5)),
+      p95Ms: round(percentile(sorted, 0.95)),
+      p99Ms: round(percentile(sorted, 0.99)),
+      droppedFrames: samples.reduce((total, sample) => total + keyDroppedFrames(sample, nominal), 0),
+      frameIntervalMs: round(nominal),
+      chars: samples.reduce((most, sample) => Math.max(most, sample.chars ?? 0), 0),
+      paintMs: samples.slice(-KEY_PAINT_KEYS).map((sample) => round(sample.paint)),
+    },
+  };
 }
 
 /** One send as the reporter times it (`PerfReporter.sendStarted`), on `performance.now()`'s clock. */
@@ -438,6 +490,7 @@ export class PerfReporter {
   private wasEnabled = false;
   private lastRenders = new Map<string, number>();
   private lastWireSeq = 0;
+  private lastTyping = 0;
   private lastReportAt = 0;
   private frames: number[] = [];
   private shifts: LayoutShiftReport[] = [];
@@ -509,6 +562,7 @@ export class PerfReporter {
     const windowMs = Math.max(1, Math.round(at - this.lastReportAt));
     this.lastReportAt = at;
     this.collectPageLoad();
+    this.collectTyping();
     const renders = renderDelta(perf.renders, this.lastRenders);
     this.lastRenders = new Map(perf.renders);
     const entries = wire.entries();
@@ -585,6 +639,7 @@ export class PerfReporter {
     perf.switchListener = (sessionId, at, transport) => this.chatSwitched(sessionId, at, transport);
     this.lastRenders = new Map(perf.renders);
     this.lastWireSeq = wire.entries().at(-1)?.seq ?? 0;
+    this.lastTyping = perf.typingPushed;
     this.lastReportAt = now();
     this.lastSentAt = now();
     this.failures = 0;
@@ -635,6 +690,25 @@ export class PerfReporter {
     if (!span) return;
     this.chatSpanFor = marks.handshakeStart;
     this.hold(this.spans, span);
+  }
+
+  /// The keys typed since the last report, up to the first whose frame-after mark is still due.
+  private collectTyping(): void {
+    const { perf, wall } = this.env;
+    const fresh = perf.typingAfter(this.lastTyping);
+    if (!fresh.length) return;
+    const now = wall();
+    let ready = 0;
+    while (
+      ready < fresh.length &&
+      (fresh[ready]!.next_frame_ms !== undefined ||
+        now - (fresh[ready]!.paint_epoch_ms ?? Number.NEGATIVE_INFINITY) >= KEY_NEXT_FRAME_WAIT_MS)
+    )
+      ready += 1;
+    // Keys the ring dropped before this report are skipped, not waited for.
+    this.lastTyping = perf.typingPushed - (fresh.length - ready);
+    const span = keyPaintSpan(fresh.slice(0, ready));
+    if (span) this.hold(this.spans, span);
   }
 
   private collectPageLoad(): void {

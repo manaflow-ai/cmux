@@ -48,6 +48,7 @@ fn claude(home: &Path) -> (Source, PathBuf) {
         created_at: ms("2026-10-30T00:00:00Z"),
         argv: Some(vec!["/usr/local/bin/claude".into(), "--autocompact".into(), "200k".into()]),
         env,
+        unprompted: false,
     };
     (source, home.join("projects/-work-repo-x").join(format!("{SID}.jsonl")))
 }
@@ -128,6 +129,61 @@ fn a_chat_whose_transcript_is_not_found_has_no_stats() {
 }
 
 #[test]
+fn a_closed_chat_whose_transcript_was_compressed_spent_zero_since_it_was_last_written() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:00:00Z");
+    let archived = path.with_extension("jsonl.zst");
+    std::fs::create_dir_all(archived.parent().unwrap()).unwrap();
+    std::fs::write(&archived, b"compressed bytes are never read").unwrap();
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_millis(now - 2 * DAY_MS);
+    std::fs::File::options().write(true).open(&archived).unwrap().set_modified(written).unwrap();
+    let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
+    assert_eq!((stats.tokens24h, stats.calls24h), (Some(0), Some(0)));
+    assert_eq!(stats.tokens_by_model_previous_utc_hour, Some(BTreeMap::new()));
+    assert_eq!(stats.tokens_by_model1h, Some(BTreeMap::new()));
+
+    // Written two hours ago: the hours since are known, the day is not.
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_millis(now - 2 * HOUR_MS);
+    std::fs::File::options().write(true).open(&archived).unwrap().set_modified(written).unwrap();
+    let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.tokens24h, None);
+    assert_eq!(stats.tokens_by_model_previous_utc_hour, Some(BTreeMap::new()));
+
+    // Resumed: codex and claude write the plain file again, and it is read.
+    append(&path, &[assistant("msg_1", "2026-10-30T11:59:00Z", usage(1, 0, 0, 1), false)]);
+    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(2));
+}
+
+#[test]
+fn a_tracker_whose_transcript_went_away_finds_it_again_and_counts_it_once() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:00:00Z");
+    append(&path, &[assistant("msg_1", "2026-10-30T11:30:00Z", usage(1, 0, 0, 1), false)]);
+    let mut tracker = Tracker::default();
+    assert_eq!(tracker.refresh(&source, now, &models()).unwrap().tokens24h, Some(2));
+
+    // Moved to another project folder under the tracker: found there, its call counted once.
+    let moved = home.path().join("projects/-elsewhere").join(format!("{SID}.jsonl"));
+    std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+    std::fs::rename(&path, &moved).unwrap();
+    let stats = tracker.refresh(&source, now + MINUTE_MS, &models()).unwrap();
+    assert_eq!((stats.tokens24h, stats.calls24h), (Some(2), Some(1)));
+
+    // Compressed in place under the tracker two days after it was last written: known zeros,
+    // not null for as long as the daemon runs.
+    let archived = moved.with_extension("jsonl.zst");
+    std::fs::rename(&moved, &archived).unwrap();
+    let later = now + 3 * DAY_MS;
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_millis(now);
+    std::fs::File::options().write(true).open(&archived).unwrap().set_modified(written).unwrap();
+    let stats = tracker.refresh(&source, later, &models()).unwrap();
+    assert_eq!((stats.tokens24h, stats.calls24h), (Some(0), Some(0)));
+    assert_eq!(stats.tokens_by_model_previous_utc_hour, Some(BTreeMap::new()));
+}
+
+#[test]
 fn claude_subagents_count_as_spawns_and_spend_and_live_until_finished() {
     let home = tempfile::tempdir().unwrap();
     let (source, path) = claude(home.path());
@@ -192,6 +248,7 @@ fn a_codex_rollout_is_found_by_its_day_and_counts_each_token_report_once() {
             "model_auto_compact_token_limit=150000".into(),
         ]),
         env,
+        unprompted: false,
     };
     // Written on the next UTC day: still found next to its creation day.
     let path =
@@ -382,6 +439,7 @@ fn a_record_that_cannot_be_read_is_unknown_not_zero() {
         created_at: now,
         argv: Some(vec!["codex-acp".into()]),
         env,
+        unprompted: false,
     };
     let path = home.path().join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl"));
     let rate = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg",
@@ -575,6 +633,7 @@ fn usage_probe() {
         created_at: crate::store::now_ms(),
         argv: None,
         env: BTreeMap::new(),
+        unprompted: false,
     };
     let catalog: crate::catalog::Catalog =
         serde_json::from_str(include_str!("../catalog/models-v1.json")).unwrap();
@@ -810,6 +869,7 @@ fn the_tracker_applies_every_classification() {
             created_at: now,
             argv: Some(vec!["codex-acp".into()]),
             env,
+            unprompted: false,
         };
         (source, home.join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl")))
     };
@@ -918,6 +978,7 @@ fn an_untimed_repeat_of_a_counted_record_is_not_lost() {
         created_at: now,
         argv: Some(vec!["codex-acp".into()]),
         env,
+        unprompted: false,
     };
     let path = home.path().join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl"));
     let report = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg", "payload": {
@@ -975,4 +1036,90 @@ fn the_day_reports_the_cache_read_share_and_the_cost_per_call() {
         (later.calls24h, later.cache_read_share24h, later.cost_per_call_usd24h),
         (Some(0), None, None)
     );
+}
+
+/// A restart reads on from the saved tracker: the day stays known. A daemon that started over
+/// took only the newest [`FIRST_READ_BYTES`] of the transcript, so a chat whose newest 256 MiB
+/// cover less than a day read as unmetered for up to a day after each restart (2026-11-28).
+#[test]
+fn a_saved_tracker_reads_on_after_a_restart_and_keeps_the_day_known() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let saved = home.path().join("usage-trackers/chat-1.json");
+    let now = ms("2026-10-30T12:20:00Z");
+    let early = assistant("msg_0", "2026-10-30T02:00:00Z", usage(1, 0, 0, 1), false);
+    let late = assistant("msg_1", "2026-10-30T11:10:00Z", usage(3, 0, 0, 4), false);
+    append(&path, &[early, late.clone()]);
+    // A first read that takes only the newest line: it starts after the day began.
+    let cut = Some((format!("{late}\n").len() as u64, u64::MAX));
+
+    let mut before = Tracker::default();
+    assert_eq!(before.refresh(&source, now, &models()).unwrap().tokens24h, Some(9));
+    assert!(before.save_if_due(&saved, now), "it read: saved");
+    assert!(!before.save_if_due(&saved, now + DAY_MS), "nothing read since: not again");
+    assert!(!saved.with_extension("json.tmp").exists(), "no temporary file left");
+
+    let next = assistant("msg_2", "2026-10-30T12:10:00Z", usage(5, 0, 0, 6), false);
+    append(&path, &[next]);
+    let mut restarted = Tracker::load(&saved).expect("the saved tracker");
+    restarted.limits = cut;
+    let stats = restarted.refresh(&source, now + MINUTE_MS, &models()).unwrap();
+    assert_eq!(stats.tokens24h, Some(9 + 11), "read on from the saved offset");
+    assert_eq!(stats.calls24h, Some(3));
+
+    // Started over, the same cut leaves the day unknown.
+    let mut over = Tracker { limits: cut, ..Tracker::default() };
+    assert_eq!(over.refresh(&source, now + MINUTE_MS, &models()).unwrap().tokens24h, None);
+}
+
+/// A loaded tracker saves again only once it read something and its last save is a minute old;
+/// a save of another version, or one that is not JSON, reads as none.
+#[test]
+fn a_tracker_saves_at_most_once_a_minute_and_reads_only_its_own_version() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let saved = home.path().join("usage-trackers/chat-1.json");
+    let now = ms("2026-10-30T12:00:00Z");
+    append(&path, &[assistant("msg_0", "2026-10-30T11:00:00Z", usage(1, 0, 0, 1), false)]);
+    let mut tracker = Tracker::default();
+    tracker.refresh(&source, now, &models());
+    assert!(tracker.save_if_due(&saved, now));
+    append(&path, &[assistant("msg_1", "2026-10-30T11:59:00Z", usage(1, 0, 0, 1), false)]);
+    tracker.refresh(&source, now + 1_000, &models());
+    assert!(!tracker.save_if_due(&saved, now + 1_000), "saved a second ago");
+    assert!(tracker.save_if_due(&saved, now + MINUTE_MS), "a minute later");
+
+    let mut loaded = Tracker::load(&saved).unwrap();
+    assert!(!loaded.save_if_due(&saved, now + 2 * MINUTE_MS), "as loaded: nothing to save");
+    assert_eq!(loaded.refresh(&source, now + MINUTE_MS, &models()).unwrap().tokens24h, Some(4));
+
+    let mut other: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    other["version"] = json!(SAVED_VERSION + 1);
+    std::fs::write(&saved, other.to_string()).unwrap();
+    assert!(Tracker::load(&saved).is_none(), "another version");
+    std::fs::write(&saved, b"{not json").unwrap();
+    assert!(Tracker::load(&saved).is_none(), "not JSON");
+    assert!(Tracker::load(&home.path().join("none.json")).is_none(), "never saved");
+}
+
+/// A saved Codex tracker keeps its running total, so the token report the last daemon read is
+/// not counted again when the next repeats it.
+#[test]
+fn a_saved_codex_tracker_keeps_its_running_total() {
+    let home = tempfile::tempdir().unwrap();
+    let saved = home.path().join("usage-trackers/chat-1.json");
+    let mut tracker = Tracker::default();
+    tracker.main = Some(Tail {
+        path: home.path().join("rollout.jsonl"),
+        last_total: Some(1234),
+        covered_from: Some(0),
+        ..Tail::default()
+    });
+    tracker.minutes.insert(ms("2026-10-30T11:00:00Z"), Bucket { tokens: 7, ..Bucket::default() });
+    assert!(tracker.save_if_due(&saved, ms("2026-10-30T12:00:00Z")));
+    let loaded = Tracker::load(&saved).unwrap();
+    let tail = loaded.main.as_ref().unwrap();
+    assert_eq!(tail.last_total, Some(1234));
+    assert_eq!(tail.covered_from, Some(0));
+    assert_eq!(loaded.minutes[&ms("2026-10-30T11:00:00Z")].tokens, 7);
 }

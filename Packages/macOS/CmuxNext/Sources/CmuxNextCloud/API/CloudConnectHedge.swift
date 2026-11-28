@@ -179,7 +179,7 @@ private enum HedgeEvent<T: Sendable>: Sendable {
 }
 
 /// Answers every redirect with "do not follow" (the completion-handler form: the async delegate form
-/// crashes swift 6.4 SILGen in this module, as `InstallHTTPTransport`'s does).
+/// crashes swift 6.4 SILGen in this module).
 private final class HedgeRefusesRedirects: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {

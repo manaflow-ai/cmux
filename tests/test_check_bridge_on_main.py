@@ -128,6 +128,40 @@ class BridgeOnMainTests(unittest.TestCase):
         self.assertEqual(masked.count("\n"), text.count("\n"))
         self.assertNotIn("{", masked)
 
+    def test_payload_ffi_from_headers_is_a_seed(self):
+        """A `cmux_*` export that takes bytes or a C string, called straight from a row, is a sync bridge call;
+        a scalar export (`cmux_motion_ease`) and the `_free` helper are not."""
+        import subprocess
+        header = """/* a doc comment naming cmux_not_a_decl(const char *x); */
+int32_t cmux_layout_reducer_json(
+    const uint8_t *request,
+    size_t request_len,
+    CmuxBytes *out);
+double cmux_motion_ease(uint8_t curve, double t);
+void cmux_layout_bytes_free(char *bytes);
+"""
+        row = """final class Feed {
+    func flushRows() {
+        _ = cmux_layout_reducer_json(ptr, len, &out)
+        _ = cmux_motion_ease(1, 0.5)
+    }
+}
+"""
+        with tempfile.TemporaryDirectory() as folder:
+            include = Path(folder) / "cmux-tui/crates/cmux-layout-reducer/include"
+            include.mkdir(parents=True)
+            (include / "cmux_layout_reducer.h").write_text(header, encoding="utf-8")
+            sources = Path(folder) / check.PACKAGE / "Sources" / "App"
+            sources.mkdir(parents=True)
+            (sources / "Feed.swift").write_text(row, encoding="utf-8")
+            subprocess.run(["git", "-C", folder, "init", "-q"], check=True)
+            subprocess.run(["git", "-C", folder, "add", "-A"], check=True)
+            self.assertEqual(check.payload_ffi(folder), ["cmux_layout_reducer_json"])
+            hits = {Path(f).name: rules for f, rules in check.collect(folder).items()}
+        lines = hits["Feed.swift"][check.ROW_RULE]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("cmux_layout_reducer_json", lines[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()

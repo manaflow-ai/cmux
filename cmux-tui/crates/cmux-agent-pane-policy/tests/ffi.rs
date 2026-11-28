@@ -213,7 +213,7 @@ fn c_abi_runs_the_check_corpus() {
 /// only a click passes it.
 #[test]
 fn c_abi_a_click_only_answer_passes_on_a_click_only() {
-    assert_eq!(cmux_agent_pane_policy_abi_version(), 5);
+    assert_eq!(cmux_agent_pane_policy_abi_version(), 6);
     let pane = new();
     call(pane.0, "add", json!({"session": "s1"})).unwrap();
     let frames = [
@@ -434,6 +434,24 @@ fn c_abi_runs_the_pick_corpus() {
     assert_eq!(call(none, "pick", json!({"method": "m", "params": []})), Err(ERR_INVALID));
 }
 
+/// Swift writes integral floats as Int64, including both signs of zero. A
+/// gesture ticket and its answer must therefore hash the same bytes for each.
+#[test]
+fn canonical_answer_zero_matches_swift_through_the_c_abi() {
+    let pane = std::ptr::null();
+    let integer = json!({"value": {"q": [0]}});
+    let digest = call(pane, "canonical_digest", integer).unwrap();
+    assert!(digest["digest"].is_string());
+    for zero in [-0.0_f64, 0.0] {
+        let answer = json!({"value": {"q": [zero]}});
+        assert_eq!(
+            call(pane, "canonical_json", answer.clone()).unwrap(),
+            json!({"json": r#"{"q":[0]}"#})
+        );
+        assert_eq!(call(pane, "canonical_digest", answer).unwrap(), digest);
+    }
+}
+
 /// The host reserves a permission answer's ticket only for an option the
 /// daemon offered as an allow (Swift `AcpmuxPermissionOptions.isKnownAllow`).
 #[test]
@@ -635,4 +653,20 @@ fn c_abi_json_keys_verdict() {
     assert_eq!(unsafe { cmux_agent_pane_policy_json_keys_verdict(std::ptr::null(), 3) }, ERR_NULL);
     let deep = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
     assert_eq!(keys_verdict(deep.as_bytes()), 0, "no recursion");
+}
+
+#[test]
+fn new_tab_projects_json_op_works_without_a_pane_handle() {
+    let reply =
+        call(std::ptr::null(), "new_tab_projects", json!({"projects":["/a","/b"]})).unwrap();
+    let rows: Value = serde_json::from_str(reply["rows"].as_str().unwrap()).unwrap();
+    assert_eq!(rows[0]["cwd"], "/a");
+    assert_eq!(rows[0]["displayGroup"]["lead"], "/a");
+    let refreshed = call(
+        std::ptr::null(),
+        "new_tab_projects",
+        json!({"projects":["/b","/a"],"seed":reply["rows"]}),
+    )
+    .unwrap();
+    assert_eq!(refreshed, reply);
 }

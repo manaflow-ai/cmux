@@ -1,0 +1,73 @@
+name: cmux-next iOS gesture conflicts
+
+# The gesture matrix's UI suite (cmux-next-ios/design/gesture-matrix.md;
+# cmux-next-ios/UITests/GestureConflictUITests.swift): real drags, swipes and pinches on the app's offline
+# demos, each asserting which view took the touch. Leo, 2026-11-23: "there are no doubt dozens of ...
+# interactions like this which should've just very easily been caught and understood and iterated on."
+# A pull request into feat-cmux-next that touches the iPhone app's Swift runs it, so a new conflict (a
+# composer drag that lowers the keyboard, a back swipe that starts on text being edited) is red on the
+# pull request that adds it. A thin cmux-ci client on the build-fleet gateway runner
+# (vars.CI_EVAL_STEP_GATEWAY), as cmux-next-ios-keyboard-motion.yml is: one fleet simulator step
+# (scripts/ci/cmux-next-ios-sim.sh test ui=GestureConflictUITests). With the variable unset, on a fork or
+# on a draft nothing runs; without the client on the runner it warns and passes.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-next-ios/**/*.swift"
+      - "cmux-next-ios/project.yml"
+      - "scripts/ci/cmux-next-ios-sim.sh"
+      - ".github/workflows/cmux-next-ios-gestures.yml"
+  push:
+    branches: [nightly-next]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or branch to test (default the dispatched ref)
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-ios-gestures-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gestures:
+    name: Gesture conflicts on a fleet simulator
+    if: >-
+      ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request'
+      || (github.event.pull_request.draft != true && github.event.pull_request.head.repo.full_name == github.repository)) }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    steps:
+      - name: Run GestureConflictUITests
+        env:
+          REF: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=Gesture conflicts::$client is not installed on runner $RUNNER_NAME; not run"
+            exit 0
+          fi
+          log="${RUNNER_TEMP:?}/gestures.log"
+          "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$REF" --timeout 5400 --sim-features none \
+            --arg test --arg ui=GestureConflictUITests 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          {
+            echo "### Gesture conflicts at ${REF:0:12}"
+            echo
+            echo '```'
+            grep -E "Test Case .*(passed|failed)|error: .*GestureConflictUITests" "$log" | tail -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=Gesture conflicts::a gesture matrix cell regressed (cmux-next-ios/design/gesture-matrix.md); see the failed test above"
+          fi
+          exit "$status"

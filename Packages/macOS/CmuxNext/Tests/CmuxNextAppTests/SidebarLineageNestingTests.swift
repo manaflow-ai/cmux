@@ -455,18 +455,19 @@ import Testing
             $0.filterMatches = [Self.coordinator, Self.lane]
         }
         #expect(found.map(\.id) == [Self.coordinator, Self.lane])
+        #expect(found.allSatisfy { $0.content.treeDepth == 0 }, "a found helper draws flat, not under its parent")
     }
 
-    /// A session that needs the person (a permission or a question: blocked) never hides: it draws under its parent,
-    /// and so does each agent-started ancestor between it and a person's row. A session that only runs, failed or
-    /// finished stays hidden. Its row's own hook state counts as well as acpmux's lane state.
+    /// A session that needs the person (a permission or a question: blocked) never hides: it draws as its own top-level
+    /// row, and its agent-started ancestors stay hidden (Leo 2026-11-27: no nesting under the parent). A session that
+    /// only runs, failed or finished stays hidden. Its row's own hook state counts as well as acpmux's lane state.
     @Test func aSessionThatNeedsYouStaysVisible() {
         var tree = SidebarSessionTreeState(parents: Self.parents, states: [Self.reviewer: .blocked, Self.sub: .running],
                                            foldsDeep: true, hidesStarted: true)
         let order = Self.sections([Self.coordinator, Self.lane, Self.sub, Self.reviewer, Self.mine])
         let drawn = Self.rows(order, tree: tree)
-        #expect(drawn.map(\.id) == [Self.coordinator, Self.lane, Self.sub, Self.reviewer, Self.mine])
-        #expect(drawn.map(\.content.treeDepth) == [0, 1, 2, 3, 0])
+        #expect(drawn.map(\.id) == [Self.coordinator, Self.reviewer, Self.mine])
+        #expect(drawn.map(\.content.treeDepth) == [0, 0, 0])
         // Open: nothing folds while agent-started rows hide, so no fold can hide the one waiting.
         #expect(drawn.allSatisfy { $0.content.treeFold == nil && $0.content.rollUp == nil })
         tree.states = [Self.reviewer: .failed, Self.sub: .running, Self.lane: .finishedUnread]
@@ -475,7 +476,9 @@ import Testing
         tree.states = [:]
         var waiting = order
         waiting[0].nodes[1] = .workspace({ var ws = SidebarWorkspace(id: Self.lane, title: "lane"); ws.activity = .waiting; return ws }())
-        #expect(Self.rows(waiting, tree: tree).map(\.id) == [Self.coordinator, Self.lane, Self.mine])
+        let waitingRows = Self.rows(waiting, tree: tree)
+        #expect(waitingRows.map(\.id) == [Self.coordinator, Self.lane, Self.mine])
+        #expect(waitingRows.map(\.content.treeDepth) == [0, 0, 0])
         // A known idle lane wins over a stale hook-level waiting state after the layout shape filters ordinary lane
         // states. The helper stays hidden instead of reappearing because its hook has not cleared yet.
         var staleHook = Self.sections([Self.coordinator, Self.lane])
@@ -516,16 +519,17 @@ import Testing
     }
 
     /// Selecting a hidden session (Command-K, a notification, the needs-you tray, Go to Chat from its parent chat's
-    /// list) shows it under its parent while it stays selected; selecting a person's row changes nothing drawn.
-    @Test func aSelectedHiddenSessionShowsUnderItsParent() {
+    /// list) shows it as its own top-level row while it stays selected, never under its parent; selecting a person's
+    /// row changes nothing drawn.
+    @Test func aSelectedHiddenSessionShowsAsItsOwnRow() {
         let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
         let tree = SidebarSessionTree(defaults: defaults, showsStarted: false)
         tree.state = SidebarSessionTreeState(parents: Self.parents)
         let order = Self.sections([Self.coordinator, Self.lane, Self.sub, Self.reviewer, Self.mine])
         #expect(tree.drawn(keeping: [Self.mine]) == tree.drawn)
         let shown = Self.rows(order, tree: tree.drawn(keeping: [Self.sub]))
-        #expect(shown.map(\.id) == [Self.coordinator, Self.lane, Self.sub, Self.mine])
-        #expect(shown.map(\.content.treeDepth) == [0, 1, 2, 0])
+        #expect(shown.map(\.id) == [Self.coordinator, Self.sub, Self.mine])
+        #expect(shown.map(\.content.treeDepth) == [0, 0, 0])
         #expect(Self.rows(order, tree: tree.drawn).map(\.id) == [Self.coordinator, Self.mine])
     }
 

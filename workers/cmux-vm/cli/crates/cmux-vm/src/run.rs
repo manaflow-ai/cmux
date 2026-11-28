@@ -356,20 +356,20 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<Provisi
     }))?;
     let key_text = new_idempotency_key();
     let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
-    let created = match retrying(|| fetch_body(client.vms_create_vm(Some(&key), None, &body))).await
-    {
-        Ok(created) => created,
-        Err(error) if unconfirmed(&error) => {
-            return match recover_creation(client, &key_text).await {
-                // The create committed and only its answer was lost: run on
-                // that VM, which every exit path below then ends.
-                Recovered::Vm(id) => Ok(provisioning_vm(id)),
-                Recovered::Settled(what) => Err(error.with_recovery(what)),
-                Recovered::Open(what) => Err(error.with_recovery(&what)),
-            };
-        }
-        Err(error) => return Err(error),
-    };
+    let created =
+        match retrying(|| fetch_body(client.vms_create_vm(Some(&key), None, None, &body))).await {
+            Ok(created) => created,
+            Err(error) if unconfirmed(&error) => {
+                return match recover_creation(client, &key_text).await {
+                    // The create committed and only its answer was lost: run on
+                    // that VM, which every exit path below then ends.
+                    Recovered::Vm(id) => Ok(provisioning_vm(id)),
+                    Recovered::Settled(what) => Err(error.with_recovery(what)),
+                    Recovered::Open(what) => Err(error.with_recovery(&what)),
+                };
+            }
+            Err(error) => return Err(error),
+        };
     let id = serde_json::from_slice::<Value>(&created)
         .ok()
         .and_then(|vm| vm["id"].as_str().map(str::to_owned));

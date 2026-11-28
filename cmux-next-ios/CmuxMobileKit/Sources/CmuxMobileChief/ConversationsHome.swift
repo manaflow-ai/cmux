@@ -1433,6 +1433,7 @@ final class TypingDotsView: UIView {
             dot.opacity = 0.35
             // motion: allow the typing indicator itself, as the Mac draws it; Reduce Motion shows still dots (above).
             let pulse = CAKeyframeAnimation(keyPath: "opacity")
+            pulse.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
             pulse.values = values
             pulse.keyTimes = keyTimes
             pulse.duration = Self.period

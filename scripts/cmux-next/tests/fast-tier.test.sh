@@ -250,6 +250,46 @@ if [ "$elapsed" -ge 8 ]; then
   exit 1
 fi
 
+# Swift Build heads a failed task `error: SwiftCompile ... failed with a nonzero exit code` and prints the
+# compiler's own words after it. The head alone must not stop the build: that hid the cause of fast tier job
+# 140640571539 (DevicesCategoryLayoutTests.swift, no diagnostic). The next diagnostic head still stops it.
+mkdir -p "$tmp/headbin"
+cat > "$tmp/headbin/swift" <<'EOF2'
+#!/usr/bin/env bash
+if [ "$1" = build ]; then
+  echo "error: SwiftCompile normal arm64 /w/Tests/T/LayoutTests.swift failed with a nonzero exit code. Command line: cd /w"
+  echo "/w/Tests/T/LayoutTests.swift:5:41: error: call to main actor-isolated instance method 'categories(rows:)' in a synchronous nonisolated context"
+  sleep 30
+  exit 1
+fi
+echo "Test run with 1 test in 1 suite passed after 0.010 seconds."
+EOF2
+chmod +x "$tmp/headbin/swift"
+started=$SECONDS
+PATH="$tmp/headbin:$PATH" run
+elapsed=$(( SECONDS - started ))
+expect "a failed task head fails the tier" 1 "^FAST-TIER FAIL build:Pkg: the tests do not build"
+expect "the diagnostic after a failed task head stays visible" 1 "LayoutTests.swift:5:41: error: call to main actor-isolated"
+if [ "$elapsed" -ge 8 ]; then
+  echo "FAIL: the diagnostic after a task head waited for the build (${elapsed}s, want under 8s)" >&2
+  printf '%s\n' "$out" >&2
+  exit 1
+fi
+# A compiler crash prints no diagnostic head: its stack dump after the task head stays visible.
+cat > "$tmp/headbin/swift" <<'EOF2'
+#!/usr/bin/env bash
+if [ "$1" = build ]; then
+  echo "error: SwiftCompile normal arm64 /w/Tests/T/LayoutTests.swift failed with a nonzero exit code. Command line: cd /w"
+  echo "Stack dump:"
+  echo "0.	Program arguments: swift-frontend -frontend -c"
+  exit 1
+fi
+echo "Test run with 1 test in 1 suite passed after 0.010 seconds."
+EOF2
+PATH="$tmp/headbin:$PATH" run
+expect "a crash after a failed task head fails the tier" 1 "^FAST-TIER FAIL build:Pkg: the tests do not build"
+expect "a crash's stack dump after a failed task head stays visible" 1 "Program arguments: swift-frontend"
+
 # A warning's source excerpt can hold the word `error:` (` 446 |  func f(_ error: Error)`). Only a
 # diagnostic's own head stops the build: that excerpt stopped a clean CmuxNext seed build (run 45854893499).
 mkdir -p "$tmp/excerptbin"

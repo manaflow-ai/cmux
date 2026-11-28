@@ -5,10 +5,10 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarBridge.swift": {
   "sync Rust bridge call in row, frame or body code": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/ChiefPetSettingsRows.swift": {
-  "whole settings file (fileRoot) over the bridge": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Auth/ActiveTeam+Rows.swift": {
+  "sync Rust bridge call in row, frame or body code": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextControl/AppLaunchRecord.swift": {
   "sync Rust bridge call in row, frame or body code": 1
  }
 }

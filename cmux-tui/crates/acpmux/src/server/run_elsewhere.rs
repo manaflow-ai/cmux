@@ -145,6 +145,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
             false,
             false,
             None,
+            None,
             Default::default(),
         )
         .await?;

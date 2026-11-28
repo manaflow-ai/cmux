@@ -32,6 +32,12 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     case shareLink(URL)
     /// Not something cmux opens; the caller refuses it.
     case unsupported
+
+    /// How many files this route puts into a chat: an ``attachImages(_:from:)``'s, else none.
+    public var attachedFiles: Int {
+        guard case .attachImages(let urls, _) = self else { return 0 }
+        return urls.count
+    }
 }
 
 /// Maps opened URLs and files to routes. Pure: no AppKit, no file writes;

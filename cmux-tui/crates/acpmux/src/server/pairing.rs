@@ -278,7 +278,16 @@ pub(super) async fn dispatch(
                     .map_err(|_| RpcError::internal("consent refusal could not be recorded"))
             }
         }
-        method::MUX_MACHINE_CONSENT_GET => Ok(crate::cli::cloud_join::consent_status_for(params)),
+        method::MUX_MACHINE_CONSENT_GET => {
+            let own = crate::cli::consent_grant::OwnGrantor::of(&hub.person.macs.view(&json!({})));
+            let params = params.clone();
+            // The store's reads (and its lock) stay off the async thread.
+            tokio::task::spawn_blocking(move || {
+                crate::cli::cloud_join::consent_status_with_grants(&params, own.as_ref())
+            })
+            .await
+            .map_err(|_| RpcError::internal("consent store unavailable"))
+        }
         method::MUX_MACHINE_ENROLL => super::machine_enroll::enroll(hub, conn, params).await,
         method::MUX_MACHINE_LEAVE_IF_AUTO => {
             super::machine_enroll::leave_if_auto(hub, conn, params).await
@@ -303,12 +312,22 @@ fn machine_consent(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
             "changing this machine's consent; use the local cmux app",
         ));
     }
-    let granted = params
-        .get("granted")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| RpcError::invalid_params("granted must be true or false"))?;
-    let consent = crate::cli::cloud_join::set_consent_for_person(surface, granted)
-        .map_err(|_| RpcError::internal("local consent store unavailable"))?;
+    // `granted: null` clears this machine's own setting of screen or control: the grants signed
+    // elsewhere decide again (`consent_grant.rs`).
+    let consent = match params.get("granted") {
+        Some(Value::Null) if matches!(surface, "screen" | "control") => {
+            crate::cli::cloud_join::clear_consent_for_person(surface)
+        }
+        Some(Value::Bool(granted)) => {
+            crate::cli::cloud_join::set_consent_for_person(surface, *granted)
+        }
+        _ => {
+            return Err(RpcError::invalid_params(
+                "granted must be true or false (or null for screen or control)",
+            ));
+        }
+    }
+    .map_err(|_| RpcError::internal("local consent store unavailable"))?;
     // As the account this machine is joined as now reads it (`for_account`), like the get.
     Ok(crate::cli::cloud_join::for_this_account(json!({"consent":consent})))
 }

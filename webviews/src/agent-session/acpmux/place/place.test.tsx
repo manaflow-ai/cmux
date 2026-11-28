@@ -30,7 +30,9 @@ import {
   triggerKey,
 } from "./placeModel";
 import { evacuateActions, placeActions } from "./usePlace";
-import { ComputerStatusLine, MoveDock, PlaceChip } from "./PlaceMounts";
+import { AutoSizeDock, ComputerStatusLine, MoveDock, PlaceChip } from "./PlaceMounts";
+import { autoSizeRowsOf } from "../autosize/autosizeModel";
+import { GREW_FOR_MEMORY, HELD_AT_PLAN_LIMIT, SHRANK_IDLE } from "../autosize/autosizeModel.fixtures";
 import { HybridChip } from "../hybrid/HybridMounts";
 import { setExperimentSwitches } from "../../../experiments/switches";
 
@@ -699,4 +701,77 @@ test("a pick and a Retry send the queue and draft the page holds then", async ()
     { id: "chatMove.retry", queued: 0, hasDraft: false, session: "s-1" },
     { id: "chatMove.cancel", session: "s-1" },
   ]);
+});
+
+test("place.autosize is Rust's rows, oldest first, a malformed row dropped and none at all undefined", () => {
+  const wire = JSON.parse(JSON.stringify([GREW_FOR_MEMORY, HELD_AT_PLAN_LIMIT])) as unknown[];
+  const place = placeOf({ mode: "auto", at: "cloud", autosize: [...wire, { key: "x", kind: "grow" }, null, 7] });
+  expect(place?.autosize).toEqual(
+    [GREW_FOR_MEMORY, { ...HELD_AT_PLAN_LIMIT, to: undefined }].map((row) => JSON.parse(JSON.stringify(row))),
+  );
+  expect(place?.autosize?.[1]?.offer).toEqual({ do: "upgrade", plan: "next_pro", label: "Pro", vcpu: 8, mem_gib: 32 });
+  expect(autoSizeRowsOf([{ ...GREW_FOR_MEMORY, kind: "explode" }])).toBeUndefined();
+  expect(autoSizeRowsOf([{ ...GREW_FOR_MEMORY, from: { vcpu: 2 } }])).toBeUndefined();
+  expect(autoSizeRowsOf([{ ...HELD_AT_PLAN_LIMIT, offer: { do: "upgrade", plan: "" } }])?.[0]?.offer).toBeUndefined();
+  expect(autoSizeRowsOf([])).toBeUndefined();
+  expect(autoSizeRowsOf("rows")).toBeUndefined();
+  expect(placeOf({ mode: "auto", at: "cloud", autosize: [] })).not.toHaveProperty("autosize");
+});
+
+test("the AutoSize dock draws only with the Cloud Toggle on and a row", async () => {
+  setExperimentSwitches({});
+  setHeaderState({ place: { mode: "auto", at: "cloud", autosize: [GREW_FOR_MEMORY] } });
+  const dock = await draw(<AutoSizeDock />);
+  expect(text(dock)).toBe("");
+  await act(async () => setExperimentSwitches({ cloudToggle: true }));
+  expect(dock.querySelectorAll(".autosize-row")).toHaveLength(1);
+  // One row: no fold.
+  expect(dock.querySelector(".autosize-fold-toggle")).toBeNull();
+  await act(async () => setHeaderState({ place: { mode: "auto", at: "cloud" } }));
+  expect(text(dock)).toBe("");
+  await act(async () => setExperimentSwitches({}));
+});
+
+test("the AutoSize dock shows the newest row and folds the rest behind N earlier", async () => {
+  setExperimentSwitches({ cloudToggle: true });
+  setHeaderState({
+    place: { mode: "auto", at: "cloud", autosize: [GREW_FOR_MEMORY, SHRANK_IDLE, HELD_AT_PLAN_LIMIT] },
+  });
+  const dock = await draw(<AutoSizeDock />);
+  const keys = () => [...dock.querySelectorAll(".autosize-row")].map((row) => row.getAttribute("data-autosize-key"));
+  expect(keys()).toEqual([HELD_AT_PLAN_LIMIT.key]);
+  const fold = dock.querySelector<HTMLButtonElement>(".autosize-fold-toggle");
+  expect(fold?.textContent).toBe(translate("autosize.earlier", { count: "2" }, "en"));
+  expect(fold?.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => fold!.click());
+  expect(keys()).toEqual([GREW_FOR_MEMORY.key, SHRANK_IDLE.key, HELD_AT_PLAN_LIMIT.key]);
+  expect(fold?.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => fold!.click());
+  expect(keys()).toEqual([HELD_AT_PLAN_LIMIT.key]);
+  await act(async () => setExperimentSwitches({}));
+});
+
+test("the dock's Upgrade asks for the row's plan, and a refusal is said", async () => {
+  setExperimentSwitches({ cloudToggle: true });
+  setHeaderState({ place: { mode: "auto", at: "cloud", autosize: [HELD_AT_PLAN_LIMIT] } });
+  const said: string[] = [];
+  const dock = await draw(<AutoSizeDock say={(line) => said.push(line)} />);
+  const calls: unknown[] = [];
+  let refuse = false;
+  (dom!.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = {
+    "cloud.plan.subscribe": (params: unknown) => {
+      calls.push(params);
+      return refuse ? Promise.reject(new Error("Checkout isn't available for this team.")) : Promise.resolve();
+    },
+  };
+  const upgrade = dock.querySelector<HTMLButtonElement>(".autosize-row-upgrade");
+  expect(upgrade?.disabled).toBe(false);
+  await act(async () => upgrade!.click());
+  expect(calls).toEqual([{ plan: "next_pro" }]);
+  expect(said).toEqual([]);
+  refuse = true;
+  await act(async () => upgrade!.click());
+  expect(calls).toHaveLength(2);
+  expect(said).toEqual(["Checkout isn't available for this team."]);
+  await act(async () => setExperimentSwitches({}));
 });

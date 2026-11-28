@@ -5,7 +5,6 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - Packages/Shared/CmuxAuthRuntime/**
-      - Packages/Shared/CmuxIrxTransport/**
       - Packages/macOS/CmuxPhonePush/**
       - vendor/stack-auth-swift-sdk-prerelease/**
       - .github/workflows/auth-refresh-tests.yml
@@ -24,7 +23,7 @@ env:
 
 jobs:
   auth-refresh-tests:
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 15
     steps:
@@ -43,5 +42,3 @@ jobs:
       # CmuxPhonePush runs on Linux too; its Keychain migrations need Security.
       - name: Exercise the phone push Keychain migrations
         run: swift test --package-path Packages/macOS/CmuxPhonePush --filter 'PhonePushSharedStateTests/(sharedPushStateIsDeviceOnly|phonePushKeyMaterialIsDeviceOnly)'
-      - name: Verify retired session watcher completion over loopback
-        run: swift test --package-path Packages/Shared/CmuxIrxTransport --filter 'IrxLiveQUICTests.keepaliveAndAutoRedial'

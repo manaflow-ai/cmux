@@ -72,6 +72,36 @@ async fn enabling_github_lending_wakes_a_lazily_parked_peer() {
     test_dial::clear();
 }
 
+/// A dedicated agent VM (`vmBoundary`) started lazily dials at once and its link never closes
+/// unused: this daemon keeps its copies, and a move from one is how its chats outlive its death
+/// (fleet-recovery-bench 2026-11-27: undialed, the survivor held 0 copies and moved 0 of 20).
+#[tokio::test(start_paused = true)]
+async fn an_agent_vm_peer_started_lazily_dials_at_once_and_stays() {
+    test_dial::refuse_all();
+    let vm = lazily(|| built("lane-vm"));
+    vm.set_vm_boundary(true);
+    let run = tokio::spawn(vm.clone().run());
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(test_dial::attempts().len(), 1, "a boundary peer dials at start");
+    assert!(!vm.idle_parked());
+    tokio::time::advance(IDLE_CLOSE_AFTER * 4).await;
+    assert!(!vm.idle_due(), "its copies are read over this link alone");
+    vm.stop();
+    run.await.unwrap();
+
+    // Set after it parked (a reload), it wakes.
+    let later = lazily(|| built("lane-vm-later"));
+    let run = tokio::spawn(later.clone().run());
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert_eq!(test_dial::attempts().len(), 1, "a plain parked peer does not dial");
+    later.set_vm_boundary(true);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(test_dial::attempts().len(), 2, "turning the boundary on wakes the dial");
+    later.stop();
+    run.await.unwrap();
+    test_dial::clear();
+}
+
 /// A peer neither saved nor started lazily (a lease, a test's) dials at once, as before.
 #[tokio::test(start_paused = true)]
 async fn a_peer_not_started_lazily_dials_at_once() {

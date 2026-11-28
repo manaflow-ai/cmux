@@ -516,6 +516,7 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "phone-page-v1",
             "mailbox-send-v1",
             "bundle-v1",
+            "zstd-stream-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
             "surface-stream-v1",

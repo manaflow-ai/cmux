@@ -471,6 +471,90 @@ async fn a_guarded_chat_takes_its_family_from_here_and_a_web_one_must_ask() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
+async fn a_bound_claude_chat_lands_only_with_a_working_destination_login() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let root = Scratch::home("bring-back");
+    let local = Scratch::temp("bring-back-login");
+    let claude = local.path().join("claude");
+    std::fs::write(
+        &claude,
+        format!(
+            r#"#!/bin/sh
+if [ "$*" = "auth status --json" ]; then
+    if [ -f "$HOME/signed-in" ]; then
+        printf '%s\n' '{{"loggedIn":true,"authMethod":"claude.ai"}}'
+    else
+        printf '%s\n' '{{"loggedIn":false}}'
+    fi
+    exit
+fi
+exec python3 '{FAKE}' "$@"
+"#
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut cfg = config(
+        "ask",
+        json!({"harnesses": {"claude": {
+            "argv": [claude], "family": "claude",
+            "env": {"HOME": local.path(), "CLAUDE_CONFIG_DIR": local.path(),
+                "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "", "CLAUDE_CODE_OAUTH_TOKEN": ""}
+        }}}),
+    );
+    cfg.path = Some(local.path().join("config.json"));
+    cfg.profile_sources = acpmux::config::ProfileSources::none();
+    cfg.profile_sources.cmux_json = Some(local.path().join("cmux.json"));
+    let (routes, state) = acpmux::routes::places(&cfg);
+    let (hub, mut dst) = daemon(cfg, None).await;
+    hub.set_vm_marker_root(local.path().to_owned());
+    for (connection, destination) in [
+        ("claude-token", "signed-out"),
+        ("anthropic-key", "signed-out"),
+        ("claude-token", "login"),
+        ("anthropic-key", "key"),
+    ] {
+        let signed_in = local.path().join("signed-in");
+        match destination {
+            "login" => std::fs::write(&signed_in, "").unwrap(),
+            "key" => {
+                std::fs::remove_file(&signed_in).unwrap();
+                let secret = local.path().join("key");
+                std::fs::write(&secret, "fixture-local-only-key").unwrap();
+                std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
+                let file = serde_json::from_value(json!({
+                    "kind": "direct-api-key", "provider": "anthropic", "families": ["claude"],
+                    "secret": format!("file:{}", secret.display()), "cloud_enabled": false
+                }))
+                .unwrap();
+                acpmux::routes::add(routes.as_deref(), "local-key", &file, false).unwrap();
+                acpmux::routes::set_binding(&state, "family:claude", Some("local-key")).unwrap();
+            }
+            _ => {}
+        }
+        let m = meta(
+            root.path(),
+            json!({"harness": "claude", "credentialConnection": format!("{connection}:{}", "a".repeat(64))}),
+        );
+        let id = m["id"].as_str().unwrap();
+        let rid = receive(&mut dst, guard("peer", &[root.path()]), &m, &[]).await.unwrap();
+        let answer = finish(&mut dst, &rid, json!({})).await;
+        if destination != "signed-out" {
+            answer.unwrap();
+            assert!(hub.resolve(id).unwrap().meta().credential_connection.is_none());
+            dst.request(method::SESSION_PROMPT, ask(id, "after-return", "hello")).await.unwrap();
+            assert_eq!(hub.session_summary(&hub.resolve(id).unwrap())["preview"], "hello");
+        } else {
+            assert!(answer.is_err_and(|error| error.contains("needs its model connection")));
+            assert!(hub.resolve(id).is_err());
+        }
+    }
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
 async fn a_guarded_chat_starts_without_its_preset_session_env_store_roots_or_cmux_tools() {
     let root = Scratch::home("env");
     let presets =

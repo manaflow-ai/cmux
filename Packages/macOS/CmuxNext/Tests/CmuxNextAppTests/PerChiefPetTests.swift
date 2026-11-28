@@ -158,14 +158,40 @@ import Testing
         let picks = h.picks()
         picks.remember("moon", for: Self.scout)
         let picture: (String) -> URL? = { ChiefPetSettingsRows.avatarURL(of: picks.mascot(of: $0, in: h.settings.snapshot)) }
-        let faces = HomeService.chiefFaces(chiefs: [Self.main, Self.scout, "agent_new02"], own: [:], picture: picture)
+        let faces = HomeChiefAvatars.faces(chiefs: [Self.main, Self.scout, "agent_new02"], own: [:], picture: picture)
         #expect(faces[Self.main] == ChiefPetMascot.fox.avatarURL.map(HomeChiefAvatar.picture))
         #expect(faces[Self.scout] == ChiefPetMascot.moon.avatarURL.map(HomeChiefAvatar.picture))
         #expect(faces["agent_new02"] == ChiefPetMascot.orb.avatarURL.map(HomeChiefAvatar.picture))
         #expect(faces[Self.main] != faces[Self.scout])
-        let own = HomeService.chiefFaces(chiefs: [Self.main, Self.scout], own: [Self.scout: .text("SC")], picture: picture)
+        let own = HomeChiefAvatars.faces(chiefs: [Self.main, Self.scout], own: [Self.scout: .text("SC")], picture: picture)
         #expect(own[Self.scout] == .text("SC"))
         #expect(own[Self.main] == faces[Self.main])
+    }
+
+    /// Leo 2026-11-27: "The sidebar makes that call for every Chief on every row whose tabs a Chief
+    /// started". A row asks for its own Chief's face: the same face `faces` gives it, from one
+    /// picture lookup, not one per listed Chief.
+    @Test func oneRowsChiefFaceAsksOnePicture() async throws {
+        let h = try await make(#"{"home":{"chiefPetMascot":"fox"}}"#)
+        defer { h.tearDown() }
+        let picks = h.picks()
+        picks.remember("moon", for: Self.scout)
+        var asked: [String] = []
+        let picture: (String) -> URL? = {
+            asked.append($0)
+            return ChiefPetSettingsRows.chosenPicture(of: $0, picks: picks, uploads: nil, in: h.settings.snapshot, file: h.settings.fileRoot)
+        }
+        let listed: Set<String> = [Self.scout, "agent_new02"]
+        let faces = HomeChiefAvatars.faces(chiefs: listed.union([Self.main]), own: [:], picture: picture)
+        for chief in [Self.main, Self.scout, "agent_new02"] {
+            asked = []
+            #expect(HomeChiefAvatars.face(of: chief, rows: [], extra: listed, own: [:], picture: picture) == faces[chief])
+            #expect(asked == [chief])
+        }
+        asked = []
+        #expect(HomeChiefAvatars.face(of: Self.scout, rows: [], extra: listed, own: [Self.scout: .text("SC")], picture: picture) == .text("SC"))
+        #expect(HomeChiefAvatars.face(of: "agent_unlisted", rows: [], extra: listed, own: [:], picture: picture) == nil)
+        #expect(asked.isEmpty, "its own avatar and an unlisted Chief ask no picture")
     }
 
     /// Leo 2026-11-01: "im not seeing chiefs with the selected avatar appearance". Home draws a
@@ -179,7 +205,7 @@ import Testing
         let picture: (String) -> URL? = {
             ChiefPetSettingsRows.chosenPicture(of: $0, picks: picks, uploads: nil, in: h.settings.snapshot, file: h.settings.fileRoot)
         }
-        let faces = HomeService.chiefFaces(chiefs: [Self.main, Self.scout, "agent_new02"], own: [:], picture: picture)
+        let faces = HomeChiefAvatars.faces(chiefs: [Self.main, Self.scout, "agent_new02"], own: [:], picture: picture)
         #expect(faces[Self.main] == ChiefPetMascot.fox.avatarURL.map(HomeChiefAvatar.picture))
         #expect(faces[Self.scout] == ChiefPetMascot.moon.avatarURL.map(HomeChiefAvatar.picture))
         #expect(faces["agent_new02"] == nil, "no pick: its monogram, not the default Chief's fox")

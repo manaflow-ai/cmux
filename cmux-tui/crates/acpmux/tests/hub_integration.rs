@@ -155,6 +155,8 @@ mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 
+#[path = "hub_integration/fork_own_process.rs"]
+mod fork_own_process;
 #[path = "hub_integration/turn_attestation.rs"]
 mod turn_attestation;
 #[path = "hub_integration/turn_cost.rs"]
@@ -232,6 +234,11 @@ async fn setup_defaults_env(
     setup_inbox(policy, env, defaults_env, true).await
 }
 
+/// `setup_env` with the fake harness in OpenCode's family.
+async fn setup_opencode(env: BTreeMap<String, String>) -> (Arc<Hub>, TestClient) {
+    setup_family(PermissionPolicy::ApproveAll, env, BTreeMap::new(), true, Some("opencode")).await
+}
+
 /// `setup` with `agentInbox` off: another agent's plain send queues or steers as before the
 /// inbox (`hub/inbox.rs`), for the tests of that path (still every non-plain agent message's).
 async fn setup_queue(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
@@ -244,6 +251,17 @@ async fn setup_inbox(
     defaults_env: BTreeMap<String, String>,
     inbox: bool,
 ) -> (Arc<Hub>, TestClient) {
+    setup_family(policy, env, defaults_env, inbox, None).await
+}
+
+/// `setup_inbox` with the fake harness's profile in `family`.
+async fn setup_family(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+    defaults_env: BTreeMap<String, String>,
+    inbox: bool,
+    family: Option<&str>,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -254,7 +272,7 @@ async fn setup_inbox(
             env,
             description: None,
             fallback: None,
-            family: None,
+            family: family.map(str::to_owned),
             models: vec![],
             model: None,
             effort: None,

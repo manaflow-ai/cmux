@@ -74,5 +74,42 @@ class ChiefSteady(unittest.TestCase):
         self.assertLessEqual(got["waited_s"], 32)
 
 
+class ChiefUp(unittest.TestCase):
+    """--chief-up (decision B, 2026-11-28): the empty app's number counts the Chief, so the window waits, bounded,
+    for optchat-chief and says when it never came."""
+
+    def run_wait(self, counts, bound):
+        clock = [0.0]
+        seq = iter(counts)
+        last = [0]
+
+        def count(*_):
+            last[0] = next(seq, last[0])
+            return last[0]
+
+        def sleep(s):
+            clock[0] += s
+        with mock.patch.object(bm, "chief_processes", side_effect=count), \
+             mock.patch.object(bm.time, "monotonic", side_effect=lambda: clock[0]), \
+             mock.patch.object(bm.time, "sleep", side_effect=sleep):
+            return bm.wait_chief_up(1, "/b", bound)
+
+    def test_comes_up(self):
+        got = self.run_wait([0, 0, 0, 1], bound=120)
+        self.assertTrue(got["up"])
+        self.assertLessEqual(got["waited_s"], 8)
+
+    def test_never_up_is_bounded_and_says_so(self):
+        got = self.run_wait([0], bound=30)
+        self.assertFalse(got["up"])
+        self.assertLessEqual(got["waited_s"], 32)
+
+    def test_launch_state_names_the_wait(self):
+        got = bm.launch_state({"processes": [APP], "chief_up_wait": {"up": False, "waited_s": 120.0}}, None)
+        self.assertEqual((got["chief_up"], got["chief_up_timed_out"], got["chief_up_wait_s"]), (False, True, 120.0))
+        got = bm.launch_state({"processes": [APP, CHIEF]}, None)
+        self.assertNotIn("chief_up_timed_out", got)  # no --chief-up: as before
+
+
 if __name__ == "__main__":
     unittest.main()

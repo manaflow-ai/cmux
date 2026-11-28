@@ -12,6 +12,8 @@ import java.util.Objects;
 
 public final class ClientInfo implements WireValue {
     private final List<UInt64> attached;
+    /** The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field. */
+    private final Field<List<String>> capabilities;
     private final UInt64 client;
     private final UInt64 connectedSeconds;
     private final String kind;
@@ -23,6 +25,7 @@ public final class ClientInfo implements WireValue {
     private ClientInfo(Builder builder) {
         if (!builder.attachedSet) throw new IllegalArgumentException("attached is required");
         this.attached = List.copyOf(Wire.nonNull(builder.attached, "attached"));
+        this.capabilities = builder.capabilities.map(value -> List.copyOf(value));
         if (!builder.clientSet) throw new IllegalArgumentException("client is required");
         this.client = Wire.nonNull(builder.client, "client");
         if (!builder.connectedSecondsSet) throw new IllegalArgumentException("connected_seconds is required");
@@ -42,6 +45,7 @@ public final class ClientInfo implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public List<UInt64> attached() { return attached; }
+    public Field<List<String>> capabilities() { return capabilities; }
     public UInt64 client() { return client; }
     public UInt64 connectedSeconds() { return connectedSeconds; }
     public String kind() { return kind; }
@@ -55,6 +59,10 @@ public final class ClientInfo implements WireValue {
         Builder builder = builder();
         Object rawAttached = Wire.required(object, "attached");
         builder.attached(Wire.array(rawAttached, "ClientInfo.attached", item -> Wire.uint64(item, "ClientInfo.attached item")));
+        Object rawCapabilities = Wire.optional(object, "capabilities");
+        if (!Wire.isMissing(rawCapabilities)) {
+            builder.capabilities(Wire.array(rawCapabilities, "ClientInfo.capabilities", item -> Wire.string(item, "ClientInfo.capabilities item")));
+        }
         Object rawClient = Wire.required(object, "client");
         builder.client(Wire.uint64(rawClient, "ClientInfo.client"));
         Object rawConnectedSeconds = Wire.required(object, "connected_seconds");
@@ -76,6 +84,7 @@ public final class ClientInfo implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "attached", attached);
+        Wire.put(object, "capabilities", capabilities);
         Wire.put(object, "client", client);
         Wire.put(object, "connected_seconds", connectedSeconds);
         Wire.put(object, "kind", kind);
@@ -89,11 +98,11 @@ public final class ClientInfo implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ClientInfo that)) return false;
-        return Objects.equals(attached, that.attached) && Objects.equals(client, that.client) && Objects.equals(connectedSeconds, that.connectedSeconds) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(self, that.self) && Objects.equals(sizes, that.sizes) && Objects.equals(transport, that.transport);
+        return Objects.equals(attached, that.attached) && Objects.equals(capabilities, that.capabilities) && Objects.equals(client, that.client) && Objects.equals(connectedSeconds, that.connectedSeconds) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(self, that.self) && Objects.equals(sizes, that.sizes) && Objects.equals(transport, that.transport);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(attached, client, connectedSeconds, kind, name, self, sizes, transport); }
+    public int hashCode() { return Objects.hash(attached, capabilities, client, connectedSeconds, kind, name, self, sizes, transport); }
 
     @Override
     public String toString() { return "ClientInfo" + toWire(); }
@@ -101,6 +110,7 @@ public final class ClientInfo implements WireValue {
     public static final class Builder {
         private List<UInt64> attached;
         private boolean attachedSet;
+        private Field<List<String>> capabilities = Field.omitted();
         private UInt64 client;
         private boolean clientSet;
         private UInt64 connectedSeconds;
@@ -119,6 +129,10 @@ public final class ClientInfo implements WireValue {
         public Builder attached(List<UInt64> value) {
             this.attached = value;
             this.attachedSet = true;
+            return this;
+        }
+        public Builder capabilities(List<String> value) {
+            this.capabilities = Field.of(value);
             return this;
         }
         public Builder client(UInt64 value) {

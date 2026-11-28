@@ -495,3 +495,181 @@ fn every_kind_of_question_posts_one_needs_input_notice_per_wait() {
         asking.join().unwrap();
     }
 }
+
+/// The pid of the process that serves the daemon's socket (its peer credentials).
+fn daemon_pid(daemon: &Daemon) -> libc::pid_t {
+    let stream = UnixStream::connect(&daemon.socket).unwrap();
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+        let mut cred = libc::ucred { pid: 0, uid: 0, gid: 0 };
+        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: `cred` and `len` are valid for SO_PEERCRED's out-parameters.
+        let read = unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&raw mut cred).cast(),
+                &raw mut len,
+            )
+        };
+        assert_eq!(read, 0, "SO_PEERCRED: {}", std::io::Error::last_os_error());
+        cred.pid
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        let mut pid: libc::pid_t = 0;
+        let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+        // SAFETY: `pid` and `len` are valid for LOCAL_PEERPID's out-parameters.
+        let read = unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_LOCAL,
+                libc::LOCAL_PEERPID,
+                (&raw mut pid).cast(),
+                &raw mut len,
+            )
+        };
+        assert_eq!(read, 0, "LOCAL_PEERPID: {}", std::io::Error::last_os_error());
+        pid
+    }
+}
+
+/// Every tab of the daemon, from its workspace tree.
+fn tabs(daemon: &Daemon) -> Vec<Value> {
+    let listed = daemon.rpc(json!({"id": 8, "cmd": "list-workspaces"}));
+    let mut tabs = Vec::new();
+    for workspace in listed["data"]["workspaces"].as_array().into_iter().flatten() {
+        for screen in workspace["screens"].as_array().into_iter().flatten() {
+            for pane in screen["panes"].as_array().into_iter().flatten() {
+                tabs.extend(pane["tabs"].as_array().into_iter().flatten().cloned());
+            }
+        }
+    }
+    tabs
+}
+
+/// The stable id of the tab `surface` names now; a cold start numbers surfaces anew.
+fn tab_resource(daemon: &Daemon, surface: u64) -> String {
+    let tabs = tabs(daemon);
+    let tab = tabs.iter().find(|tab| tab["surface"] == surface);
+    let tab = tab.unwrap_or_else(|| panic!("no tab {surface}: {tabs:?}"));
+    tab["tab_resource_id"].as_str().unwrap().to_owned()
+}
+
+/// The surface the tab `resource` has now.
+fn surface_of(daemon: &Daemon, resource: &str) -> u64 {
+    let tabs = tabs(daemon);
+    let tab = tabs.iter().find(|tab| tab["tab_resource_id"] == resource);
+    let tab = tab.unwrap_or_else(|| panic!("no tab {resource}: {tabs:?}"));
+    tab["surface"].as_u64().unwrap()
+}
+
+/// Kills the daemon with SIGKILL (no shutdown path runs, nothing is flushed) and starts a new
+/// one on the same state; acpmux and its chats keep running.
+fn kill_and_restart(daemon: &Daemon) {
+    let pid = daemon_pid(daemon);
+    // SAFETY: `pid` is this test's own daemon, read from its socket's peer.
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0, "kill -9 {pid}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    // SAFETY: signal 0 only probes that `pid` exists.
+    while unsafe { libc::kill(pid, 0) } == 0 {
+        assert!(Instant::now() < deadline, "daemon {pid} still runs after SIGKILL");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let output = daemon.server("ensure").output().unwrap();
+    assert!(output.status.success(), "ensure: {}", String::from_utf8_lossy(&output.stderr));
+    assert_ne!(daemon_pid(daemon), pid, "ensure started no new daemon");
+}
+
+/// A daemon killed with SIGKILL mid-turn (goal notify-one-per-chat: across a daemon restart)
+/// still posts that turn's finish once when the new daemon starts: not lost because no daemon
+/// watched when it ended, not twice because the dead one saw its start. And a daemon killed
+/// just after it posted a finish does not post it again on its next start.
+#[test]
+fn a_daemon_killed_mid_turn_posts_the_turns_finish_once() {
+    let daemon = machine("notice-kill9");
+    let (surface, session) = chat(&daemon);
+    let tab = tab_resource(&daemon, surface);
+    let (_, marker_session) = chat(&daemon);
+    let mut marker = Acpmux::connect(&daemon, &marker_session);
+    // The chat's tab, by its stable id: each restart below numbers surfaces anew.
+    let finished = |daemon: &Daemon| -> Vec<Value> {
+        notices(daemon, surface_of(daemon, &tab))
+            .into_iter()
+            .filter(|row| row["title"].as_str().is_some_and(|t| t.ends_with("finished")))
+            .collect()
+    };
+    // Once another chat's later turn notified, the new daemon's watch caught up past this one.
+    let fence = |marker: &mut Acpmux, daemon: &Daemon, text: &str| {
+        marker.prompt(&marker_session, text);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !all_notices(daemon)
+            .iter()
+            .any(|row| row["body"].as_str().is_some_and(|b| b.contains(text)))
+        {
+            assert!(Instant::now() < deadline, "no {text} notice: {:?}", all_notices(daemon));
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+
+    // The turn ticks for 3 s; the daemon dies 0.5 s in and is back before it ends.
+    let turn = {
+        let mut acpmux = Acpmux::connect(&daemon, &session);
+        let session = session.clone();
+        std::thread::spawn(move || acpmux.prompt(&session, "ticking:30:100"))
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(finished(&daemon).is_empty(), "finished before its end: {:?}", finished(&daemon));
+    kill_and_restart(&daemon);
+    let ended = turn.join().unwrap();
+    assert!(ended.get("error").is_none(), "{ended}");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while finished(&daemon).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "no finish on tab {tab} after the restart: notices {:?}, tabs {:?}",
+            all_notices(&daemon),
+            tabs(&daemon),
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    fence(&mut marker, &daemon, "marker one");
+    assert_eq!(finished(&daemon).len(), 1, "one turn, one finish: {:?}", finished(&daemon));
+
+    // The turn ends while no daemon runs: the next one posts it, once.
+    let turn = {
+        let mut acpmux = Acpmux::connect(&daemon, &session);
+        let session = session.clone();
+        std::thread::spawn(move || acpmux.prompt(&session, "ticking:5:100"))
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    let pid = daemon_pid(&daemon);
+    // SAFETY: `pid` is this test's own daemon.
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGSTOP) }, 0);
+    let ended = turn.join().unwrap();
+    assert!(ended.get("error").is_none(), "{ended}");
+    // SAFETY: as above; a stopped process still takes SIGKILL.
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    // SAFETY: signal 0 only probes that `pid` exists.
+    while unsafe { libc::kill(pid, 0) } == 0 {
+        assert!(Instant::now() < deadline, "daemon {pid} still runs after SIGKILL");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let output = daemon.server("ensure").output().unwrap();
+    assert!(output.status.success(), "ensure: {}", String::from_utf8_lossy(&output.stderr));
+    fence(&mut marker, &daemon, "marker two");
+    assert_eq!(finished(&daemon).len(), 2, "two turns, two finishes: {:?}", finished(&daemon));
+
+    // A finish posted just before the kill is not posted again.
+    Acpmux::connect(&daemon, &session).prompt(&session, "hello before the kill");
+    notice(&daemon, surface_of(&daemon, &tab), |row| {
+        row["body"].as_str().is_some_and(|b| b.contains("hello before the kill"))
+    });
+    kill_and_restart(&daemon);
+    fence(&mut marker, &daemon, "marker three");
+    assert_eq!(finished(&daemon).len(), 3, "three turns, three finishes: {:?}", finished(&daemon));
+}

@@ -32,6 +32,7 @@
           "scripts/git-hooks/pre-push",
           "tests/workflow_jobs.py",
           "docs/mdm/",
+          "docs/privacy.md",
           "docs/ci/cmux-next-workflow-notes.md",
           "docs/ci/nightly-workflow-notes.md",
           "**/*.xcstrings",
@@ -47,14 +48,26 @@
           "tests/test_egress_gate.py",
           "tests/test_outbound_hosts.py",
           "tests/test_classic_cloud_routes.py",
-          "backend/apps/api/"
+          "tests/guard_delta.py",
+          "backend/apps/api/",
+          "scripts/ci/protocol_skew_check.py",
+          "scripts/ci/settings_catalog_keys.py",
+          "docs/ci/cmux-next-workflow-notes/",
+          "docs/ci/nightly-workflow-notes/",
+          "scripts/ci/ci_process_tree.py",
+          "scripts/ci/generated-files.json",
+          "scripts/ci/generated_files_guard.py",
+          "scripts/ci/ensure-setup-node.sh",
+          "agent-chat/bun.lock",
+          "backend/bun.lock",
+          "scripts/ci/fsr-bun-cache.sh",
+          "scripts/react-doctor/bun.lock"
         ],
         "push_cover": [
           ".github/workflows/cmux-next-web-lint.yml",
           ".github/workflows/cmux-next-guards.yml",
           ".github/workflows/cmux-next-crash-class.yml",
-          ".github/workflows/cmux-next.yml",
-          ".github/workflows/cmux-next-web.yml"
+          ".github/workflows/cmux-next.yml"
         ],
         "not_inputs": {
           "scripts/install-git-hooks.sh": "web_lint_prepush.py names it in its advice; the gate never runs it",
@@ -100,7 +113,9 @@
           "tests/git_fixture_env.py",
           "scripts/ci/ci_process_tree.py",
           "scripts/merge-insertions.py",
-          ".gitattributes"
+          ".gitattributes",
+          "tests/test_sans_io_guard.py",
+          "tests/fleet_test_host.py"
         ],
         "not_inputs": {
           "plans/cmux-next/code-quality.md": "check-app-size.sh names it in its message",
@@ -112,7 +127,10 @@
           "scripts/generate-claude-launch-environment-policy.py": "generated_merge.py REGENERATE: a command, not run by the audit",
           "web/scripts/export-next-docs.ts": "generated_merge.py REGENERATE: a command, not run by the audit",
           "workers/cmux-vm/cli/scripts/regenerate.sh": "generated_merge.py REGENERATE: a command, not run by the audit",
-          "workers/iroh-v2/": "generated_merge.py REGENERATE: a command's working directory, not read by the audit"
+          "workers/iroh-v2/": "generated_merge.py REGENERATE: a command's working directory, not read by the audit",
+          "scripts/install-git-hooks.sh": "generated_merge.py names it in its advice; the check never runs it",
+          "scripts/ios-ffi-bindings.sh": "generated_merge.py REGENERATE: the merge driver's regeneration command for the FFI bindings, not run by the check",
+          "web/scripts/export-docs-shortcuts.ts": "generated_outputs.py names it as the base autofix's writer; the check never runs it"
         }
       }
     },
@@ -135,7 +153,10 @@
           "scripts/ci/check-paths.txt"
         ],
         "not_inputs": {
-          "scripts/ci/": "the step puts scripts/ci on sys.path to import react_doctor_gate (an input)"
+          "scripts/ci/": "the step puts scripts/ci on sys.path to import react_doctor_gate (an input)",
+          ".github/workflows/cmux-next-guards.yml": "receipt_input_key.py CHECKS: a static-checks step's command, keyed by its own receipt; React Doctor keys only its own entry",
+          "scripts/cmux-next/check-group-menus.py": "receipt_input_key.py CHECKS: a static-checks step's command, keyed by its own receipt; React Doctor keys only its own entry",
+          "tests/test_defaults_guard.py": "receipt_input_key.py CHECKS: a static-checks step's command, keyed by its own receipt; React Doctor keys only its own entry"
         }
       }
     }

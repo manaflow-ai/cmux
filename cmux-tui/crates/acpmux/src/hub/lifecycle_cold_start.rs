@@ -130,10 +130,13 @@ impl Hub {
             meta.created_by.as_ref(),
             session.person.load(std::sync::atomic::Ordering::SeqCst),
         );
-        let profile = &crate::subrouter_priority::profile_with(
-            profile,
-            self.subrouter_priority(session, &meta, for_person),
-        );
+        // A lane started while a coordinator waits on it asks at the coordinator's class
+        // (`wait_edges.rs`).
+        // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
+        let own = self.subrouter_priority(session, &meta, for_person);
+        let priority = self.inherit_priority(session, own);
+        // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
+        let profile = &crate::subrouter_priority::profile_with(profile, priority);
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let mut existing_sid = session.meta().agent_session_id.clone();
@@ -262,7 +265,9 @@ impl Hub {
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
             // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
-            plan.args.extend(super::stop_condition::claude_args(&meta));
+            if !super::spawn::launch_requires_claude_machine_login(&meta) {
+                plan.args.extend(super::stop_condition::claude_args(&meta));
+            }
             // A restricted chat's folder settings and MCP servers stay off (`restricted.rs`).
             plan.args.extend(super::restricted::claude_args(&meta));
             let (plan, mut profile) = self.remote_chain_plan(session, profile, plan).await?;
@@ -404,7 +409,16 @@ impl Hub {
                 // `initialize` ("agent process closed (grok): Authentication required"): typed
                 // the same as a `session/new` auth_required, so the start names it (hq#11225).
                 let mut e = Self::explain_start_failure(session, e).await;
-                crate::recovery::start_sign_in(&mut e, &meta.harness);
+                if !session
+                    .credential
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .as_ref()
+                    .and_then(crate::agent_credentials::AgentCredential::key_provider)
+                    .is_some_and(|provider| crate::recovery::start_connection_key(&mut e, provider))
+                {
+                    crate::recovery::start_sign_in(&mut e, &meta.harness);
+                }
                 return Err(e);
             }
         };
@@ -534,6 +548,45 @@ impl Hub {
         let codex_answer = session.codex_answer.lock().unwrap_or_else(|e| e.into_inner()).clone();
         // What the user had chosen before; replayed after load or new.
         let saved = session.meta();
+        // A fresh OpenCode fork: its own agent forks the chat's agent session now
+        // (`fork_own_process.rs`). One that fails starts a new session fed the fork's transcript.
+        let own_fork = if existing.is_none() && session.agent_fork_parent().is_some() {
+            let params =
+                self.acp_params(&session.id, &meta, profile, None, &child, &codex_answer, &init);
+            self.fork_in_own_process(session, &child, params).await
+        } else {
+            None
+        };
+        let forked_here = match own_fork {
+            Some(Ok(v)) => {
+                let sid = v.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+                session
+                    .meta
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .set_agent_session_id(Some(sid), "non-claude");
+                self.absorb_session_response(session, &v);
+                self.append(
+                    session,
+                    "mux",
+                    "resumed",
+                    self.wake_marked(session, json!({"level": "fork"})),
+                );
+                true
+            }
+            Some(Err(e)) => {
+                tracing::warn!(session = %session.id, "the fork's own session/fork failed, starting from its transcript: {e}");
+                self.append(
+                    session,
+                    "mux",
+                    "resume_failed",
+                    json!({"error": format!("{} could not fork the chat ({}), so this fork's agent starts from its transcript", meta.harness, e.message)}),
+                );
+                session.rehydrate.store(true, Ordering::SeqCst);
+                false
+            }
+            None => false,
+        };
         let loaded = match existing {
             Some(sid) if supports_load => {
                 let hold = ReplayHold::start(session, &child);
@@ -587,6 +640,7 @@ impl Hub {
             Some(_) => false,
             None => false,
         };
+        let loaded = forked_here || loaded;
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
             let res = match child
@@ -609,7 +663,18 @@ impl Hub {
                     // An agent with no sign-in answers with ACP's auth_required: typed, so the
                     // start names the agent and its sign-in, not a bare refusal (hq#11225).
                     let mut e = Self::explain_start_failure(session, e).await;
-                    crate::recovery::start_sign_in(&mut e, &meta.harness);
+                    if !session
+                        .credential
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .as_ref()
+                        .and_then(crate::agent_credentials::AgentCredential::key_provider)
+                        .is_some_and(|provider| {
+                            crate::recovery::start_connection_key(&mut e, provider)
+                        })
+                    {
+                        crate::recovery::start_sign_in(&mut e, &meta.harness);
+                    }
                     return Err(e);
                 }
             };
@@ -635,12 +700,25 @@ impl Hub {
                     "resumed",
                     self.wake_marked(session, json!({"level": "rehydrate"})),
                 );
+            } else if saved.parent_id.is_some() && saved.fork_seq.is_some() {
+                // An unstarted fork recovered after daemon restart still carries its transcript.
+                session.rehydrate.store(true, Ordering::SeqCst);
             }
         }
         // A guarded relay import may retire the source ACP id when its native agent files are
         // absent. Its carried choices still need replaying after the fresh session/new, just as
         // they do for an ordinary respawn or fork.
-        if saved.agent_session_id.is_some() || saved.fork_before.is_some() || saved.remote_origin {
+        // A transcript fork has no agent session yet, but its first agent still inherits
+        // its parent's settings; the same applies to a fork of that fork.
+        if saved.agent_session_id.is_some()
+            || saved.fork_before.is_some()
+            || saved.remote_origin
+            || forked_here
+            || (saved.parent_id.is_some()
+                && (saved.modes.is_some()
+                    || saved.config_options.is_some()
+                    || saved.models.is_some()))
+        {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;

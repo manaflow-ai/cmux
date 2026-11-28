@@ -11,7 +11,9 @@
 //!   [`MAX_TMP_ENTRIES`] entries of a temporary directory (then its size is a floor, `partial`).
 //!   No worktree is walked. The cost is the processes acpmux scopes hold, which their `TasksMax`
 //!   caps, never the files on disk.
-//! - A scope over its budget is warned once in its chat. One over its budget while the home
+//! - A scope over its budget is warned once in its chat, and a chat once for all its scopes
+//!   (each background command is a scope of its own), again only when a scope's use doubles
+//!   the last one it was told about (`Watch::warned`). One over its budget while the home
 //!   filesystem's free space is under the host's floor (registry `lanes.free_gb_floor`, else
 //!   10 GB) has its top writer's process group stopped (SIGSTOP: throttled, not killed), unless
 //!   that group is one of the scope's own (`Known::protected`: the groups it held when the
@@ -161,7 +163,14 @@ pub(crate) struct Watch {
     pub budget: u64,
     pub truncated: bool,
     pub ticks: u64,
+    /// Each chat's use at its last plain `Action::Warn`: a chat whose builds each run in a new
+    /// scope heard the same warning once a build (76 wakes in a day on one lane host, 40 in one
+    /// chat; 13 under this rule). Stops, resumes and low-disk warnings always go out.
+    pub warned: BTreeMap<String, u64>,
 }
+
+/// The most chats `Watch::warned` remembers; past it, it starts over.
+const WARNED_MAX: usize = 4096;
 
 impl Watch {
     /// Applies a tick's `samples`; the actions with each scope's sample. Scopes that went away
@@ -173,6 +182,17 @@ impl Watch {
             let prev = self.states.get(&s.scope).copied().unwrap_or_default();
             let (next, action) = decide(prev, s, self.budget, self.free, self.floor);
             states.insert(s.scope.clone(), next);
+            if action == Some(Action::Warn)
+                && let Some(id) = s.session.as_deref()
+            {
+                if self.warned.get(id).is_some_and(|told| s.used() < told.saturating_mul(2)) {
+                    continue;
+                }
+                if self.warned.len() >= WARNED_MAX {
+                    self.warned.clear();
+                }
+                self.warned.insert(id.to_owned(), s.used());
+            }
             if let Some(a) = action {
                 actions.push((s.clone(), a));
             }

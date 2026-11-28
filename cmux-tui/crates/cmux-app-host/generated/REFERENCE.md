@@ -633,6 +633,7 @@ Ops no app may call:
 - `cloud.snapshot.delete`
 - `cloud.snapshot.restore`
 - `cloud.surge.create`
+- `cloud.vm.agent_key_create`
 - `cloud.vm.domains`
 - `cloud.vm.firewall_create`
 - `cloud.vm.firewall_delete`

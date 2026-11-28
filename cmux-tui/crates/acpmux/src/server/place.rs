@@ -321,6 +321,13 @@ pub(super) fn with_fork(mut reply: Value, params: &Value, enabled: bool) -> Valu
     if let (Some(place), Some(obj)) =
         (crate::fork_place::decide(enabled, parent.as_ref(), key), reply.as_object_mut())
     {
+        if let crate::fork_place::ForkPlace::Fork { machine, client_key } = &place {
+            crate::fork_spec::log(
+                &crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::CloudPlace),
+                machine,
+                client_key,
+            );
+        }
         obj.insert("fork".into(), crate::fork_place::to_json(&place));
     }
     reply

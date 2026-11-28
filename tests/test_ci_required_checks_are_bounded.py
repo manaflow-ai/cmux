@@ -149,8 +149,12 @@ def main() -> int:
     for path, workflow in workflows.items():
         if "pull_request" not in triggers(workflow):
             continue
-        # A group is the requirement; whether it cancels a superseded pull
-        # request run is checked by test_ci_pr_runs_cancel_superseded.py.
+        # Job-level groups also bound superseded work. Validate every job, including
+        # the explicitly preserved short gate, rather than exempt the whole workflow.
+        from test_ci_pr_runs_cancel_superseded import job_groups_problem
+
+        if not workflow.get("concurrency") and job_groups_problem(workflow, path.name, "pull_request") is None:
+            continue
         if not workflow.get("concurrency") and path.name not in OWN_SUPERSESSION:
             failures.append(
                 f"{path.relative_to(ROOT)} runs on pull_request with no "
@@ -173,7 +177,7 @@ def main() -> int:
 
     print(
         f"{len(REQUIRED_CONTEXTS)} required and always-bounded checks are bounded; "
-        "every pull_request workflow has a concurrency group"
+        "every pull_request workflow bounds superseded work"
     )
     return 0
 

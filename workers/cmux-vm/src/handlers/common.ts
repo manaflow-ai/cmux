@@ -5,9 +5,11 @@
  * Order matters and is the same everywhere: scope first (a 403 never depends
  * on which resource was asked for), then the rate limit (which counts only the
  * caller's own tenant), then ownership (another tenant's resource is 404).
+ * withOwnedVm reads the rate limit and ownership at once but answers in that order.
  */
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Effect, Option } from "effect";
+import { Clock, Effect, Either, Option } from "effect";
+import { afterResponse } from "../db/sql.ts";
 import { AuditStore } from "../db/stores.ts";
 import { auditActorOf, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
@@ -19,12 +21,45 @@ import { TenantPolicy } from "../policy.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 
-/** Logs which dependency failed (an operation name only, never ids or causes) and answers 503. */
+/**
+ * A fixed word for why a dependency call threw, never its message or any id: Cloudflare marks a Durable Object call that
+ * hit a full input queue `overloaded` and one it may repeat `retryable`; the rest are told by the platform's own phrases.
+ * 2026-11-28: every `limits.rate` 503 read the same ("dependency unavailable"), so a tenant object that was overloaded
+ * could not be told from one that was down.
+ */
+export const failureClass = (error: unknown): string => {
+  const e = (error !== null && typeof error === "object" && "cause" in error ? (error as { cause: unknown }).cause : error) as
+    | { overloaded?: unknown; retryable?: unknown; message?: unknown }
+    | null
+    | undefined;
+  if (e === null || e === undefined || typeof e !== "object") return "unknown";
+  if (e.overloaded === true) return "overloaded";
+  const text = typeof e.message === "string" ? e.message.toLowerCase() : "";
+  for (const [needle, word] of [
+    ["overloaded", "overloaded"],
+    ["exceeded its memory", "memory_limit"],
+    ["exceeded cpu", "cpu_limit"],
+    ["network connection lost", "connection_lost"],
+    ["object reset", "object_reset"],
+    ["timed out", "timeout"],
+    ["not confirmed", "write_unconfirmed"],
+  ] as const)
+    if (text.includes(needle)) return word;
+  return e.retryable === true ? "retryable" : "other";
+};
+
+/** A Durable Object call Cloudflare says may be repeated, and that did not fail for want of capacity. */
+export const isRepeatable = (error: unknown): boolean => {
+  const c = failureClass(error);
+  return c === "retryable" || c === "connection_lost" || c === "object_reset";
+};
+
+/** Logs which dependency failed (an operation name and a fixed cause word, never ids or messages) and answers 503. */
 export const dependencyDown =
   (operation: string) =>
-  (_error: unknown): Effect.Effect<never, ServiceUnavailable> =>
+  (error: unknown): Effect.Effect<never, ServiceUnavailable> =>
     Effect.logWarning("cmux-vm dependency unavailable").pipe(
-      Effect.annotateLogs({ operation }),
+      Effect.annotateLogs({ operation, cause_class: failureClass(error) }),
       Effect.zipRight(Effect.fail(unavailable(operation))),
     );
 
@@ -35,7 +70,8 @@ export const rateLimit = (principal: Principal, rateClass: RateClass) =>
     const limits = yield* TenantLimits;
     const decision = yield* limits
       .rate(principal.tenantId, rateClass, policy.rate(rateClass))
-      .pipe(Effect.catchAll(dependencyDown("limits.rate")));
+      // One repeat of a call the platform says is safe to repeat (a spent token twice costs one request of budget).
+      .pipe(Effect.retry({ times: 1, while: isRepeatable }), Effect.catchAll(dependencyDown("limits.rate")));
     if (!decision.ok) {
       return yield* Effect.fail(
         new QuotaExceeded({
@@ -88,12 +124,26 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
       Effect.gen(function* () {
         const granted = keyHasScope(caller, scope);
         if (granted === null) return yield* Effect.fail(missingScope(scope));
-        yield* rateLimit(principal, rateClass);
         const parsed = parseVmId(raw.value);
-        if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
+        if (Option.isNone(parsed)) {
+          yield* rateLimit(principal, rateClass);
+          return yield* Effect.fail(vmNotFound());
+        }
         return yield* name(parsed.value, (vm) =>
           Effect.gen(function* () {
-            const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+            // The rate spend (a TenantLimits object call) and the ownership read (Postgres) are independent reads of
+            // the caller's own tenant, so they run together; one VM call used to wait for both in turn. They are
+            // still judged in the order above: a 429 wins over a 404, and nothing acts before ownership is proven.
+            const [rated, found] = yield* Effect.all(
+              [
+                Effect.either(rateLimit(principal, rateClass)),
+                Effect.either(tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")))),
+              ],
+              { concurrency: 2 },
+            );
+            if (Either.isLeft(rated)) return yield* Effect.fail(rated.left);
+            if (Either.isLeft(found)) return yield* Effect.fail(found.left);
+            const owns = found.right;
             if (owns === null) return yield* Effect.fail(vmNotFound());
             return yield* k(caller, vm, { owns, scope: granted });
           }),
@@ -129,9 +179,14 @@ export const audited = <A, E, R>(
       Effect.gen(function* () {
         const at = new Date(yield* Clock.currentTimeMillis);
         const entry = { tenantId: principal.tenantId, ...auditActorOf(principal), action, cmuxId, outcome, at };
-        yield* store.append(entry).pipe(
-          Effect.catchAll(() =>
-            Effect.sync(() => console.error(JSON.stringify({ event: "cmux_vm_audit_fallback", ...entry, at: at.toISOString() }))),
+        // The row is written after the answer (on the Worker), not before it:
+        // the caller never waited on it, and the INSERT was a serial database
+        // round trip on every mutation's response path (a VM resume included).
+        yield* afterResponse(
+          store.append(entry).pipe(
+            Effect.catchAll(() =>
+              Effect.sync(() => console.error(JSON.stringify({ event: "cmux_vm_audit_fallback", ...entry, at: at.toISOString() }))),
+            ),
           ),
         );
       });

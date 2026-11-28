@@ -103,7 +103,7 @@ fn a_record_with_a_current_image_plans_the_image_at_its_frame() {
 }
 
 #[test]
-fn a_record_whose_image_is_gone_plans_the_plain_shell() {
+fn a_record_whose_image_is_gone_plans_no_stage_zero_window() {
     let support = Support::new("plain");
     let data = LaunchRecordData {
         windows: vec![window("w1")],
@@ -114,7 +114,7 @@ fn a_record_whose_image_is_gone_plans_the_plain_shell() {
     };
     write_atomic(support.0.join("launch-record.bin"), &data).unwrap();
     let (_, p) = plan_in(&support);
-    assert_eq!((p.reason, p.shows_window), (7, true));
+    assert_eq!((p.reason, p.shows_window), (7, false));
     assert_eq!(text(&p.image_path), "");
 }
 

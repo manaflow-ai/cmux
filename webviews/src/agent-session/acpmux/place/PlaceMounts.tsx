@@ -7,6 +7,10 @@ import { placeActions, type PlaceClaims } from "./usePlace";
 import { useHeaderState } from "../header/headerState";
 import { AutoStatusLine } from "../auto/AutoStatusLine";
 import { statusTicks, type StatusActionId } from "../auto/computerStatus";
+import { AutoSizeFold } from "../autosize/AutoSizeRow";
+import { callNative } from "../callNative";
+import { translate } from "../i18n";
+import { errorMessage } from "../transportErrors";
 
 /// What ships: the chip in the composer's location row, and the card over the composer
 /// (PlaceControl.gallery.tsx and MoveProgress.gallery.tsx compare the other looks).
@@ -90,4 +94,25 @@ export function ComputerStatusLine({
     else if (id === "run_on_mac") actions.setMode("local");
   };
   return <AutoStatusLine status={status} nowMs={nowMs} offered={OFFERED} onAction={run} />;
+}
+
+/// RFD 0080 piece 4 over the composer: what AutoSize did to the chat's computer (`place.autosize`), the newest row
+/// drawn and the rest folded behind "N earlier". A held row's Upgrade asks for the plan (`cloud.plan.subscribe`, the
+/// pricing card's call; the app opens checkout) and says a refusal in `say`. Nothing while Settings > Experiments'
+/// Cloud Toggle is off or there is no row.
+export function AutoSizeDock({ say }: { say?: (text: string) => void }) {
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
+  const { place } = useHeaderState();
+  const rows = place?.autosize;
+  if (!on || !rows || rows.length === 0) return null;
+  const upgrade = (plan: string) => {
+    void callNative("cloud.plan.subscribe", { plan }).catch((error: unknown) =>
+      say?.(errorMessage(error).trim() || translate("cloudStart.plans.subscribeFailed")),
+    );
+  };
+  return (
+    <div className="autosize-dock">
+      <AutoSizeFold rows={rows} onUpgrade={upgrade} />
+    </div>
+  );
 }

@@ -3370,6 +3370,18 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "capabilities": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field."
     }
    },
    "additional_properties": false
@@ -31310,6 +31322,40 @@
       },
       "presence": "required",
       "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "client-disconnected-by": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "client-disconnected-by"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "by": {
+      "type": {
+       "kind": "ref",
+       "name": "SizeDetachActor"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "constraints": [
+       "The participant that disconnected this client. Absent when the request named nobody."
+      ]
      }
     },
     "additional_properties": false

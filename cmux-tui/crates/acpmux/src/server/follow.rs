@@ -282,7 +282,7 @@ async fn follow(
         conn.follows.forget(id);
         return;
     }
-    view::subscribe_remote(hub, conn, id, None);
+    view::subscribe_remote(hub, conn, id, &peer.name, None);
     // The link streams a chat it attached (`peer_forward.rs`); first, so a record the page
     // below does not hold comes live.
     if peer.mark_attached(id)

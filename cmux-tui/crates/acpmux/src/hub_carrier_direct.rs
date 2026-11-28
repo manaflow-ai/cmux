@@ -56,6 +56,10 @@ pub enum Via {
     Hub,
     /// Over a direct connection to the far machine.
     Direct,
+    /// Over iroh on a hole-punched UDP path (`hub_carrier_iroh.rs`).
+    IrohDirect,
+    /// Over iroh through iroh's own relay.
+    IrohRelay,
 }
 
 impl Via {
@@ -63,6 +67,8 @@ impl Via {
         match self {
             Self::Hub => "hub",
             Self::Direct => "direct",
+            Self::IrohDirect => "iroh-direct",
+            Self::IrohRelay => "iroh-relay",
         }
     }
 }

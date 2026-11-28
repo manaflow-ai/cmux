@@ -168,7 +168,9 @@ pub async fn connect_ws(request: impl IntoClientRequest) -> Result<(Socket, Resp
         _ => return Err(WsError::Url(UrlError::UnsupportedUrlScheme)),
     };
     let tcp = connect_tcp(&host, port).await.map_err(WsError::Io)?;
-    tokio_tungstenite::client_async_tls_with_config(request, tcp, None, None).await
+    // The platform's roots, read once per process, not at every connect.
+    let tls = cmux_hub_host::net::native_tls_config().map(tokio_tungstenite::Connector::Rustls);
+    tokio_tungstenite::client_async_tls_with_config(request, tcp, None, tls).await
 }
 
 /// reqwest's resolver for the daemon's HTTP clients: the system lookup, then [`interleave`].

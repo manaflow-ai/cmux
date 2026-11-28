@@ -177,7 +177,7 @@ jobs:
     if: >-
       needs.scope.outputs.in_scope == 'true' && github.repository == 'manaflow-ai/cmux'
       && github.event_name != 'pull_request' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     # The job holds one of the gateway runner's two tokens while it waits, so it waits only when the queue is short
     # (ADMIT), at most QUEUE_WAIT_S (20 min) for a display worker, and an hour for the build and the measure. Past
     # QUEUE_WAIT_S in the queue the client stops waiting (exit 75), the job cancels the step and the verdict reads not measured
@@ -252,7 +252,7 @@ jobs:
             --key "tab-switch-pr$PR-$HEAD_SHA-$GITHUB_RUN_ATTEMPT" \
             --arg="build=$HEAD_SHA" --arg="rounds=$ROUNDS" --arg="load=$LOADS" \
             --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
           if [[ "$status" == 75 && -n "$step" ]]; then
             # Not started within QUEUE_WAIT_S: a non-background step stays queued after the client stops waiting.
             "$client" cancel "$step" --reason "tab switch: not started within ${QUEUE_WAIT_S}s" || true

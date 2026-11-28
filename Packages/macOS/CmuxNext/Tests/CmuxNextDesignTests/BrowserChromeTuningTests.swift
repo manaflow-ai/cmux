@@ -36,9 +36,12 @@ import Testing
         let rowGap: Double = preset.scaleFactor >= 1 ? half(DensityPreset.defaultStripPadding * preset.scaleFactor) + nudge : half(3 * preset.scaleFactor)
         #expect(derived(.rowGap) == rowGap)
         #expect(derived(.closeSize) == half(15 * preset.scaleFactor))
-        #expect(derived(.closeCorner) == half(4.5 * preset.scaleFactor))
+        // The x's plate nests in the density's tab corner (Lawrence msg 48706), its slot's center half a row from the end.
+        let row = CGFloat(preset.tokens.tokens["browserRowHeight"] ?? 0), slot = CGFloat(half(15 * preset.scaleFactor))
+        let radius = CGFloat(preset.tokens.tokens["tabCornerRadius"] ?? 0)
+        #expect(derived(.closeCorner) == Double(BrowserChromeTuning.closePlate(pillHeight: row, pillRadius: radius, slot: slot, maximumSide: row).corner))
         #expect(derived(.closeInk) == half(8.5 * preset.scaleFactor))
-        #expect(derived(.closeTrailing) == half(6.5 * preset.scaleFactor))
+        #expect(derived(.closeTrailing) == half(Double(row - slot) / 2))
         let o = preset.omnibarScaleFactor // Default's omnibar is Compact's
         #expect(derived(.chipLeading) == half(2 * o))
         let bar = preset == .cozy ? 34 : half(28 / 0.9 * o) // Default: Chrome's 34 pt bar

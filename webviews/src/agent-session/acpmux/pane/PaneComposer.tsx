@@ -22,9 +22,9 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
+import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -51,7 +51,7 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
-import { MoveDock } from "../place/PlaceMounts";
+import { MoveDock, AutoSizeDock } from "../place/PlaceMounts";
 import { OverloadNotice } from "../OverloadNotice";
 import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
@@ -89,7 +89,7 @@ import { untilAcpmuxTakesSends, paneSends } from "../sendWhenReady";
 import { keptAttachments, postComposerFilled } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
-import type { AutoRow, RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
+import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
 import type { MachineHarnessCheck } from "../machineHarnesses";
@@ -876,14 +876,17 @@ export function drawPaneComposer({
             <OverloadNotice state={hostOverload} />
             {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
             {!showNewTab && !quick && (
-              <MoveDock
-                session={snapshot.sessionId}
-                say={notices.transient}
-                claims={() => ({
-                  queued: snapshot.queue.length,
-                  hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                })}
-              />
+              <>
+                <MoveDock
+                  session={snapshot.sessionId}
+                  say={notices.transient}
+                  claims={() => ({
+                    queued: snapshot.queue.length,
+                    hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                  })}
+                />
+                <AutoSizeDock say={notices.transient} />
+              </>
             )}
             {!showNewTab && (
               <ShareNudge
@@ -1225,6 +1228,7 @@ export function drawPaneComposer({
                       composerSnapshot.catalog.find((entry) => entry.id === cloudShownAgent.harness)?.family,
                       cloudShownAgent.harness ?? "",
                       cloudShownAgent.model,
+                      machinePick !== undefined,
                     ),
                     // The Mode chip holds its pick under the chat's own harness (none on a blank page): the send
                     // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
@@ -1382,9 +1386,11 @@ export function drawPaneComposer({
               const sentIn = !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd;
               const startedHere =
                 pickedProject.current && sentIn === pickedProject.current && !remoteChat ? sentIn : undefined;
+              // A newer folder pick made while this chat starts stays the next New Tab's default.
+              const sentAt = Date.now();
               const rememberStart = () => {
                 if (!startedHere) return;
-                rememberStartedProject(startedHere, callNative);
+                rememberStartedProject(startedHere, callNative, sentAt);
                 if (pickedProject.current === startedHere) pickedProject.current = undefined;
               };
               // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):

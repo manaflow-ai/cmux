@@ -26,13 +26,15 @@ struct AgentPaneStatusReplyShapeTests {
     @Test func eachPeerKeepsItsNameTransportAndConnectedButNotItsURL() throws {
         let peers = try Self.peers(Self.reply(["peers": [
             ["name": "gpu-box", "url": "ssh://dev@gpu-box", "connected": true],
-            ["name": "cloud-1", "url": "wss://cloud-1.cmux.dev/acp?token=secret", "connected": false],
+            ["name": "cloud-1", "url": "wss://cloud-1.cmux.dev/acp?token=secret", "connected": false, "cloudRegistryId": "registry-cloud-1"],
         ]]))
         #expect(peers.map { $0["name"] as? String } == ["gpu-box", "cloud-1"])
         #expect(peers.map { $0["transport"] as? String } == ["ssh", "wss"])
         #expect(peers.map { $0["connected"] as? Bool } == [true, false])
         #expect(peers.allSatisfy { Self.isBool($0["connected"]) })
-        #expect(peers.allSatisfy { $0["url"] == nil && $0.count == 3 })
+        #expect(peers.allSatisfy { $0["url"] == nil })
+        #expect(peers.map { $0["cloudRegistryId"] as? String } == [nil, "registry-cloud-1"])
+        #expect(peers.map(\.count) == [3, 4])
     }
 
     /// A chat whose machine is not connected says when it was last seen (chatUnavailable.ts): each

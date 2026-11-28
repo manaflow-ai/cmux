@@ -417,6 +417,16 @@ pub fn app_names_ready() -> bool {
     names_index().current().is_some()
 }
 
+/// How long a menu call waits for the app-name index before it says the
+/// names are loading (it is built once, in the background, after start).
+pub const NAMES_WAIT: Duration = Duration::from_secs(2);
+
+/// [`app_names_ready`], waiting up to [`NAMES_WAIT`] for the index: a call
+/// made right after start finds it built instead of refusing.
+pub fn app_names_ready_soon() -> bool {
+    super::menus::wait_for(NAMES_WAIT, app_names_ready)
+}
+
 /// AppKit's titles, in every language it ships, of the submenus whose items
 /// launch, open or hand data to other apps: Services, Quick Actions, Share,
 /// Open With, Recent Items. Read once from AppKit's string tables, so an

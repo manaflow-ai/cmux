@@ -374,7 +374,13 @@ impl X11Desktop {
             Some(name) => (Route::XTest, name, false),
             None => match self.focus_in(c) {
                 Some(focus) => (Route::Send(focus), "xsendevent", false),
-                None => match self.lend_plan(c) {
+                // A focus read that failed is read again for a moment
+                // (nothing is sent meanwhile) before the keys are refused.
+                None => match crate::reread::reread(crate::reread::REREAD_WAIT, || {
+                    Some(self.lend_plan(c)).filter(|plan| !matches!(plan, Lend::Unknown))
+                })
+                .unwrap_or(Lend::Unknown)
+                {
                     Lend::Yes => (Route::Send(c.win), "xsendevent", true),
                     Lend::No => (Route::Send(c.win), "xsendevent", false),
                     Lend::SameAppHasFocus => {
@@ -387,8 +393,9 @@ impl X11Desktop {
                     }
                     Lend::Unknown => {
                         return Err(DesktopError::Unsupported(
-                            "could not read which window has the keyboard focus, so keys for this window \
-                             might reach the person's; try again, or use set_value or an element action"
+                            "which window has the keyboard focus did not answer for over a second, so keys \
+                             for this window might reach the person's and none were sent; use set_value or \
+                             an element action"
                                 .into(),
                         ));
                     }

@@ -8,10 +8,14 @@
 # To time an older commit, revert the change on a scratch ref of the tip (the script blob must match the reviewed one).
 #
 # Options this script reads (the rest go to split-spring-terminal.py):
-#   --app-cache     reuse this commit's app when an earlier step on this worker built it
+#   --app-cache     (the default) reuse this commit's app when an earlier step on this worker built it
 #                   ($CI_SHARED_CACHE_DIR/split-spring-apps/<sha>), and keep it there after a build (the 3
-#                   newest unpinned commits). The perf cron (scripts/cmux-next/perf-cron.py) builds once per
-#                   measurement.
+#                   newest unpinned commits) while the volume keeps SPLIT_SPRING_CACHE_MIN_FREE_GIB (60) free.
+#                   The perf cron (scripts/cmux-next/perf-cron.py) builds once per measurement. It was opt-in until
+#                   2026-11-27: 150 of 184 split-spring steps in 24 h passed no --app-cache, 9 of 58 started ones
+#                   re-ran a ref their worker had already built, and the build was 49% of split-spring's 30.9
+#                   held-Mac hours (measure-queue-wait, controller /v1/jobs/history).
+#   --no-app-cache  build fresh and keep nothing (a measurement of the build itself, or a suspect cache).
 #   --build-only    build (or find) the app, keep it in the cache and pin it there for 13 h (`pin`; a perf cron
 #                   measurement is abandoned after 12 h), measure nothing; report.json records the build. No
 #                   eviction removes a pinned app, so a measurement's later parts never build cold.
@@ -43,11 +47,12 @@ set -euo pipefail
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
 SPLIT_SPRING_MEASURE_VERSION=5  # 5: workspace-scaling adds a dispatcher suite (historical commits without it must not be bisected as another suite); 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
-cpu_load=0 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
+cpu_load=0 build_only=0 app_cache=1 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
     --app-cache) app_cache=1 ;;
+    --no-app-cache) app_cache=0 ;;
     --cpu-load) cpu_load=1 ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
@@ -56,6 +61,17 @@ for arg in "$@"; do
     *) args+=("$arg") ;;
   esac
 done
+# CMUX_MEASURE_PHASE (set by the fleet controller for a build_first measurement, measure-queue-wait 2026-11-28):
+# `build` runs at light class, with no Mac held: build (or find) the app, keep and pin it in the app cache, exit 80
+# ("built, ready to measure"); the controller then queues the same job exclusive on this Mac. `measure` is that
+# second run: it takes the app from the cache. Unset: one run that builds and measures, as before.
+measure_phase="${CMUX_MEASURE_PHASE:-}"
+case "$measure_phase" in
+  build) build_only=1 app_cache=1 ;;
+  measure) app_cache=1 ;;
+  "") ;;
+  *) echo "split-spring: unknown CMUX_MEASURE_PHASE=$measure_phase (build or measure)" >&2; exit 2 ;;
+esac
 tag="split-spring"
 out="$(pwd)/artifacts/split-spring"
 mkdir -p "$out"
@@ -178,6 +194,13 @@ if [[ -z "$app" ]]; then
     fi
     exit 1
   fi
+  # A kept app is a few GiB: on a short volume (the 256 GB minis sit near the measure floor) keep nothing and
+  # leave the space to the next step's build.
+  free_gib="$(df -Pk "${CI_SHARED_CACHE_DIR:-.}" 2>/dev/null | awk 'NR==2 { print int($4 / 1048576) }')"
+  if [[ -n "$cache" && "$build_only" != 1 && "${free_gib:-0}" -lt "${SPLIT_SPRING_CACHE_MIN_FREE_GIB:-60}" ]]; then
+    echo "split-spring: not keeping the app (${free_gib:-?} GiB free < ${SPLIT_SPRING_CACHE_MIN_FREE_GIB:-60} GiB)"
+    cache=""
+  fi
   if [[ -n "$cache" ]]; then
     mkdir -p "$cache"
     rm -rf "${cache:?}/$key.tmp"
@@ -211,6 +234,7 @@ macos="$(sw_vers -productVersion 2>/dev/null | tr -cd '0-9.' | head -c 16 || tru
 if [[ "$build_only" == 1 ]]; then
   printf '{"build": {"sha": "%s", "seconds": %d, "cached": %s}, "macos": "%s"}\n' "$sha" "$build_seconds" "$cached" "$macos" > "$out/report.json"
   cat "$out/report.json"
+  [[ "$measure_phase" == build ]] && exit 80
   exit 0
 fi
 
@@ -367,4 +391,18 @@ if isinstance(report, dict):
         json.dump(report, f, indent=1)
 PY
 done
+# The table, worst row first, as the last lines of the log: a detached step's check run carries the log tail
+# (cmux-next-split-table.yml, report_check.go), so a pull request reads it there. Nothing without a row table.
+python3 - "$out/report.json" <<'PY' || true
+import json, sys
+sys.path.insert(0, "scripts/cmux-next")
+try:
+    import split_scale_metrics as ssm
+    rows = json.load(open(sys.argv[1])).get("row_table")
+except Exception:
+    rows = None
+if rows:
+    print("\n## Split table (report-only)\n")
+    print(ssm.row_table_markdown(rows))
+PY
 exit "$status"

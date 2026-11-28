@@ -42,7 +42,7 @@ MODE = {"vars.CI_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_MINI_BUILDER": BUILDER, "
 # glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS, nightly.yml entries: the jobs that take the whole Mac.
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
            "publish-nightly", "sign-nightly-identity-legacy", "generate-nightly-deltas",
-           "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
+           "promote-nightly-next-acked", "republish-nightly-deltas", "nightly-next-one",
            "sign-live-code-variant",
            # RFD 0134 cut 2 (#54859): the .pkg build and sign, on the signer label with the rest.
            "nightly-next-pkg",

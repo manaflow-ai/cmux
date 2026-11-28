@@ -6,6 +6,8 @@
                           [--parent SHA] --out MANIFEST.json
     whats-new-gallery.py parents --plan PLAN.json                     the commits to render befores at
     whats-new-gallery.py overlays --plan PLAN.json --parent SHA       the gallery files to take from each commit there
+    whats-new-gallery.py heal --at DIR --parent SHA --head SHA --log BUILD.log [--plan PLAN.json]
+                                                                     the fix-forward of each file a parent's build broke on
     whats-new-gallery.py publish --plan PLAN.json --results DIR       privacy check, then upload
 
 Leo, 2026-10-20: "tho i think vids and before/afters for our techincal stuff is p important... we
@@ -493,6 +495,36 @@ def publish(rows: list[dict], results: Path, exists=published) -> list[str]:
     return problems
 
 
+BROKEN_SOURCE = re.compile(r"(?:SyntaxError:|\[BabelError\])\s+(/\S+?):\s")
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def heal(at: Path, parent: str, head: str, log: str, keep: set[str] = frozenset()) -> list[tuple[str, str]]:
+    """(COMMIT, PATH) for each source file the build at PARENT failed to parse: the oldest first-parent commit in
+    PARENT..HEAD that changed it, the base's fix-forward. 2026-11-27, run 46069736799: parent b2f1339a of an
+    Improved highlight sat inside a base red (#51044 declared layoutGeometry twice in VirtualTranscript.tsx; #61071
+    fixed it 106 first-parent commits later), so its gallery:build failed and the highlight shipped with no before.
+    Only the files the build named, never one the plan overlays from the highlight's commit (KEEP)."""
+    root = str(Path(at).resolve())
+    found: list[tuple[str, str]] = []
+    for match in BROKEN_SOURCE.finditer(ANSI.sub("", log)):
+        path = match.group(1)
+        for prefix in (root, str(at)):
+            if path.startswith(prefix.rstrip("/") + "/"):
+                rel = path[len(prefix.rstrip("/")) + 1:]
+                break
+        else:
+            continue
+        if rel in keep or any(rel == p for _, p in found):
+            continue
+        run = subprocess.run(["git", "-C", str(at), "log", "--first-parent", "--reverse", "--format=%H",
+                              f"{parent}..{head}", "--", rel], capture_output=True, text=True)
+        commits = run.stdout.split() if run.returncode == 0 else []
+        if commits:
+            found.append((commits[0], rel))
+    return found
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -513,6 +545,12 @@ def main(argv: list[str] | None = None) -> int:
     o = sub.add_parser("overlays")
     o.add_argument("--plan", type=Path, required=True)
     o.add_argument("--parent", required=True)
+    h = sub.add_parser("heal")
+    h.add_argument("--at", type=Path, required=True)
+    h.add_argument("--parent", required=True)
+    h.add_argument("--head", required=True)
+    h.add_argument("--log", type=Path, required=True)
+    h.add_argument("--plan", type=Path, help="the plan: the gallery files it overlays stay as they are")
     u = sub.add_parser("publish")
     u.add_argument("--plan", type=Path, required=True)
     u.add_argument("--results", type=Path, required=True)
@@ -523,6 +561,15 @@ def main(argv: list[str] | None = None) -> int:
         # Every entry when a state is still to be picked: its entry is not known before the cases are.
         if all(r.get("state") for r in rows):
             print(" ".join(sorted({r["entry"] for r in rows})))
+        return 0
+    if args.cmd == "heal":
+        keep = set()
+        if args.plan:
+            keep = {r["overlay"] for r in json.loads(args.plan.read_text())
+                    if r.get("parent") == args.parent and r.get("overlay")}
+        log = args.log.read_text(errors="replace") if args.log.exists() else ""
+        for commit, path in heal(args.at, args.parent, args.head, log, keep):
+            print(f"{commit} {path}")
         return 0
     rows = json.loads(args.plan.read_text())
     if args.cmd == "parents":
