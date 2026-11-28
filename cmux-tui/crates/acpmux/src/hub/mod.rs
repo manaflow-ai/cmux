@@ -304,6 +304,7 @@ pub mod person;
 /// Four session states, never unknown (`hub/session_state.rs`).
 pub(crate) mod session_state;
 mod wait_edges;
+mod wait_status;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;
@@ -633,8 +634,12 @@ pub use turn_errors::transient_cause;
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
     HashMap<(String, String), tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>>;
+pub(crate) use crate::questions;
 pub(crate) use crate::shell_readonly;
 pub(crate) use crate::time_breakdown;
+pub(crate) use match_cap::cap_match;
+pub use match_cap::{MAX_MATCH_BYTES, validate_match};
+pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
 pub use new_request::{
     NewRequest, SUFFIX_TAKEN_NAME, declared_model_json, profile_takes_model_at_spawn,
     suffixed_name, terminal_harness_refusal,
@@ -643,36 +648,20 @@ pub use paging::{
     DEFAULT_PAGE_BYTES, EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes,
 };
 pub use peer_lease::PeerLease;
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub use peer_snapshot::{peer_snapshot_bound, peer_snapshot_reads_fail};
+pub(crate) use peers::{
+    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET, is_permission_ask,
+};
+pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
+pub(crate) use permissions::drop_display_lines;
 pub(super) use session::{newest_first, prompt_text, short_text};
 pub use shutdown::SHUTTING_DOWN;
 pub(crate) use shutdown::{
     AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,
 };
 pub use spawn::expand_env_value;
-/// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
-/// out or dead store would (`peer_snapshot/restore.rs`).
-#[cfg(debug_assertions)]
-#[doc(hidden)]
-pub fn peer_snapshot_reads_fail(peer: &str, n: u32) {
-    peer_snapshot::reads_fail(peer, n);
-}
-
-/// Debug builds only: each copy keeps at most `n` records from its next change on (0: the
-/// bound as built), as a turn past the bound would leave it (`peer_snapshot.rs` `bound`).
-#[cfg(debug_assertions)]
-#[doc(hidden)]
-pub fn peer_snapshot_bound(n: usize) {
-    peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
-}
-pub(crate) use crate::questions;
-pub(crate) use match_cap::cap_match;
-pub use match_cap::{MAX_MATCH_BYTES, validate_match};
-pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
-pub(crate) use peers::{
-    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET, is_permission_ask,
-};
-pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
-pub(crate) use permissions::drop_display_lines;
 pub(crate) use start_gate::host_label;
 pub use subsession_send::Delivery;
 pub use vm_boundary::vm_boundary_peer_approves;
@@ -711,40 +700,6 @@ pub(crate) enum NotWaiting {
     Running,
     Disconnected,
     Closed,
-}
-
-impl From<NotWaiting> for SessionStatus {
-    fn from(s: NotWaiting) -> Self {
-        match s {
-            NotWaiting::Idle => Self::Idle,
-            NotWaiting::Ready => Self::Ready,
-            NotWaiting::Running => Self::Running,
-            NotWaiting::Disconnected => Self::Disconnected,
-            NotWaiting::Closed => Self::Closed,
-        }
-    }
-}
-
-impl NotWaiting {
-    /// `status` as one [`Hub::set_status`] writes; None for Waiting.
-    pub(crate) fn of(status: SessionStatus) -> Option<Self> {
-        Some(match status {
-            SessionStatus::Idle => Self::Idle,
-            SessionStatus::Ready => Self::Ready,
-            SessionStatus::Running => Self::Running,
-            SessionStatus::Disconnected => Self::Disconnected,
-            SessionStatus::Closed => Self::Closed,
-            SessionStatus::Waiting => return None,
-        })
-    }
-}
-
-impl WaitReason {
-    /// What a chat asked `request` (a permission request) waits for: a question when it carries
-    /// one, else a permission.
-    pub(crate) fn of_request(request: &Value) -> Self {
-        if is_question(request) { Self::Question } else { Self::Permission }
-    }
 }
 
 /// True when a permission request is an agent's question (`questions.rs`): what tells the

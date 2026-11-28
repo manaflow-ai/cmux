@@ -2125,3 +2125,19 @@ mod tests;
 #[cfg(test)]
 #[path = "move_sim_tests.rs"]
 mod move_sim_tests;
+
+/// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
+/// out or dead store would (`peer_snapshot/restore.rs`).
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn peer_snapshot_reads_fail(peer: &str, n: u32) {
+    reads_fail(peer, n);
+}
+
+/// Debug builds only: each copy keeps at most `n` records from its next change on (0: the
+/// bound as built), as a turn past the bound would leave it (`peer_snapshot.rs` `bound`).
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn peer_snapshot_bound(n: usize) {
+    BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
+}
