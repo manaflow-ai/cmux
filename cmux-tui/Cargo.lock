@@ -17,6 +17,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "axum",
+ "backtrace",
  "base64",
  "blake2",
  "bytes",

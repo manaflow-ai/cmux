@@ -15,7 +15,22 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
     any(target_env = "musl", feature = "mimalloc-gnu")
 ))]
 #[global_allocator]
-static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+static ALLOC: acpmux::heap_sample::Sampled<mimalloc::MiMalloc> =
+    acpmux::heap_sample::Sampled(mimalloc::MiMalloc);
+
+// Every other build keeps the system's allocator. Each is wrapped in the sampled heap profile
+// (`heap_sample.rs`), off until `acpmux daemon heap-dump --start`: one relaxed load per call.
+#[cfg(all(
+    not(feature = "dhat-heap"),
+    not(all(
+        target_os = "linux",
+        not(feature = "musl-malloc"),
+        any(target_env = "musl", feature = "mimalloc-gnu")
+    ))
+))]
+#[global_allocator]
+static ALLOC: acpmux::heap_sample::Sampled<std::alloc::System> =
+    acpmux::heap_sample::Sampled(std::alloc::System);
 
 // The packages ship crates/acpmux-standalone instead, the same program with the
 // build id stamped in the binary only (see that crate).

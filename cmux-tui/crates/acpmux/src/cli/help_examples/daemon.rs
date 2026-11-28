@@ -189,6 +189,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "daemon heap-dump",
+        &[
+            ("Start sampling the heap, one sample per 512 KiB", "acpmux daemon heap-dump --start"),
+            ("The stacks holding the most bytes now", "acpmux daemon heap-dump --top 30"),
+            ("The profile as JSON", "acpmux --json daemon heap-dump"),
+            ("Stop sampling", "acpmux daemon heap-dump --stop"),
+        ],
+    ),
+    (
         "daemon felt",
         &[
             ("Show felt-latency p50, p90 and p99", "acpmux daemon felt"),

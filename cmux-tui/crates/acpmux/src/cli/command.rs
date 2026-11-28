@@ -1270,6 +1270,16 @@ pub enum Command {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// `daemon heap-dump`: the running daemon's sampled heap profile.
+    #[command(hide = true)]
+    DaemonHeapDump {
+        #[arg(long)]
+        start: Option<usize>,
+        #[arg(long)]
+        stop: bool,
+        #[arg(long, default_value_t = 15)]
+        top: usize,
+    },
     /// `daemon felt`: the felt-latency histograms (the net graph).
     #[command(hide = true)]
     DaemonFelt,
@@ -1532,6 +1542,22 @@ pub enum DaemonCmd {
         since: String,
         /// How many rows.
         #[arg(long, default_value_t = 20)]
+        top: usize,
+    },
+    /// The running daemon's heap by allocation site, from the shipped build (no ptrace): `--start`
+    /// samples one allocation per about BYTES (default 512 KiB) from now on, and each run after
+    /// shows the stacks holding the most bytes now, estimated from the samples, with the biggest
+    /// resident mappings. Off until started; `--stop` ends it. Also at daemon start with
+    /// ACPMUX_HEAP_SAMPLE_BYTES set.
+    HeapDump {
+        /// Start (or restart, clearing) sampling, one sample per about BYTES allocated.
+        #[arg(long, value_name = "BYTES", num_args = 0..=1, default_missing_value = "524288")]
+        start: Option<usize>,
+        /// Stop sampling; the recorded profile stays readable until the next start.
+        #[arg(long)]
+        stop: bool,
+        /// How many stacks.
+        #[arg(long, default_value_t = 15)]
         top: usize,
     },
     /// The felt-latency histograms of the running daemon (the net graph): p50, p90 and p99 of what a
@@ -1931,6 +1957,9 @@ pub fn flatten(c: Command) -> Command {
                 Command::DaemonExpectRelaunch { within, reason }
             }
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
+            DaemonCmd::HeapDump { start, stop, top } => {
+                Command::DaemonHeapDump { start, stop, top }
+            }
             DaemonCmd::Felt => Command::DaemonFelt,
             DaemonCmd::WatchdogHold => Command::DaemonWatchdogHold,
             DaemonCmd::Placement { message } => Command::DaemonPlacement { message },

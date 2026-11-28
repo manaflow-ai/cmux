@@ -25,6 +25,7 @@ pub mod command_session;
 pub(crate) mod consent_admin;
 pub mod consent_grant;
 pub mod daemon_felt;
+pub mod daemon_heap;
 pub mod daemon_placement;
 pub mod daemon_service;
 pub mod daemon_stats;
