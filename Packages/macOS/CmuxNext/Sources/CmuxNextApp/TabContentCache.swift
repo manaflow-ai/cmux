@@ -469,7 +469,16 @@ final class TabContentCache {
         browsers[key] = entry
         openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }
         phonePictures?.followFavicon(tab: key) { [weak page] in page?.favicon }
-        if let tab = page as? CEFTab { (tab.onReadyForKeys, tab.onLaunchMark) = ({ [weak self] in self?.onBrowserReady?(key) }, { DebugTimings.markLaunch($0) }) } // ready for keys (a restored page: its document loaded); its launch marks
+        if let tab = page as? CEFTab {
+            (tab.onReadyForKeys, tab.onLaunchMark) = ({ [weak self] in self?.onBrowserReady?(key) }, { DebugTimings.markLaunch($0) }) // ready for keys (a restored page: its document loaded); its launch marks
+            tab.onLoadingStopped = { [weak self, weak tab] in
+                // A settled load only replans the same hidden page while freezing is enabled.
+                guard let self, let tab, self.browsers[key]?.tab === tab,
+                      self.lifecycle.phase(key) == .mountedHidden,
+                      let hibernation = self.hibernation, hibernation.setting.freezeSeconds != nil else { return }
+                hibernation.replan()
+            }
+        }
         pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)

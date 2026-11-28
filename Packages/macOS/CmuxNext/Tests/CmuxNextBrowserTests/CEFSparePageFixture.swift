@@ -79,9 +79,11 @@ extension CEFSparePageSuites.CEFSparePageTests {
         #expect(runtime.spareWindow.prepare(runtime: runtime), "the spare window starts")
         let spare = try #require(runtime.spareWindow.host)
         let request = try #require(runtime.pendingWindows.first { $0.value === spare }?.key)
+        spare.endOfTurn = { $0() }
         SpareSpy.windows[20] = 2
         runtime.handle(.afterCreated(browser: 20, request: request, window: 2))
         #expect(spare.isLive && spare.placeholder?.browserID == 20)
+        #expect(spare.placeholderFrozen, "an empty-URL placeholder needs no synthetic loading events")
         SpareSpy.clearRecords()
 
         runtime.spareWindow.prepare(runtime: runtime)

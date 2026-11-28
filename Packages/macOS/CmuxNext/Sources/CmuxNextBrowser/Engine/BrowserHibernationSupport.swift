@@ -1,5 +1,13 @@
 public import AppKit
 
+extension BrowserTab {
+    /// CEF has an explicit settled transition; other engines keep their existing loading-state check.
+    package var isLoadingSettledForFreeze: Bool {
+        guard let cef = self as? CEFTab else { return !state.isLoading }
+        return cef.isLoadingSettled
+    }
+}
+
 /// Pages that can save their history for hibernation: the App closes the
 /// page and later recreates it from the state.
 public protocol BrowserHibernationSource: AnyObject {
