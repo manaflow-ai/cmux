@@ -214,6 +214,8 @@ impl Hub {
     /// `session`'s harness retries its turn's model request (module docs): logs `turn_retrying`
     /// and marks the turn silent, so its model's next sign logs `turn_heard`.
     pub(super) fn turn_retrying(&self, session: &Session, mut retry: Value) {
+        // Counted on a traced prompt's first_token span (`send_trace.rs`), turn or not.
+        crate::send_trace::retried(&session.id, &retry);
         let Some(turn) = session.turn() else { return };
         // Held while it logs, as `watch_silent_turn` does, so a sign the tap counts meanwhile
         // finds the retry to end.
