@@ -158,7 +158,7 @@ pub fn run(job: &Job) -> (Outcome, u64, String) {
                     if n == 0 {
                         break;
                     }
-                    kept.extend_from_slice(chunk.get(..n).unwrap_or_default());
+                    kept.extend_from_slice(&chunk[..n]);
                     if kept.len() > STDERR_KEPT {
                         kept.drain(..kept.len() - STDERR_KEPT);
                     }

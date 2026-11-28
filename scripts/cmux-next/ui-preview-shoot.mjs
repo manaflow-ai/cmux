@@ -17,7 +17,6 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { createRequire } from "node:module";
-import { settle } from "./ui-preview-settle.mjs";
 
 const require = createRequire(path.join(process.cwd(), "package.json"));
 const { chromium } = require("playwright");
@@ -94,10 +93,9 @@ async function shoot(spec, out) {
           } else {
             tries = await ready(page, `${spec.base}frame.html?${query}`, spec.try_ms ?? 20_000, spec.bound_ms ?? 60_000);
           }
-          // The settled frame (ui-preview-settle.mjs): every finite animation ended, spinners at their start.
-          const settled = await page.evaluate(settle, { bound_ms: spec.settle_ms ?? 4000 });
+          await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 300)))));
           await page.screenshot({ path: path.join(out, file) });
-          return { name: shot.name, file, ms: Date.now() - started, tries, settled };
+          return { name: shot.name, file, ms: Date.now() - started, tries };
         } catch (error) {
           return { name: shot.name, error: String(error).slice(0, 300) };
         } finally {

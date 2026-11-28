@@ -6,7 +6,20 @@ import Foundation
 /// Name it by `surface` (a PTY tab showing it) or `terminal_id` (host id or
 /// public `term_` id), exactly one.
 public struct SetTerminalKeepRequest: DaemonRequest {
-    public typealias Response = SetTerminalKeepResult
+    public struct Response: Decodable, Sendable, Equatable {
+        public var terminalID: TerminalID
+        public var keep: Bool
+        /// The terminal's public id (`term_…`, a separate random id), which
+        /// `attach-identity-v1` resolves; newer daemons report it
+        /// (`remote-terminal-tabs-v1`).
+        public var terminalResourceID: ResourceID?
+
+        enum CodingKeys: String, CodingKey {
+            case keep
+            case terminalID = "terminal_id"
+            case terminalResourceID = "terminal_resource_id"
+        }
+    }
 
     public enum Target: Sendable, Hashable {
         case surface(SurfaceID)

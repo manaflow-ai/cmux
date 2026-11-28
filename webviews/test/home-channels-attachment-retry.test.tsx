@@ -2,7 +2,6 @@
 // attachment when it fails, like you can't simply just do nothing about it." A Home channel's
 // upload and its image reads are tried again on its own; what still fails shows Retry.
 import { afterAll, expect, test } from "bun:test";
-import { settleReact } from "./support/domTeardown";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -49,8 +48,7 @@ Object.assign(scope, {
   cancelAnimationFrame: (id: number) => clearTimeout(id),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(async () => {
-  await settleReact();
+afterAll(() => {
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

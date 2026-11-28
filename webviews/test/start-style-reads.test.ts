@@ -10,7 +10,6 @@
 // Leo, 2026-11-22: "the speed i see on restarts is terminal << chromium browser <<<<<<<< our [...]
 // agent pane."
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { SEE_THROUGH_ATTRIBUTE, updateSeeThrough } from "../src/pages/shared/desktop";
 import { gridScale } from "../src/agent-session/acpmux/transcriptGrid";
@@ -35,8 +34,7 @@ beforeAll(() => {
   scope.document = dom.window.document;
   scope.getComputedStyle = computed;
 });
-afterAll(async () => {
-  await settleReact();
+afterAll(() => {
   for (const [key, entry] of Object.entries(saved))
     if (entry.had) scope[key] = entry.value;
     else delete scope[key];

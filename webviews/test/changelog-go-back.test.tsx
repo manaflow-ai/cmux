@@ -2,7 +2,6 @@
 // the quit dialog leaves cmux running: once the host stops saying it runs, the buttons work again
 // (cmux#41013 review: every button stayed disabled on "going").
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 
@@ -23,8 +22,7 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(async () => {
-  await settleReact();
+afterAll(() => {
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

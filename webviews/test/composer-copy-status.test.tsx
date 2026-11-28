@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
-import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 import { act, useState } from "react";
@@ -68,8 +67,7 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(async () => {
-  await settleReact();
+afterAll(() => {
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

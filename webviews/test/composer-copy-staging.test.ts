@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { settleReact } from "./support/domTeardown";
 import { createHash } from "node:crypto";
 import { JSDOM } from "jsdom";
 import { copyItem, pastePlan, type ComposerCopy } from "../src/agent-session/acpmux/composer/composerCopy";
@@ -150,7 +149,7 @@ test("cancel cleans every stage and never commits a partial clipboard", async ()
   expect(committed).toBe(false);
 });
 
-test("a 9 MiB selection pastes in order when browser storage refuses it and plain text is hidden", async () => {
+test("a 9 MiB selection pastes in order when browser storage refuses it and plain text is hidden", () => {
   const dom = new JSDOM("<!doctype html>");
   const hadDocument = "document" in globalThis;
   const previous = globalThis.document;
@@ -185,7 +184,6 @@ test("a 9 MiB selection pastes in order when browser storage refuses it and plai
     expect(plan?.[0]).toEqual({ text: text.slice(0, split) });
     expect(plan?.[2]).toEqual({ text: text.slice(split) });
   } finally {
-    await settleReact();
     if (hadDocument) globalThis.document = previous;
     else Reflect.deleteProperty(globalThis, "document");
     dom.window.close();

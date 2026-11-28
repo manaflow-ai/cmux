@@ -694,7 +694,6 @@ pub use web_token::WebToken;
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
 use crate::mailbox::Mailbox;
-use crate::no_panic::LockExt as _;
 use crate::rpc::{Id, Message, RpcError, method};
 use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{
@@ -2203,22 +2202,22 @@ impl Hub {
     /// agents' files and acpmux's record at `paths` (the daemon passes the
     /// user's; tests pass fixtures). None turns it off.
     pub fn set_trust_gate(&self, paths: Option<crate::trust::Paths>) {
-        *self.trust_gate.lock_or_recover() = paths;
+        *self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = paths;
     }
 
     /// The gate's paths, while the gate is on.
     pub fn trust_gate(&self) -> Option<crate::trust::Paths> {
-        self.trust_gate.lock_or_recover().clone()
+        self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// Where adopt looks for harness sessions by default.
     pub fn harness_homes(&self) -> crate::adopt::HarnessHomes {
-        self.harness_homes.lock_or_recover().clone()
+        self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// Points adopt at other harness stores (tests use fixture stores).
     pub fn set_harness_homes(&self, homes: crate::adopt::HarnessHomes) {
-        *self.harness_homes.lock_or_recover() = homes;
+        *self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = homes;
     }
 
     /// How many outbox deliveries are not settled yet (`outbox.rs`).
@@ -2309,7 +2308,7 @@ impl Hub {
     ) -> Option<Arc<Session>> {
         // An on-demand read may already have installed and updated this chat. Never replace it
         // with the snapshot the background list read earlier.
-        let mut sessions = self.sessions.lock_or_recover();
+        let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if sessions.contains_key(&meta.id) {
             return None;
         }
@@ -2350,7 +2349,7 @@ impl Hub {
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // Its log is read after the ready line (`log_load.rs`).
-        *session.log_load.lock_or_recover() = false;
+        *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
         session.log_loaded.store(false, Ordering::SeqCst);
         sessions.insert(session.id.clone(), session.clone());
         drop(sessions);
@@ -2720,7 +2719,7 @@ impl Hub {
     /// Changes a session's metadata in place, with no record or save (tests outside the hub).
     #[cfg(test)]
     pub(crate) fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
-        edit(&mut session.meta.lock_or_recover());
+        edit(&mut session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         // A change no record carries, as any direct metadata write is (`list_order.rs`).
         self.events.row_changed(session);
     }
@@ -2729,7 +2728,7 @@ impl Hub {
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);
-        self.sessions.lock_or_recover().insert(id, session.clone());
+        self.sessions.lock().unwrap().insert(id, session.clone());
         self.update_live_session_index(&session);
         self.session_came(&session);
         session
@@ -2845,7 +2844,7 @@ impl Hub {
         let bare = !key.contains('/');
         let (mut by_name, mut by_segment, mut by_prefix) = (Vec::new(), Vec::new(), Vec::new());
         for s in sessions.values() {
-            let meta = s.meta.lock_or_recover();
+            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
             if meta.name == key || alias == Some(key) {
                 by_name.push(s.clone());
@@ -2941,10 +2940,10 @@ impl Hub {
     pub(super) fn local_match_counts(&self, key: &str) -> [usize; 3] {
         self.rehydrate_named(key);
         let bare = !key.contains('/');
-        let sessions = self.sessions.lock_or_recover();
+        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut counts = [0_usize; 3];
         for s in sessions.values() {
-            let meta = s.meta.lock_or_recover();
+            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
             if s.id.starts_with(key)
                 || meta.name.starts_with(key)
@@ -2969,11 +2968,11 @@ impl Hub {
             return None;
         }
         self.rehydrate_named(key);
-        let sessions = self.sessions.lock_or_recover();
+        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (live, closed): (Vec<_>, Vec<_>) = sessions
             .values()
             .filter_map(|s| {
-                let meta = s.meta.lock_or_recover();
+                let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 crate::session_name::ends_with_segments(&meta.name, key)
                     .then(|| (s.clone(), meta.name.clone(), meta.status == SessionStatus::Closed))
             })
