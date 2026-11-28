@@ -216,28 +216,28 @@
       "owner": "cloud:TeamDO",
       "class": "read",
       "risk": "read",
-      "digest": "bf3dc0b6692f1bd9"
+      "digest": "e4c76e9eee176516"
     },
     "team.policy.history": {
       "source": "cloud",
       "owner": "cloud:TeamDO",
       "class": "read",
       "risk": "read",
-      "digest": "1da22ebdbe0f0b06"
+      "digest": "a224b6c7efd9c25f"
     },
     "team.policy.rollback": {
       "source": "cloud",
       "owner": "cloud:TeamDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "3435554401182ca6"
+      "digest": "7a15ae2fe8d4c3f0"
     },
     "team.policy.update": {
       "source": "cloud",
       "owner": "cloud:TeamDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "0a896c4a6ad4d68c"
+      "digest": "9b43dc446aa21fa7"
     }
   }
 }
