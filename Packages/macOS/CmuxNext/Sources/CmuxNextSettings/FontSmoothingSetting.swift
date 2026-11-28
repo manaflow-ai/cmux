@@ -43,9 +43,16 @@ public nonisolated struct FontSmoothingSetting {
     public static func applyBeforeLaunch(fileURL: URL = CmuxConfigFile.defaultURL(),
                                          managed: (any ManagedPreferenceReader)? = nil,
                                          defaults: UserDefaults = .standard) -> FontSmoothing {
-        let root = (try? JSONC.parse(CmuxConfigFile.source(at: fileURL))) ?? .object([:])
-        let managed = managed ?? ManagedPreferenceLocation.reader(keys: [configPath.joined(separator: ".")])
-        let mode = parse(EffectiveSettings.merge(file: root, managed: managed.read(), team: .none).root).0
+        let managed = (managed ?? ManagedPreferenceLocation.reader(keys: [configPath.joined(separator: ".")])).read()
+        // One Rust call answers the key's effective value (`effective.value_at`, `effective.merge`'s
+        // layers): the whole file crossed into Swift values twice here (`JSONC.parse`, then the merge's
+        // request and reply), 6 ms of the main thread before the Dock stopped bouncing (CMUX-631).
+        let reply = SettingsRust.answer("effective.value_at", .object([
+            "source": .string((try? CmuxConfigFile.source(at: fileURL)) ?? ""),
+            "path": .array(configPath.map(JSONValue.string)),
+            "managed": ["forced": .object(managed.forced), "recommended": .object(managed.recommended)],
+        ]))
+        let mode = parse(reply["value"].map { JSONValue.object([:]).setting($0, at: configPath) } ?? .object([:])).0
         ProcessFontSmoothing.apply(mode, to: defaults)
         return mode
     }

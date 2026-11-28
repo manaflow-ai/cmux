@@ -5,6 +5,12 @@
 //!   diagnostics, managedChatRoots}`: Swift `EffectiveSettings.merge`, layer for layer. The team
 //!   layer arrives already limited to the app's catalog (`TeamPolicyLayer.limitedToCatalog`). A
 //!   managed key's source is `"device"` or `{"team": NAME}`; a diagnostic is `{kind, path, message}`.
+//! - `effective.value_at` `{source, path, managed: {forced, recommended}}` answers `{value}` (or `{}`
+//!   when the key is unset): the effective value of one key from the settings file's JSONC text,
+//!   merged as `effective.merge` with no team layer. An unreadable text is an empty file. One call
+//!   with a short reply, for `main` before `NSApplication` exists (Swift
+//!   `FontSmoothingSetting.applyBeforeLaunch`): the whole file no longer crosses into Swift
+//!   values twice before the Dock stops bouncing (CMUX-631).
 //! - `font_faces.load` `{faces}` answers `{faces: {family[:italic]: data URL}}`: Swift
 //!   `ChatFontFaces.Loader.dataURLs`, on [`crate::font_faces`], each file's URL kept until its
 //!   path, size or modification time changes.
@@ -39,6 +45,7 @@ use crate::value::{char_count, value_at, with_value};
 pub fn call(op: &str, request: &Value) -> Option<Result<Value, OpError>> {
     Some(match op {
         "effective.merge" => merge(request),
+        "effective.value_at" => value_at_op(request),
         "font_faces.load" => load_faces(request),
         "chat_roots.refusal" => chat_root_refusal(request),
         "chat_roots.resolve_home" => resolve_home_op(request),
@@ -141,6 +148,22 @@ fn chat_strings(value: Option<&Value>) -> Vec<String> {
 enum Source {
     Device,
     Team(String),
+}
+
+/// `{source, path, managed}` to `{value}` or `{}` (module docs).
+fn value_at_op(request: &Value) -> Result<Value, OpError> {
+    let source = string(request, "source")?;
+    let path = strings_of(request, "path")?;
+    if path.is_empty() {
+        return Err(OpError::Invalid("expected a non-empty string array `path`".to_owned()));
+    }
+    let file = crate::jsonc::parse(source).unwrap_or_else(|_| Value::Object(Map::new()));
+    let managed = request.get("managed").cloned().unwrap_or_else(|| Value::Object(Map::new()));
+    let merged = merge(&json!({ "file": file, "managed": managed }))?;
+    Ok(match merged.get("root").and_then(|root| value_at(root, &path)) {
+        Some(value) => json!({ "value": value }),
+        None => json!({}),
+    })
 }
 
 /// `{file, managed, team, legacyKeys, chats}` to the effective settings (module docs).
