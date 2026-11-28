@@ -105,7 +105,7 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   if [[ -n "$avail_gib" ]] && { [[ -z "$budget" ]] || ((avail_gib < budget)); }; then
     budget=$avail_gib source="MemAvailable"
   fi
-  capped=""
+  capped="" max_par=0
   if [[ -n "$budget" ]]; then
     per=${CARGO_GROUPS_GIB_PER_CORE:-3}
     fit=$((budget / per)); ((fit >= 1)) || fit=1
@@ -125,14 +125,20 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   # is budget / CARGO_GROUPS_GIB_PER_TOKEN (2) tokens, at least one per group; a third (or more) goes to group 1.
   if [[ -n "$capped" ]]; then
     per_token=${CARGO_GROUPS_GIB_PER_TOKEN:-2}
-    total=$((budget / per_token)); ((total >= groups)) || total=$groups
-    if ((groups > 1)); then
-      jobs=$(((total - (total + 2) / 3) / (groups - 1))); ((jobs >= 1)) || jobs=1
-      lead_jobs=$((total - jobs * (groups - 1))); ((lead_jobs >= 1)) || lead_jobs=1
+    # One token per group is a floor, not a fit: the acpmux and cmux-tui-core rustc (release, one codegen unit, LTO
+    # bitcode) hold more than one token's 2 GiB each, so seven one-token groups still had the kernel SIGKILL them in
+    # a 14 GiB slot (cmux-tui artifacts run 46151055767 at 9be5a10bbb, which has #64759). Capped by memory, only
+    # budget / CARGO_GROUPS_GIB_PER_GROUP (4) groups run at once; the rest start as one ends (group 1 first).
+    per_group=${CARGO_GROUPS_GIB_PER_GROUP:-4}
+    max_par=$((budget / per_group)); ((max_par >= 1)) || max_par=1; ((max_par <= groups)) || max_par=$groups
+    total=$((budget / per_token)); ((total >= max_par)) || total=$max_par
+    if ((max_par > 1)); then
+      jobs=$(((total - (total + 2) / 3) / (max_par - 1))); ((jobs >= 1)) || jobs=1
+      lead_jobs=$((total - jobs * (max_par - 1))); ((lead_jobs >= 1)) || lead_jobs=1
     else
       jobs=$total lead_jobs=$total
     fi
-    echo "cargo groups: $source ${budget} GiB holds ${total} tokens across ${groups} groups at ${per_token} GiB each"
+    echo "cargo groups: $source ${budget} GiB holds ${total} tokens across ${max_par} of ${groups} groups at once, ${per_token} GiB a token, ${per_group} GiB a group"
   fi
   export CARGO_BUILD_JOBS=$jobs
   echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$lead_jobs for group 1, $CARGO_BUILD_JOBS each for the others"
@@ -200,6 +206,13 @@ for i in "${!commands[@]}"; do
   # stand in for one this run failed to make.
   for b in ${bins[i]}; do
     [[ "$b" == \?* ]] && rm -f "$dir/$triple/release/${b#\?}" "$target_dir/$triple/release/${b#\?}"
+  done
+  # Capped by memory: hold this group back until fewer than max_par are running.
+  while ((${max_par:-0} > 0)); do
+    running=0
+    for pid in "${pids[@]:-}"; do [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && running=$((running + 1)); done
+    ((running < max_par)) && break
+    wait -n || true
   done
   starts+=("$(date +%s)")
   run_group "$i" "$dir" &
