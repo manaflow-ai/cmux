@@ -26,10 +26,12 @@ fn a_late_timer_after_a_host_stall_does_not_reload_a_beating_chat() {
     let resumed = 67_000;
     assert_eq!(h.tick(resumed), vec![], "the stall is the host's, not the chat's");
     assert_eq!(h.observer_stalls(), 1);
+    // Its queued beat, then nothing happens in it: it rests (an idle chat beats no more).
     h.beat(CHAT, resumed + 1);
+    h.rest(CHAT, resumed + 2_000);
     assert_eq!(run(&mut h, resumed + 60_000).len(), 0);
     let p = part(&h, CHAT);
-    assert!(p.is_none_or(|p| p.state == State::Healthy), "{p:?}");
+    assert!(p.as_ref().is_none_or(|p| p.state == State::Healthy), "{p:?}");
 }
 
 /// Input the person sent just before the stall (handled only once the stall ends) is not
@@ -44,6 +46,7 @@ fn input_pending_across_a_host_stall_is_not_a_hang() {
     assert_eq!(h.tick(resumed), vec![]);
     h.beat(CHAT, resumed + 1);
     h.input(CHAT, 1, 1, resumed + 1);
+    h.rest(CHAT, resumed + 2_000);
     assert_eq!(run(&mut h, resumed + 60_000).len(), 0);
 }
 
@@ -95,5 +98,7 @@ fn two_chats_through_one_host_stall_are_not_reloaded() {
     assert_eq!(h.tick(68_000), vec![]);
     h.beat("page:a", 68_001);
     h.beat("page:b", 68_002);
+    h.rest("page:a", 70_000);
+    h.rest("page:b", 70_000);
     assert_eq!(run(&mut h, 120_000).len(), 0);
 }
