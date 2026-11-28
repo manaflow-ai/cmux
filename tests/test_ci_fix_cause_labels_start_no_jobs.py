@@ -394,6 +394,26 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
             self.assertEqual(job_name(risk, "evidence", context),
                              "risk evidence" if runs else "risk evidence title edit (ignored)")
 
+    def test_risk_tier_skips_a_review_bots_summary_edit(self):
+        # cubic-dev-ai and blacksmith-sh rewrite only their own summary of the description; an agent's or a
+        # person's body edit (a `Takes back #N:` line, a receipt) and any base change still grade.
+        risk = label_target_workflows()["risk-tier.yml"]
+        body, base = {"body": {"from": "x"}}, {"base": {"ref": {"from": "main"}}}
+        for sender, changes, runs in (("cubic-dev-ai[bot]", body, False), ("blacksmith-sh[bot]", body, False),
+                                      ("cubic-dev-ai[bot]", base, True), ("cmux-agents-lanes[bot]", body, True),
+                                      ("teamleaderleo", body, True), (None, body, True)):
+            context = event("edited", "", state="open")
+            context["github"]["event"]["changes"] = changes
+            if sender:
+                context["github"]["event"]["sender"] = {"login": sender}
+            self.assertEqual(jobs_started(risk, context), ["evidence"] if runs else [], (sender, changes))
+            self.assertEqual(job_name(risk, "evidence", context),
+                             "risk evidence" if runs else "risk evidence review bot edit (ignored)")
+        # A bot's push or label is not an edit: a push grades, as from anyone.
+        context = event("synchronize", "", state="open")
+        context["github"]["event"]["sender"] = {"login": "blacksmith-sh[bot]"}
+        self.assertEqual(jobs_started(risk, context), ["evidence"])
+
     def test_the_repository_has_label_target_workflows(self):
         # Guards the scan itself: an empty set would pass everything.
         self.assertIn("risk-tier.yml", label_target_workflows())

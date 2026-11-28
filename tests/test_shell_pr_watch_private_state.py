@@ -33,7 +33,7 @@ class PRWatchPrivateStateContract(unittest.TestCase):
         self.directory = Path(self._temp.name)
         self.addCleanup(self._temp.cleanup)
         self.tmpdir = self.directory / "tmp"
-        self.tmpdir.mkdir()
+        self.tmpdir.mkdir(mode=0o700)
         self.repo = self.directory / "repo"
         (self.repo / ".git").mkdir(parents=True)
         (self.repo / ".git/HEAD").write_text("ref: refs/heads/contract-branch\n")

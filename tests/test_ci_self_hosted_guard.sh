@@ -309,7 +309,12 @@ allowed = {
     ("build", "owned-state", "Reuse this owned Mac's build state", ""),
     ("build", "prefer-seed", "Prefer a near seed over this owned Mac's DerivedData", ""),
     ("build", "owned-adopt", "Adopt this owned Mac's DerivedData", ""),
-    ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
+    # A JavaScript action, so the transport has the Actions runtime token.
+    ("test", "parallel-product", "Read the compiled test product over parallel range requests",
+     "actions/github-script"),
+    # The first bounded stream: the next step retries it on a fresh stream
+    # without continue-on-error, so a second failure still fails the job.
+    ("test", "download-product", "Download the compiled test product", "./.github/actions/download-test-product"),
     # The git object seed: a miss leaves checkout to fetch everything, and a
     # checkout the seed breaks is retried without it by the next steps.
     ("build", None, "Restore git object seed", ""),

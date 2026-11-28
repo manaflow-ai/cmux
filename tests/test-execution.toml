@@ -1025,6 +1025,14 @@ path = "tests/test_ios_asc_ops.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_publication_snapshot.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_snapshot_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_appstore_upload_marker.py"
 lane = "linux-guard"
 
@@ -1928,6 +1936,10 @@ path = "tests/test_ci_runner_set.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_download_artifact_stall.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cloud_journey_prod_own_login.py"
 lane = "linux-guard"
 
@@ -2114,6 +2126,10 @@ path = "tests/test_ci_cron_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_namespace_autofix_rate_limit_wait.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_publication_guard_release_read.py"
 lane = "linux-guard"
 
@@ -2174,6 +2190,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_train_drive_pin.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_warm_checkout.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2475,6 +2495,10 @@ path = "tests/test_ci_risk_tier_grades_once.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_risk_tier_rate_limit_wait.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_prt_raw_base_files.py"
 lane = "linux-guard"
 
@@ -2523,6 +2547,10 @@ path = "tests/test_ci_red_fix_mine.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_classic_nightly_pr_build.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_checkout_branch_ref_exact.py"
 lane = "linux-guard"
 
@@ -2544,4 +2572,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_debug_labs_keys_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_host_cache_measure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_wait_for_run_artifact.py"
 lane = "linux-guard"

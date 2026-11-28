@@ -16,7 +16,7 @@ name: PR media privacy
 # tesseract on Linux, the same reader every publisher runs before it pushes;
 # the Apple Vision pass this scan once used took a macOS runner, and a backlog
 # of media outlived its 30 minute timeout on Blacksmith again and again, so the
-# marker never advanced) and matches them with
+# marker never advanced; the scan now advances it per chunk of commits within a time budget) and matches them with
 # scripts/ci/pr_media_privacy.py: generic fleet patterns plus the personal
 # names in the PR_MEDIA_PRIVATE_TERMS secret, which no output ever echoes.
 #
@@ -118,7 +118,8 @@ jobs:
           if [ -n "$SCANNED" ]; then
             refspecs+=(+refs/pr-media-privacy/scanned:refs/pr-media-privacy/scanned)
           fi
-          git fetch --no-tags --filter=blob:none --depth=1 origin "${refspecs[@]}"
+          # Commits and trees, no blobs: the scan walks the range in chunks and moves the marker per chunk.
+          git fetch --no-tags --filter=blob:none origin "${refspecs[@]}"
           from=""
           if [ -n "$SCANNED" ]; then from="$(git rev-parse refs/pr-media-privacy/scanned)"; fi
           {
@@ -135,6 +136,8 @@ jobs:
           PR_MEDIA_AGENT_AUTHORS: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
           FROM: ${{ steps.fetch.outputs.from }}
           TO: ${{ steps.fetch.outputs.to }}
+          # Stop at a chunk boundary after 10 min; the marker step then records that commit and the next tick resumes.
+          PR_MEDIA_SCAN_BUDGET_SECONDS: ${{ vars.PR_MEDIA_SCAN_BUDGET_SECONDS || '600' }}
         run: |
           set -uo pipefail
           git config user.name "github-actions[bot]"

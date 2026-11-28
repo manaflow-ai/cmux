@@ -13,9 +13,18 @@ whole ZIP must match the provider SHA-256 pinned by compile admission, and the
 restore step still checks the inner archive SHA-256 before anything is used.
 Any miss leaves the destination untouched and the canonical
 actions/download-artifact step enabled.
+
+The signed URL comes from the Actions runtime artifact service (the
+ACTIONS_RUNTIME_TOKEN that actions/download-artifact itself uses) when the step
+runs as a JavaScript action and so has that token. The REST artifact endpoints
+spend the repository's shared installation quota: when other workflows had
+spent it, every consumer's metadata read got HTTP 403 ("API rate limit
+exceeded for installation") and fell back to the single stream (cmux run
+45890106663). REST stays as the path for callers without a runtime token.
 """
 from __future__ import annotations
 
+import base64
 import concurrent.futures
 import hashlib
 import json
@@ -35,12 +44,19 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 API = "https://api.github.com"
+RUNTIME_SERVICE = "twirp/github.actions.results.api.v1.ArtifactService"
 MAX_BYTES = 8 * 1024**3
 CHUNK_BYTES = 16 * 1024 * 1024
 CONNECTIONS = 16
 ATTEMPTS = 4
 REQUEST_TIMEOUT_SECONDS = 60
-DEADLINE_SECONDS = 360
+# A transfer that is still landing bytes keeps going up to DEADLINE_SECONDS; one
+# that lands nothing across every connection for STALL_SECONDS gives up early.
+# A fixed 360 s cut threw away a nearly complete transfer on a ~1.5 MB/s Mac
+# and restarted from zero on the slower single stream, which then hit its own
+# bounds (cmux run 45999336721, 3 of 5 runs of cmux#59805 on 3 different Macs).
+DEADLINE_SECONDS = 720
+STALL_SECONDS = 90
 AGGREGATE_MEMBERS = {"app-host-products.tar.gz"}
 PRODUCTS = {
     "app-host": ("app-host-products.tar.gz", "app-host-products"),
@@ -92,10 +108,33 @@ def _api_request(path, token):
     return request
 
 
+def _refusal(error):
+    """Name a REST refusal: a spent quota and a missing permission read the same as a bare 403."""
+    remaining = error.headers.get("x-ratelimit-remaining") if error.headers else None
+    reset = error.headers.get("x-ratelimit-reset") if error.headers else None
+    try:
+        body = error.read(4096).decode("utf-8", "replace")
+        message = json.loads(body).get("message", "") if body.startswith("{") else body[:200]
+    except (OSError, ValueError, AttributeError):
+        message = ""
+    detail = f"REST HTTP {error.code}"
+    if remaining == "0" or "rate limit" in message.lower():
+        detail += f" rate limit (remaining {remaining}, reset {reset})"
+    if message:
+        detail += f": {message.splitlines()[0][:160]}"
+    return TransportError(detail)
+
+
 def artifact_metadata(repository, artifact_id, token=None):
     opener = urllib.request.build_opener(_NoRedirect)
     path = f"repos/{_repository(repository)}/actions/artifacts/{_positive(artifact_id, 'artifact id')}"
-    with opener.open(_api_request(path, _token(token)), timeout=30) as response:
+    try:
+        response = opener.open(_api_request(path, _token(token)), timeout=30)
+    except urllib.error.HTTPError as error:
+        refusal = _refusal(error)
+        error.close()
+        raise refusal from None
+    with response:
         raw = response.read(1024 * 1024 + 1)
     if len(raw) > 1024 * 1024:
         raise TransportError("artifact metadata exceeds limit")
@@ -120,10 +159,154 @@ def blob_url(repository, artifact_id, token=None):
     return location
 
 
-def _fetch_range(url, start, end, fd, deadline):
+class RuntimeUnavailable(TransportError):
+    """The runtime artifact service could not resolve the artifact; REST may still."""
+
+
+class RuntimeArtifacts:
+    """Exact-ID artifact reads over the Actions runtime service, not REST.
+
+    The runtime token's scope names this run's backend IDs, so the service only
+    lists this run's artifacts: the run check holds by construction.
+    """
+
+    def __init__(self, token, results_url, *, post=None):
+        if not token or not results_url:
+            raise RuntimeUnavailable("no Actions runtime token")
+        parsed = urlsplit(results_url)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise RuntimeUnavailable("Actions results URL is not a plain https URL")
+        self.token = token
+        self.base = results_url.rstrip("/") + "/"
+        self.run_backend, self.job_backend = self.backend_ids(token)
+        self.post = post or self._post
+
+    @staticmethod
+    def backend_ids(token):
+        try:
+            payload = token.split(".")[1]
+            claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        except (IndexError, ValueError, TypeError):
+            raise RuntimeUnavailable("Actions runtime token is not a JWT") from None
+        for scope in str(claims.get("scp", "")).split():
+            parts = scope.split(":")
+            if len(parts) == 3 and parts[0] == "Actions.Results" and all(parts[1:]):
+                return parts[1], parts[2]
+        raise RuntimeUnavailable("Actions runtime token names no results scope")
+
+    def _post(self, method, body):
+        request = urllib.request.Request(
+            f"{self.base}{RUNTIME_SERVICE}/{method}", data=json.dumps(body).encode(), method="POST",
+            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"})
+        opener = urllib.request.build_opener(_NoRedirect)
+        try:
+            with opener.open(request, timeout=30) as response:
+                raw = response.read(1024 * 1024 + 1)
+        except urllib.error.HTTPError as error:
+            error.close()
+            raise RuntimeUnavailable(f"runtime {method} returned HTTP {error.code}") from None
+        except (OSError, urllib.error.URLError) as error:
+            raise RuntimeUnavailable(f"runtime {method} failed: {error}") from None
+        if len(raw) > 1024 * 1024:
+            raise RuntimeUnavailable(f"runtime {method} reply exceeds limit")
+        try:
+            return json.loads(raw)
+        except ValueError:
+            raise RuntimeUnavailable(f"runtime {method} reply is not JSON") from None
+
+    @staticmethod
+    def _field(record, camel, snake):
+        return record.get(camel, record.get(snake))
+
+    def artifact(self, artifact_id):
+        artifact_id = _positive(artifact_id, "artifact id")
+        reply = self.post("ListArtifacts", {
+            "workflowRunBackendId": self.run_backend,
+            "workflowJobRunBackendId": self.job_backend,
+            "idFilter": str(artifact_id),
+        })
+        found = [item for item in (reply.get("artifacts") or []) if isinstance(item, dict)
+                 and str(self._field(item, "databaseId", "database_id")) == str(artifact_id)]
+        if len(found) != 1:
+            raise RuntimeUnavailable("runtime service does not list this run's artifact")
+        item = found[0]
+        size = self._field(item, "size", "size")
+        size = int(size) if str(size).isdecimal() else 0
+        return {
+            "name": item.get("name"),
+            "run_backend": self._field(item, "workflowRunBackendId", "workflow_run_backend_id"),
+            "job_backend": self._field(item, "workflowJobRunBackendId", "workflow_job_run_backend_id"),
+            "size": size,
+            "digest": item.get("digest"),
+        }
+
+    def signed_url(self, artifact):
+        reply = self.post("GetSignedArtifactURL", {
+            "workflowRunBackendId": artifact["run_backend"],
+            "workflowJobRunBackendId": artifact["job_backend"],
+            "name": artifact["name"],
+        })
+        location = self._field(reply, "signedUrl", "signed_url") or ""
+        parsed = urlsplit(location)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise TransportError("runtime signed URL is not a plain https URL")
+        return location
+
+    def metadata(self, run_id):
+        """restore_aggregate's metadata hook, shaped like the REST record it checks."""
+        def read(_repository, artifact_id, _token=None):
+            artifact = self.artifact(artifact_id)
+            if not artifact["name"] or not artifact["run_backend"] or not artifact["job_backend"]:
+                raise RuntimeUnavailable("runtime artifact record is incomplete")
+            self.resolved = artifact
+            return {"id": artifact_id, "expired": False, "digest": artifact["digest"],
+                    "size_in_bytes": artifact["size"], "workflow_run": {"id": run_id}}
+        return read
+
+    def fetch_zip(self, _repository, _artifact_id, target, size, _token=None, **options):
+        download_ranges(lambda: self.signed_url(self.resolved), Path(target), size, **options)
+
+
+def runtime_artifacts(environ=os.environ):
+    return RuntimeArtifacts(environ.get("ACTIONS_RUNTIME_TOKEN", ""), environ.get("ACTIONS_RESULTS_URL", ""))
+
+
+class _Budget:
+    """The transfer's time bound: a hard ceiling plus a whole-transfer stall bound.
+
+    `progress` is called for every block written by any connection, so a slow
+    but moving transfer is never cut by the stall bound, only by the ceiling.
+    """
+
+    def __init__(self, deadline_seconds, stall_seconds):
+        now = time.monotonic()
+        self.deadline = now + deadline_seconds
+        self.stall_seconds = stall_seconds
+        self.last_progress = now
+        self.received = 0
+        self._lock = threading.Lock()
+
+    def remaining(self):
+        return min(self.deadline, self.last_progress + self.stall_seconds) - time.monotonic()
+
+    def check(self):
+        now = time.monotonic()
+        if now >= self.deadline:
+            raise TransportError(f"parallel download deadline exceeded ({self.received} bytes landed)")
+        if now - self.last_progress >= self.stall_seconds:
+            raise TransportError(f"parallel download stalled: no bytes for {self.stall_seconds:g} s "
+                                 f"({self.received} bytes landed)")
+
+    def progress(self, count):
+        with self._lock:
+            self.received += count
+            self.last_progress = time.monotonic()
+
+
+def _fetch_range(url, start, end, fd, budget):
     expected = end - start + 1
     request = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}"})
-    timeout = max(1.0, min(REQUEST_TIMEOUT_SECONDS, deadline - time.monotonic()))
+    timeout = max(1.0, min(REQUEST_TIMEOUT_SECONDS, budget.remaining()))
     with urllib.request.urlopen(request, timeout=timeout) as response:
         if response.status != 206:
             raise TransportError(f"range request returned HTTP {response.status}")
@@ -132,37 +315,36 @@ def _fetch_range(url, start, end, fd, deadline):
             raise TransportError("range response does not match the request")
         offset = start
         while offset <= end:
-            if time.monotonic() > deadline:
-                raise TransportError("parallel download deadline exceeded")
+            budget.check()
             block = response.read(min(1024 * 1024, end + 1 - offset))
             if not block:
                 break
             written = os.pwrite(fd, block, offset)
             if written != len(block):
                 raise TransportError("short write")
+            budget.progress(written)
             offset += written
         if offset - start != expected or response.read(1):
             raise TransportError("range body length mismatch")
 
 
 def download_ranges(url_factory, target, size, *, connections=CONNECTIONS,
-                    chunk_bytes=CHUNK_BYTES, deadline_seconds=DEADLINE_SECONDS, fetch=_fetch_range):
+                    chunk_bytes=CHUNK_BYTES, deadline_seconds=DEADLINE_SECONDS,
+                    stall_seconds=STALL_SECONDS, fetch=_fetch_range):
     """Write exactly `size` bytes into target from concurrent range requests.
 
     url_factory() returns a signed URL; it is called again after an HTTP 403 so
     an expired signature re-resolves instead of failing the transfer.
-    The deadline prevents new requests and retries; it does not interrupt an
-    in-flight URL resolver or fetch.
+    The budget (deadline_seconds ceiling, stall_seconds with no byte landing on
+    any connection) prevents new requests and retries and ends a fetch between
+    blocks; it does not interrupt an in-flight URL resolver.
     """
     size = _positive(size, "size")
     if size > MAX_BYTES:
         raise TransportError("artifact exceeds size limit")
-    deadline = time.monotonic() + deadline_seconds
+    budget = _Budget(deadline_seconds, stall_seconds)
     lock = threading.Lock()
-
-    def check_deadline():
-        if time.monotonic() >= deadline:
-            raise TransportError("parallel download deadline exceeded")
+    check_deadline = budget.check
 
     check_deadline()
     state = {"url": url_factory()}
@@ -185,7 +367,7 @@ def download_ranges(url_factory, target, size, *, connections=CONNECTIONS,
                 url = current_url()
                 try:
                     check_deadline()
-                    fetch(url, span[0], span[1], fd, deadline)
+                    fetch(url, span[0], span[1], fd, budget)
                     return
                 except urllib.error.HTTPError as error:
                     error.close()
@@ -197,7 +379,7 @@ def download_ranges(url_factory, target, size, *, connections=CONNECTIONS,
                         break
                 except (OSError, TransportError) as error:
                     last_error = error
-                remaining = deadline - time.monotonic()
+                remaining = budget.remaining()
                 if attempt + 1 == ATTEMPTS or remaining <= 0:
                     break
                 time.sleep(min(2 ** attempt, 8, remaining))
@@ -311,11 +493,23 @@ def main() -> int:
         kind = os.environ.get("ARTIFACT_PRODUCT_KIND", "app-host")
         _, directory = _product(kind)
         destination = Path(os.environ["RUNNER_TEMP"]) / directory
-        record = restore_aggregate(
+        arguments = (
             os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("ARTIFACT_ID", ""),
             os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("ARTIFACT_PROVIDER_DIGEST", ""),
-            destination, product_kind=kind,
+            destination,
         )
+        try:
+            # The runtime service first: it does not spend the installation REST quota.
+            runtime = runtime_artifacts()
+            run_id = int(arguments[2]) if str(arguments[2]).isdecimal() else 0
+            record = restore_aggregate(*arguments, product_kind=kind, metadata=runtime.metadata(run_id),
+                                       fetch_zip=runtime.fetch_zip)
+            record["source"] = "runtime"
+        except RuntimeUnavailable as error:
+            # Only a failed resolution retries over REST; a failed transfer is a miss.
+            print(f"Runtime artifact service unavailable ({error}); resolving over REST.")
+            record = restore_aggregate(*arguments, product_kind=kind)
+            record["source"] = "rest"
     except (TransportError, OSError, ValueError, TypeError, urllib.error.URLError,
             zipfile.BadZipFile, EOFError, zlib.error, lzma.LZMAError,
             NotImplementedError, concurrent.futures.CancelledError) as error:

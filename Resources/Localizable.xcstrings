@@ -218663,55 +218663,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tell Claude what to change…"
+            "value": "Tell %@ what to change…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claudeに変更内容を伝える…"
+            "value": "%@に変更内容を伝える…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "告诉 Claude 需要修改什么…"
+            "value": "告诉 %@ 需要修改什么…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Teile Claude mit, was zu ändern ist…"
+            "value": "Teile %@ mit, was zu ändern ist…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dites à Claude ce qu’il faut changer…"
+            "value": "Dites à %@ ce qu’il faut changer…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أخبر Claude بما يجب تغييره…"
+            "value": "أخبر %@ بما يجب تغييره…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dile a Claude qué cambiar…"
+            "value": "Dile a %@ qué cambiar…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "告訴 Claude 需要修改什麼…"
+            "value": "告訴 %@ 需要修改什麼…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude에게 변경할 내용을 알려주세요…"
+            "value": "%@에게 변경할 내용을 알려주세요…"
           }
         }
       }
@@ -222924,55 +222924,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude finished — reply to continue"
+            "value": "%@ finished — reply to continue"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claudeが完了しました。続行するには返信してください"
+            "value": "%@が完了しました。続行するには返信してください"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude 已完成 — 回复以继续"
+            "value": "%@ 已完成 — 回复以继续"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude fertig — antworte, um fortzufahren"
+            "value": "%@ fertig — antworte, um fortzufahren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude a terminé — répondez pour continuer"
+            "value": "%@ a terminé — répondez pour continuer"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انتهى Claude — رد للمتابعة"
+            "value": "انتهى %@ — رد للمتابعة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude ha terminado; responde para continuar"
+            "value": "%@ ha terminado; responde para continuar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude 已完成 — 回覆以繼續"
+            "value": "%@ 已完成 — 回覆以繼續"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude 완료됨 — 계속하려면 회신하세요"
+            "value": "%@ 완료됨 — 계속하려면 회신하세요"
           }
         }
       }
@@ -222983,55 +222983,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reply to Claude…"
+            "value": "Reply to %@…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claudeへの返信…"
+            "value": "%@への返信…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "回复 Claude…"
+            "value": "回复 %@…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude antworten…"
+            "value": "%@ antworten…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Répondre à Claude…"
+            "value": "Répondre à %@…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "رد على Claude…"
+            "value": "رد على %@…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Responde a Claude…"
+            "value": "Responde a %@…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "回覆 Claude…"
+            "value": "回覆 %@…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude에게 회신…"
+            "value": "%@에게 회신…"
           }
         }
       }
@@ -223042,55 +223042,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send to Claude"
+            "value": "Send to %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claudeへ送信"
+            "value": "%@へ送信"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发送给 Claude"
+            "value": "发送给 %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "An Claude senden"
+            "value": "An %@ senden"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Envoyer à Claude"
+            "value": "Envoyer à %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إرسال إلى Claude"
+            "value": "إرسال إلى %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enviar a Claude"
+            "value": "Enviar a %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "傳送給 Claude"
+            "value": "傳送給 %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude에게 보내기"
+            "value": "%@에게 보내기"
           }
         }
       }

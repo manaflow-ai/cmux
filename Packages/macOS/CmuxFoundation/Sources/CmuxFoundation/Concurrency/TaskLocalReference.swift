@@ -37,6 +37,13 @@ extension TaskLocal {
     ///   - line: The caller's line, reported by misuse diagnostics.
     ///   - operation: The work that observes the binding.
     /// - Returns: The value `operation` returns.
+    // Swift 6.4 (Xcode 27.2) deprecates this `isolation:` overload of
+    // `withValue` in favour of the `nonisolated(nonsending)` one. Moving to
+    // that one changes this function's isolation contract, so the deprecation
+    // is silenced here until every pool builds with Swift 6.4.
+    #if compiler(>=6.4)
+    @diagnose(DeprecatedDeclaration, as: ignored)
+    #endif
     @inlinable
     @discardableResult
     public func withReferencedValue<Referenced: Sendable, Result>(

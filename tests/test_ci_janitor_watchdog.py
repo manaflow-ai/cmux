@@ -150,6 +150,16 @@ class WatchdogStepTests(unittest.TestCase):
         self.assertIn(TITLE, create)
         self.assertIn("unknown", self.body_of(create))
 
+    def test_an_unreadable_roster_files_nothing_before_the_unread_bound(self) -> None:
+        # cmux#51120: GitHub's runner listings timed out and a 2816 s snapshot was filed "starved" while 2215
+        # runners on the label were online.
+        for kwargs in ({"roster_fail": True}, {"route_token": ""}):
+            done = self.run_step(age_seconds=2816, **kwargs)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(self.issue_writes("create"), [])
+            self.assertEqual(self.issue_writes("comment"), [])
+            self.assertIn(f"Runner roster unread: {LABEL}", done.stdout)
+
     def test_no_routing_token_keeps_the_alert_and_names_the_roster_unknown(self) -> None:
         done = self.run_step(route_token="")
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)

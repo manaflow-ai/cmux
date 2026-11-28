@@ -36,7 +36,7 @@ helper_bundle_id_for_host() {
   echo "com.cmuxterm.cua"
 }
 
-# The clone and the fetch are the only network calls. CI hands its token in
+# The pinned-commit fetch is the only network call. CI hands its token in
 # CMUX_CUA_GIT_TOKEN because GitHub answers anonymous fetches from the owned
 # Macs' shared address with 403 and 429 under load (main's run 45760337662:
 # `git clone .../cmux-cua.git` 403 failed compile admission). The header goes
@@ -53,6 +53,24 @@ remote_git() {
     "GIT_CONFIG_KEY_$n=http.https://github.com/.extraheader" \
     "GIT_CONFIG_VALUE_$n=AUTHORIZATION: basic $auth" \
     git "$@"
+}
+
+# Fetch exactly the pinned commit, depth 1, with bounded retries. A full clone
+# pulls all of cmux-cua's history (about 270 MB) to use one tree; main's run
+# 45883792920 spent ten minutes in that clone on an owned Mac and lost it to
+# `curl 18 Transferred a partial file`, failing compile admission. Nothing here
+# reads history: rev-parse, checkout, clean, status and apply need one commit.
+fetch_pinned_commit() {
+  local dir="$1" attempt=1 max="${CMUX_CUA_GIT_ATTEMPTS:-3}" delay="${CMUX_CUA_FETCH_RETRY_DELAY_SECONDS:-5}"
+  while ! remote_git -C "$dir" fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"; do
+    if (( attempt >= max )); then
+      echo "error: cmux-cua fetch of $CMUX_CUA_PINNED_SHA failed after $attempt attempts" >&2
+      return 1
+    fi
+    echo "warning: cmux-cua fetch failed (attempt $attempt of $max); retrying in $((delay * attempt))s" >&2
+    sleep "$((delay * attempt))"
+    attempt=$((attempt + 1))
+  done
 }
 
 validate_replaceable_helper_bundle() {
@@ -364,7 +382,9 @@ else
       exit 1
     fi
     TMPDIR_CLONE="$(mktemp -d "$CACHE_DIR/.cmux-cua-clone.XXXXXX")"
-    remote_git clone "$CMUX_CUA_REPO_URL" "$TMPDIR_CLONE"
+    git init --quiet "$TMPDIR_CLONE"
+    git -C "$TMPDIR_CLONE" remote add origin "$CMUX_CUA_REPO_URL"
+    fetch_pinned_commit "$TMPDIR_CLONE"
     printf '%s\n' "$CMUX_CUA_SOURCE_OWNER_VALUE" > "$TMPDIR_CLONE/$CMUX_CUA_SOURCE_OWNER_FILE"
     /bin/mv "$TMPDIR_CLONE" "$SRC_ROOT"
     TMPDIR_CLONE=""
@@ -380,7 +400,7 @@ else
   # builds keep working offline (or through GitHub outages) after the first
   # successful build.
   if ! git -C "$SRC_ROOT" cat-file -e "$CMUX_CUA_PINNED_SHA^{commit}" 2>/dev/null; then
-    remote_git -C "$SRC_ROOT" fetch --quiet origin "$CMUX_CUA_PINNED_SHA"
+    fetch_pinned_commit "$SRC_ROOT"
   fi
   # Materialize the exact pinned tree. A plain `checkout --detach` at the
   # already-checked-out commit silently keeps modified tracked files, so a
