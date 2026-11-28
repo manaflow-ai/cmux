@@ -22,7 +22,7 @@
       "title": "Project picker",
       "symbol": "folder",
       "options": {
-        "defaultRegion": "top"
+        "defaultRegion": "bottom"
       }
     },
     "cmux.session.info.section/1": {
@@ -33,7 +33,7 @@
     "cmux.composer.model.picker/1": {
       "options": {
         "modelMenu": "search",
-        "reasoningMenu": "column"
+        "reasoningMenu": "separate"
       }
     }
   },
