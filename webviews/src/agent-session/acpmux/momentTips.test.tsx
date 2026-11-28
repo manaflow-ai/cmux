@@ -119,7 +119,11 @@ describe("moment tips", () => {
     expect(dom.window.document.querySelector(MOMENT_TIP_ANCHORS["agent.planBuild"]!.selector)).not.toBeNull();
     // The pill's markup, as SinceDivider.tsx draws it; inert and unmarked while hidden.
     const divider = readFileSync(join(import.meta.dir, "conversation", "SinceDivider.tsx"), "utf8");
-    for (const part of ['className="ui-glass acpmux-since-jump"', "data-shown={shown", 'className="acpmux-since-jump__body"'])
+    for (const part of [
+      'className="ui-glass acpmux-since-jump"',
+      "data-shown={shown",
+      'className="acpmux-since-jump__body"',
+    ])
       expect(divider).toContain(part);
     draw(JUMP_PILL);
     expect(dom.window.document.querySelector(MOMENT_TIP_ANCHORS["agent.sinceJump"]!.selector)).not.toBeNull();
