@@ -1,0 +1,23 @@
+{
+  "name": "cmux-next-mobile-native-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke": "bun scripts/smoke.ts"
+  },
+  "dependencies": {
+    "@planetscale/database": "^2.0.0",
+    "sql-escaper": "^1.5.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261012.1",
+    "@types/bun": "^1.4.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4",
+    "wrangler": "4"
+  }
+}
