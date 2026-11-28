@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Halo sidebar" },
   "version": "1.0.0",
-  "description": "Halo's hover card and sidebar rows: the title and the last reply only, regular names and a small dot while work runs.",
+  "description": "Hover card with title and last reply.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

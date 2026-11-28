@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/t3code-sidebar",
   "name": "Thread sidebar",
-  "description": "A 256-point sidebar with project and activity details on thread rows.",
+  "description": "Thread rows with project and activity.",
   "version": "1.0.0",
   "license": "MIT",
   "screenshots": [

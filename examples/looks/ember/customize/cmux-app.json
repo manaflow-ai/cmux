@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Ember sidebar" },
   "version": "1.0.0",
-  "description": "Ember's hover card and sidebar rows: a launcher result row (title, gray subtitle, an accessory at the right) and plain rows with a pulsing dot for work in progress.",
+  "description": "Launcher-style hover card, pulsing-dot rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

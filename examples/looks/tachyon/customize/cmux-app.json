@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Tachyon sidebar" },
   "version": "1.0.0",
-  "description": "Tachyon's hover card and sidebar rows: a status chip first, then the folder, branch and task, the way a modern terminal's session card reads; rows with the filling arc while work runs; the session as a monospaced prompt line in Session Info.",
+  "description": "Terminal-style session card and arc rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

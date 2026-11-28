@@ -319,3 +319,47 @@ fn every_look_and_theme_says_what_it_looks_like_in_a_few_plain_words() {
     }
     assert!(checked >= 100, "checked only {checked} phrases");
 }
+
+/// The same rule for every file under `examples/looks`, at any depth: each part setup
+/// (`claude-code/cli`, `codex/sidebar`, ...) and the preview profile beside it, a look's
+/// `customize/cmux-app.json` (the Apps list and the install card say its description), and every
+/// theme file (the theme picker says its description). The walk above reads only the top folders.
+#[test]
+fn every_file_under_examples_looks_says_it_in_a_few_plain_words() {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "json") {
+                out.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&looks(), &mut files);
+    files.sort();
+    let (mut checked, mut failures) = (0, Vec::new());
+    for path in files {
+        let name = path.file_name().unwrap().to_str().unwrap();
+        let parent = path.parent().and_then(Path::file_name).and_then(|n| n.to_str());
+        let said = matches!(name, "cmux-setup.json" | "profile.json" | "preview.json")
+            || (name == "cmux-app.json" && parent == Some("customize"))
+            || parent == Some("themes");
+        if !said {
+            continue;
+        }
+        let text = fs::read_to_string(&path).unwrap();
+        let value =
+            cmux_config::jsonc::parse(&text).unwrap_or_else(|error| panic!("{path:?}: {error}"));
+        for key in ["tagline", "description"] {
+            let Some(words) = value[key].as_str() else { continue };
+            checked += 1;
+            if !setup::looks::plain_phrase(words) {
+                failures.push(format!("{}: {key} {words:?}", path.display()));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "not one short plain phrase:\n{}", failures.join("\n"));
+    assert!(checked >= 300, "checked only {checked} phrases");
+}

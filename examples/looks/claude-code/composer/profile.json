@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "claude-code-composer",
-  "description": "A charcoal prompt field with a one-point edge, 12 pt corners and a context-usage ring.",
+  "description": "Charcoal prompt field with a usage ring.",
   "settings": {
     "agentPane.composerRing": "context"
   },

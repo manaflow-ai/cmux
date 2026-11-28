@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Astrolabe sidebar" },
   "version": "0.1.0",
-  "description": "Astrolabe's hover card and sidebar rows: a titled card with the task in full, medium names and a thin arc while work runs.",
+  "description": "Full-task hover card, thin-arc rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": "Session launcher",
   "version": "1.0.0",
-  "description": "Create a terminal tab or a workspace on a connected host.",
+  "description": "New terminal or workspace on any host.",
   "engines": {
     "cmux": "^2.0"
   },

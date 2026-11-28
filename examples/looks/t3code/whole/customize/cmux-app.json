@@ -6,7 +6,7 @@
     "en": "Thread workspace"
   },
   "version": "1.0.0",
-  "description": "Project and thread rows beside a 736-point chat column, with settlement, editor and project actions, attachments and a searchable model picker.",
+  "description": "Project rows beside a centered chat.",
   "engines": {
     "cmux": "^2.0"
   },

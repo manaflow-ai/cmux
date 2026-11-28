@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/t3code-composer",
   "name": "Thread composer",
-  "description": "Expose the attachment action beside the draft and keep the microphone and attachments visible.",
+  "description": "Attachments and microphone beside the draft.",
   "version": "1.0.0",
   "license": "MIT",
   "screenshots": [

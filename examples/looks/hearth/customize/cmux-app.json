@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Hearth sidebar" },
   "version": "1.0.0",
-  "description": "Hearth's hover card and sidebar rows: the conversation in full, medium names and a soft arc while work runs.",
+  "description": "Hover card with the whole conversation.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

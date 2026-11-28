@@ -6,7 +6,7 @@
     "en": "Sessions"
   },
   "version": "1.0.0",
-  "description": "Sessions using cmux chat identities and native actions.",
+  "description": "Your sessions in one list.",
   "engines": {
     "cmux": "^2.0"
   },

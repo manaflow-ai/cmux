@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Hush sidebar" },
   "version": "1.0.0",
-  "description": "Hush's hover card and sidebar rows: a two-line card (title and age, then one line of what it is doing) and still rows with a small dot for work in progress.",
+  "description": "Two-line hover card and still rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Paper sidebar" },
   "version": "1.0.0",
-  "description": "Paper's hover card and sidebar rows: the task in full, medium names and an arc while work runs.",
+  "description": "Full-task hover card and calm rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

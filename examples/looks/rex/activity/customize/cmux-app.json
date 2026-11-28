@@ -6,7 +6,7 @@
     "en": "Activity"
   },
   "version": "1.0.0",
-  "description": "Chat activity by priority or project, using cmux chat identities and native actions.",
+  "description": "Chats by priority or project.",
   "engines": {
     "cmux": "^2.0"
   },

@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Kerf sidebar" },
   "version": "1.0.0",
-  "description": "Kerf's hover card and sidebar rows: a compact list-like card (title and age, then branch, change and task lines in the muted gray), rows in regular weight with a thin arc while a thread works.",
+  "description": "Compact list hover card, thin-arc rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/t3code-project-picker",
   "name": "Project picker",
-  "description": "Search available project folders and start a chat in the selected directory.",
+  "description": "Search projects and start a chat there.",
   "version": "1.0.0",
   "license": "MIT",
   "screenshots": [

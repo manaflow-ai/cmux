@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/t3code-model-picker",
   "name": "Model and reasoning picker",
-  "description": "Choose a model, its reasoning effort and the available service tier from the composer.",
+  "description": "Pick a model and effort while typing.",
   "version": "1.0.0",
   "license": "MIT",
   "screenshots": [

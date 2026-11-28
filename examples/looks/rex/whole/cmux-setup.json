@@ -4,7 +4,7 @@
   "id": "manaflow-ai/rex-whole",
   "name": "Rex",
   "version": "1.0.0",
-  "description": "Open and find sessions, browse chats by host or by activity, and use the combined terminal, window and appearance settings.",
+  "description": "Sessions, hosts, activity and terminal settings.",
   "settings": {
     "appearance.themeFile": "rex-graphite",
     "appearance.chromeStyle": "panes",

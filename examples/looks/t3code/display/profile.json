@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "t3code-display",
-  "description": "A centered 736-point conversation with 14-point text, compact code and quiet user bubbles.",
+  "description": "A centered chat column with compact code.",
   "settings": {
     "agentPane.display.width": 736,
     "agentPane.display.presentation": "messages",

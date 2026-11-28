@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "rex-toolbar",
-  "description": "Opt-in inset pane chrome with top tabs and native split and zoom controls.",
+  "description": "Inset panes with top tabs.",
   "settings": {
     "appearance.chromeStyle": "panes",
     "appearance.borders": "default",

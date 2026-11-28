@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Reference sidebar" },
   "version": "1.0.0",
-  "description": "A chat list after a desktop coding agent app: a New chat row, Pinned, chats by project or in one list, a sort, archive from a row, a plain thread hover card, and quiet one-line row decorations.",
+  "description": "A chat list with pins and projects.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

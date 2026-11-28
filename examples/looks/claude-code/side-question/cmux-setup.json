@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/claude-code-side-question",
   "name": "Claude Code side question",
-  "description": "Ask a question alongside the focused chat with Command-Semicolon.",
+  "description": "Ask a side question beside a chat.",
   "version": "1.0.0",
   "license": "MIT",
   "cmuxProfile": 1,

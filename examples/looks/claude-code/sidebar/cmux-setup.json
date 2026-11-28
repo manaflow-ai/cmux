@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/claude-code-sidebar",
   "name": "Claude Code project sidebar",
-  "description": "A 284 pt sidebar groups sessions by project folder and nests related sessions beneath their parent.",
+  "description": "Sessions grouped by project folder.",
   "version": "1.0.0",
   "screenshots": [
     "screenshots/source.png"

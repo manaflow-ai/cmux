@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/t3code-whole",
   "name": "Thread workspace",
-  "description": "Project and thread rows beside a 736-point chat column, with settlement, editor and project actions, attachments and a searchable model picker.",
+  "description": "Project rows beside a centered chat.",
   "version": "1.0.0",
   "license": "MIT",
   "screenshots": [

@@ -6,7 +6,7 @@
     "en": "Hosts"
   },
   "version": "1.0.0",
-  "description": "Hosts using cmux chat identities and native actions.",
+  "description": "Your chats grouped by host.",
   "engines": {
     "cmux": "^2.0"
   },

@@ -1,6 +1,6 @@
 {
   "name": "Graphite \u00b7 Measured",
-  "description": "Dark terminal palette derived from measured release color tokens.",
+  "description": "Dark graphite terminal colors.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "theme",

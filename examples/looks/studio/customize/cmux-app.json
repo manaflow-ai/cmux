@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Studio sidebar" },
   "version": "1.0.0",
-  "description": "Studio's hover card and sidebar rows: project, title and age, a dot while work runs.",
+  "description": "Hover card with project, title and age.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

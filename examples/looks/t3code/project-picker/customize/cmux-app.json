@@ -5,7 +5,7 @@
   "name": {
     "en": "Project picker"
   },
-  "description": "Search available project folders and start a chat in the selected directory.",
+  "description": "Search projects and start a chat there.",
   "version": "1.0.0",
   "engines": {
     "cmux": "^2.0"

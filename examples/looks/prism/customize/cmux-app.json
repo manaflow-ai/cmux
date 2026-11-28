@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Prism sidebar" },
   "version": "1.0.0",
-  "description": "Prism's hover card and sidebar rows: a link-preview card (where it lives, the title, what it is doing, what it asks) and tab rows with the spinning arc.",
+  "description": "Link-preview hover card and tab rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

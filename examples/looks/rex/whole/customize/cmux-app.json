@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": "Rex",
   "version": "1.0.0",
-  "description": "Launch terminals and workspaces, find chats, and browse sessions by host.",
+  "description": "Launch terminals and browse chats by host.",
   "engines": {
     "cmux": "^2.0"
   },

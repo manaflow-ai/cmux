@@ -1,6 +1,6 @@
 {
   "name": "Paper \u00b7 Measured",
-  "description": "Light terminal palette derived from measured release color tokens.",
+  "description": "Light paper terminal colors.",
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "theme",

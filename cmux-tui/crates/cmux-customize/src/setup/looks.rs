@@ -23,10 +23,14 @@ use super::{Receipt, Reference, SetupSource, check_id};
 use crate::Error;
 
 /// Whether `words` is the short plain phrase a look's tagline or description
-/// is: at most seven words, no colon or semicolon (no "A look: x, y, z").
+/// is: at most seven words, no colon or semicolon (no "A look: x, y, z"), one
+/// sentence (no "Opt-in. Does x").
 pub fn plain_phrase(words: &str) -> bool {
     let words = words.trim();
-    !words.is_empty() && words.split_whitespace().count() <= 7 && !words.contains([':', ';'])
+    !words.is_empty()
+        && words.split_whitespace().count() <= 7
+        && !words.contains([':', ';'])
+        && !words.trim_end_matches('.').contains(". ")
 }
 
 /// The catalog as compiled in.

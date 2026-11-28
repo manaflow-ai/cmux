@@ -3,7 +3,7 @@
 // 2x capture of the real app (points, sRGB), not picked by eye.
 {
   "name": "Claude Code app",
-  "description": "A neutral #191919 page, a warm #282524 sidebar with a hairline edge, the clay accent for marks.",
+  "description": "Dark, warm sidebar, clay accent.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take these colors, over an App Theme of your own.

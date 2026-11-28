@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/claude-code-cli",
   "name": "Claude Code CLI",
-  "description": "Start Claude Code in a new terminal tab, or choose an earlier CLI session to resume.",
+  "description": "Start or resume Claude Code.",
   "version": "1.0.0",
   "license": "MIT",
   "cmuxProfile": 1,

@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/t3code-open-in-editor",
   "name": "Open in editor",
-  "description": "Open the current tab’s local working folder in an installed editor.",
+  "description": "Open the tab's folder in your editor.",
   "version": "1.0.0",
   "license": "MIT",
   "screenshots": [

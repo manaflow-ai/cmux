@@ -99,7 +99,7 @@ def compose(root):
     for path in APP_FILES:
         merge(files, path, (HERE / path).read_text(), "combined app")
     files["keybindings.json"] = encode(bindings)
-    description = "Open and find sessions, browse chats by host or by activity, and use the combined terminal, window and appearance settings."
+    description = "Sessions, hosts, activity and terminal settings."
     setup = dict(cmuxSetup=1, cmuxProfile=1, id="manaflow-ai/rex-whole", name="Rex",
                  version="1.0.0", description=description, settings=settings)
     profile = dict(cmuxProfile=1, name="rex-whole", description=description,

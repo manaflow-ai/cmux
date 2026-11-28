@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Reference threads" },
   "version": "1.0.0",
-  "description": "Activity (Priority, then Today and Yesterday) and Archive (search, Unarchive) views of your agent chats, with Mark all as read and Clear read chats.",
+  "description": "Activity and Archive views of your chats.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

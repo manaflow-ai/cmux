@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Workbench sidebar" },
   "version": "1.0.0",
-  "description": "Workbench's hover card and sidebar rows: the branch and folder up front, regular weight names and a braille spinner while work runs.",
+  "description": "Branch-first hover card, braille spinner rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

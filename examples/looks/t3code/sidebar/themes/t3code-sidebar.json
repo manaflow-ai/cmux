@@ -1,6 +1,6 @@
 {
   "name": "Thread sidebar",
-  "description": "A 256-point sidebar with rounded rows and a second line for project details.",
+  "description": "A sidebar with rounded two-line rows.",
   "appearance.sidebarSurface": "separate",
   "sidebar.border": true,
   "sidebar.borderWidth": 1,
