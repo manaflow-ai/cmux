@@ -1,14 +1,16 @@
 {
   "schema": "standalone-files/v1",
-  "about": "Files that consumers outside this repository fetch alone (contents API, raw URL, `git show REF:path`, a non-cone sparse checkout of manaflow-ai/cmux) and run. tests/test_ci_standalone_files.py builds each set alone in an empty tree and fails when a script in it loads in the full tree but not alone, or imports a repository file the set leaves out (cmux#62040: fake_agent.py read a sibling guidance_sources.json at import and the notify-banner-click probe failed for 17 h). A consumer that fetches from the feat-cmux-next tip belongs here; one pinned to an older commit does not (its files are fixed). Adding a consumer: add its set here. `files` are git sparse patterns (non-cone unless `cone`); `run` defaults to every listed .py/.sh/.js/.ts file.",
+  "about": "Files that consumers outside this repository fetch alone (contents API, raw URL, `git show REF:path`, a non-cone sparse checkout of manaflow-ai/cmux) and run. tests/test_ci_standalone_files.py builds each set alone in an empty tree and fails when a script in it loads in the full tree but not alone, or imports a repository file the set leaves out (cmux#62040: fake_agent.py read a sibling guidance_sources.json at import and the notify-banner-click probe failed for 17 h). A consumer that fetches from the feat-cmux-next tip belongs here; one pinned to an older commit does not (its files are fixed). Adding a consumer: add its set here. A set with a `name` is fetched by that name (cmuxterm-hq `cmux-files` `set: NAME` reads this file at the ref and fetches exactly its files), so the consumer never keeps its own copy of the list; a file added here reaches it with no consumer change. `files` are git sparse patterns (non-cone unless `cone`); `run` defaults to every listed .py/.sh/.js/.ts file.",
   "sets": [
     {
+      "name": "stub-agent",
       "consumer": "cmuxterm-hq .github/actions/cmux-files: synthetic-probes.yml (notify-banner-click, notify-banner-sweep, ...), own-machines-e2e.yml, next-dogfood.yml; build-fleet/cloud_round_trip/guest.py; build-fleet/pr_capture (raw URL); stub agent",
       "files": [
         "cmux-tui/crates/acpmux/tests/fake_agent.py"
       ]
     },
     {
+      "name": "stub-agent-classic-to-next",
       "consumer": "cmuxterm-hq .github/actions/cmux-files: synthetic-probes.yml classic-to-next stub",
       "files": [
         "cmux-tui/crates/acpmux/tests/fake_agent.py",
