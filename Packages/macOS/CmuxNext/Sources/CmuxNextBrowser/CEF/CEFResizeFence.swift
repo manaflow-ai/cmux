@@ -1,6 +1,6 @@
 import AppKit
 import QuartzCore
-import Synchronization
+import CmuxNextCompat
 
 /// Window frame sync (fork API 32, `cmux_browser_resize_fence`; plans/cmux-next/cef-layer-hosting-DESIGN.md, FRAME OWNER
 /// S5): in the turn that resizes hosted pages, the window's Core Animation commit is fenced (`-[CAContext
