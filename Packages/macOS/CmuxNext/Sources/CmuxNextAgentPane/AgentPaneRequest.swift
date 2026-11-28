@@ -373,6 +373,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `copy` (`pane.painted {copy: true}`, chatSnapshot/live.ts): the frame is the inert saved copy of the
     /// chat, drawn before the page's own app ran; the page's own paint reports again, without it.
     case painted(fromKeptTail: Bool, settled: Bool, copy: Bool = false, live: Bool = false)
+    /// `pane.renderFailed` (webviews PaneBoundary.tsx): the page's last error boundary caught a render error, so
+    /// the document now draws nothing until its own retry reloads it. The pane covers it with its last frame at once
+    /// (``AgentPaneView/pageRenderFailed()``) instead of showing the empty document through that wait.
+    case renderFailed
     /// `pane.launchSettle {settledEpochMs, maxMovePx, element, shifts}` (webviews launchSettle.ts): once per chat
     /// document, what moved after its first paint. Forwarded as launch marks only
     /// (``AgentPaneLaunchTimings/layoutSettle(at:maxMovePx:element:shifts:)``).

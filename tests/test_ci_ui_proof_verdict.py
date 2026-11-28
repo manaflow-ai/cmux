@@ -306,7 +306,9 @@ class ReadFailureTest(unittest.TestCase):
                                                       "GH_TOKEN": "secret"}), \
                             mock.patch.object(module, target, side_effect=error), \
                             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                        self.assertEqual(module.main(argv), 0)
+                        # proof_record's gate exits UNREAD so its job fails rerunnable (pr-router.yml); ui proof posts.
+                        want = proof_record.UNREAD if module is proof_record else 0
+                        self.assertEqual(module.main(argv), want)
                     self.assertTrue(stdout.getvalue().startswith("error\t"))
                     self.assertIn(f"HTTPError {code}", stdout.getvalue())
                     self.assertIn("see job log", stdout.getvalue())

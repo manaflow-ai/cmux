@@ -19,6 +19,15 @@
   cmux-bench for-paths ... --run [--timeout S]     also run the benches the matched areas name (`run`), each
                                                  once; exit 1 only when a measured result is over its area's
                                                  `budget_s`; a missing or failing bench warns (fail open)
+  cmux-bench for-paths ... --run --repeats 3 --baselines [URL|DIR]
+                                                 run each bench 3 times and compare with its areas' nightly
+                                                 baselines (only those areas are fetched): exit 1 when every
+                                                 repeat is >15% over; a missing baseline warns and passes
+  cmux-bench baselines record [--out DIR] [--sha SHA] [--areas A,B]
+                                                 run every area's benches (3 repeats) and write one baseline
+                                                 object per area under DIR (the nightly uploads DIR to R2)
+  cmux-bench baselines fetch AREA... [--from URL|DIR] [--json]
+                                                 read those areas' baselines and say how long it took
   cmux-bench for-paths --self-bench N [--scale K] seconds for load + plan on N tracked paths, K times the rules
   cmux-bench for-paths --coverage [--days 7]     % of the paths merged in the last N days a mapping covers
   cmux-bench for-paths --write | --check         regenerate (or check) the map's [[unit]] section from the layout
@@ -346,6 +355,9 @@ def cmd_for_paths(argv: list[str]) -> int:
     p.add_argument("--check", action="store_true")
     p.add_argument("--run", action="store_true", help="run the selected areas' bench commands against budget_s")
     p.add_argument("--timeout", type=float, default=120, help="seconds one bench command may take (--run)")
+    p.add_argument("--repeats", type=int, default=1, help="--run: measure each bench N times (the baseline rule takes 3)")
+    p.add_argument("--baselines", nargs="?", const="", default=None, metavar="URL|DIR",
+                   help="--run: compare with the areas' nightly baselines (default store: CMUX_BENCH_BASELINES or R2)")
     p.add_argument("--self-bench", type=int, metavar="N", help="time load + plan on N tracked paths")
     p.add_argument("--scale", type=int, default=1, help="--self-bench: K times the map's rules")
     a = p.parse_args(argv)
@@ -410,14 +422,25 @@ def cmd_for_paths(argv: list[str]) -> int:
         print(f"cmux-bench: for-paths: warning: {d} has no mapping; add one to {a.map.name}", file=sys.stderr)
     if not a.run:
         return 0
-    return _report_runs(relevance.run_benches(plan, a.timeout), a.markdown, a.json)
+    docs = None
+    if a.baselines is not None:
+        from benchlib import baselines
+        names = [ar["name"] for ar in plan["areas"] if ar.get("run")]
+        docs, missing, took = baselines.fetch(names, where=a.baselines or None)
+        print(f"cmux-bench: for-paths: baselines for {len(names)} areas ({baselines.machine_class()}): "
+              f"{len(docs)} found in {took * 1000:.0f} ms", file=sys.stderr)
+        for name, why in sorted(missing.items()):
+            print(f"cmux-bench: for-paths: warning: {name}: {why}; its benches pass on budget_s alone (fail open)",
+                  file=sys.stderr)
+    return _report_runs(relevance.run_benches(plan, a.timeout, repeats=a.repeats, baseline_docs=docs),
+                        a.markdown, a.json)
 
 
 def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
     """Print each bench run; 1 only for a measured over-budget result, so a missing tool never blocks."""
     from benchlib import relevance
 
-    over = [r for r in results if r["status"] == relevance.OVER]
+    over = [r for r in results if r["status"] in (relevance.OVER, relevance.REGRESSED)]
     if as_json:
         print(json.dumps({"schema": "cmux-bench/for-paths-run/v1", "runs": results, "over_budget": len(over)},
                          indent=2, ensure_ascii=False))
@@ -426,6 +449,10 @@ def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
         for r in results:
             took = f"{r['seconds']:.3f} s" if r["seconds"] is not None else "-"
             budget = f" / budget {r['budget_s']:g} s" if r["budget_s"] is not None else " (no budget_s)"
+            if r.get("verdict"):
+                base_s = f"{r['baseline_s']:.3f} s" if r.get("baseline_s") else "none"
+                reps = ", ".join(f"{x:.3f}" for x in r.get("repeats_s") or [])
+                budget += f" / baseline {base_s} ({r['verdict']}; repeats {reps or '-'})"
             line = f"{r['status']:12s} {took}{budget}  {r['cmd']}" + (f"  ({r['detail']})" if r["detail"] else "")
             print(("- " if markdown else "  ") + line)
     for r in results:
@@ -435,7 +462,60 @@ def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
         elif r["status"] == relevance.OVER:
             print(f"cmux-bench: for-paths: {r['cmd']} took {r['seconds']} s, over its {r['budget_s']:g} s budget "
                   f"({', '.join(r['areas'])})", file=sys.stderr)
+        elif r["status"] == relevance.REGRESSED:
+            print(f"cmux-bench: for-paths: {r['cmd']}: every repeat ({r['repeats_s']}) is over the "
+                  f"{r['baseline_area']} baseline {r['baseline_s']} s by more than 15%", file=sys.stderr)
     return 1 if over else 0
+
+
+def cmd_baselines(argv: list[str]) -> int:
+    from benchlib import baselines, relevance
+
+    p = argparse.ArgumentParser(prog="cmux-bench baselines")
+    sub = p.add_subparsers(dest="action", required=True)
+    rec = sub.add_parser("record")
+    rec.add_argument("--out", type=Path, default=Path("bench-baselines-out"))
+    rec.add_argument("--sha", default="")
+    rec.add_argument("--areas", default="", help="comma-separated area names (default: every area with `run`)")
+    rec.add_argument("--timeout", type=float, default=300)
+    rec.add_argument("--repeats", type=int, default=baselines.REPEATS)
+    rec.add_argument("--map", type=Path, default=relevance.MAP)
+    fet = sub.add_parser("fetch")
+    fet.add_argument("areas", nargs="+")
+    fet.add_argument("--from", dest="where", default=None)
+    fet.add_argument("--json", action="store_true")
+    a = p.parse_args(argv)
+    mclass = baselines.machine_class()
+    if a.action == "fetch":
+        docs, missing, took = baselines.fetch(a.areas, mclass, a.where)
+        if a.json:
+            print(json.dumps({"machine_class": mclass, "ms": round(took * 1000, 1), "found": docs,
+                              "missing": missing}, indent=2, ensure_ascii=False))
+        else:
+            print(f"{len(docs)} of {len(set(a.areas))} areas in {took * 1000:.1f} ms ({mclass})")
+            for name, doc in sorted(docs.items()):
+                for entry in doc["benches"].values():
+                    print(f"  {name}: {entry['value_s']} s  {entry['cmd']}  ({doc['sha'][:10]} {doc['recorded_at']})")
+            for name, why in sorted(missing.items()):
+                print(f"  {name}: {why}")
+        return 0
+    rules = relevance.load_rules(a.map)
+    want = {x.strip() for x in a.areas.split(",") if x.strip()}
+    areas = [{"name": r.name, "run": list(r.run), "budget_s": r.budget_s} for r in rules
+             if r.kind == "area" and r.run and (not want or r.name in want)]
+    results = relevance.run_benches({"areas": areas}, a.timeout, repeats=a.repeats)
+    sha = a.sha or subprocess.run(["git", "rev-parse", "HEAD"], cwd=relevance.ROOT, capture_output=True,
+                                  text=True).stdout.strip()
+    docs = baselines.documents(results, mclass, sha)
+    for path in baselines.write_dir(docs, a.out):
+        print(f"wrote {path}")
+    for r in results:
+        if not r.get("repeats_s") or len(r["repeats_s"]) < a.repeats:
+            print(f"cmux-bench: baselines: warning: {r['cmd']}: {r['status']} {r['detail']}; no baseline written",
+                  file=sys.stderr)
+        else:
+            print(f"  {r['seconds']:.4f} s  repeats {r['repeats_s']}  {r['cmd']}  ({', '.join(r['areas'])})")
+    return 0
 
 
 def main(argv: list[str]) -> int:
@@ -445,6 +525,8 @@ def main(argv: list[str]) -> int:
     head = argv[0]
     if head == "for-paths":
         return cmd_for_paths(argv[1:])
+    if head == "baselines":
+        return cmd_baselines(argv[1:])
     if head == "list":
         p = argparse.ArgumentParser(prog="cmux-bench list")
         p.add_argument("--json", action="store_true")

@@ -31,7 +31,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["connection", "integration", "sign in", "linear", "sentry", "notion"],
         category: "cloud",
         symbol: "link",
-        surface_plan: SurfacePlan { palette: Decision::Exempt("paletteInternal"), cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { palette: Decision::Exempt("noObject"), cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
+        cli_name: "connections connect",
         waits_for_result: true,
         ..Action::DEFAULT
     },
