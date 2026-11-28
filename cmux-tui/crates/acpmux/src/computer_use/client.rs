@@ -24,6 +24,11 @@ use serde_json::{Value, json};
 pub const RETRY_BUDGET: Duration = Duration::from_secs(30);
 const FIRST_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_BACKOFF: Duration = Duration::from_secs(2);
+/// The code of a call that found no daemon running (the app is not open).
+pub const DAEMON_NOT_RUNNING: &str = "daemon_not_running";
+/// How long a call waits for a daemon whose socket is missing (no app runs it) before it says
+/// so: enough for an app restart to bring the socket back, far less than [`RETRY_BUDGET`].
+pub const NOT_RUNNING_GRACE: Duration = Duration::from_secs(3);
 /// One daemon request (the endpoint, the machine list).
 const DAEMON_WAIT: Duration = Duration::from_secs(10);
 /// The worker's hello after the secret.
@@ -102,6 +107,12 @@ pub trait Daemon: Send + Sync {
     fn workspace_name(&self, _id: &str) -> Option<String> {
         None
     }
+    /// Why no daemon runs at all (no socket file at any place it may listen: the app is not
+    /// running), naming the app and the paths; None when one may be up or restarting. A missing
+    /// socket is no restart in progress, so calls stop waiting for it after [`NOT_RUNNING_GRACE`].
+    fn not_running(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Where a workspace named `id` sits in a `list-workspaces` answer: its `name`.
@@ -151,17 +162,24 @@ pub struct SocketDaemon {
     pub path: PathBuf,
     /// Every path the lookup considered, for the error when none answers.
     looked: Vec<super::daemon_socket::Candidate>,
+    /// The app bundle this binary ships in ("cmux NIGHTLY"), for the not-running message.
+    app: Option<String>,
 }
 
 impl SocketDaemon {
     pub fn from_env() -> Self {
-        Self::from_candidates(super::daemon_socket::from_process())
+        let mut daemon = Self::from_candidates(super::daemon_socket::from_process());
+        daemon.app = std::env::current_exe()
+            .ok()
+            .map(|exe| exe.canonicalize().unwrap_or(exe))
+            .and_then(|exe| super::daemon_socket::bundle_name(&exe));
+        daemon
     }
 
     /// The daemon at `path` and no other: a socket another process's environment named (the
     /// terminal a chat types into, `hub/terminal_input.rs`).
     pub fn at(path: PathBuf) -> Self {
-        Self { path, looked: Vec::new() }
+        Self { path, looked: Vec::new(), app: None }
     }
 
     /// The first of `candidates` whose socket exists, else the first.
@@ -169,7 +187,7 @@ impl SocketDaemon {
         let path = super::daemon_socket::pick(&candidates)
             .map(|c| c.path.clone())
             .unwrap_or_else(|| cmux::raw::default_socket_path("main"));
-        Self { path, looked: candidates }
+        Self { path, looked: candidates, app: None }
     }
 
     /// Why the daemon could not be reached: the path tried and, when the lookup had others,
@@ -301,6 +319,29 @@ impl Daemon for SocketDaemon {
     fn workspace_name(&self, id: &str) -> Option<String> {
         workspace_name_in(&self.request("list-workspaces", json!({})).ok()?, id)
     }
+
+    fn not_running(&self) -> Option<String> {
+        let paths: Vec<&std::path::Path> = if self.looked.is_empty() {
+            vec![self.path.as_path()]
+        } else {
+            self.looked.iter().map(|c| c.path.as_path()).collect()
+        };
+        not_running_message(self.app.as_deref(), &paths)
+    }
+}
+
+/// [`Daemon::not_running`] for daemon sockets at `paths`: Some when none of them exists. Only
+/// on Unix, where a listening socket is a file; elsewhere a missing path proves nothing.
+pub fn not_running_message(app: Option<&str>, paths: &[&std::path::Path]) -> Option<String> {
+    if !cfg!(unix) || paths.is_empty() || paths.iter().any(|p| p.exists()) {
+        return None;
+    }
+    let app = app.unwrap_or("the cmux app");
+    let looked: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+    Some(format!(
+        "{app} is not running on this Mac, so Computer Use has no daemon to ask (no socket at {}); open {app}, then try again.",
+        looked.join(", ")
+    ))
 }
 
 /// The `data` of a cmux-tui daemon reply, or why it refused (classic
@@ -705,6 +746,16 @@ impl<D: Daemon> Caller<D> {
                     "settings": "Settings > Computer Use",
                 })))
             }
+            // So is the app not running: `status` says so at once, with what to open.
+            Err(Outcome::Failed { code, message })
+                if name == "status" && code == DAEMON_NOT_RUNNING =>
+            {
+                Outcome::Output(ToolOutput::ok(json!({
+                    "engine": "cmux Computer Use",
+                    "mode": "not_running",
+                    "reason": message,
+                })))
+            }
             Err(outcome) => outcome,
         }
     }
@@ -730,6 +781,11 @@ impl<D: Daemon> Caller<D> {
         let deadline = Instant::now() + self.budget;
         let mut backoff = FIRST_BACKOFF;
         let mut last = String::new();
+        // `status` reports a daemon that is not running at once; a call gives it a short grace.
+        let is_status = request.get("name").and_then(Value::as_str) == Some("status")
+            || request.get("method").and_then(Value::as_str) == Some("status");
+        let grace = if is_status { Duration::ZERO } else { NOT_RUNNING_GRACE };
+        let mut missing_since: Option<Instant> = None;
         loop {
             let cached = self.endpoint.lock().ok().and_then(|e| e.clone());
             let endpoint = match cached {
@@ -769,6 +825,17 @@ impl<D: Daemon> Caller<D> {
                     }
                     Err(e) => {
                         last = e.to_string();
+                        if let Some(why) = self.daemon.not_running() {
+                            let since = *missing_since.get_or_insert_with(Instant::now);
+                            if since.elapsed() >= grace {
+                                return Err(Outcome::Failed {
+                                    code: DAEMON_NOT_RUNNING.into(),
+                                    message: why,
+                                });
+                            }
+                        } else {
+                            missing_since = None;
+                        }
                         None
                     }
                 },
