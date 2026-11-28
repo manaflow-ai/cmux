@@ -303,18 +303,27 @@ announce_network() {
 # A derive clone schedules a re-arm and is then parked for its own snapshot;
 # the pending transient timer must not ride into that snapshot, where the
 # clock jump would fire it on the next clone's first second.
+# Every live user manager's switch (the acpmux daemon's unit runs under one, with its own
+# WatchdogSec): the system switch does not reach them, and they ride into the snapshot too.
+# The re-arm's copy doubles each $: systemd expands $VAR in a transient unit's ExecStart.
+user_watchdogs_script() {
+  # shellcheck disable=SC2016
+  printf 'for d in /run/user/[0-9]*; do [ -S "$d/systemd/private" ] && timeout 2 systemctl --user -M "$(id -nu "${d##*/}")@" service-watchdogs %s; done; ' "$1"
+}
+
 park_housekeeping() {
   [ -d /run/systemd/system ] || return 0
   # shellcheck disable=SC2086
   systemctl stop cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service $HOUSEKEEPING_TIMERS >/dev/null 2>&1 || true
   systemd-analyze service-watchdogs no >/dev/null 2>&1 || true
+  sh -c "$(user_watchdogs_script no)" >/dev/null 2>&1 || true
 }
 
 rearm_housekeeping() {
   [ -d /run/systemd/system ] || return 0
   systemctl stop cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service >/dev/null 2>&1 || true
   systemd-run --quiet --no-block --collect --unit=cmux-housekeeping-rearm --on-active="$HOUSEKEEPING_DELAY" \
-    /bin/sh -c "systemd-analyze service-watchdogs yes; systemctl start $HOUSEKEEPING_TIMERS" >/dev/null 2>&1 || true
+    /bin/sh -c "systemd-analyze service-watchdogs yes; $(user_watchdogs_script yes | sed 's/\$/$$/g')systemctl start $HOUSEKEEPING_TIMERS" >/dev/null 2>&1 || true
 }
 
 announce_loop() {

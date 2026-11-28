@@ -132,11 +132,12 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
             // The rate spend (a TenantLimits object call) and the ownership read (Postgres) are independent reads of
             // the caller's own tenant, so they run together; one VM call used to wait for both in turn. They are
             // still judged in the order above: a 429 wins over a 404, and nothing acts before ownership is proven.
-            // Named on the answer as `own` (server-timing), so a caller's trace splits this gate from the provider's time.
+            // Named on the answer as `own` (server-timing), so a caller's trace splits this gate from the provider's time, and
+            // its halves as `rate` and `read`, so the slower of the two is named (2026-11-28 production: own ~150 ms a resume).
             const [rated, found] = yield* timedStep("own", Effect.all(
               [
-                Effect.either(rateLimit(principal, rateClass)),
-                Effect.either(tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")))),
+                Effect.either(timedStep("rate", rateLimit(principal, rateClass))),
+                Effect.either(timedStep("read", tenantOwnsVm(caller, vm)).pipe(Effect.catchAll(dependencyDown("ownership.find")))),
               ],
               { concurrency: 2 },
             ));

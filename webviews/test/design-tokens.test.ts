@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  carryAllowances,
   findTokenOnlyViolations,
+  fixStylesheet,
+  isFixableMotionStep,
+  isPinnedToken,
   hasRawColor,
   inlineStyleFindings,
   isOutsideScale,
@@ -265,5 +269,67 @@ describe("token copies (a px/ms literal a named token already holds)", () => {
     const errors = ratchetErrors(new Map([[id, 1]]), new Map(), [finding!]);
     expect(errors[0]).toContain("new design token violation");
     expect(errors[1]).toContain('designTokenValue("--grid-half-step")');
+  });
+});
+
+describe("design token --fix", () => {
+  // The step values come from the tokens, so this file holds no motion literal of its own.
+  const micro = designTokenValue("--cmux-motion-micro");
+  const ms = (token: string) => Number.parseFloat(designTokenValue(token));
+  const standardSeconds = `.${ms("--cmux-motion-standard") / 10}s`;
+  const settle = `${ms("--cmux-motion-standard")}ms`;
+
+  test("a motion step becomes its token, its fallback written as the scale writes it; px literals stay", () => {
+    const sheet = [
+      `.row { transition: opacity ${micro} ease, transform ${standardSeconds} ease-out; }`,
+      ".card { border-radius: 10px; }",
+      `.settle { transition: transform ${settle} var(--cmux-ease-settle); }`,
+      `.gap { gap: 10px; transition: opacity var(--x, ${micro}) ease; }`,
+      `@keyframes spin { from { transition: opacity ${micro}; } }`,
+    ].join("\n");
+    const { text, swaps } = fixStylesheet(sheet);
+    expect(swaps).toBe(2);
+    expect(text.split("\n")).toEqual([
+      `.row { transition: opacity var(--cmux-motion-micro, ${micro}) ease, transform var(--cmux-motion-standard, ${designTokenValue("--cmux-motion-standard")}) ease-out; }`,
+      ".card { border-radius: 10px; }",
+      `.settle { transition: transform ${settle} var(--cmux-ease-settle); }`,
+      `.gap { gap: 10px; transition: opacity var(--x, ${micro}) ease; }`,
+      `@keyframes spin { from { transition: opacity ${micro}; } }`,
+    ]);
+  });
+
+  test("tokens a density scale, a look or a component sets again are never written in", () => {
+    // A look may tune a motion step (#56348) and the scale restates it under off/reduced: not pinned, still fixable.
+    expect(isPinnedToken("--cmux-motion-micro")).toBe(false);
+    expect(isFixableMotionStep("--cmux-motion-micro")).toBe(true);
+    expect(isFixableMotionStep("--cmux-motion-settle")).toBe(false);
+    expect(isPinnedToken("--surface-card-radius")).toBe(true);
+    for (const token of ["--grid-half-step", "--ds-radius-card", "--cmux-focus-ring-width", "--cmux-motion-settle"])
+      expect(isPinnedToken(token)).toBe(false);
+  });
+
+  test("a rewritten declaration's allowance moves to its new value one for one", () => {
+    const at = (kind: "duration" | "easing", value: string) => ({
+      file: "a.css",
+      kind,
+      selector: ".a",
+      property: "transition",
+      value,
+      line: 3,
+    });
+    const oldValue = `opacity ${micro} ease`;
+    const newValue = `opacity var(--cmux-motion-micro, ${micro}) ease`;
+    const id = (kind: string, value: string) => ["a.css", kind, "transition", value].join("\t");
+    const moved = carryAllowances(
+      new Map([[id("duration", oldValue), 2]]),
+      [at("duration", oldValue)],
+      [at("easing", newValue)],
+    );
+    expect([...moved]).toEqual([
+      [id("duration", oldValue), 1],
+      [id("easing", newValue), 1],
+    ]);
+    // No allowance to carry: nothing is added.
+    expect(carryAllowances(new Map(), [at("duration", oldValue)], [at("easing", newValue)]).size).toBe(0);
   });
 });
