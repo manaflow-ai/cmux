@@ -114,3 +114,24 @@
 .autosize-row[data-look="card"] .autosize-row-title {
   font-size: var(--text-body);
 }
+
+/* the fold over the composer: "N earlier" above the newest row */
+.autosize-fold {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--grid-half-step);
+  min-width: 0;
+}
+
+.autosize-fold-toggle {
+  align-self: flex-start;
+  font: inherit;
+  font-size: var(--text-detail);
+  color: var(--text-secondary, rgba(127, 127, 127, 0.95));
+  font-variant-numeric: tabular-nums;
+}
+
+.autosize-dock {
+  padding: var(--grid-half-step) 0;
+}
