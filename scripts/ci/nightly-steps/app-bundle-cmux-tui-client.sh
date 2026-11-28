@@ -23,7 +23,8 @@ tree_used=exact
 # waiting up to 45 min for the tip's tree, failing, and waiting again on the retry cost 23.8 h
 # of 48.6 h (RFD 0021 row 1, 2026-11-19 to 21). The bounded wait only lasts while a same-key
 # cmux-tui artifacts run is making progress: await-tree-client.sh stops after two idle checks,
-# about 5 min, when nothing will publish the tree. A single look (the old behavior, still set by
+# about 5 min, when nothing will publish the tree, and lasts up to CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS
+# (default 1200) longer while that run rebuilds a primary macOS leg a runner shutdown killed. A single look (the old behavior, still set by
 # ..._FALLBACK_WAIT_SECONDS=0) shipped a client 75 commits behind its app. Run 45825165164
 # (tip cec1e3c, 2026-11-26) looked at 13:16:42Z, but tree 2460ebd1 was published at 13:40:41Z by
 # artifacts run 45825165044, which the same push had started. So every nightly whose tip changed
