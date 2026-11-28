@@ -2,13 +2,22 @@
 // line over it ("this 0 tool calls thing is a tad bit weird"). A fold with no time and nothing
 // counted says nothing, so it is no fold: its rows draw as they ran, as Claude's and Codex's apps
 // draw a lone subagent. A count, when there is one, still reads as before.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { translate, type Translate } from "../i18n";
 import { withSubagentLines } from "../subagents/runningTray";
 import { SUBAGENT_DONE } from "../subagents/subagentRows";
 import { BACKGROUND_TURN } from "./backgroundTurns";
 import { BACKGROUND_END, footerLabel, turnSpan, turnView, WORKED, workedLabel } from "./turns";
+
+// A background subagent's end draws in the transcript, not only in the hat's line look, which
+// takes such ends out (backgroundRuns.ts `withoutHatEnds`).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { "subagent-tray-fold-head": "groups" };
+});
+afterAll(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 const t: Translate = (key, values) => translate(key, values, "en");
 

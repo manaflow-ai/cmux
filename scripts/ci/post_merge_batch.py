@@ -100,7 +100,17 @@ STEP_SEP = "|"
 # A batch run on the tip whose judge never succeeded (its plan or judge lost a runner) is run again by the tick
 # until this many batch runs sit on that tip.
 MAX_TIP_BATCHES = 2
-SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+# A live batch run this many minutes old whose judge job has not started is stalled: the tick cancels it and starts
+# the next batch, whose plan reads from the last judged batch, so its window covers the stalled one's commits too.
+# Until 2026-11-28 a live batch held every tick with no bound: run 46164328032 (16:17Z) sat 2.5 h on a Mac job stuck
+# in runner setup (blacksmith-6vcpu-macos-26 saturated; timeout-minutes does not count a runner wait) and a linux
+# job whose bound is 1090 min, and no base row moved after its fixes merged. The seven batch runs before it started
+# their judge 61 to 162 min in, so 200 leaves a healthy batch alone. NEXT_POST_MERGE_STALL_MINUTES sets it; 0: off.
+DEFAULT_STALL_MINUTES = 200
+# A stalled run still live this long past the stall bound did not take its cancel (a job stuck in runner setup):
+# the tick force-cancels it.
+FORCE_CANCEL_AFTER_MINUTES = 60
+SHA_RE =re.compile(r"^[0-9a-f]{40}$")
 PR_RE = re.compile(r"\(#(\d+)\)\s*$")
 PIECES_DRILL = "lane/post-merge-drill-pieces-"
 # Core teammates (cmuxterm-hq culprit_revert's TEAMMATE_CORE_TEAM, minus Leo, whose login his agents also merge
@@ -156,13 +166,19 @@ def rate_limit_wait(now: float, reset: float | None, left: float) -> float:
     return max(0.0, min(max(want, 15.0), left))
 
 
-def _core_reset() -> float | None:
-    """When the token's core limit resets (gh api rate_limit is not counted against it)."""
-    out = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True)
-    try:
-        return float(json.loads(out.stdout)["resources"]["core"]["reset"])
-    except (ValueError, KeyError, TypeError):
-        return None
+def _core_reset(tokens: list[str] | None = None) -> float | None:
+    """When the soonest of the tokens' core limits resets (gh api rate_limit is not counted against it). Each token
+    has its own reset, and the first one back lets the call through: reading only the ambient token's reset could
+    wait past another token's reset."""
+    resets = []
+    for token in tokens or [""]:
+        env = {**os.environ, "GH_TOKEN": token} if token else None
+        out = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True, env=env)
+        try:
+            resets.append(float(json.loads(out.stdout)["resources"]["core"]["reset"]))
+        except (ValueError, KeyError, TypeError):
+            pass
+    return min(resets) if resets else None
 
 
 def _distinct(*tokens: str) -> list[str]:
@@ -187,7 +203,7 @@ def write_tokens() -> list[str]:
     return _distinct(env("GH_TOKEN", ""), env("GH_FALLBACK_TOKEN", ""))
 
 
-def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=_core_reset, tokens=None) -> object:
+def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=None, tokens=None) -> object:
     """One GitHub API call through gh. A call tries each of read_tokens() (a read) or write_tokens() (a write) in
     turn when one is rate limited. Fields go as JSON on stdin. Once every token is rate limited it waits for the reset and
     retries within API_WAIT_BUDGET."""
@@ -198,6 +214,9 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=su
         data = json.dumps(fields)
     if tokens is None:
         tokens = read_tokens() if method == "GET" else write_tokens()
+    if reset_at is None:
+        def reset_at() -> float | None:
+            return _core_reset(tokens)
     while True:
         for i, token in enumerate(tokens):
             env = {**os.environ, "GH_TOKEN": token} if token else None
@@ -554,6 +573,32 @@ def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int
     return "dispatch", f"tip {tip[:11]} is untested; last batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]}, {age:.0f} min ago"
 
 
+def stalled_batches(runs: list[dict], now: datetime, stall: int, judging=lambda run_id: True,
+                    self_run_id: int = 0) -> list[dict]:
+    """The live batch runs (never self_run_id) at least stall minutes old whose judge job has not started
+    (judging(run id) is False): the tick supersedes them. stall 0: none."""
+    if stall <= 0:
+        return []
+    return [r for r in runs
+            if is_batch(r) and r.get("status") != "completed" and r.get("id") != self_run_id
+            and (now - parse_time(r["created_at"])).total_seconds() / 60 >= stall and not judging(r["id"])]
+
+
+def superseded(runs: list[dict], stalled: list[dict]) -> list[dict]:
+    """RUNS with each stalled run read as completed (cancelled): tick_decision then counts it as a batch with no verdict."""
+    ids = {r.get("id") for r in stalled}
+    return [{**r, "status": "completed", "conclusion": "cancelled"} if r.get("id") in ids else r for r in runs]
+
+
+def stall_minutes(value: str | None) -> int:
+    """NEXT_POST_MERGE_STALL_MINUTES: unset or unreadable is the default; 0 turns superseding off."""
+    try:
+        minutes = int(str(value or "").strip())
+    except ValueError:
+        return DEFAULT_STALL_MINUTES
+    return max(minutes, 0)
+
+
 def window_minutes(value: str | None) -> int:
     try:
         minutes = int(str(value or "").strip())
@@ -647,8 +692,28 @@ def tick(args: argparse.Namespace) -> int:
         return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
 
     self_run_id = int(getattr(args, "self_run_id", 0) or 0)
+
+    def judging(run_id: int) -> bool:
+        return any(j.get("name") == "judge" and j.get("status") in ("in_progress", "completed")
+                   for j in run_jobs(args.repo, run_id))
+
+    now = datetime.now(timezone.utc)
+    stall = stall_minutes(getattr(args, "stall_minutes", None))
+    stalled = stalled_batches(runs, now, stall, judging, self_run_id)
+    for r in stalled:
+        age = (now - parse_time(r["created_at"])).total_seconds() / 60
+        how = "force-cancel" if age >= stall + FORCE_CANCEL_AFTER_MINUTES else "cancel"
+        print(f"supersede: batch run {r.get('id')} on {str(r.get('head_sha'))[:11]} is {r.get('status')} {age:.0f} min "
+              f"with no judge started (bound {stall} min): {how}")
+        if not args.dry_run:
+            try:
+                gh_api(f"repos/{args.repo}/actions/runs/{r['id']}/{how}", method="POST")
+            except RuntimeError as err:
+                if "HTTP 409" not in str(err):  # 409: it completed since the list; nothing left to cancel
+                    raise
+    runs = superseded(runs, stalled)
     action, reason = tick_decision(
-        tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged,
+        tip, runs, now, window_minutes(args.window_minutes), judged,
         every_merges(getattr(args, "every_merges", None)), lambda base: ahead_by(args.repo, base, tip), self_run_id,
     )
     print(f"{action}: {reason}")
@@ -1998,7 +2063,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
         p.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
         p.add_argument("--dry-run", action="store_true")
-        p.add_argument("--api-wait-seconds", type=float, default=None, help="total wait for a spent rate limit (judge 600, plan 420, revert 300, tick 120)")
+        p.add_argument("--api-wait-seconds", type=float, default=None, help="total wait for a spent rate limit (judge 3900, plan 420, revert 900, tick 120)")
 
     def probe_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--mode", choices=[BATCH, PROBE], default=BATCH)
@@ -2024,6 +2089,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--every-merges", default=os.environ.get("NEXT_POST_MERGE_EVERY_MERGES"),
                    help=f"dispatch once the tip is this many commits past the last batch (default {DEFAULT_EVERY_MERGES}; 0: the window alone)")
     p.add_argument("--self-run-id", type=int, default=0, help="the batch run whose judge job ticks (its own run)")
+    p.add_argument("--stall-minutes", default=os.environ.get("NEXT_POST_MERGE_STALL_MINUTES"),
+                   help=f"cancel and replace a live batch this old whose judge has not started (default {DEFAULT_STALL_MINUTES}; 0: off)")
     p.set_defaults(func=cmd_tick)
 
     p = sub.add_parser("plan")
@@ -2051,8 +2118,11 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_revert)
 
     args = parser.parse_args(argv)
-    # Within each job's timeout-minutes (judge 15, plan 10); the tick's shim is short and skips on a refusal.
-    budgets = {"judge": 600.0, "plan": 420.0, "revert": 900.0}
+    # Within each job's timeout-minutes (judge 70, plan 10); the tick's shim is short and skips on a refusal. The
+    # judge's budget outlasts a whole hourly reset: a judge that gives up ends its probe's bisect chain (its first
+    # read, its own run's jobs, has no re-dispatch). With 600 s, probe run 46155774726 (11-28 14:40Z) waited the
+    # whole budget, retried at 14:50:08 against a reset at 14:51:46 and died.
+    budgets = {"judge": 3900.0, "plan": 420.0, "revert": 900.0}
     API_WAIT_BUDGET["seconds"] = args.api_wait_seconds if args.api_wait_seconds is not None else budgets.get(args.cmd, 120.0)
     return args.func(args)
 
