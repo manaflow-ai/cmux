@@ -1181,7 +1181,15 @@ mod tests {
         let bundle = dir.path().join("bundle");
         std::fs::create_dir_all(bundle.join("events")).unwrap();
         let id = uuid::Uuid::now_v7().to_string();
+        // The binding is under test, not durable harness state: a harness without a journal to
+        // carry (`restore_harness_state` needs one for `cmux-harness`).
+        {
+            let mut cfg = hub.config.write().await;
+            let profile = cfg.harnesses["cmux-harness"].clone();
+            cfg.harnesses.insert("plain".into(), profile);
+        }
         let mut meta = harness_meta(&id, "agent-setup-token");
+        meta["harness"] = json!("plain");
         meta["cwd"] = json!(dir.path());
         std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
         let binding = format!("claude-token:{}", "a".repeat(64));

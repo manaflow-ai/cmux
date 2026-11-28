@@ -2,8 +2,10 @@
 //! replaces the Cloud credential of one of this daemon's own sessions (`agent_credentials.rs`), a
 //! refreshed ChatGPT access token about ten minutes before the last one expires. Its agent then
 //! restarts on the new credential and resumes the same conversation (Codex `thread/resume`, Claude
-//! `--resume`), as a route switch does (`route_switch.rs` `restart_harnesses`): between turns now,
-//! in a turn when the turn ends, never cancelled.
+//! `--resume`), after the idle gates and process census find it quiet. A refresh never cuts work; an already
+//! quiet agent is restarted immediately, while busy work keeps the mark until the next quiet boundary.
+//! Delivery is acknowledged only once a live agent carries it: a pending refresh is a retryable
+//! error, so the Mac redelivers it if this daemon hands off before the quiet restart.
 //!
 //! A withdrawal is recorded without the credential, so a guest restart cannot reopen the chat on
 //! its old key.
@@ -100,19 +102,29 @@ impl Hub {
         true
     }
 
-    /// Whether `session` (meta `m`) holds a launch credential that this daemon's memory alone keeps
-    /// (its summary's `credentialOnlyHere`): one is held and its agent is hibernated, so no running
-    /// agent carries it in its env for the next daemon to read back ([`Self::recover_credential`]).
-    /// A machine update wakes such a session before it restarts this daemon (cmux-host
-    /// `updater/credential_wake.rs`); without that, the chat's next start after the restart runs
-    /// on the machine's own route ("Claude is not signed in here"). False for a closed or watched
-    /// chat, which `session wake` does not start: its credential is still lost with the daemon.
+    /// Whether a live agent carries this exact token across a daemon handoff. A child slot
+    /// being changed is not evidence of delivery; the next resend can prove it after the change.
+    fn credential_carried(&self, session: &Session, credential: &AgentCredential) -> bool {
+        let Ok(child) = session.child.try_lock() else { return false };
+        if child.is_none() || self.waking(session) {
+            return false;
+        }
+        let launch = session.launch_env.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(env) = launch.as_ref() else { return false };
+        let pairs: Vec<_> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        crate::agent_credentials::recovered_from_launch(&pairs).as_ref() == Some(credential)
+    }
+
+    /// A hibernated agent, or an old live agent waiting for quiet, does not carry the newest
+    /// held credential. Such a credential would be lost in a daemon handoff. The machine
+    /// updater sees this marker; the Mac also retains its refresh for redelivery until the
+    /// update RPC succeeds with a host carrying that exact credential.
     pub(super) fn credential_only_here(&self, session: &Session, m: &SessionMeta) -> bool {
-        self.waking(session)
-            && m.status != SessionStatus::Closed
-            && m.watching.is_none()
-            && !m.credential_withdrawn
-            && session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+        if m.status == SessionStatus::Closed || m.watching.is_some() || m.credential_withdrawn {
+            return false;
+        }
+        let credential = session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        credential.as_ref().is_some_and(|credential| !self.credential_carried(session, credential))
     }
 
     /// Named connections remain assigned even while their token awaits redelivery.
@@ -298,7 +310,8 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let session = self.credential_session(id)?;
         self.credential_serves(&session.meta().harness, &credential).await?;
-        let changed = {
+        let stops = session.stops.load(std::sync::atomic::Ordering::SeqCst);
+        {
             let _spawn = session.spawn_lock.lock().await;
             let meta = session.meta();
             if uses_claude_machine_login(&meta) {
@@ -333,26 +346,32 @@ impl Hub {
             if changed && credential.family() == Family::Copilot {
                 crate::agent::copilot_auth::remove_session(&session.id);
             }
-            *held = Some(credential);
-            changed
+            *held = Some(credential.clone());
         };
-        if !changed || session.child.lock().await.is_none() {
-            // The next start runs on it.
+        if self.credential_carried(&session, &credential) {
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
         }
-        let only = std::collections::BTreeSet::from([session.id.clone()]);
-        let out = self.restart_harnesses(None, Some(&only)).await;
-        if let Some((_, error)) = out.failed.first() {
-            return Err(RpcError::internal(format!("the agent did not start again: {error}")));
-        }
-        let restart = if out.now > 0 {
-            "now"
-        } else if out.after_turn > 0 {
-            "afterTurn"
-        } else {
-            "none"
+        // An identical resend is still pending if the old child has not taken it yet. Returning
+        // success here would make the Mac forget to resend after a daemon handoff/adoption.
+        self.respawn_when_quiet_required(&session);
+        let pending = || {
+            RpcError::new(-32000, "the refreshed credential is waiting for a quiet agent")
+                .with_data(json!({"reason": "credentials.pending", "retryable": true}))
         };
-        Ok(json!({"sessionId": session.id, "restart": restart}))
+        let has_child = session.child.lock().await.is_some();
+        if has_child && !self.end_quiet_stale(&session, "credential-refresh", None).await {
+            return Err(pending());
+        }
+        // A hibernated agent carries nothing either. Start on the held credential before
+        // acknowledging delivery, with the ordinary Stop fence and spawn failure handling.
+        if session.status() == SessionStatus::Closed || session.meta().watching.is_some() {
+            return Err(pending());
+        }
+        self.child_for_since(&session, stops).await?;
+        if !self.credential_carried(&session, &credential) {
+            return Err(pending());
+        }
+        Ok(json!({"sessionId": session.id, "restart": "now"}))
     }
 
     /// Name and presence of an owner's stored launch connection, for reattachment.
