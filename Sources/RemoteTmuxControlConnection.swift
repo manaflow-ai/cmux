@@ -121,20 +121,20 @@ final class RemoteTmuxControlConnection {
     /// Aggregate bytes retained by every in-flight pane seed on this connection.
     var pendingPaneSeedByteCount = 0
     let pendingPaneSeedByteLimit: Int
-    /// Panes whose budget overflow recovery is waiting to start an authoritative seed.
+    /// Panes waiting for budget recovery, and whether one main-actor turn is scheduled to run it.
     var deferredPaneSeedBudgetRecoveryPaneIDs: Set<Int> = []
-    /// Coalesces pane budget recovery onto one future main-actor turn.
     var paneSeedBudgetRecoveryTaskScheduled = false
     /// The one queued or in-flight visible repaint seed allowed per pane.
     var pendingPaneVisibleRepaintSeedIDs: [Int: UUID] = [:]
-    /// Panes that grew while a visible repaint seed was already in flight. One
-    /// deferred repaint per pane bounds churn while preserving the latest repair.
+    /// Panes that grew while their repaint was in flight; one deferred repaint each bounds churn.
     var deferredPaneVisibleRepaints: Set<Int> = []
     /// Reconnect seeds that must finish before consumers can resume resize work.
     var pendingReconnectSeedIDs: Set<UUID> = []
-    /// Stable pane queue for reconnect snapshots. Only a small fixed number are
-    /// captured concurrently so retained history is bounded independently of pane count.
+    /// Reconnect snapshots wait here and run a few at a time, bounding retained history.
     var pendingReconnectPaneIDs: [Int] = []
+    /// First seeds of mounted panes, paced the same way (see `queuePaneSeed(paneId:)`).
+    var queuedPaneSeedPaneIDs = RemoteTmuxPaneSeedQueue()
+    var queuedPaneSeedIDs: [UUID: Int] = [:]
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
@@ -191,10 +191,10 @@ final class RemoteTmuxControlConnection {
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     var newPaneCompletions: [UUID: (Int?) -> Void] = [:]
     /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
-    /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
-    /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
-    /// build protocol-anchored state machines on that guarantee.
+    /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`, `%error`, or a
+    /// stream reset (``failPendingTrackedSends()``); callers build state machines on that.
     var trackedSendCompletions: [UUID: (Bool) -> Void] = [:]
+    var agentHookInstalls = RemoteTmuxAgentHookInstallBatch()
 
     private var process: Process?
     /// Cleanup belongs to the ended spawn, and must finish even if a replacement
@@ -333,16 +333,16 @@ final class RemoteTmuxControlConnection {
     /// deliberately parked (frozen, not ended) until ``resumeAfterInteractiveAuth()``
     /// or ``stop()``.
     private(set) var awaitingInteractiveAuth = false
-    /// stderr text captured for the in-flight spawn, inspected when a reconnect
-    /// attempt's process exits to tell "session genuinely gone" from "host still
-    /// unreachable". Reset at the start of each spawn.
+    /// stderr text captured for the in-flight spawn, inspected when a reconnect attempt's process
+    /// exits to tell "session genuinely gone" from "host still unreachable". Reset per spawn.
     private var stderrBuffer = ""
     private var preControlOutputBuffer = ""
-    /// When the current spawn last produced anything on stdout or stderr, or when it was
-    /// started if it has produced nothing. Read by ``attachProgress(now:)``.
-    private var lastTransportOutputAt: ContinuousClock.Instant?
-    /// Set the first time the pre-control region looks like an unanswered prompt, and never unset for
-    /// this process.
+    /// When this spawn last produced output, or when it started if none. Read by ``attachProgress(now:)``.
+    private var lastTransportOutputAt: ContinuousClock.Instant? { didSet { reconnectAttemptOutputArrived() } }
+    var reconnectQuietLimits = RemoteTmuxAttachProgress.QuietLimits.standard
+    var reconnectAttemptDeadline: Task<Void, Never>? // see ReconnectAttemptWatch
+    var transportClock: @Sendable () -> ContinuousClock.Instant = { .now }
+    /// Set the first time the pre-control region looks like an unanswered prompt; never unset for this process.
     ///
     /// The region is capped at ``maxStderrBytes`` and drops its oldest bytes, so recomputing the answer
     /// on demand meant a chatty transport could push the prompt out of the window and the observation
@@ -526,10 +526,10 @@ final class RemoteTmuxControlConnection {
     }()
     /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
     private static let maxStderrBytes = 8 * 1024
-    /// Cap queued stdin bytes while the dedicated writer is backpressured. Above
-    /// this, mutations are rejected and the connection reconnects instead of
-    /// accepting unbounded user input that may never reach tmux.
-    private static let maxPendingStdinBytes = 256 * 1024
+    /// Memory ceiling on stdin bytes the pipe has not taken yet; the writer also gives up on a pipe
+    /// that stops taking bytes (see ``RemoteTmuxControlPipeWriter``). Far above the attach burst of
+    /// a host with many sessions, which a 256 KiB cap turned into a reconnect on every attach.
+    static let maxPendingStdinBytes = 8 * 1024 * 1024
     /// Cap pending stdout between SSH's pipe callback and the main-actor parser.
     /// Initial attach can legitimately burst one `capture-pane -S 5000` block per
     /// mirrored pane, so the chunk cap absorbs pipe delivery jitter while the byte
@@ -696,7 +696,7 @@ final class RemoteTmuxControlConnection {
         attachBlockDrained = false
         stderrBuffer = ""
         preControlOutputBuffer = ""
-        lastTransportOutputAt = .now
+        lastTransportOutputAt = transportClock()
         sawUnansweredCredentialPrompt = false
         enterReceived = false
         controlModeEnteredAt = nil
@@ -860,7 +860,7 @@ final class RemoteTmuxControlConnection {
     /// can't grow it without limit. Keeps the tail (the most recent, where the
     /// failure reason is).
     private func appendStderr(_ text: String) {
-        lastTransportOutputAt = .now
+        lastTransportOutputAt = transportClock()
         stderrBuffer += text
         if stderrBuffer.utf8.count > Self.maxStderrBytes {
             stderrBuffer = String(decoding: Array(stderrBuffer.utf8.suffix(Self.maxStderrBytes)), as: UTF8.self)
@@ -1081,8 +1081,9 @@ final class RemoteTmuxControlConnection {
     /// Tears down the current spawn's process and I/O handles WITHOUT changing
     /// `connectionState`, so the connection can either end (``stop()``) or re-spawn
     /// (reconnect) from a clean slate.
-    private func teardownProcessHandles() {
+    func teardownProcessHandles() {
         processGeneration &+= 1
+        cancelReconnectAttemptDeadline()
         ingestTask?.cancel()
         ingestTask = nil
         stderrTask?.cancel()
@@ -1284,7 +1285,7 @@ final class RemoteTmuxControlConnection {
     /// check reads the parser's unterminated tail, and a test that brings its own parser would not
     /// exercise it.
     func ingest(_ data: Data) {
-        lastTransportOutputAt = .now
+        lastTransportOutputAt = transportClock()
         for message in parser.feed(data) {
             handle(message)
         }
@@ -1502,7 +1503,7 @@ final class RemoteTmuxControlConnection {
     }
 
     /// Schedules the next reconnect attempt after a capped exponential backoff.
-    private func scheduleReconnectAttempt() {
+    func scheduleReconnectAttempt() {
         let attempt = reconnectAttemptCount
         reconnectAttemptCount += 1
         let delay = min(
@@ -1539,9 +1540,8 @@ final class RemoteTmuxControlConnection {
         record("reconnect-attempt")
         do {
             try spawnProcess(mode: everReachedControlMode ? .attach : attachMode)
-        } catch {
-            scheduleReconnectAttempt()
-        }
+            armReconnectAttemptDeadline()
+        } catch { scheduleReconnectAttempt() }
     }
 
     /// Re-seeds every mirrored pane after a successful reconnect: the fresh ssh

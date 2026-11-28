@@ -223,7 +223,7 @@ struct RemoteTmuxMirrorTargetingTests {
                     lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
                     isError: false
                 ))
-            case .other:
+            case .other, .tracked:
                 connection.handleMessageForTesting(.commandResult(
                     commandNumber: 2, lines: [], isError: false))
             default:
