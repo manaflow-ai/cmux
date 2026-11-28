@@ -322,6 +322,37 @@ export function chooserRowsScan<
   return [...rows, ...remote.filter(has)];
 }
 
+/// `rows` in the places an opening first showed them (`placed`, their `cwd`s, which this updates): a row the
+/// opening already showed keeps its place, and a new one goes after them. Leo, 2026-11-27: "when you open a new
+/// tab the shown projects switch weird the placements get weird": the New Tab project card ordered its rows by
+/// chat recency, so a chat working, the host's project answer or a late repository read moved them while the
+/// page was in view (cmux-agent-pane-policy new_tab_projects.rs: positions belong to an opening).
+export function keepPlaces<T extends { cwd: string }>(rows: readonly T[], placed: string[]): T[] {
+  const places = withPlaces(rows, placed);
+  placed.splice(0, placed.length, ...places);
+  return inPlaces(rows, places);
+}
+
+/// `placed` with each row it does not hold yet after it, in the rows' order; `placed` itself when it holds
+/// them all, so a component that keeps it in state sets it only when a row is new (no ref read in render,
+/// which the React Compiler skips a component for: scripts/check-compiler-bails.mjs).
+export function withPlaces(rows: readonly { cwd: string }[], placed: readonly string[]): readonly string[] {
+  const have = new Set(placed);
+  const added: string[] = [];
+  for (const { cwd } of rows)
+    if (!have.has(cwd)) {
+      have.add(cwd);
+      added.push(cwd);
+    }
+  return added.length ? [...placed, ...added] : placed;
+}
+
+/// `rows` sorted by their place in `places` (each row's `cwd` is in it: withPlaces).
+export function inPlaces<T extends { cwd: string }>(rows: readonly T[], places: readonly string[]): T[] {
+  const place = new Map(places.map((cwd, index) => [cwd, index] as const));
+  return [...rows].sort((a, b) => place.get(a.cwd)! - place.get(b.cwd)!);
+}
+
 /// The projects in the order they were last used: those a chat used, newest chat first, then the
 /// rest in the order given.
 export function byRecentUse<T extends { cwd: string }>(projects: readonly T[], recent: readonly string[]): T[] {
