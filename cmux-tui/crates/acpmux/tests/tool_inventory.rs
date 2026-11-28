@@ -59,7 +59,8 @@ fn hub(control_log: &Path) -> Arc<Hub> {
             "fake": {"argv": ["python3", FAKE]},
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                            "env": {"FAKE_CLAUDE_INIT": claude_init().to_string(),
-                                   "FAKE_CLAUDE_CONTROL_LOG": control_log}},
+                                   "FAKE_CLAUDE_CONTROL_LOG": control_log,
+                                   "CLAUDE_CONFIG_DIR": control_log.parent().unwrap().join("claude")}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -337,7 +338,14 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     // (cmux's own server and skill and plugin once, the user's after them).
     // linear is off in the user's own Claude config: cmux cannot turn it on.
     let claude = local.new_session("fakeclaude").await;
-    assert!(!argv(&local.ask(&claude, "hi").await).contains(&"--disallowedTools".to_owned()));
+    let initial_args = argv(&local.ask(&claude, "hi").await);
+    assert!(!initial_args.contains(&"--disallowedTools".to_owned()));
+    let session_flag = initial_args.iter().position(|arg| arg == "--session-id").unwrap();
+    let conversation_id = &initial_args[session_flag + 1];
+    let assert_resumed = |args: &[String]| {
+        let resume = args.iter().position(|arg| arg == "--resume").expect("the chat resumes");
+        assert_eq!(&args[resume + 1], conversation_id, "the same conversation resumes: {args:?}");
+    };
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
     assert_eq!(info["toolsMutable"], json!(true), "{info}");
     assert_eq!(
@@ -399,7 +407,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     while tool(&watcher.changed(&claude, "tools").await["session"]["tools"], "mcp:github").3 {}
     let args = argv(&local.ask(&claude, "hi").await);
     assert_eq!(disallowed(&args), ["mcp__github"], "{args:?}");
-    assert!(args.contains(&"--resume".to_owned()), "the chat resumes: {args:?}");
+    assert_resumed(&args);
     // The new process's init reports github connected: the chat's choice stays.
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
     assert!(!tool(&info["tools"], "mcp:github").3, "{info}");
@@ -505,6 +513,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     // Both choices survive a respawn.
     local.call("session/close", json!({"sessionId": claude})).await.expect("close");
     let args = argv(&local.ask(&claude, "hi").await);
+    assert_resumed(&args);
     assert_eq!(disallowed(&args), ["mcp__cmux", "mcp__github"], "{args:?}");
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
     assert!(!tool(&info["tools"], "mcp:cmux").3 && !tool(&info["tools"], "mcp:github").3);
