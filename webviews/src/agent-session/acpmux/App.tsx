@@ -1486,7 +1486,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (entry: AcpmuxSessionEntry) => {
       const client = directClient.current;
       if (!client) return notices.failed(translate("error.notOpen"));
-      client.unsettle(entry.sessionId).catch((error: unknown) => notices.failed(errorMessage(error) || String(error)));
+      client.unsettle(entry.sessionId).catch((error: unknown) => {
+        // Plain words, never the refusal's own text (plainErrors.test.ts); a known reason says why.
+        const reason = knownRefusalText(error);
+        notices.failed(
+          reason ? translate("settle.unsettleFailedReason", { reason }) : translate("settle.unsettleFailed"),
+        );
+      });
     },
     [notices],
   );
