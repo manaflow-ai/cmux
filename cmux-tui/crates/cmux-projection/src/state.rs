@@ -8,6 +8,9 @@
 //! - **released** ([`Released`]): the chat was archived or deleted, so nothing will ever bring its
 //!   edits back.
 //!
+//! A **detached** projection ([`Detached`]: the folder was removed from its chat) is no longer
+//! mounted, and its upper layer stays while the chat that removed it lives.
+//!
 //! Without one of the two, or a chat list that has no live chat for the folder ([`crate::reap`]),
 //! the upper layer stays: it is the only copy of what the agent wrote.
 
@@ -38,6 +41,18 @@ pub struct Record {
     pub brought_back: Option<BroughtBack>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub released: Option<Released>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detached: Option<Detached>,
+}
+
+/// The folder was removed from its chat (`projection.detach`): unmounted, its upper layer kept
+/// for Bring Back or Discard.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Detached {
+    pub ms: u64,
+    /// The notification recipient, when the Mac named one. Its lifetime only governs empty layers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<String>,
 }
 
 /// Bring Back carried the upper layer to the Mac.

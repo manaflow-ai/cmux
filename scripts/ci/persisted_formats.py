@@ -15,7 +15,8 @@ Four kinds of stored data cross an update, and this one check covers each:
               `[[storage_key]]` entries. A key's data is lost the moment the code stops naming it.
   settings    schemas/settings/published-keys.txt only grows and retired-keys.json never loses an entry
               (the migration table cmux-config applies); cmux-config's
-              cmux_next_persisted_settings_keys test checks each key is a live row or retired.
+              cmux_next_persisted_settings_keys test checks each key is a live row or retired; this PR check
+              enforces the same rule before publication.
 
 Each registry's header says what its policies mean. This check reads them at HEAD and at the base commit
 and fails when:
@@ -29,7 +30,8 @@ and fails when:
   - an `unreviewed` entry is new, or an unreviewed format's version changes (give it a policy first);
   - a webviews storage key is not registered, a registered key is no longer named by the code without
     `retired` saying why losing its data is fine, a retired key comes back, or an entry is deleted;
-  - a published settings key or a retired-keys.json entry the base had is gone.
+  - a published settings key or a retired-keys.json entry the base had is gone;
+  - a live settings row is missing from published-keys.txt, or a published key is neither live nor retired.
 
 The tests a registry names load every fixture through the real reader; this script checks what they
 cannot see: the base.
@@ -60,6 +62,7 @@ APP_FIXTURES = "persisted-formats"
 WEBVIEWS = "webviews/src"
 PUBLISHED_KEYS = "schemas/settings/published-keys.txt"
 RETIRED_KEYS = "schemas/settings/retired-keys.json"
+SETTINGS_SCHEMA = "schemas/settings/settings-schema.json"
 POLICIES = ("migrate", "rebuild", "unreviewed")
 CONST_RE = re.compile(r"^\s*(?:pub(?:\([a-z]+\))?\s+)?const\s+([A-Z0-9_]*VERSION[A-Z0-9_]*)\s*:\s*u\d+\s*=\s*(\d+)\s*;", re.M)
 SWIFT_RE = re.compile(r"^\s*(?:(?:public|package|internal|private|fileprivate|nonisolated)\s+)*static\s+let\s+"
@@ -378,6 +381,19 @@ def retired_settings(text: str | None) -> set[str]:
         return set()
 
 
+def live_settings(text: str | None) -> set[str] | None:
+    """The setting rows in the checked-in schema export.
+
+    Older fixture repositories used by this check predate the schema export, so a missing
+    file means there is no live-row assertion to make. A present file is authoritative and
+    malformed JSON should fail the check rather than silently weakening it.
+    """
+    if text is None:
+        return None
+    data = json.loads(text)
+    return {row["key"] for row in data.get("rows", []) if isinstance(row, dict) and isinstance(row.get("key"), str)}
+
+
 def check_settings(root: Path, base: str | None) -> list[str]:
     if not base:
         return []
@@ -388,6 +404,17 @@ def check_settings(root: Path, base: str | None) -> list[str]:
     for key in sorted(retired_settings(show(root, base, RETIRED_KEYS)) - retired_settings(read(root / RETIRED_KEYS))):
         errors.append(f"{RETIRED_KEYS}: {key} removed. An entry is never deleted: it is how an old cmux-next.json, "
                       f"setup or theme naming the key migrates")
+    # The Rust cmux-config test catches this in the daemon suite, but that suite runs after
+    # publication for feat-cmux-next. Keep the same invariant in the PR's routed check so a
+    # removed row or an unrecorded new row fails before a publisher can serve the tree.
+    live = live_settings(read(root / SETTINGS_SCHEMA))
+    published = published_keys(read(root / PUBLISHED_KEYS))
+    retired = retired_settings(read(root / RETIRED_KEYS))
+    if live is not None:
+        for key in sorted(published - live - retired):
+            errors.append(f"{SETTINGS_SCHEMA}: {key} removed without a retired-keys.json entry; add {{key, replaced_by|reason}}")
+        for key in sorted(live - published):
+            errors.append(f"{SETTINGS_SCHEMA}: {key} is not in {PUBLISHED_KEYS}; record it with CMUX_PUBLISHED_KEYS_WRITE=1")
     return errors
 
 

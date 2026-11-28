@@ -314,12 +314,29 @@ fn wal_file_len(shared: &Shared) -> u64 {
     size
 }
 
+/// Debug seam (`CMUX_TUI_DEBUG_COMMIT_THREADS=1`, off by default): log each registry commit's thread.
+fn log_commit_threads() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var_os("CMUX_TUI_DEBUG_COMMIT_THREADS").is_some_and(|value| value == "1")
+    })
+}
+
 fn journal_size_limit_pragma() -> String {
     format!("PRAGMA journal_size_limit={WAL_SIZE_LIMIT_BYTES};")
 }
 
 /// One commit; `frames` is the WAL's frame count after it (the WAL hook's argument).
 fn note_commit(shared: &Shared, frames: std::ffi::c_int) {
+    if log_commit_threads() {
+        // Which thread wrote: the idle daemon's syncer wakes once per commit batch, so this names the writer
+        // behind an idle wakeup (scripts/measure/infinite-items.py counts these lines per idle window).
+        let current = std::thread::current();
+        eprintln!(
+            "cmux-tui: registry-commit thread={} frames={frames}",
+            current.name().unwrap_or("unnamed")
+        );
+    }
     let mut state = shared.state.lock().recover_poison();
     state.committed += 1;
     let frames = u64::try_from(frames).unwrap_or(0);

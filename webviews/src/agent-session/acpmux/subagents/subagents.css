@@ -1242,18 +1242,6 @@ button.cv-subagent > :last-child {
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
-.acpmux-running-tray__tail pre {
-  max-height: calc(var(--text-detail--line-height) * 10);
-  min-width: 0;
-  margin: 0;
-  overflow: auto;
-  color: var(--agent-muted);
-  font-family: var(--cv-mono, ui-monospace, monospace);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 .acpmux-running-tray__command {
   min-width: 0;
   color: var(--agent-muted);
@@ -1273,8 +1261,8 @@ button.cv-subagent > :last-child {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.acpmux-running-tray__tail a,
-.acpmux-running-tray__tail button {
+.acpmux-running-tray__tail-foot a,
+.acpmux-running-tray__tail-foot button {
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-1);
@@ -1286,17 +1274,26 @@ button.cv-subagent > :last-child {
   font: inherit;
   cursor: default;
 }
-.acpmux-running-tray__tail a {
+.acpmux-running-tray__tail-foot a {
   text-decoration: none;
 }
 /* The actions stand a little apart from the time and state before them. */
 .acpmux-running-tray__tail-foot > :is(a, button):not(:first-child) {
   margin-inline-start: var(--ds-space-2);
 }
-.acpmux-running-tray__tail a:hover,
-.acpmux-running-tray__tail a:focus-visible,
-.acpmux-running-tray__tail button:hover,
-.acpmux-running-tray__tail button:focus-visible {
+/* Open in terminal shows while the open row is hovered or has focus, never at rest (Leo, 2026-11-24). */
+.acpmux-running-tray__tail-foot .acpmux-running-tray__terminal {
+  opacity: 0;
+}
+.acpmux-running-tray__tail:hover .acpmux-running-tray__terminal,
+.acpmux-running-tray__tail:has([data-popup-open]) .acpmux-running-tray__terminal,
+.acpmux-running-tray__tail:is(:has([data-popup-open]), :focus-within) .acpmux-running-tray__terminal {
+  opacity: 1;
+}
+.acpmux-running-tray__tail-foot a:hover,
+.acpmux-running-tray__tail-foot a:focus-visible,
+.acpmux-running-tray__tail-foot button:hover,
+.acpmux-running-tray__tail-foot button:focus-visible {
   color: var(--agent-text);
 }
 .acpmux-running-tray[data-placement="after-latest-message"] {
@@ -1432,7 +1429,7 @@ button.cv-subagent > :last-child {
   top: 0;
   bottom: 0;
   inset-inline-end: calc(100% + var(--cv-tool-gap, 8px));
-  z-index: 1;
+  z-index: var(--layer-raised);
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-1);
@@ -2946,8 +2943,10 @@ button.cv-subagent > :last-child {
    headers are (Leo, 2026-11-27: "add the opaque backing to it again with proper size"). The header is
    the composer's row height, as every other hat header, and the words are the chat's text size, the
    prompt's and the replies' (--text-content), never a smaller metadata step. No marks, time or chevron;
-   hovered or pressed, the words take the accent on a small rounded chip. A tray with no card (a
-   surface arm of `none`, settled) keeps the bare line. */
+   hovered or open, the words go from muted to the text's ink and nothing else: no accent, no chip
+   (Leo, 2026-11-27, ask-b6fc7a81c2: "dont put this garish blue in man we dont need it to be blue or
+   highlighted"). Keyboard focus keeps the focus ring, the one place the accent belongs (D3). A tray
+   with no card (a surface arm of `none`, settled) keeps the bare line. */
 .acpmux-dock > .acpmux-running-tray[data-line]:not([data-card]) {
   min-height: 0;
   background: transparent;
@@ -2973,8 +2972,22 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray[data-line] > .acpmux-running-tray__head:is(:hover, :focus-visible, [aria-expanded="true"])
   > .acpmux-running-tray__title {
-  color: var(--agent-link, var(--agent-accent));
-  background: var(--agent-control-hover);
+  color: var(--agent-text);
+  background: none;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:focus-visible {
+  outline: none;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:focus-visible > .acpmux-running-tray__title {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+/* The line header has no chevron column, so its panel button lies over its own slot at the row's end,
+   not one chevron in from it on top of the deck's "+12 more" (Leo, 2026-11-27, ask-b6fc7a81c2:
+   "overlapping text here what do we doooo"). The slot's right edge is the inset plus the slot's
+   margin (`.acpmux-running-tray__open-slot` above: the tray gap less the header's 8px). */
+.acpmux-running-tray[data-line] > .acpmux-running-tray__open {
+  right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-gap) - var(--ds-space-2));
 }
 .acpmux-running-tray[data-line]:not([data-card]) > .acpmux-running-tray__rim {
   display: none;

@@ -227,11 +227,21 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
     # A cmux-next dispatch on the branch (#22303) probes this exact commit's tree with no base fallback,
     # so a head some dispatch already asked about keeps its publisher.
     status, data = api(f"actions/workflows/cmux-next.yml/runs?head_sha={sha}&event=workflow_dispatch&per_page=1")
+    branch = ref.removeprefix("refs/heads/")
+    if on_request and status in (403, 429) and os.environ.get("CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN", "") != "1":
+        # A rate-limited lookup is not a request. Every token answered 403 or 429 (the REST budget is spent), and
+        # "could not tell" used to keep the run: the head nobody asked for built its three ~28-min targets anyway.
+        # 11-26 20Z..11-27 02Z every sampled branch build (4 of 4: runs 45890032616, 45890500677, 45893698901,
+        # 45904278325) was this fail-open, about 470 of 3,207 runner-min in those 6 h (~1.9k a day). A head that
+        # wants its tree still has the trailer, a dispatch of this workflow (never this check), or
+        # cmux-tui-tree-request.yml. Undo: vars.CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN = '1'.
+        return True, (f"{sha[:12]} ({branch}) is built on request only, and the cmux-next dispatch lookup was "
+                      f"rate-limited (HTTP {status}), which is not a request. To publish this tree, add the trailer "
+                      "Cmux-Daemon-Tests: run or dispatch cmux-tui-artifacts.yml on the branch")
     if status != 200 or not isinstance(data, dict):
         raise ApiError(f"GET cmux-next.yml dispatches of {sha}: HTTP {status}")
     if data.get("total_count") or data.get("workflow_runs"):
         return None
-    branch = ref.removeprefix("refs/heads/")
     if on_request:
         return True, (f"{sha[:12]} ({branch}) is built on request only: nobody asked for its tree. "
                       "A pull request's same-tree checks use its merge tree or the base tree, and a hot verify "

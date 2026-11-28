@@ -1,12 +1,11 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  HIDDEN_SCROLLER_ATTRIBUTE,
-  markScrolling,
-  SCROLLING_ATTRIBUTE,
-  SCROLLING_HIDE_MS,
-  type ScrollTimers,
-} from "../src/scrollers";
+import type { ScrollTimers } from "../src/scrollers";
+import { importWithDom } from "./support/importWithDom";
+
+const { HIDDEN_SCROLLER_ATTRIBUTE, markScrolling, SCROLLING_ATTRIBUTE, SCROLLING_HIDE_MS } = await importWithDom(
+  () => import("../src/scrollers"),
+);
 
 function fixture() {
   const dom = new JSDOM("<!doctype html><div></div>");

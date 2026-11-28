@@ -8,127 +8,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Models for Cloud"
+            "value" : "Cloud models"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "نماذج Cloud"
+            "value" : "نماذج السحابة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modeli za Cloud"
+            "value" : "Modeli u oblaku"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modeller til Cloud"
+            "value" : "Cloudmodeller"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modelle für Cloud"
+            "value" : "Cloud-Modelle"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modelos para Cloud"
+            "value" : "Modelos en la nube"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modèles pour Cloud"
+            "value" : "Modèles cloud"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modelli per Cloud"
+            "value" : "Modelli cloud"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cloud のモデル"
+            "value" : "クラウドモデル"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ម៉ូដែលសម្រាប់ Cloud"
+            "value" : "ម៉ូដែលលើក្លោដ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cloud용 모델"
+            "value" : "클라우드 모델"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modeller for Cloud"
+            "value" : "Skymodeller"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modele dla Cloud"
+            "value" : "Modele w chmurze"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modelos para o Cloud"
+            "value" : "Modelos na nuvem"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Модели для Cloud"
+            "value" : "Облачные модели"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "โมเดลสำหรับ Cloud"
+            "value" : "โมเดลบนคลาวด์"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cloud için modeller"
+            "value" : "Bulut modelleri"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Моделі для Cloud"
+            "value" : "Хмарні моделі"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mô hình cho Cloud"
+            "value" : "Mô hình đám mây"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cloud 模型"
+            "value" : "云端模型"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cloud 模型"
+            "value" : "雲端模型"
           }
         }
       }
