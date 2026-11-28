@@ -6,12 +6,33 @@ import Foundation
 /// parsed. Swift keeps only the call: the pane's state (mode fields, the pending question's keys)
 /// goes in, the stripped frame and the rule broken come back.
 nonisolated extension AcpmuxPaneMethods {
-    /// The answers rule's bounds (policy.json `question_answers`), which the question reply parser
-    /// stays inside.
-    static let maximumAnswerItems = 64
-    static let maximumAnswerListStrings = 64
-    static let maximumAnswerBytes = 4096
-    static let maximumAnnotationBytes = 65536
+    /// The answers rule's bounds, which the question reply parser stays inside. Swift holds no copy:
+    /// they are policy.json `question_answers`, read once through cmux-agent-pane-policy's `policy`
+    /// op. A policy it cannot read gives zero bounds, so every answer is refused, never passed unchecked.
+    struct AnswerBounds: Sendable, Equatable {
+        var items = 0
+        var listStrings = 0
+        var valueBytes = 0
+        var annotationBytes = 0
+    }
+
+    static let answerBounds: AnswerBounds = {
+        var out = CmuxAgentPaneBytes(ptr: nil, len: 0)
+        defer { cmux_agent_pane_policy_bytes_free(out) }
+        let body = Data("{}".utf8)
+        let code = body.withUnsafeBytes { raw in
+            cmux_agent_pane_policy_call(nil, "policy", raw.bindMemory(to: UInt8.self).baseAddress, raw.count, &out)
+        }
+        guard code == 0, let bytes = out.ptr, out.len > 0,
+              let reply = (try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: out.len))) as? [String: Any],
+              let answers = reply["question_answers"] as? [String: Any],
+              let items = answers["maximum_items"] as? Int, let listStrings = answers["maximum_list_strings"] as? Int,
+              let valueBytes = answers["maximum_value_bytes"] as? Int,
+              let annotationBytes = answers["maximum_annotation_bytes"] as? Int
+        else { return AnswerBounds() }
+        return AnswerBounds(items: items, listStrings: listStrings, valueBytes: valueBytes,
+                            annotationBytes: annotationBytes)
+    }()
 
     struct FrameRules {
         /// The frame as the strips left it; nil when they changed nothing.

@@ -32,10 +32,8 @@ pub(crate) const SETTING_ENABLED: &str = "agents.harnessMagic.citedMemory.enable
 /// The kill switch: `0` turns it off, `1` on, whatever the setting says.
 pub(crate) const KILL_ENV: &str = "ACPMUX_HM_CITEDMEMORY";
 
-/// The most files a folder's index holds; a bigger folder is indexed this far, and a name not
-/// found in a cut-short index is `unknown`.
-const MAX_FILES: usize = 200_000;
-/// The longest an index walk takes.
+/// The longest an index walk takes; a folder too big to walk in it is indexed this far, and a name
+/// not found in a cut-short index is `unknown`.
 const WALK_BOUND: Duration = Duration::from_secs(2);
 /// The largest file whose lines are counted.
 const MAX_COUNTED: u64 = 16 * 1024 * 1024;
@@ -154,7 +152,7 @@ pub struct Index {
 }
 
 impl Index {
-    /// The index of `root`, walked up to [`MAX_FILES`] files and [`WALK_BOUND`].
+    /// The index of `root`, walked for up to [`WALK_BOUND`].
     pub fn of(root: &Path) -> Self {
         let deadline = Instant::now() + WALK_BOUND;
         let mut files = Vec::new();
@@ -163,7 +161,7 @@ impl Index {
         'walk: while let Some(rel) = stack.pop() {
             let Ok(entries) = std::fs::read_dir(root.join(&rel)) else { continue };
             for entry in entries.flatten() {
-                if files.len() >= MAX_FILES || Instant::now() > deadline {
+                if Instant::now() > deadline {
                     complete = false;
                     break 'walk;
                 }

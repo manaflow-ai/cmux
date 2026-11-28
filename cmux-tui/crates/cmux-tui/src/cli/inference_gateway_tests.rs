@@ -750,8 +750,17 @@ async fn seeded_codex_login_rides_only_where_chatgpt_needs_it() {
     std::fs::write(&auth, login.to_string()).unwrap();
     let http = cmux_egress::client_builder("cmux_tui::cli::inference_gateway").build().unwrap();
     let provider = Provider::new(Upstream::Codex { auth }, http);
+    // Its own machine id: capture is one per test process, and other seeded tests (inference setup,
+    // gateway admin) send the shared `pending` one to the cmux API where it belongs.
+    let machine = "SEEDgatewayCodexMachine-41c7";
+    let mut call = pending("/v1/responses", r#"{"model":"m"}"#);
+    for (name, value) in &mut call.headers {
+        if name == "x-cmux-machine" {
+            *value = machine.to_owned();
+        }
+    }
     let (tx, mut rx) = mpsc::channel(32);
-    answer(&provider, "c1", pending("/v1/responses", r#"{"model":"m"}"#), &tx).await;
+    answer(&provider, "c1", call, &tx).await;
     let _ = frames(&mut rx).await;
     let sent = cmux_egress::capture::requests_to("chatgpt.com");
     assert!(sent.iter().any(|r| r.target == "/backend-api/codex/responses"), "{sent:?}");
@@ -762,7 +771,7 @@ async fn seeded_codex_login_rides_only_where_chatgpt_needs_it() {
         assert!(!places.is_empty(), "{secret}: {sent:?}");
         assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
     }
-    for secret in [refresh, id_token, "vm_abcdefghij0123456789"] {
+    for secret in [refresh, id_token, machine] {
         assert_eq!(cmux_egress::capture::leaks(secret), Vec::<String>::new(), "{secret}");
     }
 }
