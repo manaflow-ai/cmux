@@ -7,22 +7,32 @@
 // finished one as "Finished · 7 agents", its phases N/N, its agents under "7 finished". The data is
 // a workflow's events fed through the real fold.
 import { afterEach, expect, test } from "bun:test";
-import { pageClocks } from "../src/ui/pageClock";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { WorkflowAgentRow, WorkflowTasks } from "../src/agent-session/acpmux/session-info/WorkflowTasks";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
-import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { SUBAGENT_DONE, SUBAGENT_STARTED, WORKFLOW_CARD } from "../src/agent-session/acpmux/subagents/subagentRows";
-import { WorkflowCard } from "../src/agent-session/acpmux/summary/WorkflowCard";
-import { WorkflowSideTab } from "../src/agent-session/acpmux/summary/WorkflowSideTab";
-import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
-import { createWorkflowAdapter, modelName, phaseState, tally } from "../src/agent-session/acpmux/summary/foldWorkflows";
-import { workflowFixture } from "../src/agent-session/acpmux/summary/workflowFixture";
+import { importWithDom } from "./support/importWithDom";
+
+const { pageClocks } = await importWithDom(() => import("../src/ui/pageClock"));
+const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { WorkflowAgentRow, WorkflowTasks } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/WorkflowTasks"),
+);
+const { finishedTrayItems, trayItems, withSubagentLines } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/runningTray"),
+);
+const { SUBAGENTS } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentFold"));
+const { SUBAGENT_DONE, SUBAGENT_STARTED, WORKFLOW_CARD } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subagentRows"),
+);
+const { WorkflowCard } = await importWithDom(() => import("../src/agent-session/acpmux/summary/WorkflowCard"));
+const { WorkflowSideTab } = await importWithDom(() => import("../src/agent-session/acpmux/summary/WorkflowSideTab"));
+const { turnViewFrom } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
+const { createWorkflowAdapter, modelName, phaseState, tally } = await importWithDom(
+  () => import("../src/agent-session/acpmux/summary/foldWorkflows"),
+);
+const { workflowFixture } = await importWithDom(() => import("../src/agent-session/acpmux/summary/workflowFixture"));
 
 const NOW = 1_800_000_000_000;
 const summaries = (stage: "running" | "finished") => createWorkflowAdapter()(workflowFixture(stage, NOW), "s1");

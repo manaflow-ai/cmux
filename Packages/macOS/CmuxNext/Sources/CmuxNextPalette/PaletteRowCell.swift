@@ -1,5 +1,6 @@
 import CmuxAgentBrands
 import AppKit
+import CoreText
 import CmuxNextDesign
 
 /// Shortcut badges drawn directly (no subviews): one rounded cap per key, printed as a Mac keyboard labels it
@@ -18,6 +19,16 @@ final class PaletteKeycapsView: NSView {
     }
 
     nonisolated override var isFlipped: Bool { true }
+
+    /// The line the legends center on, in this view's coordinates; nil is the view's middle. A footer button sets it
+    /// to its own middle: the view's frame snaps to the window's pixel grid, which on a 1x screen moves the cap half
+    /// a point off the label's line when the footer and the cap differ in parity, and the legend drew on that moved
+    /// middle (with its own snap, ↩ and ⇥ sat 1 pt above the footer's middle at Default 16 pt; fleet step 60653a70).
+    var legendMidY: CGFloat? {
+        didSet {
+            if legendMidY != oldValue { needsDisplay = true }
+        }
+    }
 
     /// The legend's font: the caption's size, emphasized, so a word reads at the size of the text beside it.
     static var font: NSFont { Typography.system(.default, size: Typography.caption.pointSize, weight: TypeScale.emphasis) }
@@ -67,19 +78,35 @@ final class PaletteKeycapsView: NSView {
     /// centered by its line box, a glyph drew below the middle of the cap and of the text beside it (#48512).
     /// Single letters, digits and punctuation center the font's capitals instead, so "," "'" "." and "_"
     /// keep their height on the line.
+    ///
+    /// The ink is the glyphs' outlines, unrounded. `.usesDeviceMetrics` bounds are rounded out to whole pixels
+    /// (whole points in a 1x window), which made a word's box up to a pixel taller at one end, and the point
+    /// was snapped to the window's scale, not the drawing's: "return" and "tab" sat 1 to 1.25 pt above the
+    /// footer's middle at Default 16 pt, Ultra-compact 20 pt and Spacious (fleet step 6e96862e).
     private func baseline(of text: String, in rect: NSRect, attributes: [NSAttributedString.Key: Any]) -> NSPoint {
         let font = (attributes[.font] as? NSFont) ?? Self.font
-        let unbounded = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         // Measured from the baseline, y up.
-        let ink = (text as NSString).boundingRect(with: unbounded, options: [.usesDeviceMetrics], attributes: attributes)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
         let isSymbol = !text.isEmpty && text.unicodeScalars.allSatisfy {
             $0.properties.generalCategory == .otherSymbol || $0.properties.generalCategory == .mathSymbol
         }
         let isWord = text.count > 1 && text.allSatisfy(\.isLetter)
         let y = (isSymbol || isWord) && !ink.isEmpty ? rect.midY + ink.midY : rect.midY + font.capHeight / 2
         let x = ink.isEmpty ? rect.midX - (text as NSString).size(withAttributes: attributes).width / 2 : rect.midX - ink.midX
-        let scale = window?.backingScaleFactor ?? 2
-        return NSPoint(x: (x * scale).rounded() / scale, y: (y * scale).rounded() / scale)
+        return onDevicePixels(NSPoint(x: x, y: y))
+    }
+
+    /// `point` on the pixel grid of the context drawing now (the window's backing store, or a bitmap of
+    /// another scale such as a 2x snapshot of a 1x window), else of the window.
+    private func onDevicePixels(_ point: NSPoint) -> NSPoint {
+        guard let context = NSGraphicsContext.current?.cgContext else {
+            let scale = window?.backingScaleFactor ?? 2
+            return NSPoint(x: (point.x * scale).rounded() / scale, y: (point.y * scale).rounded() / scale)
+        }
+        let toDevice = context.userSpaceToDeviceSpaceTransform
+        let device = point.applying(toDevice)
+        return CGPoint(x: device.x.rounded(), y: device.y.rounded()).applying(toDevice.inverted())
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -91,6 +118,7 @@ final class PaletteKeycapsView: NSView {
             for piece in pieces {
                 let width = width(piece)
                 let rect = NSRect(x: x, y: y, width: width, height: size)
+                let legendRect = NSRect(x: x, y: (legendMidY ?? bounds.midY) - size / 2, width: width, height: size)
                 switch piece {
                 case .cap(let legend):
                     let radius = PaletteLayout.keycapCornerRadius
@@ -102,12 +130,12 @@ final class PaletteKeycapsView: NSView {
                     Palette.textPrimary.withAlphaComponent(0.16).setStroke()
                     edge.stroke()
                     let attributes = attributes
-                    (legend as NSString).draw(with: NSRect(origin: baseline(of: legend, in: rect, attributes: attributes), size: .zero),
+                    (legend as NSString).draw(with: NSRect(origin: baseline(of: legend, in: legendRect, attributes: attributes), size: .zero),
                                               options: [], attributes: attributes)
                 case .then:
                     let attributes = thenAttributes
                     let text = PaletteStrings.keycapThen
-                    (text as NSString).draw(with: NSRect(origin: baseline(of: text, in: rect, attributes: attributes), size: .zero),
+                    (text as NSString).draw(with: NSRect(origin: baseline(of: text, in: legendRect, attributes: attributes), size: .zero),
                                             options: [], attributes: attributes)
                 }
                 x += width + Metrics.space1
@@ -126,7 +154,11 @@ final class PaletteTableRowView: NSTableRowView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        // A fade asked for before the row was reused belongs to its old row.
+        dropPendingFade()
+    }
+
+    /// A fade asked for before this view showed another row (reused, or updated in place) belongs to its old row.
+    func dropPendingFade() {
         fadesNextFill = false
     }
 

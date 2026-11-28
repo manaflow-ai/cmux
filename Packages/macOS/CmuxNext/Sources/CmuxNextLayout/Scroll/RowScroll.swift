@@ -5,8 +5,8 @@ public import CoreGraphics
 /// column ids, so each live row gets an opaque strip slot id (never derived
 /// from the row id) that stays stable while the row lives, which keeps the
 /// reducer's camera anchor and remembered focus per row.
-public nonisolated struct RowScroll: Hashable, Sendable {
-    public var state = ColumnScrollState()
+public nonisolated struct RowScroll {
+    public let state = ColumnScrollState()
     private var slots: [RowID: ColumnID] = [:]
     private var nextSlot = 0
 
