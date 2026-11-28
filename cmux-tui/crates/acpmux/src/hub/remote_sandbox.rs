@@ -459,6 +459,8 @@ fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 mod accounts;
+#[path = "fleet/remote_sandbox_sr2.rs"]
+mod sr2; // fleet-only-ok: reached only when the person's own harness is the sr2 launcher, as subrouter_plan is for `sr claude proxy`; it runs Claude Code where sr2 hangs
 
 /// Ok when no one but `uid` can write `path` or any folder above it up to
 /// `boundary` (a sticky `boundary` such as `/tmp` excepted when
@@ -779,6 +781,8 @@ fn claude_args(
     let settings = claude_settings(endpoint.map(|e| e.url.as_str()));
     // Team mode on a Cloud machine (`claude_cloud_auth.rs`): the pair and no personal credential
     // from a project or local settings file either.
+    let owner_key = profile.env.get(crate::agent_credentials::MARKER).map(String::as_str)
+        == Some(crate::agent_credentials::ANTHROPIC_KEY);
     let settings = match crate::claude_cloud_auth::marked_pair(&profile.env) {
         Some(pair) => {
             let own = serde_json::from_str::<serde_json::Map<String, Value>>(&settings).ok();
@@ -789,10 +793,16 @@ fn claude_args(
                 headers.map(String::as_str).unwrap_or(""),
             )
         }
+        None if owner_key => {
+            let own = serde_json::from_str::<serde_json::Map<String, Value>>(&settings).ok();
+            crate::claude_cloud_auth::api_key_settings(own.as_ref())
+        }
         None => settings,
     };
     args.push(settings);
-    if endpoint.is_some_and(|e| e.own) {
+    if owner_key {
+        args.extend(["--setting-sources".into(), String::new()]);
+    } else if endpoint.is_some_and(|e| e.own) {
         args.push("--setting-sources".into());
         args.push("project,local".into());
     }
@@ -1370,6 +1380,30 @@ impl Hub {
             };
             let (program, args, routed) =
                 subrouter_plan(profile, plan.args, claude, route).map_err(refused)?;
+            (crate::claude_stdio::SpawnPlan { program, args }, routed)
+        } else if sr2::is_sr2(&profile.argv) {
+            // fleet-only-ok: only an sr2 harness
+            // fleet-only-ok: sr2 blocks before its main in the sandbox (`fleet/remote_sandbox_sr2.rs`).
+            let claude = self
+                .config
+                .read()
+                .await
+                .harnesses
+                .get("claude")
+                .filter(|c| c.kind == crate::config::HarnessKind::ClaudeStdio)
+                .and_then(|c| c.argv.first().cloned());
+            let route = sr2::route(profile); // fleet-only-ok: see the branch above
+            let (program, args, routed) = sr2::sr2_plan(profile, plan.args, claude, route)
+                .map_err(|why| {
+                    self.append(session, "mux", "remote_sandbox", json!({"refused": why}));
+                    refused(why)
+                })?;
+            self.append(
+                session,
+                "mux",
+                "remote_sandbox",
+                json!({"sr2": "claude on the sr2 gateway", "program": program}), // fleet-only-ok: see the branch above
+            );
             (crate::claude_stdio::SpawnPlan { program, args }, routed)
         } else {
             (plan, profile.clone())

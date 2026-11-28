@@ -23,6 +23,11 @@ test("the card lists each environment with its status and reads again when it op
   const page = await open();
   const element = card(page.container);
   expect(page.provider.environmentRuns[0]).toEqual({ action: "refresh" });
+  const header = element.querySelector(".group-header")!;
+  expect(header.querySelector('[data-environments="add"]')?.textContent).toBe("Add environment");
+  const refresh = header.querySelector('[data-environments="refresh"]');
+  expect(refresh?.getAttribute("aria-label")).toBe("Refresh");
+  expect(refresh?.getAttribute("title")).toBe("Refresh");
   const web = element.querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
   expect(web.querySelector("[data-environment-status]")!.textContent).toContain("Ready");
   expect(web.textContent).toContain("manaflow-ai/cmux@feat-cmux-next");
@@ -254,5 +259,42 @@ test("off the cmux-next Cloud path the card explains and lists nothing", async (
   expect(element.querySelector("[data-environments-unavailable]")).not.toBeNull();
   expect(element.querySelector("[data-environment]")).toBeNull();
   await act(async () => {});
+  page.unmount();
+});
+
+test.each([true, false])(
+  "unsupported environments hide actions and the internal operation id (typed: %s)",
+  async (typed) => {
+    const page = await open((provider) => {
+      provider.environments = {
+        available: !typed,
+        unsupported: typed,
+        loading: false,
+        environments: [],
+        error: typed ? null : "cloud.environment.list is not available yet",
+      };
+    });
+    const element = card(page.container);
+    expect(element.textContent).toContain("Environments aren't available in this version yet.");
+    expect(element.textContent).not.toContain("cloud.environment.list");
+    expect(element.querySelector("button")).toBeNull();
+    expect(element.querySelector("[role=alert]")).toBeNull();
+    page.unmount();
+  },
+);
+
+test("a failed environments list offers retry in the card and keeps diagnostic text out of the page", async () => {
+  const page = await open((provider) => {
+    provider.environments = { ...provider.environments, environments: [], error: "owner.unreachable" };
+  });
+  const element = card(page.container);
+  expect(element.querySelector("[role=alert]")?.textContent).toBe("Couldn't load environments.");
+  expect(element.textContent).not.toContain("owner.unreachable");
+  const retry = [...element.querySelectorAll("button")].find((button) => button.textContent === "Try again")!;
+  page.provider.environments = { ...page.provider.environments, error: null };
+  await click(retry);
+  expect(page.provider.environmentRuns).toEqual([{ action: "refresh" }, { action: "refresh" }]);
+  expect(element.querySelector("[role=alert]")).toBeNull();
+  expect(element.querySelector("[data-environments-empty]")).not.toBeNull();
   page.unmount();
 });

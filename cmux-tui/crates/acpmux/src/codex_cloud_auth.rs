@@ -150,7 +150,7 @@ const MODEL_PLANE_ENV: &str = "etc/cmux/model-plane.env";
 
 /// One `export KEY='value'` (or `KEY=value`) line's value from a model-plane env file, unquoted;
 /// None when the file or the key is missing or the value is empty.
-fn file_var(path: &Path, key: &str) -> Option<String> {
+pub(crate) fn file_var(path: &Path, key: &str) -> Option<String> {
     let text = std::fs::read_to_string(path).ok()?;
     text.lines().rev().find_map(|line| {
         let line = line.trim();

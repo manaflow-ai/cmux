@@ -150,7 +150,8 @@ fn resolved(profile: &HarnessProfile) -> Result<HarnessProfile> {
 async fn start(id: &str, profile: &HarnessProfile, timeout: Duration) -> Result<Started> {
     let folder = TempFolder::new(id)?;
     let spawn = resolved(profile)?;
-    let mut cmd = crate::agent::harness_command_ready(id, &spawn, &folder.path, None, None).await?;
+    let (mut cmd, _scratch) =
+        crate::agent::harness_command_ready(id, &spawn, &folder.path, None, None).await?;
     // The sign-in may print to stderr (a URL); show it.
     cmd.stderr(std::process::Stdio::inherit());
     let mut child = cmd.spawn().map_err(|e| anyhow!("start {}: {e}", spawn.argv[0]))?;

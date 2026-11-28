@@ -13,8 +13,8 @@ import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "..
 import { useT, type StringKey } from "../i18n";
 import { isTrustCause, sendCause, sendRetriesItself } from "../sendFailure";
 import { useTranscriptReadOnly } from "./readOnly";
-import { Tooltip } from "../../../ui/Tooltip";
 import { FailedSendsContext } from "./promptDeliveryModel";
+import { Tooltip } from "../../../ui/Tooltip";
 import { Clock, Close } from "./icons";
 import { ROW_ICON } from "./messageActionsModel";
 const PENDING_AFTER_MS = PROMPT_PENDING_AFTER_MS;

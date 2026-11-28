@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { causeOf, phasesOf, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
+import { causeOf, earlyResume, pauseWithReconciliation, phasesOf, restoreParts, restoreSplit, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
 
 const cycle = (i: number, ok: boolean, marks: WakeCycle["marks_ms"]): WakeCycle => ({
   i, ok, error: ok ? "" : "boom", at: "", paused_ms: 1, answered_ms: 1, first_exec_ms: 1, offset_ms: 0, offset_rtt_ms: 1, offset_pre_ms: 0,
@@ -74,6 +74,83 @@ test("start retries an indeterminate answer with the same key, and a pausing ref
   await expect(startWithRetry(async () => ({ status: 200, body: { ok: false, error: { code: "cloud.machine.not_found", retryable: false } } }), () => "k", async () => "paused", 60_000, sleep, () => t)).rejects.toThrow(/not_found/);
 });
 
+test("pause reconciliation reads the same machine after an indeterminate answer without a second mutation", async () => {
+  let now = 0;
+  const states = ["pausing", "paused"];
+  let requests = 0;
+  const result = await pauseWithReconciliation(
+    async () => { requests++; return { status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } }; },
+    async () => states.shift() ?? "paused",
+    0,
+    1000,
+    () => now,
+    async (ms) => { now += ms; },
+  );
+  expect(requests).toBe(1);
+  expect(result).toEqual({ pausedMs: 500, warnings: ["pause response mutation.indeterminate; reconciled by machine status"] });
+});
+
+test("pause reconciliation keeps an indeterminate pause failed when it is still pausing at the deadline", async () => {
+  let now = 0;
+  let requests = 0;
+  await expect(pauseWithReconciliation(
+    async () => { requests++; return { status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } }; },
+    async () => "pausing",
+    0,
+    1000,
+    () => now,
+    async (ms) => { now += ms; },
+  )).rejects.toThrow(/pause did not land/);
+  expect(requests).toBe(1);
+});
+
+test("pause reconciliation surfaces a refusal without reading or mutating again", async () => {
+  let reads = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 503, body: { ok: false, error: { code: "owner.unreachable", retryable: true } } }),
+    async () => { reads++; return "paused"; },
+    0,
+    1000,
+  )).rejects.toThrow(/HTTP 503/);
+  expect(reads).toBe(0);
+});
+
+test("pause reconciliation does not accept a paused read after the original deadline", async () => {
+  let now = 1000;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: true } }),
+    async () => "paused",
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/pause did not land/);
+});
+
+test("pause reconciliation rejects a paused read that crosses the deadline", async () => {
+  let now = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: true } }),
+    async () => { now = 1001; return "paused"; },
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/pause did not land/);
+});
+
+test("pause reconciliation keeps indeterminate evidence when status readback fails", async () => {
+  let now = 0;
+  await expect(pauseWithReconciliation(
+    async () => ({ status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } }),
+    async () => { now = 1001; throw new Error("owner unreachable"); },
+    0,
+    1000,
+    () => now,
+    async () => {},
+  )).rejects.toThrow(/mutation\.indeterminate.*status reconciliation failed/);
+});
+
 test("a probe gap that ended before wake_at fails the cycle as the harness's, never counted as an echo", () => {
   expect(causeOf({ error: "the probe's gap ended 9517 ms before wake_at: not this wake", guest: null })).toBe("probe fired before the wake (harness)");
 });
@@ -96,4 +173,38 @@ test("wake on intent: the key lands lead ms after the wake; before ready it wait
   expect(falseWakeCost([c]).p50).toBe(34000);
   expect(intentMarkdown([c, on], [1000])).toContain("| 1.00 | both | 1 | 1.45 | 1.45 | 0/1 |");
   expect(wakeEchoMarkdown([c, on], {})).toContain("Wake on intent");
+});
+
+test("restore splits into the start's answer and the wait after it; failed cycles and unanswered starts count nowhere", () => {
+  const ok = { ...cycle(0, true, { resumed: 4965, net_up: 5034, pty_attach: 5003, input: 5003, echo: 5007 }), answered_ms: 1626,
+    start_attempts: [{ sent_at_ms: 0, answered_at_ms: 1626, http_status: 200, machine_status: "starting", timing_ms: { vmapi: 1610, total: 1610 } }] };
+  expect(restoreParts(ok)).toEqual({ answer: 1626, after_answer: 3339, vmapi: 1610 });
+  const prov = { ...ok, start_attempts: [{ ...ok.start_attempts[0]!, timing_ms: { vmapi: 900, provider: 450 } }] };
+  expect(restoreParts(prov)).toMatchObject({ vmapi: 900, provider: 450 });
+  expect(restoreParts({ ...ok, ok: false })).toEqual({});
+  expect(restoreParts({ ...ok, answered_ms: null })).toEqual({});
+  const rows = restoreSplit([ok, cycle(1, false, {})]);
+  expect(rows.find((r) => r.part === "after_answer")).toMatchObject({ n: 1, p50: 3339 });
+  expect(rows.find((r) => r.part === "provider")).toMatchObject({ n: 0, p50: null });
+});
+
+test("a resume before wake_at is early only past the clock offset's error, half the round trip (run 46160527086)", () => {
+  // Cycle #0: -5582 ms at a 2184 ms round trip (start answered not_paused): the guest ran before the start.
+  expect(earlyResume(-5582, 2184)).toContain("not this wake");
+  expect(causeOf({ error: earlyResume(-5582, 2184), guest: null })).toBe("probe fired before the wake (harness)");
+  // Cycle #4: -1246 ms at 1937 ms: past the 969 ms error, so not an echo (the old fixed -2000 ms bound counted it).
+  expect(earlyResume(-1246, 1937)).toContain("969 ms error");
+  // Inside the error, or after wake_at: the offset's error, not an early resume.
+  expect(earlyResume(-300, 800)).toBe("");
+  expect(earlyResume(788, 796)).toBe("");
+  expect(earlyResume(undefined, 800)).toBe("");
+  // No round trip read: the old bound.
+  expect(earlyResume(-1999, null)).toBe("");
+  expect(earlyResume(-2001, null)).toContain("2000 ms error");
+});
+
+test("a restore under 0 (inside the offset's error) counts in no part of the split", () => {
+  const neg = { ...cycle(0, true, { resumed: -300, net_up: -200, pty_attach: -250, input: -250, echo: -247 }), answered_ms: 551 };
+  expect(restoreParts(neg)).toEqual({});
+  expect(restoreSplit([neg]).find((r) => r.part === "after_answer")).toMatchObject({ n: 0, p50: null });
 });

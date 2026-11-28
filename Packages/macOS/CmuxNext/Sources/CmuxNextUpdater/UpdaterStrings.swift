@@ -278,4 +278,9 @@ nonisolated enum UpdaterStrings {
     static func cannotSwitch(to target: String, from track: String) -> String {
         format("updater.disabled.cannotSwitch", "A %@ build cannot switch to %@.", track, target)
     }
+
+    /// "What's in this build": the PRs a staged update brings (Settings > Updates).
+    static var pullRequestsTitle: String { text("updater.prs.title", "What's in this build") }
+    /// Its heading for PRs whose notes name no area.
+    static var pullRequestsOther: String { text("updater.prs.other", "Other") }
 }

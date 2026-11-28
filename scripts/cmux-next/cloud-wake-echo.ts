@@ -30,6 +30,9 @@ export const PROBE_SOURCE = () => readFileSync(new URL("./wake-echo-probe.py", i
 
 export type Exec = (command: string, timeoutMs?: number) => Promise<{ code: number; stdout: string; stderr: string }>;
 
+export type PauseAnswer = { status: number; body: any };
+export type PauseResult = number | { pausedMs: number; warnings?: string[] };
+
 export type GuestMarks = {
   prev_wall?: number; resumed_wall?: number; wall_gap?: number; mono_gap?: number;
   net_up_at?: number; dns_at?: number; conn_at?: number; pty_attach_at?: number; input_at?: number; echo_at?: number; echo_any_at?: number;
@@ -76,12 +79,26 @@ export function phasesOf(m: WakeCycle["marks_ms"]): { phases: Partial<Record<Pha
   return { phases, warnings };
 }
 
+/**
+ * Did the probe's gap end before the start was sent? The marks reach the runner's clock through an offset whose error
+ * is at most half the min-RTT sample's round trip (the guest read its clock somewhere inside it), so only a resume
+ * earlier than wake_at by more than that is known to be early: the guest ran again before the start (a stall during
+ * pausing, or a machine that never paused: run 46160527086 cycle #0, start answered not_paused, resumed -5582 ms). A
+ * resume inside the bound is the offset's error, not the wake's (cycle #4 there: -1246 ms at a 1937 ms round trip
+ * passed the old fixed -2000 ms bound and was counted as an echo). Without a round trip the old bound stands.
+ */
+export function earlyResume(resumed: number | undefined, rttMs: number | null | undefined): string {
+  if (resumed === undefined) return "";
+  const bound = typeof rttMs === "number" && Number.isFinite(rttMs) ? Math.round(rttMs / 2) : 2000;
+  return resumed < -bound ? `the probe's gap ended ${-resumed} ms before wake_at, past the clock offset's ${bound} ms error: not this wake` : "";
+}
+
 /** A failed cycle's cause, so failures group by it: a lost terminal is the daemon's (product), the rest the run's. */
 export function causeOf(c: Pick<WakeCycle, "error" | "guest">): string {
   const e = c.error;
   if (c.guest?.surface_lost || /unknown surface/.test(e)) return c.guest?.surface_lost?.same_daemon === false ? "daemon restarted across the wake (product)" : "daemon lost the terminal across the wake (product)";
   if (/before the cycle|not_paused|pause did not land|operation_in_flight|did not settle/.test(e)) return "machine state";
-  if (/before wake_at: not this wake/.test(e)) return "probe fired before the wake (harness)";
+  if (/before wake_at\b.*not this wake/.test(e)) return "probe fired before the wake (harness)";
   if (/no probe result|clock offset|^exec: |vm_unavailable/.test(e)) return "guest unreachable";
   if (/guest probe: net|no TCP connect/.test(e)) return "guest network";
   if (/guest probe/.test(e)) return "guest probe";
@@ -101,6 +118,42 @@ export function summarize(cycles: WakeCycle[]) {
   const causes: Record<string, number> = {};
   for (const c of cycles) if (!c.ok) causes[causeOf(c)] = (causes[causeOf(c)] ?? 0) + 1;
   return { cycles: cycles.length, echoed: echoed.length, failed: cycles.length - echoed.length, rows, biggest, causes };
+}
+
+/**
+ * Restore split (goal competitive-agent-computer-beyond, RFD 0167 row 3): restore is the start's answer plus the wait
+ * after it until the guest runs. Run 46000366770 (staging, n 13): answer p50 1.11 s, max 7.33 s; after it p50 3.34 s,
+ * max 136.79 s, so most of restore came after the platform had answered. `answer` is cloud.machine.start's wall time
+ * on the runner (with any retries), `vmapi` and `provider` its Server-Timing (the VM API call and the provider's own ms
+ * in it, absent when it did not say), and `after_answer` restore less answer: the provider's resume and the guest's
+ * first tick, which no platform stage times.
+ */
+export const RESTORE_PARTS = ["answer", "vmapi", "provider", "after_answer"] as const;
+export type RestorePart = (typeof RESTORE_PARTS)[number];
+export function restoreParts(c: Pick<WakeCycle, "ok" | "phases" | "answered_ms" | "start_attempts">): Partial<Record<RestorePart, number>> {
+  const out: Partial<Record<RestorePart, number>> = {};
+  // A restore under 0 is inside the clock offset's error (earlyResume failed the rest): its split would read the
+  // offset, not the wake, so the cycle counts in no part rather than as an after_answer of 0.
+  if (!c.ok || typeof c.phases.restore !== "number" || c.phases.restore < 0 || c.answered_ms === null) return out;
+  out.answer = c.answered_ms;
+  out.after_answer = Math.max(0, c.phases.restore - c.answered_ms);
+  const last = c.start_attempts?.at(-1)?.timing_ms;
+  if (last && Number.isFinite(last.vmapi)) out.vmapi = last.vmapi;
+  if (last && Number.isFinite(last.provider)) out.provider = last.provider;
+  return out;
+}
+export function restoreSplit(cycles: WakeCycle[]) {
+  const parts = cycles.map(restoreParts);
+  return RESTORE_PARTS.map((part) => {
+    const xs = parts.map((p) => p[part]).filter((x): x is number => typeof x === "number");
+    return { part, n: xs.length, p50: percentile(xs, 50), p95: percentile(xs, 95), max: xs.length ? Math.max(...xs) : null };
+  });
+}
+export function restoreSplitMarkdown(cycles: WakeCycle[]): string {
+  const f = (x: number | null) => (x === null ? "-" : (x / 1000).toFixed(2));
+  const lines = ["### Restore split: the start's answer, then the wait until the guest runs", "", "| part | n | p50 | p95 | max |", "|---|---|---|---|---|"];
+  for (const r of restoreSplit(cycles)) lines.push(`| ${r.part} | ${r.n} | ${f(r.p50)} | ${f(r.p95)} | ${f(r.max)} |`);
+  return `${lines.join("\n")}\n`;
 }
 
 /**
@@ -170,6 +223,7 @@ export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unkno
     "",
     `Biggest phase by p95: **${s.biggest ?? "none"}**. state.json carried a wake block in ${cycles.filter((c) => c.state_wake != null).length} of ${cycles.length} cycles.`,
   ];
+  lines.push("", restoreSplitMarkdown(cycles).trimEnd());
   lines.push("", intentMarkdown(cycles, INTENT_LEADS_MS).trimEnd());
   if (meta.stopped) lines.push("", `Stopped early: ${meta.stopped}.`);
   const bad = cycles.filter((c) => !c.ok);
@@ -203,10 +257,10 @@ export type WakeEchoDeps = {
   netHost: string;
   netPort: number;
   /** pause call, then resolves once the machine reads paused (ms from the call to the read). */
-  pause: () => Promise<number>;
+  pause: () => Promise<PauseResult>;
   /** cloud.machine.start, answered; resolves with a note per retry it took (startWithRetry). */
   wake: (recordAttempt?: (attempt: StartAttempt) => void) => Promise<void | string[]>;
-  status: () => Promise<string>;
+  status: (timeoutMs?: number) => Promise<string>;
   holdMs: number;
   deadlineAt?: number;
   failStreak?: number;
@@ -220,6 +274,41 @@ export type WakeEchoDeps = {
 
 const sleepMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const short = (s: string) => s.replace(/\s+/g, " ").slice(0, 300);
+
+/**
+ * Reconcile a pause whose accepted request has no terminal answer by reading the same machine until it is paused.
+ * A non-200 answer, including an HTTP 503, remains a failed pause because acceptance was not established.
+ */
+export async function pauseWithReconciliation(
+  request: () => Promise<PauseAnswer>,
+  status: () => Promise<string>,
+  startedAt: number,
+  deadlineMs: number,
+  now: () => number = Date.now,
+  wait: (ms: number) => Promise<void> = sleepMs,
+): Promise<{ pausedMs: number; warnings?: string[] }> {
+  const answer = await request();
+  const accepted = answer.status === 200 && answer.body?.ok === true;
+  const indeterminate = answer.status === 200 && answer.body?.ok !== true
+    && answer.body?.error?.code === "mutation.indeterminate"
+    && answer.body?.error?.retryable === true;
+  if (!accepted && !indeterminate) {
+    const detail = short(JSON.stringify(answer.body?.error ?? answer.body));
+    throw new Error(`cloud.machine.pause: HTTP ${answer.status} ${detail}`);
+  }
+  let pausedMs: number;
+  try {
+    pausedMs = await awaitPaused(status, startedAt, deadlineMs, now, wait);
+  } catch (e) {
+    if (indeterminate) {
+      throw new Error(`${(e as Error).message} (pause response mutation.indeterminate; status reconciliation failed)`);
+    }
+    throw e;
+  }
+  return indeterminate
+    ? { pausedMs, warnings: ["pause response mutation.indeterminate; reconciled by machine status"] }
+    : { pausedMs };
+}
 
 /** Writes the probe to the guest and runs its setup (daemon socket, terminal, dry run). Returns the setup JSON. */
 export async function setupProbe(d: Pick<WakeEchoDeps, "exec" | "guest" | "netHost" | "netPort" | "log">): Promise<Record<string, any>> {
@@ -293,14 +382,15 @@ async function execAnswered(d: WakeEchoDeps, command: string, deadlineMs: number
 }
 
 /** Polls the machine's status until it reads running or paused (out of pausing, starting, ...), by a deadline. */
-export async function settle(status: () => Promise<string>, deadlineMs: number, sleep: (ms: number) => Promise<void>, now: () => number = Date.now): Promise<string> {
+export async function settle(status: (timeoutMs?: number) => Promise<string>, deadlineMs: number, sleep: (ms: number) => Promise<void>, now: () => number = Date.now): Promise<string> {
   const end = now() + deadlineMs;
   let last = "unread";
   for (;;) {
-    last = await status().catch((e: Error) => `unread (${e.message})`);
+    last = await status(Math.max(1, end - now())).catch((e: Error) => `unread (${e.message})`);
     if (STEADY.has(last)) return last;
-    if (now() >= end) throw new Error(`machine did not settle: read ${last} ${Math.round(deadlineMs / 1000)} s on`);
-    await sleep(500);
+    const remaining = end - now();
+    if (remaining <= 0) throw new Error(`machine did not settle: read ${last} ${Math.round(deadlineMs / 1000)} s on`);
+    await sleep(Math.min(500, remaining));
   }
 }
 
@@ -328,7 +418,12 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}","min_gap_ms":${Math.max(0, d.holdMs - 500)}}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 120_000, sleep);
       if (!arm.stdout.includes("@@probe")) throw new Error(`arm: ${short(arm.stderr || arm.stdout)}`);
       c.offset_pre_ms = (await clockOffset(d.exec, 2))?.offset ?? null;
-      c.paused_ms = await d.pause();
+      const pause = await d.pause();
+      if (typeof pause === "number") c.paused_ms = pause;
+      else {
+        c.paused_ms = pause.pausedMs;
+        c.warnings.push(...(pause.warnings ?? []));
+      }
       await sleep(d.holdMs);
       const wakeAt = Date.now();
       const retries = await d.wake((attempt) => (c.start_attempts ??= []).push(attempt));
@@ -365,7 +460,7 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       c.phases = p.phases;
       c.warnings.push(...p.warnings);
       // The guest ran again before the start was sent: the probe measured a stall, not this wake. Not an echo.
-      const early = mm.resumed !== undefined && mm.resumed < -2000 ? `the probe's gap ended ${-mm.resumed} ms before wake_at: not this wake` : "";
+      const early = earlyResume(mm.resumed, off.rtt);
       const st = await d.exec(`cat /run/cmux-vm-agent/state.json 2>/dev/null || sudo -n cat /run/cmux-vm-agent/state.json 2>/dev/null; true`, 20_000).catch(() => null);
       try {
         const sj = st && st.stdout.includes("{") ? JSON.parse(st.stdout.slice(st.stdout.indexOf("{"))) : null;

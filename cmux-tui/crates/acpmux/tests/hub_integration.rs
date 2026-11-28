@@ -155,6 +155,8 @@ mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 
+#[path = "hub_integration/fork_own_process.rs"]
+mod fork_own_process;
 #[path = "hub_integration/turn_attestation.rs"]
 mod turn_attestation;
 #[path = "hub_integration/turn_cost.rs"]
@@ -232,6 +234,11 @@ async fn setup_defaults_env(
     setup_inbox(policy, env, defaults_env, true).await
 }
 
+/// `setup_env` with the fake harness in OpenCode's family.
+async fn setup_opencode(env: BTreeMap<String, String>) -> (Arc<Hub>, TestClient) {
+    setup_family(PermissionPolicy::ApproveAll, env, BTreeMap::new(), true, Some("opencode")).await
+}
+
 /// `setup` with `agentInbox` off: another agent's plain send queues or steers as before the
 /// inbox (`hub/inbox.rs`), for the tests of that path (still every non-plain agent message's).
 async fn setup_queue(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
@@ -244,6 +251,17 @@ async fn setup_inbox(
     defaults_env: BTreeMap<String, String>,
     inbox: bool,
 ) -> (Arc<Hub>, TestClient) {
+    setup_family(policy, env, defaults_env, inbox, None).await
+}
+
+/// `setup_inbox` with the fake harness's profile in `family`.
+async fn setup_family(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+    defaults_env: BTreeMap<String, String>,
+    inbox: bool,
+    family: Option<&str>,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -254,7 +272,7 @@ async fn setup_inbox(
             env,
             description: None,
             fallback: None,
-            family: None,
+            family: family.map(str::to_owned),
             models: vec![],
             model: None,
             effort: None,
@@ -734,6 +752,72 @@ async fn a_fork_keeps_the_chats_model_and_effort_when_the_agent_answers_with_its
     };
     assert_eq!(set("model"), Some(json!("claude-haiku-5-5")), "{sets:?}");
     assert_eq!(set("effort"), Some(json!("low")), "{sets:?}");
+    let _ = std::fs::remove_file(&calls);
+}
+
+/// A model picked through the `model` option is the one a fork runs, also when the harness
+/// reports its model as ACP `models` too (Codex). The report kept the start model, the fork's
+/// replay let it win, and a Codex chat on gpt-6-luna forked onto gpt-6.2-sol (Leo's ask
+/// c-0e429cbe77: "we ought to really hammer it hard and just test tons of variations of it").
+#[tokio::test]
+async fn a_fork_keeps_a_model_picked_by_option_when_the_harness_reports_models_too() {
+    let calls = std::env::temp_dir().join(format!("acpmux-fork-optmodel-{}", uuid::Uuid::now_v7()));
+    let env = BTreeMap::from([
+        ("FAKE_PICKER".to_owned(), "1".to_owned()),
+        ("FAKE_PICKER_MODES".to_owned(), "claude".to_owned()),
+        ("FAKE_FORK_DEFAULTS".to_owned(), "1".to_owned()),
+        ("FAKE_MODELS".to_owned(), "default,claude-haiku-5-5".to_owned()),
+        ("FAKE_CALLS".to_owned(), calls.to_string_lossy().into_owned()),
+    ]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "optmodel"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_SET_CONFIG_OPTION,
+        json!({"sessionId": id, "configId": "model", "value": "claude-haiku-5-5"}),
+    )
+    .await
+    .unwrap();
+    let chat = hub.resolve(&id).unwrap().meta();
+    assert_eq!(
+        chat.models.as_ref().and_then(|m| m["currentModelId"].as_str()),
+        Some("claude-haiku-5-5"),
+        "the chat's model report follows the option: {:?}",
+        chat.models
+    );
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    let f = c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let agent_sid = hub.resolve(&fid).unwrap().meta().agent_session_id.unwrap();
+    let last_model = std::fs::read_to_string(&calls)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|c| c["params"]["sessionId"] == agent_sid.as_str())
+        .filter_map(|c| {
+            if c["method"] == "session/set_model" {
+                Some(c["params"]["modelId"].clone())
+            } else {
+                (c["params"]["configId"] == "model").then(|| c["params"]["value"].clone())
+            }
+        })
+        .last();
+    assert_eq!(
+        last_model,
+        Some(json!("claude-haiku-5-5")),
+        "the fork's agent runs the chat's model"
+    );
     let _ = std::fs::remove_file(&calls);
 }
 

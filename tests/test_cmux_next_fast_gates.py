@@ -22,6 +22,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -60,8 +61,10 @@ GATE_SCRIPTS = {
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
     "protocol skew": "scripts/ci/protocol_skew_check.py",
     "entry logs": "scripts/ci/entry_logs.py",
+    "huge files": "scripts/ci/check_huge_files.py",
     "settings catalog keys": "scripts/ci/settings_catalog_keys.py",
     "egress gate": "scripts/ci/egress_new_sites.py",
+    "measure bash 3.2 arrays": "scripts/measure/tests/empty-array-bash32.test.py",
 }
 # Every gate starts in the first batch except webviews checks, which waits behind web lint; derived so a new gate
 # does not leave the parallel barrier one marker short.
@@ -325,24 +328,31 @@ class WorkflowShape(unittest.TestCase):
     def test_dispatch_refuses_a_fork_or_another_base_before_pr_code_runs(self):
         doc = workflow()
         resolve = job(doc, "resolve")
-        # resolve runs no code the change made: on dispatch it checks nothing out at all, and on a pull request it
-        # runs only the router (isolated, -I), and only when the change leaves the router and its map as the base has
-        # them (else every gate runs and nothing of the PR's is read).
+        # resolve runs no code the change made: on dispatch it checks out only the base's router and verifier, and on a
+        # pull request it runs only the router (isolated, -I), and only when the change leaves the router and its map
+        # as the base has them (else every gate runs and nothing of the PR's is read).
         for step in resolve["steps"]:
             if step.get("uses", "").startswith("actions/checkout@") or step.get("name", "").startswith("Pool mirror:"):
-                if "the base for the receipt verifier (lane dispatch)" in step.get("name", ""):
-                    # A lane dispatch checks out the base commit's verifier, never the pull request's code (#60742).
-                    self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", step["if"])
+                if "the base for the router and the receipt verifier (dispatch)" in step.get("name", ""):
+                    # A dispatch checks out the base commit's router and verifier, never the pull request's code
+                    # (#60742).
+                    self.assertIn("github.event_name == 'workflow_dispatch'", step["if"])
                     self.assertIn("steps.resolve.outputs.base", str(step.get("with", {}).get("ref", "")) + str(step.get("env", {})))
                     continue
                 self.assertTrue(step["if"].replace(" ", "").startswith("${{github.event_name=='pull_request'&&"),
                                 step.get("name"))
             if step.get("id") == "route":
-                self.assertEqual(step["if"].replace(" ", ""), "${{github.event_name=='pull_request'}}")
+                self.assertEqual(step["if"].replace(" ", ""),
+                                 "${{github.event_name=='pull_request'||github.event_name=='workflow_dispatch'}}")
                 self.assertTrue(step["continue-on-error"])
                 body = step["run"]
+                # The pull request branch: the router's SELF blobs are compared before any python3 runs.
+                pr_branch = body.split("for file in", 1)[1]
                 for file in ("scripts/ci/fast_check_route.py", "scripts/ci/fast-check-inputs.json"):
-                    self.assertIn(file, body.split("python3")[0])
+                    self.assertIn(file, pr_branch.split("python3")[0])
+                # The dispatch branch runs only the checked-out base's router: HEAD must be the base.
+                self.assertIn('"$(git rev-parse HEAD 2>/dev/null || true)" == "$BASE"', body)
+                self.assertEqual(step["env"]["BASE"], "${{ steps.resolve.outputs.base }}")
                 self.assertIn('"$(git rev-parse "HEAD:$file")" != "$(git rev-parse "HEAD^1:$file")"', body)
                 self.assertIn("python3 -I scripts/ci/fast_check_route.py route --workflow "
                               ".github/workflows/cmux-next-fast-gates.yml", body)
@@ -609,7 +619,7 @@ class WorkflowShape(unittest.TestCase):
         steps = job(workflow(), "resolve")["steps"]
         resolve = step_named(steps, "Resolve the head and the base")
         body = resolve["run"]
-        self.assertIn(".head.ref] | @tsv", body)
+        self.assertIn('.head.ref, ([.labels[].name] | join(","))] | @tsv', body)
         self.assertIn("headRefName", body)
         self.assertIn('if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then', body)
         # The head tree is read over git, not REST: the REST budget was spent on every dispatch on 2026-11-27.
@@ -620,21 +630,71 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn('echo "merge_tree="; echo "lane_dispatch=true"', body)
         self.assertEqual(resolve["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
         verify = step_named(steps, "Verify the local test receipt")
-        self.assertIn("(github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true')",
-                      verify["if"])
+        self.assertIn("(github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' "
+                      "&& steps.route.outputs.fast_gates != 'false')", verify["if"])
         self.assertIn('[[ -n "$PR_NUMBER" && "${DISCOVER:-1}" != 0 ]]', verify["run"])
         names = [s.get("name", "") for s in steps]
-        for name in ("Checkout the base for the receipt verifier (lane dispatch)",
-                     "Pool mirror: checkout the base for the receipt verifier (lane dispatch)"):
+        for name in ("Checkout the base for the router and the receipt verifier (dispatch)",
+                     "Pool mirror: checkout the base for the router and the receipt verifier (dispatch)"):
             checkout = step_named(steps, name)
             self.assertLess(names.index("Resolve the head and the base"), names.index(name))
+            self.assertLess(names.index(name), names.index("Route the pull request (scripts/ci/fast_check_route.py)"))
             self.assertLess(names.index(name), names.index("Verify the local test receipt"))
-            self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", checkout["if"])
+            self.assertIn("github.event_name == 'workflow_dispatch'", checkout["if"])
             self.assertIs(checkout["continue-on-error"], True)
-        checkout = step_named(steps, "Checkout the base for the receipt verifier (lane dispatch)")
+        checkout = step_named(steps, "Checkout the base for the router and the receipt verifier (dispatch)")
         self.assertIs(checkout["with"]["persist-credentials"], False)
         self.assertEqual(checkout["with"]["ref"], "${{ steps.resolve.outputs.base }}")
-        self.assertIn("/scripts/ci/ci_receipt.py", checkout["with"]["sparse-checkout"])
+        for file in ("/scripts/ci/ci_receipt.py", "/scripts/ci/fast_check_route.py", "/scripts/ci/fast-check-inputs.json"):
+            self.assertIn(file, checkout["with"]["sparse-checkout"])
+
+    def test_a_dispatch_routes_the_pull_requests_files_on_the_base_router(self):
+        """2026-11-28 15:00-16:15Z: 35 dispatches ran the whole gates job (237 runner-minutes); 6 of the 29 pull requests
+        touched no gate input, and 8 runs re-gated one head only because a check path moved. A dispatch routes the
+        pull request's files (pulls/N/files) on the base's router, as the pull request event does on its diff."""
+        step = next(s for s in job(workflow(), "resolve")["steps"] if s.get("id") == "route")
+        with tempfile.TemporaryDirectory(prefix="fast-gates-route-") as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            git(repo, "init", "-q")
+            for rel in ("scripts/ci/fast_check_route.py", "scripts/ci/fast-check-inputs.json",
+                        "scripts/ci/detect_linux_guard_changes.py", "scripts/ci/workflow_guard_groups.py",
+                        "scripts/ci/workload_entrypoints.py", ".github/runners.json"):
+                (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / rel, repo / rel)
+            base = commit(repo, {".github/workflows/cmux-next-fast-gates.yml": WORKFLOW.read_text()}, "base")
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "gh").write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\ncat "$FILES"\n')
+            (bin_dir / "gh").chmod(0o755)
+
+            def route(files: list[tuple[str, str, str]], *, labels: str = "", head: str = base) -> str:
+                (root / "files.tsv").write_text("".join("\t".join(row) + "\n" for row in files))
+                output = root / "output"
+                output.write_text("")
+                env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "EVENT_NAME": "workflow_dispatch",
+                       "LABELS": labels, "PR": "28116", "BASE": head, "RUNNER_TEMP": str(root),
+                       "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output),
+                       "FILES": str(root / "files.tsv"), "CALLS": str(root / "calls")}
+                result = subprocess.run(["bash", "-c", step["run"]], cwd=repo, env=env, capture_output=True,
+                                        text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return output.read_text()
+
+            # Tests and docs only: no gate input, so the gates are skipped and post writes success at this base.
+            self.assertEqual(route([("modified", "tests/test_x.py", ""), ("added", "docs/x.md", "")]),
+                             "fast_gates=false\n")
+            self.assertIn("/pulls/28116/files", (root / "calls").read_text())
+            # A gate input, the full-ci label, a rename of the router (SELF) or a removed crate file runs every gate.
+            self.assertEqual(route([("modified", "webviews/src/a.ts", "")]), "fast_gates=true\n")
+            self.assertEqual(route([("modified", "tests/test_x.py", "")], labels="full-ci"), "fast_gates=true\n")
+            self.assertEqual(route([("renamed", "tests/new.py", "scripts/ci/fast_check_route.py")]),
+                             "fast_gates=true\n")
+            self.assertEqual(route([("removed", "cmux-tui/crates/x/src/lib.rs", "")]), "fast_gates=true\n")
+            # No file list, or a checkout that is not the base, writes nothing: the gates run.
+            self.assertEqual(route([]), "")
+            self.assertEqual(route([("modified", "tests/test_x.py", "")], head="f" * 40), "")
 
     def test_receipt_steps_run_only_the_base_verifier_and_only_when_named(self):
         doc = workflow()
@@ -1674,9 +1734,12 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
+        self.assertEqual(calls["huge files"]["argv"], ["check", "--base", base, "--head", merge])
         self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
         self.assertEqual(calls["settings catalog keys"]["argv"][-2:], ["--base-rev", base])  # a base red is a note
         self.assertEqual(calls["egress gate"]["argv"][:4], ["--base", base, "--head", merge])
+        # The bash 3.2 empty-array scan reads the merge tree it runs in (#64030, #64588 landed it with tooling-tests skipped).
+        self.assertEqual(calls["measure bash 3.2 arrays"]["argv"], [])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
@@ -1702,6 +1765,24 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
+
+    def test_only_a_red_web_lint_tries_its_safe_fixes(self):
+        # Leo, 2026-11-22: "hell, maybe even should've been automatic. how are our fixit type things for lint errors
+        # and random bullshit?" A red web lint runs scripts/ci/oops/fixit_lint.py (its `--fix`); any other red, or a
+        # green run, pays nothing, and the run's result is the gates' either way.
+        work, out = self.prepared()
+        saved = os.environ.get("FIXIT_COMPILE_HEAD_SHA")
+        os.environ["FIXIT_COMPILE_HEAD_SHA"] = "a" * 40
+        self.addCleanup(lambda: os.environ.pop("FIXIT_COMPILE_HEAD_SHA", None) if saved is None
+                        else os.environ.__setitem__("FIXIT_COMPILE_HEAD_SHA", saved))
+        for red, tried in (("web lint", True), ("prepush gate", False), ("", False)):
+            with self.subTest(red=red):
+                self.log.unlink(missing_ok=True)
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true", fail=red)
+                self.assertEqual(result.returncode, 1 if red else 0, result.stdout + result.stderr)
+                fixes = [e for e in self.gate_log() if e["gate"] == "web lint" and "--fix" in e["argv"]]
+                self.assertEqual(bool(fixes), tried, result.stdout + result.stderr)
+                self.assertEqual(git(work, "status", "--porcelain", "--untracked-files=no"), "")
 
     def test_independent_gates_run_in_parallel(self):
         work, out = self.prepared()
@@ -1834,6 +1915,27 @@ def type_error(code: str, message: str, where: str) -> str:
     """One type error as `vp check --no-fmt --no-lint` prints it (Oxlint's graphical report)."""
     return (f"  x typescript({code}): {message}\n     ,-[{where}]\n 1 | const a = 1;\n"
             "     :       ^\n     `----\n\n")
+
+
+class PrTier(unittest.TestCase):
+    def test_the_pr_tier_leaves_the_slow_gates_to_the_push_tier(self):
+        module = load(SCRIPT)
+        args = (Path("/r"), "b" * 40, "m" * 40, Path("/base"), True, True, True)
+        full = {name: argv for name, argv in module.gates(*args, tier="full")}
+        pr = {name: argv for name, argv in module.gates(*args, tier="pr")}
+        self.assertTrue(all(full.values()))
+        self.assertEqual(sorted(n for n, argv in pr.items() if argv is None), sorted(module.PR_TIER_DEFERRED))
+        self.assertIsNotNone(pr["prepush gate"])
+        self.assertIsNotNone(pr["crash ratchet"])
+        for name in module.PR_TIER_DEFERRED:
+            self.assertIn(name, module.SKIPPED)
+
+    def test_the_workflow_runs_the_pr_tier_unless_full_ci_or_the_variable_says_full(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("CI_FAST_GATES_PR_TIER", text)
+        self.assertIn("full-ci", text)
+        self.assertIn('--tier "$TIER"', text)
+        self.assertEqual(text.count("--tier"), 3)
 
 
 class GateBudget(unittest.TestCase):
@@ -2406,6 +2508,17 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(self.module.added(dump(1276995), dump(1180412)), [])
         self.assertEqual(self.module.added(dump(1276995) + "Error: new crash\n", dump(1180412)), ["Error: new crash"])
 
+    def test_a_mktemp_log_dir_keys_without_its_random_suffix(self):
+        # cmux#54186's fast gates (run 46043766720): the base's bundle red, charged as one new `log:` line.
+        def red(suffix: str, tmp: str = "/tmp") -> str:
+            return ("web bundle matrix: RED in 47s: bundle:pages\n"
+                    f"  log: {tmp}/web-bundle-matrix.{suffix}/logs/bundle-pages.log\n")
+        self.assertEqual(self.module.added(red("QNX9SC"), red("a1B2c3")), [])
+        mac = "/var/folders/xy/abc123/T"
+        self.assertEqual(self.module.added(red("QNX9SC", mac), red("Zz9Yy8", mac)), [])
+        self.assertEqual(self.module.added(red("QNX9SC") + "  log: /tmp/other.QNX9SC/x.log\n", red("a1B2c3")),
+                         ["  log: /tmp/other.QNX9SC/x.log"])
+
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
             return (f"  x typescript(TS2322): Type '{{ a: number; }}' is not assignable to type 'Props'.\n"
@@ -2487,15 +2600,31 @@ class WebviewsChecksGate(unittest.TestCase):
 
 
 class DeepenFallbackTests(unittest.TestCase):
-    """GitHub's pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038)."""
+    """pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038), and on #61818 both
+    filters in this runner's local-links repack, with an alternate store borrowed (job 140700979838)."""
 
-    def run_deepen_fetch(self, failures: dict[str, str]):
+    BUG = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
+    LOCAL = BUG + "\nfatal: could not finish pack-objects to repack local links\nfatal: index-pack failed"
+
+    def run_deepen_fetch(self, failures: dict[str, str], alternates: str | None = None, aside_failures=None):
         module = load(SCRIPT)
         calls = []
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        info = tmp / "objects/info"
+        info.mkdir(parents=True)
+        alt = info / "alternates"
+        if alternates is not None:
+            alt.write_text(alternates)
+        self.alternates_seen = []
 
         def fake_git(repo, *args, check=True):
+            if args[0] == "rev-parse":
+                return subprocess.CompletedProcess(args, 0, f"{alt}\n", "")
             calls.append(args)
-            stderr = next((err for flag, err in failures.items() if flag in args), "")
+            self.alternates_seen.append(alt.exists())
+            table = failures if alt.exists() or aside_failures is None else aside_failures
+            stderr = next((err for flag, err in table.items() if flag in args), "")
             code = 128 if stderr else 0
             if check and code:
                 raise SystemExit(f"fast-gates: git {' '.join(args)} failed: {stderr}")
@@ -2503,14 +2632,33 @@ class DeepenFallbackTests(unittest.TestCase):
 
         module.git = fake_git
         module.log = lambda message: None
-        module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        try:
+            module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        finally:
+            self.alternates_after = alt.read_text() if alt.exists() else None
         return calls
 
     def test_a_pack_objects_abort_retries_with_blob_none(self):
-        bug = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
-        calls = self.run_deepen_fetch({"--filter=tree:0": bug})
-        self.assertEqual([c[3] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.BUG})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
         self.assertTrue(all("--deepen=32" in c for c in calls))
+
+    def test_a_local_links_abort_retries_without_the_alternate_store_and_puts_it_back(self):
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL, "--filter=blob:none": self.LOCAL},
+                                      alternates="/mirror/objects\n", aside_failures={})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=tree:0"])
+        self.assertEqual(self.alternates_seen, [True, False])
+        self.assertEqual(self.alternates_after, "/mirror/objects\n")
+
+    def test_the_alternate_store_comes_back_when_the_retry_fails(self):
+        with self.assertRaises(SystemExit):
+            self.run_deepen_fetch({"--filter=tree:0": self.LOCAL}, alternates="/mirror/objects\n",
+                                  aside_failures={"--filter=tree:0": "fatal: could not read from remote repository"})
+        self.assertEqual(self.alternates_after, "/mirror/objects\n")
+
+    def test_a_local_links_abort_without_an_alternate_store_tries_blob_none(self):
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
 
     def test_a_clean_deepen_fetches_once(self):
         self.assertEqual(len(self.run_deepen_fetch({})), 1)
@@ -2530,6 +2678,39 @@ class FetchesSkipSubmodules(unittest.TestCase):
         self.assertTrue(calls)
         for call in calls:
             self.assertIn('"--no-recurse-submodules"', call)
+
+
+class BunTmpdir(unittest.TestCase):
+    """Every gate gets a writable BUN_TMPDIR (cmux#59800: web lint failed `EACCES accessing temporary directory`)."""
+
+    @staticmethod
+    def module():
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates_under_test", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_one_is_made_under_the_runner_temp_and_exported(self):
+        with tempfile.TemporaryDirectory() as runner:
+            env = {"RUNNER_TEMP": runner}
+            made = self.module().ensure_bun_tmpdir(env)
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+            self.assertEqual(made.parent, Path(runner))
+            self.assertTrue(os.access(made, os.W_OK))
+
+    def test_a_caller_set_one_is_kept(self):
+        env = {"BUN_TMPDIR": "/somewhere", "RUNNER_TEMP": "/nonexistent"}
+        self.assertIsNone(self.module().ensure_bun_tmpdir(env))
+        self.assertEqual(env["BUN_TMPDIR"], "/somewhere")
+
+    def test_an_unusable_runner_temp_falls_back_to_the_system_temp(self):
+        env = {"RUNNER_TEMP": "/nonexistent/runner-temp"}
+        made = self.module().ensure_bun_tmpdir(env)
+        try:
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+        finally:
+            if made:
+                made.rmdir()
 
 
 if __name__ == "__main__":
