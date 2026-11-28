@@ -115,7 +115,8 @@ class DaemonPrMemberSteps(unittest.TestCase):
             with self.subTest(step=name):
                 self.assertTrue(tracked(member_dir))
                 missed = [f for f in files if not any(p.match(f) for p in named)]
-                self.assertEqual(missed, [], f"add each file's directory as `DIR/*` to [step.{name}] inputs")
+                lines = sorted({f'  "{f.rsplit("/", 1)[0]}/*",' for f in missed})
+                self.assertEqual(missed, [], f"add to [step.{name}] inputs in ci/steps.toml:\n" + "\n".join(lines))
 
     def test_the_fixture_scan_finds_the_known_reads(self) -> None:
         self.assertIn("cmux-tui/persisted-formats/agent-host-record", fixtures("cmux-tui/crates/acpmux"))
