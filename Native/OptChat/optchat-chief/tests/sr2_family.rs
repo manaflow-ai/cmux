@@ -70,7 +70,11 @@ fn the_default_is_the_users_own_claude_cli_even_when_sr2_runs() {
         "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/coderouter", "team-route"]},
         "claude-sr2": {"kind": "claude-stdio", "argv": ["/u/.local/bin/sr2", "claude"]},
     }});
-    assert_eq!(default_harness(&routed), "claude-cr");
+    assert_eq!(
+        default_harness(&routed),
+        "claude",
+        "never the CodeRouter route"
+    );
 }
 
 /// The compactor of a Chief with an empty engine.json runs the same CLI as
