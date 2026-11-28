@@ -29,6 +29,8 @@ pub mod host {
 #[cfg(unix)]
 pub mod custody;
 pub mod link;
+#[cfg(all(test, unix))]
+mod persisted_format_tests;
 #[cfg(unix)]
 pub(crate) mod proc_table;
 pub mod program_wait;
@@ -37,6 +39,7 @@ pub(crate) mod record_watch;
 #[cfg(all(test, unix))]
 mod record_write_tests;
 pub(crate) mod scope;
+pub(crate) mod scope_kill;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
@@ -73,6 +76,21 @@ pub const WRITTEN_METHOD: &str = "_acpmux/host_written";
 pub const QUEUED_METHOD: &str = "_acpmux/host_queued";
 /// Discovery record schema this build writes and reads.
 pub const RECORD_VERSION: u32 = 1;
+/// What a host of this build does that a host of an older one does not, and that a running chat
+/// should not wait for: the daemon moves a chat whose host is below it onto the installed build
+/// at its next idle point (`hub/host_level.rs`), however soon the chat works again. A daemon
+/// update swaps the daemon only; each host it adopts keeps the binary it started from until its
+/// chat hibernates, which a chat at work never does. Raise it only for such a change: each raise
+/// restarts every live chat's agent once (`claude --resume`), whose next turn reads its context
+/// again uncached.
+///
+/// 1: Claude Code suggests a next prompt only after a person's own turn
+/// (`claude_stdio/prompt_suggestions.rs`); a host before it lets Claude Code suggest one after
+/// every turn, about $0.10 each (sr2 audit 2026-11-21: 1,100 an hour from such hosts).
+/// 2: a process no person started asks Claude Code for no suggestions at all
+/// (`hub/host_level.rs` `start_params`): level 1's per-turn pause is honoured only under a
+/// server-side flag of Claude Code's, off by default.
+pub const HOST_LEVEL: u32 = 2;
 /// Largest frame either side accepts.
 pub const MAX_FRAME: usize = 64 << 20;
 /// Bytes of unacknowledged entries a host keeps before it stops reading the
@@ -118,6 +136,24 @@ pub enum ControllerFrame {
     Custody { token: String },
 }
 
+/// The launch credential's variables (`agent_credentials::launched_with`), said only to the
+/// owner that proved its token. Its `Debug` shows names, never a value.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LaunchCredential(pub Vec<(String, String)>);
+
+impl LaunchCredential {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for LaunchCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.iter().map(|(k, _)| k)).finish()
+    }
+}
+
 /// Host to controller.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -127,6 +163,8 @@ pub enum HostFrame {
         host_build: String,
         incarnation: String,
         harness_pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness_start: Option<u64>,
         /// Last entry sequence assigned.
         last_h: u64,
         /// Last entry the controller acknowledged.
@@ -136,6 +174,11 @@ pub enum HostFrame {
         max_out_id: i64,
         /// The harness exit code once it exited (`Some(None)` = killed).
         exited: Option<Option<i32>>,
+        /// The launch credential its harness was started with (cmux#52399): the new daemon holds
+        /// it again for the agent's next start, without reading the agent's own env, which a
+        /// wrapper may have cleaned. Empty from a host of an older build, or with none.
+        #[serde(default, skip_serializing_if = "LaunchCredential::is_empty")]
+        launch_credential: LaunchCredential,
     },
     Incompatible {
         min: u16,
@@ -200,7 +243,7 @@ impl Entry {
 /// What the controller asks the host to run. Sent once on the private
 /// bootstrap pipe; never written to disk (it carries the environment), but
 /// for the caller token the host keeps in its record (`HostRecord::caller_token`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SpawnSpec {
     pub session_id: String,
     pub program: String,
@@ -243,6 +286,59 @@ pub struct SpawnSpec {
     /// neither (the holder off, or a daemon that predates it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub holder: Option<HolderSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copilot_scratch: Option<CopilotScratch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_chatgpt_expiry: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_kimi_expiry: Option<i64>,
+}
+
+/// On the private host pipe only. The grant is used to redact output, never exported.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CopilotScratch {
+    pub path: PathBuf,
+    pub redaction: String,
+}
+
+impl SpawnSpec {
+    fn launch_key(&self, index: Option<usize>) -> Option<&str> {
+        self.copilot_scratch
+            .as_ref()
+            .map(|scratch| scratch.redaction.as_str())
+            .or_else(|| index.and_then(|index| self.env.get(index).map(|(_, key)| key.as_str())))
+    }
+
+    /// The per-launch key's index in the existing environment, for output redaction.
+    fn launch_key_index(&self) -> Option<usize> {
+        if let Some(index) = self.local_launch_key_index() {
+            return Some(index);
+        }
+        let name = self
+            .env
+            .iter()
+            .find(|(name, _)| name == crate::agent_credentials::MARKER)
+            .map_or(crate::byo_endpoint::OPENAI_KEY_ENV, |(_, name)| name.as_str());
+        if !crate::agent_credentials::NAMES.contains(&name) {
+            return None;
+        }
+        self.env.iter().position(|(key, value)| key == name && !value.is_empty())
+    }
+
+    fn local_launch_key_index(&self) -> Option<usize> {
+        let (_, name) =
+            self.env.iter().find(|(name, _)| name == crate::agent_credentials::LOCAL_REDACTION)?;
+        self.env.iter().position(|(key, value)| key == name && !value.is_empty())
+    }
+}
+
+impl std::fmt::Debug for SpawnSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SpawnSpec")
+            .field("session_id", &self.session_id)
+            .field("env_names", &self.env.iter().map(|(name, _)| name).collect::<Vec<_>>())
+            .finish_non_exhaustive()
+    }
 }
 
 /// `SpawnSpec::holder`: the host keeps an output ring and hands custody to its daemon.
@@ -325,6 +421,13 @@ pub struct TranslatorSpec {
     pub recap: Option<String>,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+    /// The process resumes a turn a move cut, by itself (`claude_stdio/resume_cut.rs`): its
+    /// translator owes that turn's prompt from the start.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resumes_cut_turn: bool,
+    /// Register the repeated-stop callback for this session’s Claude stop condition.
+    #[serde(default)]
+    pub stop_condition: bool,
 }
 
 fn suggestions_default() -> bool {
@@ -374,6 +477,36 @@ pub struct HostRecord {
     /// checkout, as before.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_translator: bool,
+    /// [`HOST_LEVEL`] of the build that wrote it; 0 for a host of an older build, which never
+    /// says.
+    #[serde(default)]
+    pub host_level: u32,
+    /// Whether the host keeps an agent holder (`custody.rs`), so a daemon may ask it for custody.
+    /// Only a harness that speaks ACP itself gets one: a translated (Claude) or bridged (Codex)
+    /// harness says `Some(false)`, and its daemon does not ask. None: a host of an older build,
+    /// which may hold one; it is asked as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_chatgpt_expiry: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_kimi_expiry: Option<i64>,
+}
+
+impl SpawnSpec {
+    /// Whether its host keeps an agent holder (`custody.rs`): asked for one, and a harness that
+    /// speaks ACP itself. A translator's (Claude) or the Codex bridge's state is the host's own,
+    /// and a replacement host could not take it over, so neither gets one.
+    pub fn keeps_holder(&self) -> bool {
+        self.holder.is_some() && self.translator.is_none() && !self.codex_bridge
+    }
+}
+
+impl HostRecord {
+    /// Whether a daemon should ask this host for custody of its harness (`custody.rs`).
+    pub fn may_hold(&self) -> bool {
+        self.holder != Some(false) && !self.claude_translator
+    }
 }
 
 /// A record file that this build cannot read, and what it could parse.

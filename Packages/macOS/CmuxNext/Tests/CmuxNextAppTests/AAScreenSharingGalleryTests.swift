@@ -11,10 +11,11 @@ struct AAScreenSharingGalleryTests {
     func renderAllSurfaces() async throws {
         try AAMacScreenSetupGalleryTests().renderGallery()
         try AAMacScreenSharingBarGalleryTests().renderGallery()
+        try await AAMacScreenViewerGalleryTests().renderGallery()
         try AASidebarScreenActionsGalleryTests().renderGallery()
         let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/tar"),
                                      ["cf", "screen-sharing-native-gallery.tar", "mac-screen-setup-gallery",
-                                      "mac-screen-sharing-bar-gallery", "sidebar-screen-actions-gallery"],
+                                      "mac-screen-sharing-bar-gallery", "mac-screen-viewer-gallery", "sidebar-screen-actions-gallery"],
                                      directory: AANestedGroupsGalleryTests.packageRoot, timeout: .seconds(30))
         let result = try await AsyncProcess().run(request)
         #expect(result.succeeded)

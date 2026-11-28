@@ -82,4 +82,28 @@ struct WebUpdatePointerTests {
     @Test func theBundledKeysLoad() {
         #expect(!WebUpdateKeys.bundled.keys.isEmpty)
     }
+
+    // MARK: cas/1 (RFD 0166)
+
+    @Test func aPointersCasFieldIsReadAndAMalformedOneIsDropped() throws {
+        var payload = Self.payload()
+        let cas: [String: Any] = ["prefix": "cmux-next-web/cas/", "manifest": String(repeating: "e", count: 64),
+                                  "pack": String(repeating: "f", count: 64)]
+        payload["cas"] = cas
+        let pointer = try WebUpdatePointer.verified(Self.envelope(payload), keys: Self.keys, channel: "every-merge")
+        #expect(pointer.cas == .init(prefix: "cmux-next-web/cas/", manifest: String(repeating: "e", count: 64),
+                                     pack: String(repeating: "f", count: 64)))
+        #expect(pointer.casBase(base: URL(string: "https://files.cmux.com/cmux-next-web/")!)?.absoluteString
+            == "https://files.cmux.com/cmux-next-web/cas/")
+        for bad: [String: Any] in [["prefix": "../x/", "manifest": cas["manifest"]!, "pack": cas["pack"]!],
+                                   ["prefix": "cmux-next-web/cas/", "manifest": "e", "pack": cas["pack"]!],
+                                   ["prefix": "cmux-next-web/cas", "manifest": cas["manifest"]!, "pack": cas["pack"]!]] {
+            payload["cas"] = bad
+            let kept = try WebUpdatePointer.verified(Self.envelope(payload), keys: Self.keys, channel: "every-merge")
+            #expect(kept.cas == nil)
+        }
+        payload["cas"] = "not an object"
+        #expect(try WebUpdatePointer.verified(Self.envelope(payload), keys: Self.keys, channel: "every-merge").cas == nil)
+        #expect(try WebUpdatePointer.verified(Self.scriptEnvelope, keys: Self.keys, channel: "every-merge").cas == nil)
+    }
 }

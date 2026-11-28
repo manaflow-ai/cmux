@@ -27,9 +27,7 @@ import UniformTypeIdentifiers
     init() {
         HomeMarkdownPolicy.install()
         HomePlanRowProvider.plan = .empty
-        CustomRows.unregister(HomeTableRowProvider.kind)
-        CustomRows.unregister(HomePlanRowProvider.kind)
-        HomeTableRowProvider.install()
+        HomeTableRowProvider.reinstall()
     }
 
     static func table(_ text: String) -> HomeTable? {
@@ -246,5 +244,20 @@ import UniformTypeIdentifiers
         // Five body rows and the header, each at least one line tall.
         #expect(grid.heights.count == 6)
         #expect(grid.heights.allSatisfy { $0 >= Fixture.bodyFont.pointSize })
+    }
+
+    /// Leo 2026-11-22: "i dont know why we dont simply center tables in our agent chats." A card narrower
+    /// than the row sits centered in it; one whose columns fill the row starts at its edge.
+    @Test func aNarrowTableIsCenteredAndAFullOneStartsAtTheEdge() throws {
+        let narrow = HomeTable(header: ["Agent", "State"], alignments: [.leading, .leading],
+                               rows: [["a42", "building"], ["a49", "done"]], pictures: nil, loading: nil)
+        let small = HomeTableGrid(narrow, available: 760)
+        #expect(small.cardWidth < 760)
+        #expect(abs(small.lead - (760 - small.cardWidth) / 2) <= 0.5)
+        #expect(small.cardOrigin(CGPoint(x: 10, y: 4)) == CGPoint(x: 10 + small.lead, y: 4))
+        let wide = HomeTableGrid(try #require(Self.table(Self.reply)), available: 400)
+        // Its columns share the row (each rounded down to a whole point): it fills the row, so no real inset.
+        #expect(wide.cardWidth > 400 - 8)
+        #expect(wide.lead <= 2)
     }
 }

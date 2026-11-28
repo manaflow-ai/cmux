@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextRemote
 import CmuxNextWakeups
 import Foundation
@@ -86,8 +87,9 @@ extension CloudHandlers {
                 case .ssh(let route): destination = route
                 }
             }
-            let home = FileManager.default.homeDirectoryForCurrentUser
-            let indexURL = home.appendingPathComponent(".config/cmux/cloud-secrets.json")
+            // This build's index (BuildStatePaths: a DEV build's own), the file `cmux cloud secret` writes.
+            let indexURL = BuildStatePaths.cloudSecretsIndex(environment: ProcessInfo.processInfo.environment,
+                                                             home: FileManager.default.homeDirectoryForCurrentUser)
             let index = try await work.run(.userBlocking, mayBlock: .files) { CloudMachineSecrets.read(indexURL.path) }
             guard let stored = CloudMachineSecrets.index(from: index) else {
                 throw ActionFailure(message: CloudStrings.secretIndexUnreadable(indexURL.path))

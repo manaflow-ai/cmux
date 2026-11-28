@@ -208,7 +208,7 @@ extension VerticalTabListView {
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = contextMenu(at: convert(event.locationInWindow, from: nil))
         if let menu { trackMenu(menu) }
-        return menu
+        return NSMenu.withoutSystemItems(menu)
     }
 
     /// The right-click target under `point` (view coordinates), the strip's targets.

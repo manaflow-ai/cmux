@@ -8,6 +8,7 @@ import CmuxMobileMarkdown
 import CmuxMobileModel
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// What a Feed row asks of its list (`FeedListController`): every action
 /// goes through the row's event id, so a recycled cell never acts on the
@@ -27,6 +28,7 @@ protocol FeedRowCellDelegate: AnyObject {
     func rowQuestion(_ id: String, _ input: AgentQuestionCardState.Input)
     func rowCodeExpand(_ id: String)
     func rowCopyCommand(_ id: String)
+    /// The row's menu, from its ••• button only: a hold on the row works on its content instead.
     func rowMenu(_ id: String) -> UIMenu
     func rowWebHeight(_ id: String, _ height: CGFloat)
     var rowsSettled: Bool { get }
@@ -62,7 +64,10 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     // one when it needs more mid-scroll) costs its avatar, header, body and footer, not every part.
     private lazy var quote: FeedQuoteView = {
         let view = FeedQuoteView()
-        view.onTap = { [weak self] in self.map { $0.delegate?.rowToggleQuote($0.id) } }
+        view.onTap = { [weak self] in
+            guard let self, !self.selection.isSelecting else { return }
+            self.delegate?.rowToggleQuote(self.id)
+        }
         row.addSubview(view)
         made.insert("quote")
         FeedRowCell.drawAsync(view)
@@ -170,6 +175,25 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     private let composerPlaceholder = UILabel()
     private let send = UIButton(type: .custom)
     private var footerButtons: [UIButton] = []
+    /// A hold on the row's text selects it in place (as chat text does), never a lifted row and
+    /// menu: the row's menu is its ••• button (Aziz, 2026-11-23: "get rid of that behavior and leave
+    /// the ellipsis for that, then the user can interact with the actual content of the feed item").
+    private lazy var selection: InPlaceTextSelection = {
+        let selection = InPlaceTextSelection(host: row) { [weak self] in self?.selectableLabels ?? [] }
+        // A hold on a link opens the link's menu instead (`contextMenuInteraction`), and the body's
+        // overflow folded under Show more is clipped, so its text is not shown to select.
+        selection.shouldBegin = { [weak self] point in
+            guard let self else { return false }
+            return self.link(atRow: point) == nil && !self.inFoldedOverflow(point)
+        }
+        // The Feed does not scroll under the finger while it drags the selection out (as the chat).
+        selection.onChange = { [weak self] selecting in
+            guard selecting, let list = self?.enclosingTable() else { return }
+            list.panGestureRecognizer.isEnabled = false
+            list.panGestureRecognizer.isEnabled = true
+        }
+        return selection
+    }()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         #if DEBUG
@@ -187,6 +211,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
         avatar.backgroundColor = .cmuxMobileSurfaceRaised
         avatar.layer.cornerRadius = 20
+        avatar.layer.cornerCurve = .continuous
         avatar.isAccessibilityElement = false
         avatarGlyph.contentMode = .center
         avatarGlyph.tintColor = .label
@@ -255,6 +280,8 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
         let header = UITapGestureRecognizer(target: self, action: #selector(headerTapped(_:)))
         row.addGestureRecognizer(header)
+        // Holds: text selects in place (`selection`); a link shows Open Link and Copy Link.
+        _ = selection
         row.addInteraction(UIContextMenuInteraction(delegate: self))
 
         // Made with the cell: the permission buttons, a reply and an answer, so no row allocates views mid-scroll.
@@ -263,7 +290,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         FeedRowCell.drawAsync(contentView)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (cell: FeedRowCell, _: UITraitCollection) in
             cell.unread.layer.borderColor = UIColor.cmuxMobileBackground.resolvedColor(with: cell.traitCollection).cgColor
-            if cell.made.contains("quote") { cell.quote.updateColors() }
+            if let current = cell.current { cell.applyAvatar(current.harness, host: current.opensTerminal && AgentAvatarMark.terminalShapeEnabled ? .terminal : .chat) }
         }
     }
 
@@ -295,6 +322,11 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        // A row reused while it springs in (FeedCollection.springIn) drops the spring and comes back whole.
+        layer.removeAllAnimations()
+        alpha = 1
+        transform = .identity
+        selection.end()
         if made.contains("web") { web.release() }
         resignQuestionOther()
         if composerText.value?.isFirstResponder == true { composerText.value?.resignFirstResponder() }
@@ -313,6 +345,8 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         let t0 = CACurrentMediaTime()
         defer { FeedCellTiming.log("apply \(layout.key.item.id)", t0) }
         #endif
+        // Another event, or the same one laid out again (its text or frames may have moved).
+        if self.layout?.key != layout.key { selection.end() }
         self.layout = layout
         let item = shown ?? layout.key.item
         current = item
@@ -325,8 +359,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
         avatar.frame = layout.avatar
         avatarGlyph.frame = avatar.bounds
-        avatarGlyph.image = UIImage(systemName: Self.avatarSymbol(item.harness),
-                                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 40 * 0.42, weight: .medium))
+        applyAvatar(item.harness, host: item.opensTerminal && AgentAvatarMark.terminalShapeEnabled ? .terminal : .chat)
         unread.isHidden = item.isRead
         unread.accessibilityElementsHidden = item.isRead
         unread.frame = CGRect(x: layout.avatar.maxX - 9 + 2, y: layout.avatar.minY - 2, width: 9, height: 9)
@@ -353,6 +386,11 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         applyErrorAndReplies(layout)
         applyComposer(layout)
         applyFooter(layout)
+    }
+
+    /// The row is its stack's newest event (`FeedStacks`): its fold line follows with no divider between them.
+    var leadsStack = false {
+        didSet { if leadsStack != oldValue { divider.isHidden = leadsStack } }
     }
 
     /// The minute changed: only the time label moves.
@@ -664,6 +702,8 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     // MARK: Taps
 
     @objc private func openTapped(_ tap: UITapGestureRecognizer) {
+        // A tap while text is selected only clears the selection (`InPlaceTextSelection`).
+        guard !selection.isSelecting else { return }
         // A link in the body: a web link opens in Safari; a file link opens the event, whose chat previews it.
         var url: URL?
         // Only inside the shown body (its hidden overflow under Show more holds links too).
@@ -680,7 +720,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     }
 
     @objc private func headerTapped(_ tap: UITapGestureRecognizer) {
-        guard let layout else { return }
+        guard let layout, !selection.isSelecting else { return }
         // Only the header line opens the tab (the answer card, its padding and gaps never navigate).
         let point = tap.location(in: row)
         if layout.header.insetBy(dx: 0, dy: -4).contains(point) { delegate?.rowOpen(id) }
@@ -705,9 +745,72 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     }
 
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        guard let delegate else { return nil }
-        let id = id
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in delegate.rowMenu(id) }
+        // Only a link has a hold menu; anywhere else the hold selects text, and the row's own
+        // menu is its ••• button.
+        guard !selection.isSelecting, let url = link(atRow: location) else { return nil }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+            UIMenu(title: Self.linkTitle(url), children: Self.linkMenu(url) { [weak self] in self?.openLink($0) })
+        }
+    }
+
+    // MARK: Hold on content
+
+    /// Every shown label whose text a hold selects: the quoted message, the body (inline or markdown, its code cards
+    /// and tables), the reply and answer bubbles, the answer, the command, the error and a failed
+    /// reply's reason. Not the header (a tap opens the tab) or the footer's buttons.
+    private var selectableLabels: [UILabel] {
+        var labels: [UILabel] = []
+        if made.contains("quote"), !quote.isHidden { labels.append(quote.textLabel) }
+        labels.append(inlineText)
+        if made.contains("markdown"), !markdown.isHidden { labels += markdown.selectableLabels }
+        labels += [answerLabel, answeredCaption, errorLabel, failureLabel]
+        if made.contains("command"), !command.isHidden { labels.append(command.codeLabel) }
+        labels += bubbles.filter { !$0.isHidden }.map(\.textLabel)
+        return labels.filter { !$0.isHidden && $0.superview?.isHidden == false }
+    }
+
+    /// The link under `point` (in `row`), in the body's shown text.
+    private func link(atRow point: CGPoint) -> URL? {
+        guard !body.isHidden, body.bounds.contains(row.convert(point, to: body)) else { return nil }
+        if !inlineText.isHidden { if let url = NativeMarkdownView.link(in: inlineText, at: row.convert(point, to: inlineText)) { return url } }
+        if made.contains("markdown"), !markdown.isHidden { return markdown.link(at: row.convert(point, to: markdown)) }
+        return nil
+    }
+
+    /// `point` (in `row`) is on body text clipped below the shown body (a folded row's overflow).
+    private func inFoldedOverflow(_ point: CGPoint) -> Bool {
+        guard !body.isHidden, let label = selection.label(at: point), label.isDescendant(of: body) else { return false }
+        return !body.bounds.contains(row.convert(point, to: body))
+    }
+
+    private func enclosingTable() -> UITableView? {
+        var view = superview
+        while let current = view, !(current is UITableView) { view = current.superview }
+        return view as? UITableView
+    }
+
+    /// Opens a link as a tap on it does: a cmux link in the app, a web link in Safari.
+    private func openLink(_ url: URL) {
+        if CmuxLinkOpener.shared.open(url) { return }
+        UIApplication.shared.open(url)
+    }
+
+    /// A link's hold rows: Open Link, then Copy Link (as the chat's).
+    static func linkMenu(_ url: URL, open: @escaping (URL) -> Void) -> [UIMenuElement] {
+        [
+            UIAction(title: "Open Link", image: UIImage(systemName: "arrow.up.right.square")) { _ in open(url) },
+            UIAction(title: "Copy Link", image: UIImage(systemName: "link")) { _ in
+                UIPasteboard.general.items = [[UTType.url.identifier: url, UTType.plainText.identifier: url.absoluteString]]
+            },
+        ]
+    }
+
+    /// The menu's title: the link's address without its scheme (a file link: its name).
+    static func linkTitle(_ url: URL) -> String {
+        if url.isFileURL { return url.lastPathComponent }
+        let text = url.absoluteString
+        guard let scheme = url.scheme, text.hasPrefix(scheme + "://") else { return text }
+        return String(text.dropFirst(scheme.count + 3))
     }
 
     // MARK: Helpers
@@ -736,15 +839,16 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         return text
     }
 
-    static func avatarSymbol(_ harness: String) -> String {
-        switch harness {
-        case "claude": "asterisk"
-        case "codex": "chevron.left.forwardslash.chevron.right"
-        case "cursor": "cursorarrow.rays"
-        case "gemini": "sparkles"
-        case "terminal": "terminal"
-        default: "sparkle"
-        }
+    /// The sender's avatar (`AgentAvatarMark`): the agent's own mark on a circle tinted with its
+    /// color, or a symbol on the raised gray circle. The images are drawn once per harness and
+    /// shared, so a row only reads the cache.
+    /// A terminal agent's event (`FeedItem.opensTerminal`) sits in a rounded square, a chat's in a circle.
+    private func applyAvatar(_ harness: String, host: AgentAvatarHost) {
+        let scale = traitCollection.displayScale
+        let rendered = AgentAvatarMark.rendered(harness: harness, side: 40, scale: scale)
+        avatar.layer.cornerRadius = AgentAvatarMark.cornerRadius(side: 40, host: host)
+        avatar.backgroundColor = rendered.fill
+        avatarGlyph.image = rendered.glyph(dark: traitCollection.userInterfaceStyle == .dark)
     }
 
     private static let fullDate: DateFormatter = {
@@ -778,6 +882,8 @@ final class FeedQuoteView: UIView {
     private let caption = UILabel()
     private let bubble = CAShapeLayer()
     private let text = UILabel()
+    /// The quoted message's text (the person's prompt, or the agent's question), for in-place selection.
+    var textLabel: UILabel { text }
     private let thread = CAShapeLayer()
     private var outgoing = true
     var onTap: (() -> Void)?
@@ -795,6 +901,11 @@ final class FeedQuoteView: UIView {
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
         isAccessibilityElement = true
         accessibilityTraits = .button
+        // The bubble's fill is a CGColor resolved from this view's own traits, so this view follows
+        // its own appearance changes. The cell's handler ran before this view's traits caught up:
+        // backgrounding flips the app to light and back to dark for the switcher's snapshots, and
+        // the return to dark resolved the light fill, leaving white bubbles until the row was rebuilt.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: FeedQuoteView, _: UITraitCollection) in view.updateColors() }
     }
 
     @available(*, unavailable)
@@ -806,10 +917,16 @@ final class FeedQuoteView: UIView {
         frame = part.frame
         let shift = CGPoint(x: -part.frame.minX, y: -part.frame.minY)
         caption.attributedText = part.caption
-        // A little wider than measured: an attachment's rounding must never truncate "You".
+        // A little wider than measured, the room on the side away from the bubble's edge: an
+        // attachment's rounding must never truncate "You". The text keeps to the measured edge it
+        // lines up with (the bubble text's trailing edge for your message, its leading edge for an
+        // agent's), so it is aligned to that edge, not drawn from the widened frame's other side.
         caption.lineBreakMode = .byClipping
-        caption.frame = part.captionFrame.offsetBy(dx: shift.x, dy: shift.y).insetBy(dx: -3, dy: 0)
-            .offsetBy(dx: part.outgoing ? -3 : 3, dy: 0)
+        caption.textAlignment = part.outgoing ? .right : .left
+        let measured = part.captionFrame.offsetBy(dx: shift.x, dy: shift.y)
+        caption.frame = part.outgoing
+            ? CGRect(x: measured.minX - 6, y: measured.minY, width: measured.width + 6, height: measured.height)
+            : CGRect(x: measured.minX, y: measured.minY, width: measured.width + 6, height: measured.height)
         text.attributedText = part.text
         text.numberOfLines = part.maxLines
         text.frame = part.textFrame.offsetBy(dx: shift.x, dy: shift.y)
@@ -967,6 +1084,8 @@ final class FeedCapsuleButton: UIControl {
 /// A trailing bubble (a reply, an answered question's choice).
 final class FeedBubbleLabel: UIView {
     private let label = UILabel()
+    /// The bubble's text, for in-place selection.
+    var textLabel: UILabel { label }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -995,6 +1114,8 @@ final class FeedCommandCardView: UIView, UIScrollViewDelegate {
     private let copy = UIButton(type: .custom)
     private let scroll = UIScrollView()
     private let code = UILabel()
+    /// The command's label (in its scroll area), for in-place selection.
+    var codeLabel: UILabel { code }
     private let fade = FeedCodeFadeView()
     private let showAll = UIButton(type: .custom)
     var onShowAll: (() -> Void)?
@@ -1153,7 +1274,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
             let before = row.chosen
             self.onInput?(.click(row: row.row))
             // The selection haptic as a row's choice changes (QuestionCard's `.sensoryFeedback(.selection)`).
-            if before != row.chosen || !before { UISelectionFeedbackGenerator().selectionChanged() }
+            if before != row.chosen || !before { CmuxMobileTheme.standard.haptics.selectionChanged() }
         }, for: .touchUpInside)
         row.isHidden = true
         rows.append(row)
@@ -1213,7 +1334,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
             button.addAction(UIAction { [weak self, weak button] _ in
                 guard let self, let id = button?.actionID else { return }
                 if id == "answer" {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    CmuxMobileTheme.standard.haptics.impact(.light, intensity: 1)
                     self.onInput?(.submit)
                 } else {
                     self.onInput?(.nextItem)

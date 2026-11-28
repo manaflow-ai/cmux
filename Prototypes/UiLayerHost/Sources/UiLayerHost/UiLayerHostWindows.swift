@@ -3,6 +3,7 @@ import CmuxNextUiLayerPreview
 import Foundation
 import Observation
 import SwiftUI
+import UiShellShootKit
 
 // The host as a small desktop app: real draggable windows that wear the installed cmux NEXT's
 // theme and background (UiLayerAppLook), at several sizes at once, and that can animate on their
@@ -12,6 +13,8 @@ import SwiftUI
 @MainActor
 struct UiLayerHostMain {
     static func main() {
+        // One shot (--shoot): draw the scenes, write the receipt, exit.
+        UiShellShooter.runIfAsked { UiShellShoot.scenes(themes: $0) }
         let app = NSApplication.shared
         let delegate = UiLayerHostDelegate(arguments: CommandLine.arguments)
         app.delegate = delegate

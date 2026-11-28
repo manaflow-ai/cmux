@@ -121,36 +121,6 @@ final class PointerButtonRecognizer: UIGestureRecognizer {
 }
 
 extension ScreenViewController {
-    /// The arrow drawn in trackpad mode (and under a hovering pointer) when
-    /// the Mac sends no cursor shape: white with a dark outline, in
-    /// framebuffer pixels, hotspot at its tip.
-    static let fallbackCursor: (image: CGImage?, size: CGSize, hotspot: CGPoint) = {
-        let size = CGSize(width: 28, height: 42)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
-            let path = UIBezierPath()
-            path.move(to: CGPoint(x: 2, y: 2))
-            path.addLine(to: CGPoint(x: 2, y: 34))
-            path.addLine(to: CGPoint(x: 10, y: 26.5))
-            path.addLine(to: CGPoint(x: 15.5, y: 39))
-            path.addLine(to: CGPoint(x: 21, y: 36.5))
-            path.addLine(to: CGPoint(x: 15.5, y: 24.5))
-            path.addLine(to: CGPoint(x: 26, y: 24.5))
-            path.close()
-            path.lineJoinStyle = .round
-            path.lineWidth = 2
-            context.cgContext.setShadow(offset: CGSize(width: 0, height: 1), blur: 2, color: UIColor.black.withAlphaComponent(0.4).cgColor)
-            UIColor.white.setFill()
-            path.fill()
-            context.cgContext.setShadow(offset: .zero, blur: 0, color: nil)
-            UIColor.black.setStroke()
-            path.stroke()
-        }
-        return (image.cgImage, size, CGPoint(x: 2, y: 2))
-    }()
-
     /// The agent's pointer on a screen stream: a ring centred on the point
     /// it acts at (white with a dark outline and a tinted centre), in
     /// framebuffer pixels, so it reads apart from the person's arrow.

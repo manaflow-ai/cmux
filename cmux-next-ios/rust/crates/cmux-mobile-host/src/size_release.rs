@@ -120,6 +120,10 @@ impl PendingReleases {
     /// A daemon line: true when it answers one of hostd's releases (then it
     /// is not the phone's to read).
     pub fn answer(&self, line: &[u8]) -> bool {
+        // No release in flight (nearly always): no scan of the line at all.
+        if self.ids.lock().unwrap_or_else(PoisonError::into_inner).is_empty() {
+            return false;
+        }
         let text = String::from_utf8_lossy(line);
         if !text.contains(RELEASE_ID_PREFIX) {
             return false;
@@ -183,11 +187,13 @@ impl Drop for ActiveSplice {
     }
 }
 
-/// hostd is stopping: every daemon splice releases its phone's sizes. Returns
-/// once they all ended, or after `limit`.
+/// hostd is stopping: every daemon splice releases its phone's sizes, and
+/// every NAT port mapping is deleted at the router (`portmap`). Returns once
+/// they all ended, or after `limit`.
 pub async fn stop_and_release(limit: Duration) {
     STOPPING.send_replace(true);
-    let _ = tokio::time::timeout(limit, async {
+    let mappings = crate::portmap::release_all(limit);
+    let sizes = tokio::time::timeout(limit, async {
         loop {
             let ended = ENDED.notified();
             if ACTIVE.load(Ordering::Acquire) == 0 {
@@ -195,8 +201,8 @@ pub async fn stop_and_release(limit: Duration) {
             }
             ended.await;
         }
-    })
-    .await;
+    });
+    let _ = tokio::join!(sizes, mappings);
 }
 
 /// SIGTERM (the app stopping hostd: iPhone connections off, the app

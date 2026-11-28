@@ -23,6 +23,13 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
     case cyan
     case orange
 
+    /// A stored workspace color: a palette name in any case, `gray` for `grey` as the sidebar reads
+    /// it. Nil for no color or a name outside the palette.
+    public init?(stored: String?) {
+        guard let name = stored?.lowercased() else { return nil }
+        self.init(rawValue: name == "gray" ? "grey" : name)
+    }
+
     /// A stable palette color for an unbranded harness or session mark. Groups with no
     /// user-chosen color use `GroupTint.none` and never call this fallback.
     public static func unset(id: String) -> GroupColor {

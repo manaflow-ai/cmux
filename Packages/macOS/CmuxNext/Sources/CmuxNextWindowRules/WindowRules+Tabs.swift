@@ -37,9 +37,11 @@ extension WindowRules {
         public var user = false
         public var followsSetting = false
         public var canHostAgent = false
+        /// The person works terminal-first (`tabs.newTabTemplate` `terminal`): their Cmd-T opens a terminal.
+        public var terminalFirst = false
 
         public init(selectedKind: String?, engine: String?, localBrowser: Bool, agent: Bool, newTabPage: Bool,
-                    user: Bool = false, followsSetting: Bool = false, canHostAgent: Bool = false) {
+                    user: Bool = false, followsSetting: Bool = false, canHostAgent: Bool = false, terminalFirst: Bool = false) {
             self.selectedKind = selectedKind
             self.engine = engine
             self.localBrowser = localBrowser
@@ -48,13 +50,18 @@ extension WindowRules {
             self.user = user
             self.followsSetting = followsSetting
             self.canHostAgent = canHostAgent
+            self.terminalFirst = terminalFirst
         }
     }
 
     /// What a new tab opens (`kind`), and the selected tab's own kind (`sameKind`); nil when the FFI does not answer.
     public func newTabKind(_ facts: NewTabFacts) -> (kind: NewTabKind, sameKind: NewTabKind)? {
         struct Reply: Decodable { var kind: NewTabKind, sameKind: NewTabKind }
-        return call("window_tabs_new_tab_kind", facts, as: Reply.self).map { ($0.kind, $0.sameKind) }
+        guard let reply = call("window_tabs_new_tab_kind", facts, as: Reply.self) else { return nil }
+        // Re-pin bridge (cmux#48416): the pinned app FFI predates `tabs::new_tab_kind`'s `terminal_first`, so a
+        // terminal-first person's Cmd-T is answered here the way that rule does. Delete once the FFI re-pin lands.
+        if facts.terminalFirst, facts.user, facts.followsSetting, reply.kind == .page { return (.terminal, reply.sameKind) }
+        return (reply.kind, reply.sameKind)
     }
 
     // MARK: Browser
@@ -243,14 +250,17 @@ extension WindowRules {
     }
 
     /// A chat's session handed to a new terminal, until that terminal's hooks report it: `tab` nil
-    /// while the chat's run stops. Over at `deadline` (seconds since 1970), reported or not.
+    /// while the chat's run stops. Over at `deadline` (seconds since 1970), reported or not. `machine`
+    /// is the machine the terminal tab was made on, so it is looked up there only (a fork keeps its ids).
     public nonisolated struct HandOff: Codable, Equatable, Sendable {
         public var deadline: Double
         public var tab: String?
+        public var machine: String?
 
-        public init(deadline: Double, tab: String? = nil) {
+        public init(deadline: Double, tab: String? = nil, machine: String? = nil) {
             self.deadline = deadline
             self.tab = tab
+            self.machine = machine
         }
     }
 

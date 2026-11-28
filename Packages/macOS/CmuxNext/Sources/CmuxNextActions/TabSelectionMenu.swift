@@ -26,17 +26,17 @@ extension NSMenu {
     /// the action's own title. `pins`: as in ``namingTabSelection(pins:)``.
     public static func tabSelectionTitle(_ id: ActionID, pins: Bool) -> String? {
         switch id.rawValue {
-        case "closeTab": String(localized: "tabSelection.close", defaultValue: "Close Tabs", bundle: .module)
-        case "palette.toggleTabPin": pins ? String(localized: "tabSelection.pin", defaultValue: "Pin Tabs", bundle: .module)
-            : String(localized: "tabSelection.unpin", defaultValue: "Unpin Tabs", bundle: .module)
-        case "duplicateTab": String(localized: "tabSelection.duplicate", defaultValue: "Duplicate Tabs", bundle: .module)
+        case "closeTab": String(localized: "tabSelection.close", defaultValue: "Close Tabs", bundle: .localizedModule)
+        case "palette.toggleTabPin": pins ? String(localized: "tabSelection.pin", defaultValue: "Pin Tabs", bundle: .localizedModule)
+            : String(localized: "tabSelection.unpin", defaultValue: "Unpin Tabs", bundle: .localizedModule)
+        case "duplicateTab": String(localized: "tabSelection.duplicate", defaultValue: "Duplicate Tabs", bundle: .localizedModule)
         case "palette.moveTabToNewWorkspace":
-            String(localized: "tabSelection.moveToNewWorkspace", defaultValue: "Move Tabs to New Workspace", bundle: .module)
-        case "tab.moveToNewWindow": String(localized: "tabSelection.moveToNewWindow", defaultValue: "Move Tabs to New Window", bundle: .module)
-        case "tabGroup.create": String(localized: "tabSelection.createGroup", defaultValue: "Add Tabs to New Group", bundle: .module)
-        case "tabGroup.addTab": String(localized: "tabSelection.addToGroup", defaultValue: "Add Tabs to Group…", bundle: .module)
-        case "tabGroup.removeTab": String(localized: "tabSelection.removeFromGroup", defaultValue: "Remove Tabs from Group", bundle: .module)
-        case "tab.stash": String(localized: "tabSelection.stash", defaultValue: "Save and Close Tabs", bundle: .module)
+            String(localized: "tabSelection.moveToNewWorkspace", defaultValue: "Move Tabs to New Workspace", bundle: .localizedModule)
+        case "tab.moveToNewWindow": String(localized: "tabSelection.moveToNewWindow", defaultValue: "Move Tabs to New Window", bundle: .localizedModule)
+        case "tabGroup.create": String(localized: "tabSelection.createGroup", defaultValue: "Add Tabs to New Group", bundle: .localizedModule)
+        case "tabGroup.addTab": String(localized: "tabSelection.addToGroup", defaultValue: "Add Tabs to Group…", bundle: .localizedModule)
+        case "tabGroup.removeTab": String(localized: "tabSelection.removeFromGroup", defaultValue: "Remove Tabs from Group", bundle: .localizedModule)
+        case "tab.stash": String(localized: "tabSelection.stash", defaultValue: "Save and Close Tabs", bundle: .localizedModule)
         default: nil
         }
     }

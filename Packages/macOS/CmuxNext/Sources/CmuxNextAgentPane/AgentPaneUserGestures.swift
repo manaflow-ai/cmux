@@ -26,12 +26,42 @@ import CmuxNextCompat
 
     /// A real user event reached the pane. `click`: a click on the page or the native permission
     /// shortcut, the only gestures that may answer a permission prompt (``hasFreshAnswerGesture``).
-    public func record(click: Bool = false) {
+    /// `press`: a Return, keypad Enter or Space press (Space activates the focused Send button), or a mouse click, on the
+    /// page itself (``AgentPaneView/judge(_:eventWindow:)``): the only gestures Set Up takes (``consumeFreshGesture()``).
+    /// Any other gesture (another key, a native menu choice or shortcut) ends the last one.
+    public func record(click: Bool = false, press: Bool = false) {
         questionReturn = nil
         last = now()
         lastScope = last
         lastUpload = last
+        lastPress = press ? last : nil
         if click { lastClick = last }
+    }
+
+    /// Input reached the page, the person's or another process's (``AgentPaneView/judge(_:eventWindow:)``): it ends the
+    /// Return witness and the Set Up press, which only the person's own next Return or click renews (``record(click:press:)``).
+    func pageInput() {
+        questionReturn = nil
+        lastPress = nil
+    }
+
+    /// A key repeat reached the page (the person's held key, or another process's posted repeat): it is
+    /// no press of its own, so it ends the Set Up press, and only that (``consumeFreshGesture()``).
+    func repeatedKey() { lastPress = nil }
+
+    /// The person's last Return or Space press or click in the pane, when no other key, click or posted input came after it, for
+    /// an action that needs one from just now (``consumeFreshGesture()``).
+    private var lastPress: TimeInterval?
+
+    /// Spends the person's Return or Space press or click from just now (within ``answerWindow``) for one action that opens app
+    /// UI by itself (Set Up Computer Use from a held `@computer-use` send): true once per gesture, only while the
+    /// gesture's grant credit is unspent, and only when it is the pane's last input (review round 3 of #48024: bound to
+    /// the physical event that sent or clicked). Not the generic credit, which any key press leaves for half a minute, so
+    /// a deferred page request cannot wait for unrelated typing and spend it; not another key, so typing cannot either.
+    func consumeFreshGesture() -> Bool {
+        guard let lastPress, now() - lastPress <= Self.answerWindow else { return false }
+        self.lastPress = nil
+        return consume()
     }
 
     /// How old the person's click may be when a permission answer uses it (cx-ocdz).
@@ -80,6 +110,12 @@ import CmuxNextCompat
         // second granting request when the two paths race.
         questionReturn = nil
         return now() - last <= Self.lifetime
+    }
+
+    /// A focus-changing presentation uses a recent event, like the shared page host.
+    func consume(within seconds: TimeInterval) -> Bool {
+        guard let last, now() - last <= seconds else { return false }
+        return consume()
     }
 
     /// Uses the gesture for a prompt the person sent: true once per recorded gesture, however old.
@@ -323,6 +359,18 @@ import CmuxNextCompat
         return actAsMe.isOn && actAsMe.revocations == under
     }
 
+    /// Starts `ticket`'s clock again: a permission answer's ticket the person's Fork first paid for,
+    /// held while the App forks the machine (``AgentPaneForkFirst``). False when it is gone (a
+    /// reconnect, a newer answer, or it expired while another ticket was reserved).
+    func renew(_ ticket: String) -> Bool {
+        guard tickets[ticket] != nil else { return false }
+        tickets[ticket]?.at = now()
+        return true
+    }
+
+    /// Drops `ticket`, unspent (a Fork first whose fork failed).
+    func drop(_ ticket: String) { dropTickets { key, _ in key == ticket } }
+
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
     /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.
     public func clearTickets() { dropTickets { _, _ in true } }
@@ -513,6 +561,13 @@ import CmuxNextCompat
 /// `request.toolCall._meta.acpmux.question` (the daemon's normalized question) is an object is a
 /// question; its items' ids and prompts are the keys its `answers` may use (``questionKeys(permissionId:)``).
 /// A permission seen once without a question is no question (as the policy crate's `is_question`).
+///
+/// Both maps drop a permission when the daemon settles it (RFD 0191 step 3): the
+/// `permission_decision` record (`dir` "mux", `msg.permissionId`) the daemon writes when the
+/// prompt is answered, cancelled or expires, in the `_acpmux/event` stream or in a history reply.
+/// Records apply in order, so a request after the settle (the same id again) is kept. Never
+/// dropped by size: a dropped option reads as unknown, which ``isDeny(permissionId:optionId:)``
+/// treats as allow.
 public nonisolated final class AcpmuxPermissionOptions: Sendable {
     /// permissionId -> optionId -> whether every kind seen for it denies (`reject_*`).
     private let denies = Mutex<[String: [String: Bool]]>([:])
@@ -535,6 +590,9 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
     public func observe(_ object: [String: Any], replyTo method: String?) {
         var found: [(permission: String, option: String, denies: Bool)] = []
         var asked: [(permission: String, keys: Set<String>?)] = []
+        // The permissions this frame settles: dropped from both maps before what follows each
+        // settle in the frame (a request for the same id again) is added.
+        var settled = Set<String>()
         func request(_ record: [String: Any]?) {
             guard let record, let permission = record["permissionId"] as? String else { return }
             let request = record["request"] as? [String: Any]
@@ -546,9 +604,16 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
             }
         }
         func event(_ value: Any?) {
-            guard let event = value as? [String: Any], event["kind"] as? String == "permission_request",
-                  event["dir"] as? String == "mux" else { return }
-            request(event["msg"] as? [String: Any])
+            guard let event = value as? [String: Any], event["dir"] as? String == "mux" else { return }
+            switch event["kind"] as? String {
+            case "permission_request": request(event["msg"] as? [String: Any])
+            case "permission_decision":
+                guard let permission = (event["msg"] as? [String: Any])?["permissionId"] as? String else { return }
+                settled.insert(permission)
+                found.removeAll { $0.permission == permission }
+                asked.removeAll { $0.permission == permission }
+            default: return
+            }
         }
         switch object["method"] as? String {
         case "_acpmux/permission_pending": request(object["params"] as? [String: Any])
@@ -559,6 +624,11 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
             events.forEach(event)
         default: return
         }
+        if !settled.isEmpty {
+            let ended = settled
+            denies.withLock { denies in for permission in ended { denies.removeValue(forKey: permission) } }
+            questions.withLock { questions in for permission in ended { questions.removeValue(forKey: permission) } }
+        }
         if !asked.isEmpty {
             questions.withLock { questions in
                 for entry in asked {
@@ -568,12 +638,18 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
                 }
             }
         }
-        guard !found.isEmpty else { return }
-        denies.withLock { denies in
-            for entry in found {
-                denies[entry.permission, default: [:]][entry.option] = (denies[entry.permission]?[entry.option] ?? true) && entry.denies
+        if !found.isEmpty {
+            denies.withLock { denies in
+                for entry in found {
+                    denies[entry.permission, default: [:]][entry.option] = (denies[entry.permission]?[entry.option] ?? true) && entry.denies
+                }
             }
         }
+    }
+
+    /// The permissions each map holds (tests and benches: settled ones are gone).
+    var heldCount: (denies: Int, questions: Int) {
+        (denies.withLock { $0.count }, questions.withLock { $0.count })
     }
 
     /// The keys `answers` may use for `permissionId`: its question's item ids and prompts; nil

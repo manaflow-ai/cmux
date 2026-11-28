@@ -36,11 +36,10 @@ public nonisolated struct ChiefUsageTool: Sendable {
     /// - Returns: The first executable candidate, or nil.
     public static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment,
                                bin: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)) -> ChiefUsageTool? {
-        let explicit = environment["CMUX_OPTCHAT_CHIEF"].flatMap { $0.isEmpty ? nil : $0 }
-        // A `CMUX_NEXT_MUX_HOST` that is the TypeScript mux has no `usage`: only an optchat-chief build counts.
-        let host = environment["CMUX_NEXT_MUX_HOST"].flatMap { URL(fileURLWithPath: $0).lastPathComponent == HomeBrainHost.bundledChiefName ? $0 : nil }
-        let bundled = bin?.appendingPathComponent(HomeBrainHost.bundledChiefName).path
-        guard let path = [explicit, host, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+        // The candidates in order (the Rust `welcome.usageToolCandidates` op); the first executable wins.
+        let reply: Candidates = welcomeRule("welcome.usageToolCandidates", CandidatesInput(environment: environment, bin: bin?.path),
+                                            fallback: Candidates(candidates: []))
+        guard let path = reply.candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return nil
         }
         return ChiefUsageTool(executable: URL(fileURLWithPath: path))
@@ -57,7 +56,9 @@ public nonisolated struct ChiefUsageTool: Sendable {
     @concurrent public func run(_ arguments: [String], muxHome: URL) async throws -> Data {
         let process = Process()
         process.executableURL = executable
-        process.arguments = arguments + ["--mux-home", muxHome.path, "--chiefs", "--json"]
+        let args: Arguments = welcomeRule("welcome.usageToolArgs", ArgsInput(arguments: arguments, muxHome: muxHome.path),
+                                          fallback: Arguments(arguments: arguments))
+        process.arguments = args.arguments
         let output = Pipe(), errors = Pipe()
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
@@ -86,4 +87,9 @@ public nonisolated struct ChiefUsageTool: Sendable {
         // concurrency-allow: @concurrent: runs on the global executor, never the main actor
         return (try? handle.readToEnd()) ?? Data()
     }
+
+    private nonisolated struct CandidatesInput: Encodable { let environment: [String: String]; let bin: String? }
+    private nonisolated struct Candidates: Decodable { let candidates: [String] }
+    private nonisolated struct ArgsInput: Encodable { let arguments: [String]; let muxHome: String }
+    private nonisolated struct Arguments: Decodable { let arguments: [String] }
 }

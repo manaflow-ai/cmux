@@ -44,6 +44,7 @@ extension AuthError {
         case .authFailure: return "AUTH_FAILURE"
         case .cancelled: return "CANCELLED"
         case .rateLimited: return "RATE_LIMITED"
+        case .redirectNotAllowed: return "REDIRECT_URL_NOT_WHITELISTED"
         }
     }
 }
