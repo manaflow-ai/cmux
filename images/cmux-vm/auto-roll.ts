@@ -4,7 +4,9 @@
 // commit, and taken back out by one when the production smoke after that commit's deploy is red.
 //
 //   bun images/cmux-vm/auto-roll.ts plan --event dispatch|build|push [--commit <40-hex>] [--before <sha>]
-//       [--dry-run auto|true|false] [--tip <ref>] [--repo <checkout>]
+//       [--dry-run auto|true|false] [--tip <ref>] [--repo <checkout>] [--channel <url|file>]
+//     A push roll pins the commit the Cloud machine channel serves (RFD 0224 phase 4: the image carries the binary
+//     running VMs take), else the newest published build when the channel is unreadable or its commit fails a guard.
 //     Prints what to roll as JSON: roll (true|false), reason, pin (the cmux-tui commit to pin, or ""),
 //     dryRun, and the fix commits (sha, merged-at, subject) the roll carries. Reads git and files.cmux.com only.
 //     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
@@ -22,13 +24,19 @@
 //     (refuses an image cmux-platform pins)
 //     Removes an auto-rolled image from both lists wherever it is, so it can never be first again (when it was
 //     first, the entry before it boots again). Prints what it did; never removes a hand-approved image.
-//   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome>
+//   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome> [--smoke-ran <gate output>]
 //       --boot-image <id> --deployed-wrangler <path> [--wrangler <tip path>] [--attempt <n>]
 //     What cmux-vm.yml's image-roll-settle does after a roll or rollback commit's production deploy and smoke
 //     (see settle() below). Prints the decision as JSON; changes nothing.
 //   bun images/cmux-vm/auto-roll.ts check [--max-behind <n>] [--wrangler <path>]
 //     The detector for a stale boot image: exits 1 when an environment's boot entry (production's first, staging's
 //     last: BOOT_ENTRY) trails production's newest roll by more than n rolls (default MAX_ROLLS_BEHIND).
+//   bun images/cmux-vm/auto-roll.ts skew [--channel <file>] [--lock <path>] [--max-behind <commits>] [--repo <checkout>]
+//     RFD 0224 phase 4 (images from the binary's SHA): how far the image lock's cmux-tui pin trails the commit the
+//     Cloud machine channel (files.cmux.com/cmux-tui/channels/cloud-machine.json, or --channel) serves running VMs.
+//     Prints JSON; exits 1 when the pin is not the channel's commit and trails it by more than n first-parent
+//     commits (default MAX_BINARY_SKEW). Reads the envelope's payload only: a detector, not an install, so the
+//     signature check stays with the in-VM updater.
 //
 // Every edit rewrites only the two VM_BOOT_IMAGES string values; the rest of wrangler.jsonc keeps its bytes.
 import { spawn, spawnSync } from "node:child_process";
@@ -326,6 +334,44 @@ export function rolledImage(candidate: Candidate, revision: string, cmuxTui: str
   };
 }
 
+// ---- skew: the image carries the binary the channel serves (RFD 0224 phase 4) ----
+
+export const CLOUD_MACHINE_CHANNEL = "https://files.cmux.com/cmux-tui/channels/cloud-machine.json";
+/** First-parent commits the image's cmux-tui pin may trail the Cloud machine channel's commit. 0: the same SHA. */
+export const MAX_BINARY_SKEW = 0;
+
+/** The commit a Cloud machine channel envelope (`{payload: base64 JSON, ...}`) names, or a bare `{commit}` file's. */
+export function channelCommit(text: string): string {
+  const doc = JSON.parse(text) as { payload?: unknown; commit?: unknown };
+  const inner = typeof doc.payload === "string" ? (JSON.parse(Buffer.from(doc.payload, "base64").toString("utf8")) as { commit?: unknown }) : doc;
+  const commit = typeof inner.commit === "string" ? inner.commit : "";
+  if (!/^[0-9a-f]{40}$/u.test(commit)) throw new Error("the channel names no 40-hex commit");
+  return commit;
+}
+
+export type BinarySkew = { imagePin: string; channelCommit: string; same: boolean; behindCommits: number | null; ok: boolean; why: string };
+
+/**
+ * The image pin against the channel's commit. BEHIND is the first-parent commit count pin..channel when the pin is an
+ * ancestor of it, null when unknown (not in the checkout, or the pin is newer or on another line, which the image roll
+ * already guards with behind()). Unknown is not ok unless the two are the same SHA.
+ */
+export function binarySkew(imagePin: string, channel: string, behind: number | null, maxBehind = MAX_BINARY_SKEW): BinarySkew {
+  const same = imagePin === channel;
+  if (same) return { imagePin, channelCommit: channel, same, behindCommits: 0, ok: true, why: "the image carries the binary the channel serves" };
+  if (behind === null)
+    return { imagePin, channelCommit: channel, same, behindCommits: null, ok: false, why: `image pin ${imagePin.slice(0, 12)} is not an ancestor of the channel's ${channel.slice(0, 12)} in this checkout` };
+  const ok = behind <= maxBehind;
+  return { imagePin, channelCommit: channel, same, behindCommits: behind, ok, why: `image pin ${imagePin.slice(0, 12)} trails the channel's ${channel.slice(0, 12)} by ${behind} commits (at most ${maxBehind})` };
+}
+
+function commitsBehind(pin: string, channel: string): number | null {
+  for (const c of [pin, channel]) if (!gitOk(["cat-file", "-e", `${c}^{commit}`])) return null;
+  if (!gitOk(["merge-base", "--is-ancestor", pin, channel])) return null;
+  const n = Number(gitOut(["rev-list", "--first-parent", "--count", `${pin}..${channel}`]));
+  return Number.isInteger(n) ? n : null;
+}
+
 // ---- check: each environment boots a recent roll ----
 
 /**
@@ -375,6 +421,11 @@ export type SettleInput = {
   product: string;
   /** The image the product create booted ("" when it did not run). */
   bootImage: string;
+  /**
+   * Whether smoke-production ran any step (its gate step's output; false when the job died before its first step,
+   * as a self-hosted runner that lost the server does). Absent counts as ran: only a known no-start retries.
+   */
+  smokeRan?: boolean;
   /** Production's first entry in the deployed commit's wrangler.jsonc. */
   deployedFirst: string;
   /** Production's first entry at the feat-cmux-next tip now. */
@@ -394,7 +445,8 @@ export type Settle = { outcome: SettleOutcome; reason: string; nextAttempt: numb
 /**
  * A roll: green only when the deploy and the product create are green and the create booted this image. A deploy
  * that never ran (skipped: the check before it failed, as a hung checkout did for 6fde033d, 2026-11-26) with no
- * create is deployed again, up to ROLLBACK_DEPLOYS deploys. Anything else (failed, cancelled, timed out, skipped
+ * create is deployed again, up to ROLLBACK_DEPLOYS deploys, and so is a deploy whose smoke job never ran a step (a
+ * lost runner). Anything else (failed, cancelled, timed out, skipped
  * past the bound, another image booted) rolls back while the image is in either list
  * at the tip, first or not: a failed image a newer roll sits above would boot again the moment that newer roll is
  * rolled back. Only an image already gone from both lists (superseded) needs nothing. A cancelled deploy alone
@@ -417,6 +469,11 @@ export function settle(s: SettleInput): Settle {
     // retry does; only ROLLBACK_DEPLOYS deploys that all never ran roll it back.
     if (s.deploy === "skipped" && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
       return done("retry", `${s.image}'s production deploy did not run on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying the roll again`, s.attempt + 1);
+    // The deploy ran but smoke-production never ran a step (99de33e5-45840828684-1, 2026-11-26: its runner lost the
+    // server during setup): the image is live and untested, not red. Deploy and smoke it again within the same bound;
+    // a smoke that started and failed, at any step, still rolls back.
+    if (s.deploy === "success" && s.smokeRan === false && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
+      return done("retry", `${s.image}'s production smoke never started on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying and smoking the roll again`, s.attempt + 1);
     return done("rollback", `${s.image} is not proven in production (${seen})`);
   }
   if (smokeGreen && !s.deployedHas && s.deployedFirst !== "" && s.bootImage === s.deployedFirst)
@@ -574,7 +631,42 @@ async function publishedOnTip(pinned: string, tip: string, lock: string): Promis
   return { commit: "", unchanged: false, why: `none of the ${commits.length} newest commits after the pin has a published build` };
 }
 
-async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string }): Promise<Plan> {
+/** Where plan() reads the Cloud machine channel: --channel, else CMUX_CLOUD_MACHINE_CHANNEL, else files.cmux.com. A URL or a file. */
+async function readChannel(where: string): Promise<string> {
+  if (!/^https?:\/\//u.test(where)) return readFileSync(where, "utf8");
+  const res = await fetch(`${where}${where.includes("?") ? "&" : "?"}plan=${Date.now()}`, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+/**
+ * RFD 0224 phase 4, images from the binary's SHA: a push roll pins the commit the Cloud machine channel serves running
+ * VMs, so a new VM boots the same cmux-tui the in-VM updater would install. 2026-11-28 17:48Z: the lock pinned
+ * c6cd14b5 while the channel served 632a901e, 629 commits newer (`auto-roll.ts skew`). The same guards as
+ * newestPublished: on TIP, never older than the pin, published for the image. The channel's commit equal to the pin
+ * keeps the pin (the image already carries the channel's binary). null when the channel is unreadable or its commit
+ * fails a guard, and the caller falls back to the newest published build, as before.
+ */
+async function channelPin(pinned: string, tip: string, lock: string, where: string): Promise<{ pin: string; why: string } | null> {
+  let commit: string;
+  try {
+    commit = channelCommit(await readChannel(where));
+  } catch {
+    return null;
+  }
+  const short = commit.slice(0, 12);
+  if (commit === pinned) return { pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (the Cloud machine channel serves it)` };
+  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") return null;
+  if (!gitOk(["cat-file", "-e", `${commit}^{commit}`]) || !gitOk(["cat-file", "-e", `${pinned}^{commit}`])) return null;
+  if (!gitOk(["merge-base", "--is-ancestor", commit, tip])) return null;
+  if (gitOk(["merge-base", "--is-ancestor", commit, pinned])) return null;
+  const published = await probePublished(commit, lock);
+  if (published === null) return null;
+  if (published.unchanged) return { pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (the Cloud machine channel's ${short} carries the pinned binaries)` };
+  return { pin: commit, why: `cmux-tui ${short}, the commit the Cloud machine channel serves (pinned ${pinned.slice(0, 12)})` };
+}
+
+async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string; channel: string }): Promise<Plan> {
   const mode = modeOf(readFileSync(MODE_FILE, "utf8"));
   const dryRun = opts.dryRun === "true" ? true : opts.dryRun === "false" ? false : mode !== "live";
   const pinned = pinnedCmuxTui(readFileSync(opts.lock, "utf8"));
@@ -590,7 +682,7 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
     const range = /^[0-9a-f]{40}$/u.test(opts.before) && !/^0+$/u.test(opts.before) ? `${opts.before}..${opts.commit}` : `${opts.commit}~1..${opts.commit}`;
     const fixes = fixCommits(range, IMAGE_PATHS);
     if (fixes.length === 0) return none(`no commit in ${range} changes the image inputs`);
-    const newer = await newestPublished(pinned, opts.tip, opts.lock);
+    const newer = (await channelPin(pinned, opts.tip, opts.lock, opts.channel)) ?? (await newestPublished(pinned, opts.tip, opts.lock));
     const reason = `image inputs changed in ${range}; ${newer.why}`;
     return { roll: true, reason, pin: newer.pin, cmuxTui: newer.pin || pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
   }
@@ -660,6 +752,7 @@ async function main(argv: string[]): Promise<number> {
       dryRun: arg(rest, "--dry-run", "auto"),
       tip: arg(rest, "--tip", "HEAD"),
       lock,
+      channel: arg(rest, "--channel", process.env.CMUX_CLOUD_MACHINE_CHANNEL || CLOUD_MACHINE_CHANNEL),
     });
     console.log(JSON.stringify(result, null, 2));
     return 0;
@@ -717,6 +810,8 @@ async function main(argv: string[]): Promise<number> {
       deploy: arg(rest, "--deploy", ""),
       product: arg(rest, "--product", ""),
       bootImage: arg(rest, "--boot-image", ""),
+      // --smoke-ran is smoke-production's gate output: "true"/"false" when its first step ran, "" when no step did.
+      smokeRan: arg(rest, "--smoke-ran", "unknown") !== "",
       deployedFirst: deployed.prod[0] ?? "",
       tipFirst: tip.prod[0] ?? "",
       tipHas: tip.prod.includes(image) || tip.staging.includes(image),
@@ -736,7 +831,26 @@ async function main(argv: string[]): Promise<number> {
       console.error(`check: ${d.env} boots ${d.image || "no image"} (its ${BOOT_ENTRY[d.env]} entry), ${d.behind} rolls behind production's newest; at most ${max}`);
     return drift.every((d) => d.ok) ? 0 : 1;
   }
-  console.error("usage: auto-roll.ts plan|approve|rollback|settle|check ... (see the header)");
+  if (command === "skew") {
+    gitCwd = path.resolve(arg(rest, "--repo", ROOT));
+    const max = Number(arg(rest, "--max-behind", String(MAX_BINARY_SKEW)));
+    if (!Number.isInteger(max) || max < 0) throw new Error("--max-behind must be a non-negative integer");
+    const file = arg(rest, "--channel", "");
+    let text: string;
+    if (file) text = readFileSync(file, "utf8");
+    else {
+      const res = await fetch(`${CLOUD_MACHINE_CHANNEL}?skew=${Date.now()}`, { signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) throw new Error(`${CLOUD_MACHINE_CHANNEL}: HTTP ${res.status}`);
+      text = await res.text();
+    }
+    const pin = pinnedCmuxTui(readFileSync(lock, "utf8"));
+    const chan = channelCommit(text);
+    const skew = binarySkew(pin, chan, pin === chan ? 0 : commitsBehind(pin, chan), max);
+    console.log(JSON.stringify(skew, null, 2));
+    if (!skew.ok) console.error(`skew: ${skew.why}`);
+    return skew.ok ? 0 : 1;
+  }
+  console.error("usage: auto-roll.ts plan|approve|rollback|settle|check|skew ... (see the header)");
   return 2;
 }
 

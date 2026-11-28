@@ -223,6 +223,10 @@ const createRecorded = <C, S, M = never>(
  * bigger than was asked and was refused. `admit*` (only with the provider create queue on, limits/create-admission.ts):
  * how long the create waited for a send slot, the creates sent and waiting when it was answered, and, on a refusal,
  * `admission` (queue_full or wait_expired) with the estimated wait; a refused create has no createMs.
+ * Why a sent create failed, numbers and fixed tokens only: `failStatus` the provider's HTTP status ("none": no answer),
+ * `failKind` its classification (capacity_overloaded), `createCut` given up unanswered at CREATE_SEND_TIMEOUT_MS, and
+ * `send` what the provider answered the POST (live-http.ts CallTrail: first status and ms, a cut's timeout or network
+ * error, a 202's polls). A recovered create keeps the failure it recovered from.
  */
 const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null }) => ({
   vmId: phases["vmId"] ?? null,
@@ -240,6 +244,8 @@ const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; read
     ...(phases["admission"] === undefined ? {} : { admission: phases["admission"], admitRetryAfterMs: phases["admitRetryAfterMs"] ?? null }),
   } : {}),
   createMs: phases["createMs"] ?? null,
+  ...("send" in phases ? { send: phases["send"] } : {}),
+  ...("failStatus" in phases ? { failStatus: phases["failStatus"], ...(phases["failKind"] === undefined ? {} : { failKind: phases["failKind"] }), createCut: phases["createCut"] ?? false } : {}),
   recoverAfterMs: phases["recoverAfterMs"] ?? null,
   resizeMs: phases["resizeMs"] ?? null,
   recordMs: phases["recordMs"] ?? null,
