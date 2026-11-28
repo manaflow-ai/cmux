@@ -13,3 +13,4 @@ workspace = true
 
 [build-dependencies]
 bindgen.workspace = true
+cmux-transport-rewrite.workspace = true

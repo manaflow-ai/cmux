@@ -477,7 +477,6 @@ WORKFLOW_SITES = {
     ".github/workflows/cmux-next-base-autofix.yml": "fails cmux-config's tests (the daemon would not start)",
     ".github/workflows/cmux-tui-spec.yml": "::error title=acpmux protocol tests::a protocol test failed",
     ".github/workflows/cmux-tui-windows-check.yml": "::error title=Windows build broken::",
-    ".github/workflows/cmux-tui-artifacts.yml": "retrying Cargo registry and build fetches",
 }
 
 
@@ -507,8 +506,8 @@ class WorkflowSiteTests(unittest.TestCase):
                                  f"{workflow}: the explain path is wrong for working-directory {directory}")
 
     def test_the_daemon_tests_never_retry_a_stale_lock(self) -> None:
-        run = next(step["run"] for _, step in steps(ROOT / ".github/workflows/cmux-tui-artifacts.yml")
-                   if "retrying Cargo registry" in (step.get("run") or ""))
+        # The loop lives in one script the GitHub job and our own machines both run.
+        run = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text(encoding="utf-8")
         loop = run[run.index("for attempt in 1 2 3"):run.index("retrying Cargo registry")]
         self.assertRegex(loop, r"cargo-locks\.py explain [^\n]*; then\n\s*exit \"\$status\"")
 
@@ -573,8 +572,7 @@ EXPLAINED = {
         "explain before the protocol test ::error",
     ".github/workflows/cmux-tui-windows-check.yml#windows-gnu-check/cargo check cmux-tui-core, cmux-tui and acpmux "
     "for Windows": "explain before Windows build broken",
-    ".github/workflows/cmux-tui-artifacts.yml#cmux-next-daemon-tests/cargo test cmux_next_":
-        "explain stops the retry loop",
+    "scripts/ci/cmux-next-daemon-tests.sh": "explain stops the retry loop",
     # cmux#42257: their own match of the same three spellings.
     ".github/scripts/rust-workspaces.py": "a refused clippy or test run names the stale lock",
     ".github/scripts/cmux-tui-clippy-changed.py": "cmux#42257",

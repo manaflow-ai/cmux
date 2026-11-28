@@ -38,6 +38,10 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402
 
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 PEM_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S)
@@ -68,8 +72,9 @@ def mint(app: dict, pem: str, repo: str, perms: dict, now: int) -> str:
         data=json.dumps({"repositories": [repo.split("/", 1)[1]], "permissions": perms}).encode(),
         headers={"Authorization": f"Bearer {app_jwt(int(app['app_id']), pem, now)}",
                  "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        token = json.load(r).get("token")
+    # A write: sent once (gh_http never repeats a POST), with a whole-call deadline.
+    _, body, _ = gh_http.request(req, 20, raise_errors=True)
+    token = json.loads(body).get("token")
     if not isinstance(token, str) or not token:
         raise ValueError("no token in GitHub's answer")
     return token
@@ -80,8 +85,9 @@ def core_left(token: str) -> int:
     req = urllib.request.Request(f"{API}/rate_limit", headers={
         "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req, timeout=10) as r:
-        return int(json.load(r)["resources"]["core"]["remaining"])
+    # Asked again on a passing refusal (gh_http); a 401 (a dead token) raises at once.
+    _, body, _ = gh_http.request(req, 10, raise_errors=True)
+    return int(json.loads(body)["resources"]["core"]["remaining"])
 
 
 def given_tokens() -> tuple[list[tuple[str, str]], list[str]]:

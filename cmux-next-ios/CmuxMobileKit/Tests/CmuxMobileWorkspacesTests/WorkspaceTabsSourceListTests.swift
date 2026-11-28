@@ -15,8 +15,28 @@ import SwiftUI
 /// tabs whose inputs changed, so a busy Mac or a streaming chat does not
 /// re-run the tabs screen and every card.
 @MainActor @Suite(.serialized) struct WorkspaceTabsSourceListTests {
+    @MainActor final class DeferredQueue {
+        private var pending: [@MainActor () -> Void] = []
+
+        var count: Int { pending.count }
+        var scheduler: WorkspaceTabsSource.MainActorEnqueuer {
+            { [weak self] work in self?.pending.append(work) }
+        }
+
+        func drain() {
+            let work = pending
+            pending = []
+            for operation in work { operation() }
+        }
+    }
+
     static func source(_ store: AppStore) -> WorkspaceTabsSource {
         WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory())
+    }
+
+    static func source(_ store: AppStore, enqueueMainActor: @escaping WorkspaceTabsSource.MainActorEnqueuer) -> WorkspaceTabsSource {
+        WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory(),
+                            enqueueMainActor: enqueueMainActor)
     }
 
     /// A publish that changes another workspace (or nothing the kit shows)
@@ -153,19 +173,23 @@ import SwiftUI
     /// Review finding 1: an agent tab's title comes from its chat store; a
     /// store made after the tab was built (in a page or card body) rebuilds
     /// that tab once, after the update, so its title is not frozen.
-    @Test func chatStoreAppearingRebuildsItsTab() async throws {
+    @Test func chatStoreAppearingRebuildsItsTab() throws {
         let store = AppStore.mock(tabMemory: .inMemory())
-        let source = Self.source(store)
+        let queue = DeferredQueue()
+        let source = Self.source(store, enqueueMainActor: queue.scheduler)
         let workspace = try #require(source.listedWorkspace)
         let agent = try #require(workspace.tabs.first { $0.kind == .agent })
         let before = source.kitTabBuilds
         _ = source.chatStore(agent, workspace)
         #expect(source.kitTabBuilds == before)
-        for _ in 0..<5 { await Task.yield() }
+        #expect(queue.count == 1)
+        _ = source.chatStore(agent, workspace)
+        #expect(queue.count == 1)
+        queue.drain()
         #expect(source.kitTabBuilds == before + 1)
         // The second read finds the store: nothing more.
         _ = source.chatStore(agent, workspace)
-        for _ in 0..<5 { await Task.yield() }
+        #expect(queue.count == 0)
         #expect(source.kitTabBuilds == before + 1)
     }
 
@@ -194,18 +218,20 @@ import SwiftUI
 
     /// A chat made while the grid scrolls holds its tab's title change until
     /// the grid rests (one list publish then, not one grid body per card).
-    @Test func titleChangesWaitForTheGridToRest() async throws {
+    @Test func titleChangesWaitForTheGridToRest() throws {
         let store = AppStore.mock(tabMemory: .inMemory())
-        let source = Self.source(store)
+        let queue = DeferredQueue()
+        let source = Self.source(store, enqueueMainActor: queue.scheduler)
         let workspace = try #require(source.listedWorkspace)
         let agent = try #require(workspace.tabs.first { $0.kind == .agent })
         source.overviewVisibilityChanged(true)
         source.overviewIdleChanged(false)
         let before = source.kitTabBuilds
         _ = source.chatStore(agent, workspace)
-        for _ in 0..<5 { await Task.yield() }
         #expect(source.kitTabBuilds == before)
+        #expect(queue.count == 0)
         source.overviewIdleChanged(true)
+        #expect(queue.count == 0)
         #expect(source.kitTabBuilds == before + 1)
         source.overviewVisibilityChanged(false)
     }
@@ -243,19 +269,25 @@ import SwiftUI
     @Test func cardFeedCopiesOnlyOnCatchUp() async throws {
         let mock = MockAgentSession(
             summary: AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m"),
+            richFirstTurn: false,
             sleep: { _ in await Task.yield() }
         )
         mock.chunkSize = 8
         let chat = AgentChatStore(source: mock)
-        await yieldUntil { !(chat.turns.isEmpty) }
+        try #require(await yieldUntil("initial chat turns") { !chat.turns.isEmpty })
         let feed = AgentCardFeed(store: chat)
         let start = feed.pulls
         let before = chat.turns
         chat.send(prompt: "go")
-        // Many streamed changes arrive; the card copies none of them.
-        for _ in 0..<2000 where chat.turns == before { await Task.yield() }
-        for _ in 0..<200 { await Task.yield() }
-        try #require(chat.turns != before)
+        // The short mock turn completes after many streamed changes. The card
+        // becomes stale on the first change, but copies none of the stream.
+        try #require(await yieldUntil("streamed chat turn completion") {
+            chat.turns.last(where: { $0.prompt == "go" })?.status == .completed
+        })
+        let completedGoTurn = try #require(chat.turns.last { $0.prompt == "go" })
+        #expect(completedGoTurn.prompt == "go")
+        #expect(completedGoTurn.status == .completed)
+        #expect(chat.turns != before)
         #expect(feed.pulls == start)
         #expect(feed.stale)
         feed.catchUp()

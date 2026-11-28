@@ -68,6 +68,7 @@ export const L = {
   envVaultNotPlainText: "environment.vaultNotPlainText",
   envVaultUnreadable: "environment.vaultUnreadable",
   envVaultRefused: "environment.vaultRefused",
+  envSaveNeedsClick: "environment.saveNeedsClick",
 
   title: "page.title",
   stillTrying: "page.stillTrying",
@@ -262,6 +263,9 @@ export const L = {
   usageVcpuHours: "usage.vcpuHours",
   usageGibHours: "usage.gibHours",
   usageGibMonths: "usage.gibMonths",
+  usageRateVcpu: "usage.rateVcpu",
+  usageRateGibHour: "usage.rateGibHour",
+  usageRateGibMonth: "usage.rateGibMonth",
   usageAsOf: "usage.asOf",
   usageGaps: "usage.gaps",
   usageTestMode: "usage.testMode",

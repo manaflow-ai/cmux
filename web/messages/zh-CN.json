@@ -5498,7 +5498,9 @@
     "errorInvalidTotp": "双重验证码无效。",
     "errorSignUpNotAllowed": "目前无法创建新账号。",
     "errorPasskey": "通行密钥登录未完成。请重试或改用其他方式。",
-    "errorGeneric": "出了点问题，请重试。"
+    "errorGeneric": "出了点问题，请重试。",
+    "errorRedirectNotAllowed": "此版本的登录地址在 {backend} 上不被允许。",
+    "backendDevelopment": "开发后端"
   },
   "MobileRelease106": {
     "title": "1.0.6 更新内容",

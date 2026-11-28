@@ -40,6 +40,10 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
     ["agent-pane.new-tab", "attachment-menu"],
     ["agent-pane.new-tab", "style-switch"],
     ["agent-pane.new-tab", "suggestions-create"],
+    // A dark one-colour favicon in the label colour; with a file attached, only Ask rows (both plays wait
+    // for that state and throw at the cap).
+    ["agent-pane.new-tab", "suggestions-dark-favicon"],
+    ["agent-pane.new-tab", "suggestions-attached"],
   ] as const) {
     test(`${entry}#${variant} reaches its mounted interaction`, async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;

@@ -14,6 +14,8 @@ extension SidebarViewComponents {
 
     func buildBands() {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
+            // Only the items the band shows get views, as a list block's (a long Pinned band, the remote machines' chats).
+            region.realizesItems(in: scroll)
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
             SystemScrollers.followThin(scroll, scrollOnly: true)
@@ -150,7 +152,8 @@ extension SidebarViewComponents {
                 return section
             }
             aboveRegion.update(content(loose.filter { !$0.items.isEmpty }), width: width)
-            if list.blocks != blocks {
+            // Only the items' looks changed (a pinned workspace's status or progress, a badge): drawn in place.
+            if list.blocks != blocks, !(reloadsList && list.patchBlocks(blocks)) {
                 list.blocks = blocks
                 // The document changed under the list (an item added, a section an agent filled): calm, not under the pointer.
                 if reloadsList { list.showModelChange(animates: true) }
@@ -254,6 +257,7 @@ extension SidebarViewComponents {
         guard region.frame.size != NSSize(width: width, height: height) else { return }
         let grew = region.frame.height != height
         region.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        defer { region.realizeItems() } // the items the band's new size shows
         if grew {
             scroll.contentView.scroll(to: .zero)
             scroll.reflectScrolledClipView(scroll.contentView)

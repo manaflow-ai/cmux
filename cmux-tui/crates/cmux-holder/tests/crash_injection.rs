@@ -1212,6 +1212,49 @@ fn an_orphan_grace_ends_the_terminals_of_a_holder_no_daemon_came_back_to() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A holder whose session's token file is gone (its state root deleted, as
+/// a CI job's temp folder is) can never be linked again: it ends its
+/// terminals after the unadoptable grace, not the week an orphan of a
+/// normal install waits, then exits idle. While the file stays, it keeps
+/// them (a CI Mac, 2026-11-27: five such holders held 510 shells, every pty).
+#[test]
+fn a_holder_whose_token_file_is_gone_ends_its_terminals_within_its_grace() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let token_file = dir.join("holder.token");
+    let hex: String = TOKEN.iter().map(|byte| format!("{byte:02x}")).collect();
+    std::fs::write(&token_file, &hex).unwrap();
+    let mut holder = launch_with(holder_binary(), &socket, &TOKEN, |command| {
+        command
+            .args(["--idle-exit-ms", "500"])
+            .env("CMUX_HOLDER_TOKEN_FILE", &token_file)
+            .env("CMUX_HOLDER_UNADOPTABLE_GRACE_MS", "1000");
+    })
+    .unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let (pid, master) = client.spawn(1, &shell(1)).unwrap();
+    client.attach(1, 0).unwrap();
+    let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    // Orphaned with its token file in place: the week's grace, so it keeps the shell.
+    drop(client);
+    std::thread::sleep(Duration::from_millis(2500));
+    assert!(alive(pid), "an orphan whose token file is there ended its shell");
+    // The state root goes: within the recheck and the grace, the shell ends and the holder exits.
+    std::fs::remove_file(&token_file).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while alive(pid) {
+        assert!(Instant::now() < deadline, "an unadoptable holder kept its shell");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    while holder.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "the unadoptable holder kept running");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(screens);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Review 2: a frontend shell started through login(1), as the daemon
 /// starts it on macOS, is a login shell, and a CLOSE reaches it (it runs in
 /// a process group of its own under login's) well before the grace's

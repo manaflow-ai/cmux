@@ -209,6 +209,11 @@ impl Desktop for X11Desktop {
     fn pump(&mut self) -> Res<Option<std::time::Duration>> {
         self.injector.pump()
     }
+
+    fn source_rect(&self) -> Option<[u32; 4]> {
+        let src = self.view.src;
+        Some([src.x, src.y, src.w, src.h])
+    }
 }
 
 impl FrameSource for X11Frames {

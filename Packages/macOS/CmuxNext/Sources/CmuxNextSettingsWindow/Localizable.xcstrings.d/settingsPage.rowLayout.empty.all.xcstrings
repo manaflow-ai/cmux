@@ -7,128 +7,128 @@
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تعرض الصفوف العناصر المفعّلة أعلاه. خصّص لتختار ما يعرضه كل سطر."
+            "state" : "translated",
+            "value" : "تعرض الصفوف العناصر المفعّلة أعلاه. خصّص كل سطر."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Redovi prikazuju stavke uključene iznad. Prilagodite da odaberete šta svaki red prikazuje."
+            "state" : "translated",
+            "value" : "Redovi prikazuju stavke uključene iznad. Prilagodi svaki red."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Rækkerne viser de elementer, der er slået til ovenfor. Tilpas for at vælge, hvad hver linje viser."
+            "state" : "translated",
+            "value" : "Rækker viser de elementer, der er slået til ovenfor. Tilpas hver linje."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Zeilen zeigen die oben eingeschalteten Elemente. Passe sie an, um festzulegen, was jede Zeile zeigt."
+            "state" : "translated",
+            "value" : "Zeilen zeigen die oben eingeschalteten Elemente. Passe jede Zeile an."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rows show the items switched on above. Customize to choose what each line shows."
+            "value" : "Rows show the items switched on above. Customize each line."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Las filas muestran los elementos activados arriba. Personaliza para elegir qué muestra cada línea."
+            "state" : "translated",
+            "value" : "Las filas muestran los elementos activados arriba. Personaliza cada línea."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Les lignes affichent les éléments activés ci-dessus. Personnalisez pour choisir ce que montre chaque ligne."
+            "state" : "translated",
+            "value" : "Les lignes affichent les éléments activés ci-dessus. Personnalisez chaque ligne."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Le righe mostrano gli elementi attivati sopra. Personalizza per scegliere cosa mostra ogni riga."
+            "state" : "translated",
+            "value" : "Le righe mostrano gli elementi attivati sopra. Personalizza ogni riga."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "行には上でオンにした項目が表示されます。カスタマイズすると各行の内容を選べます。"
+            "state" : "translated",
+            "value" : "行には上でオンにした項目が表示されます。各行をカスタマイズできます。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ជួរបង្ហាញធាតុដែលបានបើកខាងលើ។ ប្ដូរតាមបំណង ដើម្បីជ្រើសអ្វីដែលបន្ទាត់នីមួយៗបង្ហាញ។"
+            "state" : "translated",
+            "value" : "ជួរដេកបង្ហាញធាតុដែលបានបើកខាងលើ។ ប្ដូរតាមបំណងបន្ទាត់នីមួយៗ។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "행에는 위에서 켠 항목이 표시됩니다. 사용자화하면 줄마다 보여 줄 항목을 고를 수 있습니다."
+            "state" : "translated",
+            "value" : "행에는 위에서 켠 항목이 표시됩니다. 각 줄을 사용자화하세요."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Radene viser elementene som er slått på ovenfor. Tilpass for å velge hva hver linje viser."
+            "state" : "translated",
+            "value" : "Rader viser elementene som er slått på ovenfor. Tilpass hver linje."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Wiersze pokazują elementy włączone powyżej. Dostosuj, aby wybrać, co pokazuje każdy wiersz."
+            "state" : "translated",
+            "value" : "Wiersze pokazują elementy włączone powyżej. Dostosuj każdą linię."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "As linhas mostram os itens ativados acima. Personalize para escolher o que cada linha mostra."
+            "state" : "translated",
+            "value" : "As linhas mostram os itens ativados acima. Personalize cada linha."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Строки показывают элементы, включённые выше. Настройте, чтобы выбрать содержимое каждой строки."
+            "state" : "translated",
+            "value" : "Строки показывают элементы, включённые выше. Настройте каждую линию."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "แถวแสดงรายการที่เปิดไว้ด้านบน ปรับแต่งเพื่อเลือกสิ่งที่แต่ละบรรทัดแสดง"
+            "state" : "translated",
+            "value" : "แถวจะแสดงรายการที่เปิดไว้ด้านบน ปรับแต่งแต่ละบรรทัดได้"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Satırlar yukarıda açılan öğeleri gösterir. Her satırın ne göstereceğini seçmek için özelleştirin."
+            "state" : "translated",
+            "value" : "Satırlar yukarıda açılan öğeleri gösterir. Her satırı özelleştirin."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Рядки показують елементи, увімкнені вище. Налаштуйте, щоб вибрати вміст кожного рядка."
+            "state" : "translated",
+            "value" : "Рядки показують елементи, увімкнені вище. Налаштуйте кожну лінію."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Các hàng hiển thị những mục được bật ở trên. Tùy chỉnh để chọn nội dung mỗi dòng."
+            "state" : "translated",
+            "value" : "Các hàng hiện mục đã bật ở trên. Tùy chỉnh từng dòng."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "行会显示上方已打开的项目。自定义可选择每行显示的内容。"
+            "state" : "translated",
+            "value" : "行会显示上方已打开的项目。可自定义每一行。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "列會顯示上方已開啟的項目。自訂可選擇每行顯示的內容。"
+            "state" : "translated",
+            "value" : "列會顯示上方已開啟的項目。可自訂每一行。"
           }
         }
       }

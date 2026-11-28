@@ -26,6 +26,22 @@ pub(super) fn parse(
     if let Some(argv) = argv {
         operands.extend_from_slice(argv);
     }
+    // `--project DIR`: the project layer of DIR (`<project>/.cmux/cmux-next.json`,
+    // cmux_config::project) instead of the user's file.
+    let project = match flags.take("project") {
+        Some(_) if !matches!(verb.as_str(), "get" | "explain" | "set" | "reset" | "unset") => {
+            return Err(UsageError::new("--project goes with get, explain, set, reset and unset"));
+        }
+        Some(folder) => Some(project_folder(&folder)?),
+        None => None,
+    };
+    let key_params = |key: &str| {
+        let mut params = key_params(key);
+        if let Some(folder) = &project {
+            params.insert("project".into(), Value::String(folder.clone()));
+        }
+        params
+    };
     // `reset --group G`: every setting of a section or group (`settings.reset_group`).
     if let Some(group) = flags.take("group") {
         if verb != "reset" || !operands.is_empty() || group.is_empty() {
@@ -52,6 +68,12 @@ pub(super) fn parse(
         }
         ("get", [key]) => {
             request(ResourceOperation::SettingsGet, &selectors, flags, key_params(key))
+        }
+        // `explain KEY`: each layer's value, which won, and the last write that touched it.
+        ("explain", [key]) => {
+            let mut params = key_params(key);
+            params.insert("explain".into(), Value::Bool(true));
+            request(ResourceOperation::SettingsGet, &selectors, flags, params)
         }
         ("set", [key, value]) => {
             let value =
@@ -81,6 +103,13 @@ pub(super) fn parse(
             "unknown or incomplete settings action; run `cmux settings --help` for its actions",
         )),
     }
+}
+
+/// `--project DIR` as the absolute folder the daemon reads (relative to this shell's folder).
+fn project_folder(folder: &str) -> Result<String, UsageError> {
+    let absolute = std::path::absolute(folder)
+        .map_err(|error| UsageError::new(format!("--project {folder}: {error}")))?;
+    Ok(absolute.to_string_lossy().into_owned())
 }
 
 /// `fields` and `--if-revision N` (the settings revision the caller saw;

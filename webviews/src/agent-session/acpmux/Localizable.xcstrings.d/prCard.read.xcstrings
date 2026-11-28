@@ -32,7 +32,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "read {ago}"
+            "value" : "synced {ago}"
           }
         },
         "es" : {

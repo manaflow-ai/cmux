@@ -32,6 +32,7 @@ import {
   signUpPendingHref,
   type RememberedAccount,
 } from "./sign-in-entry";
+import { signInFailureMessage } from "./sign-in-errors";
 import { Spinner as SharedSpinner } from "../components/spinner";
 
 export type CmuxSignInMessages = {
@@ -87,9 +88,23 @@ export type CmuxSignInMessages = {
   errorSignUpNotAllowed: string;
   errorPasskey: string;
   errorGeneric: string;
+  errorRedirectNotAllowed?: string;
+  backendDevelopment?: string;
 };
 
 type Mode = "sign-in" | "sign-up";
+
+/**
+ * A failed step's message: "This build's sign-in address isn't allowed on
+ * <backend>." when the auth project refused this page's address, else the
+ * generic text.
+ */
+function failureMessage(caught: unknown, messages: CmuxSignInMessages): string {
+  return signInFailureMessage(caught, messages, {
+    projectId: process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
+    pageOrigin: typeof window === "undefined" ? null : window.location.origin,
+  });
+}
 
 /** `{name}` placeholders, the same shape the message catalogs use. */
 function format(template: string, values: Record<string, string | number>): string {
@@ -928,9 +943,9 @@ function OAuthProviderButton({ provider, disabled, messages, lastUsedOverride, l
           setError(null);
           startOAuth(app, provider, loginHint).then(
             () => setBusy(false),
-            () => {
+            (caught: unknown) => {
               setBusy(false);
-              setError(messages.errorGeneric);
+              setError(failureMessage(caught, messages));
             },
           );
         }}
@@ -1164,12 +1179,12 @@ function EmailCode({ messages, email, onEmailChange }: {
       const result = await app.sendMagicLinkEmail(email.trim());
       if (result.status === "error") {
         console.error("[cmux sign-in] sending the code was refused", result.error);
-        setError(messages.errorGeneric);
+        setError(failureMessage(result.error, messages));
         return;
       }
       setStep({ kind: "code", email: email.trim(), nonce: result.data.nonce });
     } catch (caught) {
-      setError(KnownErrors.SignUpNotEnabled.isInstance(caught) ? messages.errorSignUpNotAllowed : messages.errorGeneric);
+      setError(KnownErrors.SignUpNotEnabled.isInstance(caught) ? messages.errorSignUpNotAllowed : failureMessage(caught, messages));
       if (!KnownErrors.SignUpNotEnabled.isInstance(caught)) console.error("[cmux sign-in] sending the code failed", caught);
     } finally {
       setBusy(false);
@@ -1294,7 +1309,7 @@ function PasswordSignIn({ messages, returnTo, email, onEmailChange, focusPasswor
       }
     } catch (caught) {
       console.error("[cmux sign-in] password sign-in failed", caught);
-      setEmailError(messages.errorGeneric);
+      setEmailError(failureMessage(caught, messages));
     } finally {
       setBusy(false);
     }
@@ -1376,10 +1391,10 @@ function PasswordSignUp({ messages, email, onEmailChange }: {
         window.location.assign(pending);
         return;
       }
-      setEmailError(messages.errorGeneric);
+      setEmailError(failureMessage(result.error, messages));
     } catch (caught) {
       console.error("[cmux sign-in] password sign-up failed", caught);
-      setEmailError(messages.errorGeneric);
+      setEmailError(failureMessage(caught, messages));
     } finally {
       setBusy(false);
     }

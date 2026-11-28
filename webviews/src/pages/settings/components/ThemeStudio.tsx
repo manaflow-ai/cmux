@@ -25,7 +25,7 @@ import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import { rowsByKey } from "../schema";
-import { managedOf, valueOf } from "../store";
+import { managedOf, valueOf, type WriteResult } from "../store";
 import { t, text } from "../strings";
 import {
   configThemeColors,
@@ -51,6 +51,8 @@ import {
   HIGHLIGHT_COLOR_KEY,
   ROTATE_FAVORITES_KEY,
   THEME_FILE_KEY,
+  SELECTION_KEY,
+  DOCTOR_NOTICE_KEY,
 } from "../cardRows";
 
 export {
@@ -77,10 +79,16 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     "app-light": useId(),
     "app-dark": useId(),
     accent: useId(),
+    wholeApp: useId(),
     themeFileOpen: useId(),
   };
   const [previewing, setPreviewing] = useState<{ name: string; target: "terminal" | "app" } | null>(null);
   const previewOwners = useRef(new Map<"terminal" | "app", object>());
+  // Preview on the Whole App (Leo, 2026-11-04: "theme previews, like for not just the terminal, but the
+  // app itself"): while the app has its own App Theme, terminal theme previews and picks also set
+  // the App Theme to match the terminal. Off until the person turns it on; it is a way to pick, not
+  // a setting.
+  const [wholeApp, setWholeApp] = useState(false);
   const load = useCallback((node: HTMLElement | null) => void (node && store.loadThemeColors()), [store]);
 
   const row = rowsByKey.get(THEME_KEY)!;
@@ -143,6 +151,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const appValue = valueOf(state, APP_THEME_KEY);
   const appSpec = typeof appValue === "string" && appValue !== FOLLOW_TERMINAL ? parseThemeSpec(appValue) : null;
   const appManaged = managedOf(state, APP_THEME_KEY);
+  const wholeAppOn = wholeApp && appSpec !== null && appManaged === null;
   // Right-click on a row's title: the same menu as every other setting row (cx-64hi).
   const themeMenu = useRowMenu(THEME_KEY);
   const appMenu = useRowMenu(APP_THEME_KEY);
@@ -153,9 +162,11 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const appPaired = appSpec?.kind === "pair";
   const themeState = useRowState(THEME_KEY);
   const accentRow = rowsByKey.get(ACCENT_KEY);
+  const selectionRow = rowsByKey.get(SELECTION_KEY);
   const highlightRow = rowsByKey.get(HIGHLIGHT_COLOR_KEY);
   const rotateRow = rowsByKey.get(ROTATE_FAVORITES_KEY);
   const themeFileRow = rowsByKey.get(THEME_FILE_KEY);
+  const doctorNoticeRow = rowsByKey.get(DOCTOR_NOTICE_KEY);
   const accentState = useRowState(ACCENT_KEY);
   // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
   // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
@@ -174,7 +185,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       ? lookup(previewing.name)
       : terminalThemeColors(valueOf(state, THEME_KEY), colors, scheme, configColors);
   const appSource =
-    (previewing?.target === "app"
+    (previewing?.target === "app" || (previewing?.target === "terminal" && wholeAppOn)
       ? lookup(previewing.name)
       : appSpec
         ? lookup(themeFor(appSpec, scheme, fallbackName))
@@ -193,7 +204,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     if (name) {
       previewOwners.current.set("terminal", owner ?? {});
       setPreviewing({ name, target: "terminal" });
-      store.preview(THEME_KEY, name, owner);
+      store.preview(THEME_KEY, name, owner, wholeAppOn ? [{ key: APP_THEME_KEY, value: "followTerminal" }] : undefined);
     } else if (!owner || previewOwners.current.get("terminal") === owner) {
       previewOwners.current.delete("terminal");
       setPreviewing((current) => (current?.target === "terminal" ? null : current));
@@ -235,6 +246,13 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       store.previewEnd(APP_THEME_KEY, owner);
     }
   };
+  // Save an explicit follow mode after the terminal write succeeds: resetting would restore
+  // an App Theme supplied by the active theme file.
+  const pickWholeApp = (onPick: (name: string | null) => void | Promise<unknown>) => async (name: string | null) => {
+    const result = (await onPick(name)) as WriteResult | undefined;
+    if (result && !result.ok) return result;
+    return store.set(APP_THEME_KEY, "followTerminal");
+  };
   const paired = spec?.kind === "pair";
   const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, fallbackName) : null);
   const picker = (id: string, value: string | null, onPick: (name: string | null) => void | Promise<unknown>) => (
@@ -246,7 +264,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       disabled={disabled}
       configLabel={configLabel}
       configColors={configColors}
-      onPick={onPick}
+      onPick={wholeAppOn ? pickWholeApp(onPick) : onPick}
       onPreview={previewTerminal}
       custom={custom}
       favorites={starred.favorites}
@@ -360,6 +378,23 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                   )}
                 </StudioRow>
               )}
+              {appSpec && (
+                <StudioRow
+                  kind="whole-app"
+                  settingKey={THEME_KEY}
+                  id={ids.wholeApp}
+                  title={t("settingsPage.theme.wholeApp")}
+                  help={t("settingsPage.theme.wholeAppHelp")}
+                  menu={themeMenu}
+                >
+                  <Switch
+                    checked={wholeAppOn}
+                    disabled={disabled || appDisabled}
+                    labelId={ids.wholeApp}
+                    onToggle={setWholeApp}
+                  />
+                </StudioRow>
+              )}
             </>
           )}
           {rotateRow && names.length > 0 && (starred.favorites.length > 0 || focused === ROTATE_FAVORITES_KEY) && (
@@ -435,6 +470,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               />
             </StudioRow>
           )}
+          {selectionRow && <SettingRow row={selectionRow} focused={focused === SELECTION_KEY} />}
           {highlightRow && <SettingRow row={highlightRow} focused={focused === HIGHLIGHT_COLOR_KEY} />}
           {themeFileRow && <SettingRow row={themeFileRow} focused={focused === THEME_FILE_KEY} />}
           {themeFileRow && (
@@ -460,6 +496,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               </Button>
             </StudioRow>
           )}
+          {doctorNoticeRow && <SettingRow row={doctorNoticeRow} focused={focused === DOCTOR_NOTICE_KEY} />}
         </div>
       </section>
     </div>

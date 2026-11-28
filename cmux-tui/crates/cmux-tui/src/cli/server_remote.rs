@@ -6,8 +6,8 @@
 //! `--yes` (without a terminal to ask on, `--yes` is required):
 //!
 //! 1. the cmux installer there, sent on ssh's stdin (the same script as
-//!    `curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server`, built
-//!    into this binary so nothing is fetched from a moving URL): it installs
+//!    README.md's pinned install command with `--server`, built into this
+//!    binary so nothing is fetched from a moving URL): it installs
 //!    this build's commit (checksum-verified, no sudo) and runs `cmux server
 //!    install` there, which keeps the session running as a service;
 //! 2. a check that the session answers there;

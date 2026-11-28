@@ -35,9 +35,10 @@
 //!    `~/Projects/checkouts`), the chat's subfolder checked out in it; any other folder under the
 //!    home is made at the same path under the target's home; `--cwd` names it outright. With
 //!    `--carry-changes` the checkout's uncommitted work is read once the branch is pushed and
-//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` has
-//!    nowhere to push: its branches and tags go as a `git bundle` over the move's ssh and become
-//!    a fresh repository at the same path under the target's home (`BUNDLE_SCRIPT`,
+//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` (or one
+//!    that is not an owner/name remote) has nowhere to push: its branches and tags go as a `git
+//!    bundle` over the move's ssh and become a fresh repository at the same path under the
+//!    target's home (`BUNDLE_SCRIPT`,
 //!    `UNBUNDLE_SCRIPT`), with no remote added anywhere; its changes go the same way.
 //! 5. The rest of the move is `session transfer`'s (`transfer.rs`, `hub/transfer_out.rs`), with
 //!    the target daemon's own local socket reached through an `ssh -L` forward
@@ -68,9 +69,13 @@ pub(crate) use hub::move_out;
 #[path = "session_move_link.rs"]
 mod link;
 
+#[path = "session_move_interrupts.rs"]
+mod interrupts;
 #[path = "session_move_preflight.rs"]
 mod preflight;
 use link::SLOW_COPY;
+#[path = "session_move_files.rs"]
+mod files;
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
 #[path = "session_move_target_ask.rs"]
@@ -413,6 +418,9 @@ struct Outcome {
     error: Option<String>,
     error_code: Option<&'static str>,
     preflight: preflight::Preflight,
+    /// What the move interrupts, as the chat's daemon answered (`session_move_interrupts.rs`);
+    /// None from a daemon older than the question.
+    interrupts: Option<Value>,
 }
 
 impl Outcome {
@@ -432,11 +440,12 @@ impl Outcome {
             error: None,
             error_code: None,
             preflight: preflight::Preflight::default(),
+            interrupts: None,
         }
     }
 }
 
-pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
+pub(super) async fn run(mut args: MoveArgs, json_out: bool) -> Result<()> {
     if args.from_snapshot {
         return snapshot::run(args, json_out).await;
     }
@@ -445,6 +454,16 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     super::move_end::reclaim_dead_moves(&super::move_end::journal_dir()).await;
     let peers = local.request("_acpmux/peers", json!({})).await?;
     let here = crate::pairing::machine_name();
+    // `--from MACHINE` of a machine this one reaches only through the team hub: its chats move
+    // as `MACHINE/ID` does, asked of the machine that holds them (`hub::ask_holder`).
+    if let Some(from) = args.from.clone()
+        && !args.all_idle
+        && !names_here(&from, &here)
+        && peer_ssh(&peers, &from).is_none()
+        && hub::resolve(&local, &from).await.is_ok()
+    {
+        from_hub_machine(&mut args, &from);
+    }
     // `--from`: the chats' daemon is the peer's, reached through a forward of its local socket.
     let (src, source, home, _src_forward) = match &args.from {
         None => {
@@ -505,9 +524,11 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         if args.carry_changes {
             bail!("--carry-changes does not go through the team hub yet: commit, or --leave-dirty");
         }
-        Some(hub::resolve(&src, &args.host).await.with_context(|| {
-            format!(
-                "{} is neither an ssh peer of this daemon nor a machine the team hub lists",
+        // The hub's own reason goes in the message: "not listed" and "not read yet" need
+        // different next steps, and `{}` of a context shows only the outer line.
+        Some(hub::resolve(&src, &args.host).await.map_err(|e| {
+            anyhow!(
+                "{} is neither an ssh peer of this daemon nor a machine the team hub lists ({e:#})",
                 args.host
             )
         })?)
@@ -567,7 +588,7 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
                        "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "targetSessionId": o.there, "reachable": o.reachable})
+                       "preflight": o.preflight, "interrupts": o.interrupts, "targetSessionId": o.there, "reachable": o.reachable})
             })
             .collect();
         rows.splice(0..0, local_rows);
@@ -819,6 +840,17 @@ async fn move_steps(
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
     o.preflight.running = plan::running(&info);
     o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
+    // What the move would interrupt, said before anything begins (RFD 0063 item 6). A failed
+    // ask never stops the move: it is a statement, not a gate.
+    if info.get("peer").is_none_or(Value::is_null) {
+        o.interrupts = interrupts::ask(src, &id).await.unwrap_or_else(|e| {
+            tracing::debug!("move: what {id} interrupts was not read: {e:#}");
+            None
+        });
+        for line in interrupts::text(&o.name, o.interrupts.as_ref(), args.dry_run) {
+            eprintln!("{line}");
+        }
+    }
     if info.get("peer").is_some_and(|p| !p.is_null()) {
         bail!(
             "it runs on {}, not here: move it from there",
@@ -971,7 +1003,7 @@ async fn move_steps(
                 sub_text(subdir)
             ),
             Folder::Bundle { top, branch, subdir, .. } => format!(
-                "{top} on {branch}{} (no origin to push to: its branches go as a git bundle)",
+                "{top} on {branch}{} (no owner/name origin to push to: its branches go as a git bundle)",
                 sub_text(subdir)
             ),
         });
@@ -1105,6 +1137,7 @@ async fn prepare(
     let mut carry = None;
     let mut at = None;
     let mut bundle = None;
+    let mut packed: Option<Vec<u8>> = None;
     // The commit the target's folder is made at, whether the folder has uncommitted work, and
     // its checkout's top folder on the source.
     let mut base: Option<(String, bool, PathBuf)> = None;
@@ -1120,6 +1153,29 @@ async fn prepare(
         record.set("bundled", json!(true));
         base = Some((read.0.clone(), *dirty, c.top.clone()));
         bundle = Some(read);
+    }
+    if let (Folder::Plain { .. }, None, None) = (&folder, &checkout, &args.cwd) {
+        // Not in a git checkout, and the folder is not named on the target: its files go too
+        // (never the home folder itself).
+        if cwd != home {
+            let read = tokio::task::spawn_blocking({
+                let (dir, ssh) = (cwd.to_path_buf(), source.ssh().map(str::to_owned));
+                move || files::pack_folder(ssh.as_deref(), &dir)
+            })
+            .await??;
+            match read {
+                files::Packed::Files(bytes) => {
+                    record.set("filesCopied", json!(bytes.len()));
+                    packed = Some(bytes);
+                }
+                files::Packed::TooBig(n) => bail!(
+                    "{} is {n} bytes packed, over the {} a move carries: pass --cwd to run the chat in a folder that is already there, or send the folder with `cmux link seed`",
+                    cwd.display(),
+                    files::MAX_BYTES
+                ),
+                files::Packed::Missing => {}
+            }
+        }
     }
     if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
         // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
@@ -1143,8 +1199,9 @@ async fn prepare(
         base = Some((commit, *dirty, c.top.clone()));
     }
     if let Some((commit, dirty, top)) = base {
-        if dirty && args.carry_changes {
-            // Read after the freeze and the push: what the agent left, against what was pushed.
+        if args.carry_changes {
+            // Read after the freeze and push even when display status looks clean:
+            // submodule.<name>.ignore can hide work the carry must refuse.
             let read = tokio::task::spawn_blocking({
                 let (top, ssh) = (top.clone(), source.ssh().map(str::to_owned));
                 move || match ssh {
@@ -1179,6 +1236,9 @@ async fn prepare(
         let (host, folder) = (target.ssh.clone(), folder.clone());
         let pin = at.as_ref().map(|(r, c, _)| (r.clone(), c.clone()));
         move || match (&folder, bundle) {
+            (Folder::Plain { cwd }, None) if packed.is_some() => {
+                files::unpack_folder(&host, cwd, packed.as_deref().unwrap_or_default())
+            }
             (Folder::Bundle { top, branch, subdir, .. }, Some((commit, bytes))) => {
                 unbundle_folder(&host, top, branch, subdir, &commit, &bytes)
             }
@@ -1198,7 +1258,9 @@ async fn prepare(
         .await;
     }
     let there = there??;
-    if let Some(carry) = carry.filter(|c| !c.patch.is_empty()) {
+    if let Some(carry) = carry.filter(|c| {
+        !c.patch.is_empty() || !c.staged_patch.is_empty() || !c.intent_to_add.is_empty()
+    }) {
         tokio::task::spawn_blocking({
             let (host, there) = (target.ssh.clone(), there.clone());
             move || apply_carry(&host, &there, &carry)
@@ -1231,11 +1293,13 @@ async fn checkout_unless_named(
 /// The fixed script that reads the checkout a folder is in on a source machine (`--from`): the
 /// folder on stdin; `none`, or tab-separated `top`, `branch`, `origin` and `default` (origin's
 /// HEAD, `origin/main`) lines and a `dirty`
-/// line when it has uncommitted changes. Exit 3: git status failed.
+/// line when it has uncommitted changes. Exit 3: git status failed. A repository with no origin
+/// and no commit answers `none`, as [`checkout_of`] reads it.
 const CHECKOUT_SCRIPT: &str = r#"read -r d || exit 2
 top=$(git -c core.fsmonitor=false -C "$d" rev-parse --show-toplevel 2>/dev/null) || { echo none; exit 0; }
 [ -n "$top" ] || { echo none; exit 0; }
 top=$(cd -- "$top" && pwd -P) || exit 2
+if ! git -C "$top" remote get-url origin >/dev/null 2>&1 && ! git -C "$top" rev-parse --verify -q HEAD >/dev/null; then echo none; exit 0; fi
 printf 'top\t%s\n' "$top"
 printf 'branch\t%s\n' "$(git -C "$top" symbolic-ref -q --short HEAD 2>/dev/null)"
 printf 'origin\t%s\n' "$(git -C "$top" remote get-url origin 2>/dev/null)"
@@ -1348,7 +1412,7 @@ fn push_branch_on(ssh: &str, top: &Path, dest: &str) -> Result<String> {
 /// Applies `carry` in the chat's new folder `there` on the ssh host `host` (this machine when
 /// empty), through [`carry::APPLY_SCRIPT`].
 fn apply_carry(host: &str, there: &str, carry: &Carry) -> Result<()> {
-    let input = carry::apply_input(there, carry);
+    let input = carry::apply_input(there, carry)?;
     let out = if host.is_empty() {
         run_here(carry::APPLY_SCRIPT, &input)?
     } else {
@@ -1520,6 +1584,12 @@ fn checkout_of(cwd: &Path) -> Result<Option<Checkout>> {
     let top = top.canonicalize().unwrap_or(top);
     let branch = git(&top, &["symbolic-ref", "-q", "--short", "HEAD"]).filter(|b| !b.is_empty());
     let origin = git(&top, &["remote", "get-url", "origin"]).filter(|u| !u.is_empty());
+    // No origin and no commit (a home folder `git init`ed and never committed, as every lane VM's
+    // is): nothing to push or bundle, so it moves as the plain folder it is. Bundling it refused
+    // "it has no commit to carry", which kept a held VM's home-folder chats from ever draining.
+    if origin.is_none() && git(&top, &["rev-parse", "--verify", "-q", "HEAD"]).is_none() {
+        return Ok(None);
+    }
     let status = git(&top, &["status", "--porcelain", "--untracked-files=normal"])
         .ok_or_else(|| anyhow!("git status failed in {}", top.display()))?;
     let default_branch = git(&top, &["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])
@@ -1994,6 +2064,16 @@ fn outdated_lines(hosts: &[Value], order: &[String]) -> Vec<String> {
             })
         })
         .collect()
+}
+
+/// `--from FROM` as `FROM/ID` keys, for a source machine reached through the team hub.
+fn from_hub_machine(args: &mut MoveArgs, from: &str) {
+    for key in &mut args.sessions {
+        if !key.contains('/') {
+            *key = format!("{from}/{key}");
+        }
+    }
+    args.from = None;
 }
 
 /// What [`walk`] found: the target (with its answer), the hosts it passed over and why, the

@@ -52,9 +52,15 @@ impl Stroke {
             "end" => KeyCode::End,
             "backspace" => KeyCode::Backspace,
             "delete" => KeyCode::Delete,
-            s if s.starts_with('f') && s[1..].parse::<u8>().is_ok() => KeyCode::F(s[1..].parse()?),
-            s if s.chars().count() == 1 => KeyCode::Char(s.chars().next().unwrap()),
-            _ => anyhow::bail!("unknown key {name:?}"),
+            s => {
+                if let Some(number) = s.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()) {
+                    KeyCode::F(number)
+                } else if let Some(ch) = s.chars().next().filter(|_| s.chars().count() == 1) {
+                    KeyCode::Char(ch)
+                } else {
+                    anyhow::bail!("unknown key {name:?}");
+                }
+            }
         };
         Ok(Self { code, mods })
     }
@@ -114,6 +120,7 @@ impl Keymap {
             ("model", "ctrl+l,alt+m,<leader>m"),
             ("mode", "ctrl+o,<leader>a"),
             ("effort", "alt+e"),
+            ("plan", "alt+shift+p"),
             ("policy", "alt+p"),
             ("cwd", "alt+shift+d,<leader>d"),
             ("skills", "<leader>k"),
@@ -204,7 +211,7 @@ impl Keymap {
             }
         }
         for (i, a) in out.bindings.iter().enumerate() {
-            for b in &out.bindings[i + 1..] {
+            for b in out.bindings.get(i + 1..).unwrap_or_default() {
                 if a.keys.starts_with(&b.keys) || b.keys.starts_with(&a.keys) {
                     anyhow::bail!(
                         "conflicting shortcuts: {} ({}) and {} ({})",

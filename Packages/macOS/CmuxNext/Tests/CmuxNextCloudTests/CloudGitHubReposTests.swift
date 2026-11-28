@@ -138,15 +138,12 @@ struct CloudGitHubReposTests {
 
     static let page = "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b" // exp 2100-01-01
 
-    @Test func theConnectReplyOpensOnlyTheAppsInstallationPage() {
-        let ok = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"\#(Self.page)"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: ok) == .page(URL(string: Self.page)!))
-        let elsewhere = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"https://example.com/apps/cmux/installations/new"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: elsewhere) == .refused)
-        let noConnection = Self.body(#"{"ok":true,"value":{"authorize_url":"\#(Self.page)"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: noConnection) == .refused)
-        #expect(CloudGitHubConnects.answer(status: 403, body: Self.body(#"{"ok":false,"error":{"code":"policy.denied"}}"#)) == .refused)
-        for status in [408, 429, 500, 503] { #expect(CloudGitHubConnects.answer(status: status, body: Data()) == .noAnswer, "\(status)") }
+    @Test func aConnectThatGaveNoPageIsRefusedOrNoAnswer() {
+        #expect(CloudGitHubConnects.answer(.http(status: 403, code: "policy.denied", message: nil)) == .refused)
+        #expect(CloudGitHubConnects.answer(.http(status: 200, code: "integration.not_configured", message: nil)) == .refused)
+        #expect(CloudGitHubConnects.answer(.decoding("no install page")) == .refused)
+        for status in [408, 429, 500, 503] { #expect(CloudGitHubConnects.answer(.http(status: status, code: nil, message: nil)) == .noAnswer, "\(status)") }
+        for failure in [CloudAPIError.timedOut("x"), .transport("x"), .notSignedIn] { #expect(CloudGitHubConnects.answer(failure) == .noAnswer) }
         #expect(CloudGitHubApp.authorizationExpiry(URL(string: Self.page)!) == Date(timeIntervalSince1970: 4_102_444_800))
     }
 
@@ -174,22 +171,22 @@ struct CloudGitHubReposTests {
         #expect(asked == ["key-1", "key-1", "key-2", "key-3", "key-4"])
     }
 
-    /// #55104: a Cloud start card's Connect for one repository. The API reuses a connection that already covers it
+    /// #55104: a Cloud start card's Connect for one repository (the daemon's `owner.github_connect` answer). The API reuses a connection that already covers it
     /// (`connected: true`, nothing to open), and for an owner the App is installed on answers GitHub's authorize page,
     /// never the person's own installation settings (whose save comes back with no state and asks a web sign-in).
     @Test func aRepositoryConnectOpensTheAuthorizePageOrNothingWhenCovered() {
-        let covered = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1","status":"active"},"connected":true}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: covered) == .connected)
+        let covered = Self.body(#"{"connection":"conn_1","connected":true}"#)
+        #expect(CloudGitHubConnects.reply(covered) == .connected)
         let authorize = "https://github.com/login/oauth/authorize?client_id=Iv1&state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"
-        let installed = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_2"},"authorize_url":"\#(authorize)"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: installed) == .page(URL(string: authorize)!))
+        let installed = Self.body(#"{"connection":"conn_2","authorize_url":"\#(authorize)"}"#)
+        #expect(CloudGitHubConnects.reply(installed) == .page(URL(string: authorize)!))
         let forOwner = "https://github.com/apps/cmux/installations/new/permissions?target_id=7&state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"
-        let install = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_3"},"authorize_url":"\#(forOwner)"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: install) == .page(URL(string: forOwner)!))
-        let settings = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_4"},"authorize_url":"https://github.com/settings/installations/183460287"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: settings) == .refused, "a settings page carries no state: never a connect page")
-        let noConnection = Self.body(#"{"ok":true,"value":{"connected":true}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: noConnection) == .refused)
+        let install = Self.body(#"{"connection":"conn_3","authorize_url":"\#(forOwner)"}"#)
+        #expect(CloudGitHubConnects.reply(install) == .page(URL(string: forOwner)!))
+        let settings = Self.body(#"{"connection":"conn_4","authorize_url":"https://github.com/settings/installations/183460287"}"#)
+        #expect(CloudGitHubConnects.reply(settings) == nil, "a settings page carries no state: never a connect page")
+        let noConnection = Self.body(#"{"connected":true}"#)
+        #expect(CloudGitHubConnects.reply(noConnection) == nil)
     }
 
     /// #55104: a team whose connection is ready (on the person's own account) still asks the API for a repository card's

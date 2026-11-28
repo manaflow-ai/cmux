@@ -2,12 +2,12 @@
   "id": "delegation-issue-title-has-number",
   "group": "delegation",
   "owner": "chief-base-upgrades",
-  "about": "Austin's Chief rule, generalized for base (2026-11-23): a subagent working one issue or pull request is titled `#<N>: <3-5 words>`, so the user finds its workspace by the number",
+  "about": "Austin's Chief rule, generalized for base (2026-11-23): a subagent working one issue or pull request is titled `<N>: <3-5 words>` (no \"#\", https://github.com/manaflow-ai/cmux/issues/57789), so the user finds its workspace by the number",
   "turns": [
     {
       "text": "can someone fix issue #4812, the settings window forgets its size after a restart",
       "checks": [
-        {"type": "called", "cmd": "spawn", "re": "Title: #4812: "}
+        {"type": "called", "cmd": "spawn", "re": "Title: 4812: "}
       ]
     }
   ]
