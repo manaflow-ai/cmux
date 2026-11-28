@@ -17,6 +17,8 @@
 //!   out, a gone target falls back), so a stale op is never refused.
 //! - [`check`]: the invariants (the touched rows per op; all at open).
 //! - [`view`]: the flat rows one window draws.
+//! - [`view_cache`]: one window's view kept between changes: a change
+//!   rebuilds the blocks (top-level trees) it touches, not every row.
 //! - [`project`]: those rows as the sections the app's list draws.
 //! - [`plan`]: the ops of New Subgroup and of a remote group, planned on the document.
 //! - [`accept`]: the drop acceptance table of one drag.
@@ -52,6 +54,9 @@ mod stale;
 #[cfg(test)]
 mod stale_tests;
 pub mod view;
+pub mod view_cache;
+#[cfg(test)]
+mod view_cache_tests;
 
 #[cfg(test)]
 mod host_group_tests;
