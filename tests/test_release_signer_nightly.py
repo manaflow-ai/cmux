@@ -81,6 +81,7 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(out["LSEnvironment"], {"OTHER": "1"})
         self.assertEqual(out["SUFeedURL"], feed)
         self.assertEqual(out["SUPublicEDKey"], self.env["SPARKLE_PUBLIC_KEY"])
+        self.assertFalse(out["SUAllowsAutomaticUpdates"])
         self.assertEqual((out["CFBundleVersion"], out["CMUXCommit"]), ("99", "abc1234"))
 
     def test_stamps_every_entry_and_keeps_the_format(self):
@@ -95,6 +96,7 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(out["LSEnvironment"], {"CMUX_AUTH_CALLBACK_SCHEME": "cmux-next"})
         self.assertEqual(out["SUPublicEDKey"], self.env["SPARKLE_PUBLIC_KEY"])
         self.assertEqual(out["SUFeedURL"], self.env["FEED_URL"])
+        self.assertFalse(out["SUAllowsAutomaticUpdates"])
         self.assertEqual((out["CFBundleShortVersionString"], out["CFBundleVersion"], out["CMUXCommit"]),
                          ("1.2.3-nightly.9", "99", "abc1234"))
         # Delete + Add moves the entry last, as PlistBuddy does.
@@ -107,6 +109,13 @@ class IdentityTests(unittest.TestCase):
         self.assertTrue(self.plist.read_bytes().startswith(b"<?xml"))
         self.assertEqual(plistlib.loads(self.plist.read_bytes())["LSEnvironment"],
                          {"OTHER": "1", "CMUX_AUTH_CALLBACK_SCHEME": "cmux-next"})
+
+    def test_adds_the_policy_to_a_historical_plist_without_it(self):
+        plist = dict(self.base)
+        plist.pop("SUAllowsAutomaticUpdates", None)
+        result = self.stamp(plist)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(plistlib.loads(self.plist.read_bytes())["SUAllowsAutomaticUpdates"])
 
     def test_refuses_a_second_url_type_that_is_not_auth(self):
         plist = dict(self.base)
