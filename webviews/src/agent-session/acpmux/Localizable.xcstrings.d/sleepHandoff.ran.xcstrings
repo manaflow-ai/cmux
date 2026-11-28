@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sleepHandoff.ran" : {
+      "comment" : "Agent pane: a chat that moved off a sleeping Mac and finished its turn on {machine}. {from} is the Mac's name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم التشغيل على {machine} بينما كان {from} في وضع السكون"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radilo na {machine} dok je {from} mirovao"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kørte på {machine}, mens {from} sov"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lief auf {machine}, während {from} schlief"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ran on {machine} while {from} slept"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se ejecutó en {machine} mientras {from} estaba en reposo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exécuté sur {machine} pendant que {from} était en veille"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eseguito su {machine} mentre {from} era in stop"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{from}のスリープ中に{machine}で実行されました"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានដំណើរការលើ {machine} ខណៈពេល {from} ដេក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{from}이(가) 잠자기 중인 동안 {machine}에서 실행됨"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kjørte på {machine} mens {from} sov"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Działało na {machine}, gdy {from} spał"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Executado em {machine} enquanto {from} estava em repouso"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выполнялось на {machine}, пока {from} спал"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ทำงานบน {machine} ขณะที่ {from} อยู่ในโหมดสลีป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{from} uyurken {machine} üzerinde çalıştı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виконувалося на {machine}, поки {from} спав"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã chạy trên {machine} trong khi {from} ngủ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{from} 睡眠期间已在 {machine} 上运行"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{from} 睡眠期間已在 {machine} 上執行"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -125,6 +125,12 @@ impl<'a> MoveEnd<'a> {
         self.now.as_deref().unwrap_or(self.first)
     }
 
+    /// The client it reopened after a dropped link, if it did: owned, for a caller that needs an
+    /// `Arc` (the first client is only borrowed).
+    pub(crate) fn reopened(&self) -> Option<Arc<Client>> {
+        self.now.clone()
+    }
+
     pub(crate) fn reach(&self) -> Option<&Reach> {
         self.reach.as_ref()
     }

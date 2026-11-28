@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sleepHandoff.moved" : {
+      "comment" : "Agent pane: quiet line on this Mac's copy of a chat that moved to another machine when the Mac slept. {machine} is a machine name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم النقل إلى {machine} عندما دخل هذا الـ Mac في وضع السكون"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premješteno na {machine} kada je ovaj Mac otišao u stanje mirovanja"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flyttet til {machine}, da denne Mac gik i dvale"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf {machine} verschoben, als dieser Mac in den Ruhezustand ging"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moved to {machine} when this Mac went to sleep"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Movido a {machine} cuando este Mac entró en reposo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacé vers {machine} lorsque ce Mac s'est mis en veille"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spostato su {machine} quando questo Mac è entrato in stop"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このMacがスリープしたため{machine}に移動しました"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានផ្លាស់ទៅ {machine} នៅពេល Mac នេះចូលដំណេក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Mac이 잠자기 상태가 되어 {machine}(으)로 이동함"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flyttet til {machine} da denne Macen gikk i dvale"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przeniesiono na {machine}, gdy ten Mac przeszedł w stan uśpienia"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Movido para {machine} quando este Mac entrou em repouso"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенесено на {machine}, когда этот Mac перешёл в режим сна"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ย้ายไปที่ {machine} เมื่อ Mac เครื่องนี้เข้าสู่โหมดสลีป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac uyku moduna geçtiğinde {machine} cihazına taşındı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переміщено на {machine}, коли цей Mac перейшов у режим сну"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã chuyển sang {machine} khi Mac này chuyển sang chế độ ngủ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Mac 进入睡眠时已移至 {machine}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Mac 進入睡眠時已移至 {machine}"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

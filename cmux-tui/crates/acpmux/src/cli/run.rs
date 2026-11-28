@@ -32,6 +32,7 @@ mod rebalance;
 mod route_death;
 mod send_async;
 pub(crate) mod session_move;
+mod sleep_handoff;
 pub(crate) use session_move::move_auto;
 mod standard;
 pub(crate) mod transfer;

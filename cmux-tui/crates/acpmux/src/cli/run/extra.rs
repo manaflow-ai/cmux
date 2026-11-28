@@ -966,6 +966,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 cwd,
                 dry_run,
                 resume_there: false,
+                continue_there: None,
                 from,
                 slow_ok,
                 from_snapshot,
@@ -973,6 +974,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             };
             super::session_move::run(args, json_out).await
         }
+        Command::SleepHandoff { dry_run } => super::sleep_handoff::run(dry_run, json_out).await,
         Command::Transfer { session, to, cwd, name, interrupt, after_turn } => {
             super::transfer::run(&session, &to, cwd, name, interrupt, after_turn, json_out).await
         }

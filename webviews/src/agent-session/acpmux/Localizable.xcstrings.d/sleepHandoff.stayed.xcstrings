@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sleepHandoff.stayed" : {
+      "comment" : "Agent pane: a chat that could not move when the Mac slept. {why} is a sentence from the daemon, in English.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "بقيت على هذا الـ Mac عند دخوله في وضع السكون: {why}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ostalo na ovom Macu kada je otišao u stanje mirovanja: {why}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blev på denne Mac, da den gik i dvale: {why}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem Mac geblieben, als er in den Ruhezustand ging: {why}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stayed on this Mac when it went to sleep: {why}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se quedó en este Mac cuando entró en reposo: {why}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resté sur ce Mac lors de sa mise en veille : {why}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rimasto su questo Mac quando è entrato in stop: {why}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このMacがスリープした際、移動せずに残りました: {why}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានស្នាក់នៅលើ Mac នេះនៅពេលវាចូលដំណេក៖ {why}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Mac이 잠자기 상태가 될 때 이동하지 않음: {why}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ble værende på denne Macen da den gikk i dvale: {why}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pozostało na tym Macu, gdy przeszedł w stan uśpienia: {why}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permaneceu neste Mac quando ele entrou em repouso: {why}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остался на этом Mac, когда он перешёл в режим сна: {why}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "อยู่บน Mac เครื่องนี้ต่อเมื่อเข้าสู่โหมดสลีป: {why}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac uyku moduna geçtiğinde burada kaldı: {why}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Залишилося на цьому Mac, коли він перейшов у режим сну: {why}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vẫn ở lại Mac này khi máy chuyển sang chế độ ngủ: {why}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Mac 进入睡眠时未移动：{why}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Mac 進入睡眠時未移動：{why}"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
