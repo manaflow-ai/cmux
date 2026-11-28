@@ -163,7 +163,7 @@ concurrency:
 permissions: {}
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  # Why: docs/ci/nightly-workflow-notes/2026-11-28-workflow-dispatch-bash-env.md
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # Main's promote guard reads this exact line (promote-nightly-next.mjs G5); see resolve-tree-pending.sh.
   NIGHTLY_NEXT_TREE_AT_INSTALL: v1
@@ -1022,8 +1022,7 @@ jobs:
         id: clean-workdir
         shell: bash
         run: |
-          # Before any checkout or secret: an earlier job's files (a DMG, a feed, notes) never reach this one.
-          # The runner empties its temp dir itself; the workspace stays between jobs on an owned Mac.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-promote-nightly-next-clean-this-job-s-workdir-on-an-owned-mac.md
           case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) ;; *) [ -d /Users/Shared/cmux-build-fleet ] || exit 0 ;; esac
           ws="${GITHUB_WORKSPACE:-}"
           if [ -n "$ws" ] && [ -d "$ws" ] && [ "$ws" != / ] && [ "$ws" != "$HOME" ]; then
@@ -1093,7 +1092,7 @@ jobs:
         # Why: docs/ci/nightly-workflow-notes/2026-11-26-promote-nightly-next-mint-release-app-token.md
         if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && steps.decide.outputs.dry_run != 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
+        with: &release-app-token-with
           app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
           private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
           owner: ${{ github.repository_owner }}
@@ -1120,8 +1119,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          # Last, whatever failed: the next job on this mini finds none of this job's tokens or files. Tokens
-          # live in env and in the runner temp dir (gh_app_token.sh's wrapper state); files in the workspace.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-promote-nightly-next-wipe-this-job-s-credentials-and-files-fr.md
           case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) ;; *) [ -d /Users/Shared/cmux-build-fleet ] || exit 0 ;; esac
           # The runner's own _-prefixed dirs (the event file, step file commands) stay until it ends the job.
           tmp="${RUNNER_TEMP:-}"
@@ -1218,13 +1216,7 @@ jobs:
         id: app-token
         if: steps.ack.outputs.decision != ''
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
-          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: write
-          permission-workflows: write
+        with: *release-app-token-with
 
       - name: Move nightly-next
         if: steps.ack.outputs.decision != ''
@@ -1304,8 +1296,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 5
         env:
-          # Its own goblin App token first (leo-workspace machines/gh-app-roles.json push.actions_secrets
-          # NIGHTLY_HELPER_LOOKUP_TOKEN), then github.token; a 403 waits to the limit's reset, at most 240 s a token.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-resolve-nightly-ghostty-cli-helper-find-an-earlier-helper-with-the-same-inp.md
           GH_TOKEN: ${{ secrets.NIGHTLY_HELPER_LOOKUP_TOKEN || github.token }}
           GH_TOKEN_SPARES: ${{ github.token }}
           CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: '240'
@@ -1389,8 +1380,7 @@ jobs:
           set -euo pipefail
           # Keep the pinned archives across jobs on this Mac. The installer checks their hashes on every hit.
           export ZIG_TARBALL_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/zig-tarballs"
-          # The verified, patched Zig install itself, at its version-pinned path: a warm Mac reuses it with no
-          # download or extraction (install-zig-ci.sh ZIG_KEEP_DIR; 2.6 min cold in run 45562645699).
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-nightly-ghostty-cli-helper-install-zig.md
           export ZIG_KEEP_DIR="$HOME/Library/Caches/cmux-ci/zig"
           ./scripts/install-zig-ci.sh
           GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
@@ -1527,8 +1517,7 @@ jobs:
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 150 || 30 }}
     steps:
       - *github-token-for-git
-      # This run's pack of the build source (resolve-nightly-cmux-tui-client): 0 github.com fetches.
-      # actions/checkout below runs only when it is missing. PREPARE_REUSED: prepare's reuse step found the app.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-nightly-inputs-build-nightly-inputs.md
       - &nightly-source-download
         name: Download the build source
         id: nightly-source-get
@@ -1567,7 +1556,7 @@ jobs:
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
+        with: &setup-bun-with
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
 
@@ -1700,7 +1689,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
+        with: &glaeda-route-app-token-with
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
@@ -2275,8 +2264,7 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
-          # ghostty-next's Zig for an in-tree acpmux build (app-build-in-tree-acpmux.sh), as refresh-compilation-cache,
-          # from the install kept on this Mac (install-zig-ci.sh ZIG_KEEP_DIR).
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-nightly-app-install-compilation-dependencies.md
           export ZIG_KEEP_DIR="$HOME/Library/Caches/cmux-ci/zig"
           GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
@@ -2404,8 +2392,7 @@ jobs:
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       # Why: docs/ci/nightly-workflow-notes.md#note-13
-      # Every restore here sets TOOLCHAIN_R2_ALL: the nightly Macs are not Freestyle runners, and github.com refuses
-      # setup-bun's anonymous download from them (403, runs 45765712386 and 45756842046).
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-nightly-app-sanitize-swift-package-cache.md
       - &restore-bun-web-bundles
         name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
@@ -2639,8 +2626,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && !env.LEFT_SLOT
         env:
           GH_TOKEN: ${{ github.token }}
-          # RATE_LIMIT_MOVES_TO_A_SPARE (pin-cmux-tui.sh github_get): the tree wait's runs reads move
-          # to the CI pool's tokens when the installation's hour is spent (nightly 46095639816).
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-nightly-app-bundle-the-cmux-tui-client.md
           GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
           CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
@@ -2968,8 +2954,7 @@ jobs:
       # The build number (<run id><attempt>) for both side-by-side jobs, the app and the daemon.
       daemon_build: ${{ steps.daemon-build.outputs.build }}
     env:
-      # A second path for every gh call (c-bedbdb1917): a refused github.token hour moves to a CI pool's own
-      # hour at once (gh_budget_wait.sh); a write the read-only pool cannot do goes back and waits as before.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-resolve-nightly-cmux-tui-client-ci-routing-agent.md
       GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
     steps:
       - name: Fix this run's build number
@@ -3057,8 +3042,7 @@ jobs:
           SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
           FORCE_BUILD: ${{ needs.decide.outputs.force }}
         run: bash scripts/ci/nightly-steps/resolve-choose-build-commit.sh
-      # The build commit's source once per run, from this mirror-served checkout: later jobs unpack it
-      # instead of fetching from github.com (scripts/ci/nightly-source.sh).
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-resolve-nightly-cmux-tui-client-choose-the-build-commit.md
       - name: Pack the build source for later jobs
         id: source-pack
         if: steps.build.outputs.build_sha != '' && steps.build.outputs.already_published != 'true'
@@ -3162,9 +3146,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
-          bun-version: "1.4.4"
+        with: *setup-bun-with
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -3284,9 +3266,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
-          bun-version: "1.4.4"
+        with: *setup-bun-with
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -3349,9 +3329,7 @@ jobs:
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         shell: bash
         run: |
-          # Self-hosted macOS runners reuse the workspace. A job cancelled or
-          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
-          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-prepare-nightly-variant-primary-clear-stale-git-locks-self-hosted-reused.md
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
           if [ -d "$ws/.git/modules" ]; then
@@ -3714,11 +3692,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          permission-organization-self-hosted-runners: read
+        with: *glaeda-route-app-token-with
 
       - *legacy-route-shared-1
       - name: Pick an owned Mac for the verify jobs
@@ -3829,9 +3803,7 @@ jobs:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
-          # Self-hosted macOS runners reuse the workspace. A job cancelled or
-          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
-          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-sign-notarize-nightly-clear-stale-git-locks-self-hosted-reused.md
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
           if [ -d "$ws/.git/modules" ]; then
@@ -4024,7 +3996,7 @@ jobs:
       - &x61
         name: Import signing cert
         if: ${{ !env.LEFT_SLOT }}
-        env:
+        env: &apple-certificate-env
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: ./scripts/ci/signing-keychain.sh create
@@ -4147,9 +4119,7 @@ jobs:
       - &x67
         name: Import signing cert for the DMG signature
         if: ${{ !env.LEFT_SLOT }}
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        env: *apple-certificate-env
         run: ./scripts/ci/signing-keychain.sh create
 
 
@@ -4339,8 +4309,7 @@ jobs:
           # so older macOS keeps the previous (legacy) items still in the feed.
           SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
           export SPARKLE_MINIMUM_SYSTEM_VERSION
-          # nightly-next ships the deltas from its nearest earlier builds with the build itself (hq#13299).
-          # A build tree from before it has no script: that build publishes full-only, as before.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-sign-notarize-nightly-generate-sparkle-appcasts-nightly.md
           if [ "$TRACK" = nightly-next ] && [ -f scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh ]; then
             bash scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh
             exit 0
@@ -4717,11 +4686,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          permission-organization-self-hosted-runners: read
+        with: *glaeda-route-app-token-with
 
       - *legacy-route-shared-1
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-find-nightly-next-recovery-pick-a-drained-owned-mac-for-the-.md
@@ -5096,11 +5061,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          permission-organization-self-hosted-runners: read
+        with: *glaeda-route-app-token-with
 
       - name: Pick an idle owned session runner
         id: pick
@@ -5116,8 +5077,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly]
     if: needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''
     runs-on: ${{ needs.route-visual-gate-nightly.outputs.runs_on }}
-    # A warm tour slot builds the DEV app in ~6-10 min; a cold one took 35 min.
-    # The GhosttyKit download reads the R2 cache credentials: ci-cache-writer on main, no environment elsewhere.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-visual-gate-nightly-environment.md
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
     permissions:
@@ -5161,9 +5121,7 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
-          bun-version: "1.4.4"
+        with: *setup-bun-with
 
       - *legacy-route-shared-6
       - name: Restore pinned Node 24.11.1 from the CI cache bucket
@@ -5478,8 +5436,7 @@ jobs:
           set -euo pipefail
           run_id=
           cef=false source_archive=false
-          # Language packs (CMUX-570) are on unless CMUX_NEXT_LANGUAGE_PACKS is 0; a recovered build's
-          # packs stay in its own run (language_packs_run), a republished one's come from its receipt.
+          # Why: docs/ci/nightly-workflow-notes/2026-11-28-publish-nightly-select-the-build-to-publish.md
           language_packs=true language_packs_run=
           [ "${LANGUAGE_PACKS:-}" = 0 ] && language_packs=false
           [ "${CEF_ON_DEMAND:-}" = 1 ] && cef=true
@@ -5774,7 +5731,7 @@ jobs:
       - name: Publish verified nightly release metadata
         id: publish_metadata
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
-        env:
+        env: &release-tag-gh-env
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           GH_APP_TOKEN: ${{ needs.decide.outputs.track != 'nightly-next' && steps.gh-app-token.outputs.token || '' }} # App first, GH_TOKEN as fallback
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
@@ -5819,7 +5776,7 @@ jobs:
         name: Publish the nightly-next download to R2
         id: next_downloads
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && !env.LEFT_SLOT
-        env:
+        env: &nightly-next-r2-env
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
@@ -5855,11 +5812,7 @@ jobs:
       - &x92
         name: Publish the Chromium runtime pack
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.cef == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && !env.LEFT_SLOT
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        env: *nightly-next-r2-env
         run: bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" cef-runtime
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-nightly-download-the-language-packs.md
@@ -5876,11 +5829,7 @@ jobs:
       - &x92b
         name: Publish the language packs
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.language_packs == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && !env.LEFT_SLOT
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        env: *nightly-next-r2-env
         run: bash "$PUBLISH_TOOLING/cmux-next/publish-language-packs.sh" language-packs
 
       - &x93
@@ -5934,21 +5883,7 @@ jobs:
 
       - name: Record verified nightly publication
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
-        env:
-          GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
-          GH_APP_TOKEN: ${{ needs.decide.outputs.track != 'nightly-next' && steps.gh-app-token.outputs.token || '' }} # App first, GH_TOKEN as fallback
-          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
-          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
-          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
-          RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
-          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
-          BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
-          CHANNEL: ${{ needs.decide.outputs.channel }}
-          REF_NAME: ${{ github.ref_name }}
-          TIP_SHA: ${{ steps.source.outputs.tip_sha }}
-          BEHIND: ${{ steps.source.outputs.behind }}
-          BEHIND_HOURS: ${{ steps.source.outputs.behind_hours }}
-          DOWNLOADS: ${{ steps.notes.outputs.downloads }}
+        env: *release-tag-gh-env
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-record-verified.sh
 
       - name: Move channel release tag to built commit
@@ -6164,13 +6099,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
-          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: write
-          permission-workflows: write
+        with: *release-app-token-with
 
       - name: Record the published build in the release body
         if: steps.publish_names.outputs.newest == 'true'
@@ -6260,11 +6189,7 @@ jobs:
           path: ${{ runner.temp }}/published-dsyms/dSYMs
 
       - name: Keep the published build's dSYMs on R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        env: *nightly-next-r2-env
         run: bash .publish-tooling/scripts/ci/nightly-steps/dsyms-keep-on-r2.sh
 
       - *wipe-owned-credentials
@@ -6288,9 +6213,7 @@ jobs:
       - *github-token-for-git
       - *checkout-publication-tooling-a
 
-      # 2026-11-28 06:29Z (Finish run 46116773791): this job's first gh call died on "API rate limit exceeded for
-      # installation" because it had no waiter and no spare pool, while keep-published-dsyms beside it had both.
-      # No release App token here: its secrets live only in release/release-next, not this job's environment.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-sentry-dsyms-nightly-wait-through-github-api-rate-l-2.md
       - *wait-through-github-api-rate-l-2
 
       - name: Find the attempt that compiled the published build
@@ -6305,8 +6228,7 @@ jobs:
       - name: Wait for API budget before the dSYM download
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --reserve 100
 
-      # 2026-11-28 10:53Z (run 46137161280): the action below died on "API rate limit exceeded for installation"
-      # with no retry. The script waits through the reset (and tries the spares first); the action stays as fallback.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-sentry-dsyms-nightly-wait-for-api-budget-before-the-dsym-down.md
       - name: Download the build's dSYMs (parallel, waits through a rate limit)
         id: dsyms-parallel
         continue-on-error: true
@@ -6374,9 +6296,7 @@ jobs:
           ref: ${{ github.sha }}
           path: .publish-tooling
           sparse-checkout: scripts
-      # 2026-11-28 06:30Z (Finish run 46116773791): "Download published variant" died on the installation's spent
-      # hour, in the parallel downloader (no spare pool) and then in the action (no wait): the same pair
-      # publish-nightly already has.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-build-nightly-deltas-ci-routing-agent.md
       - *wait-through-github-api-rate-l-2
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-deltas-select-xcode.md
       - name: Select Xcode
@@ -6720,11 +6640,7 @@ jobs:
 
       - name: Upload revised nightly-next appcasts to R2
         if: steps.republish.outputs.publish == 'true' && needs.published-build.outputs.track == 'nightly-next'
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        env: *nightly-next-r2-env
         run: bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
 
       - *wipe-owned-credentials
@@ -6821,12 +6737,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out nightly-pkg/input --connections 32
-      # The managed keychain, made in its own step so only this step holds the certificate;
-      # next-pkg.sh signs from it (NEXT_PKG_KEYCHAIN_READY) and the always() cleanup deletes it.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-nightly-next-pkg-download-published-variant.md
       - name: Import signing cert for the .pkg
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        env: *apple-certificate-env
         run: ./scripts/ci/signing-keychain.sh create
       # From the build ref: build-pkg.sh and the postinstall match the app they package.
       - name: Build, sign, notarize and upload the pre-warming .pkg
@@ -6906,8 +6819,7 @@ jobs:
       # Left before nightly-next moved: wake-nightly-next-tick retries this commit unless it moves.
       left_pending: ${{ steps.one-leave.outputs.pending }}
     env:
-      # GH_TOKEN_SPARES (c-bedbdb1917) sits on this job's github.token gh steps, not here: a signing job holds no
-      # secret at job level, or every bundle step sees the pool tokens (test_ci_signing_keychain_is_deleted_before_bundle_code.py).
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-nightly-next-one-cmux-ci-xcode-app.md
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       # Warm in one tree per Mac under $HOME, by flag (nightly_build_state.py); no shared compiler store or host root.
@@ -6945,8 +6857,7 @@ jobs:
       # Install the budget wrapper from this workflow's trusted tooling checkout before any gh call.
       - name: Wait through GitHub API rate limits in this job's gh calls
         if: inputs.nightly_next_unsigned_run == ''
-        # This job has checked out the workflow's trusted publication tooling above. The split build job
-        # keeps its source-tree fallback because it has no .publish-tooling checkout.
+        # Why: docs/ci/nightly-workflow-notes/2026-11-28-nightly-next-one-wait-through-github-api-rate-limits-in-t.md
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
       - *claim-publication-mac
       # Mint only after the claim (signing rule 7a). Only the checkout receives the read-only token.
@@ -7400,10 +7311,7 @@ jobs:
       - *x41
       - *x50
       - *x72
-      # The deltas follow the feed in their own job (nightly-next-deltas), so published-build and the GitHub release
-      # no longer wait the ~5 min they took here (run 45575194160: 283 s build, 17 s upload; ask-c0123d25e8). This
-      # step only hands it the names and the floor it reads from the signed app; no secret, no bundle code. A newer
-      # nightly-next push waiting skips it, so the deltas job skips too and the signing Mac moves on.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-nightly-next-one-upload-tested-dmg-digests-retry.md
       - name: Hand the deltas job its inputs
         id: deltas-inputs
         if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT && !env.NEWER_PUSH_WAITING"
@@ -7418,10 +7326,7 @@ jobs:
             echo "appcast=$NIGHTLY_APPCAST"
             echo "min_system=$floor"
           } | tee -a "$GITHUB_OUTPUT"
-      # A refused publication is red, not green: run 45607031207 built and signed, its shelf check died (ENOSPC),
-      # the gate refused, and the job showed green with nothing published, so a 3.5 h stall read as healthy
-      # (2026-11-25). A stand-down (writer linux or none, a known-bad commit), a superseded build and a left slot
-      # publish nothing on purpose and stay green.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-nightly-next-one-hand-the-deltas-job-its-inputs.md
       - name: Fail when this build's publication was refused
         if: "always() && !cancelled() && !env.LEFT_SLOT && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && (steps.gate.outputs.refusal_reason != '' || steps.upload_next_appcasts.outputs.publication_refused == 'true')"
         env:
@@ -7699,9 +7604,7 @@ jobs:
       - name: Graft the overlay into the published nightly's app
         run: bash scripts/ci/nightly-steps/live-code-variant.sh prepare "${{ needs.decide.outputs.dmg_prefix }}" "$BUILD" live-code
       - name: Import the Developer ID certificate
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        env: *apple-certificate-env
         run: ./scripts/ci/signing-keychain.sh create
       - name: Sign the variant as the nightly is signed
         env:
@@ -7727,11 +7630,7 @@ jobs:
         if: always()
         run: ./scripts/ci/signing-keychain.sh delete
       - name: Publish the variant and its module outputs
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        env: *nightly-next-r2-env
         run: bash scripts/ci/nightly-steps/live-code-variant.sh publish "$BUILD" "$COMMIT" "$LIVE_CODE_DMG_IMMUTABLE" "live-code/live-code-modules-$COMMIT.tar.gz" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Why: docs/ci/nightly-workflow-notes.md#note-22
@@ -7743,8 +7642,7 @@ jobs:
     if: "always() && (github.event_name == 'workflow_dispatch' && inputs.nightly_next_restore_notes == '' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && (needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' || needs.nightly-next-one.result == 'success' && needs.nightly-next-one.outputs.left != 'true' && needs.nightly-next-one.outputs.refused != 'true'))"
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-build.md
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
-    # Room for gh_budget_wait.sh's wait through a rate limit: tail run 45925996466 failed its one gh read on
-    # "API rate limit exceeded for installation" (HTTP 403), so build 4592220755201 shipped with no release notes.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-28-published-build-ci-routing-agent.md
     timeout-minutes: 70
     permissions:
       contents: read
@@ -7790,8 +7688,7 @@ jobs:
       comment: ${{ steps.record.outputs.comment }}
       run_tail: ${{ steps.record.outputs.cross_run == 'true' || steps.record.outputs.track != 'nightly-next' || github.event_name != 'push' && inputs.nightly_next_loop_retry == '' }}
     env:
-      # A second path for every gh call (c-bedbdb1917): a refused github.token hour moves to a CI pool's own
-      # hour at once (gh_budget_wait.sh); a write the read-only pool cannot do goes back and waits as before.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-published-build-ci-routing-agent-2.md
       GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
       SOURCE: ${{ inputs.nightly_next_post_publish }}
       NEEDS: ${{ toJSON(needs) }}
@@ -7872,8 +7769,7 @@ jobs:
       - *mint-dispatch-pools
       - *mint-dispatch-spare
       - *wait-through-github-api-rate-l
-      # A run that says published reads the live feeds first: an unmoved feed fails here, red, and a refused build
-      # (nightly-next-one reds a real refusal) asks for no post-publication run (2026-11-25, run 45607031207).
+      # Why: docs/ci/nightly-workflow-notes/2026-11-28-dispatch-published-in-ci-routing-agent.md
       - name: Read the feed back before saying published
         id: readback
         env:
@@ -8117,11 +8013,7 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/release-notes-recheck-publication-head.sh
       - name: Upload the signed release notes to R2
         if: steps.current.outputs.current == 'true'
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        env: *nightly-next-r2-env
         run: bash .publish-tooling/scripts/ci/nightly-steps/release-notes-upload-to-r2.sh
       - *release-the-nightly-next-publi
 
