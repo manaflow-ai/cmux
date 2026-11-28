@@ -8,7 +8,11 @@
 //! - warm or cold: a running machine's relay allocates its lane at once, a paused one waits out
 //!   its resume in `parked_ms`, so an attempt with `parked_ms` at or past [`COLD_PARKED_MS`] is
 //!   a cold connect (row 2) and the rest are warm (row 1),
-//! - and any `net=` and `region=` tags the line carries (absent today: `-`).
+//! - and any `net=` and `region=` tags the line carries (absent on older lines: `-`).
+//!
+//! Row 2's end to end, start plus dial plus the machine's first answer, is `first_byte`: the
+//! dial's `carrier.first_byte` line ([`super::first_byte`]), the time from the dial's start to the
+//! first byte the machine sent back, counted with the last attempt before it on that machine.
 //!
 //! Failed attempts count in `n` and `failed`; the percentiles are of the `ok` attempts only.
 
@@ -28,6 +32,8 @@ pub(super) struct Attempt {
     pub region: String,
     /// `ticket`, `relay`, `parked`, `handshake`, `mux`, `total`, in [`STEPS`] order.
     pub ms: [u64; 6],
+    /// The dial's start to the machine's first byte, from the `carrier.first_byte` line after it.
+    pub first_byte: Option<u64>,
 }
 
 /// The steps a summary reports, in the phases line's order, then the whole attempt.
@@ -54,7 +60,35 @@ pub(super) fn parse_line(line: &str) -> Option<Attempt> {
         net: tag("net"),
         region: tag("region"),
         ms,
+        first_byte: None,
     })
+}
+
+/// The ms of one `carrier.first_byte` line, with its machine.
+pub(super) fn parse_first_byte(line: &str) -> Option<(&str, u64)> {
+    let rest = line.trim().strip_prefix("carrier.first_byte ")?;
+    let fields: BTreeMap<&str, &str> = rest.split(' ').filter_map(|f| f.split_once('=')).collect();
+    Some((fields.get("machine")?, fields.get("ms")?.parse().ok()?))
+}
+
+/// A connect log's attempts in order, each first-byte line counted with the last connect or
+/// reconnect attempt before it on its machine (a `stream` line is the desktop's open, not a dial).
+pub(super) fn parse_log(text: &str) -> Vec<Attempt> {
+    let mut attempts: Vec<Attempt> = Vec::new();
+    let mut last: BTreeMap<String, usize> = BTreeMap::new();
+    for line in text.lines() {
+        if let Some(attempt) = parse_line(line) {
+            if attempt.phase != "stream" {
+                last.insert(attempt.machine.clone(), attempts.len());
+            }
+            attempts.push(attempt);
+        } else if let Some((machine, ms)) = parse_first_byte(line)
+            && let Some(&index) = last.get(machine)
+        {
+            attempts[index].first_byte.get_or_insert(ms);
+        }
+    }
+    attempts
 }
 
 /// One group's numbers.
@@ -69,6 +103,8 @@ pub(super) struct Group {
     pub failed: usize,
     /// Per step in [`STEPS`] order: (p50, p95) of the ok attempts; None with none ok.
     pub steps: [Option<(u64, u64)>; 6],
+    /// (p50, p95) of the ok attempts' `first_byte`; None with none logged.
+    pub first_byte: Option<(u64, u64)>,
 }
 
 /// Nearest-rank percentile `p` (0 to 100) of sorted `values`.
@@ -98,6 +134,9 @@ pub(super) fn summarize(attempts: &[Attempt]) -> Vec<Group> {
                 values.sort_unstable();
                 Some((percentile(&values, 50)?, percentile(&values, 95)?))
             });
+            let mut first: Vec<u64> = ok.iter().filter_map(|a| a.first_byte).collect();
+            first.sort_unstable();
+            let first_byte = percentile(&first, 50).zip(percentile(&first, 95));
             Group {
                 phase,
                 start,
@@ -106,6 +145,7 @@ pub(super) fn summarize(attempts: &[Attempt]) -> Vec<Group> {
                 n: members.len(),
                 failed: members.len() - ok.len(),
                 steps,
+                first_byte,
             }
         })
         .collect()
@@ -120,6 +160,7 @@ pub(super) fn render_text(groups: &[Group]) -> String {
     for step in STEPS {
         out.push_str(&format!(" {:>15}", format!("{step} p50/p95")));
     }
+    out.push_str(&format!(" {:>19}", "first_byte p50/p95"));
     out.push('\n');
     for g in groups {
         out.push_str(&format!(
@@ -130,6 +171,8 @@ pub(super) fn render_text(groups: &[Group]) -> String {
             let cell = step.map_or_else(|| "-".to_owned(), |(p50, p95)| format!("{p50}/{p95}"));
             out.push_str(&format!(" {cell:>15}"));
         }
+        let cell = g.first_byte.map_or_else(|| "-".to_owned(), |(p50, p95)| format!("{p50}/{p95}"));
+        out.push_str(&format!(" {cell:>19}"));
         out.push('\n');
     }
     out
@@ -154,6 +197,10 @@ pub(super) fn render_json(groups: &[Group]) -> serde_json::Value {
             serde_json::json!({
                 "phase": g.phase, "start": g.start, "net": g.net, "region": g.region,
                 "n": g.n, "failed": g.failed, "ms": steps,
+                "first_byte": g.first_byte.map_or(
+                    serde_json::Value::Null,
+                    |(p50, p95)| serde_json::json!({"p50": p50, "p95": p95}),
+                ),
             })
         })
         .collect();
@@ -203,9 +250,8 @@ pub(super) fn run(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let attempts: Vec<Attempt> = text
-        .lines()
-        .filter_map(parse_line)
+    let attempts: Vec<Attempt> = parse_log(&text)
+        .into_iter()
         .filter(|a| args.machine.as_ref().is_none_or(|m| &a.machine == m))
         .collect();
     let groups = summarize(&attempts);

@@ -157,6 +157,7 @@ mod contract;
 pub(crate) mod drill;
 pub(crate) mod drill_dial;
 pub(crate) mod fault;
+mod first_byte;
 mod held;
 mod net_kind;
 mod noise_key;
@@ -608,6 +609,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         let connect_log = route_log::default_path();
         let phases_log = connect_log.clone();
         let deadline = tokio::time::Instant::now() + args.deadline;
+        let dial_started = std::time::Instant::now();
         // Progress lines go out before the reply line, so only for a caller
         // that asked for them (`CMUX_CARRIER_PROGRESS=1`).
         let progress = std::env::var(progress::ENV).is_ok_and(|v| v == "1").then(|| {
@@ -697,15 +699,27 @@ pub(crate) fn run(args: &[String]) -> i32 {
         });
         let client::Dialed { connection, multiplexer, mux, rd_link, .. } = dialed;
         let mut code = 0;
+        // The first byte the machine sends back ends the Mac's end-to-end connect (RFD 0223 row 2).
+        let stdout = {
+            let machine = args.machine.clone();
+            let service = match args.service {
+                DialService::Mux => "mux",
+                DialService::Desktop => "desktop",
+                DialService::Acpmux => "acpmux",
+            };
+            let first_log = route_log::default_path();
+            first_byte::FirstByte::new(tokio::io::stdout(), dial_started, move |elapsed| {
+                if let Some(path) = &first_log {
+                    route_log::append(path, &first_byte::line(&machine, service, elapsed));
+                }
+            })
+        };
         let _ = match opened {
             Some(stream) if args.service == DialService::Acpmux => {
                 mux.close().await;
-                let pumped = cmux_remote::acpmux_bridge::pump_lines(
-                    stream,
-                    tokio::io::stdin(),
-                    tokio::io::stdout(),
-                )
-                .await;
+                let pumped =
+                    cmux_remote::acpmux_bridge::pump_lines(stream, tokio::io::stdin(), stdout)
+                        .await;
                 if let Err(error) = &pumped {
                     code = ACPMUX_STREAM_LOST;
                     let detail = contract::detail_code(&error.to_string())
@@ -729,7 +743,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                         rd_link::bridge(
                             stream,
                             tokio::io::stdin(),
-                            tokio::io::stdout(),
+                            stdout,
                             link.stun,
                             link.turn,
                             move |note| {
@@ -744,16 +758,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
                         .await
                     }
                     None => {
-                        cmux_remote::bridge::bridge_raw_stream(
-                            stream,
-                            tokio::io::stdin(),
-                            tokio::io::stdout(),
-                        )
-                        .await
+                        cmux_remote::bridge::bridge_raw_stream(stream, tokio::io::stdin(), stdout)
+                            .await
                     }
                 }
             }
-            None => mux.bridge(tokio::io::stdin(), tokio::io::stdout()).await,
+            None => mux.bridge(tokio::io::stdin(), stdout).await,
         };
         multiplexer.shutdown().await;
         let _ = connection.close().await;
