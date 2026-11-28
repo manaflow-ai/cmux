@@ -3,7 +3,9 @@
   "inventoried": [
     "action",
     "menu",
-    "cli"
+    "cli",
+    "shortcut",
+    "setting"
   ],
   "keep": [
     {
