@@ -234,12 +234,8 @@ struct WorkspaceHoverCardContent: Equatable {
         if let reason = needsInputReason(workspace) {
             facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3, kind: "needsInput", iconTone: .attention))
         }
-        // What the row's marks mean, which their tooltips said before rows lost them (a1315's cut 3): each usage
-        // rule acpmux found broken, with its number, and that notifications are muted.
-        for warning in workspace.usageWarnings {
-            facts.append(Fact(icon: .statusNeedsinput, text: warning, mark: "exclamationmark.triangle.fill", lines: 2,
-                              kind: usageWarningKind, iconTone: .attention))
-        }
+        // What the row's marks mean, which their tooltips said before rows lost them (a1315's cut 3): that
+        // notifications are muted.
         if workspace.muted { facts.append(Fact(icon: .notification, text: Strings.notificationsMuted, mark: "bell.slash", kind: mutedKind)) }
         // The person's own notes and the lane they pinned (classic's description and status).
         if let notes = workspace.workspaceDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
@@ -264,16 +260,6 @@ struct WorkspaceHoverCardContent: Equatable {
         }
         if let usage = usageFact(detail) { facts.append(usage) }
         if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3, kind: "task")) }
-        // The agent's task list across its turns: how far, what runs now and what is next.
-        if let tasks = workspace.taskProgress {
-            facts.append(Fact(icon: .statusProgress, text: Strings.taskProgress(done: tasks.done, total: tasks.total), kind: "tasks"))
-            if let step = tasks.current {
-                facts.append(Fact(icon: .taskStatusStarted, text: Strings.taskNow(step), lines: 2, kind: "taskNow"))
-            }
-            if let step = tasks.next {
-                facts.append(Fact(icon: .taskStatusTodo, text: Strings.taskNext(step), lines: 2, kind: "taskNext"))
-            }
-        }
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
         facts += WorkspaceHoverCardWork.facts(detail)
@@ -358,9 +344,7 @@ struct WorkspaceHoverCardContent: Equatable {
 
     /// The facts the history-first layouts (`log`, `minimal`) keep above it: why the workspace
     /// waits and what changed since the person looked.
-    static let keptOverHistory: Set<String> = ["needsInput", usageWarningKind, mutedKind, needsYouKind, sinceLookedKind]
-    /// A usage rule acpmux found broken (`SidebarWorkspace.usageWarnings`), one fact each.
-    static let usageWarningKind = "usageWarning"
+    static let keptOverHistory: Set<String> = ["needsInput", mutedKind, needsYouKind, sinceLookedKind]
     /// The workspace's notifications are muted.
     static let mutedKind = "muted"
 

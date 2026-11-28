@@ -24,7 +24,10 @@ function linkedGithubText(
   enabled = true,
   quietCommits = false,
   bare = true,
+  links = true,
 ): ReactNode[] {
+  // A link's label: its paths and URLs are its text, inside the link's one chip.
+  if (!links) return [text];
   if (!enabled) return linkedText(text, key);
   // Every id the prose names, in reading order (proseIds.ts): a pull request or issue, a commit,
   // a nightly build or an Actions run. An id inside a URL or a path is part of it.
@@ -131,6 +134,7 @@ export function proseText(text: string, key: string, opts: InlineOptions): React
                       opts.linkGithubReferences !== false,
                       opts.commits === "quiet",
                       opts.linkBareReferences !== false,
+                      !opts.insideLink,
                     ),
                     `${current}-${at}`,
                   )
@@ -146,6 +150,7 @@ export function proseText(text: string, key: string, opts: InlineOptions): React
                 opts.linkGithubReferences !== false,
                 opts.commits === "quiet",
                 opts.linkBareReferences !== false,
+                !opts.insideLink,
               ),
               current,
             )

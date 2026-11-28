@@ -24,9 +24,9 @@ const MAX_CHATS: usize = 16;
 /// Sends every projection's away notices to the chats working in its folder (first call wins).
 pub(super) fn install(mux: &Arc<Mux>) {
     let mux: Weak<Mux> = Arc::downgrade(mux);
-    crate::projection::tell_away_with(move |at, prompt_id, title, text| {
+    crate::projection::tell_away_with(move |at, also, prompt_id, title, text| {
         if let Some(mux) = mux.upgrade() {
-            tell(&mux, at, prompt_id, title, text);
+            tell(&mux, at, also, prompt_id, title, text);
         }
     });
 }
@@ -36,16 +36,24 @@ pub(crate) fn works_in(folder: &str, at: &Path) -> bool {
     Path::new(folder).starts_with(at)
 }
 
-fn tell(mux: &Mux, at: &Path, prompt_id: &str, title: &str, text: &str) {
+fn tell(mux: &Mux, at: &Path, also: Option<&str>, prompt_id: &str, title: &str, text: &str) {
     let Some(socket) = mux.control_clients.agent_sessions.socket() else { return };
-    let mut source = match list_source::open(&socket, LIST_WITHIN) {
-        Ok(Opened::List(source)) => source,
+    // A chat named outright (the one that removed the folder) is told even when the list fails.
+    let mut chats: Vec<String> = also.map(str::to_owned).into_iter().collect();
+    let source = match list_source::open(&socket, LIST_WITHIN) {
+        Ok(Opened::List(source)) => Some(source),
         Ok(Opened::V1) | Err(_) => {
             eprintln!("cmux-tui: projection away notice: acpmux's chat list cannot be read");
-            return;
+            None
         }
     };
-    let mut chats = Vec::new();
+    if let Some(mut source) = source {
+        find_chats(&mut source, at, &mut chats);
+    }
+    send_all(mux, chats, prompt_id, title, text);
+}
+
+fn find_chats(source: &mut list_source::Source, at: &Path, chats: &mut Vec<String>) {
     let local = ListFilter { origin: Some("local".into()), ..ListFilter::default() };
     let walked = source.walk(ListView::Live, Some(local), |rows| {
         for row in rows {
@@ -58,6 +66,11 @@ fn tell(mux: &Mux, at: &Path, prompt_id: &str, title: &str, text: &str) {
     if walked.is_err() {
         eprintln!("cmux-tui: projection away notice: acpmux's chat list ended early");
     }
+}
+
+fn send_all(mux: &Mux, mut chats: Vec<String>, prompt_id: &str, title: &str, text: &str) {
+    let mut seen = std::collections::HashSet::new();
+    chats.retain(|chat| seen.insert(chat.clone()));
     chats.truncate(MAX_CHATS);
     let notice =
         json!({"sender": crate::projection::AWAY_SENDER, "severity": "warn", "title": title});
@@ -75,15 +88,5 @@ fn tell(mux: &Mux, at: &Path, prompt_id: &str, title: &str, text: &str) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_chat_works_in_the_projection_at_its_mount_point_or_below() {
-        let at = Path::new("/home/u/work/chat");
-        assert!(works_in("/home/u/work/chat", at));
-        assert!(works_in("/home/u/work/chat/src", at));
-        assert!(!works_in("/home/u/work/chat2", at));
-        assert!(!works_in("/home/u/work", at));
-    }
-}
+#[path = "projection_away_tests.rs"]
+mod tests;

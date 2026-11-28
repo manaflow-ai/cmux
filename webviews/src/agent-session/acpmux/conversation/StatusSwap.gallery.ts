@@ -29,7 +29,29 @@ const holdAt = (ms: number) => async (ctx: PlayContext) => {
   }
 };
 
-export default componentEntry<{ sequence?: "leo" }>({
+/// Sends the stage's burst (nine steps, 60 ms apart) and counts how often the live line rolled until it
+/// rests on Thinking again. With the dwell (Thinking.tsx `LINE_DWELL_MS`, 320 ms) the half-second burst
+/// rolls at most three times; before it, every step rolled.
+const burst = (most: number | undefined) => async (ctx: PlayContext) => {
+  const line = ctx.find({ selector: '[data-status-swap="line"]' });
+  let rolls = 0;
+  const watch = new MutationObserver((records) => {
+    for (const record of records)
+      if (record.attributeName === "data-roll" && (record.target as Element).classList.contains("cv-thinking"))
+        rolls += 1;
+  });
+  watch.observe(line, { attributes: true, attributeFilter: ["data-roll"], subtree: true });
+  await ctx.click({ selector: '[data-stage="burst"]' });
+  const started = performance.now();
+  await ctx.waitFor(() => performance.now() - started > 1_200 && swapAnimations(ctx.document).length === 0, {
+    capMs: 4_000,
+  });
+  watch.disconnect();
+  ctx.document.documentElement.dataset.burstRolls = String(rolls);
+  if (most !== undefined && rolls > most) throw new Error(`the live line rolled ${rolls} times in one burst`);
+};
+
+export default componentEntry<{ sequence?: "leo" | "burst"; dwell?: boolean }>({
   id: "agent-pane.status-swap",
   title: "Status lines: the hat's step and the live line roll to the next",
   area: "Agent pane",
@@ -68,6 +90,16 @@ export default componentEntry<{ sequence?: "leo" }>({
       note: "Halfway into Thinking to Sending a message: the old line, tokens and all, half out above; the new half in below.",
       props: { sequence: "leo" },
       play: holdAt(60),
+    },
+    "rapid-send": {
+      note: 'Leo, 2026-11-25: "the sending messages in rapid succession is really bad looking". Nine sends, calls and Thinkings 60 ms apart: the line holds each words 320 ms, rolling at most three times, and rests on Thinking.',
+      props: { sequence: "burst" },
+      play: burst(3),
+    },
+    "rapid-send-before": {
+      note: "The same burst without the dwell, as it shipped before: every step rolls in its own micro step, the line flickering through nine words.",
+      props: { sequence: "burst", dwell: false },
+      play: burst(undefined),
     },
     play: {
       note: "Four steps: each change rolls on the hat and on the live line.",

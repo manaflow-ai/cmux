@@ -61,7 +61,7 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         hideByTap: { $0.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.3)).tap() },
         prepare: { app in
             let field = app.textViews["chat.composer.field"]
-            let capsule = app.descendants(matching: .any).matching(identifier: "Reply to Claude").firstMatch
+            let capsule = app.descendants(matching: .any).matching(identifier: "agentChat.composer.collapsed").firstMatch
             // The bench goes to the chat itself: from a diff, the Changes
             // screen or any pushed page, back until the composer shows.
             guard Self.toChat(app, field: field, capsule: capsule) else { return false }

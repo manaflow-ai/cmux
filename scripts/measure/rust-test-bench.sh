@@ -6,7 +6,8 @@
 # cannot: the acpmux harness CPU-class question (cmux #30057, lead 2026-11-01 04:30Z).
 #
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/rust-test-bench.sh \
-#     --ref SHA --arg CRATE --arg FILTER [--arg source=SHA] [--arg target=lib|test:NAME] \
+#     --ref SHA --arg CRATE --arg FILTER [--arg source=SHA] [--arg target=lib|test:NAME] [--arg config=release] \
+#     [--arg ignored=1] [--arg enable=ACPMUX_DURESS --arg legs=baseline,rfd0050|CMUX_AGENT_PANE_COMPILE_HINTS] \
 #     --artifact artifacts/rust-test-bench/output.txt
 #
 # CRATE    a package of the cmux-tui workspace, e.g. acpmux.
@@ -20,6 +21,14 @@
 # target=lib|test:NAME
 #          only the crate's library unit tests, or only its integration test NAME (tests/NAME.rs);
 #          default: both (`--lib --tests`), no doc tests.
+#
+# config=debug|release selects the Cargo profile (default debug).
+# ignored=1 runs only ignored tests. enable=ACPMUX_DURESS enables the manual duress
+# benchmark for the run only; it requires acpmux/duress_daemon, duress_bench, ignored=1,
+# config=release and explicit legs=baseline,rfd0050 (either leg alone also works).
+# Its fresh JSON and Markdown reports are saved under duress/ beside output.txt; a missing report fails.
+# enable=CMUX_AGENT_PANE_COMPILE_HINTS forwards the opt-in pane compile-hints flag to the
+# selected test. It is a reviewed measurement-only switch; ordinary runs stay default-off.
 #
 # Output: the test's own output (--nocapture, one test thread) in the step log and the artifact,
 # then RUST-TEST-BENCH lines: the measured tree, the host, `vm.loadavg` and the processes over
@@ -36,7 +45,7 @@ main() {
   source "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/lib/fleet-only.sh"
 
   # --- Arguments (checked before anything else runs) ----------------------
-  local usage="usage: rust-test-bench.sh CRATE FILTER [source=SHA] [target=lib|test:NAME]"
+  local usage="usage: rust-test-bench.sh CRATE FILTER [source=SHA] [target=lib|test:NAME] [config=debug|release] [ignored=1] [enable=ACPMUX_DURESS legs=baseline,rfd0050|CMUX_AGENT_PANE_COMPILE_HINTS]"
   [[ $# -ge 2 ]] || { echo "$usage" >&2; exit 2; }
   local a
   for a in "$@"; do
@@ -48,7 +57,7 @@ main() {
     { echo "rust-test-bench.sh: CRATE must be a cmux-tui package name (got '$crate')" >&2; exit 2; }
   [[ "$filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_:]*$ ]] ||
     { echo "rust-test-bench.sh: FILTER must be a Rust test path (letters, digits, _ :; got '$filter')" >&2; exit 2; }
-  local source_sha="" target="" arg key seen=" "
+  local source_sha="" target="" config=debug ignored="" bench_switch="" legs="" arg key seen=" "
   for arg in "$@"; do
     key=${arg%%=*}
     if [[ "$arg" != *=?* || "$seen" == *" $key "* ]]; then
@@ -58,6 +67,10 @@ main() {
     case "$key" in
       source) source_sha=${arg#source=} ;;
       target) target=${arg#target=} ;;
+      config) config=${arg#config=} ;;
+      ignored) ignored=${arg#ignored=} ;;
+      enable) bench_switch=${arg#enable=} ;;
+      legs) legs=${arg#legs=} ;;
       *) echo "rust-test-bench.sh: unknown argument '$arg'; $usage" >&2; exit 2 ;;
     esac
   done
@@ -73,6 +86,47 @@ main() {
       target_args=(--test "${target#test:}") ;;
     *) echo "rust-test-bench.sh: target= takes lib or test:NAME (got '$target')" >&2; exit 2 ;;
   esac
+
+  local config_args=() run_args=() run_env=()
+  case "$config" in
+    debug) ;;
+    release) config_args=(--release) ;;
+    *) echo "rust-test-bench.sh: config= takes debug or release" >&2; exit 2 ;;
+  esac
+  case "$ignored" in
+    "") ;;
+    1) run_args=(--ignored) ;;
+    *) echo "rust-test-bench.sh: ignored= takes 1" >&2; exit 2 ;;
+  esac
+  if [[ -n "$bench_switch" ]]; then
+    case "$bench_switch" in
+      ACPMUX_DURESS)
+        [[ "$crate" == acpmux && "$target" == test:duress_daemon &&
+           "$filter" == duress_bench && "$ignored" == 1 && "$config" == release ]] || {
+          echo "rust-test-bench.sh: enable=ACPMUX_DURESS requires acpmux duress_bench target=test:duress_daemon ignored=1 config=release" >&2; exit 2;
+        }
+        case "$legs" in
+          baseline|rfd0050|baseline,rfd0050|rfd0050,baseline) ;;
+          *) echo "rust-test-bench.sh: duress needs explicit legs=baseline,rfd0050 (or either leg)" >&2; exit 2 ;;
+        esac
+        run_env=(ACPMUX_DURESS=1 "ACPMUX_DURESS_LEGS=$legs")
+        ;;
+      CMUX_AGENT_PANE_COMPILE_HINTS)
+        # This is a reviewed measurement allowlist entry. The selected Rust test owns
+        # whether it invokes the pane build, so this generic runner cannot invent a
+        # crate/target restriction; those arguments remain the row's identity.
+        [[ -z "$legs" ]] || {
+          echo "rust-test-bench.sh: legs= is only valid with enable=ACPMUX_DURESS" >&2; exit 2;
+        }
+        run_env=(CMUX_AGENT_PANE_COMPILE_HINTS=1)
+        ;;
+      *)
+        echo "rust-test-bench.sh: enable= takes ACPMUX_DURESS or CMUX_AGENT_PANE_COMPILE_HINTS" >&2; exit 2
+        ;;
+    esac
+  elif [[ -n "$legs" ]]; then
+    echo "rust-test-bench.sh: legs= requires enable=ACPMUX_DURESS" >&2; exit 2
+  fi
 
   cmux_next_require_fleet rust-test-bench.sh "cargo test" "none (a measurement)" \
     "cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/rust-test-bench.sh --ref SHA --arg CRATE --arg FILTER"
@@ -113,12 +167,21 @@ main() {
   note "RUST-TEST-BENCH test: -p $crate ${target_args[*]} -- $filter"
   note "RUST-TEST-BENCH host: $(hostname -s), $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, macOS $(sw_vers -productVersion)"
 
+  note "RUST-TEST-BENCH configuration: $config, ignored=${ignored:-0}, enable=${bench_switch:-none}, legs=${legs:-none}"
+  if [[ "$bench_switch" == ACPMUX_DURESS ]]; then
+    # A warm worker must never supply an old report for a skipped test.
+    mkdir -p "$out/duress"
+    run_env+=("FAST_CHECKS_OUT=$out/duress")
+    export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+    command -v go >/dev/null || { echo "rust-test-bench.sh: acpmux requires Go on the fleet worker PATH" >&2; exit 3; }
+  fi
+
   # --- Build ---------------------------------------------------------------
   cd "$root/cmux-tui"
   local t0=$SECONDS build_status
   set +e
   # Output goes to the step log as it comes, so a long build is not stopped as a silent one.
-  cargo test --locked -p "$crate" "${target_args[@]}" --no-run 2>&1 | tee "$out/build.log"
+  env ${run_env[@]+"${run_env[@]}"} cargo test --locked -p "$crate" "${target_args[@]}" ${config_args[@]+"${config_args[@]}"} --no-run 2>&1 | tee "$out/build.log"
   local -a build_pipe=("${PIPESTATUS[@]}")
   set -e
   build_status=${build_pipe[0]}
@@ -135,7 +198,7 @@ main() {
   t0=$SECONDS
   local status
   set +e
-  cargo test --locked -p "$crate" "${target_args[@]}" -- "$filter" --nocapture --test-threads=1 2>&1 |
+  env ${run_env[@]+"${run_env[@]}"} cargo test --locked -p "$crate" "${target_args[@]}" ${config_args[@]+"${config_args[@]}"} -- "$filter" --nocapture --test-threads=1 ${run_args[@]+"${run_args[@]}"} 2>&1 |
     tee "$out/test.log" | tee -a "$report"
   local -a test_pipe=("${PIPESTATUS[@]}")
   set -e
@@ -152,6 +215,11 @@ main() {
   if [[ "$ran" -eq 0 && "$status" -eq 0 ]]; then
     note "RUST-TEST-BENCH result: no test matched $filter"
     exit 1
+  fi
+  if [[ "$status" -eq 0 && "$bench_switch" == ACPMUX_DURESS ]]; then
+    [[ -s "$out/duress/duress-bench.json" && -s "$out/duress/duress-bench.md" ]] || {
+      note "RUST-TEST-BENCH result: duress produced no fresh report"; exit 1;
+    }
   fi
   exit "$status"
 }

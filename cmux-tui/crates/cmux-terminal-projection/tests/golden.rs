@@ -418,7 +418,9 @@ fn headers_claude_code() {
                 trimmed.ends_with("◯ IDE disconnected"),
                 "status right part at the edge: {trimmed:?}"
             );
-            assert_eq!(UnicodeWidthStr::width(trimmed), 54, "{trimmed:?}");
+            // The host's one-cell right margin stays, as Claude Code keeps it
+            // at any width.
+            assert_eq!(UnicodeWidthStr::width(trimmed), 53, "{trimmed:?}");
         }
     }
     // The cursor is in the input box, after "> ".
@@ -518,8 +520,8 @@ fn left_and_right_aligned() {
                 .collect::<String>()
         })
         .collect();
-    // The right prompt stays whole and ends at the phone's edge. With "ls"
-    // typed, both parts do not fit one phone row (36 + 2 + 18 > 54), so the
+    // The right prompt stays whole and ends one cell short of the phone's
+    // edge. With "ls" typed, both parts do not fit one phone row, so the
     // right part goes on the row below, right-aligned (zsh itself would
     // hide it at 54 columns); without, they share the row.
     let prompt_rows: Vec<usize> =
@@ -527,10 +529,12 @@ fn left_and_right_aligned() {
     assert_eq!(prompt_rows.len(), 2, "each right prompt is whole on one row: {texts:#?}");
     for &i in &prompt_rows {
         let t = &texts[i];
+        // zsh's right prompt keeps its one-cell indent from the edge
+        // (ZLE_RPROMPT_INDENT), at the phone's width as at the Mac's.
         assert_eq!(
             UnicodeWidthStr::width(t.trim_end()),
-            54,
-            "right part at the phone's edge: {t:?}"
+            53,
+            "right part one cell short of the phone's edge: {t:?}"
         );
         let left = if t.starts_with("leo@") { t } else { &texts[i - 1] };
         assert!(
@@ -539,15 +543,21 @@ fn left_and_right_aligned() {
         );
     }
     assert!(texts[prompt_rows[0] - 1].starts_with("leo@cosmic-gray ~/Projects/cmux % ls"));
-    assert!(texts[prompt_rows[1]].starts_with("leo@cosmic-gray ~/Projects/cmux %   [main"));
-    let clock = texts.iter().find(|t| t.contains("build finished")).unwrap();
+    assert!(texts[prompt_rows[1]].starts_with("leo@cosmic-gray ~/Projects/cmux %  [main"));
+    let clock = texts
+        .iter()
+        .find(|t| t.contains("build finished"))
+        .unwrap_or_else(|| panic!("the clock is on the phone: {texts:#?}"));
     assert_eq!(
         UnicodeWidthStr::width(clock.trim_end()),
         54,
         "right-aligned at the edge: {clock:?}"
     );
     // The title centered on the Mac is centered on the phone, on one row.
-    let title = texts.iter().find(|t| t.contains("Release notes")).unwrap();
+    let title = texts
+        .iter()
+        .find(|t| t.contains("Release notes"))
+        .unwrap_or_else(|| panic!("the title is on the phone: {texts:#?}"));
     assert_eq!(title.trim_end(), format!("{}== Release notes ==", " ".repeat(17)));
 
     // The cursor waits after the left prompt, as on the Mac.
@@ -941,5 +951,167 @@ fn compaction_keeps_every_glyph() {
                 "round {round}: a row {w} wide on a {phone_cols}-column phone"
             );
         }
+    }
+}
+
+/// The phone's rows as text, trailing blanks trimmed, with their wrap flag.
+fn phone_rows(case: &Case) -> Vec<(String, bool)> {
+    let t = &case.phone.term;
+    t.history
+        .iter()
+        .chain(t.primary_rows())
+        .map(|r| {
+            let text: String = r
+                .cells
+                .iter()
+                .filter(|c| c.kind != WIDE_TAIL && c.kind != SPACER_HEAD)
+                .map(|c| if c.ch == 0 { " ".to_string() } else { t.cell_text(*c) })
+                .collect();
+            (text.trim_end().to_string(), r.wrapped)
+        })
+        .collect()
+}
+
+/// Aziz, cmux#42219 (2): "`ls` columns ... are laid out for the Mac's width".
+/// `ls` at 120 columns, shown on a 54-column phone: every name stays whole
+/// on one phone row (never split across two), in the order `ls` wrote them,
+/// and no row is wider than the phone.
+///
+/// Known gap, measured here: the projection wraps by cells, so a name at a
+/// row's end splits (`node_mod` / `ules`). Breaking at the column gaps instead
+/// changes where a line's earlier rows end as the line grows, which the
+/// streaming painter does not allow yet (`live_streaming_output` garbles).
+/// The fix (a gap-aware wrap whose prefix layout is stable, or a repaint
+/// from the line's first row) lands with the shell-reflow step of
+/// cmux-next-ios/design/terminal-fit-to-phone.md.
+#[test]
+#[ignore = "known gap: names split at a row's end; see the doc comment"]
+fn ls_columns_keep_every_name_whole() {
+    let names = [
+        "Cargo.lock",
+        "Cargo.toml",
+        "README.md",
+        "build.rs",
+        "docs",
+        "examples",
+        "scripts",
+        "src",
+        "target",
+        "tests",
+        "webviews",
+        "node_modules",
+        "package.json",
+        "tsconfig.json",
+        "LICENSE",
+        "CHANGELOG.md",
+        "rust-toolchain.toml",
+        "deny.toml",
+        "clippy.toml",
+        "benches",
+    ];
+    let mut case = Case::new("ls_columns", "", (120, 24), (54, 30));
+    let mut s = String::from("$ ls\r\n");
+    for row in names.chunks(6) {
+        let line: String = row.iter().map(|n| format!("\x1b[1;34m{n:<20}\x1b[0m")).collect();
+        s += line.trim_end();
+        s += "\r\n";
+    }
+    s += "$ ";
+    case.feed(s.as_bytes());
+    let rows = phone_rows(&case);
+    let mut seen = Vec::new();
+    for (text, _) in &rows {
+        assert!(visible_width(text) <= 54, "row wider than the phone: {text:?}");
+        seen.extend(text.split_whitespace().map(str::to_string));
+    }
+    let seen: Vec<&str> =
+        seen.iter().map(String::as_str).filter(|w| *w != "$" && *w != "ls").collect();
+    assert_eq!(seen, names, "every name whole, in order: {rows:#?}");
+}
+
+/// Aziz, cmux#42219 (2): "tables ... laid out for the Mac's width". A box
+/// table padded to the Mac's edge (Claude Code's Markdown tables) keeps each
+/// border row to one phone row at the phone's width, and every cell's text.
+#[test]
+fn a_box_table_at_the_macs_width_is_laid_out_at_the_phones() {
+    let mut case = Case::new("box_table", "", (120, 24), (54, 30));
+    let w = [38usize, 38, 39];
+    let border = |l: &str, m: &str, r: &str| {
+        format!("{l}{}{r}", w.iter().map(|n| "─".repeat(*n)).collect::<Vec<_>>().join(m))
+    };
+    let cells = |a: &str, b: &str, c: &str| format!("│{a:<38}│{b:<38}│{c:<39}│");
+    let mut s = String::new();
+    s += &border("┌", "┬", "┐");
+    s += "\r\n";
+    s += &cells(" Test", " Before", " After");
+    s += "\r\n";
+    s += &border("├", "┼", "┤");
+    s += "\r\n";
+    s += &cells(" cols from width", " 1.7 rows", " 1 row");
+    s += "\r\n";
+    s += &border("└", "┴", "┘");
+    s += "\r\n";
+    case.feed(s.as_bytes());
+    let rows = phone_rows(&case);
+    for (text, wrapped) in &rows {
+        if text.starts_with(['┌', '├', '└']) {
+            // The table ends a cell short of the Mac's edge (119 of 120):
+            // the host's right margin stays on the phone, as it does on the
+            // Mac at any width.
+            assert_eq!(visible_width(text), 53, "border at the phone's width: {text:?}");
+            assert!(!wrapped, "a border is one phone row: {text:?}");
+        }
+        assert!(visible_width(text) <= 54, "{text:?}");
+    }
+    let all: String = rows.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>().join(" ");
+    for word in ["Test", "Before", "After", "cols", "from", "width", "1.7", "rows", "1", "row"] {
+        assert!(
+            all.split(|c: char| !c.is_alphanumeric() && c != '.').any(|w| w == word),
+            "{word} kept: {rows:#?}"
+        );
+    }
+}
+
+/// Aziz, cmux#42219 (2): "diffs are laid out for the Mac's width". Claude
+/// Code's diff rows fill the Mac's width with their red or green background;
+/// on the phone each keeps its sign, its text and its background on every
+/// glyph, and no row is wider than the phone.
+#[test]
+fn a_diff_at_the_macs_width_keeps_its_signs_and_colours() {
+    let mut case = Case::new("diff", "", (120, 24), (54, 30));
+    let lines = [
+        ("\x1b[38;5;167;48;5;52m", "-", "    let cols = surface.width / cell;"),
+        ("\x1b[38;5;77;48;5;22m", "+", "    let cols = surface.grid.columns;"),
+        ("", " ", "    feed(seed);"),
+    ];
+    let mut s = String::new();
+    for (i, (sgr, sign, text)) in lines.iter().enumerate() {
+        let body = format!("{:>4} {sign}{text}", 10 + i);
+        s += &format!("{sgr}{body:<120}\x1b[0m\r\n");
+    }
+    case.feed(s.as_bytes());
+    let t = &case.phone.term;
+    let rows: Vec<_> = t.history.iter().chain(t.primary_rows()).collect();
+    let text = phone_rows(&case);
+    for (i, (sign, needle)) in [("-", "surface.width"), ("+", "grid.columns")].iter().enumerate() {
+        let at = text
+            .iter()
+            .position(|(r, _)| r.contains(needle))
+            .unwrap_or_else(|| panic!("{needle}: {text:#?}"));
+        assert!(text[at].0.contains(&format!("{} {sign}", 10 + i)), "sign kept: {:?}", text[at].0);
+        let styles: Vec<u16> = rows[at]
+            .cells
+            .iter()
+            .filter(|c| c.ch != 0 && c.ch != u32::from(b' '))
+            .map(|c| c.style)
+            .collect();
+        assert!(
+            styles.iter().all(|s| *s != 0 && *s == styles[0]),
+            "every glyph keeps the row's colours: {:?}",
+            text[at].0
+        );
+    }
+    for (row, _) in &text {
+        assert!(visible_width(row) <= 54, "{row:?}");
     }
 }

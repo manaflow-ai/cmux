@@ -1,6 +1,6 @@
 ---
 name: cmux-rich-output
-description: "Show work in a cmux chat as more than text: Mermaid diagrams, Vega-Lite and ```chart charts, KaTeX math, live HTML cards (render), slide decks (slides) with Present and PDF or .pptx export, Markdown files in cmux's Markdown page. Load it for a chart, diagram, deck, slides, report, PDF or document, a presentation, LaTeX, a Google Slides deck or a Figma file shown live, or when a picture would explain better than prose."
+description: "Show work as more than text: Mermaid, charts, KaTeX, live HTML cards, slide decks (PDF, .pptx), Markdown pages. Use for a chart, diagram, deck, report, PDF, LaTeX, Slides or Figma."
 ---
 
 # Rich output in a cmux chat

@@ -2,9 +2,10 @@
 // search text, the inline OneTab paste box, and the intents. The page keeps no optimistic copy: a
 // change re-reads after its owner confirms, and every stash change anywhere (`stash-changed`)
 // re-reads. Only a delete hides its members at once, while the app's Undo toast is up.
+import { AutoRetryLoop } from "../../agent-session/acpmux/autoRetry";
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { userMessage } from "../shared/userMessage";
-import { subscribePageStreams } from "../shared/pageStreams";
+import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { keepUnchanged, memberKey, normalized, parseOneTab, visibleGroups } from "./model";
 import {
   StashOps,
@@ -55,6 +56,10 @@ export class StashStore {
   /** Counts the owner link's returns; a subscribe from before the last one is for the lost link. */
   private linkEpoch = 0;
   private changesUnsupported = false;
+  /** A list read the owner refused while the link was up is asked again on its own (a lost link
+   *  re-reads when it comes back); a good read clears the notice. */
+  private readRetry?: AutoRetryLoop;
+  private unwake?: () => void;
   /** Whether the notice is a failed read's, which the next good read clears. */
   private noticeIsRead = false;
 
@@ -94,6 +99,7 @@ export class StashStore {
     const lifetime = ++this.lifetime;
     const alive = () => lifetime === this.lifetime;
     this.starting = true;
+    this.followReadRetry(alive);
     try {
       try {
         const stop = await subscribePageStreams(this.client, {
@@ -128,7 +134,26 @@ export class StashStore {
     this.changesUnsupported = false;
     this.changes?.();
     this.changes = undefined;
+    this.readRetry?.dispose();
+    this.readRetry = undefined;
+    this.unwake?.();
+    this.unwake = undefined;
     for (const stop of this.stops.splice(0)) stop();
+  }
+
+  /** The read's retry loop for this lifetime, woken when the page shows again. Kept apart from
+   *  `stops`, which say whether the page is following its owner. */
+  private followReadRetry(alive: () => boolean): void {
+    this.readRetry?.dispose();
+    this.unwake?.();
+    const retry = new AutoRetryLoop(() => {
+      if (alive()) void this.reload();
+    });
+    this.readRetry = retry;
+    if (typeof document === "undefined") return;
+    const wake = () => retry.wake();
+    document.addEventListener("visibilitychange", wake);
+    this.unwake = () => document.removeEventListener("visibilitychange", wake);
   }
 
   /** Subscribes to `stash-changed` unless it already is; true when the page may read (subscribed,
@@ -217,6 +242,7 @@ export class StashStore {
       if (generation !== this.generation) return;
       // Unchanged members keep their objects, so the page's memoized rows draw only the changed ones.
       this.loaded = keepUnchanged(this.loaded, (records ?? []).map(normalized));
+      this.readRetry?.succeed();
       const clearRead = this.noticeIsRead ? { notice: undefined } : {};
       this.noticeIsRead = false;
       this.set({ ...clearRead, groups: this.visible(), loading: false, connection: "connected" });
@@ -225,6 +251,7 @@ export class StashStore {
       this.fail(error);
       this.noticeIsRead = true;
       this.set({ loading: false });
+      if (!(isPageError(error) && error.code === LINK_CLOSED)) this.readRetry?.fail();
     }
   }
 

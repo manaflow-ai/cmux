@@ -133,7 +133,7 @@ fn chat_guidance_is_its_own_first_turn_block_beside_a_persons_override() {
     append_snapshot(Some(&parts), &mut blocks);
     assert_eq!(blocks.len(), 2, "{blocks:?}");
     let text = blocks[1]["text"].as_str().unwrap();
-    assert!(text.starts_with("<cmux-guidance-context>") && text.contains("update_plan"), "{text}");
+    assert!(text.starts_with("<cmux-guidance-context>") && text.contains("HOST/NAME"), "{text}");
     assert_eq!(blocks[1]["_meta"]["acpmux"]["contextSource"], "cmux-guidance");
     assert!(blocks[0]["text"].as_str().unwrap().contains("my rule"));
 }
@@ -332,4 +332,45 @@ fn a_fork_keeps_the_rules_only_when_cut_after_the_turn_that_carried_them() {
     // Recorded before the seq was kept: kept, as before.
     meta.cmux_rules_seq = None;
     assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 0));
+}
+
+/// The test fakes strip the hidden cmux blocks named on their `GUIDANCE_SOURCES` line; a
+/// source the product sends that a fake lacks reaches it as a user line and every
+/// session-move fixture stops matching (cmux#56653's `cmux-card`, fixed by cmux#60997). Each
+/// fake carries the list inline because probes check out one fake file alone and run it: a
+/// sibling data file crashed the stub at import and every throwaway-home start came back
+/// `acpmux refused the request`.
+#[test]
+fn the_fakes_strip_every_hidden_block_the_product_sends() {
+    let mut sent = RULE_SOURCES.to_vec();
+    sent.sort_unstable();
+    for (name, text) in [
+        ("fake_agent.py", include_str!("../tests/fake_agent.py")),
+        ("fake_claude.py", include_str!("../tests/fake_claude.py")),
+        ("fake_workflow_agent.py", include_str!("../tests/fake_workflow_agent.py")),
+    ] {
+        let line = text
+            .lines()
+            .find(|l| l.starts_with("GUIDANCE_SOURCES = "))
+            .unwrap_or_else(|| panic!("{name} has no GUIDANCE_SOURCES line"));
+        let mut listed: Vec<&str> = line.split('"').skip(1).step_by(2).collect();
+        listed.sort_unstable();
+        assert_eq!(listed, sent, "update {name}'s GUIDANCE_SOURCES to the product's RULE_SOURCES");
+    }
+}
+
+/// A fake runs from a lone copy: the fleet probes sparse-check-out `fake_agent.py` and
+/// nothing beside it, so no fake may read a sibling file at import.
+#[test]
+fn the_fakes_read_no_sibling_file() {
+    for (name, text) in [
+        ("fake_agent.py", include_str!("../tests/fake_agent.py")),
+        ("fake_claude.py", include_str!("../tests/fake_claude.py")),
+        ("fake_workflow_agent.py", include_str!("../tests/fake_workflow_agent.py")),
+    ] {
+        assert!(
+            !text.contains("os.path.dirname(os.path.abspath(__file__))"),
+            "{name} reads a file beside itself; probes run it alone"
+        );
+    }
 }

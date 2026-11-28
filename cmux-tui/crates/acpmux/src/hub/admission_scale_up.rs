@@ -34,8 +34,10 @@ use super::*;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-/// No second run within this of the last start.
-pub(crate) const COOLDOWN: Duration = Duration::from_secs(10 * 60);
+/// No second run within this of the last start. 2 min, not 10: on the 2026-11-24 start-trace replay
+/// (8 seats, 6 min lead, static T=0) 10 min left 1,300 overload lane-minutes over 24 h and 2 min left
+/// 502, for +4.4 host-hours (leo-workspace `tools/lane_elastic_replay.py`).
+pub(crate) const COOLDOWN: Duration = Duration::from_secs(2 * 60);
 /// `lane_overflow.timeout_seconds` without one, and its bounds (`lane_place.py`'s).
 const BUDGET_DEFAULT: u64 = 240;
 const BUDGET_MAX: u64 = 3600;
@@ -784,9 +786,10 @@ mod tests {
         release.notify_one();
         settle(&scale).await;
         // Repeated last-slot creates after the run ended, within the cooldown, ask nothing.
-        for s in 1..5 {
-            let later = now + Duration::from_secs(s * 30);
-            assert_eq!(scale.trigger(&owner, one_plan(), later), Trigger::Cooling);
+        // Four probes spread inside COOLDOWN, the last a fifth of it short of its end.
+        for s in 1..5u32 {
+            let later = now + COOLDOWN * s / 5;
+            assert_eq!(scale.trigger(&owner, one_plan(), later), Trigger::Cooling, "at {s}/5");
         }
         assert_eq!(calls.load(Ordering::SeqCst), 1, "one machine for the whole burst");
         assert!(owner.close(Duration::from_secs(1)).await.joined());

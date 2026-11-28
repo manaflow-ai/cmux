@@ -130,10 +130,21 @@ const look =
       [...ctx.document.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((node) =>
         words.test(node.textContent ?? ""),
       );
+    // Opens a line with a staged click (ctx.click), as the person would: the click declares the expand
+    // of what it opens, and the rows it pushes down. A bare element.click() inside a wait declares
+    // nothing, so the fold opening below it counted as undeclared moves.
+    const press = async (button: HTMLButtonElement) => {
+      button.setAttribute("data-row-anatomy-press", "");
+      try {
+        await ctx.click({ selector: "[data-row-anatomy-press]" });
+      } finally {
+        button.removeAttribute("data-row-anatomy-press");
+      }
+    };
     const open = async (words: RegExp) => {
       const find = line(words);
       await ctx.waitFor(find, { capMs: 10_000 });
-      if (find()?.getAttribute("aria-expanded") === "false") find()!.click();
+      if (find()?.getAttribute("aria-expanded") === "false") await press(find()!);
       await ctx.waitFor(() => find()?.getAttribute("aria-expanded") === "true", { capMs: 10_000 });
     };
     await open(/^Worked for/);
@@ -142,7 +153,7 @@ const look =
     // A message line's toggle is the line's cover, with no words of its own.
     const sent = () => ctx.document.querySelector<HTMLButtonElement>(".cv-sent-msg button.cv-agentmsg__toggle");
     await ctx.waitFor(sent, { capMs: 10_000 });
-    if (sent()?.getAttribute("aria-expanded") === "false") sent()!.click();
+    if (sent()?.getAttribute("aria-expanded") === "false") await press(sent()!);
     await ctx.waitFor(() => sent()?.getAttribute("aria-expanded") === "true", { capMs: 10_000 });
     if (opensTask) {
       await open(/Background task finished/);

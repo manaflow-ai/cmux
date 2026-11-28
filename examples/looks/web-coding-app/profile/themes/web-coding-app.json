@@ -1,0 +1,34 @@
+// A light web coding agent: a white #ffffff page inside a light-gray #f4f4f4 frame, near-black #171717 ink and a
+// neutral gray accent. Picked by eye, not measured.
+{
+  "name": "Web coding app",
+  "description": "A white page in a light-gray frame, near-black ink and a neutral accent.",
+
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#ffffff", "foreground": "#171717", "selection": "#e8e8e8", "accent": "#6f6f6f" },
+  "appearance.accent": "neutral",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.chromeStyle": "card",
+  "appearance.borders": "default",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#f4f4f4",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#ffffff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#f4f4f4",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#ffffff",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot",
+
+  "appearance.density": "compact",
+
+  "motion": {
+    "fades": { "hover": 0.15, "hoverOut": 0.15 }
+  }
+}

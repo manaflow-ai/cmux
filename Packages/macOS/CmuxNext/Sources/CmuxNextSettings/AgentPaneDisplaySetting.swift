@@ -24,10 +24,12 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
         SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath, CloudNewWorkspaceSetting.autoCloudPath,
         KeyboardStyleSettings.keyStylePath, KeyboardStyleSettings.shortcutLayoutPath, CloudNewWorkspaceSetting.defaultImagePath,
     ]
-    /// The transcript look keys, which a theme file may set (``ThemeFileOverlay/lookKeys``): read from the
-    /// effective root, not the user's own file (docs/cmux-next/transcript-customization.md).
+    /// The transcript look keys and the reply streaming style, which a theme file may set (cmux-config's
+    /// theme_file `LOOK_KEYS`): read from the effective root, not the user's own file
+    /// (docs/cmux-next/transcript-customization.md).
     public static let themedPaths: Set<[String]> = [
         AgentPaneDisplaySettingsSchema.transcriptLookPath, AgentPaneDisplaySettingsSchema.transcriptTokensPath,
+        AgentPaneDisplaySettingsSchema.streamingPath,
     ]
 
     /// The accepted values by dotted key.

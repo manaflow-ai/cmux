@@ -6,7 +6,8 @@
 //! (`owner_start/background_checks.rs`) and caches the answer in
 //! `update-check.json` at the state root. The interactive client prints one
 //! localized line with the update command when it exits, never inside the
-//! TUI. Off with `updates.checkAutomatically: false`, the managed
+//! TUI. Off with `updates.automatic: "off"` (or the retired
+//! `updates.checkAutomatically: false` it replaced), the managed
 //! `DisableAutoUpdate` policy, `CMUX_TUI_UPDATE_CHECK=off`, under `CI`, and
 //! for local builds.
 
@@ -50,14 +51,17 @@ pub(crate) fn allowed(inputs: &CheckInputs<'_>) -> Check {
     }
     if inputs.managed_forced.get("DisableAutoUpdate") == Some(&Value::Bool(true))
         || inputs.managed_forced.get("updates.checkAutomatically") == Some(&Value::Bool(false))
+        || inputs.managed_forced.get("updates.automatic") == Some(&Value::String("off".into()))
     {
         return Check::Off("managed policy DisableAutoUpdate");
     }
-    let setting = inputs.settings.and_then(|root| {
-        cmux_config::value::value_at(root, &["updates", "checkAutomatically"][..])
+    let automatic = inputs.settings.and_then(|root| {
+        let path = ["updates".to_string(), "automatic".to_string()];
+        cmux_config::value::value_at(root, &path)
+            .or_else(|| cmux_config::schema::replaced_value(&path, root))
     });
-    if setting == Some(&Value::Bool(false)) {
-        return Check::Off("updates.checkAutomatically is false");
+    if automatic.and_then(Value::as_str) == Some("off") {
+        return Check::Off("updates.automatic is off");
     }
     if env_set("CMUX_TUI_UPDATE_CHECK").is_some_and(|value| falsy(&value)) {
         return Check::Off("CMUX_TUI_UPDATE_CHECK");

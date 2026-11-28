@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.eventsAsToolCalls.help" : {
+      "comment" : "Settings > Experimental > Harness Events Read by Origin help: what the switch changes in the agent chat.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "القاعدة التي يدفعها cmux إلى محادثة تظهر كسطر من cmux، وليست رسالتك أبدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pravilo koje cmux pošalje u chat prikazuje se kao cmuxov red, nikad kao vaša poruka."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En regel, som cmux sender ind i en chat, vises som cmux’ linje, aldrig som din egen besked."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Regel, die cmux in einen Chat schickt, erscheint als Zeile von cmux, nie als deine eigene Nachricht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A rule cmux pushes into a chat shows as cmux's line, never as your own message."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una regla que cmux envía a un chat aparece como una línea de cmux, nunca como tu propio mensaje."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une règle que cmux envoie dans une discussion s’affiche comme une ligne de cmux, jamais comme votre message."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una regola che cmux invia in una chat appare come riga di cmux, mai come tuo messaggio."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux がチャットに送るルールは、あなたのメッセージではなく cmux の行として表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ច្បាប់ដែល cmux បញ្ជូនចូលការជជែក បង្ហាញជាបន្ទាត់របស់ cmux មិនមែនជាសាររបស់អ្នកទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux가 채팅에 보내는 규칙은 내 메시지가 아니라 cmux의 줄로 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En regel cmux sender inn i en chat vises som cmux sin linje, aldri som din egen melding."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reguła, którą cmux wysyła do czatu, pojawia się jako wiersz cmux, nigdy jako Twoja wiadomość."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma regra que o cmux envia a um chat aparece como linha do cmux, nunca como sua mensagem."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Правило, которое cmux отправляет в чат, показывается строкой cmux, а не вашим сообщением."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "กฎที่ cmux ส่งเข้าแชตจะแสดงเป็นบรรทัดของ cmux ไม่ใช่ข้อความของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux’un sohbete gönderdiği bir kural, kendi mesajınız olarak değil cmux’un satırı olarak görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Правило, яке cmux надсилає в чат, показується рядком cmux, а не вашим повідомленням."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quy tắc cmux gửi vào cuộc trò chuyện hiển thị là dòng của cmux, không bao giờ là tin nhắn của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 推送到聊天中的规则显示为 cmux 的一行，而不是你自己的消息。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 推送到聊天中的規則會顯示為 cmux 的一行，而不是你自己的訊息。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

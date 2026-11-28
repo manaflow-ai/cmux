@@ -23,7 +23,7 @@ const selectorRoles: Record<string, string> = {
   ".cv-iconbtn svg": "icon",
   ".acpmux-lineage__icon": "lead",
   ".acpmux-location-leading svg": "lead",
-  ".acpmux-location-picker:last-child svg": "trail",
+  '.acpmux-location-picker[data-kind="branch"] svg': "trail",
   ".acpmux-access-trigger svg": "lead",
   ".acpmux-trust-ask-icon": "lead",
   ".acpmux-queued-kind": "lead",
@@ -247,7 +247,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-composer-strip",
     ".acpmux-location-leading svg",
     ".acpmux-location-label",
-    ".acpmux-location-picker:last-child svg",
+    '.acpmux-location-picker[data-kind="branch"] svg',
   ),
   stack(
     "stack.trust",
@@ -540,6 +540,10 @@ export const gridScenes: GridScene[] = [
 // These are omissions in the current component design, not selector fallbacks. All other
 // missing selectors fail fixture coverage so renames cannot produce a green warning run.
 const absentBySurface: Record<string, Record<string, string>> = {
+  "stack.strip": {
+    '.acpmux-location-picker[data-kind="branch"] svg':
+      "The chat composer shows its branch below the card (ComposerBranch), so the strip has no trailing mark.",
+  },
   "stack.trust": {
     ".acpmux-trust-ask-icon": "TrustAsk renders text and buttons without a leading mark.",
   },

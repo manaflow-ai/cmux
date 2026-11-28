@@ -67,7 +67,7 @@ pub async fn list_cmd(refresh: bool, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-/// Writes `~/.config/cmux/harnesses/<harness id>.toml` for registry agent
+/// Writes `~/.config/cmux-next/harnesses/<harness id>.toml` for registry agent
 /// `id`, started the way [`registry::Agent::launch`] picks.
 pub fn add(
     reg: &Registry,

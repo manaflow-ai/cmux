@@ -128,19 +128,38 @@ import UniformTypeIdentifiers
         let centre = CGPoint(x: box.midX, y: box.midY)
         #expect(field.picture(at: centre)?.attachment.attachmentID == clicked)
 
-        // A drag that starts on the picture, a double click and a click beside it open nothing.
-        let beside = CGPoint(x: box.maxX + 40, y: box.midY)
-        #expect(!field.openPictureClicked(down: try Self.mouse(.leftMouseDown, at: centre, in: field),
-                                          up: try Self.mouse(.leftMouseUp, at: CGPoint(x: centre.x + 30, y: centre.y), in: field)))
-        #expect(!field.openPictureClicked(down: try Self.mouse(.leftMouseDown, at: centre, in: field, clicks: 2),
-                                          up: try Self.mouse(.leftMouseUp, at: centre, in: field, clicks: 2)))
-        #expect(!field.openPictureClicked(down: try Self.mouse(.leftMouseDown, at: beside, in: field),
-                                          up: try Self.mouse(.leftMouseUp, at: beside, in: field)))
-        #expect(view.controller.pictureViewer == nil)
+        // A click waits out the double-click interval before it opens (short here; the user's interval in the app).
+        let click = view.controller.draftPictureClick
+        click.delay = 0.05
+        // The field's press (Compose.swift's mouseDown: onPress, then tracking, then the release's hit test).
+        func press(_ down: NSEvent, _ up: NSEvent) -> Bool {
+            field.onPress(down)
+            return field.openPictureClicked(down: down, up: up)
+        }
+        let downOnIt = { (clicks: Int) in try Self.mouse(.leftMouseDown, at: centre, in: field, clicks: clicks) }
+        let upOnIt = { (clicks: Int) in try Self.mouse(.leftMouseUp, at: centre, in: field, clicks: clicks) }
 
-        // The click on it.
-        #expect(field.openPictureClicked(down: try Self.mouse(.leftMouseDown, at: centre, in: field),
-                                         up: try Self.mouse(.leftMouseUp, at: centre, in: field)))
+        // A drag that starts on the picture, a click beside it and a shift or cmd click open nothing.
+        let beside = CGPoint(x: box.maxX + 40, y: box.midY)
+        #expect(!press(try downOnIt(1), try Self.mouse(.leftMouseUp, at: CGPoint(x: centre.x + 30, y: centre.y), in: field)))
+        #expect(!press(try Self.mouse(.leftMouseDown, at: beside, in: field), try Self.mouse(.leftMouseUp, at: beside, in: field)))
+        #expect(!press(try Self.mouse(.leftMouseDown, at: centre, in: field, flags: .shift), try upOnIt(1)))
+        #expect(!press(try Self.mouse(.leftMouseDown, at: centre, in: field, flags: .command), try upOnIt(1)))
+        #expect(!click.isPending)
+
+        // A double click on it opens nothing: its first click (clickCount 1) only schedules the open, and its
+        // second press cancels that before the interval ends (the open used to run on the first release).
+        #expect(press(try downOnIt(1), try upOnIt(1)), "the first click schedules")
+        #expect(click.isPending)
+        #expect(!press(try downOnIt(2), try upOnIt(2)), "the second click opens nothing itself")
+        #expect(!click.isPending, "the second press cancelled the first click's open")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(view.controller.pictureViewer == nil, "a double click opened the viewer")
+
+        // The click on it: opens once the interval passes with no second press.
+        #expect(press(try downOnIt(1), try upOnIt(1)))
+        #expect(view.controller.pictureViewer == nil, "waits out the double-click interval")
+        for _ in 0..<100 where view.controller.pictureViewer == nil { try await Task.sleep(for: .milliseconds(20)) }
         let viewer = try #require(view.controller.pictureViewer, "the click opened no viewer")
         #expect(viewer.gallery.items.count == 2, "the box's two pictures")
         #expect(viewer.gallery.index == 1, "open on the one clicked")

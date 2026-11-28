@@ -86,6 +86,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(found, [("w.yml", "a", ["ubuntu-22.04"]),
                                  ("w.yml", "b", ["blacksmith-4vcpu-ubuntu-2404-arm"])])
 
+    def test_a_frozen_exception_line_keeps_its_literal_and_only_its_kind(self):
+        found = self.run_on(f"""
+            on: push
+            jobs:
+              deploy:
+                runs-on: ${{{{ {FORK_REPO} || 'blacksmith-4vcpu-ubuntu-2404' }}}} # frozen-label: credentialed job
+                steps: []
+              publish:
+                runs-on: ubuntu-latest # github-hosted-required: npm provenance
+                steps: []
+              plain:
+                runs-on: ${{{{ {FORK_REPO} || 'blacksmith-4vcpu-ubuntu-2404' }}}} # a note, not a reason
+                steps: []
+              wrong-kind:
+                runs-on: ubuntu-latest # ephemeral-required: an ephemeral reason does not admit hosted
+                steps: []
+            """)
+        self.assertEqual(found, [("w.yml", "plain", ["blacksmith-4vcpu-ubuntu-2404"]),
+                                 ("w.yml", "wrong-kind", ["ubuntu-latest"])])
+
     def test_exceptions_are_skipped(self):
         found = self.run_on("""
             on: push

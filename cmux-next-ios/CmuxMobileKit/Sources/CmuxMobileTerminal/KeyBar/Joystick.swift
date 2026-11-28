@@ -108,8 +108,17 @@ final class JoystickEngine {
 
     /// The finger is on the joystick.
     var touching = false {
-        didSet { if touching { returnTask?.cancel(); returning = false } }
+        didSet {
+            if touching { returnTask?.cancel(); returning = false }
+            #if DEBUG
+            if touching, !oldValue { touches += 1 }
+            #endif
+        }
     }
+    #if DEBUG
+    /// DEBUG, for TerminalComposerTapBleedUITests: touches that reached the joystick.
+    private(set) var touches = 0
+    #endif
     /// Springing back after release.
     private(set) var returning = false
     @ObservationIgnored private var returnTask: Task<Void, Never>?
@@ -192,7 +201,7 @@ struct Joystick: View {
     let engine: JoystickEngine
 
     var body: some View {
-        // Classic cmux iOS's arrow nub, at the key row's 44 pt: a circle with a 12 pt dot.
+        // Classic cmux iOS's arrow nub: a 28 pt circle (the key row's height) with a 12 pt dot.
         let size = JoystickGeometry.circle
         Circle()
             .fill(Color.white.opacity(0.9))
@@ -212,7 +221,7 @@ struct Joystick: View {
             // A glass circle under the dot, as classic's nub (`UIGlassEffect`);
             // not interactive: the drag owns the touch. The dot draws on top,
             // crisp.
-            .glassEffect(engine.gear > 0 ? .regular.tint(Color.white.opacity(0.15)) : .regular, in: .circle)
+            .glassEffect(engine.gear > 0 ? .regular.tint(CmuxMobileTheme.standard.colors.fillPressed.color) : .regular, in: .circle)
         .onGeometryChange(for: CGPoint.self) { proxy in
             let frame = proxy.frame(in: .global)
             return CGPoint(x: frame.midX, y: frame.midY)

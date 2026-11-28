@@ -140,7 +140,7 @@ public nonisolated enum MachineSectionStyle: String, Sendable, CaseIterable, Has
     }
 }
 
-/// The Machines section's rows (the page webviews/src/pages/machines shows them): the App reads this
+/// The Machines section's rows (the hosts sidebar shows them): the App reads this
 /// Mac, every Cloud, SSH and server machine and the machines that joined through the hub from its
 /// registries (`MachineSectionRow.rows`, CmuxNextApp).
 extension MachineSectionRow {

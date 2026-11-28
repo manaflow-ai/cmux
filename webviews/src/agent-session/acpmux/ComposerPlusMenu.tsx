@@ -47,6 +47,8 @@ export type ComposerPlusMenuProps = {
   onSlash(command: SlashCommand): void;
   /** The menu opens: the composer reads its recent commands again (another pane may have used one). */
   onOpen?(): void;
+  /** Where the menu opens: over + (the default), or under it (New Tab's card, its + in the bar under the field). */
+  menuSide?: "top" | "bottom";
 };
 
 /// The + menu draws again only when its rows or Plan change, never on a keystroke in the composer
@@ -67,6 +69,7 @@ const MemoPlusMenu = memo(function PlusMenu({
   onExtension,
   onSlash,
   onOpen,
+  menuSide,
 }: ComposerPlusMenuProps) {
   acpmuxPerf.render("composer:plus");
   const t = useT();
@@ -120,6 +123,7 @@ const MemoPlusMenu = memo(function PlusMenu({
       sections={sections}
       resizeId="composer.add"
       returnHint={experimentArm(composerPlusReturnHint) === "verb"}
+      {...(menuSide ? { side: menuSide } : {})}
       {...(onOpen ? { onOpen } : {})}
     />
   );

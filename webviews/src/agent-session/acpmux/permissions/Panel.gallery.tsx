@@ -126,8 +126,20 @@ const allowanceState: PermissionClientState = {
   chatAllowance: true,
 };
 
+// retry-prompt-ok: an answer that failed while the chat's requests read fine keeps Refresh: the
+// person looks again before answering again.
 const refreshErrorState: PermissionClientState = {
   ...baseState,
+  groups: [],
+  error: "Permission service is temporarily unavailable.",
+};
+
+// The chat's requests could not be read: they are read again on their own (autoRetry.ts), with
+// one quiet line past the deadline and no button (Leo, 2026-11-22: "vacuous decisions like that
+// should be just done"). The stage shows the line at once.
+const readFailedState: PermissionClientState = {
+  ...baseState,
+  ready: false,
   groups: [],
   error: "Permission service is temporarily unavailable.",
 };
@@ -215,6 +227,12 @@ const refreshError: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="refresh"]'));
 };
 
+const readFailed: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("[data-still-trying]"));
+  if (ctx.document.querySelector(".acpmux-permission-error button")) throw new Error("A failed read drew a button");
+};
+
+// retry-prompt-ok: Check and retry sends the person's permission decision again.
 const retryUncertain: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Check and retry" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="retry"]'));
@@ -365,12 +383,17 @@ export default componentEntry<Props>({
       play: revokeAllowance,
     },
     error: {
-      note: "A refreshable permission error keeps recovery beside the failure message.",
+      note: "A failed answer (the chat's requests read fine) keeps Refresh beside its message (retry-prompt-ok: the person looks again before answering again).",
       props: { state: refreshErrorState, ...callbacks },
       play: refreshError,
     },
+    "read-still-trying": {
+      note: "Requests that could not be read are read again on their own: nothing at first, then one quiet line, no button.",
+      props: { state: readFailedState, ...callbacks },
+      play: readFailed,
+    },
     uncertain: {
-      note: "An indeterminate response uses Check and retry so the host can reconcile before another action.",
+      note: "An indeterminate response uses Check and retry (retry-prompt-ok: it sends the decision again) so the host can reconcile before another action.",
       props: { state: uncertainState, ...callbacks },
       play: retryUncertain,
     },
