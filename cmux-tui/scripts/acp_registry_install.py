@@ -48,7 +48,20 @@ def inside(root: Path, name: str) -> bool:
     return (root / name).resolve().is_relative_to(root.resolve())
 
 
-def unpack(archive: Path, url: str, dest: Path) -> None:
+def data_or_skip(member: tarfile.TarInfo, path: str) -> tarfile.TarInfo | None:
+    """The `data` filter, except a link it refuses is left out rather than failing the whole archive.
+
+    Cortex Code's archive carries a bundled venv whose `bin/python3.12` links to an absolute path; a person's `tar x`
+    unpacks it and the agent never uses it. Every other refusal (a path outside DEST, a device file) still fails.
+    """
+    try:
+        return tarfile.data_filter(member, path)
+    except (tarfile.AbsoluteLinkError, tarfile.LinkOutsideDestinationError):
+        print(f"skipped link {member.name} -> {member.linkname}", file=sys.stderr)
+        return None
+
+
+def unpack(archive: Path, url: str, dest: Path, cmd: str) -> None:
     lower = url.lower().split("?", 1)[0]
     if lower.endswith(".zip"):
         with zipfile.ZipFile(archive) as z:
@@ -61,9 +74,9 @@ def unpack(archive: Path, url: str, dest: Path) -> None:
                     os.chmod(dest / info.filename, mode & 0o777)
     elif any(lower.endswith(s) for s in (".tar.gz", ".tgz", ".tar.xz", ".tar.bz2", ".tar")):
         with tarfile.open(archive) as t:
-            t.extractall(dest, filter="data")
-    else:  # a bare program
-        target = dest / Path(lower).name
+            t.extractall(dest, filter=data_or_skip)
+    else:  # a bare program, saved as the program the registry names (muse's URL ends in `download/`)
+        target = dest / Path(cmd).name
         shutil.copyfile(archive, target)
         target.chmod(0o755)
 
@@ -89,7 +102,7 @@ def main(registry: str, agent_id: str, dest: str) -> int:
         want = target.get("sha256")
         if want and got != want:
             raise ValueError(f"sha256 {got} is not the registry's {want}")
-        unpack(archive, url, root)
+        unpack(archive, url, root, cmd)
     except Exception as error:  # noqa: BLE001  any failure is the launch case's reason
         print(f"{agent_id}: install failed: {type(error).__name__}: {error}", file=sys.stderr)
         return 0
