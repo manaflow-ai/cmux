@@ -620,6 +620,7 @@ mod tests {
                 apply,
                 pressure: None,
                 only: Vec::new(),
+                still: None,
                 measure: true,
                 guarded: Arc::new(|_: &Path| false),
             },

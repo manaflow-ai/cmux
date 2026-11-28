@@ -154,10 +154,10 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
-  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
@@ -166,10 +166,10 @@ import {
   RETRY_FIRST_MS,
 } from "../hostRetry";
 import {
+  acpmuxSendsReady,
   heldStartStop,
   sendsHeldForHost,
   untilHostAnswers,
-  acpmuxSendsReady,
   pageClientLink,
   paneSends,
 } from "../sendWhenReady";
@@ -183,7 +183,7 @@ import { handoffStore, receiveHandedCloudStart } from "../commandPlace";
 import { holdCloudAgentPick } from "../cloudAgentPick";
 import { askPermissionFocus } from "../permissions/focusRequest";
 import type { PermissionDecision } from "../permissions/protocol";
-import { planBuildTarget } from "../permissions/planBuild";
+import { planBuildTarget, planFanoutVariants } from "../permissions/planBuild";
 import { forkFirstOffer } from "../direct/permissions";
 import { type PaneSurface, readSurface } from "../paneSurface";
 import { designSelectionChips, designSelectionRemovals } from "../designSelection";
@@ -1996,10 +1996,17 @@ export function paneSnapshotEffect({
           ),
         "chat.plan.compare": ({ buildId, sessionId }) =>
           client.planCompare(String(buildId), typeof sessionId === "string" && sessionId ? sessionId : undefined),
-        "chat.plan.keep": ({ buildId, keep, sessionId }) =>
+        "chat.plan.keep": ({ buildId, keep, sessionId, removeOthers }) =>
           client.planKeep(
             String(buildId),
             String(keep),
+            typeof sessionId === "string" && sessionId ? sessionId : undefined,
+            removeOthers === true,
+          ),
+        "chat.plan.fanout": ({ prompt, variants, sessionId }) =>
+          client.planFanout(
+            String(prompt),
+            planFanoutVariants(variants),
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
           ),
         "chat.permission_group.respond": ({ groupId, revision, decision }) =>

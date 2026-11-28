@@ -74,6 +74,56 @@ const diffs: PlanBuildReply = {
   ],
 };
 const kept: PlanBuild = { ...done, keptSessionId: claude.sessionId, archived: [codex.sessionId] };
+// The composer's Run on N agents: one prompt on Claude Opus, Codex and Claude Sonnet.
+const sonnet = { ...claude, sessionId: "run-sonnet", branch: "cmux/rate-limit-retries-3" };
+const runs: PlanBuild = {
+  buildId: "r1",
+  target: "prompt",
+  builds: [
+    { ...claude, model: "claude-opus-5-5", state: "done" },
+    { ...codex, state: "done" },
+    { ...sonnet, model: "claude-sonnet-5-5", state: "done" },
+  ],
+  archived: [],
+  turnsEnded: 3,
+};
+const runDiffs: PlanBuildReply = {
+  buildId: "r1",
+  builds: [
+    ...diffs.builds,
+    {
+      sessionId: sonnet.sessionId,
+      branch: sonnet.branch,
+      added: 97,
+      removed: 21,
+      files: [
+        { path: "src/net/retry.ts", added: 71, removed: 9 },
+        { path: "src/net/client.ts", added: 26, removed: 12 },
+      ],
+    },
+  ],
+};
+// Opus's run was done, then got another message: its later turn works, so its Keep waits.
+const runsLaterTurn: PlanBuild = {
+  ...runs,
+  builds: runs.builds.map((b, i) => (i === 0 ? { ...b, state: "running", seenAt: 4 } : b)),
+  records: 4,
+};
+const laterTurnDiffs: PlanBuildReply = {
+  ...runDiffs,
+  builds: runDiffs.builds.map((b, i) => (i === 0 ? { ...b, status: "working" } : b)),
+};
+const runsKept: PlanBuild = {
+  ...runs,
+  keptSessionId: codex.sessionId,
+  archived: [claude.sessionId, sonnet.sessionId],
+  removed: [claude.sessionId, sonnet.sessionId],
+};
+const runsStayed: PlanBuild = {
+  ...runsKept,
+  removed: [claude.sessionId],
+  stayed: [{ sessionId: sonnet.sessionId, error: "a process still works in it" }],
+};
 const worktree: PlanBuild = {
   buildId: "b2",
   target: "worktree",
@@ -134,6 +184,22 @@ export default componentEntry<Props>({
       note: "Done, then Keep this one pressed on the first column: the card moves to the kept state in place.",
       props: { build: done, diffs, live: true },
       play: keepClaude,
+    },
+    runs: {
+      note: "Run on 3 agents from the composer: one column per agent with its model, side by side when wide, stacked when narrow; Keep this one on each.",
+      props: { build: runs, diffs: runDiffs },
+    },
+    "runs-later-turn": {
+      note: "Opus's run finished, then the person sent it another message: its column says Working again and its Keep is off until that turn ends; the other two keep Done and Keep this one.",
+      props: { build: runsLaterTurn, diffs: laterTurnDiffs },
+    },
+    "runs-kept": {
+      note: "Codex's run kept: the other two say Removed (closed, worktrees archived and removed), the heading says so. Same height as before.",
+      props: { build: runsKept, diffs: runDiffs },
+    },
+    "runs-stayed": {
+      note: "Codex kept, but Sonnet's worktree could not go (a process works in it): that column says Worktree stayed in the warning colour with acpmux's reason on hover, and the heading says not every worktree was removed.",
+      props: { build: runsStayed, diffs: runDiffs },
     },
     worktree: {
       note: "Build in a new worktree: one column with Open, no Keep.",

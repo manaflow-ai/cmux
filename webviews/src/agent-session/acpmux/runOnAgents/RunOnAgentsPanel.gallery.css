@@ -1,0 +1,32 @@
+/* Gallery only: the two looks Run on N agents did not pick (RunOnAgentsPanel.gallery.tsx). */
+[data-run-on-look="pills"] .acpmux-run-on-rows {
+  flex-flow: row wrap;
+  gap: var(--ds-space-1);
+  padding: 4px var(--ds-space-3);
+}
+[data-run-on-look="pills"] .acpmux-run-on-row {
+  grid-template-columns: 16px auto auto auto 20px;
+  padding: 0 4px;
+  border: 1px solid var(--run-on-line);
+  border-radius: 16px;
+}
+[data-run-on-look="cards"] .acpmux-run-on-rows {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--ds-space-2);
+  padding: 4px var(--ds-space-3);
+}
+[data-run-on-look="cards"] .acpmux-run-on-row {
+  grid-template-columns: 1fr;
+  grid-auto-rows: 28px;
+  height: auto;
+  padding: var(--ds-space-1);
+  border: 1px solid var(--run-on-line);
+  border-radius: 8px;
+}
+/* The popover's surface around the panel, as the composer draws it. */
+[data-run-on-fixture] > .acpmux-run-on {
+  border: 1px solid var(--run-on-line);
+  border-radius: 12px;
+}

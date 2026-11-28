@@ -156,6 +156,7 @@ async fn parent_folding_matches_v1_without_rewriting_the_child() {
         short_name: "child".into(),
         depth: 1,
         offered: false,
+        ..Default::default()
     });
     let child = hub.insert_test_session(child_meta);
     let original = summary_from_session(&hub, &child).unwrap();
@@ -174,6 +175,7 @@ async fn parent_folding_matches_v1_without_rewriting_the_child() {
                     short_name: "parent".into(),
                     depth: 1,
                     offered: false,
+                    ..Default::default()
                 });
             }
         });

@@ -31,6 +31,9 @@ pub struct Worktree {
     pub root: PathBuf,
     pub branch: String,
     pub base: String,
+    /// The commit its branch was made from, resolved when it was made (None for a branch that
+    /// already existed): what its change is read against, whatever `base` names later.
+    pub base_commit: Option<String>,
     /// The folder the child starts in: the started-from folder's place in the worktree.
     pub cwd: PathBuf,
     /// The device and inode of `root` as [`make_worktree`] opened it right after git added it
@@ -39,7 +42,16 @@ pub struct Worktree {
     /// `root`, held open from before git filled it (unix): its inode is never another folder's
     /// while this lives, so `root_pin` names this folder only.
     pub root_held: Option<std::sync::Arc<std::fs::File>>,
+    /// The random stamp [`make_worktree`] wrote in the worktree's own registration folder
+    /// ([`MADE_STAMP`]) once git added it: a worktree made again at the same path, which a file
+    /// system with no creation times may give the same inode, has a registration without it.
+    pub stamp: Option<String>,
 }
+
+/// The file in a made worktree's registration folder (`.git/worktrees/<name>/`) that holds its
+/// [`Worktree::stamp`]: git never writes it, and the agent's checkout reaches it only through the
+/// `.git` file, never through its edits.
+pub(crate) const MADE_STAMP: &str = "cmux-made";
 
 /// No automatic maintenance or gc: run from the throwaway git directory,
 /// whose refs reach none of the repository's objects, it would prune them
@@ -454,6 +466,14 @@ pub(crate) fn numstat_without_config(
         std::fs::write(scratch.join("config"), config).map_err(|e| e.to_string())?;
         crate::home_fs::write(info.join("alternates"), format!("{}\n", objects.display()))
             .map_err(|e| e.to_string())?;
+        // What the person's git leaves out stays out here: their global excludes file, then the
+        // repository's `info/exclude`, carried over as patterns (nothing in them runs), so an
+        // ignored cache is never counted as added nor hashed past the deadline. In git's order: a
+        // repository's `!kept.txt` wins over a global `*.txt`, as it does there.
+        let own = at(&["rev-parse", "--git-path", "info/exclude"]).ok().map(absolute);
+        let excludes = carried_excludes(global_excludes(by).as_deref(), own.as_deref());
+        std::fs::create_dir_all(scratch.join("info")).map_err(|e| e.to_string())?;
+        std::fs::write(scratch.join("info/exclude"), excludes).map_err(|e| e.to_string())?;
         let scratch_index = scratch.join("index");
         let isolated = || {
             let mut cmd = hardened(root.into());
@@ -464,18 +484,73 @@ pub(crate) fn numstat_without_config(
             cmd
         };
         // The worktree's index spares hashing every file again (its stat data); one this git
-        // cannot use alone (a split index) is replaced by `from`'s tree.
+        // cannot use alone (a split index) is replaced by the run's own HEAD tree, never
+        // `from`'s: a file committed since that an exclude pattern matches stays in it, as it does
+        // in the worktree's index, and still counts against `from`.
         let copied = crate::home_fs::copy(&index, &scratch_index).is_ok();
         let staged = copied && run_by(isolated(), &["add", "-A"], Some(by)).is_ok();
         if !staged {
             let _ = std::fs::remove_file(&scratch_index);
-            run_by(isolated(), &["read-tree", from], Some(by))?;
+            let head = at(&["rev-parse", "--verify", "HEAD^{commit}"]);
+            let seed = head.as_deref().map(str::trim).unwrap_or(from);
+            run_by(isolated(), &["read-tree", seed], Some(by))?;
             run_by(isolated(), &["add", "-A"], Some(by))?;
         }
         run_by(isolated(), &["diff", "--cached", "--numstat", "--no-renames", from, "--"], Some(by))
     })();
     let _ = std::fs::remove_dir_all(&scratch);
     result
+}
+
+/// The patterns of the global excludes file, then the repository's: git reads a later pattern
+/// over an earlier one, and the repository's file over the global one.
+fn carried_excludes(global: Option<&Path>, own: Option<&Path>) -> String {
+    let mut excludes = global.map(read_patterns).unwrap_or_default();
+    excludes.push('\n');
+    excludes.push_str(&own.map(read_patterns).unwrap_or_default());
+    excludes
+}
+
+/// An excludes file's patterns, or nothing for one that is not a regular file of at most
+/// [`PATTERNS_BYTES`](cmux_worktree_care::bounded::PATTERNS_BYTES) (`bounded`: an agent can
+/// write `info/exclude`). A link is followed once, to its target (a person's dotfiles often link
+/// their global file), and that target is read without following another.
+fn read_patterns(path: &Path) -> String {
+    use cmux_worktree_care::bounded;
+    std::fs::canonicalize(path)
+        .ok()
+        .and_then(|target| bounded::read(&target, bounded::PATTERNS_BYTES))
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default()
+}
+
+/// The person's global excludes file: `core.excludesFile` in their own git config, else git's
+/// default (`$XDG_CONFIG_HOME/git/ignore`, `~/.config/git/ignore`). Read from the global config
+/// alone, never a repository's.
+fn global_excludes(by: Instant) -> Option<PathBuf> {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(std::env::temp_dir()).env("GIT_CONFIG_NOSYSTEM", "1");
+    excludes_file(cmd, dirs::home_dir(), by)
+}
+
+/// [`global_excludes`] as `cmd` (a `git` with its environment) reads the global config, its
+/// `[include]`s followed as git follows them.
+fn excludes_file(cmd: Command, home: Option<PathBuf>, by: Instant) -> Option<PathBuf> {
+    let args = ["config", "--global", "--includes", "--get", "core.excludesFile"];
+    let named = run_by(cmd, &args, Some(by)).ok().map(|v| v.trim().to_owned());
+    match named {
+        // Set but empty turns it off, as git reads it: no file by that name, and not the default.
+        Some(path) if path.is_empty() => None,
+        Some(path) => match (path.strip_prefix("~/"), &home) {
+            (Some(rest), Some(home)) => Some(home.join(rest)),
+            _ => Some(PathBuf::from(path)),
+        },
+        None => std::env::var_os("XDG_CONFIG_HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| home.map(|h| h.join(".config")))
+            .map(|config| config.join("git/ignore")),
+    }
 }
 
 /// The objects of `commit`'s tree that the repository's object store
@@ -613,17 +688,38 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
 /// through its handle; None when there is none.
 #[cfg(unix)]
 fn held_gitdir(dir: &std::fs::File) -> Option<PathBuf> {
-    use std::io::Read;
+    use cmux_worktree_care::bounded::{GIT_FILE_BYTES, read_opened};
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // Non-blocking and bounded (`bounded`): an agent can put a FIFO or a link to a device here.
+    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
     // SAFETY: `dir` is open for the call; the descriptor opened is owned at once.
     let fd = unsafe { libc::openat(dir.as_raw_fd(), c".git".as_ptr(), flags) };
     if fd < 0 {
         return None;
     }
-    let mut text = String::new();
-    std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }).read_to_string(&mut text).ok()?;
+    let file = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    let text = String::from_utf8(read_opened(file, GIT_FILE_BYTES)?).ok()?;
     text.trim().strip_prefix("gitdir: ").map(PathBuf::from)
+}
+
+/// Writes a new random stamp in the registration folder the `.git` file in the held worktree
+/// folder `held` (at `root`) names, as [`MADE_STAMP`]; None when it could not, and the worktree
+/// is then told apart by its inode and creation time alone.
+#[cfg(unix)]
+fn stamp_made(held: &std::fs::File, root: &Path) -> Option<String> {
+    use std::io::Write as _;
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).ok()?;
+    let stamp: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    // A relative one is relative to the worktree's folder (`worktree.useRelativePaths`).
+    let admin = root.join(held_gitdir(held)?);
+    let mut file = crate::home_fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(admin.join(MADE_STAMP))
+        .ok()?;
+    file.write_all(stamp.as_bytes()).ok()?;
+    Some(stamp)
 }
 
 /// A worktree's own registration folder, held open with the `worktrees/` folder it is in.
@@ -664,7 +760,6 @@ fn held_registration(
     held: &std::fs::File,
     root: &Path,
 ) -> Option<HeldRegistration> {
-    use std::io::Read;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     let admin = held_gitdir(held)?;
@@ -685,13 +780,17 @@ fn held_registration(
         return None;
     }
     let dir = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
-    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
     let fd = unsafe { libc::openat(dir.as_raw_fd(), c"gitdir".as_ptr(), flags) };
     if fd < 0 {
         return None;
     }
-    let mut gitdir = String::new();
-    std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }).read_to_string(&mut gitdir).ok()?;
+    let file = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    let gitdir = String::from_utf8(cmux_worktree_care::bounded::read_opened(
+        file,
+        cmux_worktree_care::bounded::GIT_FILE_BYTES,
+    )?)
+    .ok()?;
     // Compared by its folder (resolved, as git may have spelled it through a link) and name.
     let spelled = |p: &Path| {
         let parent = p.parent().and_then(|d| std::fs::canonicalize(d).ok());
@@ -986,13 +1085,19 @@ fn make_worktree_in(
         }
         #[cfg(test)]
         after_add(&root);
+        #[cfg(unix)]
+        let stamp = root_held.as_deref().and_then(|held| stamp_made(held, &root));
+        #[cfg(not(unix))]
+        let stamp = None;
         let made = Worktree {
             root: root.clone(),
             branch,
             base: base.clone(),
+            base_commit: Some(commit.clone()),
             cwd: root,
             root_pin,
             root_held,
+            stamp,
         };
         return fill(folder, &layout, made, &commit, false);
     }
@@ -1277,8 +1382,16 @@ fn ensure_worktree_in(
             let cwd = Some(root.join(&layout.prefix))
                 .filter(|c| !layout.prefix.is_empty() && c.is_dir())
                 .unwrap_or_else(|| root.clone());
-            let worktree =
-                Worktree { root: root.clone(), branch, base, cwd, root_pin: None, root_held: None };
+            let worktree = Worktree {
+                root: root.clone(),
+                branch,
+                base,
+                base_commit: None,
+                cwd,
+                root_pin: None,
+                root_held: None,
+                stamp: None,
+            };
             return Ok(Ensured { worktree, reused: Some("worktree") });
         }
         crate::home_fs::create_dirs(&layout.parent)
@@ -1324,9 +1437,11 @@ fn ensure_worktree_in(
             root: root.clone(),
             branch: branch.clone(),
             base,
+            base_commit: reused.is_none().then(|| commit.clone()),
             cwd: root.clone(),
             root_pin: None,
             root_held: None,
+            stamp: None,
         };
         let worktree = fill(folder.into(), &layout, made, &commit, reused.is_some())?;
         return Ok(Ensured { worktree, reused });

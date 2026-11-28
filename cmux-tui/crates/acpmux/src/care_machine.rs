@@ -110,6 +110,7 @@ pub fn config(
         apply: ask.apply,
         pressure: ask.pressure,
         only: ask.only,
+        still: None,
         measure: true,
     };
     Config {

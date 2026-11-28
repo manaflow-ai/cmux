@@ -186,6 +186,15 @@ async fn a_chat_starts_a_child_of_another_family_from_its_shell() {
     // One cycle, in order: `started` before its turn's end, each once.
     let cycle = records(&hub, &parent, &child);
     assert_eq!(cycle, ["started", "turn_ended"], "{cycle:?}");
+    // A later turn (a message sent to the child) starts with `turn_started`, running: a parent's
+    // card sees the child working again before that turn ends.
+    let again = json!({"sessionId": child, "prompt": [{"type": "text", "text": "again"}]});
+    app.ok("session/prompt", again).await;
+    let restarted = record(&hub, &parent, &child, "turn_started").await;
+    assert_eq!(restarted["state"], "running", "{restarted}");
+    assert!(restarted["turnId"].is_string(), "{restarted}");
+    let cycle = records(&hub, &parent, &child);
+    assert_eq!(cycle, ["started", "turn_ended", "turn_started", "turn_ended"], "{cycle:?}");
 
     // A turn that fails says so, with its error.
     let params = json!({"parent": parent, "prompt": "fail-once: x", "harness": "coder"});

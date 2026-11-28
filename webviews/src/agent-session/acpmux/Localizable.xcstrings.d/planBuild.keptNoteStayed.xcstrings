@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "planBuild.keptNoteStayed" : {
+      "comment" : "Agent pane: note after keeping one run when some other runs' worktrees could not be removed; {error} is the daemon's reason",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أُغلقت الأخرى، لكن لم تُزل كل أشجار العمل: {error}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ostali su zatvoreni, ali nisu sva radna stabla uklonjena: {error}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De andre blev lukket, men ikke alle arbejdstræer blev fjernet: {error}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die anderen wurden geschlossen, aber nicht jeder Worktree wurde entfernt: {error}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The others were closed, but not every worktree was removed: {error}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los demás se cerraron, pero no se eliminaron todos los worktrees: {error}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les autres ont été fermés, mais tous les worktrees n’ont pas été supprimés : {error}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gli altri sono stati chiusi, ma non tutti i worktree sono stati rimossi: {error}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "他は閉じられましたが、一部のワークツリーは削除されませんでした: {error}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្សេងទៀតត្រូវបានបិទ ប៉ុន្តែ worktree មិនទាំងអស់ត្រូវបានដកចេញទេ: {error}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "나머지는 닫혔지만 일부 워크트리는 제거되지 않았습니다: {error}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De andre ble lukket, men ikke alle arbeidstrær ble fjernet: {error}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pozostałe zamknięto, ale nie wszystkie worktree usunięto: {error}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os outros foram fechados, mas nem todo worktree foi removido: {error}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Остальные закрыты, но не все worktree удалены: {error}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตัวอื่นถูกปิดแล้ว แต่ไม่ใช่ทุก worktree ที่ถูกนำออก: {error}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diğerleri kapatıldı, ancak her çalışma ağacı kaldırılmadı: {error}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Решту закрито, але не всі worktree прибрано: {error}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các cái khác đã đóng, nhưng không phải worktree nào cũng được gỡ: {error}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其他已关闭，但并非所有工作树都已移除：{error}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其他已關閉，但並非所有工作樹都已移除：{error}"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

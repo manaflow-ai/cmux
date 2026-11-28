@@ -1133,6 +1133,8 @@ pub mod method {
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";
     pub const MUX_PLAN_COMPARE: &str = "_acpmux/plan/compare";
     pub const MUX_PLAN_KEEP: &str = "_acpmux/plan/keep";
+    /// The composer's Run on N agents: one prompt on 2 to 4 agents, each in its own worktree.
+    pub const MUX_PLAN_FANOUT: &str = "_acpmux/plan/fanout";
     /// The machine's one GitHub poller for a pull request's state (`server/github_prs.rs`,
     /// `pr_poller.rs`): `{repo, pr}` -> `{pr, poller}`, and the same after a wait
     /// `{repo, pr, timeoutSecs?, until?}` until it is settled or changed.

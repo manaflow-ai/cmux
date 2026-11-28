@@ -260,6 +260,8 @@ import {
   useCloudPlan,
   useCloudSignedIn,
   type CloudMachine,
+  currentCloudPlan,
+  readCloudPlanFresh,
 } from "./cloudMachines";
 import {
   AUTO_LOOK,
@@ -668,6 +670,7 @@ import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
+import { runOnOffered, type RunVariant } from "./runOnAgents/runOnAgents";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
@@ -7710,6 +7713,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       throw error;
     }
   };
+  /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
+  /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
+  const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
+  // Run on N agents is offered only from a chat that exists on this Mac (runOnOffered).
+  const runOn = runOnOffered({ quick, sessionId: snapshot.sessionId, cloudPicked, sandboxing, onOtherMachine });
   // Extension slash commands (`cmux.composer.command/1`), as the daemon lists them.
   const extensionCommands = useExtensionCommands();
   // The chat list across a reconnect: the pane connects a new client, whose snapshots hold no list until
@@ -7751,6 +7759,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
     if (sideChatRefusal(snapshot, sidePlace) === undefined) enabledCmuxActions.add("side");
     if (continueAvailable) enabledCmuxActions.add("continue");
+    // Offered where its panel opens; with files staged, the composer keeps the command for a send
+    // instead (a run's prompt is text alone).
+    if (runOn) enabledCmuxActions.add("runOn");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
@@ -7801,6 +7812,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sidePlace,
     quick,
     keptStopping,
+    runOn,
     cloudPicked,
     cloudModePick,
     extensionCommands,
@@ -7836,9 +7848,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// goes back to this Mac when the folder's history no longer says Cloud or Cloud is not offered.
   /// Settings' Start New Chats In (`agentPane.newChatsIn`) set to Cloud makes it Cloud whatever the
   /// folder's history says (newChatRunLocation); This Mac in the composer's picker still wins.
-  /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
-  /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
-  const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
+  // Run on N agents: the prompt on 2 to 4 agents, each a sub-session of this chat in its own
+  // worktree (`_acpmux/plan/fanout`); the chat's builds card compares them. One object while its
+  // inputs hold, so a turn's updates never redraw the composer for it.
+  const composerRunOnAgents = useMemo(
+    () =>
+      runOn
+        ? {
+            catalog: pickerCatalog,
+            run: (text: string, variants: RunVariant[]) =>
+              callNative("chat.plan.fanout", { prompt: text, variants, sessionId: snapshot.sessionId }),
+          }
+        : undefined,
+    [runOn, snapshot.sessionId, pickerCatalog],
+  );
   /// The person's last pick of where a new chat starts (lastNewChatPlace.ts), read again for each new
   /// chat here: a pick on another workspace's page since counts.
   const lastPlace = useMemo(
@@ -10901,6 +10924,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
   }, [newTabHybridShown, autoPicked, sandbox.mode]);
   const composer = drawPaneComposer({
+    composerRunOnAgents,
     markDockEdge,
     composerTurnQueue,
     hostOverload,

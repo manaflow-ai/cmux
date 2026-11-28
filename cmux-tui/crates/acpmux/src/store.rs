@@ -62,7 +62,7 @@ pub use session_records::{
 
 mod session_meta;
 pub use session_meta::{
-    AuthChange, ColdPreview, CreatedBy, CreatorKind, Lineage, PreviewMessage,
+    AuthChange, ColdPreview, CreatedBy, CreatorKind, Lineage, MadeWorktree, PreviewMessage,
     RETIRED_AGENT_SESSION_IDS, SessionMeta, StartLevel, SubagentForkOf, SubsessionLimits,
     SubsessionLink, ToolInventory, ToolRow, TurnUsage,
 };

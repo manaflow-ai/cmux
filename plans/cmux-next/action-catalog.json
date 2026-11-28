@@ -129746,6 +129746,13 @@
       {
         "key" : "\r",
         "modifiers" : [
+          "opt",
+          "cmd"
+        ]
+      },
+      {
+        "key" : "\r",
+        "modifiers" : [
           "opt"
         ]
       },

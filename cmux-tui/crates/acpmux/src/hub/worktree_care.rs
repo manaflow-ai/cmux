@@ -288,7 +288,7 @@ impl Hub {
         .flatten();
         let Some((claim, look)) = claim else { return };
         CARE.last_started_ms.store(now_ms(), Ordering::Relaxed);
-        match self.care_run(claim, true, Vec::new(), Some(look)).await {
+        match self.care_run(claim, true, Vec::new(), None, None, Some(look)).await {
             Ok(report) => {
                 // One line per folder that went, so a search of the journal
                 // for a missing checkout finds what removed it (hq#13316).
@@ -312,6 +312,37 @@ impl Hub {
         apply: bool,
         only: Vec<PathBuf>,
     ) -> Result<Value, RpcError> {
+        self.care_pass_with(apply, only, None, None).await
+    }
+
+    /// A pass that acts on `only` with no quiet time: worktrees the person chose to drop (a plan
+    /// build Keep let go, `plan_build.rs`). Every other rule stands: one in use stays, and work
+    /// only there is archived before its folder goes. `still` says whether a folder is still the
+    /// one meant, checked before acting on it and right before it goes.
+    pub(crate) async fn care_discard(
+        self: &Arc<Self>,
+        only: Vec<PathBuf>,
+        still: Arc<cmux_worktree_care::procs::Still>,
+    ) -> Result<Value, RpcError> {
+        if only.is_empty() {
+            return Err(RpcError::invalid_params("no worktree to remove"));
+        }
+        let settings = CareSettings {
+            recent_hours: [0; 3],
+            idle_pushed_hours: [0; 3],
+            idle_unpushed_hours: [0; 3],
+            ..CareSettings::default()
+        };
+        self.care_pass_with(true, only, Some(still), Some(settings)).await
+    }
+
+    async fn care_pass_with(
+        self: &Arc<Self>,
+        apply: bool,
+        only: Vec<PathBuf>,
+        still: Option<Arc<cmux_worktree_care::procs::Still>>,
+        settings: Option<CareSettings>,
+    ) -> Result<Value, RpcError> {
         let busy = || RpcError::internal("a worktree cleanup pass or report is already running");
         let Some(_running) = Running::claim(&CARE.running) else { return Err(busy()) };
         // Asked for: no spacing. Only a pass that acts on every worktree
@@ -329,7 +360,7 @@ impl Hub {
         })
         .await
         .map_err(|e| RpcError::internal(format!("the cleanup pass stopped: {e}")))??;
-        self.care_run(claim, apply, only, None).await
+        self.care_run(claim, apply, only, still, settings, None).await
     }
 
     /// Runs one pass; the caller holds `running` and the machine's `claim`,
@@ -339,6 +370,9 @@ impl Hub {
         claim: Claim,
         apply: bool,
         only: Vec<PathBuf>,
+        still: Option<Arc<cmux_worktree_care::procs::Still>>,
+        // The machine's own when `None`; a discard's waits otherwise (its headless stays).
+        settings: Option<CareSettings>,
         look: Option<care::Look>,
     ) -> Result<Value, RpcError> {
         let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home folder"))?;
@@ -372,6 +406,11 @@ impl Hub {
                     pressure: None,
                 },
             );
+            if let Some(settings) = settings {
+                config.pass.settings =
+                    CareSettings { headless: config.pass.settings.headless, ..settings };
+            }
+            config.pass.still = still;
             config.pass.open = Arc::new({
                 let home = home.clone();
                 move |root| {

@@ -29,6 +29,8 @@ async fn child_of(hub: &Arc<Hub>, parent: &Session, short: &str, depth: u32) -> 
             short_name: short.to_owned(),
             depth,
             offered: false,
+            worktree: None,
+            plan_build_change: None,
         }),
         ..NewRequest::default()
     };

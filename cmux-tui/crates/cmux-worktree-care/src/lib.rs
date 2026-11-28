@@ -29,6 +29,7 @@
 //! fsmonitor or transport from the repository runs.
 
 pub mod archive;
+pub mod bounded;
 pub mod budget;
 pub mod caches;
 pub mod care;

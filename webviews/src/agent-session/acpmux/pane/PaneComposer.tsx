@@ -22,7 +22,7 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
+import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
@@ -135,6 +135,7 @@ type WorktreeError = {
 
 /// What AcpmuxPane's render hands its composer tree: each value as the render worked it out.
 export type PaneComposerDeps = {
+  composerRunOnAgents: React.ComponentProps<typeof Composer>["runOnAgents"];
   /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
   markDockEdge: (lit: boolean) => void;
   /// acpmux's overload verdict for this Mac (App.tsx `useHostOverload`); the notice shows only when over.
@@ -435,6 +436,7 @@ export type PaneComposerDeps = {
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
+  composerRunOnAgents,
   hostOverload,
   markDockEdge,
   composerTurnQueue,
@@ -1812,6 +1814,7 @@ export function drawPaneComposer({
             // ⌘↩ on an empty prompt answers a waiting tagged ask's first answer (NextStepCard.tsx),
             // never while a question or permission card waits.
             onEmptyCommandReturn={hasBottomAsk ? undefined : nextStepFire?.fire}
+            runOnAgents={composerRunOnAgents}
             prompt={prompt}
             handle={composerRef}
             onUnplacedQuotes={composerUnplacedQuotes}

@@ -372,6 +372,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PLAN_BUILD, Request),
         untyped(method::MUX_PLAN_COMPARE, Request),
         untyped(method::MUX_PLAN_KEEP, Request),
+        untyped(method::MUX_PLAN_FANOUT, Request),
         request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
         untyped(method::MUX_GITHUB_PR_STATE, Request),
         untyped(method::MUX_GITHUB_PR_WAIT, Request),
