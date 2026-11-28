@@ -133,8 +133,8 @@ import Testing
     @Test func aSignedOutCardLeadsWithSignIn() async throws {
         let rig = try await HomeChatRig(history: 1)
         defer { rig.stop() }
-        var signIns = 0
-        rig.view.onChiefSignIn = { signIns += 1 }
+        let signIns = SignInCount()
+        rig.view.onChiefSignIn = { signIns.value += 1 }
         let key = IdempotencyKey("turn-failure-\(UUID().uuidString)")
         #expect(await rig.post("(turn failed on claude: Claude is not signed in here. Run `claude auth login` in a terminal)", key: key))
         rig.view.projection.refresh()
@@ -143,12 +143,37 @@ import Testing
         #expect(card.local.signIn)
         #expect(HomeTurnFailureRowProvider.titles(card).map(\.1) == ["Sign In", "Copy error", "Details"])
         rig.view.projection.turnFailureAction(ref, .signIn)
-        #expect(signIns == 1)
+        #expect(signIns.value == 1)
 
         let other = IdempotencyKey("turn-failure-\(UUID().uuidString)")
         #expect(await rig.post("(turn failed on claude: fetch failed)", key: other))
         rig.view.projection.refresh()
         rig.frame()
         #expect(try #require(payload(try shown(other, in: rig))).0.local.signIn == false, "only a signed-out card offers Sign In")
+
+        let codex = IdempotencyKey("turn-failure-\(UUID().uuidString)")
+        #expect(await rig.post("(turn failed on codex: Not logged in)", key: codex))
+        rig.view.projection.refresh()
+        rig.frame()
+        let codexCard = try #require(payload(try shown(codex, in: rig))).0
+        #expect(codexCard.title == "The Chief's agent is signed out.")
+        #expect(!codexCard.local.signIn, "Sign In logs in Claude Code: never offered for another agent's sign-in")
     }
+
+    /// Four buttons in a narrow chat wrap onto a second line inside the bubble, never past its edge.
+    @Test func buttonsWrapInsideANarrowBubble() {
+        let card = HomeTurnFailureRowProvider.Payload(title: "The Chief's agent is signed out.", detail: "turn failed on claude: x",
+                                                      local: .init(open: true, copied: false, retry: true, signIn: true),
+                                                      claudeSignedOut: true)
+        let layout = HomeTurnFailureRowProvider.layout(card, width: 200)
+        #expect(layout.buttons.count == 4)
+        #expect(Set(layout.buttons.map(\.2.minY)).count > 1, "the buttons take more than one line")
+        for (_, title, frame) in layout.buttons { #expect(frame.maxX <= layout.size.width, "\(title) stays inside the bubble") }
+    }
+}
+
+/// Sign In runs on the main actor (a `@MainActor @Sendable` closure), so the count it adds to is main-actor state.
+@MainActor
+private final class SignInCount {
+    var value = 0
 }

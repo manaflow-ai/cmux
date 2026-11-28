@@ -194,13 +194,15 @@ impl AppError {
         self.text_as(crate::cli::entry::program())
     }
 
-    /// `acpmux: <code>: <message>` for acpmux itself; the cmux front door (`cmux harness …` in an app
-    /// terminal) says `cmux: <message>`: no engine name and no code word in a person's terminal.
+    /// `<program>: <code>: <message>`, named as the caller typed it: `cmux: …` under the cmux front door
+    /// (`cmux harness …` in an app terminal), never the engine's name. The cmux front door leaves out `runtime`,
+    /// the code that says nothing (any failure without a kind); codes a script retries on (`busy`, `usage`,
+    /// `not_idle`, …) stay.
     pub fn text_as(&self, program: &str) -> String {
-        let mut text = if program == "acpmux" {
-            format!("acpmux: {}: {}", self.code.name(), self.message)
-        } else {
+        let mut text = if program != "acpmux" && self.code == Code::Runtime {
             format!("{program}: {}", self.message)
+        } else {
+            format!("{program}: {}: {}", self.code.name(), self.message)
         };
         if let Some(recovery) = self.recovery() {
             text.push_str(&format!("\n  {recovery}"));

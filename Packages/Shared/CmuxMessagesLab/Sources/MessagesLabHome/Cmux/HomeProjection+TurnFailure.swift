@@ -44,9 +44,10 @@ extension HomeProjection {
                 guard case .custom(let custom) = part, let card = HomeTurnFailureRowProvider.payload(custom) else { continue }
                 var local = turnFailureCards[message.id] ?? .init()
                 local.retry = turnFailureRetryTarget(message.id) != nil
-                local.signIn = onChiefSignIn != nil && card.title == CmuxStrings.turnFailureSignedOut
+                local.signIn = onChiefSignIn != nil && card.claudeSignedOut == true
                 guard local != card.local,
-                      let next = HomeTurnFailureRowProvider.custom(.init(title: card.title, detail: card.detail, local: local))
+                      let next = HomeTurnFailureRowProvider.custom(.init(title: card.title, detail: card.detail, local: local,
+                                                                         claudeSignedOut: card.claudeSignedOut))
                 else { continue }
                 controller.dispatch(.setCustomPart(message.id, index, next))
             }

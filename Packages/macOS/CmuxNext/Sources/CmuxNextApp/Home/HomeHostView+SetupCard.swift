@@ -15,9 +15,9 @@ extension HomeHostView {
     func watchSetupCard() {
         setupCardWatch?.cancel()
         setupCardWatch = nil
-        guard isChief else { return showSetupCard(nil) }
         let onboarding = control.services.onboarding, setup = onboarding.setup, meetChief = onboarding.chief
-        transcript.onChiefSignIn = setup.checkChiefAgent(source: onboarding.signInHarnesses)
+        transcript.onChiefSignIn = isChief ? setup.checkChiefAgent(source: onboarding.signInHarnesses, here: !control.services.home.isCloudConversation(control.conversation)) : nil
+        guard isChief else { return showSetupCard(nil) }
         // task-owner: lives as long as this view is a Chief's; event-driven (Observation of FirstRunSetup; Meet Chief holds it).
         setupCardWatch = Task { [weak self] in
             for await form in ObservationStream({ meetChief.holdsWelcome ? nil : setup.cardForm }) {

@@ -25,6 +25,8 @@ final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
         var title: String
         var detail: String
         var local: Local
+        /// ``HomeTurnFailure/claudeSignedOut``; nil in a card made before it existed.
+        var claudeSignedOut: Bool?
     }
 
     @MainActor static func install() {
@@ -32,7 +34,7 @@ final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
     }
 
     static func part(_ failure: HomeTurnFailure, local: Local = .init()) -> Part? {
-        custom(Payload(title: failure.title, detail: failure.detail, local: local)).map { .custom($0) }
+        custom(Payload(title: failure.title, detail: failure.detail, local: local, claudeSignedOut: failure.claudeSignedOut)).map { .custom($0) }
     }
 
     static func custom(_ payload: Payload) -> CustomPart? {
@@ -71,11 +73,19 @@ final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
         let pad = Fixture.bubblePadX
         let titleLayout = TextLayout.make(p.title, runs: [], maxWidth: max(1, min(420, width) - 2 * pad))
         var buttons: [(Action, String, CGRect)] = []
-        var x = pad
-        let buttonTop = Fixture.bubblePadY + titleLayout.textHeight(hard: Fixture.lineHeight) + rowGap
+        var x = pad, widest = pad
+        var buttonTop = Fixture.bubblePadY + titleLayout.textHeight(hard: Fixture.lineHeight) + rowGap
+        // A button that would pass the bubble's edge starts the next line (four buttons in a narrow chat or a long
+        // language: Sign In, Retry, Copy error, Hide details).
+        let edge = min(420, width) - pad
         for (action, title) in titles(p) {
             let w = ceil(TextDraw.width(title, font: Fixture.bodyFont))
+            if x > pad, x + w > edge {
+                x = pad
+                buttonTop += Fixture.lineHeight + rowGap
+            }
             buttons.append((action, title, CGRect(x: x, y: buttonTop, width: w, height: Fixture.lineHeight)))
+            widest = max(widest, x + w)
             x += w + buttonGap
         }
         var height = buttonTop + Fixture.lineHeight
@@ -86,7 +96,7 @@ final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
             detail = d
             height = detailTop + CGFloat(d.lines.count) * 14
         }
-        let contentWidth = max(titleLayout.width + 2 * pad, x - buttonGap + pad, detail.map { $0.width + 2 * pad } ?? 0)
+        let contentWidth = max(titleLayout.width + 2 * pad, widest + pad, detail.map { $0.width + 2 * pad } ?? 0)
         return Layout(title: titleLayout, detail: detail, buttons: buttons, detailTop: detailTop,
                       size: CGSize(width: min(max(80, min(420, width)), ceil(contentWidth)), height: ceil(height + Fixture.bubblePadY)))
     }
