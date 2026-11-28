@@ -1,5 +1,5 @@
 /// What a Chief chat does with Meet Chief (``ChiefOnboarding/place(chatAt:shownAt:otherChiefs:)``).
-public enum ChiefOnboardingPlace: Equatable, Sendable {
+public enum ChiefOnboardingPlace: String, Decodable, Equatable, Sendable {
     /// The chat shows the card.
     case shows
     /// The person sent a message while it showed: it ends for good.
