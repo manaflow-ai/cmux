@@ -64,13 +64,17 @@ extension SidebarUpdatedCardHost {
     /// The view's frame for a card resting at `rest`: where the page holds it, else on its way from
     /// where it was let go, else at its rest. `sidebar` runs the settle's springs.
     func displaced(_ rest: NSRect, in sidebar: NSView) -> NSRect {
-        if let held = heldOffset { return rest.offsetBy(dx: heldBase.x + held.x, dy: heldBase.y + held.y) }
+        if let held = heldOffset {
+            standsOffRest = true
+            return rest.offsetBy(dx: heldBase.x + held.x, dy: heldBase.y + held.y)
+        }
         if let dropped = droppedAt {
             droppedAt = nil
             settleX.start(at: dropped.x - rest.minX, toward: 0, in: sidebar)
             settleY.start(at: dropped.y - rest.minY, toward: 0, in: sidebar)
         }
         let dx = settleX.height(toward: 0, in: sidebar), dy = settleY.height(toward: 0, in: sidebar)
+        standsOffRest = dx != 0 || dy != 0
         return rest.offsetBy(dx: dx, dy: dy)
     }
 

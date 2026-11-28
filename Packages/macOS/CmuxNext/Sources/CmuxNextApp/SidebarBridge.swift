@@ -82,7 +82,6 @@ final class SidebarBridge {
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
         model.agentSignatures = services.agentSignatures
-        wireSubagentOpen()
         // An item dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21, 2026-11-22; `LayoutItem.comesOffOnDragOut`).
         container.sidebarView.removesOnDragOut = { [weak model] id in (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.comesOffOnDragOut == true }
         container.sidebarView.onDragOutRemove = { [weak services] id in
@@ -169,7 +168,7 @@ final class SidebarBridge {
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
         sameTurn.observe(listsRows: true, showsFirstRunAtOnce: seededProfiles == nil, {
-            let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
+            let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFace(of: $0)) }))
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines, doc: services.sidebarDoc), services.sidebarCustomization.rowDecorations,
                      services.sidebarDoc.store?.shownChanges, services.settings?.snapshot.sidebarSections.projection ?? .defaults), launching, failed, SidebarSpaceBar.profiles(machines.local, window: windowState.id, windows: services.windows), SidebarProfileKey(windowState.profileID.rawValue),
@@ -189,7 +188,7 @@ final class SidebarBridge {
             services.windows.retryDeferredPlacements() // before pending stand-ins are forgotten
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
             guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
-            PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
+            PendingWorkspaceRows.shared.forget(in: windowState.id, listed: SidebarRowSection.listed(PendingWorkspaceRows.shared.watchedIDs, in: sections),
                                                held: { machines.workspace(id: $0) != nil }) { id in
                 if let owner = registry.value.owner(of: id), owner != windowState.id, !registry.value.isGuest(id, in: windowState.id) { return true }
                 guard let workspace = WindowProfiles.qualified(id, machines: machines), let membership = WindowProfiles.membership(machines) else { return false }

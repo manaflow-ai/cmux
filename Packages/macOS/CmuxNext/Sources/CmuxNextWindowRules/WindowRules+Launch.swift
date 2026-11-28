@@ -98,16 +98,23 @@ extension WindowRules {
     /// another top page (Settings, History), which reopens on that page as saved, and when the FFI does not answer.
     @MainActor
     public func launchLanding(front record: WindowRecord, workspace: (String) -> WorkspaceModel?) -> LaunchLanding? {
-        if let page = record.page, page != "home" { return nil }
-        guard record.page == nil, let id = record.workspaceKey?.rawValue else {
-            return launchLanding(last: record.page == nil ? .nothing : .home, workspaceLive: false, tab: .gone)
+        struct Saved: Encodable { var dead, relaunch: Bool }
+        struct Live: Encodable { var home: Bool; var tab: Saved? }
+        struct Facts: Encodable { var page, workspace, pane, tab: String?; var live: Live? }
+        struct Landing: Decodable { var kind: String; var why: String?; var workspace: String?; var pane: String?; var tab: String? }
+        struct Reply: Decodable { var landing: Landing? }
+        let id = record.workspaceKey?.rawValue, pane = id.flatMap { record.focusedPanes[$0] } ?? record.focusedPane
+        let tab = pane.flatMap { record.selectedTabs[$0] }
+        let live = id.flatMap(workspace).map { live in
+            let saved = live.screens.lazy.flatMap(\.panes).first { $0.id == pane }?.tabs.first { $0.id == tab }
+            return Live(home: live.isAnyHome, tab: saved.map { Saved(dead: $0.dead, relaunch: $0.relaunch != nil) })
         }
-        let live = workspace(id)
-        if live?.isAnyHome == true { return launchLanding(last: .home, workspaceLive: true, tab: .gone) }
-        let pane = record.focusedPanes[id] ?? record.focusedPane, tab = pane.flatMap { record.selectedTabs[$0] }
-        let saved = live?.screens.lazy.flatMap(\.panes).first { $0.id == pane }?.tabs.first { $0.id == tab }
-        let standing: TabStanding = saved.map { $0.dead || $0.relaunch != nil ? .ended : .live } ?? .gone
-        return launchLanding(last: .workspace(id, pane: pane, tab: tab), workspaceLive: live != nil, tab: standing)
+        let facts = Facts(page: record.page, workspace: id, pane: pane, tab: tab, live: live)
+        guard let landing = call("window_launch_front_landing", facts, as: Reply.self)?.landing else { return nil }
+        if landing.kind == "workspace", let workspace = landing.workspace {
+            return .workspace(workspace, pane: landing.pane, tab: landing.tab)
+        }
+        return landing.kind == "home" ? .home(why: landing.why ?? "") : nil
     }
 
     /// What a relaunch's pending Home landing reads (cmux-window-rules `launch::pending_home`): the saved front window

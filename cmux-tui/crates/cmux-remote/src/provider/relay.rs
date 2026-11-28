@@ -98,6 +98,8 @@ impl Drop for StderrTail {
         }
     }
 }
+#[path = "relay_dial_standby.rs"]
+mod dial_standby;
 #[path = "relay_registration_loop.rs"]
 mod registration_loop;
 #[path = "relay_registration_state.rs"]
@@ -118,6 +120,7 @@ pub use registration_state::RegistrationState;
 #[cfg(test)]
 pub(crate) use registration_state::test_wall;
 use registration_state::wall_now;
+pub use standby::EARLY_CONNECT_NOT_INLINE;
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type RelayCircuitSink = SplitSink<RelaySocket, Message>;
@@ -406,14 +409,20 @@ impl fmt::Debug for RelayCredential {
     }
 }
 
-/// The TLS trust a relay's `wss` and `relay+do` connections use. The default
-/// trusts the platform's roots (and `SSL_CERT_FILE`/`SSL_CERT_DIR`), as every
-/// relay connection did before; [`RelayTls::with_root_certificates`] trusts
-/// only the given roots, so a caller (a test's own CA) needs no process-wide
-/// environment.
+/// How a relay's `wss` and `relay+do` connections leave this machine: their
+/// TLS trust and their proxy. The default trusts the platform's roots (and
+/// `SSL_CERT_FILE`/`SSL_CERT_DIR`), as every relay connection did before, and
+/// follows the system's proxy for the relay's URL (`provider::proxied`: PAC on
+/// macOS, `https_proxy` elsewhere; direct when the system says direct);
+/// [`RelayTls::with_root_certificates`] trusts only the given roots and
+/// [`RelayTls::with_proxy`] names the proxy, so a caller (a test's own CA and
+/// proxy) needs no process-wide environment.
 #[derive(Clone, Default)]
 pub struct RelayTls {
     client_config: Option<Arc<rustls::ClientConfig>>,
+    proxy: cmux_proxy::ProxyConfig,
+    /// The last connection's outer path, for the transport snapshot.
+    outer: super::proxied::OuterPath,
 }
 
 impl RelayTls {
@@ -436,7 +445,23 @@ impl RelayTls {
         .map_err(|error| ProviderError::Configuration(format!("relay TLS: {error}")))?
         .with_root_certificates(roots)
         .with_no_client_auth();
-        Ok(Self { client_config: Some(Arc::new(config)) })
+        Ok(Self { client_config: Some(Arc::new(config)), ..Self::default() })
+    }
+
+    /// Go out through `proxy` instead of the system's proxy settings
+    /// (`ProxyConfig::Direct` never proxies; `Fixed` always does, loopback too).
+    /// The result records its own outer path, apart from the trust it came from.
+    #[must_use]
+    pub fn with_proxy(mut self, proxy: cmux_proxy::ProxyConfig) -> Self {
+        self.proxy = proxy;
+        self.outer = super::proxied::OuterPath::default();
+        self
+    }
+
+    /// How the last relay connection made with this trust (or a clone of it)
+    /// went out: through which proxy, and whether its TLS was inspected.
+    pub fn outer_path(&self) -> Option<crate::observability::OuterPathSnapshot> {
+        self.outer.snapshot()
     }
 
     fn connector(&self) -> Option<Connector> {
@@ -449,6 +474,7 @@ impl fmt::Debug for RelayTls {
         formatter
             .debug_struct("RelayTls")
             .field("custom_roots", &self.client_config.is_some())
+            .field("proxy", &self.proxy)
             .finish()
     }
 }
@@ -503,6 +529,8 @@ pub struct RelayProvider {
     /// `control_timeout`, for the daemon to join its circuit once the relay
     /// allocated it ([`RelayProvider::with_peer_join_wait`]).
     peer_join_wait: Option<Duration>,
+    /// Whether a first lane's Connect is early ([`RelayProvider::with_early_connect`]).
+    early_connect: bool,
     /// When set, a lane allocated before any other lane of its group waits
     /// no later than this: the first lane is the one a relay parks for a
     /// daemon that has not registered, and a caller may give up on that park
@@ -533,6 +561,7 @@ impl RelayProvider {
             allocation_deadline: None,
             peer_join_wait: None,
             first_allocation_deadline: None,
+            early_connect: standby::early_connect_wanted(),
         })
     }
 
@@ -556,6 +585,16 @@ impl RelayProvider {
     /// circuit's socket keeps its own bound.
     pub fn with_peer_join_wait(mut self, wait: Duration) -> Self {
         self.peer_join_wait = Some(wait);
+        self
+    }
+
+    /// Send a first lane's inline Connect and hand its socket back as the link at once, the
+    /// Connect's `Ready` read by the link's first receive, so the caller's first frame (Noise
+    /// msg1) rides right behind the Connect rather than a round trip after it. A relay that
+    /// answers `Allocated` (no Standby free) fails the link with [`EARLY_CONNECT_NOT_INLINE`],
+    /// and the caller dials again with this off. Default: `CMUX_RELAY_EARLY_CONNECT=1` (off).
+    pub fn with_early_connect(mut self, on: bool) -> Self {
+        self.early_connect = on;
         self
     }
 
@@ -609,8 +648,19 @@ impl TransportProvider for RelayProvider {
         // An inline circuit (relay_standby.rs) carries its frames on this socket, so it takes
         // a circuit's message limit, not a control socket's.
         let limit = framing.websocket_message_limit(self.config.maximum_frame_bytes);
-        let control =
-            connect_provider_control(&endpoint, &self.credentials, limit, &self.tls).await?;
+        // A redial takes the standby socket the dial before left open (`relay_dial_standby.rs`;
+        // off by default), then leaves one for the next.
+        let standby = dial_standby::dial_standby_wanted();
+        let taken = if standby { dial_standby::take(&endpoint, limit).await } else { None };
+        let control = match taken {
+            Some(control) => control,
+            None => {
+                connect_provider_control(&endpoint, &self.credentials, limit, &self.tls).await?
+            }
+        };
+        if standby {
+            dial_standby::prime(&endpoint, &self.credentials, limit, &self.tls);
+        }
         Ok(Arc::new(RelayLinkGroup {
             description: route.clone(),
             evidence: CarrierEvidence::Relay {
@@ -625,6 +675,7 @@ impl TransportProvider for RelayProvider {
             allocation_deadline: self.allocation_deadline,
             peer_join_wait: self.peer_join_wait,
             first_allocation_deadline: self.first_allocation_deadline,
+            early_connect: self.early_connect,
             allocated: AtomicBool::new(false),
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
@@ -644,6 +695,7 @@ struct RelayLinkGroup {
     allocation_deadline: Option<Instant>,
     peer_join_wait: Option<Duration>,
     first_allocation_deadline: Option<Instant>,
+    early_connect: bool,
     /// Whether one of this group's lanes has been allocated: from then on no
     /// lane waits the first allocation's deadline.
     allocated: AtomicBool,
@@ -695,6 +747,9 @@ enum RelayCircuitSender {
 struct RelayCircuitReceiver {
     stream: RelayCircuitStream,
     pending: VecDeque<Bytes>,
+    /// An early Connect's lane and generation (`RelayProvider::with_early_connect`): the socket's
+    /// first answer is still to come, and only its `Ready` makes this the circuit.
+    awaiting: Option<(LaneToken, u64)>,
 }
 
 enum RelayCircuitCommand {
@@ -728,10 +783,18 @@ impl RelayCircuitLink {
             receiver: Mutex::new(RelayCircuitReceiver {
                 stream: receiver,
                 pending: VecDeque::new(),
+                awaiting: None,
             }),
             terminal,
             closed: AtomicBool::new(false),
         }
+    }
+
+    /// This circuit before the relay answered its early Connect: the first receive reads the
+    /// `Ready` for `lane` and `generation` (or fails on `Allocated`) before any frame.
+    fn awaiting_ready(mut self, lane: LaneToken, generation: u64) -> Self {
+        self.receiver.get_mut().awaiting = Some((lane, generation));
+        self
     }
 
     async fn send_control(&self, control: &RelayControl) -> Result<(), LinkError> {
@@ -1008,6 +1071,31 @@ impl FrameLink for RelayCircuitLink {
                         ));
                     }
                     match serde_json::from_str(&text) {
+                        Ok(RelayControl::Ready { lane, generation, .. })
+                            if receiver
+                                .awaiting
+                                .as_ref()
+                                .is_some_and(|(l, g)| *l == lane && *g == generation) =>
+                        {
+                            receiver.awaiting = None;
+                        }
+                        Ok(RelayControl::Parked { .. }) if receiver.awaiting.is_some() => {}
+                        // No Standby was free (`Allocated`), or the relay refused the Connect
+                        // (a ticket to renew, a slot gone offline, a relay to pass): the caller
+                        // dials again with early Connect off, which handles each of these.
+                        Ok(RelayControl::Allocated { .. }) if receiver.awaiting.is_some() => {
+                            let error = LinkError::Transport(EARLY_CONNECT_NOT_INLINE.into());
+                            self.publish_terminal(error.clone());
+                            return Err(error);
+                        }
+                        Ok(RelayControl::Error { code, .. }) if receiver.awaiting.is_some() => {
+                            let error = LinkError::Transport(format!(
+                                "{EARLY_CONNECT_NOT_INLINE}: {}",
+                                sanitize_relay_code(&code)
+                            ));
+                            self.publish_terminal(error.clone());
+                            return Err(error);
+                        }
                         Ok(RelayControl::Error { retryable: true, .. }) => {
                             return Err(LinkError::Transport(
                                 "relay circuit became unavailable".into(),
@@ -1109,6 +1197,7 @@ impl LinkGroup for RelayLinkGroup {
                 kind: TransportPathKind::Relay,
                 remote: self.endpoint.host_str().map(str::to_owned),
                 rtt_micros: None,
+                outer: self.tls.outer_path(),
             }),
         }
     }
@@ -1134,10 +1223,47 @@ impl LinkGroup for RelayLinkGroup {
             let mut control = match stored_control.take() {
                 Some(control) => control,
                 None => {
-                    connect_provider_control(&self.endpoint, &self.credentials, limit, &self.tls)
-                        .await?
+                    // A standby socket a dial before left open skips the TCP connect and the
+                    // upgrade (`relay_dial_standby.rs`; off by default).
+                    let standby = dial_standby::dial_standby_wanted();
+                    let taken = if standby {
+                        dial_standby::take(&self.endpoint, limit).await
+                    } else {
+                        None
+                    };
+                    let control = match taken {
+                        Some(control) => control,
+                        None => {
+                            connect_provider_control(
+                                &self.endpoint,
+                                &self.credentials,
+                                limit,
+                                &self.tls,
+                            )
+                            .await?
+                        }
+                    };
+                    if standby {
+                        dial_standby::prime(&self.endpoint, &self.credentials, limit, &self.tls);
+                    }
+                    control
                 }
             };
+            if self.early_connect(request.generation) {
+                // The link is this socket from here: its first receive reads the Connect's answer
+                // (`Ready`), and what the caller sends rides right behind the Connect.
+                send_connect(
+                    &mut control,
+                    &self.config,
+                    &self.credentials,
+                    &lane,
+                    request.generation,
+                )
+                .await
+                .map_err(AllocationError::into_provider_error)?;
+                self.allocated.store(true, Ordering::Release);
+                return Ok(self.inline_link_awaiting(control, lane, request.generation));
+            }
             match request_allocation(
                 &mut control,
                 &self.config,
@@ -1291,6 +1417,20 @@ async fn request_allocation(
     lane: &LaneToken,
     generation: u64,
 ) -> Result<Allocation, AllocationError> {
+    send_connect(socket, config, credentials, lane, generation).await?;
+    tokio::time::timeout(wait, read_until_allocation(socket, lane, generation)).await.map_err(
+        |_| AllocationError::Reconnect(relay_carrier_error("relay allocation timed out")),
+    )?
+}
+
+/// A client's Connect for `lane`, its answer not read.
+async fn send_connect(
+    socket: &mut RelaySocket,
+    config: &RelayClientConfig,
+    credentials: &RelayCredentialSource,
+    lane: &LaneToken,
+    generation: u64,
+) -> Result<(), AllocationError> {
     let (credential, grant) =
         credentials.fetch_with_grant().await.map_err(AllocationError::Authentication)?;
     send_control(
@@ -1308,10 +1448,7 @@ async fn request_allocation(
         },
     )
     .await
-    .map_err(AllocationError::Reconnect)?;
-    tokio::time::timeout(wait, read_until_allocation(socket, lane, generation)).await.map_err(
-        |_| AllocationError::Reconnect(relay_carrier_error("relay allocation timed out")),
-    )?
+    .map_err(AllocationError::Reconnect)
 }
 
 async fn read_until_allocation(
@@ -2038,8 +2175,13 @@ async fn open_relay_socket(
     let opened = tokio::time::timeout(RELAY_CONNECT_TIMEOUT, async {
         // The TCP connect is hedged (`hedge`): a relay host's black-holed SYN gets a new socket
         // in 400 ms instead of this whole budget. TLS and the upgrade run on the winner.
-        let socket = connect_relay_tcp(endpoint).await?;
-        client_async_tls_with_config(request, socket, Some(config), tls.connector()).await
+        let (socket, via) = connect_relay_tcp(endpoint, &tls.proxy).await?;
+        let opened =
+            client_async_tls_with_config(request, socket, Some(config), tls.connector()).await;
+        if let Ok((socket, _)) = &opened {
+            tls.outer.record(endpoint.host_str().unwrap_or(""), &via, socket);
+        }
+        opened
     })
     .await
     .map_err(|_| {
@@ -2059,21 +2201,29 @@ async fn open_relay_socket(
     }
 }
 
-/// The relay endpoint's TCP stream, hedged over its addresses ([`super::hedge`]), Nagle off.
-async fn connect_relay_tcp(endpoint: &Url) -> Result<TcpStream, WebSocketError> {
+/// The relay endpoint's TCP stream, Nagle off: through the proxy `proxy` names for the relay's
+/// URL ([`super::proxied`]), else hedged over its addresses ([`super::hedge`]).
+async fn connect_relay_tcp(
+    endpoint: &Url,
+    proxy: &cmux_proxy::ProxyConfig,
+) -> Result<(TcpStream, cmux_proxy::Via), WebSocketError> {
     let host = endpoint.host_str().ok_or(WebSocketError::Url(UrlError::NoHostName))?;
     let port = endpoint
         .port_or_known_default()
         .ok_or(WebSocketError::Url(UrlError::UnsupportedUrlScheme))?;
-    let addresses = super::dial::resolve_dial_target(host, port)
-        .await
-        .map_err(|error| WebSocketError::Io(std::io::Error::other(error.to_string())))?;
-    let socket =
-        super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
+    let direct = async {
+        let addresses = super::dial::resolve_dial_target(host, port)
             .await
-            .map_err(WebSocketError::Io)?;
-    let _ = socket.set_nodelay(true);
-    Ok(socket)
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        let socket =
+            super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
+                .await?;
+        let _ = socket.set_nodelay(true);
+        Ok(socket)
+    };
+    super::proxied::connect(host, port, endpoint.scheme() == "wss", proxy, direct)
+        .await
+        .map_err(WebSocketError::Io)
 }
 
 fn relay_connect_error(error: WebSocketError) -> ProviderError {
@@ -2155,10 +2305,15 @@ fn relay_unavailable(message: &str, code: &str) -> ProviderError {
              renewed (relay code {RELAY_CREDENTIAL_UNAVAILABLE})"
         ));
     }
+    relay_carrier_error(format!("{message} (relay code {})", sanitize_relay_code(code)))
+}
+
+/// A relay's error code as shown: a short word as is, anything else `other`.
+fn sanitize_relay_code(code: &str) -> &str {
     let word = code.len() <= 32
         && !code.is_empty()
         && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    relay_carrier_error(format!("{message} (relay code {})", if word { code } else { "other" }))
+    if word { code } else { "other" }
 }
 
 fn relay_rejection() -> ProviderError {

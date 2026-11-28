@@ -18,6 +18,11 @@ public struct CloudStartSessionStrings {
         }
     }
 
+    public static var environmentMismatch: CloudMoveFailure {
+        CloudMoveFailure(message: String(localized: "cloud.start.environmentMismatch", defaultValue: "The chosen machine cannot serve the selected Cloud environment.", table: "CloudSessions", bundle: .localizedModule),
+                         code: "environment_mismatch")
+    }
+
     public static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .localizedModule) }
     public static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .localizedModule) }
 
@@ -166,6 +171,11 @@ public struct CloudStartSessionStrings {
     /// The `agent-session-start` refusals that name their cause (cmux-tui agent_session_start.rs, hq#11225): an agent
     /// not signed in, an agent the machine lacks, a model route that can't serve the start.
     public static let namedRefusals: Set<String> = ["agent_session.sign_in_required", "agent_session.harness_missing", "agent_session.route_unavailable"]
+
+    /// A team launch would expose a credential from the machine's Claude settings file.
+    package static var claudeSettingsSecret: String {
+        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again.", table: "CloudSessions", bundle: .localizedModule)
+    }
 
     /// A named refusal (`namedRefusals`) in the run's words. `agentName`: the agent as a person reads it; `expired`:
     /// its sign-in expired; `harness`: the refused harness id (`cmux`, the cmux router, is named as the router).

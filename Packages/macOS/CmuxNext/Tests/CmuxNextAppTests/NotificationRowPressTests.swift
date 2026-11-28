@@ -1,7 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
-import CmuxNextNotifications
+@testable import CmuxNextNotifications
 import CmuxNextTestSupport
 import Testing
 

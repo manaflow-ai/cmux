@@ -249,4 +249,13 @@ public enum SurfacePresence: Hashable, Sendable {
     case keepAlive
     /// Away: pause; the surface may be evicted by the LRU.
     case hidden
+
+    /// Its name in diagnostics (a pane's `surface_status` `presence`).
+    public var name: String {
+        switch self {
+        case .visible: "visible"
+        case .keepAlive: "keep_alive"
+        case .hidden: "hidden"
+        }
+    }
 }

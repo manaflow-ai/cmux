@@ -270,7 +270,7 @@ pub(crate) fn put_blob_in(
             "asset_store_full",
             format!(
                 "bad request: the icon asset store is full ({MAX_TOTAL_BYTES} bytes); \
-                 clear unused icons and try again"
+                 clear unused icons"
             ),
         ));
     }

@@ -674,3 +674,56 @@ fn the_batch_state_compares_with_the_agents_last_screenshot() {
     assert_eq!(out.body["state"]["unchanged"], false, "{}", out.body);
     assert!(out.png_base64.is_some());
 }
+
+/// Another session's call context: its looks are not this session's.
+fn other_ctx() -> CallContext {
+    CallContext { session: "s2".into(), ..ctx() }
+}
+
+/// A batch the agent sends without a look first (as the instructions ask)
+/// reads the window's elements once before its first step, so that step's
+/// changes compare with them: never "no earlier look", which sent the agent
+/// to look again (a model turn) in 31 of 60 eval trials.
+#[test]
+fn a_batch_with_no_earlier_look_compares_its_first_step_with_a_baseline() {
+    let d = desktop_with(doc(false, "", "Save"));
+    let e = rig(d.clone());
+    // Another session walks the window once, so each read below is one walk
+    // (a window's first read walks a small tree twice); this session has
+    // still never looked.
+    assert!(!e.call(&other_ctx(), "get_ui_tree", &json!({"window_id": "1"})).is_error);
+    assert!(e.last_seen("s1", "1").is_none());
+    // The step's effect: the document's text changes after the baseline
+    // read (the next walk) and before the step's own read (the one after).
+    let mut typed = doc(false, "", "Save");
+    typed.children[0].value = "hello world".into();
+    d.trees_from_walk.lock().unwrap().push((walks(&d) + 2, typed));
+    let out = batch(&e, json!([{"action": "type_text", "element_id": "t", "text": " world"}]));
+    assert!(!out.is_error, "{}", out.body);
+    let changes = step(&out, 0)["changes"].as_str().unwrap();
+    assert!(!changes.contains("no earlier look"), "{changes}");
+    assert!(changes.contains("hello world"), "{changes}");
+    let reason = step(&out, 0)["outcome_reason"].as_str().unwrap_or_default();
+    assert!(!reason.contains("no earlier look"), "{}", out.body);
+}
+
+/// A step resolved by `target` reuses the read that found it as the
+/// baseline: it walks the window no more often than the same batch after a
+/// look (which needs no baseline).
+#[test]
+fn a_targeted_first_step_reuses_its_match_read_as_the_baseline() {
+    let walks_of = |look: bool| {
+        let d = desktop_with(doc(false, "", "Save"));
+        let e = rig(d.clone());
+        let who = if look { ctx() } else { other_ctx() };
+        assert!(!e.call(&who, "get_ui_tree", &json!({"window_id": "1"})).is_error);
+        let before = walks(&d);
+        let out =
+            batch(&e, json!([{"action": "click", "target": {"role": "button", "label": "Save…"}}]));
+        assert!(!out.is_error, "{}", out.body);
+        let changes = step(&out, 0)["changes"].as_str().unwrap().to_string();
+        assert!(!changes.contains("no earlier look"), "look {look}: {changes}");
+        walks(&d) - before
+    };
+    assert_eq!(walks_of(false), walks_of(true));
+}

@@ -22,6 +22,9 @@ public final class AgentPaneExternalAttach {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.external-attach")
     /// The chat that last took files: `chat.composer.get` reads it back.
     private weak var last: AgentPaneView?
+    /// The exact files in the last delivered batch. Capture attribution matches its own URL rather
+    /// than borrowing this route's older composer destination.
+    private var lastAttachedURLs: Set<URL> = []
     /// When ``last`` took its files (wall clock): `chat.composer.get`'s `attached_at_ms`, so a probe
     /// times a door from the app's own stamp rather than from how often it reads the composer.
     private var lastAttachedAt: Date?
@@ -88,12 +91,20 @@ public final class AgentPaneExternalAttach {
     /// Whether files wait for a new chat (``attach(_:claimed:target:openChat:show:)``).
     var waitsForChat: Bool { opening != nil }
 
+    /// The session that synchronously received `url`, if it did. A queued or failed attach, and an
+    /// unrelated delivery that replaced the batch, return nil without changing composer history.
+    func session(for url: URL) -> String? {
+        guard opening == nil, lastAttachedURLs.contains(url) else { return nil }
+        return last?.model.sessionId
+    }
+
     /// The files waiting for a chat (one opening, or the next files'), oldest first.
     var waitingFiles: [URL] { (stranded?.urls ?? []) + (opening?.urls ?? []) }
 
     private func deliver(_ urls: [URL], claimed: String?, to view: AgentPaneView, show: @MainActor (AgentPaneView) -> Void) {
         last = view
         lastAttachedAt = Date()
+        lastAttachedURLs = Set(urls)
         show(view)
         view.attachExternal(urls, claimed: claimed)
         view.focusComposer()
@@ -104,7 +115,10 @@ public final class AgentPaneExternalAttach {
     /// `session` null for a chat not started yet, and all empty without a chat. The chat that last
     /// took files also answers `attached_at_ms`: the Unix ms its composer took them.
     public func composerState(focused: AgentPaneView?) async -> JSONValue {
-        if let last { return Self.stamped(await last.composerReadback(), attachedAt: lastAttachedAt) }
+        if let last {
+            let attachedAt = lastAttachedAt
+            return Self.stamped(await last.composerReadback(), attachedAt: attachedAt)
+        }
         guard let focused else { return Self.noComposer }
         return await focused.composerReadback()
     }

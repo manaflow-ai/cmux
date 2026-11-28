@@ -95,8 +95,9 @@ DISPATCH_RESERVE_S = REQUEST_TIMEOUT_S + SETTLE_S
 # The compare API lists at most this many files; a longer diff counts as relevant.
 COMPARE_FILES_MAX = 300
 # The base tier's Mac jobs (cmux-next.yml's daemon-test, generated-files and cmux-scheme-compile names).
-# A base tier run where one of these has started (or finished) is never cancelled.
-MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)")
+# A base tier run where one of these has started (or finished) is never cancelled. generated-files is the
+# Mac fallback; "cmux-next generated files" is now generated-files-linux, a Linux job.
+MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files (Mac fallback)", "cmux app scheme compile (Debug)")
 # A run in one of these states has not finished.
 OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
 SHA = re.compile(r"^[0-9a-f]{40}$")

@@ -9,10 +9,20 @@ use serde_json::Value;
 
 use super::{GlobalArgs, OutputMode, UsageError};
 
+mod guide;
+
 #[derive(Clone, Debug)]
 pub(super) struct Plan {
-    pub(super) query: String,
+    pub(super) request: Request,
     pub(super) output: OutputMode,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Request {
+    /// `cmux docs search QUERY`: operations, task guides and guide pages.
+    Search(String),
+    /// `cmux docs guide [SLUG | --full]`: the cmux NEXT guide pages.
+    Guide(guide::Request),
 }
 
 /// Claims the local `docs` command before the resource parser sees it.
@@ -23,10 +33,11 @@ pub(super) fn command(
     if args.first().map(String::as_str) != Some("docs") {
         return Ok(None);
     }
-    if args[1..].iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+    let rest = args.get(1..).unwrap_or_default();
+    if rest.iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
         return Ok(Some(super::command::ParsedCommand::Help(Some("docs".to_owned()))));
     }
-    Ok(Some(super::command::ParsedCommand::Docs(parse(&args[1..], global.output)?)))
+    Ok(Some(super::command::ParsedCommand::Docs(parse(rest, global.output)?)))
 }
 
 pub(super) fn append_scope_help(scope: &str, text: Cow<'static, str>) -> Cow<'static, str> {
@@ -348,7 +359,29 @@ struct SearchResponse {
     query: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     guides: Vec<Guide>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pages: Vec<GuidePage>,
     results: Vec<SearchResult>,
+}
+
+/// A guide page a search found: its title and the command that prints it.
+#[derive(Clone, Debug, Serialize)]
+pub(super) struct GuidePage {
+    pub(super) slug: String,
+    pub(super) title: String,
+    pub(super) read: String,
+}
+
+/// The cmux NEXT guide pages that answer `query` (`cmux docs search` and the MCP `cmux_docs` tool).
+pub(super) fn guide_pages(query: &str) -> Vec<GuidePage> {
+    guide::matching(query)
+        .into_iter()
+        .map(|page| GuidePage {
+            slug: page.slug.clone(),
+            title: page.title.clone(),
+            read: format!("cmux docs guide {}", page.slug),
+        })
+        .collect()
 }
 
 fn catalog() -> &'static Value {
@@ -360,29 +393,43 @@ fn catalog() -> &'static Value {
 }
 
 pub(super) fn parse(args: &[String], output: OutputMode) -> Result<Plan, UsageError> {
+    let rest = args.get(1..).unwrap_or_default();
     match args.first().map(String::as_str) {
         Some("search") => {
-            let query = args[1..].join(" ").trim().to_owned();
+            let query = rest.join(" ").trim().to_owned();
             if query.is_empty() {
                 return Err(UsageError::new("docs search needs a query"));
             }
-            Ok(Plan { query, output })
+            Ok(Plan { request: Request::Search(query), output })
         }
+        Some("guide") => Ok(Plan { request: Request::Guide(guide::parse(rest)?), output }),
         Some(other) => Err(UsageError::new(format!(
-            "unknown docs command {other}; use `cmux docs search <query>`"
+            "unknown docs command {other}; use `cmux docs guide` or `cmux docs search <query>`"
         ))),
-        None => Err(UsageError::new("missing docs command; use `cmux docs search <query>`")),
+        None => Err(UsageError::new(
+            "missing docs command; use `cmux docs guide` or `cmux docs search <query>`",
+        )),
     }
 }
 
 pub(super) fn help() -> &'static str {
-    "USAGE\n  cmux docs search <query> [--json]\n\nSearch the catalog without connecting to a cmux session.\n"
+    "USAGE\n  cmux docs guide [SLUG | --full] [--json]\n  cmux docs search <query> [--json]\n\n\
+     guide prints the cmux NEXT guide: how the app, its daemons, agents, machines, Cloud and the\n\
+     vault fit together, and how to use them. With no SLUG it lists the pages; --full prints\n\
+     every page as one Markdown file.\n\
+     search finds catalog operations, task guides and guide pages for a query.\n\
+     Both work without connecting to a cmux session.\n"
 }
 
 pub(super) fn run(plan: Plan) -> i32 {
-    let results = search(&plan.query);
-    let guides = guides(&plan.query);
-    let response = SearchResponse { query: plan.query, guides, results };
+    let query = match plan.request {
+        Request::Guide(request) => return guide::run(&request, plan.output),
+        Request::Search(query) => query,
+    };
+    let results = search(&query);
+    let guides = guides(&query);
+    let pages = guide_pages(&query);
+    let response = SearchResponse { query, guides, pages, results };
     let mut stdout = io::stdout().lock();
     match plan.output {
         OutputMode::Quiet => {}
@@ -394,6 +441,9 @@ pub(super) fn run(plan: Plan) -> i32 {
             let _ = writeln!(stdout, "cmux docs search: {}", response.query);
             for guide in &response.guides {
                 let _ = writeln!(stdout, "  Guide: {}\n    {}", guide.topic, guide.text);
+            }
+            for page in &response.pages {
+                let _ = writeln!(stdout, "  Page: {} (`{}`)", page.title, page.read);
             }
             if response.results.is_empty() {
                 let _ = writeln!(stdout, "No matching operations.");

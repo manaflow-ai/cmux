@@ -29,7 +29,7 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /// Every frame from just before the send to SAMPLE_MS after it, read after the frame's
 /// ResizeObserver callbacks ran (a task posted from requestAnimationFrame): what the frame drew.
-function sample(doc: Document, draft: string): { done: Promise<Sample[]> } {
+export function sample(doc: Document, draft: string, sampleMs = SAMPLE_MS): { done: Promise<Sample[]> } {
   const win = doc.defaultView!;
   const frames: Sample[] = [];
   const top = (node: Element | null | undefined) =>
@@ -54,7 +54,7 @@ function sample(doc: Document, draft: string): { done: Promise<Sample[]> } {
         label: (thinking?.textContent ?? "").slice(0, 30).replace(/\d+s$/, ""),
         text: (doc.querySelector(".acpmux-composer-prompt")?.textContent ?? "").length,
       });
-      if (now - start < SAMPLE_MS) win.requestAnimationFrame(tick);
+      if (now - start < sampleMs) win.requestAnimationFrame(tick);
       else resolve(frames);
     };
   });
@@ -81,15 +81,39 @@ export function sendWindow(frames: readonly Sample[]): Sample[] {
   return end < 0 ? [...frames] : frames.slice(0, end);
 }
 
-async function settle(ctx: PlayContext) {
+/// Whether the transcript still moves: the follow chase a streamed line starts (conversation/
+/// followChase.ts draws the thread back with an inline `translate` and steps it home on the display's
+/// frames, clearing it at rest), or a finite animation in the thread (a row's tail glide, tailGlide.ts;
+/// a text roll; a fold). Fades and a spinner's endless turn move no box the play samples.
+function transcriptMoving(doc: Document): boolean {
+  const thread = doc.querySelector<HTMLElement>(".acpmux-thread");
+  if (!thread) return false;
+  if (thread.style.translate !== "" && thread.style.translate !== "none") return true;
+  return doc.getAnimations().some((animation) => {
+    if (animation.playState !== "running") return false;
+    const effect = animation.effect as KeyframeEffect | null;
+    const target = effect?.target;
+    if (!(target instanceof Element) || !(target === thread || thread.contains(target))) return false;
+    if (!Number.isFinite(effect!.getComputedTiming().endTime)) return false;
+    return effect!
+      .getKeyframes()
+      .some((frame) => ["translate", "transform", "clipPath", "top", "height"].some((key) => key in frame));
+  });
+}
+
+export async function settle(ctx: PlayContext) {
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"), { capMs: 30_000 });
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-thread")?.hasAttribute("data-turn-end-folding"));
 }
 
-function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
-  return async (ctx: PlayContext) => {
-    const doc = ctx.document;
-    for (const line of ["first question", "second question", "third question"]) {
+/// Seed completed turns at the mock's fast setup pace. The send we sample keeps its normal timing.
+export async function seedCompletedTurns(ctx: PlayContext, questions: string[]) {
+  const doc = ctx.document;
+  const win = doc.defaultView! as Window & { cmuxAcpmuxMockStepMs?: number };
+  const previous = win.cmuxAcpmuxMockStepMs;
+  win.cmuxAcpmuxMockStepMs = 20;
+  try {
+    for (const line of questions) {
       await ctx.type(line, EDITOR);
       await ctx.press("Enter");
       await ctx.waitFor(() =>
@@ -97,6 +121,16 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
       );
       await settle(ctx);
     }
+  } finally {
+    if (previous === undefined) delete win.cmuxAcpmuxMockStepMs;
+    else win.cmuxAcpmuxMockStepMs = previous;
+  }
+}
+
+function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
+  return async (ctx: PlayContext) => {
+    const doc = ctx.document;
+    await seedCompletedTurns(ctx, ["first question", "second question", "third question"]);
     await pause(400);
     if (busy) {
       await ctx.type("a running question", EDITOR);
@@ -104,7 +138,9 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
       await ctx.waitFor(() => doc.querySelector(".acpmux-row.acpmux-thinking, .acpmux-row.acpmux-working"));
     }
     for (let index = 1; index <= lines; index += 1) {
-      await ctx.type(`draft line ${index} of the tall message`, EDITOR);
+      // Short lines: the draft's height is what the send moves, and each typed key is a render the
+      // ready-time budget counts (32-character lines put the 15-line arms ~2 s of keys over it).
+      await ctx.type(`line ${index}`, EDITOR);
       if (index < lines) await ctx.press("Shift+Enter");
     }
     await pause(busy ? 250 : 600);
@@ -113,9 +149,13 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
       scroller.scrollTop = Math.max(0, scroller.scrollTop - 260);
       await pause(busy ? 250 : 600);
     }
+    // The send starts from rows at rest. With a turn running, the reply's last streamed line is
+    // still chasing the thread home (followChase.ts, ~1 px a frame) when a short draft is typed:
+    // its tail read as the send's first phase, and the send turning it back as a second.
+    await ctx.waitFor(() => !transcriptMoving(doc));
     // The agent echoes the prompt a little late, as acpmux does.
     Object.assign(doc.defaultView!, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 40 });
-    const frames = sample(doc, "draft line 1 of");
+    const frames = sample(doc, "line 1");
     await pause(80);
     await ctx.press("Enter");
     const window = sendWindow(await frames.done);

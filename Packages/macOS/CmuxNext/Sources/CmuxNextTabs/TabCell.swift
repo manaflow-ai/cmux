@@ -654,6 +654,11 @@ final class TabCell {
             } else {
                 titleFade.apply(geometry, frame: frame, animated: animatesCloseChange)
             }
+            // Leo 2026-11-23: "what the hell? you guys still didnt merge stuff for fixing this..." (a 1-2 px sliver of a
+            // clipped title beside the icon). Marks that leave the title less than ~3 characters hide it: the icon
+            // alone, never a sliver. A title shorter than that (an "A") still shows.
+            let minTitle = min(textWidth, max(m.titleMinVisibleWidth, ceil(titleFont.pointSize * 0.55 * 3)))
+            if visibleWidth < minTitle { titleLayer.opacity = 0 }
         } else {
             titleLayer.opacity = 0
             for badge in [machineLayer, machineIconLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }

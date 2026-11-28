@@ -111,6 +111,8 @@ pub struct CloudUsageCurrent {
     pub memory_gib_seconds: WireNumber,
     pub stored_gib_seconds: WireNumber,
     pub usd: CloudUsageCurrentUsd,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rates: Option<CloudUsageCurrentRates>,
     pub gaps: Vec<String>,
     pub payment_method: CloudUsageCurrentPaymentMethod,
     pub stripe_mode: CloudUsageCurrentStripeMode,
@@ -122,6 +124,13 @@ pub struct CloudUsageCurrentUsd {
     pub memory: WireNumber,
     pub stored: WireNumber,
     pub total: WireNumber,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudUsageCurrentRates {
+    pub vcpu_hour_usd: WireNumber,
+    pub memory_gib_hour_usd: WireNumber,
+    pub stored_gib_month_usd: WireNumber,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

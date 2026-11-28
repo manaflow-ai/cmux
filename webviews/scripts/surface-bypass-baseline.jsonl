@@ -186,8 +186,6 @@
 {"file":"agent-session/acpmux/conversation/WebSources.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/conversation/WhoElseCard.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/conversation/WorkingFor.tsx","kind":"raw-button","count":2}
-{"file":"agent-session/acpmux/conversation/writtenArtifacts.tsx","kind":"raw-button","count":2}
-{"file":"agent-session/acpmux/conversation/writtenArtifacts.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/customizeBar/CustomizeBar.tsx","kind":"raw-button","count":6}
 {"file":"agent-session/acpmux/customizeBar/CustomizeBar.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/DictationButton.tsx","kind":"raw-button","count":1}
@@ -414,8 +412,8 @@
 {"file":"agent-session/acpmux/subagents/SubagentReportLine.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"own-shell","count":6}
 {"file":"agent-session/acpmux/subagents/SubagentStartedLine.tsx","kind":"raw-button","count":1}
-{"file":"agent-session/acpmux/subagents/SubagentTray.tsx","kind":"raw-button","count":6}
-{"file":"agent-session/acpmux/subagents/SubagentTray.tsx","kind":"title-attribute","count":7}
+{"file":"agent-session/acpmux/subagents/SubagentTray.tsx","kind":"raw-button","count":1}
+{"file":"agent-session/acpmux/subagents/SubagentTray.tsx","kind":"title-attribute","count":2}
 {"file":"agent-session/acpmux/subagents/SubagentViewCorner.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/subagents/SubagentViewCorner.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/subagents/TrayLineDetail.tsx","kind":"raw-button","count":1}
@@ -452,7 +450,6 @@
 {"file":"agent-session/acpmux/uiPointer/uiPointer.css","kind":"own-shell","count":1}
 {"file":"agent-session/acpmux/WatchBanner.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/worktreeSetup.tsx","kind":"raw-button","count":3}
-{"file":"agent-session/guest/GuestComposer.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/guest/GuestPage.tsx","kind":"raw-button","count":5}
 {"file":"agent-session/guest/OpenInApp.tsx","kind":"raw-button","count":1}
 {"file":"App.tsx","kind":"raw-button","count":1}
@@ -491,7 +488,6 @@
 {"file":"gallery/fixtures/ComposerHatStage.tsx","kind":"raw-button","count":11}
 {"file":"gallery/fixtures/HatQuestionsStage.tsx","kind":"raw-button","count":2}
 {"file":"gallery/fixtures/SidebarShapes.tsx","kind":"raw-button","count":1}
-{"file":"gallery/fixtures/StatusSwapStage.tsx","kind":"raw-button","count":1}
 {"file":"gallery/fixtures/SubagentTrayMotionStage.tsx","kind":"raw-button","count":4}
 {"file":"gallery/fixtures/VisualMediaBoard.css","kind":"own-shell","count":1}
 {"file":"gallery/fixtures/VisualMediaBoard.tsx","kind":"raw-button","count":4}
@@ -645,8 +641,6 @@
 {"file":"pages/keybindings/KeybindingsPage.tsx","kind":"raw-button","count":14}
 {"file":"pages/keybindings/KeybindingsPage.tsx","kind":"title-attribute","count":5}
 {"file":"pages/keybindings/styles.css","kind":"own-shell","count":2}
-{"file":"pages/machines/MachinesSection.tsx","kind":"raw-button","count":6}
-{"file":"pages/machines/MachinesSection.tsx","kind":"title-attribute","count":4}
 {"file":"pages/markdown/linkOverlays.tsx","kind":"raw-button","count":3}
 {"file":"pages/markdown/linkOverlays.tsx","kind":"title-attribute","count":1}
 {"file":"pages/markdown/MarkdownPage.tsx","kind":"raw-button","count":2}

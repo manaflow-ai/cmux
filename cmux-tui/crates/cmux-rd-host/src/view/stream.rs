@@ -47,6 +47,7 @@ pub struct Config {
     pub control: bool,
     pub viewer_id: String,
     pub stats_file: Option<PathBuf>,
+    pub hub_approval: Option<String>,
 }
 
 pub struct Ended {
@@ -204,6 +205,8 @@ struct Stats {
     bytes: u64,
     decode_ms: Vec<f64>,
     started_ns: u64,
+    first_frame_ms: Option<f64>,
+    luma_variance: Option<f64>,
 }
 
 /// Runs the session until it ends: the link's events, the hub's messages and the window's input.
@@ -247,6 +250,8 @@ pub fn run(
         bytes: 0,
         decode_ms: Vec::new(),
         started_ns: now_ns(),
+        first_frame_ms: None,
+        luma_variance: None,
     };
     let (mut last_feedback_ns, mut released_since_feedback) = (0u64, false);
     let mut last_input_send_ns = 0u64;
@@ -288,6 +293,10 @@ pub fn run(
                 NetEvent::Endpoint(EndpointEvent::PathChanged {
                     kind: Some(k), rtt_us, ..
                 }) => {
+                    // A current path again: the host learns it is back from the first
+                    // feedback after the silence (D12), so that goes now, not at the
+                    // next keepalive.
+                    last_feedback_ns = 0;
                     let name = k.wire_name().to_owned();
                     let relayed = cmux_hub_host::rd_doc::is_relayed(&name);
                     let _ = to_hub.send(ToHub::Path(if relayed { "relay" } else { "direct" }));
@@ -411,6 +420,9 @@ pub fn run(
             "decode_errors": stats.decode_errors,
             "mbit_per_s": stats.bytes as f64 * 8.0 / secs.max(1e-3) / 1e6,
             "decode_ms": pct(&mut stats.decode_ms),
+            "first_frame_ms": stats.first_frame_ms,
+            "luma_variance": stats.luma_variance,
+            "hub_approval": config.hub_approval,
             "presented": window_report.presented,
             "replaced_before_present": replaced,
             "present_ms": pct(&mut window_report.present_ms.clone()),
@@ -425,6 +437,22 @@ pub fn run(
         std::fs::write(path, format!("{report}\n"))?;
     }
     Ok(Ended { reason: ended, connected })
+}
+
+fn luma_variance(y: &[u8]) -> f64 {
+    if y.is_empty() {
+        return 0.0;
+    }
+    let count = y.len() as f64;
+    let sum: f64 = y.iter().map(|&sample| f64::from(sample)).sum();
+    let sum_squared: f64 = y
+        .iter()
+        .map(|&sample| {
+            let sample = f64::from(sample);
+            sample * sample
+        })
+        .sum();
+    (sum_squared / count - (sum / count).powi(2)).max(0.0)
 }
 
 fn header(kind: DatagramKind) -> DatagramHeader {
@@ -497,6 +525,10 @@ fn on_datagram(
                         let t1 = now_ns();
                         stats.decode_ms.push((t1 - t0) as f64 / 1e6);
                         stats.decoded += 1;
+                        if stats.first_frame_ms.is_none() {
+                            stats.first_frame_ms = Some((t1 - stats.started_ns) as f64 / 1e6);
+                            stats.luma_variance = Some(luma_variance(&current.y));
+                        }
                         if i == last {
                             hand_off(mailbox, current, decoder.color(), now, t1);
                             present_waker.wake();
@@ -589,6 +621,7 @@ fn maybe_feedback(
         need_recovery: reassembler.need_recovery(),
         arrivals: std::mem::take(arrivals),
         nacks,
+        acked_ltr_tokens: Vec::new(),
     });
     *last_feedback_ns = now;
     *released_since_feedback = false;

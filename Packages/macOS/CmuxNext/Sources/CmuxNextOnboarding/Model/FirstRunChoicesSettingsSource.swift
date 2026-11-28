@@ -49,13 +49,29 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
 
     /// Every other path the intro walk writes: looks (two-tone, calm, motion), trust (permission, Computer Use),
-    /// noise (banners, sound), the finish chime, Tidy (archiving, settling) and chat feel (send pop).
+    /// noise (banners, sound), the finish chime, Tidy (archiving, settling) and chat feel (send pop, sent prompt to top).
     /// Read at open with the picks' paths, so Skip puts them back too.
     nonisolated static let walkPaths: [[String]] = [
         ["agents", "defaultPermissionMode"], ["computerUse", "mode"], ["agentPane", "display", "finishSound"], ["agentPane", "display", "sendPop"],
         ["notifications", "desktop"], ["notifications", "sound"], ["notifications", "sounds", "when"],
         ["appearance", "twoTone"], ["ui", "calm"], ["ui", "animations", "enabled"],
         ["agents", "chats", "archiveInactive"], ["workspaces", "autoArchive", "style"], ["sidebar", "settleFinished"],
+        ["agentPane", "display", "sendScrollsToTop"],
+    ]
+
+    /// Every path the setups shelf may write (`experiments.setupShelf`, hq design dp-9eedbe44e5): the
+    /// keys of the four setups in examples/setups (Calm, Dense, Chat-first, Terminal-first). The page
+    /// reads the setups from those files; webviews onboarding setupShelf.test.ts fails when a setup
+    /// writes a key missing here. Read at open with the others, so Skip puts them back too.
+    nonisolated static let setupPaths: [[String]] = [
+        ["notifications", "attention", "flash"], ["notifications", "attention", "flashOnTyping"],
+        ["notifications", "dockBadge"], ["notifications", "sounds", "volume"],
+        ["notifications", "suppressWhileTypingSeconds"], ["appearance", "agentGlow"],
+        ["agentPane", "display", "thinking", "shimmer"],
+        ["layout", "mainPane"], ["agentPane", "display", "presentation"], ["agentPane", "display", "transcriptView"],
+        ["sidebar", "style"], ["sidebar", "density"], ["tabs", "barPosition"], ["agentPane", "display", "minimap"],
+        ["layout", "panePadding"],
+        ["layout", "newPanePlacement"], ["layout", "focusFollowsMouse"], ["layout", "splitSizing"],
     ]
 
     private let settings: @MainActor () -> SettingsController?
@@ -158,17 +174,24 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         settings()?.snapshot.root.value(at: CmuxConfigSnapshot.introWalkPath)?.boolValue ?? CmuxConfigSnapshot.introWalkDefault
     }
 
+    /// `experiments.setupShelf`: Make cmux Yours offers the setups shelf (Try, Keep, Revert).
+    public func setupShelf() -> Bool {
+        settings()?.snapshot.root.value(at: CmuxConfigSnapshot.setupShelfPath)?.boolValue ?? CmuxConfigSnapshot.setupShelfDefault
+    }
+
     public func walkValues() -> [String: JSONValue] {
         guard let root = settings()?.snapshot.root else { return [:] }
         var values: [String: JSONValue] = [:]
-        for path in Self.walkPaths {
+        // The shelf's paths only when it is on: with it off the page gets exactly what it got before.
+        for path in Self.walkPaths + (setupShelf() ? Self.setupPaths : []) {
             if let value = root.value(at: path) { values[path.joined(separator: ".")] = value }
         }
         return values
     }
 
     public func applyWalk(_ writes: [FirstRunWalkWrite]) -> Bool {
-        let allowed = Set(Self.pickPaths + Self.walkPaths)
+        // A setup's paths only while `experiments.setupShelf` is on (off by default).
+        let allowed = Set(Self.pickPaths + Self.walkPaths + (setupShelf() ? Self.setupPaths : []))
         guard writes.allSatisfy({ allowed.contains($0.path) }) else { return false }
         if let template = writes.last(where: { $0.path == NewTabTemplate.configPath }) {
             pickedWorkStyle = template.value?.stringValue == "terminal" ? .terminal : .gui
@@ -231,7 +254,7 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
                     case .capture:
                         opened = nil
                         do {
-                            opened = try await settings.fileValues(at: SettingsController.pathsWritten(by: Self.pickPaths + Self.walkPaths))
+                            opened = try await settings.fileValues(at: SettingsController.pathsWritten(by: Self.pickPaths + Self.walkPaths + Self.setupPaths))
                         } catch {
                             captureFailed = true
                             throw error

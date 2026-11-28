@@ -211,6 +211,11 @@
       "bench": "cd webviews && bun bench/new-tab-omnibar-keystroke.bench.ts (stress fixture: 2,000 actions, 500 chats, 200 folders; prints p50/p95/p99/max µs per key; --no-agents for the rows without the agent sources)",
       "owner": "new tab"
     },
+    "phone-mirror-change": {
+      "what": "one owner frame on the phone's stream mirror (cmux-mobile-ffi ownership.rs OwnershipMirror::mutate): decode, apply, and the listener's view with only the rows the frame wrote, under the iOS workspace, tab and conversation lists",
+      "bench": "cd cmux-tui && cargo test -p cmux-mobile-ffi --test list_stress -- --nocapture --test-threads=1 (10/500/5000 workspaces, 100/100k messages: p50/p95 per change; fails when the scale p95 passes 3x the 1x p95)",
+      "owner": "object-sync"
+    },
     "live-wallpaper-frame": {
       "what": "one live wallpaper frame on the main thread (CmuxNextDesign BackdropLiveView tick and drawFrame, LiveWallpaperFrame.packed): ask the Rust scheduler, step the pointer, pack the 144-byte Frame uniform and hand it to the render queue; no wait, no drawable on main",
       "bench": "scripts/bench/cmux-bench run wallpaper_cost on a fleet Mac (scripts/measure/wallpaper-cost.sh: CPU process seconds per second, GPU seconds per second and phys_footprint, 60 s each for a picture, each live wallpaper, idle, occluded, minimized and Low Power)",

@@ -32,6 +32,7 @@ fn frames(stream: u16, n: u32, len: usize) -> Vec<Vec<u8>> {
             let body = FrameBody {
                 t_capture_us: u64::from(f),
                 ref_frame: if f == 1 { REF_NONE } else { f - 1 },
+                ltr_token: None,
                 access_unit: vec![stream as u8; len],
             };
             let fl = if f == 1 { flags::KEYFRAME } else { 0 };
@@ -150,6 +151,8 @@ fn only_opened_streams_are_accepted_and_the_count_is_bounded() {
     assert_eq!(open(&s, 999), CMUX_RD_OK);
     // SAFETY: live session; stream 5 is closed now.
     assert_eq!(unsafe { cmux_rd_session_note_decode(s.0, 5, 100) }, CMUX_RD_ERR_STREAM);
+    // SAFETY: live session; stream 5 is closed now.
+    assert_eq!(unsafe { cmux_rd_session_note_frame_decode(s.0, 5, 0, 100) }, CMUX_RD_ERR_STREAM);
 }
 
 #[test]
@@ -343,7 +346,8 @@ fn a_tile_frame_is_released_with_its_flag_and_its_video_reference() {
     let s = session(CMUX_RD_CARRIER_DATAGRAM);
     open(&s, 8);
     let mut p = Packetizer::new(8, MAX_DATAGRAM_VPC);
-    let body = FrameBody { t_capture_us: 1, ref_frame: 900, access_unit: vec![5; 2_000] };
+    let body =
+        FrameBody { t_capture_us: 1, ref_frame: 900, ltr_token: None, access_unit: vec![5; 2_000] };
     for d in p.packetize(1, flags::TILE, &body, 0).expect("packetize").datagrams {
         push(&s, &d, 0);
     }

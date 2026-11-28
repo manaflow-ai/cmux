@@ -167,15 +167,16 @@ public final class WorkspaceModel: Identifiable {
         noteUnreadChange()
     }
 
-    /// The contribution the store last summed.
-    @ObservationIgnored private var summedContribution = UnreadTotals()
+    /// The contribution the store last summed (``DaemonStore/adoptUnread(from:)`` sets it when the workspace joins).
+    @ObservationIgnored var summedContribution = UnreadTotals()
 
-    /// Tells the store when what this workspace adds changed.
+    /// Tells the store when what this workspace adds changed: the store adds the difference, O(1).
     private func noteUnreadChange() {
         let contribution = unreadContribution
         guard contribution != summedContribution else { return }
+        let old = summedContribution
         summedContribution = contribution
-        unreadStore?.recountUnread()
+        unreadStore?.unreadContributionChanged(from: old, to: contribution)
     }
 
     init(_ s: WorkspaceSnapshot) {

@@ -25,6 +25,11 @@ pub trait FrameSource: Send {
     }
     /// Encodes the captured picture into `out` as Annex-B. Returns true for an IDR.
     fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool>;
+    fn set_acknowledged_ltr_tokens(&mut self, _tokens: &[u64]) {}
+    fn set_force_ltr_refresh(&mut self, _refresh: bool) {}
+    fn ltr_token(&self) -> Option<u64> {
+        None
+    }
     fn set_bitrate(&mut self, kbps: u32);
     /// The encoder profile for the next frame, and whether that frame refines a still screen
     /// (ultra). An encoder without an ultra mode keeps its settings.
@@ -172,10 +177,11 @@ mod tests {
 }
 
 /// The desktop of this OS. `cursor_metadata`: the viewer draws the cursor (cap `cursor`), so
-/// a desktop that [`reports_cursor`] leaves it out of its pictures.
-pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+/// a desktop that [`reports_cursor`] leaves it out of its pictures. `ltr`: the viewer negotiated
+/// long-term references (cap `video.ltr`), so a VideoToolbox encoder turns them on.
+pub fn open(cfg: &SessionCfg, cursor_metadata: bool, ltr: bool) -> Res<Halves> {
     #[cfg(not(target_os = "macos"))]
-    let _ = cursor_metadata;
+    let _ = (cursor_metadata, ltr);
     // The portal shares what the person picks in its dialog; it cannot be told one window.
     #[cfg(target_os = "linux")]
     if let (crate::capture_backend::CaptureBackend::Portal, Some(id)) = (cfg.capture, cfg.window) {
@@ -213,10 +219,10 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         if let Some(id) = cfg.window {
             return Err(format!("window {id}: a synthetic source has no windows").into());
         }
-        return crate::mac::synthetic::open(cfg, source);
+        return crate::mac::synthetic::open(cfg, source, ltr);
     }
     #[cfg(target_os = "macos")]
-    return crate::mac::open(cfg, cursor_metadata);
+    return crate::mac::open(cfg, cursor_metadata, ltr);
 }
 
 /// The size of the generated picture `--source synthetic` picked instead of the display (macOS

@@ -48,7 +48,8 @@
         "acpmux-sim": {
           "name": "acpmux simulation (seeds)",
           "crates": ["cmux-tui/crates/acpmux"],
-          "features": ["sim"]
+          "features": ["sim"],
+          "inputs": [".github/actions/cache-restore/"]
         },
         "carrier-sim": {
           "name": "carrier simulation (seeds)",
@@ -62,6 +63,12 @@
           "name": "acpmux protocol IR is current",
           "crates": ["cmux-tui/crates/acpmux"],
           "inputs": ["scripts/cmux-next/cargo-locks.py", ".github/actions/cache-restore/"]
+        },
+        "remote-web-wasm": {
+          "name": "cmux remote web wasm",
+          "compile_only": true,
+          "crates": ["cmux-tui/crates/cmux-remote-web"],
+          "inputs": ["scripts/ci/apt-ensure.sh"]
         }
       }
     },
@@ -73,11 +80,12 @@
           "compile_only": true,
           "crates": [
             "cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux",
-            "cmux-tui/crates/cmux-host", "cmux-tui/crates/cmux-browser-host"
+            "cmux-tui/crates/cmux-host", "cmux-tui/crates/cmux-browser-host",
+            "cmux-tui/crates/cmux-tui-platform", "cmux-tui/bindings/rust", "cmux-tui/bindings/rust-daemon-client"
           ],
           "inputs": [
             "ghostty-next", "scripts/install-zig-ci.sh", ".github/actions/ghostty-zig-packages/",
-            "scripts/cmux-next/cargo-locks.py"
+            "scripts/cmux-next/cargo-locks.py", "scripts/ci/cargo-test-wine.sh", "scripts/ci/cargo-test-selected.sh"
           ]
         }
       }
@@ -112,6 +120,8 @@
           ],
           "features": ["tailnet", "hub-carrier"],
           "inputs": [
+            "scripts/ci/cmux-next-steps/daemon-test-give-the-generated-files-verdict.sh",
+            "scripts/ci/cmux-next-steps/daemon-test-replay-the-seed-s-input-times.sh",
             "scripts/ci/job_input_fingerprint.py",
             "scripts/ci/job_reuse.py",
             "scripts/ci/github_fetch_auth.py",
@@ -127,7 +137,7 @@
             "scripts/ci/macho_weaken.py", "scripts/ci/macos-stubs/", ".github/workflows/cmux-tui-build-package.yml",
             "scripts/cmux-next/cmux-tui-build-profiles.json", "scripts/ghostty-zig-version.sh",
             "scripts/ci/stage-agent-detector.sh", "scripts/ci/cmux-tui-mac-cargo-builds.sh",
-            "scripts/select-ci-xcode.sh",
+            "scripts/select-ci-xcode.sh", "skills/cmux-extension-author/",
             "plans/cmux-next/daemon-capabilities.json", "scripts/cmux-next/pin-cmux-tui.sh",
             "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/generated-autofixable.sh", "scripts/ci/cmux-next-steps/generated-files-linux.sh",
             "scripts/cmux-next/autofix-areas.sh", "scripts/cmux-next/cmux-tui.pin",

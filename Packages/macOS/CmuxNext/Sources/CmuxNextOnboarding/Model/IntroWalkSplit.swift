@@ -1,7 +1,7 @@
 public import Foundation
 
 /// How a Make cmux Yours walk ended (`cmux_window_rules::walk_split::Ending`).
-public enum IntroWalkEnding: String, Sendable, Codable, Equatable {
+public nonisolated enum IntroWalkEnding: String, Sendable, Codable, Equatable {
     case started, completed, skipped
 }
 

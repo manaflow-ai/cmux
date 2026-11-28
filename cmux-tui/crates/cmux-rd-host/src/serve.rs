@@ -67,6 +67,9 @@ struct Setup {
     /// The hub's TURN relays, for a relayed path when no direct one works.
     #[serde(default)]
     turn: Vec<crate::carrier::TurnSetup>,
+    /// TCP and TLS relays, used after the UDP ones, for a network that blocks UDP.
+    #[serde(default)]
+    turn_stream: Vec<crate::carrier::TurnSetup>,
     #[serde(default)]
     display: Option<String>,
     #[serde(default)]
@@ -421,7 +424,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         // address, so a Mac with Ethernet and Wi-Fi on one subnet sends from Wi-Fi when asked
         // (scripts/screen-share-vs.py --link wifi). The app never passes it.
         bind: opts.str_or("link-bind", "0.0.0.0:0").parse()?,
-        turn: crate::carrier::turn_servers(&setup.turn),
+        turn: crate::carrier::turn_servers_with_stream(&setup.turn, &setup.turn_stream),
         relay_only: setup.relay_only,
     })?;
     if let Some(later) = stun_later {
@@ -566,6 +569,9 @@ fn session_cfg(
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
+        // Off by default: `--ltr 1` offers LTR loss recovery where this host encodes with
+        // VideoToolbox; the session keeps it only when the viewer negotiates `video.ltr`.
+        ltr: cfg!(target_os = "macos") && opts.flag("ltr"),
         // Off by default: `--rtt-tail-probe 1` probes a lost newest frame after a round
         // trip instead of 250 ms (design D6), for measuring before it ships.
         rtt_tail_probe: opts.flag_or("rtt-tail-probe", false),
@@ -639,13 +645,13 @@ fn serve_session(
                         Ok(h @ Control::Hello { .. }) => hello = Some(h),
                         Ok(s @ Control::Start { .. }) => start = Some(s),
                         Ok(Control::Stop | Control::Ended { .. } | Control::Refused { .. }) => {
-                            return Ok("viewer stopped or refused the session".into())
+                            return Ok("viewer stopped or refused the session".into());
                         }
                         _ => {}
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
-                    return Ok("viewer closed the link".into())
+                    return Ok("viewer closed the link".into());
                 }
                 NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
                     // The path's class picks the start bitrate.
@@ -691,6 +697,12 @@ fn serve_session(
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
     if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
+    }
+    // LTR only when asked for (`--ltr 1`, default off) and where this host encodes with
+    // VideoToolbox, as `cmux-rd host` does; OpenH264 hosts and viewers without the cap keep
+    // IDR recovery.
+    if cfg!(target_os = "macos") && opts.flag("ltr") {
+        host_caps.push(cmux_rd_core::service::caps::LTR);
     }
     // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
     host_caps.push(cmux_rd_core::service::caps::FEC_BLOCKS);

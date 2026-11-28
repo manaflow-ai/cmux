@@ -477,6 +477,8 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerGithubComplete
         | Op::CloudOwnerGithubList
         | Op::CloudOwnerGithubCloneToken
+        | Op::CloudOwnerSlack
+        | Op::CloudOwnerSlackAwake
         | Op::CloudOwnerTurnCheckpoint
         | Op::CloudOwnerTurnRewind
         | Op::CloudOwnerTurns

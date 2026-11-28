@@ -29,6 +29,11 @@ const ALLOWED: readonly { file: string; line: string; why: string }[] = [
     why: "the page's reply to the host, not shown",
   },
   { file: "shared/daemonSocket.ts", line: 'failure.message ?? "pairing failed"', why: "builds the error" },
+  {
+    file: "home-channels/cloudHome.ts",
+    line: 'const text = error instanceof Error ? error.message : String(error ?? "");',
+    why: "cloudReason: the Cloud read's reason that Leo's #46646 says (test/home-cloud-read-failure.test.ts)",
+  },
   { file: "shared/daemonSocket.ts", line: "String(error.message ?? code)", why: "builds the error" },
   {
     file: "home-channels/daemonHome.ts",
@@ -76,6 +81,21 @@ const ALLOWED: readonly { file: string; line: string; why: string }[] = [
     file: "markdown/store.ts",
     line: "MARKDOWN_UNAVAILABLE ? error.message",
     why: "the machine-offline reason; the editor and markdown failure states are their own fix",
+  },
+  {
+    file: "home-channels/store.ts",
+    line: 'error.message.includes("unknown_attachment")',
+    why: "matches a code",
+  },
+  {
+    file: "settings/components/IntegrationsHubCard.tsx",
+    line: 'overview.error.message || t("settingsWindow.hub.problem.failed")',
+    why: "the hub's own sentence, shown as is (ops.ts HubState, #51341)",
+  },
+  {
+    file: "settings/components/IntegrationsHubCard.tsx",
+    line: 'state.error.message || t("settingsWindow.hub.error.notFinished")',
+    why: "the hub's or the CLI's own refusal, shown as is (ops.ts HubState, #51341)",
   },
 ];
 

@@ -1316,6 +1316,42 @@ func (ClientDetachedEvent) EventName() string { return "client-detached" }
 func (ClientDetachedEvent) isDeltaEvent()     {}
 func (ClientDetachedEvent) isSubscribeEvent() {}
 
+// ClientDisconnectedByEvent is emitted by protocol v12.
+type ClientDisconnectedByEvent struct {
+	By *SizeDetachActor `json:"by,omitempty"`
+}
+
+func (value *ClientDisconnectedByEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ClientDisconnectedByEvent: expected object")
+	}
+	var fields struct {
+		Event *string                              `json:"event"`
+		By    optionalNonNullJSON[SizeDetachActor] `json:"by"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ClientDisconnectedByEvent: %w", err)
+	}
+	if fields.Event == nil {
+		return fmt.Errorf("decode ClientDisconnectedByEvent: required field event is missing or null")
+	}
+	if *fields.Event != "client-disconnected-by" {
+		return fmt.Errorf("decode ClientDisconnectedByEvent.event: invalid value %q", *fields.Event)
+	}
+	type wire ClientDisconnectedByEvent
+	var decoded wire
+	if fields.By.null {
+		return fmt.Errorf("decode ClientDisconnectedByEvent: non-nullable field by is null")
+	}
+	if fields.By.set {
+		decoded.By = &fields.By.value
+	}
+	*value = ClientDisconnectedByEvent(decoded)
+	return nil
+}
+
+func (ClientDisconnectedByEvent) EventName() string { return "client-disconnected-by" }
+
 // ClientListInvalidatedEvent is emitted by protocol v9.
 type ClientListInvalidatedEvent struct {
 }
@@ -4103,6 +4139,46 @@ func (PersonalChangedEvent) EventName() string { return "personal-changed" }
 func (PersonalChangedEvent) isDeltaEvent()     {}
 func (PersonalChangedEvent) isSubscribeEvent() {}
 
+// PhoneOpenLinkEvent is emitted by protocol v12.
+type PhoneOpenLinkEvent struct {
+	TerminalID string `json:"terminal_id"`
+	URL        string `json:"url"`
+}
+
+func (value *PhoneOpenLinkEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PhoneOpenLinkEvent: expected object")
+	}
+	var fields struct {
+		Event      *string `json:"event"`
+		TerminalID *string `json:"terminal_id"`
+		URL        *string `json:"url"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PhoneOpenLinkEvent: %w", err)
+	}
+	if fields.Event == nil {
+		return fmt.Errorf("decode PhoneOpenLinkEvent: required field event is missing or null")
+	}
+	if *fields.Event != "phone-open-link" {
+		return fmt.Errorf("decode PhoneOpenLinkEvent.event: invalid value %q", *fields.Event)
+	}
+	type wire PhoneOpenLinkEvent
+	var decoded wire
+	if fields.TerminalID == nil {
+		return fmt.Errorf("decode PhoneOpenLinkEvent: required field terminal_id is missing or null")
+	}
+	decoded.TerminalID = *fields.TerminalID
+	if fields.URL == nil {
+		return fmt.Errorf("decode PhoneOpenLinkEvent: required field url is missing or null")
+	}
+	decoded.URL = *fields.URL
+	*value = PhoneOpenLinkEvent(decoded)
+	return nil
+}
+
+func (PhoneOpenLinkEvent) EventName() string { return "phone-open-link" }
+
 // ProgramStatusChangedEvent is emitted by protocol v12.
 type ProgramStatusChangedEvent struct {
 	ProgramStatus RequiredNullable[ShownProgramStatus] `json:"-"`
@@ -6610,6 +6686,11 @@ func parseEvent(raw map[string]any) Event {
 		if decodeEvent(raw, &event) {
 			return event
 		}
+	case "client-disconnected-by":
+		var event ClientDisconnectedByEvent
+		if decodeEvent(raw, &event) {
+			return event
+		}
 	case "client-list-invalidated":
 		var event ClientListInvalidatedEvent
 		if decodeEvent(raw, &event) {
@@ -6832,6 +6913,11 @@ func parseEvent(raw map[string]any) Event {
 		}
 	case "personal-changed":
 		var event PersonalChangedEvent
+		if decodeEvent(raw, &event) {
+			return event
+		}
+	case "phone-open-link":
+		var event PhoneOpenLinkEvent
 		if decodeEvent(raw, &event) {
 			return event
 		}

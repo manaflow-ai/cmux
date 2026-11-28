@@ -87,6 +87,9 @@ final class ExternalOpenController {
         perform(.attachImages(urls, from: source))
     }
 
+    /// Capture Screenshot to Chat and `chat.capture.toChat`: a screenshot into this route (``CaptureToChat``).
+    var captureToChat: CaptureToChat { CaptureToChat(route: chatAttach) { [weak self] in self?.attachToChat($0, from: $1) } }
+
     /// Finder service "New cmux Tab Here" with the selected paths.
     func newTabHere(_ paths: [String]) {
         for path in paths { perform(router.newTabHere(path)) }

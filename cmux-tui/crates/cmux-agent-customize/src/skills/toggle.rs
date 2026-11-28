@@ -191,20 +191,22 @@ fn codex(
                     })
             })
     };
-    if enabled && !named && !theirs() {
-        if let Some(index) = existing {
-            rules.remove(index);
-            if rules.is_empty() {
-                skills.remove("config");
-            }
-            if skills.is_empty() {
-                doc.remove("skills");
-            }
-            return homes
-                .edits
-                .replace(file, &doc.to_string())
-                .map_err(|e| ToggleError::Write(file.to_path_buf(), e));
+    if enabled
+        && !named
+        && !theirs()
+        && let Some(index) = existing
+    {
+        rules.remove(index);
+        if rules.is_empty() {
+            skills.remove("config");
         }
+        if skills.is_empty() {
+            doc.remove("skills");
+        }
+        return homes
+            .edits
+            .replace(file, &doc.to_string())
+            .map_err(|e| ToggleError::Write(file.to_path_buf(), e));
     }
     match existing.and_then(|index| rules.get_mut(index)) {
         Some(rule) => {

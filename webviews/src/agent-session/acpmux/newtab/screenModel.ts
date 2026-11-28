@@ -108,6 +108,19 @@ export function searchWords(rows: readonly ScreenRow[], words: (text: string) =>
   });
 }
 
+/// The rows a draft with staged files offers: its Ask rows only (Lucas 2026-11-26). A file goes to an
+/// agent; a web search, an address, a tab or a command would leave it behind.
+export function attachedRows(rows: readonly ScreenRow[]): ScreenRow[] {
+  return rows.filter((row) => row.type === "ask");
+}
+
+/// The rows a draft that uses a skill or command offers (the field draws it blue): its Ask rows
+/// (Lucas 2026-11-26), and the chat `/resume <ref>` names. The draft is for an agent: a file, an
+/// address, a web search, a tab or a shell command would read the command as text.
+export function commandRows(rows: readonly ScreenRow[]): ScreenRow[] {
+  return rows.filter((row) => row.type === "ask" || row.type === "resume");
+}
+
 /// The agent the Ask row names.
 export type ScreenAsk = { harness: string; agent: string; model?: string };
 
@@ -447,8 +460,8 @@ export function defaultSelection(rows: readonly ScreenRow[]): number {
 /// read: the highlighted row (`current`) of the shown `rows`; with the list closed, the top of
 /// `suggested` (closed suggestions still answer Return: "reddit" opens reddit.com); with no row
 /// highlighted (↑ from the top row), the top one when the text is an address, since an address is
-/// never sent as a prompt. Staged files make Return send a prompt unless the row asks or creates
-/// (navigation keeps them in the chat). Undefined: Return sends the text as a prompt.
+/// never sent as a prompt. Staged files make Return send a prompt unless the row asks (the rows then
+/// offer only Ask, ``attachedRows``). Undefined: Return sends the text as a prompt.
 export function returnRow(
   rows: readonly ScreenRow[],
   suggested: readonly ScreenRow[],
@@ -458,7 +471,7 @@ export function returnRow(
   const list = rows.length ? rows : suggested;
   const opensTop = !rows.length || (current < 0 && context.address);
   const row = opensTop ? list[defaultSelection(list)] : rows[current];
-  const takes = !!row && (context.attachments === 0 || row.type === "ask" || row.type === "create");
+  const takes = !!row && (context.attachments === 0 || row.type === "ask");
   return { row, takes };
 }
 
@@ -483,9 +496,10 @@ export function inlineCompletion(text: string, rows: readonly ScreenRow[]): stri
   return completion;
 }
 
-/// Whether Return on `text` with no row is an address (it never becomes a prompt).
-export function isAddress(text: string, home?: string): boolean {
-  return classifyNewTabInput(text, home ? { home } : {}).kind === "url";
+/// Whether Return on `text` with no row is an address (it never becomes a prompt). A `/name` that
+/// names one of the agent's `commands` is a prompt (newTabIntent.ts `commands`).
+export function isAddress(text: string, home?: string, commands?: ReadonlySet<string>): boolean {
+  return classifyNewTabInput(text, { ...(home ? { home } : {}), ...(commands ? { commands } : {}) }).kind === "url";
 }
 
 /// Whether `text` is refused outright (an old pairing link): it never becomes a prompt, a search

@@ -14,15 +14,49 @@ import io, json, os, statistics, subprocess, sys, tarfile, time, zipfile
 REPO = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
 
 
+RATE_WAIT_MAX = 90  # seconds: wait out a reset this close; past it, skip the row instead of red
+
+
+def rate_reset_in():
+    # Seconds until the token's core quota resets (the rate_limit read itself is free).
+    proc = subprocess.run(["gh", "api", "rate_limit", "--jq", ".resources.core.reset"], capture_output=True, text=True)
+    try:
+        return max(0, int(proc.stdout.strip()) - int(time.time()))
+    except ValueError:
+        return None
+
+
+def skip_drained(path, reset_in):
+    # The job's token shares the repo installation's hourly quota; when other jobs drained it,
+    # that says nothing about cas/1, so the row is skipped as neutral, not failed.
+    when = f"resets in {reset_in} s" if reset_in is not None else "reset unknown"
+    msg = f"W1 replay skipped: GitHub API quota for this installation is drained ({when}) at {path}"
+    print(f"::warning::{msg}")
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+            f.write(f"## RFD 0166 W1\n\n{msg}; the next run measures it.\n")
+    sys.exit(0)
+
+
 def gh(path, raw=False):
     # Three tries: a GitHub 5xx or secondary rate limit on one page should not fail the row.
+    # A drained primary quota (HTTP 403 "API rate limit exceeded") outlasts any short retry:
+    # wait out a reset under RATE_WAIT_MAX, else skip the row (skip_drained).
     # On the last failure, print gh's stderr so the job log names the cause.
+    waited = False
     for attempt in range(3):
         proc = subprocess.run(["gh", "api", path], capture_output=True)
         if proc.returncode == 0:
             return proc.stdout if raw else json.loads(proc.stdout)
         err = proc.stderr.decode(errors="replace").strip()
         print(f"gh api {path}: exit {proc.returncode} (try {attempt + 1}/3): {err}", file=sys.stderr)
+        if "API rate limit exceeded" in err:
+            reset_in = rate_reset_in()
+            if waited or reset_in is None or reset_in > RATE_WAIT_MAX:
+                skip_drained(path, reset_in)
+            waited = True
+            time.sleep(reset_in + 2)
+            continue
         time.sleep(5 * (attempt + 1))
     sys.exit(f"gh api {path} failed 3 times; last error above")
 

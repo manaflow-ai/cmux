@@ -53,6 +53,7 @@ mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
 mod session_records;
+pub(crate) use session_records::ClaudeTokenRecovery;
 pub use session_records::{
     ApprovedPlan, AwayRecap, CapacityFallback, EventRecord, ForkBefore, ForkRequest, ForkStart,
     LastReturn, NewestWindow, SessionStatus, TerminalDriver, TerminalInput, WaitReason,
@@ -126,6 +127,22 @@ pub trait Store: Send + Sync {
     /// there is no gate, and this is `save`.
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
         self.save(meta)
+    }
+    /// `save` (`ShowAfter::Durable`) or `save_kept` (`Written`), and the digest of what it wrote
+    /// when the store keeps one ([`Store::digest`]): the metadata writer compares memory with it
+    /// at shutdown instead of serializing and hashing every chat again after each save
+    /// (`hub/meta_save.rs`). None: the caller makes its own.
+    fn save_digest(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<Option<MetaDigest>> {
+        match keep {
+            ShowAfter::Durable => self.save(meta)?,
+            ShowAfter::Written => self.save_kept(meta)?,
+        }
+        Ok(None)
+    }
+    /// What `save_digest` returns for metadata equal to `meta`, from `meta` alone; None for a
+    /// store that keeps no digest.
+    fn digest(&self, _meta: &SessionMeta) -> Option<MetaDigest> {
+        None
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()>;
     /// Flush one session's event log and metadata to stable storage.
@@ -409,6 +426,15 @@ pub trait Store: Send + Sync {
     fn save_restore_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
         Ok(())
     }
+    /// The inbox point `id`'s last inbox restore saved (`hub/inbox_point.rs`), as saved. None in
+    /// a store that keeps none.
+    fn inbox_point(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+    /// Saves `bytes` as `id`'s inbox point, whole or not at all. A store that keeps none drops it.
+    fn save_inbox_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
+        Ok(())
+    }
     /// Records used by the whole-store search, including an archive without thawing it.
     fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
         self.scan_kinds(id, crate::session_search::KINDS, &mut |rec| {
@@ -591,6 +617,14 @@ pub trait Store: Send + Sync {
     fn register_cloud_root(&self) -> Result<Option<usize>> {
         Ok(None)
     }
+    /// Cloud history is set up for this store's home (its config reads; no request).
+    fn cloud_configured(&self) -> bool {
+        false
+    }
+    /// The chat's archive went to cloud history: its stub is here and no `cold.zst`.
+    fn offloaded(&self, _id: &str) -> bool {
+        false
+    }
     /// Called with a chat's id each time its log comes back from its cold archive, on any path
     /// (a read, an append, a fork's history): the hub drops the chat's preview
     /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
@@ -730,7 +764,7 @@ pub(crate) use log_line::PARSED_LINES;
 
 use log_line::{
     first_seq, for_each_line_rev, for_each_line_rev_between, for_each_line_rev_from, offset_of_seq,
-    parse_record, record_dir, record_kind, record_seq,
+    parse_record, record_dir, record_kind, record_seq, start_of_seq,
 };
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -758,6 +792,9 @@ pub fn catch_up_journal(config: &StoreConfig, home: &Path) -> Result<()> {
 
 mod durability;
 pub use durability::{Durability, FULL_WAIT, ShowAfter};
+
+/// A saved image's digest ([`Store::save_digest`]): equal metadata gives an equal one.
+pub type MetaDigest = [u8; 32];
 pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]
@@ -786,6 +823,7 @@ pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 /// A chat's restore point, beside its `session.json` (`hub/restore_point.rs`).
 const RESTORE_POINT: &str = "restore-point.json";
+const INBOX_POINT: &str = "inbox-point.json";
 /// A chat's adoption checkpoint, beside its `session.json` (`hub/hosts/checkpoint.rs`).
 const ADOPTION_CHECKPOINT: &str = "adoption-checkpoint.json";
 
@@ -1498,11 +1536,14 @@ impl Store for LocalStore {
     /// in place (`store/compact.rs`), which a fold of them would read differently. The file's
     /// first line is the digest of the compaction marker it was saved under.
     fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
-        let bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
+        let mut bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
         let nl = bytes.iter().position(|&b| b == b'\n')?;
-        let (head, body) = bytes.split_at(nl);
-        (head == self.compaction_digest(id).as_bytes())
-            .then(|| body.get(1..).unwrap_or_default().to_vec())
+        if bytes[..nl] != *self.compaction_digest(id).as_bytes() {
+            return None;
+        }
+        // In place: a long chat's checkpoint is tens of MB, which a copy held twice.
+        bytes.drain(..=nl);
+        Some(bytes)
     }
 
     fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
@@ -1673,6 +1714,19 @@ impl Store for LocalStore {
         write_atomic(&dir.join(RESTORE_POINT), bytes)
     }
 
+    fn inbox_point(&self, id: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.dir(id).join(INBOX_POINT)).ok()
+    }
+
+    fn save_inbox_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _open = self.writable()?;
+        let dir = self.dir(id);
+        // As the restore point's: a deleted chat's folder is not made again (#41721 review F1).
+        let folder = crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir());
+        anyhow::ensure!(folder, "no folder for {id}");
+        write_atomic(&dir.join(INBOX_POINT), bytes)
+    }
+
     fn text_entries(
         &self,
         id: &str,
@@ -1789,6 +1843,14 @@ impl Store for LocalStore {
 
     fn register_cloud_root(&self) -> Result<Option<usize>> {
         LocalStore::register_cloud_root(self)
+    }
+
+    fn cloud_configured(&self) -> bool {
+        LocalStore::cloud_configured(self)
+    }
+
+    fn offloaded(&self, id: &str) -> bool {
+        LocalStore::offloaded(self, id)
     }
 
     fn on_rehydrate(&self, hook: RehydrateHook) {
@@ -2081,15 +2143,25 @@ impl LocalStore {
         // The segment that holds `after + 1`, found from the segments' kept first seqs: the read
         // opens only the segments it reads (`store/segment_starts.rs`).
         let start = self.segment_starts.start(id, &segments, after)?;
-        for (_, path) in &segments[start..] {
-            let mut reader =
-                BufReader::with_capacity(256 * 1024, cold_segments::open_segment(path)?);
+        for (n, (_, path)) in segments.get(start..).unwrap_or_default().iter().enumerate() {
+            let mut file = cold_segments::open_segment(path)?;
+            // The segment that holds `after + 1` is read from a line at or before it, found by a
+            // search, not from its start: a read near the log's end (a settled attach's records
+            // since its view) cost the whole segment being written (`log_line::start_of_seq`).
+            // A cold segment is read from its start, as before.
+            if n == 0 && after > 0 && file.local().is_some() {
+                let from = start_of_seq(&mut file, after.saturating_add(1))?;
+                std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from))?;
+            }
+            let mut reader = BufReader::with_capacity(256 * 1024, file);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
                 crate::perf_watch::LogPass::line(&mut pass, line.len());
+                #[cfg(test)]
+                FORWARD_READ_BYTES.with(|n| n.set(n.get() + line.len() as u64));
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
@@ -2113,6 +2185,12 @@ impl LocalStore {
         }
         Ok(())
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests only: the bytes of the lines this thread's forward reads (`scan_lines`) read.
+    pub(crate) static FORWARD_READ_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(all(test, unix))]

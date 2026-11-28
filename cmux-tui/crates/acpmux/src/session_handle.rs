@@ -26,13 +26,15 @@ fn default_parts(id: &str) -> (usize, Cow<'_, str>) {
         return (food % FOODS.len(), Cow::Borrowed(last));
     }
     let digest = Sha256::digest(id);
-    let tail = digest[1..7].iter().fold(0_u64, |number, byte| (number << 8) | u64::from(*byte));
-    (usize::from(digest[0]) % FOODS.len(), Cow::Owned(format!("{tail:012x}")))
+    let tail =
+        digest.iter().skip(1).take(6).fold(0_u64, |number, byte| (number << 8) | u64::from(*byte));
+    let food = digest.first().copied().unwrap_or_default();
+    (usize::from(food) % FOODS.len(), Cow::Owned(format!("{tail:012x}")))
 }
 
 pub(crate) fn default_handle(id: &str) -> String {
     let (food, tail) = default_parts(id);
-    format!("{}-{}", FOODS[food], tail.to_ascii_lowercase())
+    format!("{}-{}", FOODS.get(food).copied().unwrap_or_default(), tail.to_ascii_lowercase())
 }
 
 pub(crate) fn display<'a>(handle: Option<&'a str>, id: &str) -> Cow<'a, str> {
@@ -48,7 +50,8 @@ pub(crate) fn matches(value: Option<&str>, id: &str, key: &str) -> bool {
         return false;
     }
     let (food, suffix) = default_parts(id);
-    FOODS[food].eq_ignore_ascii_case(word) && suffix.eq_ignore_ascii_case(tail)
+    FOODS.get(food).is_some_and(|food| food.eq_ignore_ascii_case(word))
+        && suffix.eq_ignore_ascii_case(tail)
 }
 
 /// A `session.alias` tag as people say it: the lane-gh broker writes its spaces as `+`
@@ -84,20 +87,5 @@ pub(crate) fn shown_matches(shown: &str, value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod display_tests {
-    use super::*;
-
-    #[test]
-    fn a_broker_alias_reads_with_spaces_and_a_shown_cell_matches_its_value() {
-        assert_eq!(spoken_alias("Logan+dot+chats-going-blank"), "Logan dot chats-going-blank");
-        assert_eq!(spoken_alias("Ruby dot startup-speedups"), "Ruby dot startup-speedups");
-        assert!(shown_matches("app-version-rollback", "App-Version-Rollback"));
-        assert!(shown_matches("chat-recovery-versi…", "chat-recovery-version-rollback"));
-        assert!(!shown_matches(
-            "chat-recovery-version-rollback…",
-            "chat-recovery-version-rollback"
-        ));
-        assert!(!shown_matches("app-version", "app-version-rollback"));
-        assert!(!shown_matches("…", "anything"));
-    }
-}
+#[path = "session_handle_display_tests.rs"]
+mod display_tests;

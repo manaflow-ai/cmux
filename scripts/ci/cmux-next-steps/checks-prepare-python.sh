@@ -26,7 +26,8 @@ echo "$bin" >> "$GITHUB_PATH"
 PATH="$(awk '{ line[NR] = $0 } END { for (i = NR; i > 0; i--) printf "%s:", line[i] }' "$GITHUB_PATH")$PATH"
 missing=""
 node --version >/dev/null 2>&1 || missing="$missing node,"
-timeout 10 true >/dev/null 2>&1 || missing="$missing timeout (no GNU timeout, gtimeout or perl),"
+# The probe of the PATH timeout this step just provided (GNU, gtimeout or the timeout.sh shim), not a call of it.
+command timeout 10 true >/dev/null 2>&1 || missing="$missing timeout (no GNU timeout, gtimeout or perl),"
 python3 -c 'import yaml' >/dev/null 2>&1 || missing="$missing python3 with PyYAML,"
 if [ -n "$missing" ]; then
   echo "::error title=checks preflight::${RUNNER_NAME:-this runner} lacks${missing%,}"

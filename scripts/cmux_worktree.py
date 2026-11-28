@@ -38,6 +38,27 @@ seed's commit to the one asked for, writing only the files that differ.
         landed, locked, or recently used. Lists only, unless --apply, which
         runs a plain `git worktree remove` (git refuses anything not clean)
         on the removable ones and `git worktree prune` for missing folders.
+        An overlay checkout git unregistered but could not delete (its folder
+        is a mount point) is finished as `git cow remove` finishes it.
+
+Installed as `git-cow` on PATH (any name ending in git-cow), this file is `git cow`:
+    git cow add [-b|-B BRANCH | --detach] [--no-track|--track] [-q] PATH [COMMIT]
+takes `git worktree add`'s arguments and defaults (COMMIT is HEAD; a bare PATH
+makes or checks out the branch PATH's last part names) and clones the files as
+`add` does. Anything else it does not clone (--no-checkout, --orphan, -f, a
+remote branch name git would make a local branch of, GIT_COW=0) runs plain
+`git worktree add`; `git cow list|remove|move|prune|lock|unlock|repair` are
+`git worktree`'s; `git cow seed|dedupe|gc` are this tool's.
+
+`git cow remove` runs `git worktree remove` first (git is the dirty-tree
+guard). On Linux a worktree can be an overlayfs mount (`wt`'s overlay
+checkouts: a `<parent>/.wt-overlay/<name>/mount.json` names it). git
+unregisters such a worktree and then cannot delete its mount point ("Device or
+resource busy"), which leaves a mount nobody owns, a folder that will not
+rmdir and the shared lower layer pinned. When git refused and the worktree is
+gone from git, `git cow remove` unmounts it, drops its own layer and removes
+the folder. An overlay checkout that is not mounted (after a reboot) is never
+collected: its files are in its layer, and the folder shows none of them.
 
 Why not symlinks: a symlinked node_modules resolves to the other worktree's
 real path, so Vite, Metro and Node's resolver see packages outside the project
@@ -69,6 +90,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+GIT_COW_VERSION = "2026.11.27"
 LANDING_REFS = ("origin/feat-cmux-next", "origin/main")
 DEFAULT_BASES = ("origin/feat-cmux-next", "HEAD")
 # The seed moves to the commit asked for once this many files differ.
@@ -122,7 +144,7 @@ def libc():
     return _libc
 
 
-def clone_path(src: Path, dst: Path) -> None:
+def clone_path(src: Path, dst: Path, reflink: str = "always") -> None:
     """Clone a file or a whole folder tree (dst must not exist).
 
     macOS: clonefile(2), which clones a folder tree in one call on APFS.
@@ -135,13 +157,33 @@ def clone_path(src: Path, dst: Path) -> None:
             code = ctypes.get_errno()
             raise OSError(code, f"clonefile {src} -> {dst}: {os.strerror(code)}")
         return
-    result = subprocess.run(["cp", "-a", "--reflink=auto", str(src), str(dst)], capture_output=True, text=True)
+    # always for the seed's files: where the volume has no reflinks a copy would write every byte
+    # twice (the seed and the worktree) instead of once; clone_supported() sends that case to a
+    # checkout. --cargo passes auto: a copied target still saves the build.
+    result = subprocess.run(["cp", "-a", f"--reflink={reflink}", str(src), str(dst)], capture_output=True, text=True)
     if result.returncode != 0:
         raise OSError(errno.EIO, f"cp {src} -> {dst}: {result.stderr.strip()}")
 
 
 def can_clone_cheaply() -> bool:
     return libc() is not None
+
+
+def clone_supported(src_dir: Path, dst_dir: Path) -> bool:
+    """Whether a file in src_dir can be cloned into dst_dir: one volume that has clones
+    (APFS; btrfs or XFS with reflink=1). A probe file is cloned and both are removed."""
+    src_dir.mkdir(parents=True, exist_ok=True)
+    probe = src_dir / f".cmux-worktree-probe-{os.getpid()}"
+    copy = dst_dir / f".cmux-worktree-probe-{os.getpid()}"
+    try:
+        probe.write_bytes(b"probe")
+        clone_path(probe, copy)
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.unlink(missing_ok=True)
+        copy.unlink(missing_ok=True)
 
 
 def physical_offset(path: Path) -> Optional[int]:
@@ -534,9 +576,9 @@ def seed_cargo_target(repo: Path, dest: Path, crate_dir: str) -> dict:
                     (mine / "target" / item.name).mkdir()
                     for sub in item.iterdir():
                         if sub.name != "incremental":
-                            clone_path(sub, mine / "target" / item.name / sub.name)
+                            clone_path(sub, mine / "target" / item.name / sub.name, reflink="auto")
                 else:
-                    clone_path(item, mine / "target" / item.name)
+                    clone_path(item, mine / "target" / item.name, reflink="auto")
             report["from"] = str(target)
             return report
         finally:
@@ -559,20 +601,51 @@ def _toolchain_text(root: Path, start: Path) -> str:
 
 
 def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str], branch: Optional[str],
-        seed_dir: Path, cargo_dirs: List[str]) -> AddResult:
+        seed_dir: Path, cargo_dirs: List[str], git_args: Optional[List[str]] = None) -> AddResult:
+    """git_args: more `git worktree add` options (--no-track, --track, -q, --lock)."""
     started = time.monotonic()
     base = resolve_commit(repo, commit)
-    args = ["worktree", "add", "--no-checkout"]
+    args = ["worktree", "add", "--no-checkout", *(git_args or [])]
     if branch_flag:
         args += [branch_flag] + ([branch] if branch else [])
     args += [str(path), base]
+    made_branch = branch if branch_flag == "-b" or (
+        branch_flag == "-B" and not git_ok(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}")) else None
     git(repo, *args)
+    try:
+        return _fill_worktree(repo, path, seed_dir, cargo_dirs, started)
+    except BaseException:
+        # As `git worktree add` does when its checkout fails: no half-made worktree stays registered
+        # (a helper that finds the folder would reuse it), nor the branch this add made.
+        git(repo, "worktree", "remove", "--force", "--force", str(path), check=False)
+        shutil.rmtree(path, ignore_errors=True)
+        git(repo, "worktree", "prune", check=False)
+        if made_branch:
+            git(repo, "branch", "-D", made_branch, check=False)
+        raise
+
+
+def _empty_except_git(path: Path) -> None:
+    """Remove everything in a new worktree but its .git file (a clone left half done)."""
+    for name in os.listdir(path):
+        if name == ".git":
+            continue
+        target = path / name
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+
+
+def _fill_worktree(repo: Path, path: Path, seed_dir: Path, cargo_dirs: List[str], started: float) -> AddResult:
     target_commit = git(path, "rev-parse", "HEAD").strip()
     oid_size = oid_size_of(repo)
     result = AddResult(str(path), target_commit, "checkout", 0.0)
     try:
         if os.environ.get("CMUX_WORKTREE_NO_CLONE") == "1":
             raise OSError(errno.ENOTSUP, "CMUX_WORKTREE_NO_CLONE=1")
+        if not (Seed(seed_dir).exists() and can_clone_cheaply()) and not clone_supported(seed_dir.parent, path):
+            raise OSError(errno.ENOTSUP, f"{path} and {seed_dir.parent} share no volume with clones")
         seed = ensure_seed(repo, seed_dir, target_commit)
         seed_commit, _ = clone_from_seed(seed, path, oid_size)
         result.method = "clone"
@@ -581,6 +654,10 @@ def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str
         result.note = f"cloning failed, checked out instead: {error}"
         log(f"cmux-worktree: {result.note}")
         seed_commit = None
+        result.method = "checkout"
+        # A clone that failed after its files were made (an index entry the seed lacks) leaves the
+        # seed's files behind: the checkout below starts from an empty tree, as git's does.
+        _empty_except_git(path)
     if seed_commit is None:
         git(path, "read-tree", "-u", "--reset", "HEAD")
         result.files_written = None
@@ -592,6 +669,9 @@ def add(repo: Path, path: Path, commit: Optional[str], branch_flag: Optional[str
     for crate_dir in cargo_dirs:
         result.cargo.append(seed_cargo_target(repo, path, crate_dir))
     result.seconds = round(time.monotonic() - started, 2)
+    # `--no-checkout` skips the post-checkout hook that `git worktree add` runs (git-lfs, bootstrap hooks).
+    git(path, "hook", "run", "--ignore-missing", "post-checkout", "--", "0" * (oid_size * 2), target_commit, "1",
+        check=False)
     if result.method == "clone" and (result.files_written or 0) > SEED_STALE_FILES:
         result.seed_moved = move_seed(Seed(seed_dir), target_commit)
     return result
@@ -777,6 +857,101 @@ def dedupe(repo: Path, seed_dir: Path, apply: bool, idle_hours: float, only: Opt
     return reports
 
 
+# ---------------------------------------------------------------- overlay checkouts
+
+OVERLAY_STORE = ".wt-overlay"
+
+
+def overlay_layer(target: Path) -> Optional[Path]:
+    """TARGET's own overlay layer (<parent>/.wt-overlay/<name>) when its mount.json names TARGET, else None."""
+    layer = target.parent / OVERLAY_STORE / target.name
+    try:
+        record = json.loads((layer / "mount.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict) or record.get("target") not in (str(target), str(target.resolve())):
+        return None
+    return layer
+
+
+def no_live_worktree(target: Path) -> bool:
+    """TARGET holds no worktree git knows: no .git file, or one naming a gitdir git has already removed. Beneath a
+    live overlay mount a removed worktree's .git is gone; after the unmount the folder's own gitlink names the
+    gitdir `git worktree remove` already deleted."""
+    try:
+        link = (target / ".git").read_text(encoding="utf-8").strip()
+    except IsADirectoryError:
+        return False  # a repository of its own, never a worktree to collect
+    except OSError:
+        return True
+    gitdir = link.split("gitdir:", 1)[1].strip() if link.startswith("gitdir:") else ""
+    return not gitdir or not os.path.isdir(gitdir)
+
+
+def overlay_orphan(target: Path) -> bool:
+    """TARGET is an overlay checkout git no longer knows, still there: what a failed `git worktree remove` of a
+    mounted one leaves."""
+    return target.is_dir() and overlay_layer(target) is not None and no_live_worktree(target)
+
+
+def _privileged(*argv: str) -> subprocess.CompletedProcess:
+    command = list(argv) if os.geteuid() == 0 else ["sudo", "-n", *argv]
+    return subprocess.run(command, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+
+
+def collect_overlay_orphan(target: Path) -> str:
+    """Finish the removal git could not: unmount TARGET, delete its own layer, the dead gitlink and the folder.
+    Returns what it did; OSError when it left TARGET in place. Refuses an unmounted one: everything that checkout
+    wrote is in its layer, so its empty folder is not the checkout (remount it, then remove it again)."""
+    layer = overlay_layer(target)
+    if layer is None or layer.parent.name != OVERLAY_STORE or layer.name != target.name:
+        raise OSError(f"{target}: not an overlay checkout")
+    with open(layer.parent / ".lock", "a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)  # the lock `wt` holds while it judges which lowers are in use
+        if not os.path.ismount(target):
+            raise OSError(f"{target}: an overlay checkout that is not mounted (its files are in {layer / 'u'}); "
+                          "left in place. next: wt overlay remount, then remove it again")
+        if not no_live_worktree(target):
+            raise OSError(f"{target}: git still knows this worktree; left in place")
+        done = _privileged("umount", str(target))
+        if done.returncode:  # a process still has a file or its cwd inside: detach now, freed when it lets go
+            done = _privileged("umount", "-l", str(target))
+        if done.returncode:
+            raise OSError(f"umount {target}: {done.stderr.strip()[-300:]}")
+        shutil.rmtree(layer, ignore_errors=True)
+        if layer.exists():  # overlayfs's work dir belongs to root
+            done = _privileged("rm", "-rf", "--one-file-system", "--", str(layer))
+            if done.returncode:
+                raise OSError(f"rm {layer}: {done.stderr.strip()[-300:]}")
+    gitlink = target / ".git"
+    if gitlink.is_file() and no_live_worktree(target):
+        gitlink.unlink()
+    target.rmdir()  # beneath the mount it held only that gitlink: anything else and this refuses
+    return f"{target}: git unregistered this overlay checkout but could not delete its mount; unmounted, its layer " \
+           "and folder removed"
+
+
+def remove_worktree(repo: Path, args: List[str]) -> Tuple[int, str]:
+    """`git worktree remove ARGS` in REPO; when git refuses and the worktree is an overlay checkout git has already
+    let go of, finish it (collect_overlay_orphan). Returns git's exit status (0 once finished) and what to say."""
+    result = subprocess.run(["git", "-C", str(repo), "worktree", "remove", *args], capture_output=True, text=True)
+    said = (result.stdout + result.stderr).strip()
+    if result.returncode == 0:
+        return 0, said
+    paths = [arg for arg in args if not arg.startswith("-")]
+    if len(paths) != 1:
+        return result.returncode, said
+    target = Path(paths[0])
+    target = target if target.is_absolute() else Path(repo) / target
+    target = Path(os.path.abspath(target))
+    if not overlay_orphan(target):  # git kept it: a dirty tree, a lock, its own refusal
+        return result.returncode, said
+    try:
+        return 0, collect_overlay_orphan(target)
+    except OSError as error:
+        return result.returncode, f"{said}\ngit cow: {error}"
+
+
 # ---------------------------------------------------------------- gc
 
 @dataclass
@@ -845,18 +1020,117 @@ def gc(repo: Path, seed_dir: Path, idle_days: float, apply: bool, landing: List[
     if apply:
         for entry in entries:
             if entry.verdict == "remove":
-                result = subprocess.run(["git", "-C", str(repo), "worktree", "remove", entry.worktree],
-                                        capture_output=True, text=True)
-                if result.returncode != 0:
-                    entry.verdict, entry.reason = "keep", f"git refused: {result.stderr.strip()}"
+                code, said = remove_worktree(repo, [entry.worktree])
+                if code != 0:
+                    entry.verdict, entry.reason = "keep", f"git refused: {said}"
                 else:
                     entry.verdict = "removed"
+                    if said:
+                        entry.reason += f"; {said}"
         if any(entry.verdict == "prune" for entry in entries):
             git(repo, "worktree", "prune")
             for entry in entries:
                 if entry.verdict == "prune":
                     entry.verdict = "pruned"
     return entries
+
+
+# ---------------------------------------------------------------- git cow
+
+GIT_WORKTREE_COMMANDS = ("list", "remove", "move", "prune", "lock", "unlock", "repair")
+
+
+def plain_worktree_add(argv: List[str]) -> int:
+    return subprocess.run(["git", "worktree", "add", *argv]).returncode
+
+
+def git_cow_add(argv: List[str]) -> int:
+    """`git worktree add ARGV`, with the files cloned where this tool can; else plain git."""
+    if os.environ.get("GIT_COW") == "0":
+        return plain_worktree_add(argv)
+    flag: Optional[str] = None
+    branch: Optional[str] = None
+    passed: List[str] = []
+    cargo: List[str] = []
+    want_json = False
+    positional: List[str] = []
+    items = list(argv)
+    while items:
+        item = items.pop(0)
+        if item in ("-b", "-B"):
+            if flag or not items:
+                return plain_worktree_add(argv)
+            flag, branch = item, items.pop(0)
+        elif item == "--detach":
+            if flag:
+                return plain_worktree_add(argv)
+            flag = "--detach"
+        elif item in ("--no-track", "--track", "-q", "--quiet", "--lock", "--no-guess-remote", "--guess-remote"):
+            passed.append(item)
+        elif item == "--cargo" and items:
+            cargo.append(items.pop(0))
+        elif item == "--json":
+            want_json = True
+        elif item == "--":
+            positional += items
+            items = []
+        elif item.startswith("-"):
+            return plain_worktree_add(argv)  # --no-checkout, --orphan, -f, --reason ...: git's own
+        else:
+            positional.append(item)
+    if not 1 <= len(positional) <= 2:
+        return plain_worktree_add(argv)
+    repo = Path.cwd()
+    path = Path(positional[0]).absolute()
+    commit = positional[1] if len(positional) == 2 else None
+    if commit is None and flag is None:
+        # git's default: the branch PATH's last part names, checked out when it exists, else made at HEAD.
+        name = path.name
+        if git_ok(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{name}"):
+            commit = name
+        else:
+            flag, branch = "-b", name
+    if commit is None:
+        commit = "HEAD"
+    if not git_ok(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}"):
+        return plain_worktree_add(argv)  # a remote branch name git makes a local branch of, or git's error
+    if flag == "--detach":
+        branch = None
+    # A worktree's -C is the repository the user stands in: its common dir picks the seed.
+    seed_dir = default_seed_dir(repo)
+    result = add(repo, path, commit, flag, branch, seed_dir, cargo, passed)
+    if want_json:
+        print(json.dumps(result.__dict__, indent=2))
+    elif "-q" not in passed and "--quiet" not in passed:
+        how = "cloned" if result.method == "clone" else "checked out"
+        print(f"git cow: {result.path} {how} at {result.commit[:12]} in {result.seconds}s", file=sys.stderr)
+    return 0
+
+
+def git_cow_main(argv: List[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print("usage: git cow add [-b|-B BRANCH | --detach] [--no-track] PATH [COMMIT]\n"
+              "       git cow list|remove|move|prune|lock|unlock|repair ...   (git worktree)\n"
+              "       git cow seed|dedupe|gc ...                              (cmux_worktree.py)\n"
+              "`git worktree add` whose files are copy-on-write clones of a clean seed checkout.")
+        return 0
+    if argv[0] in ("--version", "version"):
+        print(f"git-cow {GIT_COW_VERSION}")
+        return 0
+    if argv[0] == "add":
+        try:
+            return git_cow_add(argv[1:])
+        except GitError as error:
+            print(f"git cow: {error}", file=sys.stderr)
+            return 128
+    if argv[0] == "remove":
+        code, said = remove_worktree(Path.cwd(), argv[1:])
+        if said:
+            print(said if code else f"git cow: {said}", file=sys.stderr)
+        return code
+    if argv[0] in GIT_WORKTREE_COMMANDS:
+        return subprocess.run(["git", "worktree", *argv]).returncode
+    return main(argv)
 
 
 # ---------------------------------------------------------------- CLI
@@ -957,4 +1231,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 if __name__ == "__main__":
+    if Path(sys.argv[0]).name.endswith("git-cow"):
+        signal.signal(signal.SIGTERM, lambda number, frame: sys.exit(128 + number))
+        sys.exit(git_cow_main(sys.argv[1:]))
     sys.exit(main())

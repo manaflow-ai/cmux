@@ -11,17 +11,33 @@ import Foundation
 /// that started it; with no app running a link dangles and a `cmux` call fails
 /// at once instead of reaching a dead build.
 public nonisolated enum ChiefAppLinks {
-    static func controlLink(_ home: ChiefHome) -> URL { home.root.appendingPathComponent("state/app.sock") }
-    static func daemonLink(_ home: ChiefHome) -> URL { home.root.appendingPathComponent("state/app-daemon.sock") }
+    /// The links' paths (Rust `chief_home.app_links`).
+    private struct Links: Decodable {
+        let controlLink: String
+        let daemonLink: String
+        let stateDirectory: String
+        let hostEnvironment: [String: String]
+    }
+
+    private static func links(_ home: ChiefHome) -> Links {
+        struct Request: Encodable { let root: String }
+        if let links: Links = try? ChiefHomeRules().call("app_links", Request(root: home.root.path)) { return links }
+        // The rules not running: the same paths, so the host never loses the app.
+        let state = home.root.appendingPathComponent("state", isDirectory: true)
+        let control = state.appendingPathComponent("app.sock").path, daemon = state.appendingPathComponent("app-daemon.sock").path
+        return Links(controlLink: control, daemonLink: daemon, stateDirectory: state.path,
+                     hostEnvironment: ["CMUX_SOCKET_PATH": control, "CMUX_APP_DAEMON_SOCKET": daemon])
+    }
+
+    static func controlLink(_ home: ChiefHome) -> URL { URL(fileURLWithPath: links(home).controlLink) }
+    static func daemonLink(_ home: ChiefHome) -> URL { URL(fileURLWithPath: links(home).daemonLink) }
 
     /// The links the brain host gets (`HomeBrainHost.childEnvironment`).
-    static func hostEnvironment(_ home: ChiefHome) -> [String: String] {
-        ["CMUX_SOCKET_PATH": controlLink(home).path, "CMUX_APP_DAEMON_SOCKET": daemonLink(home).path]
-    }
+    static func hostEnvironment(_ home: ChiefHome) -> [String: String] { links(home).hostEnvironment }
 
     /// Points both links at this app (last writer wins), each atomically.
     public static func publish(home: ChiefHome, controlSocket: String, daemonSocket: String?) {
-        let state = home.root.appendingPathComponent("state", isDirectory: true)
+        let state = URL(fileURLWithPath: links(home).stateDirectory, isDirectory: true)
         try? FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
         point(controlLink(home), at: controlSocket)
         if let daemonSocket { point(daemonLink(home), at: daemonSocket) }
@@ -38,7 +54,10 @@ public nonisolated enum ChiefAppLinks {
 
     /// A temporary link renamed over the old one, so readers never see none.
     private static func point(_ link: URL, at target: String) {
-        let temporary = link.path + ".\(getpid()).tmp"
+        struct Request: Encodable { let link: String; let pid: Int32 }
+        struct Reply: Decodable { let path: String }
+        let reply: Reply? = try? ChiefHomeRules().call("app_temporary_link", Request(link: link.path, pid: getpid()))
+        let temporary = reply?.path ?? link.path + ".\(getpid()).tmp"
         unlink(temporary)
         guard symlink(target, temporary) == 0 else { return }
         if rename(temporary, link.path) != 0 { unlink(temporary) }

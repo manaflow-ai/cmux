@@ -1154,7 +1154,7 @@ Example:
 | status | implemented |
 | since | protocol 6 additive extension |
 
-Returns all current Unix and WebSocket control connections in ascending client-id order. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface. Protocol v10 reports `size_participating` on each size entry because one client may participate on one terminal and be excluded on another.
+Returns all current Unix and WebSocket control connections in ascending client-id order. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface. Protocol v10 reports `size_participating` on each size entry because one client may participate on one terminal and be excluded on another. `capabilities` lists the capabilities the connection declared in `set-client-info` that the daemon recognized, sorted (for example `agent-cli-hybrid-v1`); older daemons omit it.
 
 Params: none.
 
@@ -1174,7 +1174,8 @@ array<object{
     rows:uint16|null,
     size_participating:boolean
   }>,
-  self:boolean
+  self:boolean,
+  capabilities?:array<string>
 }>
 ```
 
@@ -9066,10 +9067,15 @@ subscriptions reconnect to carry it. Same admission as `cloud-inbox-list`.
 | status | implemented |
 | since | protocol 12 additive extension; capability `cloud-environments-v1` |
 
-The cloud environment editor uses the existing Cloud transport on an off-loop
-request worker. Only the verified native app may call it. The app supplies
-`platform_origin` from its existing platform resolver and `access_token`, its
-cmux install JWT with team authorization. The page never supplies or sees either.
+The cloud environment editor and `cmux env` use the existing Cloud transport on an
+off-loop request worker. The verified native app may call it, and so may a process of
+this machine's user on the local Unix socket (actor `user`, `terminal` or `acp_session`):
+`cmux env` brings the install token the app's `auth.token` minted for it (`cmux auth
+token`), which that process could already send to the platform itself. A link peer, a
+WebSocket or remote connection and an in-process cmux app are refused (`forbidden`).
+The app supplies `platform_origin` from its existing platform resolver and
+`access_token`, its cmux install JWT with team authorization; `cmux env` supplies the
+platform of the API that issued its token. The page never supplies or sees either.
 No Home session lease is needed or modified. Redirects are disabled. The platform
 owns validation, authorization, storage and default locking.
 
@@ -9082,7 +9088,16 @@ Actions and their params:
 - `get`, `{id}`: `GET /v1/cloud-environments/{id}`, answers the environment.
 - `update`, `{id, patch}`: `PATCH /v1/cloud-environments/{id}`, answers the saved
   environment. The patch accepts `name`, `setup_script`, `env_vars`, `set_secrets`,
-  `remove_secrets` and `network`. Null and empty values reach the owner unchanged.
+  `remove_secrets`, `network`, `repo`, `ref`, `maintenance_script`, `files`, `image` and
+  `expected_revision` (the platform refuses a stale one with 409
+  `cloud_environment.revision_conflict`, whose code reaches the caller).
+  Null and empty values reach the owner unchanged.
+- `create`, `{environment}`: `POST /v1/cloud-environments`, with `name` (not blank),
+  `scope`, `secrets` and the patch's fields other than `set_secrets` and `remove_secrets`.
+- `default-get`, `{repo}`: `GET /v1/cloud-environments/project-defaults?repo=OWNER/NAME`,
+  the project's defaults (`[{scope, repo, environment, updated_at, updated_by}]`).
+- `default-set`, `{repo, environment}`: `PUT /v1/cloud-environments/project-defaults` with
+  `{repo, environment}`. `repo` is `OWNER/NAME` of letters, digits, `-`, `_` and `.`.
 - `derive`, `{repo, ref?, environment?}`: `POST /v1/environments/derive`, answers
   the derived setup including `setup.script`.
 
@@ -9094,7 +9109,7 @@ the install token. Upstream error messages are sanitized.
 The app requires the Save click for `update`. Platform `cloud_environment.*`
 refusals preserve their code; invalid fields fail before an HTTP call. Neither
 this command nor its reads change focus. CLI/MCP use requires the person's own
-API authorization; this native forwarding command never grants it to agents.
+API authorization, the token the caller brings; this command never grants one.
 
 ### cloud-conversation-thread
 
@@ -11954,6 +11969,19 @@ and leave no file. A write stream there also takes `permissions`, as the
 line op does. Without these fields every write is as above, and a client
 sends them only to a server that advertises the capability.
 
+A server that also advertises `fs-write-zstd-v1` takes `"encoding":"zstd"`
+the same way: the wire bytes are one zstd frame (RFC 8878) that must decode
+to exactly `decoded_size` bytes, with a window of at most 16 MiB (window log
+24); a larger window, more or fewer bytes, or bytes that are not one zstd
+frame are `params.invalid` and leave no file. `cmux link sync` stores a part
+that is already compressed (by its name or magic) or near random (a sample at
+7.6 bits a byte or more), else sends zstd at the level its link's measured
+rate allows (deflate on a server with only `fs-write-deflate-v1`), and keeps
+the compressed form only under 97% of the raw size. A part whose wire bytes
+reach 256 KiB goes over a write stream of its own; where the carrier takes no
+stream (no `ready`, or the line path's `params.invalid`) it and every later
+part go as lines.
+
 A server that also advertises `fs-write-nofollow-v1` takes `"no_follow":true`
 on an `fs.write` line (any mode, `append` included) or write stream: a
 symlink as any component of `path` below its root, the last included, is
@@ -11999,6 +12027,20 @@ is `{accepted:boolean}`. The URL follows terminal-link policy, including browser
 preferences and host allowlists, with focus disabled. Local Mac v2 socket methods
 and the SSH relay authorization allowlist are unchanged. These operations are
 exposed only in the SDKs' existing private `raw` namespace.
+
+### offer-link-to-phone
+
+A private, Unix-classified request from this Mac's own app with `terminal_id` and `url` strings:
+a program in that terminal asked a browser for the URL (the bundled `cmux-open-url`, the `open` and
+`xdg-open` shims, `browser.open_link`). The result is `{offered:boolean}`. It is `true` when the
+daemon sent the `phone-open-link` event ([events.md](events.md#phone-open-link)) to the phone that
+drives the terminal, which then opens the page; the app opens nothing. It is `false`, and nothing
+happened, unless all of these hold: the terminal's last `send` or `send-key` came from a remote
+device's connection no more than two minutes ago (a later key from the Mac's own view takes the
+terminal back); a connection with the same `device_id` is attached to the terminal, is open and
+declared the client capability `phone-open-link-v1`; and the address is public (a loopback, LAN,
+tailnet or bare host name stays on the Mac, as a tapped link does). A remote device's request is
+refused. Only HTTP(S) URLs up to 16 KiB are accepted. The URL is never logged or journaled.
 
 ## Terminal clipboard reads
 

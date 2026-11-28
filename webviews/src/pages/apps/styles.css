@@ -1499,14 +1499,25 @@ code {
   }
 }
 
-/* Windowed: only the catalog rows near the viewport are mounted, each placed at its offset
-   (AppsPage.tsx CatalogList). A grid row is the same auto-fill grid, so its cards keep their width. */
+/* Windowed: only the catalog rows near the viewport are mounted (AppsPage.tsx CatalogList). A list
+   row is placed at its offset; the grid is one auto-fill grid of the mounted cards, in listing
+   order, with a full-width spacer for each run of rows not mounted. */
 .apps-catalog-space {
   position: relative;
   width: 100%;
 }
 
-.apps-catalog-space > * {
+/* TanStack keeps the rows in view in place as rows above resize: the browser's own scroll
+   anchoring would move them a second time. */
+.apps-catalog-space.apps-grid {
+  overflow-anchor: none;
+}
+
+.apps-catalog-gap {
+  grid-column: 1 / -1;
+}
+
+.apps-catalog-space:not(.apps-grid) > * {
   position: absolute;
   top: 0;
   inset-inline-start: 0;

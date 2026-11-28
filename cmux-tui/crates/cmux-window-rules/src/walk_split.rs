@@ -83,7 +83,10 @@ fn bundle_for(slots: &[Slot], install_key: &str) -> Bundle {
     let arms = slots
         .iter()
         .zip(&indices)
-        .map(|(slot, &i)| (slot.id.to_string(), slot.arms[i].to_string()))
+        .map(|(slot, &i)| {
+            let arm = slot.arms.get(i).or_else(|| slot.arms.first()).copied().unwrap_or_default();
+            (slot.id.to_string(), arm.to_string())
+        })
         .collect();
     Bundle { id, arms }
 }
