@@ -384,15 +384,33 @@ def cmd_for_paths(argv: list[str]) -> int:
         print(f"bench_seconds={relevance.self_bench(a.self_bench, max(1, a.scale)):.4f}")
         return 0
     if a.write or a.check:
+        # Two generated pieces: the map's [[unit]] section, and live_apply.py's path rule block (the map's
+        # [[live_rule]] table: one table, two consumers). Each is checked on its own, so one stale piece never
+        # hides the other.
+        stale = 0
         before = a.map.read_text(encoding="utf-8")
         changed = relevance.rewrite(a.map)
         if a.check and changed:
             a.map.write_text(before, encoding="utf-8")
             print(f"cmux-bench: {a.map} [[unit]] section is stale: run scripts/bench/cmux-bench for-paths --write",
                   file=sys.stderr)
+            stale = 1
+        else:
+            print(("wrote " if changed else "fresh: ") + str(a.map))
+        live_before = relevance.LIVE_APPLY.read_text(encoding="utf-8")
+        try:
+            live_changed = relevance.rewrite_live_apply(a.map)
+        except relevance.MapError as err:
+            print(f"cmux-bench: {err}", file=sys.stderr)
             return 1
-        print(("wrote " if changed else "fresh: ") + str(a.map))
-        return 0
+        if a.check and live_changed:
+            relevance.LIVE_APPLY.write_text(live_before, encoding="utf-8")
+            print(f"cmux-bench: {relevance.LIVE_APPLY} live rules differ from the map's [[live_rule]] table: "
+                  "run scripts/bench/cmux-bench for-paths --write", file=sys.stderr)
+            stale = 1
+        else:
+            print(("wrote " if live_changed else "fresh: ") + str(relevance.LIVE_APPLY))
+        return stale
     try:
         index = relevance.load(a.map)
     except (OSError, relevance.MapError) as err:

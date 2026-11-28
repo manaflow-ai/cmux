@@ -36,7 +36,11 @@ import re
 import subprocess
 import sys
 
-# Folders and files that never ship in the app, checked before everything else. images/ is the Cloud
+# The path rules live in docs/benches/relevance-map.toml's [[live_rule]] table, the same map `cmux-bench for-paths`
+# reads (one table, two consumers); the block below is generated from it and a test fails when they differ.
+# ---- generated from docs/benches/relevance-map.toml [[live_rule]] by `cmux-bench for-paths --write` ----
+IOS = re.compile(r"^(ios|cmux-next-ios|Packages/iOS)/")
+# Folders and files that never ship in the app, checked before everything but IOS. images/ is the Cloud
 # machine image (its bot's image rolls); ci-target-graph.json is CI's test-target map. Root examples/ holds
 # sample extensions only a lint reads; cmux-tui/bindings/examples/ is built into the app, so the rule is anchored.
 # A *-gallery.html page is a design gallery. The root .gitattributes only sets merge drivers and Linguist
@@ -47,21 +51,31 @@ import sys
 # and design pages. vault/ is the cmux-vault Go service (its own go.mod; the app's Rust uses cmux-vault-egress);
 # capture-scratch/ holds screenshot replay output. No Xcode phase, Package.swift resource or build script copies any of them.
 NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood|design|vault|capture-scratch)/|^Native/.+/evals/|^\.gitattributes$|(^|/)ci-target-graph\.json$|-gallery\.html$|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
-# Extensions that change nothing in the app, checked after the web, resource and Rust rules, so a
-# Cargo.lock, a bundled Resources/x.sh or webviews' vite.config.mjs still counts.
-NOAPP_EXT = re.compile(r"\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$")
 # clients/ts and config/vite-plus hold TypeScript that only the web bundles import (the Cloud page's wire types,
 # clients/ts/cloud/src/generated.ts) or lint with: nothing native reads them (cmux_next_route.py BUNDLE_INPUTS).
 WEB = re.compile(r"^(webviews|cmux-tui/frontends/web|clients/ts|config/vite-plus)/")
 # String catalogs: gen-strings.mjs builds the web pages' strings from them, and a Swift string shows its source
 # text without the compiled table, so trying the change needs no build; only the translations do.
 STRINGS = re.compile(r"\.xcstrings$")
-RUST = re.compile(r"\.rs$|(^|/)Cargo\.toml$|^cmux-tui/|^acpmux/")
-IOS = re.compile(r"^(ios|cmux-next-ios|Packages/iOS)/")
 # C, Objective-C and Zig sources need a new app, except under cmux-tui/: the cmux-tui tree build compiles those (a
 # companion's shim, the Zig binding), so they are daemon, as hot-apply.py applies them; its linked_rust still leaves
 # an app FFI crate's to the ffi part (hot-apply-more-kinds.md in cmuxterm-hq docs/design).
 REBUILD_FILE = re.compile(r"\.(strings|xcassets|plist|entitlements|pbxproj|xcconfig|storyboard|xib|metal|png|pdf|car|icns)$|(^|/)Package\.(swift|resolved)$|Contents\.json$|\.xcodeproj/|/Resources/|^ghostty|^(?!cmux-tui/).*\.(c|h|m|mm|zig)$")
+RUST = re.compile(r"\.rs$|(^|/)Cargo\.toml$|^cmux-tui/|^acpmux/")
+# Extensions that change nothing in the app, checked after the web, resource and Rust rules, so a
+# Cargo.lock, a bundled Resources/x.sh or webviews' vite.config.mjs still counts.
+NOAPP_EXT = re.compile(r"\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$")
+# (regex, class, rebuild reason), checked in this order; the first match decides a path's class.
+PATH_RULES = [
+    (IOS, "ios-only", None),
+    (NOAPP_PATH, "no-app", None),
+    (WEB, "web-live", None),
+    (STRINGS, "strings", None),
+    (REBUILD_FILE, "rebuild", "resource or manifest"),
+    (RUST, "daemon", None),
+    (NOAPP_EXT, "no-app", None),
+]
+# ---- end of generated live rules ----
 COMMENT = re.compile(r"^\s*(//|/\*|\*|\*/)")
 STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\([^)]*\))?\s+)*(let|var)\s+\w+[^{]*$")
 FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
@@ -135,20 +149,9 @@ def classify(files, diffs):
             reasons.setdefault(why, []).append(path)
 
     for status, path in files:
-        if IOS.search(path):
-            note("ios-only", path)
-        elif NOAPP_PATH.search(path):
-            note("no-app", path)
-        elif WEB.search(path):
-            note("web-live", path)
-        elif STRINGS.search(path):
-            note("strings", path)
-        elif REBUILD_FILE.search(path):
-            note("rebuild", path, "resource or manifest")
-        elif RUST.search(path):
-            note("daemon", path)
-        elif NOAPP_EXT.search(path):
-            note("no-app", path)
+        rule = next((r for r in PATH_RULES if r[0].search(path)), None)
+        if rule:
+            note(rule[1], path, rule[2])
         elif path.endswith(".swift"):
             # A deleted file's code stays in the running binary, and nothing calls it any more.
             why = [] if status == "D" else swift_reasons(diffs.get(path, []), status == "A")
