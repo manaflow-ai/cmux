@@ -16,6 +16,8 @@ script, and nightly-next-one takes:
 The pick, in order:
 1. A free signer: a host in HOSTS with an online, idle signer runner, no busy signer runner and no open loop run's
    nightly-next-one queued, pending or running for it. cmux15 first when both are free (signer #1).
+   A host whose newest finished nightly-next-one failed goes after every healthy host, here and in step 2
+   (failed_last; read from the newest RECENT_DONE finished loop runs, advisory: a failed read keeps the pick).
 2. Else the host whose holder ends soonest: a host busy only with a signer tail job (keep-published-dsyms,
    the delta jobs; minutes), then a holder at or past FINISH_STEPS (notarizing or publishing), then the holder
    that started first. A host that already has a nightly-next-one waiting for it is never picked: a second waiting
@@ -24,9 +26,13 @@ The pick, in order:
    alone, which is exactly the routing before this script (one group, either Mac).
 
 Reads, all bounded and none waiting on a rate limit: vars.CI_RUNNER_STATE (the runner census runner-heal publishes
-every two minutes, no API call), then with the job's GITHUB_TOKEN (actions: read, no other secret) one listing of
-nightly.yml's runs on nightly-next and one jobs listing for each open loop run (at most MAX_RUNS). Each request has
-a READ_TIMEOUT and is never retried. The script never fails the job.
+every two minutes, no API call), then one listing of nightly.yml's runs on nightly-next and one jobs listing for
+each open loop run (at most MAX_RUNS). Each request has a READ_TIMEOUT and is never retried with the same token. The
+reads go first as SPARE_READ_TOKEN (the glaeda-route App's read-only token decide already mints: its own hourly
+budget) and, on a 403 or 429 or with no spare, as the job's GITHUB_TOKEN (actions: read). With the GITHUB_TOKEN alone
+the shared budget ran dry and the pick fell back (run 45575194160, 2026-11-25: "HTTP Error 403: Forbidden"), so
+both builds took cmux15 and the second waited 10.5 min at the slot. Leo (ask-c0123d25e8): "why so long that they
+didnt publish either tho cuz it's been 5h". The script never fails the job.
 
 usage: nightly_next_signer_pick.py   (env: GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_TOKEN, CI_RUNNER_STATE)
 Writes host=..., pin=... and reason=... to $GITHUB_OUTPUT.
@@ -38,6 +44,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -63,6 +70,8 @@ WAITING = ("queued", "pending", "waiting", "requested")
 RUNNER_PIN = re.compile(r"^glaeda-runner-[a-z0-9._-]+$")
 READ_TIMEOUT = 10.0
 MAX_RUNS = 6
+# The newest finished loop runs read for each host's last nightly-next-one outcome (one jobs listing each).
+RECENT_DONE = 2
 # The census's age the pick accepts. vars are read when the run starts, and the pick runs after resolve (~13 min):
 # runs 44990363506, 44992267457 and 44993740115 (2026-11-22) read censuses 30, 36 and 23 min old against the pool's
 # 5 min, so every pick fell back and every build queued in nightly-next-one-push-cmux15, one at a time. The pick
@@ -71,10 +80,11 @@ MAX_RUNS = 6
 CENSUS_MAX_AGE_SECONDS = 50 * 60
 
 
-def loop_run(run: Mapping[str, Any]) -> bool:
+def loop_run(run: Mapping[str, Any], finished: bool = False) -> bool:
     """A nightly.yml run on nightly-next whose nightly-next-one takes a slot group: a push (not a resume) or the
-    loop's retry dispatch. Every other run's nightly-next-one is run-scoped."""
-    if run.get("head_branch") not in (None, "nightly-next") or run.get("status") == "completed":
+    loop's retry dispatch. Every other run's nightly-next-one is run-scoped. Open runs only, or with finished, only
+    completed ones."""
+    if run.get("head_branch") not in (None, "nightly-next") or (run.get("status") == "completed") != finished:
         return False
     title = str(run.get("display_title") or "")
     if run.get("event") == "push":
@@ -131,8 +141,26 @@ def holder_host(job: Mapping[str, Any], names: Sequence[str]) -> str:
     return FALLBACK_HOST
 
 
-def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]]) -> tuple[str, str, str]:
-    """(host, pin, why) from the census runners and the open loop runs' nightly-next-one jobs (not this run's)."""
+def failed_last(jobs: Sequence[Mapping[str, Any]], names: Sequence[str]) -> set[str]:
+    """The HOSTS whose newest finished nightly-next-one (jobs newest first) failed: a host that just broke a build.
+    Why: 2026-11-27 the pick sent nightly-next-one to ultra1 four runs running ("an idle signer") while each
+    crashed Xcode's build service there (runs 46074261734, 46076637784, 46079235693); with a second signer free,
+    the next build goes to it instead."""
+    seen: dict[str, str] = {}
+    for job in jobs:
+        if job.get("name") != ONE_JOB or job.get("status") != "completed" or not job.get("runner_name"):
+            continue
+        host = holder_host(job, names)
+        if host in HOSTS and host not in seen and job.get("conclusion") in ("success", "failure"):
+            seen[host] = str(job.get("conclusion"))
+    return {host for host, conclusion in seen.items() if conclusion == "failure"}
+
+
+def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]],
+         sick: set[str] | frozenset[str] = frozenset()) -> tuple[str, str, str]:
+    """(host, pin, why) from the census runners and the open loop runs' nightly-next-one jobs (not this run's).
+    A host in sick (its last nightly-next-one failed) comes after every healthy one, at each step."""
+    order = sorted(HOSTS, key=lambda host: host in sick)
     by_host = signers(runners)
     names = [str(r.get("name") or "") for r in runners]
     claims: dict[str, list[Mapping[str, Any]]] = {host: [] for host in HOSTS}
@@ -146,17 +174,18 @@ def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, An
               for host, found in by_host.items()}
     idle = {host: [r for r in found if not r.get("busy")] for host, found in online.items()}
     busy = {host: any(r.get("busy") for r in found) for host, found in by_host.items()}
-    for host in HOSTS:
+    for host in order:
         if idle[host] and not busy[host] and not claims[host]:
             runner = str(idle[host][0].get("name"))
-            return host, pin_for(runner), f"`{runner}` on {host}: an idle signer with no nightly-next-one for it"
+            note = "; its last nightly-next-one failed and no healthy signer is free" if host in sick else ""
+            return host, pin_for(runner), f"`{runner}` on {host}: an idle signer with no nightly-next-one for it{note}"
     ranked = []
-    for host in HOSTS:
+    for host in order:
         if not online[host] or any(job.get("status") in WAITING for job in claims[host]) or len(claims[host]) > 1:
             continue
         runner = str((idle[host] or online[host])[0].get("name"))
         if not claims[host]:
-            ranked.append(((0, ""), host, runner, "busy only with a signer tail job"))
+            ranked.append(((host in sick, 0, ""), host, runner, "busy only with a signer tail job"))
             continue
         job = claims[host][0]
         started = str(job.get("started_at") or "")
@@ -164,9 +193,9 @@ def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, An
         if held and any(str(r.get("name")) == held for r in online[host]) and not idle[host]:
             runner = held
         if finishing(job):
-            ranked.append(((1, started), host, runner, "its nightly-next-one is notarizing or publishing"))
+            ranked.append(((host in sick, 1, started), host, runner, "its nightly-next-one is notarizing or publishing"))
         else:
-            ranked.append(((2, started or "~"), host, runner, f"its nightly-next-one started first ({started or '?'})"))
+            ranked.append(((host in sick, 2, started or "~"), host, runner, f"its nightly-next-one started first ({started or '?'})"))
     if ranked:
         _, host, runner, why = sorted(ranked)[0]
         return host, pin_for(runner), f"`{runner}` on {host}, no signer is free: {why}"
@@ -174,13 +203,23 @@ def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, An
                                          "the signer label alone, as before")
 
 
-def api_get(repo: str, token: str) -> Callable[[str], Any]:
+def api_get(repo: str, tokens: Sequence[str]) -> Callable[[str], Any]:
+    """A reader that sends each request as the first token that still has budget: a 403 or 429 moves to the next."""
+    remaining = [token for token in tokens if token]
+
     def get(path: str) -> Any:
-        request = urllib.request.Request(f"https://api.github.com/repos/{repo}/{path}", headers={
-            "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-nightly-next-signer-pick"})
-        _, body, _ = deadline_http.request(request, READ_TIMEOUT, follow_redirects=False, raise_errors=True)
-        return json.loads(body)
+        while True:
+            request = urllib.request.Request(f"https://api.github.com/repos/{repo}/{path}", headers={
+                "Accept": "application/vnd.github+json", "Authorization": f"Bearer {remaining[0]}",
+                "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-nightly-next-signer-pick"})
+            try:
+                _, body, _ = deadline_http.request(request, READ_TIMEOUT, follow_redirects=False, raise_errors=True)
+            except urllib.error.HTTPError as error:
+                if error.code in (403, 429) and len(remaining) > 1:
+                    remaining.pop(0)
+                    continue
+                raise
+            return json.loads(body)
     return get
 
 
@@ -195,10 +234,10 @@ def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
             raise LookupError("vars.CI_RUNNER_STATE is missing, stale or not a complete census")
         runners = pool.census_runners(document)
         if get is None:
-            token = env.get("GITHUB_TOKEN", "")
-            if not token:
-                raise LookupError("no GITHUB_TOKEN to read the open nightly-next runs")
-            get = api_get(repo, token)
+            tokens = [token for token in (env.get("SPARE_READ_TOKEN", ""), env.get("GITHUB_TOKEN", "")) if token]
+            if not tokens:
+                raise LookupError("no SPARE_READ_TOKEN or GITHUB_TOKEN to read the open nightly-next runs")
+            get = api_get(repo, tokens)
         own = str(env.get("GITHUB_RUN_ID") or "")
         listing = get("actions/workflows/nightly.yml/runs?" + urllib.parse.urlencode(
             {"branch": "nightly-next", "per_page": 30}))
@@ -208,7 +247,13 @@ def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
         holders = []
         for run in runs:
             holders.extend(get(f"actions/runs/{int(run['id'])}/jobs?filter=latest&per_page=100")["jobs"])
-        return pick(runners, holders)
+        done = []
+        try:  # the health read is advisory: a failure here keeps the pick, without it
+            for run in [run for run in listing["workflow_runs"] if loop_run(run, finished=True)][:RECENT_DONE]:
+                done.extend(get(f"actions/runs/{int(run['id'])}/jobs?filter=latest&per_page=100")["jobs"])
+        except Exception as error:  # noqa: BLE001
+            print(f"::warning title=nightly-next signer pick::last-outcome read failed ({type(error).__name__})")
+        return pick(runners, holders, failed_last(done, [str(r.get("name") or "") for r in runners]))
     except Exception as error:  # noqa: BLE001 - never fail the job: the label alone is the routing before this
         why = f"pick failed ({type(error).__name__}: {str(error)[:200]}); the signer label alone, as before"
         print(f"::warning title=nightly-next signer pick::{why}")

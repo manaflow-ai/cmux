@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextTabs
@@ -31,14 +33,8 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
         }
         switch link.target {
         case .workspace(let id):
-            guard let workspace = services.machines.allWorkspaces.map(\.0).first(where: { $0.resourceID?.rawValue == id }) else {
-                return closed(kind, id)
-            }
-            let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-            let titles = TabTitleResolver(services: services)
-            return HomeLinkPreview(kind: .workspace, title: workspace.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
-                                   status: HomeLinkPreviewStrings.open, statusTone: .success,
-                                   lines: tabs.prefix(Self.maxLines).map { titles.title($0) })
+            guard let workspace = services.machines.daemons.workspace(resourceID: id)?.0 else { return closed(kind, id) }
+            return workspacePreview(workspace, services: services)
         case .pane(let id):
             guard let pane = services.pane(id: id), let tab = pane.tabs.first else { return closed(kind, id) }
             return tabPreview(tab, pane: pane, services: services)
@@ -58,14 +54,10 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             return tabPreview(tab, pane: pane, services: services, kind: .session)
         case .group(let id, let workspace):
             // A cloud group's record is in cmux Cloud; the card names the workspace when this Mac shows it.
-            guard let workspace, let open = services.machines.allWorkspaces.map(\.0).first(where: { $0.resourceID?.rawValue == workspace }) else {
+            guard let workspace, let open = services.machines.daemons.workspace(resourceID: workspace)?.0 else {
                 return closed(kind, id)
             }
-            let tabs = open.screens.flatMap(\.panes).flatMap(\.tabs)
-            let titles = TabTitleResolver(services: services)
-            return HomeLinkPreview(kind: .workspace, title: open.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
-                                   status: HomeLinkPreviewStrings.open, statusTone: .success,
-                                   lines: tabs.prefix(Self.maxLines).map { titles.title($0) })
+            return workspacePreview(open, services: services)
         case .cloudSession(_, _, let session, _):
             // A team Cloud session's record is in cmux Cloud; opening the link reads it (CloudSessionLink).
             return closed(kind, session)
@@ -96,11 +88,10 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             let lines = screen.text.components(separatedBy: "\n").map { $0.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
             out.lines = Array(lines.filter { !$0.isEmpty }.suffix(Self.maxLines))
             out.monospaced = true
-        case .browser:
-            let image = await services.previews.previewImage(for: TabID(tab.id), maxPixelSize: CGSize(width: 600, height: 300))
-            out.thumbnail = image
+            fallthrough  // the pane's cached live picture too, with PanePictures on
         default:
-            break
+            guard tab.kind == .browser || PanePictures.isEnabled else { break }
+            out.thumbnail = await services.previews.previewImage(for: TabID(tab.id), maxPixelSize: CGSize(width: 600, height: 300))
         }
         return out
     }
@@ -134,6 +125,12 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
                                status: HomeLinkPreviewStrings.open, statusTone: .success)
     }
 
+    private func workspacePreview(_ workspace: WorkspaceModel, services: AppServices) -> HomeLinkPreview {
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs), titles = TabTitleResolver(services: services)
+        return HomeLinkPreview(kind: .workspace, title: workspace.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
+                               status: HomeLinkPreviewStrings.open, statusTone: .success, lines: tabs.prefix(Self.maxLines).map { titles.title($0) })
+    }
+
     private func filePreview(_ url: URL, kind: HomeLinkChipKind) -> HomeLinkPreview {
         let path = url.standardizedFileURL.path
         return HomeLinkPreview(kind: kind, title: (path as NSString).lastPathComponent,
@@ -153,10 +150,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
     }
 
     /// `path` with the home folder as `~`.
-    nonisolated static func abbreviated(_ path: String) -> String {
-        let home = NSHomeDirectory()
-        return path == home ? "~" : path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
-    }
+    nonisolated static func abbreviated(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }
 
     /// A file's first non-empty lines (or a folder's first names); nil when it is gone.
     nonisolated static func firstLines(_ path: String, folder: Bool) -> [String]? {

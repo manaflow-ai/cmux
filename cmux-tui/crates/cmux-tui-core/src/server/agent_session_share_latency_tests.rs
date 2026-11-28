@@ -113,10 +113,10 @@ fn guests_of(owner: &mut Client, share: &str, account: &str, count: usize) -> Ve
         "account":account, "role":"talk"}));
     assert_eq!(invite["ok"], true, "{invite}");
     // An attempt is one account's: each join gets its own id, across accounts too.
-    static ATTEMPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    static ATTEMPT: AtomicU64 = AtomicU64::new(0);
     (0..count)
         .map(|_| {
-            let n = ATTEMPT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let n = ATTEMPT.fetch_add(1, Ordering::Relaxed);
             let reply = owner.request(json!({"cmd":"agent-session-share-redeem",
                 "share_id":share, "account":account, "name":"Ann",
                 "attempt_id":format!("attempt-{n}")}));
@@ -161,7 +161,7 @@ fn live(
     fake.notify_all("_acpmux/event", record(seq));
     let mut got: HashMap<String, Duration> = HashMap::new();
     let leaked = Cell::new(false);
-    let arrived = std::cell::RefCell::new(&mut got);
+    let arrived = RefCell::new(&mut got);
     let all = watch(
         room,
         WAIT,
@@ -290,7 +290,7 @@ impl<'a> Cut<'a> {
 
     /// Waits on the room until the whole cut is in (at most [`WAIT`]).
     fn wait(mut self, room: &FakeRoom) -> Self {
-        let cut = std::cell::RefCell::new(&mut self);
+        let cut = RefCell::new(&mut self);
         let all =
             watch(room, WAIT, |s, at| cut.borrow_mut().take(s, at), || cut.borrow_mut().done());
         assert!(all, "the cut never finished: {}", self.missing());
@@ -489,7 +489,7 @@ fn under_duress_records_stay_live_and_cuts_land_within_a_second() {
     // Every frame the room reads in the burst: the records' arrivals and the cuts.
     let mut arrivals: HashMap<(String, u64), Instant> = HashMap::new();
     let wanted = stay.len() * BURST as usize;
-    let state = std::cell::RefCell::new((&mut kick, &mut uninvite, &mut revoke, &mut arrivals));
+    let state = RefCell::new((&mut kick, &mut uninvite, &mut revoke, &mut arrivals));
     let all = watch(
         &room,
         Duration::from_secs(60),

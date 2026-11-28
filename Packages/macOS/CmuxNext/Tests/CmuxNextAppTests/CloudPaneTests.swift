@@ -3,6 +3,7 @@ import CmuxNextAccounts
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
@@ -177,6 +178,21 @@ struct CloudPaneTests {
         } catch let error as PageError {
             #expect(error.code == "cmux.protocol.transport")
             #expect(error.retryable)
+        }
+    }
+
+    /// The Cloud app server's `retryable` (a backend blip, `owner.unreachable`, a busy relay) reaches the
+    /// page, which reads again quietly before it shows the error; a final refusal stays final.
+    @Test(arguments: [true, false])
+    func aServerRefusalKeepsItsRetryable(retryable: Bool) async throws {
+        let server = Server(answers: [:])
+        await server.fail(with: CloudAppOpFailure(code: "cmux.cloud.upstream_error", message: "busy", retryable: retryable))
+        do {
+            _ = try await Self.provider(server).call("cmux.cloud.machine.list", params: .object([:]), context: Self.page)
+            Issue.record("a refused read answered")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.cloud.upstream_error")
+            #expect(error.retryable == retryable)
         }
     }
 

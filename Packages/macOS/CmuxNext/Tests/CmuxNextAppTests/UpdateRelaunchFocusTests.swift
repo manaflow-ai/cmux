@@ -189,6 +189,93 @@ import Testing
                                                  app.path, "--args", UpdateRelaunchFocus.reopenArgument])
     }
 
+    /// A click's install in a custom home reopens in front: a plain `open` (no `-g`, no reopen
+    /// argument, so the new build activates as Sparkle's relaunch does) with the home's `--env`.
+    @Test func helperReopensAClickInFrontInItsHome() throws {
+        let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let drill = "/private/tmp/drill home \(UUID().uuidString)"
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill], accountHome: "/Users/ci")
+        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: "job", inBackground: false, openOptions: options)
+        #expect(try Self.openArgv(arguments) == ["/usr/bin/open", "--env", "HOME=\(drill)", app.path])
+    }
+
+    /// `cmux settings install-available-update` (a click's install) in an app launched in a custom
+    /// home quits and reopens itself in it; in the account's own home Sparkle relaunches as before.
+    @Test func aClickInACustomHomeReopensItselfInIt() async {
+        for custom in [true, false] {
+            let updater = Self.updater(defaults: Self.defaults(), front: Self.nightly)
+            updater.keptRunningBuild = .kept
+            updater.launchHomeOptions = { custom ? ["--env", "HOME=/private/tmp/drill"] : [] }
+            var willQuit: (@MainActor () async -> Bool)?
+            updater.reopenInFront = { quit, _ in willQuit = quit }
+            #expect(updater.updaterQuitsForInstall(build: "200") == custom)
+            #expect((willQuit != nil) == custom)
+            if custom {
+                #expect(updater.installingBuild == "200")
+                #expect(await willQuit?() == true)
+            }
+        }
+    }
+
+    /// An automatic install the user is in the app for, in an app launched in a custom home,
+    /// quits and reopens itself in front in it (Sparkle's relaunch would leave the home); in the
+    /// account's own home Sparkle relaunches as before. No relaunch record: it activates.
+    @Test func anAutomaticInstallInFrontInACustomHomeReopensItselfInIt() async {
+        for custom in [true, false] {
+            let defaults = Self.defaults()
+            let updater = Self.updater(defaults: defaults, front: UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: "self"))
+            updater.keptRunningBuild = .kept
+            updater.automaticInstallInFlight = true
+            updater.launchHomeOptions = { custom ? ["--env", "HOME=/private/tmp/drill"] : [] }
+            var behind = 0
+            updater.relaunchBehind = { _, _, _ in behind += 1 }
+            var willQuit: (@MainActor () async -> Bool)?
+            updater.reopenInFront = { quit, _ in willQuit = quit }
+            #expect(updater.updaterQuitsForAutomaticInstall(build: "200") == custom)
+            #expect(behind == 0, "the user is in the app: nothing reopens behind")
+            #expect((willQuit != nil) == custom)
+            if custom {
+                #expect(updater.installingBuild == "200")
+                #expect(await willQuit?() == true)
+                #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil, "a reopen in front writes no stay-behind record")
+            }
+        }
+    }
+
+    /// The user came into the app while an automatic install waited to reopen behind, in a custom
+    /// home, but a click, a cancel or the session's end already took the install over: nothing
+    /// reopens in front (the in-front reopen runs only while the install still waits to quit).
+    @Test func theUserComingInAfterATakeoverReopensNothing() async {
+        var front = Self.nightly
+        let updater = Self.updater(defaults: Self.defaults(), front: front)
+        updater.frontmost = { front }
+        updater.keptRunningBuild = .kept
+        updater.automaticInstallInFlight = true
+        updater.launchHomeOptions = { ["--env", "HOME=/private/tmp/drill"] }
+        var cameIn: (@MainActor () -> Void)?
+        updater.relaunchBehind = { _, _, inFront in cameIn = inFront }
+        var reopened = 0
+        updater.reopenInFront = { _, _ in reopened += 1 }
+        #expect(updater.updaterQuitsForAutomaticInstall(build: "200"))
+        front = UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: "self")
+        // No controller holds the install here, so nothing waits to quit.
+        cameIn?()
+        #expect(reopened == 0)
+    }
+
+    /// The installed-build relaunch (`cmux app relaunch`) passes the home to `open` too.
+    @Test func installedBuildRelaunchKeepsACustomHome() throws {
+        let bundle = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let options = RelaunchHome.openArguments(environment: ["HOME": "/private/tmp/d h", "CFFIXED_USER_HOME": "/private/tmp/d h"],
+                                                 accountHome: "/Users/ci")
+        let arguments = InstalledBuildRelaunch.arguments(bundle: bundle, pid: 0, openOptions: options)
+        let script = arguments[2].replacingOccurrences(of: "exec /usr/bin/open", with: #"exec /usr/bin/printf '%s\n' /usr/bin/open"#)
+        // A pid no process holds: the helper goes straight to open.
+        let argv = [arguments[0], arguments[1], script, arguments[3], "999999", arguments[5]] + arguments.dropFirst(6)
+        #expect(try RelaunchHomeShell.run(argv) == ["/usr/bin/open", "--env", "HOME=/private/tmp/d h",
+                                                    "--env", "CFFIXED_USER_HOME=/private/tmp/d h", bundle.path])
+    }
+
     /// Runs the helper's steps after the installer's exit, with `printf` in place of
     /// `/usr/bin/open`; returns the argv `open` would get, one element per line.
     private static func openArgv(_ arguments: [String]) throws -> [String] {

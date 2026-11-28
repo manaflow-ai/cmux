@@ -58,6 +58,7 @@
     Line: () => Line,
     Menu: () => Menu,
     Panel: () => Panel,
+    Particles: () => Particles,
     ProgressView: () => ProgressView,
     Rectangle: () => Rectangle,
     Reorderable: () => Reorderable,
@@ -234,7 +235,7 @@
       this.name = "CmuxError";
     }
   }
-  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show"]);
+  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show", "app.pane.open", "app.pane.close", "app.view.state"]);
   var state = {
     native: null,
     nextCallback: 1,
@@ -438,6 +439,62 @@
     hover: "hover",
     selected: "selected"
   });
+  var kept = {
+    seed: {},
+    values: Object.create(null),
+    signals: new Map,
+    dirty: false
+  };
+  function seedKeptState(values) {
+    const seed = values && typeof values === "object" && !Array.isArray(values) ? values : {};
+    kept.seed = { ...seed };
+    kept.values = { ...kept.values, ...seed };
+    let restored = false;
+    for (const [name, entry] of kept.signals) {
+      if (Object.prototype.hasOwnProperty.call(seed, name)) {
+        entry.set(seed[name]);
+        restored = true;
+      }
+    }
+    if (restored)
+      kept.dirty = true;
+  }
+  onAfterFlush(() => {
+    if (!kept.dirty)
+      return;
+    kept.dirty = false;
+    const keep = state.native?.keepState;
+    if (!keep)
+      return;
+    let json;
+    try {
+      json = JSON.stringify(kept.values);
+    } catch (e) {
+      log("warn", `cmux.state: the values are not JSON (${e instanceof Error ? e.message : String(e)}); not kept`);
+      return;
+    }
+    keep.call(state.native, json);
+  });
+  function keptState(key, initial) {
+    const name = String(key);
+    const have = kept.signals.get(name);
+    if (have)
+      return have.pair;
+    const start = Object.prototype.hasOwnProperty.call(kept.seed, name) ? kept.seed[name] : initial;
+    const [read, write] = signal(start);
+    const keep = (next) => {
+      write(next);
+      const value = read.peek();
+      if (Object.prototype.hasOwnProperty.call(kept.values, name) && Object.is(kept.values[name], value))
+        return;
+      Object.defineProperty(kept.values, name, { value, writable: true, enumerable: true, configurable: true });
+      kept.dirty = true;
+      batch(() => {});
+    };
+    const pair = [read, keep];
+    kept.signals.set(name, { pair, set: write });
+    return pair;
+  }
   var sharedMembers = {};
   function createCmux(gesture) {
     const g = (name, params, options) => callWith(name, params ?? {}, options, gesture());
@@ -487,6 +544,7 @@
       }),
       timer: { after: (ms, fn) => setTimer(ms, false, fn), every: (ms, fn) => setTimer(ms, true, fn), clear: clearTimer },
       time: { zone: timeZone },
+      state: keptState,
       app: {
         get id() {
           return state.app.id;
@@ -503,7 +561,22 @@
         settings: Object.assign(() => state.settings[0](), {
           set: (values) => c("app.settings.set", { values })
         }),
-        context: () => state.context ?? {}
+        context: () => state.context ?? {},
+        openPane: async (args = {}, options = {}) => {
+          const waiting = c("app.pane.open", { args });
+          try {
+            await c("action.run", { id: "app.open", args: { app: state.app.id } }, options);
+          } catch (e) {
+            await c("app.pane.close", {}).catch(() => {
+              return;
+            });
+            await waiting.catch(() => {
+              return;
+            });
+            throw e;
+          }
+          return waiting;
+        }
       },
       theme,
       toast: (options) => {
@@ -710,6 +783,36 @@
     rotation(degrees) {
       return this.set("rotation", degrees);
     }
+    animation(v = "smooth") {
+      return this.set("animation", v);
+    }
+    scale(v) {
+      return this.set("scale", v);
+    }
+    offset(v) {
+      return this.set("offset", v);
+    }
+    blur(v) {
+      return this.set("blur", v);
+    }
+    glow(v) {
+      return this.set("glow", v);
+    }
+    gradient(v) {
+      return this.set("gradient", v);
+    }
+    trim(v) {
+      return this.set("trim", v);
+    }
+    loop(v) {
+      return this.set("loop", v);
+    }
+    transition(v) {
+      return this.set("transition", v);
+    }
+    clipped(v = true) {
+      return this.set("clipped", v);
+    }
     rotationEffect(degrees) {
       return this.set("rotation", degrees);
     }
@@ -725,14 +828,8 @@
     help(v) {
       return this.set("help", v);
     }
-    transition(v) {
-      return this.set("transition", v);
-    }
     contentTransition(v) {
       return this.set("contentTransition", v);
-    }
-    animation(v = "smooth") {
-      return this.set("animation", v);
     }
     fixed() {
       return this.set("fixed", true);
@@ -844,6 +941,9 @@
   var Rectangle = (props = {}) => new ViewNode("Rectangle").withProps(props);
   var Line = (props = {}) => new ViewNode("Line").withProps(props);
   var RoundedRectangle = (props = {}) => new ViewNode("RoundedRectangle").withProps(props);
+  function Particles(props) {
+    return new ViewNode("Particles").withProps(props);
+  }
   function ProgressView(value) {
     const node = new ViewNode("ProgressView");
     if (value !== undefined)
@@ -3148,7 +3248,7 @@
   };
   var g = globalThis;
   var widgetClocks = new Map;
-  var RUNTIME_VERSION = "1.3.0";
+  var RUNTIME_VERSION = "1.6.0";
   var exportsOf2 = () => g.__cmuxAppExports ?? {};
   var describe2 = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
   function entry(name, fn, fallback) {
@@ -3174,6 +3274,46 @@
       return;
     }
   }
+  function keepState(mountId, ctx) {
+    const given = ctx.state && typeof ctx.state === "object" && !Array.isArray(ctx.state) ? ctx.state : {};
+    ctx.state = given;
+    const kept = { ...given };
+    const signals = new Map;
+    let queued = false;
+    const send = () => {
+      queued = false;
+      let json;
+      try {
+        json = JSON.stringify(kept);
+      } catch (e) {
+        log("warn", `ctx.keep: the state is not JSON: ${describe2(e)}`);
+        return;
+      }
+      call("app.view.state", { mount: mountId, state: JSON.parse(json) }).catch((e) => log("warn", `ctx.keep: ${describe2(e)}`));
+    };
+    ctx.keep = (name, initial) => {
+      if (typeof name !== "string" || !name)
+        throw new TypeError("ctx.keep needs a name");
+      const existing = signals.get(name);
+      if (existing)
+        return existing;
+      const [read, write] = signal(name in given ? given[name] : initial);
+      const keep = (next) => {
+        write(next);
+        const value = read.peek();
+        if (Object.is(kept[name], value))
+          return;
+        kept[name] = value;
+        if (!queued) {
+          queued = true;
+          Promise.resolve().then(send);
+        }
+      };
+      const pair = [read, keep];
+      signals.set(name, pair);
+      return pair;
+    };
+  }
   function install() {
     const native = g.__cmuxAppNative;
     if (native)
@@ -3198,6 +3338,7 @@
       state.locale = init.locale ?? "en";
       state.strings = init.strings ?? {};
       setPaletteScopes(init.paletteScopes);
+      seedKeptState(init.state);
       state.settings[1](init.settings ?? {});
       return "";
     }, "init failed");
@@ -3215,9 +3356,20 @@
             widgetClocks.set(mountId, setNow);
             ctx.now = now;
           }
+          const opened = [];
+          if (ctx && typeof ctx === "object" && "args" in ctx) {
+            ctx.close = (result) => call("app.pane.close", { mount: mountId, result: result ?? null });
+            ctx.onOpen = (fn) => void opened.push(fn);
+            ctx.onClose = (fn) => onCleanup(fn);
+          }
+          if (ctx && typeof ctx === "object")
+            keepState(mountId, ctx);
           state.context = ctx;
           state.mount = mountId;
           mount(mountId, () => render(ctx), ctx);
+          if (ctx?.args != null)
+            for (const fn of opened)
+              fn(ctx.args);
           state.context = null;
           state.mount = null;
         });

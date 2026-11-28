@@ -31,6 +31,7 @@ mod cloud_repo_tools;
 mod cloud_tools;
 mod code_mode;
 mod config;
+mod customize_kit_tools;
 mod customize_library_tool;
 mod customize_tools;
 mod device_tools;
@@ -52,11 +53,14 @@ mod slides_tool;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
+mod token_tools;
 mod tool_list;
 mod transport;
 mod upstream;
 mod upstream_listing;
+mod usage_insights_tool;
 mod v2_tools;
+mod vault_tools;
 mod video_tools;
 mod watch;
 mod workflow;
@@ -262,13 +266,23 @@ pub(super) trait Backend {
         Err(CallFailure::local(
             FailureKind::NotRun,
             "repo.unavailable",
-            "Connect to the Cloud machine and retry.",
+            "This server has no Cloud machine daemon connection for repository actions.",
         ))
     }
 
     /// Daemon requests from another thread: `open {live}` reloads a changed file's
     /// tab from its watch thread (`live_file`). `None`: no live files.
     fn resource_sender(&self) -> Option<live_file::Sender> {
+        None
+    }
+    /// One daemon request for `session` that may run on its own thread: a terminal wait
+    /// does ([`Server::detached_wait`]), so the calls after it are not held behind it.
+    /// `None`: this backend answers on the server's thread only.
+    fn resource_job(&self, _session: Option<&str>) -> Option<ResourceJob> {
+        None
+    }
+    /// `agents_wait` on its own thread, as [`Self::resource_job`]; `None`: on the server's.
+    fn agent_wait_job(&self) -> Option<AgentWaitJob> {
         None
     }
     /// The app's `system.identify` (`caller`, `beside`); `None` with no caller (placement.rs).
@@ -340,6 +354,13 @@ pub(super) trait Backend {
         self.chat(command, idempotency_key, origin)
     }
 }
+
+/// A daemon request sent from its own thread ([`Backend::resource_job`]).
+pub(super) type ResourceJob =
+    Box<dyn FnOnce(RequestPlan, Vec<Prefix>) -> Result<Value, CallFailure> + Send>;
+/// `agents_wait` run from its own thread ([`Backend::agent_wait_job`]).
+pub(super) type AgentWaitJob =
+    Box<dyn FnOnce(Map<String, Value>, Option<agent_wait_tool::Progress>) -> Value + Send>;
 
 /// The CLI's transport, with the CLI's global options.
 struct LiveBackend {
@@ -426,6 +447,19 @@ impl Backend for LiveBackend {
     fn resource_sender(&self) -> Option<live_file::Sender> {
         let global = self.global.clone();
         Some(std::sync::Arc::new(move |plan| transport::resource(&global, plan, &[])))
+    }
+
+    fn resource_job(&self, session: Option<&str>) -> Option<ResourceJob> {
+        // A session this server cannot route to answers its refusal on the server's thread.
+        let global = self.routed(session).ok()?;
+        Some(Box::new(move |plan, prefixes| transport::resource(&global, plan, &prefixes)))
+    }
+
+    fn agent_wait_job(&self) -> Option<AgentWaitJob> {
+        let backend = LiveBackend { global: self.global.clone() };
+        Some(Box::new(move |arguments, progress| {
+            agent_wait_tool::call(&backend, &arguments, progress)
+        }))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
@@ -756,7 +790,8 @@ fn history_text(mut value: Value) -> Value {
     value
 }
 
-/// The stdio JSON-RPC server: one request per line, answered in order.
+/// The stdio JSON-RPC server: one request per line, answered in order, but for a proxied
+/// server's call and a wait (`Server::detached_wait`), which answer from their own threads.
 pub(super) struct Server<B> {
     backend: B,
     /// The settings file to check before every call; `None` lists only.
@@ -913,12 +948,15 @@ impl<B: Backend> Server<B> {
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => {
                 // A proxied server's call runs on its own thread, so one that
-                // waits (a secret card) never holds up the other tools.
+                // waits (a secret card) never holds up the other tools. A wait
+                // (`terminal_wait`, `terminal_wait_exit`, `agents_wait`) holds its answer up
+                // to minutes: it runs on its own thread too, so a call sent after it is
+                // answered meanwhile instead of queued behind it (head-of-line blocking).
                 if let Some(output) = self.notes.clone()
-                    && let Some(job) = self.proxied_job(&params)
+                    && let Some(job) = self.detached_job(&params)
                 {
                     std::thread::spawn(move || {
-                        let response = json!({"jsonrpc": "2.0", "id": id, "result": job.run(None)});
+                        let response = json!({"jsonrpc": "2.0", "id": id, "result": job()});
                         let _ = output.send(&response);
                     });
                     return None;
@@ -1228,6 +1266,9 @@ impl<B: Backend> Server<B> {
         if keys_tools::owns(name) {
             return Ok(self.call_keys(name, &arguments));
         }
+        if vault_tools::owns(name) {
+            return Ok(self.call_vault(name, &arguments));
+        }
         if name == open_tool::NAME {
             if !self.actions_loaded {
                 self.refresh_actions();
@@ -1255,6 +1296,9 @@ impl<B: Backend> Server<B> {
         if let Some(result) = customize_library_tool::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
+        if let Some(result) = customize_kit_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
         if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
@@ -1262,6 +1306,12 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = device_tools::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = usage_insights_tool::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = token_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = remote_tools::find(name) {
@@ -1514,26 +1564,10 @@ impl<B: Backend> Server<B> {
                 }
             }
         }
-        let arguments = &*arguments;
-        let arguments = match self.place_beside(tool, arguments) {
-            Ok(arguments) => arguments,
+        let (arguments, mut call) = match self.plan_v2(tool, &arguments) {
+            Ok(planned) => planned,
             Err(answer) => return answer,
         };
-        let arguments = match self.terminal_of_tab(tool, &arguments) {
-            Ok(arguments) => arguments,
-            Err(answer) => return answer,
-        };
-        let arguments = match self.tab_move_destination(tool, &arguments) {
-            Ok(arguments) => arguments,
-            Err(answer) => return answer,
-        };
-        let mut call = match tool.plan(&arguments) {
-            Ok(call) => call,
-            Err(error) => return tool_error(envelope(error, "not_run", None)),
-        };
-        if let Err(error) = self.place_caller(&mut call) {
-            return tool_error(envelope(error, "not_run", None));
-        }
         let page = call.page;
         // History an agent reads is plain lines: `styled` (colors and attributes per run)
         // defaults to true in the daemon, and a 300-line read was 88k characters
@@ -1599,6 +1633,78 @@ impl<B: Backend> Server<B> {
             ),
             Err(failure) => failure_result(failure),
         }
+    }
+
+    /// A v2 call's arguments as placed and resolved, and its request; `Err`: the answer
+    /// that refuses it.
+    fn plan_v2(
+        &self,
+        tool: &v2_tools::V2Tool,
+        arguments: &Map<String, Value>,
+    ) -> Result<(Map<String, Value>, v2_tools::CallPlan), Value> {
+        let arguments = self.place_beside(tool, arguments)?;
+        let arguments = self.terminal_of_tab(tool, &arguments)?;
+        let arguments = self.tab_move_destination(tool, &arguments)?;
+        let mut call =
+            tool.plan(&arguments).map_err(|error| tool_error(envelope(error, "not_run", None)))?;
+        self.place_caller(&mut call)
+            .map_err(|error| tool_error(envelope(error, "not_run", None)))?;
+        Ok((arguments.into_owned(), call))
+    }
+
+    /// A top-level wait call as a job for its own thread: `terminal_wait` and
+    /// `terminal_wait_exit` planned here (their typed-command anchoring included), then
+    /// sent from the job; `agents_wait` whole. `None`: any other call, a refused one, or a
+    /// backend that answers on this thread only; [`Self::call`] answers it as before.
+    /// The call's job when it runs off the server's thread: a proxied server's call, or a wait.
+    fn detached_job(&mut self, params: &Value) -> Option<Box<dyn FnOnce() -> Value + Send>> {
+        if let Some(job) = self.proxied_job(params) {
+            return Some(Box::new(move || job.run(None)));
+        }
+        self.detached_wait(params)
+    }
+
+    fn detached_wait(&self, params: &Value) -> Option<Box<dyn FnOnce() -> Value + Send>> {
+        let name = params["name"].as_str()?;
+        let arguments = match params.get("arguments") {
+            None | Some(Value::Null) => Map::new(),
+            Some(Value::Object(arguments)) => arguments.clone(),
+            Some(_) => return None,
+        };
+        if self.tool_refusal(name).is_some() {
+            return None;
+        }
+        if name == agent_wait_tool::NAME {
+            let job = self.backend.agent_wait_job()?;
+            let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
+            return Some(Box::new(move || job(arguments, progress)));
+        }
+        let tool = v2_tools::find(name)?;
+        if !matches!(
+            tool.operation,
+            cmux_tui_core::resource::ResourceOperation::TerminalWait
+                | cmux_tui_core::resource::ResourceOperation::TerminalWaitExit
+        ) {
+            return None;
+        }
+        // A refusal while planning is answered on this thread, as before.
+        let (_, mut call) = self.plan_v2(tool, &arguments).ok()?;
+        let job = self.backend.resource_job(call.session.as_deref())?;
+        let typed = self.wait_past_typed(tool, &mut call);
+        let wait = super::wire::wait_timeout::Wait::of(&call.plan);
+        let mutation = tool.mutation;
+        Some(Box::new(move || match job(call.plan, call.prefixes) {
+            Ok(mut value) => {
+                if let Some(wait) = &wait {
+                    wait.mark(&mut value);
+                }
+                if let (Some(note), Some(object)) = (typed, value.as_object_mut()) {
+                    object.insert("note".into(), json!(note));
+                }
+                success(value, mutation)
+            }
+            Err(failure) => failure_result(failure),
+        }))
     }
 
     /// The app's Cloud machines (`cloud.machines`), or `None` when the app has

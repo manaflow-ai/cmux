@@ -189,7 +189,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                 process.send(Setup(session: session.id, peerKey: offer.key,
                                    viewer: Setup.Viewer(user: session.viewerID, install: session.viewerID),
                                    scope: session.viewOnly ? "view" : "control", stun: session.servers.stun,
-                                   turn: session.servers.turn,
+                                   turn: session.servers.turn, turnStream: session.servers.turnStream,
                                    display: offer.display.map(String.init) ?? "main", maxFps: offer.maxFps.map { min($0, 120) },
                                    maxWidth: offer.maxWidth, maxKbps: offer.maxKbps, cursor: offer.cursor,
                                    encodeProfile: offer.encodeProfile))
@@ -218,7 +218,7 @@ nonisolated final class MacScreenRdHost: Sendable {
         // SECURITY: the capture leaves out the app's windows only the person at this Mac may see, and
         // follows that list within `CaptureExcludedWindows.recheck` while this session lasts.
         let host = ScreenStreamHost(name: session.name, viewOnly: session.viewOnly, backend: { [weak self] in
-            let backend = ScreenCaptureBackend(log: log)
+            let backend = ScreenCaptureBackend(log: log, rules: MacScreenRules.rules)
             backend.excludedWindowIDs = { CaptureExcludedWindows().windowIDs }
             let watch = Self.watchExcludedWindows { [weak backend] _ in backend?.exclusionsChanged() }
             self?.webRTCExclusions.withLock { previous in
@@ -226,7 +226,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                 previous = watch
             }
             return backend
-        }, log: log)
+        }, rules: MacScreenRules.rules, log: log)
         host.onEvent = { [weak self] event in
             switch event {
             case .viewerConnected: self?.emit(.viewerConnected)
@@ -284,7 +284,7 @@ nonisolated final class MacScreenRdHost: Sendable {
     /// Reads the app's windows that ask not to be shared every `CaptureExcludedWindows.recheck` until
     /// cancelled, and calls `changed` with the list at once and on every change, in order.
     /// `from`: the list the receiver already has (it is sent again only once it changes).
-    private static func watchExcludedWindows(from known: Set<CGWindowID>? = nil,
+    static func watchExcludedWindows(from known: Set<CGWindowID>? = nil,
                                              _ changed: @escaping @Sendable (Set<CGWindowID>) -> Void) -> Task<Void, Never> {
         // task-owner: a capture's exclusion watch; cancelled when its session's capture ends
         Task {
@@ -338,6 +338,8 @@ nonisolated final class MacScreenRdHost: Sendable {
         var scope: String
         var stun: [String]
         var turn: [MacScreenRdServers.Turn]
+        /// TCP and TLS relays, after the UDP ones, for a network that blocks UDP.
+        var turnStream: [MacScreenRdServers.Turn]
         var display: String
         var maxFps: Int?
         var maxWidth: Int?
@@ -350,6 +352,7 @@ nonisolated final class MacScreenRdHost: Sendable {
         enum CodingKeys: String, CodingKey {
             case session, viewer, scope, stun, turn, display, cursor
             case peerKey = "peer_key"
+            case turnStream = "turn_stream"
             case maxFps = "max_fps"
             case maxWidth = "max_width"
             case maxKbps = "max_kbps"

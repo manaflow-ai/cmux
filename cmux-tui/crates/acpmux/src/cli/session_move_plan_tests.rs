@@ -173,3 +173,27 @@ fn a_checkout_with_no_origin_moves_as_a_bundle_at_the_same_path() {
     let e = plan_folder(Path::new("/srv/demo"), home, Some(&outside), "/h", true, None);
     assert!(e.unwrap_err().contains("outside this machine's home"));
 }
+
+/// A checkout whose `origin` is not an owner/name remote (a local path, a `file://` URL, a nested
+/// group) moves as one with no origin does, as a bundle, instead of failing once a fresh Cloud
+/// machine runs ("origin of PATH is not an owner/name remote").
+#[test]
+fn a_checkout_whose_origin_is_not_owner_name_moves_as_a_bundle() {
+    let home = Path::new("/Users/me");
+    let cwd = Path::new("/Users/me/scratch/demo");
+    for origin in ["/Users/me/bare/demo.git", "file:///Users/me/bare/demo.git", "../demo.git"] {
+        let mut c = checkout("/Users/me/scratch/demo", Some("main"), true);
+        c.origin = Some(origin.into());
+        let f = plan_folder(cwd, home, Some(&c), "/home/cmux", true, None).unwrap();
+        assert_eq!(
+            f,
+            Folder::Bundle {
+                top: "/home/cmux/scratch/demo".into(),
+                branch: "main".into(),
+                subdir: String::new(),
+                dirty: true,
+            },
+            "{origin}"
+        );
+    }
+}

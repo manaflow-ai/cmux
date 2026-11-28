@@ -307,7 +307,7 @@ enum TabMoves {
     private static func ownName(_ tab: TabModel, services: AppServices) -> String? {
         if tab.agentSession != nil { return nil }
         if let app = tab.appTab {
-            guard let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false) else { return nil }
+            guard let provider = services.apps.pageProvider(appID: app.app) else { return nil }
             return services.pages.storeTabItem(tab, page: provider.page)?.title
         }
         if tab.page != nil { return services.pages.storeTabItem(tab)?.title }

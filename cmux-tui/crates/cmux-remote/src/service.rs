@@ -42,6 +42,11 @@ const LANE_BULK_BIT: u8 = 1 << 2;
 const LANE_TUNNEL_BIT: u8 = 1 << 3;
 const MULTI_LANE_TERMINAL_MASK: u8 = LANE_INTERACTIVE_BIT | LANE_CONTROL_BIT | LANE_BULK_BIT;
 const TERMINAL_RESET_DEADLINE: Duration = Duration::from_secs(2);
+/// How long a terminal RESET waits on a carrier the endpoint is recovering
+/// before the session is closed instead ([`SessionEndpoint::carrier_recovering`]):
+/// past any resume window (the carrier's is 25 s with an ssh route), so the
+/// recovery's own end decides, and still bounded.
+const TERMINAL_RESET_RECOVERY_DEADLINE: Duration = Duration::from_secs(60);
 const MAX_TERMINAL_CLEANUPS: usize = 64;
 
 #[async_trait]
@@ -57,6 +62,14 @@ pub trait SessionEndpoint: Send + Sync {
     async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError>;
     fn subscribe_generation(&self) -> watch::Receiver<u64>;
     async fn close_session(&self) -> Result<(), ServiceError>;
+    /// True while the endpoint redials a carrier it lost: a send waits for the
+    /// resume, which is not a wedged peer. A terminal RESET held up by it is
+    /// not escalated to [`Self::close_session`]: that close would end the very
+    /// session the resume is bringing back (a stream dropped while the relay
+    /// failed over onto ssh closed the session 2 s into the failover).
+    fn carrier_recovering(&self) -> bool {
+        false
+    }
 }
 
 #[async_trait]
@@ -84,6 +97,10 @@ impl SessionEndpoint for ClientConnection {
 
     async fn close_session(&self) -> Result<(), ServiceError> {
         self.close().await.map_err(Into::into)
+    }
+
+    fn carrier_recovering(&self) -> bool {
+        ClientConnection::carrier_recovering(self)
     }
 }
 
@@ -1340,7 +1357,10 @@ async fn send_reset_or_close_session(
     escalating: &AtomicBool,
     reset_deadline: Duration,
 ) {
-    let deadline = tokio::time::Instant::now() + reset_deadline;
+    let started = tokio::time::Instant::now();
+    let deadline = started + reset_deadline;
+    // A send held up by a carrier recovery waits for it: never past this.
+    let recovery_deadline = started + reset_deadline.max(TERMINAL_RESET_RECOVERY_DEADLINE);
     let mut backoff = Duration::from_millis(2);
     loop {
         if escalating.load(Ordering::Acquire) {
@@ -1350,7 +1370,27 @@ async fn send_reset_or_close_session(
             return;
         }
         let send = endpoint.send_frame(generation, lane, stream, Bytes::new(), FrameFlags::RESET);
-        match tokio::time::timeout_at(deadline, send).await {
+        tokio::pin!(send);
+        // The same send goes on past the deadline while the endpoint recovers
+        // its carrier: dropping it would also drop a recovery it runs, and
+        // closing the session would end the resume. Checked at each
+        // `reset_deadline`, so a wedged peer still closes the session then.
+        let mut bound = deadline;
+        let sent = loop {
+            match tokio::time::timeout_at(bound, &mut send).await {
+                Ok(sent) => break Ok(sent),
+                Err(_)
+                    if endpoint.carrier_recovering()
+                        && tokio::time::Instant::now() < recovery_deadline
+                        && !escalating.load(Ordering::Acquire)
+                        && !reset_no_longer_needed(completion.as_ref()) =>
+                {
+                    bound = (tokio::time::Instant::now() + reset_deadline).min(recovery_deadline);
+                }
+                Err(elapsed) => break Err(elapsed),
+            }
+        };
+        match sent {
             Ok(Ok(_)) => return,
             Ok(Err(error)) if terminal_send_is_retryable(&error) => {
                 if tokio::time::Instant::now() >= deadline {
@@ -1456,13 +1496,18 @@ async fn reset_tunnel_streams(streams: &Mutex<HashMap<u64, StreamRegistration>>,
     }
 }
 
-fn default_lane(service: Service) -> Lane {
+/// The lane a stream uses when its caller names none. It must match
+/// `MessageStream::new` in services.rs: a stream's tombstone guards this lane,
+/// so a mismatch leaves the lane its frames really use unguarded after close.
+pub(crate) fn default_lane(service: Service) -> Lane {
     match service {
-        Service::MuxControl
-        | Service::ProcessStream
-        | Service::TerminalBytes
-        | Service::ComputerUse => Lane::Interactive,
-        Service::WorkspaceRpc => Lane::Control,
+        Service::MuxControl | Service::TerminalBytes => Lane::Interactive,
+        // Process output replays and event pages are large; they never queue
+        // ahead of keystrokes (both ends already open it with Bulk).
+        Service::ProcessStream => Lane::Bulk,
+        // Computer use runs over workspace RPC on Control; this stream is
+        // refused, and a screenshot-sized answer has no place on Interactive.
+        Service::WorkspaceRpc | Service::ComputerUse => Lane::Control,
         Service::TcpTunnel | Service::LocalSocket | Service::Acpmux => Lane::Tunnel,
     }
 }

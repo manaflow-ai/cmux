@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::finished_memo::FinishedMemo;
 use crate::git::{self, is_object_id, records};
+pub use crate::owner::{OWNER_FILE, Owner, owner};
 
 /// Ignored folders that only hold what a build or an install made, by name
 /// at any depth, with the files one of which must sit beside it (none: the
@@ -84,8 +85,8 @@ pub struct Worktree {
 }
 
 /// What a worktree holds and when it was last used.
-#[derive(Debug, Clone, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Facts {
     /// Its private git folder (`<common>/worktrees/<name>`).
     pub git_dir: PathBuf,
@@ -102,8 +103,14 @@ pub struct Facts {
     /// Why HEAD's work is already on a base branch, if it is.
     pub finished: Option<String>,
     /// Milliseconds since the epoch of the last sign of use: HEAD's newest
-    /// reflog entry, the index, the top folder, a changed file.
+    /// reflog entry, the index, the top folder, a changed file, anything in
+    /// its private git folder, and the branch's refs (local and
+    /// remote-tracking) in the common folder. An owner that works through
+    /// `git -C` from elsewhere changes only the last two.
     pub last_activity_ms: u64,
+    /// The session that made it, as `wt new` recorded it (`wt-owner.json`
+    /// in its private git folder).
+    pub owner: Option<Owner>,
     /// Ignored folders and files that are build output (relative).
     pub build_output: Vec<String>,
     /// Ignored entries that are not build output (relative): archived.
@@ -139,9 +146,19 @@ impl Facts {
     }
 }
 
+/// Whether a folder is one no git may run in unasked: on macOS a read inside
+/// a privacy-protected folder (Desktop, Documents, iCloud Drive, another
+/// volume, ...) raises a prompt naming the app, on a screen that may have
+/// nobody at it (LAUNCH-NO-TCC-PROMPTS). acpmux passes
+/// `protected_folders::in_protected_location`; the crate keeps no list of its own.
+pub type Guarded = dyn Fn(&Path) -> bool + Send + Sync;
+
 /// The repositories at or one level under each of `roots`, plus those of
-/// `extra` folders (session folders), each once.
-pub fn repositories(roots: &[PathBuf], extra: &[PathBuf]) -> Vec<PathBuf> {
+/// `extra` folders (session folders), each once. A folder `guarded` names,
+/// and a repository whose git folder or main checkout it names, is skipped
+/// before any git runs there: a session someone once ran on the Desktop is
+/// no reason to read the Desktop at every daemon start.
+pub fn repositories(roots: &[PathBuf], extra: &[PathBuf], guarded: &Guarded) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     for root in roots {
         candidates.push(root.clone());
@@ -155,15 +172,41 @@ pub fn repositories(roots: &[PathBuf], extra: &[PathBuf]) -> Vec<PathBuf> {
     let mut seen = HashSet::new();
     let mut found = Vec::new();
     for folder in candidates {
+        // A stat raises no prompt; a git run in the folder reads inside it.
+        if guarded(&folder) {
+            continue;
+        }
         if !folder.join(".git").exists() && !extra.contains(&folder) {
             continue;
         }
+        // A linked worktree's `.git` file names its repository's git folder,
+        // which git reads first: one in a guarded folder is skipped unread.
+        if linked_git_dir(&folder).is_some_and(|dir| guarded(&dir)) {
+            continue;
+        }
         let Some(common) = common_dir(&folder) else { continue };
+        if guarded(&common) || cmux_git::main_root(&common).is_some_and(guarded) {
+            continue;
+        }
         if seen.insert(common.clone()) {
             found.push(common);
         }
     }
     found
+}
+
+/// The git folder a linked worktree's `.git` file names (`gitdir: <path>`),
+/// read in the process: no git run.
+fn linked_git_dir(folder: &Path) -> Option<PathBuf> {
+    use std::io::Read as _;
+    let path = folder.join(".git");
+    if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+        return None;
+    }
+    let mut text = String::new();
+    std::fs::File::open(&path).ok()?.take(4096).read_to_string(&mut text).ok()?;
+    let named = PathBuf::from(text.lines().next()?.strip_prefix("gitdir:")?.trim());
+    Some(if named.is_absolute() { named } else { folder.join(named) })
 }
 
 /// The common git folder of the repository `folder` is in.
@@ -188,6 +231,18 @@ pub fn scan_with_memo(
     bases: &[String],
     finished: Arc<FinishedMemo>,
 ) -> Result<Repo, String> {
+    scan_guarded(common_dir, bases, finished, &|_| false)
+}
+
+/// `scan_with_memo` without the linked worktrees `guarded` names: no git
+/// runs in them and the pass never acts on them (a worktree someone put on
+/// the Desktop stays as it is).
+pub fn scan_guarded(
+    common_dir: &Path,
+    bases: &[String],
+    finished: Arc<FinishedMemo>,
+    guarded: &Guarded,
+) -> Result<Repo, String> {
     let main_root = cmux_git::main_root(common_dir).map(Path::to_path_buf);
     let anchor = main_root.clone().unwrap_or_else(|| common_dir.to_path_buf());
     let overrides = cmux_git::filter_overrides(&anchor).map_err(|f| f.reason())?;
@@ -205,10 +260,11 @@ pub fn scan_with_memo(
             || main_root.as_deref().is_some_and(|main| same_path(main, &entry.path))
             || entry.bare
             || same_path(common_dir, &entry.path)
+            || guarded(&entry.path)
         {
             continue;
         }
-        worktrees.push(worktree(entry, common_dir, &overrides, &bases, &finished));
+        worktrees.push(worktree(entry, common_dir, &overrides, &bases, &finished, true));
     }
     Ok(Repo {
         common_dir: common_dir.to_path_buf(),
@@ -229,7 +285,8 @@ pub fn rescan(repo: &Repo, path: &Path) -> Result<Worktree, String> {
         .skip(1)
         .find(|entry| same_path(&entry.path, path))
         .ok_or_else(|| format!("{} is no longer a worktree", path.display()))?;
-    Ok(worktree(entry, &repo.common_dir, &repo.overrides, &repo.bases, &repo.finished))
+    // Afresh: what a pass acts on is never what a memo remembers.
+    Ok(worktree(entry, &repo.common_dir, &repo.overrides, &repo.bases, &repo.finished, false))
 }
 
 fn worktree(
@@ -238,9 +295,26 @@ fn worktree(
     overrides: &[Override],
     bases: &[String],
     finished_memo: &FinishedMemo,
+    memo: bool,
 ) -> Worktree {
     let facts = if entry.prunable || !entry.path.is_dir() {
         Err("its folder is gone".to_string())
+    } else if memo && crate::walk_memo::is_open() {
+        let now = now_ms();
+        match crate::walk_memo::facts(&entry.path, now, |f| {
+            signature(&entry, common_dir, &f.git_dir)
+        }) {
+            // Whether its owner still runs is asked every time.
+            Some(facts) => Ok(Facts { owner: owner(&facts.git_dir), ..facts }),
+            None => {
+                let facts = facts(&entry, common_dir, overrides, bases, finished_memo);
+                if let Ok(read) = &facts {
+                    let sig = signature(&entry, common_dir, &read.git_dir);
+                    crate::walk_memo::keep_facts(&entry.path, now, sig, read);
+                }
+                facts
+            }
+        }
     } else {
         facts(&entry, common_dir, overrides, bases, finished_memo)
     };
@@ -251,6 +325,54 @@ fn worktree(
         locked: entry.locked,
         prunable: entry.prunable,
         facts,
+    }
+}
+
+/// What a worktree's facts were read under, from stats alone: HEAD and the
+/// branch the listing names, and the times of its folder, its `.git` file,
+/// its private git folder's HEAD, index and reflog, and the common folder's
+/// packed refs, FETCH_HEAD and the branch's local and remote-tracking refs.
+/// A commit, checkout, stage, fetch, push or new top-level file moves one.
+fn signature(entry: &ListEntry, common_dir: &Path, git_dir: &Path) -> crate::walk_memo::Signature {
+    let mut paths = vec![
+        entry.path.clone(),
+        entry.path.join(".git"),
+        git_dir.to_path_buf(),
+        git_dir.join("HEAD"),
+        git_dir.join("index"),
+        git_dir.join("logs/HEAD"),
+        common_dir.join("packed-refs"),
+        common_dir.join("FETCH_HEAD"),
+        common_dir.join("refs/remotes"),
+    ];
+    if let Some(branch) = entry.branch.as_deref().filter(|b| !b.split('/').any(|p| p == "..")) {
+        paths.push(common_dir.join("refs/heads").join(branch));
+        paths.push(common_dir.join("logs/refs/heads").join(branch));
+        paths.push(common_dir.join("refs/remotes/origin").join(branch));
+    }
+    crate::walk_memo::Signature {
+        head: entry.head.clone(),
+        branch: entry.branch.clone(),
+        times: paths.iter().map(|p| change_time_ns(p)).collect(),
+    }
+}
+
+/// A path's last change (the later of its modification and status change),
+/// in nanoseconds; 0 when it is not there.
+fn change_time_ns(path: &Path) -> u64 {
+    let Ok(meta) = std::fs::symlink_metadata(path) else { return 0 };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let ns = |s: i64, n: i64| (s.max(0) as u64).saturating_mul(1_000_000_000) + n.max(0) as u64;
+        ns(meta.mtime(), meta.mtime_nsec()).max(ns(meta.ctime(), meta.ctime_nsec()))
+    }
+    #[cfg(not(unix))]
+    {
+        meta.modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos() as u64)
     }
 }
 
@@ -413,7 +535,9 @@ fn facts(
     }
 
     facts.last_activity_ms =
-        last_activity(root, &git_dir, changed_paths.iter().chain(&facts.untracked));
+        last_activity(root, &git_dir, changed_paths.iter().chain(&facts.untracked))
+            .max(branch_activity(common_dir, entry.branch.as_deref()));
+    facts.owner = owner(&git_dir);
     Ok(facts)
 }
 
@@ -743,9 +867,9 @@ fn data_bytes<'a>(
     (total, nested)
 }
 
-/// The newest of HEAD's last reflog entry, the index, the top folder and
-/// the changed files (`git gc` rewrites `logs/HEAD`, so its entry's own
-/// time counts, not the file's).
+/// The newest of HEAD's last reflog entry, the index, the top folder,
+/// anything in the private git folder and the changed files (`git gc`
+/// rewrites `logs/HEAD`, so its entry's own time counts, not the file's).
 fn last_activity<'a>(
     root: &Path,
     git_dir: &Path,
@@ -753,6 +877,7 @@ fn last_activity<'a>(
 ) -> u64 {
     let mut newest = reflog_time(&git_dir.join("logs/HEAD")).unwrap_or(0);
     newest = newest.max(mtime_ms(&git_dir.join("index"))).max(mtime_ms(root));
+    newest = newest.max(newest_file_under(git_dir));
     let mut seen = BTreeSet::new();
     for path in changed.take(MAX_STATS) {
         let path = root.join(path);
@@ -764,6 +889,66 @@ fn last_activity<'a>(
         }
     }
     newest
+}
+
+/// The most entries of a private git folder whose times are read.
+const MAX_GIT_DIR_ENTRIES: usize = 2000;
+
+/// The newest file anywhere in a worktree's private git folder (`HEAD`,
+/// `index`, `ORIG_HEAD`, its own refs, the owner record). Files only:
+/// folder times move with lock files any git run makes and removes, gc's
+/// included. `logs/` is left out for the same reason (gc rewrites reflogs);
+/// `logs/HEAD`'s last entry counts by its own time.
+fn newest_file_under(git_dir: &Path) -> u64 {
+    let mut newest = 0;
+    let mut stack = vec![git_dir.to_path_buf()];
+    let mut read = 0;
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            read += 1;
+            if read > MAX_GIT_DIR_ENTRIES {
+                return newest;
+            }
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() {
+                if path != git_dir.join("logs") {
+                    stack.push(path);
+                }
+            } else if kind.is_file() {
+                newest = newest.max(mtime_ms(&path));
+            }
+        }
+    }
+    newest
+}
+
+/// The newest change to `branch`'s refs in the common folder: the local
+/// branch and its remote-tracking refs of the same name, each by its loose
+/// file's time and its reflog's last entry. A push from the worktree, or a
+/// commit in it, moves them even when nothing in the worktree's folder
+/// changes (a bare mirror keeps no reflogs by default). A packed ref has no
+/// time of its own and counts for nothing.
+fn branch_activity(common_dir: &Path, branch: Option<&str>) -> u64 {
+    let Some(branch) = branch.filter(|b| !b.is_empty() && !b.split('/').any(|p| p == "..")) else {
+        return 0;
+    };
+    let mut refs = vec![format!("refs/heads/{branch}")];
+    if let Ok(remotes) = std::fs::read_dir(common_dir.join("refs/remotes")) {
+        for remote in remotes.flatten() {
+            let name = remote.file_name();
+            refs.push(format!("refs/remotes/{}/{branch}", name.to_string_lossy()));
+        }
+    }
+    refs.iter()
+        .map(|name| {
+            let loose = mtime_ms(&common_dir.join(name));
+            let logged = reflog_time(&common_dir.join("logs").join(name)).unwrap_or(0);
+            loose.max(logged)
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 /// The time, in milliseconds, of the last entry of a reflog.

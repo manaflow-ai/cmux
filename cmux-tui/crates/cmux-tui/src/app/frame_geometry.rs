@@ -184,16 +184,16 @@ pub(super) fn sidebar_layout_for_state(
                 .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
                 .saturating_add(RAIL_REVEAL_HYSTERESIS)
         {
-            while candidate_index < specs.len()
-                && (specs[candidate_index].collapsed
-                    || previous.rail(specs[candidate_index].kind).is_some())
+            while specs
+                .get(candidate_index)
+                .is_some_and(|spec| spec.collapsed || previous.rail(spec.kind).is_some())
             {
                 candidate_index += 1;
             }
-            if candidate_index == specs.len() {
+            let Some(spec) = specs.get_mut(candidate_index) else {
                 break;
-            }
-            specs[candidate_index].collapsed = true;
+            };
+            spec.collapsed = true;
             collapsed_count += 1;
             candidate_index += 1;
             retained_count -= 1;

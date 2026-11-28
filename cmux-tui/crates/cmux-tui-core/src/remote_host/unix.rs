@@ -22,7 +22,16 @@ mod capture_platform;
 mod capture_tests;
 #[path = "computer_use_lifecycle.rs"]
 mod computer_use_lifecycle;
+#[path = "computer_use_preview_place.rs"]
+mod computer_use_preview_place;
 
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[path = "linux_screen.rs"]
+mod linux_screen;
+#[cfg(test)]
+#[path = "linux_screen_tests.rs"]
+mod linux_screen_tests;
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod platform;
@@ -133,7 +142,7 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     let leaf = format!("rh-{}", &socket_digest[..12]);
     let mut runtime = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
     #[cfg(unix)]
-    if !crate::server::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
+    if !crate::socket_path::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
         runtime = crate::platform::fallback_runtime_dir().join(leaf);
     }
     // The name from before NEXT's folder move: the build keeps its Keychain items, so its device.
@@ -181,6 +190,9 @@ struct Inner {
     /// Set while the daemon's `preview/watch` connection to the worker is
     /// open (computer_use_lifecycle.rs).
     preview_watching: std::sync::atomic::AtomicBool,
+    /// Where each session's preview card sits and whether it shows
+    /// (computer_use_preview_place.rs).
+    preview_places: Mutex<computer_use_preview_place::PreviewPlaces>,
     /// The verified app's own grants (memory only; the app reports them again on connect).
     app_permissions: Mutex<Option<super::AppPermissions>>,
 }
@@ -1094,6 +1106,9 @@ impl crate::mux::Mux {
         self.control_clients
             .remote_host
             .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
+        // No cmux Remote on Linux: the machine's screen is its cmux-rd host's device.
+        #[cfg(target_os = "linux")]
+        linux_screen::watch(&self.control_clients.remote_host.inner);
         // An agent's share turns itself off with no viewer: the host's status says who views,
         // and the host's own session may turn sharing off (the hub allows it that much).
         let agents = Arc::clone(&self.control_clients.remote_agents);

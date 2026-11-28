@@ -201,15 +201,20 @@ pub(super) async fn handle(
             // page never takes a failed add of an id it did not get for its own.
             if endpoint.is_some() {
                 let cfg = hub.config.read().await;
-                admin::endpoint_id_free(&p, &sources, &admin::taken_elsewhere(&cfg, &sources))
-                    .map_err(rpc_error)?;
+                admin::endpoint_id_free(
+                    &p,
+                    &sources,
+                    &endpoint_id_taken(&cfg, &sources, p.replace),
+                )
+                .map_err(rpc_error)?;
             }
             // `*`: the endpoint's own model list, read with the key this add brings or the stored one.
-            admin::fetch_endpoint_models(
+            admin::prepare_endpoint_models(
                 &mut p,
                 key.as_deref().map(String::as_str),
                 &sources,
                 profiles::keychain_lookup,
+                params.get("validateEndpoint").and_then(Value::as_bool).unwrap_or(false),
             )
             .await
             .map_err(rpc_error)?;
@@ -222,7 +227,7 @@ pub(super) async fn handle(
                         &admin::EndpointKey {
                             value: key.as_deref().map(String::as_str),
                             store: &crate::cli::harness_secret::run_store,
-                            taken: &admin::taken_elsewhere(&cfg, &sources),
+                            taken: &endpoint_id_taken(&cfg, &sources, p.replace),
                         },
                     )
                 })
@@ -265,15 +270,25 @@ pub(super) async fn handle(
             // `forgetKey`: the caller owns this add and drops it for good (no Undo), so the
             // endpoint's own Keychain items go too. Otherwise they stay for Undo.
             let forget_key = params.get("forgetKey").and_then(Value::as_bool).unwrap_or(false);
+            let revision = text("endpointRevision").map(str::to_owned);
             let cfg = hub.config.read().await.clone();
             let removed = tokio::task::spawn_blocking(move || {
                 let forget: &dyn Fn(&_) -> _ = &crate::cli::harness_secret::run_delete;
-                admin::remove(&id, &cfg, &sources, &home, forget_key.then_some(forget))
+                admin::remove_checked(
+                    &id,
+                    &cfg,
+                    &sources,
+                    &home,
+                    forget_key.then_some(forget),
+                    revision.as_deref(),
+                )
             })
             .await
             .map_err(joined)?
             .map_err(rpc_error)?;
-            hub.reload_and_announce().await;
+            if !hub.reload_and_announce().await {
+                super::connections::announce_later(hub);
+            }
             // A key `forgetKey` could not delete: removed (Undo still works), and `keyError` says why.
             json!({"id": removed.id, "backup": removed.backup, "keyError": removed.key_error})
         }
@@ -415,6 +430,21 @@ pub(super) async fn handle(
     Ok(reply)
 }
 
+fn endpoint_id_taken<'a>(
+    config: &'a crate::config::Config,
+    sources: &'a profiles::ProfileSources,
+    replace: bool,
+) -> impl Fn(&str) -> bool + 'a {
+    let taken_elsewhere = admin::taken_elsewhere(config, sources);
+    let (dir, _) = crate::routes::places(config);
+    move |id| taken_elsewhere(id) || (!replace && crate::routes::find(dir.as_deref(), id).is_ok())
+}
+
+/// The capabilities gating `_acpmux/peer_state_changed` and `_acpmux/start_mode_changed`
+/// (`capabilities.rs`).
+const PEER_STATE_EVENTS: &str = "peer-state-events-v1";
+const START_MODE: &str = "start-mode-v1";
+
 /// One payload of the watchers' harness feed to watching connection `conn`:
 /// `_acpmux/harnesses_changed`, `_acpmux/peer_state_changed` when marked a peer
 /// state note (`peer.rs` `report_states`), or `_acpmux/start_mode_changed {}` when
@@ -423,20 +453,28 @@ pub(super) async fn handle(
 pub(super) fn watch_note(conn: &super::Conn, note: Value) {
     if let Some(state) = note.get(super::connections::CONNECTIONS_NOTE) {
         // Model connections (`server/connections.rs`): this machine's own, never to Web or a peer.
-        if !conn.origin.web_class() {
+        if !conn.origin.web_class()
+            && conn.client_features.hears_any(&[crate::capabilities::CONNECTIONS_EVENTS])
+        {
             conn.send(&crate::rpc::Message::notification(
                 method::MUX_CONNECTIONS_CHANGED,
                 state.clone(),
             ));
         }
     } else if let Some(state) = note.get(crate::peer_states::STATE_NOTE) {
+        // Gated by the feature peer links read and the capability panes read (`peerStateEvents`,
+        // `peer-state-events-v1`): a client that listed neither never hears it.
+        let gates = [crate::peer_states::STATE_EVENTS_FEATURE, PEER_STATE_EVENTS];
+        if !conn.client_features.hears_any(&gates) {
+            return;
+        }
         conn.send(&crate::rpc::Message::notification(
             method::MUX_PEER_STATE_CHANGED,
             state.clone(),
         ));
     } else if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
         conn.send(&crate::rpc::Message::notification(method::MUX_HARNESSES_CHANGED, note));
-    } else if !conn.origin.web_class() {
+    } else if !conn.origin.web_class() && conn.client_features.hears_any(&[START_MODE]) {
         conn.send(&crate::rpc::Message::notification(method::MUX_START_MODE_CHANGED, json!({})));
     }
 }

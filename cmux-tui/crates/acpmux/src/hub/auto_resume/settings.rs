@@ -10,6 +10,38 @@ use serde_json::Value;
 pub const SETTING_ENABLED: &str = "agents.autoRetry.enabled";
 pub const SETTING_INTERVAL: &str = "agents.autoRetry.intervalSeconds";
 pub const SETTING_ATTEMPTS: &str = "agents.autoRetry.attempts";
+/// After how many capacity attempts on one cut prompt its next one runs on a smaller model
+/// (`capacity_failover.rs`); 0 never switches.
+pub const SETTING_CAPACITY_FALLBACK: &str = "agents.autoRetry.capacityFallbackAfter";
+
+/// [`SETTING_CAPACITY_FALLBACK`]'s default: off. A chat keeps the model it was started on unless
+/// its person chooses another (cmux#57784: chats started on Opus 5.5 were left on Sonnet 5.5 when
+/// the gateway's own 503s cut every turn, so none ended well to put Opus back). Switching is
+/// opt-in: the 529-storm chaos test (cmux#54913) measured 1 as the best value for those who want
+/// it (14 of 14 chats failed over and came back, -28% time lost against no switch).
+pub const DEFAULT_CAPACITY_FALLBACK_AFTER: usize = 0;
+
+/// The capacity failover's attempt in force: `configured` (config.json's
+/// `capacityFallbackAfter`) when set, else the settings file's, else the default. Held to
+/// 0..=[`MAX_CONFIGURED_ATTEMPTS`], a fraction rounded down.
+pub(in crate::hub) fn capacity_fallback_after(configured: Option<u64>) -> usize {
+    if let Some(n) = configured {
+        return usize::try_from(n).unwrap_or(usize::MAX).min(MAX_CONFIGURED_ATTEMPTS);
+    }
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => settings_fallback_after(&doc),
+        _ => DEFAULT_CAPACITY_FALLBACK_AFTER,
+    }
+}
+
+fn settings_fallback_after(doc: &Value) -> usize {
+    crate::user_settings::value(doc, SETTING_CAPACITY_FALLBACK)
+        .and_then(|v| v.as_f64())
+        .filter(|n| n.is_finite())
+        .map_or(DEFAULT_CAPACITY_FALLBACK_AFTER, |n| {
+            n.floor().clamp(0.0, MAX_CONFIGURED_ATTEMPTS as f64) as usize
+        })
+}
 
 /// The waits in force, one per attempt: `configured` (config.json's `autoResumeDelaysMs`) when
 /// set, else the settings file's, else the default. A settings file that cannot be read keeps
@@ -49,78 +81,5 @@ fn settings_delays(doc: &Value) -> Vec<u64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    const SOURCE: &str = include_str!("../../../../../../schemas/settings/source/agent-retry.json");
-
-    fn row(key: &str) -> Value {
-        let doc: Value = serde_json::from_str(SOURCE).unwrap();
-        doc["lists"][0]["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|r| r["key"] == key)
-            .unwrap()
-            .clone()
-    }
-
-    #[test]
-    fn the_settings_source_matches_the_daemon_loop() {
-        assert_eq!(row(SETTING_ENABLED)["default"], json!(true));
-        assert_eq!(row(SETTING_INTERVAL)["default"], json!(0));
-        assert_eq!(row(SETTING_INTERVAL)["range"]["max"], json!(MAX_DELAY_MS / 1000));
-        assert_eq!(row(SETTING_ATTEMPTS)["default"], json!(DEFAULT_DELAYS_MS.len()));
-        assert_eq!(row(SETTING_ATTEMPTS)["range"]["max"], json!(MAX_CONFIGURED_ATTEMPTS));
-        // The defaults give exactly the waits a file without the keys gives.
-        let defaults = json!({"agents": {"autoRetry": {"enabled": true, "intervalSeconds": 0, "attempts": 4}}});
-        assert_eq!(settings_delays(&defaults), DEFAULT_DELAYS_MS.to_vec());
-        assert_eq!(settings_delays(&json!({})), DEFAULT_DELAYS_MS.to_vec());
-    }
-
-    #[test]
-    fn off_schedules_no_attempt() {
-        let doc = json!({"agents": {"autoRetry": {"enabled": false, "intervalSeconds": 30}}});
-        assert!(settings_delays(&doc).is_empty());
-    }
-
-    #[test]
-    fn an_interval_waits_that_long_before_every_attempt() {
-        let doc = json!({"agents": {"autoRetry": {"intervalSeconds": 30, "attempts": 6}}});
-        assert_eq!(settings_delays(&doc), vec![30_000; 6]);
-        // The dotted form the app may write reads the same.
-        let dotted =
-            json!({"agents.autoRetry.intervalSeconds": 45.9, "agents.autoRetry.attempts": 2});
-        assert_eq!(settings_delays(&dotted), vec![45_000; 2]);
-    }
-
-    #[test]
-    fn no_interval_grows_the_waits_and_repeats_the_last() {
-        let doc = json!({"agents": {"autoRetry": {"attempts": 6}}});
-        assert_eq!(
-            settings_delays(&doc),
-            vec![10_000, 60_000, 300_000, 1_200_000, 1_200_000, 1_200_000]
-        );
-        assert_eq!(
-            settings_delays(&json!({"agents": {"autoRetry": {"attempts": 1}}})),
-            vec![10_000]
-        );
-    }
-
-    #[test]
-    fn values_are_held_to_the_settings_ranges() {
-        let doc = json!({"agents": {"autoRetry": {"intervalSeconds": 99_999, "attempts": 500}}});
-        assert_eq!(settings_delays(&doc), vec![MAX_DELAY_MS; MAX_CONFIGURED_ATTEMPTS]);
-        let low = json!({"agents": {"autoRetry": {"intervalSeconds": -5, "attempts": 0}}});
-        assert_eq!(settings_delays(&low), vec![DEFAULT_DELAYS_MS[0]]);
-        let junk = json!({"agents": {"autoRetry": {"enabled": "no", "intervalSeconds": "x"}}});
-        assert_eq!(settings_delays(&junk), DEFAULT_DELAYS_MS.to_vec());
-    }
-
-    #[test]
-    fn config_json_comes_before_the_settings() {
-        assert_eq!(effective_delays(Some(vec![])), Vec::<u64>::new());
-        assert_eq!(effective_delays(Some(vec![5_000])), vec![5_000]);
-    }
-}
+#[path = "settings_tests.rs"]
+mod tests;

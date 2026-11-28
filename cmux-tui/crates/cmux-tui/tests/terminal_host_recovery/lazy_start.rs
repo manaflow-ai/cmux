@@ -2,7 +2,7 @@
 //! restored or never-shown tab doesn't spawn its shell until it is first
 //! shown. It keeps its title, cwd and scrollback from the snapshot."
 //!
-//! With `CMUX_TUI_LAZY_START=1`, a plain shell of a hidden workspace whose
+//! With lazy start on (the default; the harness also sets `CMUX_TUI_LAZY_START=1`), a plain shell of a hidden workspace whose
 //! host is gone after a reboot is parked (`relaunch.on_show`), not
 //! respawned; an agent terminal, a command and the shell of the shown
 //! workspace respawn as before. The parked shell starts on its first need,
@@ -434,7 +434,7 @@ fn a_never_shown_plain_shell_starts_on_its_first_need() {
         tab["relaunch"]["on_show"],
         true,
         "{tab}\nlazy trace:\n{}",
-        std::fs::read_to_string(harness.dir.join("lazy-trace.log")).unwrap_or_default()
+        fs::read_to_string(harness.dir.join("lazy-trace.log")).unwrap_or_default()
     );
 
     let added = request(

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -27,6 +27,15 @@ use uuid::Uuid;
 use crate::AdmissionListener;
 use crate::config::RelayConfig;
 use crate::ticket::{TicketAuthority, TicketExpectation, tickets_equal};
+
+#[path = "relay_inline.rs"]
+mod inline;
+
+use inline::{Allocation, InlineLimits, StandbyRegistration};
+
+#[cfg(test)]
+#[path = "relay_forward_bench.rs"]
+mod forward_bench;
 
 const MAX_SLOT_BYTES: usize = 256;
 const MAX_LANE_TOKEN_BYTES: usize = 256;
@@ -65,6 +74,8 @@ struct RelayState {
     circuits: HashMap<CircuitId, Circuit>,
     attachments: HashMap<ConnectionId, Attachment>,
     slot_usage: HashMap<String, SlotUsage>,
+    /// Each slot's daemon standby sockets waiting for an inline Connect (`inline`).
+    standbys: HashMap<String, Vec<StandbyRegistration>>,
     /// Slots whose daemon's registration ended because its ticket ran out while the daemon was
     /// still answering (it kept pinging, and no renewal came): the daemon's relay credential is
     /// unavailable, usually its ticket mint is down. Kept, with when it lapsed, until the slot
@@ -118,10 +129,50 @@ struct Circuit {
     client_join_ticket: String,
     daemon_join_ticket: String,
     created_at: Instant,
-    last_activity: Instant,
+    route: Arc<CircuitRoute>,
     client: Option<Peer>,
     daemon: Option<Peer>,
     ready: bool,
+}
+
+/// What a circuit's socket loops share with the relay so a binary frame does not take the
+/// relay-wide lock: whether the circuit still stands, and when it last carried a frame. The
+/// lock is taken once per socket to find the other end ([`CachedRoute`]); after that each frame
+/// is two atomics and a queue send, so 20 streaming chats do not queue on one mutex behind each
+/// other, the sweep, and 1,100 daemons' pings.
+struct CircuitRoute {
+    live: AtomicBool,
+    since: Instant,
+    /// Nanoseconds from `since` to the newest frame.
+    last_activity_nanos: AtomicU64,
+}
+
+impl CircuitRoute {
+    fn new(now: Instant) -> Self {
+        Self { live: AtomicBool::new(true), since: now, last_activity_nanos: AtomicU64::new(0) }
+    }
+
+    fn touch(&self, now: Instant) {
+        let nanos =
+            u64::try_from(now.saturating_duration_since(self.since).as_nanos()).unwrap_or(u64::MAX);
+        self.last_activity_nanos.fetch_max(nanos, Ordering::Relaxed);
+    }
+
+    fn last_activity(&self) -> Instant {
+        self.since + Duration::from_nanos(self.last_activity_nanos.load(Ordering::Relaxed))
+    }
+
+    fn is_live(&self) -> bool {
+        self.live.load(Ordering::Acquire)
+    }
+}
+
+/// A circuit socket's other end, found once under the lock and kept while the circuit stands.
+/// A ready circuit's two peers never change, and [`remove_circuit`] clears `live` before it
+/// detaches them, so a frame after removal falls back to the locked lookup and gets its refusal.
+struct CachedRoute {
+    recipient: Peer,
+    route: Arc<CircuitRoute>,
 }
 
 struct JoinRequest {
@@ -139,6 +190,7 @@ enum Attachment {
     Control { slot: String },
     ClientControl { slot: String },
     Circuit { circuit: CircuitId, role: RelayRole },
+    Standby { slot: String },
 }
 
 #[derive(Clone)]
@@ -368,19 +420,9 @@ impl Relay {
         let mut writer =
             tokio::spawn(Self::write_socket(socket_writer, outbound_receiver, shutdown_receiver));
 
-        let handshake = tokio::time::timeout(
-            self.inner.config.handshake_timeout,
-            self.read_control(&mut socket_reader, &peer),
-        )
-        .await;
-        let result = match handshake {
-            Ok(Ok(control)) => self.dispatch_connection(control, &mut socket_reader, &peer).await,
-            Ok(Err(end)) => Err(end),
-            Err(_) => Err(ConnectionEnd::Failed(RelayError::policy(
-                "handshake-timeout",
-                "first relay control message was not received before the deadline",
-                true,
-            ))),
+        let result = match self.read_attaching_control(&mut socket_reader, &peer).await {
+            Ok(control) => self.dispatch_connection(control, &mut socket_reader, &peer).await,
+            Err(end) => Err(end),
         };
 
         self.disconnect(peer.id).await;
@@ -414,11 +456,18 @@ impl Relay {
                     .map_err(ConnectionEnd::Failed)?;
                 self.run_daemon_control(reader, peer, &slot).await
             }
-            RelayControl::Connect { protocol, slot, ticket, lane, generation, .. } => {
-                self.allocate(peer, protocol, slot.clone(), ticket, lane, generation)
+            RelayControl::Standby { protocol, slot, ticket } => {
+                self.hold_standby(reader, peer, protocol, slot, ticket).await
+            }
+            RelayControl::Connect { protocol, slot, ticket, lane, generation, inline, .. } => {
+                let allocation = self
+                    .allocate(peer, protocol, slot.clone(), ticket, lane, generation, inline)
                     .await
                     .map_err(ConnectionEnd::Failed)?;
-                self.run_client_control(reader, peer, &slot).await
+                match allocation {
+                    Allocation::Classic => self.run_client_control(reader, peer, &slot).await,
+                    Allocation::Inline(circuit) => self.run_circuit(reader, peer, circuit).await,
+                }
             }
             RelayControl::Join { protocol, slot, circuit, lane, generation, ticket, role } => {
                 self.join(
@@ -486,9 +535,11 @@ impl Relay {
     ) -> ConnectionResult {
         loop {
             match self.read_authenticated_control(reader, peer).await? {
-                RelayControl::Connect { protocol, slot, ticket, lane, generation, .. } => {
+                RelayControl::Connect {
+                    protocol, slot, ticket, lane, generation, inline, ..
+                } => {
                     let allocation = if slot == attached_slot {
-                        self.allocate(peer, protocol, slot, ticket, lane, generation).await
+                        self.allocate(peer, protocol, slot, ticket, lane, generation, inline).await
                     } else {
                         Err(RelayError::policy(
                             "control-slot-mismatch",
@@ -496,8 +547,14 @@ impl Relay {
                             false,
                         ))
                     };
-                    if let Err(error) = allocation {
-                        peer.send_control(error.control()).map_err(ConnectionEnd::Failed)?;
+                    match allocation {
+                        Ok(Allocation::Classic) => {}
+                        Ok(Allocation::Inline(circuit)) => {
+                            return self.run_circuit(reader, peer, circuit).await;
+                        }
+                        Err(error) => {
+                            peer.send_control(error.control()).map_err(ConnectionEnd::Failed)?;
+                        }
                     }
                 }
                 RelayControl::Ping { nonce } => {
@@ -528,6 +585,7 @@ impl Relay {
         if shutdown.borrow().is_some() {
             return Err(ConnectionEnd::Closed);
         }
+        let mut route = None;
         loop {
             tokio::select! {
                 changed = shutdown.changed() => {
@@ -550,7 +608,7 @@ impl Relay {
                                     close_code: 1009,
                                 }));
                             }
-                            self.forward(peer.id, &circuit, bytes)
+                            self.forward_cached(&mut route, peer.id, &circuit, bytes)
                                 .await
                                 .map_err(ConnectionEnd::Failed)?;
                         }
@@ -592,6 +650,40 @@ impl Relay {
                 Err(ConnectionEnd::Closed)
             }
             control = self.read_control(reader, peer) => control,
+        }
+    }
+
+    /// The socket's first attaching control (register, connect, join), each read bounded by
+    /// `handshake_timeout`. While `preattach_hold` lasts, a `Ping` before it is answered and
+    /// the socket keeps waiting: a dialer's standby socket, opened before it knows its
+    /// circuit. Past the hold, or with it off, a `Ping` is a first message like any other
+    /// (`missing-attachment`).
+    async fn read_attaching_control(
+        &self,
+        reader: &mut SplitStream<WebSocket>,
+        peer: &Peer,
+    ) -> ConnectionResult<RelayControl> {
+        let hold_until = Instant::now() + self.inner.config.preattach_hold;
+        loop {
+            let control = tokio::time::timeout(
+                self.inner.config.handshake_timeout,
+                self.read_control(reader, peer),
+            )
+            .await
+            .map_err(|_| {
+                ConnectionEnd::Failed(RelayError::policy(
+                    "handshake-timeout",
+                    "first relay control message was not received before the deadline",
+                    true,
+                ))
+            })??;
+            match control {
+                RelayControl::Ping { nonce } if Instant::now() < hold_until => {
+                    peer.send_control(RelayControl::Pong { nonce })
+                        .map_err(ConnectionEnd::Failed)?;
+                }
+                control => return Ok(control),
+            }
         }
     }
 
@@ -775,6 +867,7 @@ impl Relay {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn allocate(
         &self,
         client_control: &Peer,
@@ -783,7 +876,8 @@ impl Relay {
         ticket: String,
         lane: LaneToken,
         generation: u64,
-    ) -> Result<CircuitId, RelayError> {
+        inline: bool,
+    ) -> Result<Allocation, RelayError> {
         validate_protocol(protocol)?;
         validate_slot(&slot)?;
         validate_lane(&lane)?;
@@ -844,6 +938,29 @@ impl Relay {
                     "daemon registration lease has expired",
                     true,
                 ));
+            }
+            if inline {
+                let limits = InlineLimits {
+                    signed: self.inner.tickets.uses_hmac(),
+                    max_circuits: self.inner.config.max_circuits,
+                    max_active_circuits: self.inner.config.max_active_circuits_per_slot,
+                    max_allocations_per_second: self
+                        .inner
+                        .config
+                        .max_allocations_per_second_per_slot,
+                };
+                if let Some(paired) = inline::pair_inline(
+                    &mut state,
+                    limits,
+                    client_control,
+                    &slot,
+                    &lane,
+                    generation,
+                    now,
+                )? {
+                    drop(state);
+                    return self.answer_inline(client_control, paired, lane, generation).await;
+                }
             }
             admit_client_control(
                 &mut state,
@@ -916,7 +1033,7 @@ impl Relay {
                     client_join_ticket: client_join_ticket.clone(),
                     daemon_join_ticket: daemon_join_ticket.clone(),
                     created_at: now,
-                    last_activity: now,
+                    route: Arc::new(CircuitRoute::new(now)),
                     client: None,
                     daemon: None,
                     ready: false,
@@ -945,7 +1062,27 @@ impl Relay {
             self.terminate_circuit(&circuit, error.clone()).await;
             return Err(error);
         }
-        Ok(circuit)
+        Ok(Allocation::Classic)
+    }
+
+    /// `Ready` to the client, then to the standby it was paired with (`inline::pair_inline`).
+    async fn answer_inline(
+        &self,
+        client: &Peer,
+        (circuit, standby): (CircuitId, Peer),
+        lane: LaneToken,
+        generation: u64,
+    ) -> Result<Allocation, RelayError> {
+        let ready = RelayControl::Ready { circuit: circuit.clone(), lane, generation };
+        if let Err(error) = client.send_control(ready.clone()) {
+            self.terminate_circuit(&circuit, error.clone()).await;
+            return Err(error);
+        }
+        if let Err(error) = standby.send_control(ready) {
+            self.terminate_circuit(&circuit, error.clone()).await;
+            return Err(error);
+        }
+        Ok(Allocation::Inline(circuit))
     }
 
     async fn join(&self, peer: Peer, request: JoinRequest) -> Result<(), RelayError> {
@@ -1101,48 +1238,92 @@ impl Relay {
         Ok(())
     }
 
+    /// Forwards one frame from a circuit socket, through `cached` once the first frame found the
+    /// other end ([`CachedRoute`]); the relay-wide lock is taken only for that first frame, or
+    /// again once the circuit is gone so the refusal matches the locked lookup's.
+    async fn forward_cached(
+        &self,
+        cached: &mut Option<CachedRoute>,
+        sender_id: ConnectionId,
+        circuit_id: &CircuitId,
+        bytes: Bytes,
+    ) -> Result<(), RelayError> {
+        if let Some(hit) = cached.as_ref().filter(|hit| hit.route.is_live()) {
+            hit.route.touch(Instant::now());
+            return self.deliver(&hit.recipient, circuit_id, bytes).await;
+        }
+        *cached = None;
+        let hit = self.route_locked(sender_id, circuit_id).await?;
+        let result = self.deliver(&hit.recipient, circuit_id, bytes).await;
+        *cached = Some(hit);
+        result
+    }
+
+    /// Forwards one frame with a lookup under the relay-wide lock (what every frame paid before
+    /// [`CachedRoute`]); the oracle `relay_forward_bench.rs` checks the cached path against.
+    #[cfg(test)]
     async fn forward(
         &self,
         sender_id: ConnectionId,
         circuit_id: &CircuitId,
         bytes: Bytes,
     ) -> Result<(), RelayError> {
-        let recipient = {
-            let mut state = self.inner.state.lock().await;
-            let attachment = state.attachments.get(&sender_id).cloned().ok_or_else(|| {
-                RelayError::policy("circuit-detached", "socket is no longer attached", true)
-            })?;
-            let Attachment::Circuit { circuit, role } = attachment else {
-                return Err(RelayError::protocol(
-                    "not-a-circuit",
-                    "only joined circuit sockets may forward binary frames",
-                ));
-            };
-            if &circuit != circuit_id {
-                return Err(RelayError::protocol(
-                    "circuit-mismatch",
-                    "socket attachment does not match its circuit handler",
-                ));
-            }
-            let circuit = state.circuits.get_mut(circuit_id).ok_or_else(|| {
-                RelayError::policy("circuit-not-found", "relay circuit no longer exists", true)
-            })?;
-            if !circuit.ready {
-                return Err(RelayError::protocol(
-                    "circuit-not-ready",
-                    "wait for ready before sending binary frames",
-                ));
-            }
-            circuit.last_activity = Instant::now();
-            match role {
-                RelayRole::Daemon => circuit.client.clone(),
-                RelayRole::Client => circuit.daemon.clone(),
-            }
-            .ok_or_else(|| {
-                RelayError::policy("peer-detached", "circuit peer is no longer attached", true)
-            })?
-        };
+        let hit = self.route_locked(sender_id, circuit_id).await?;
+        self.deliver(&hit.recipient, circuit_id, bytes).await
+    }
 
+    async fn route_locked(
+        &self,
+        sender_id: ConnectionId,
+        circuit_id: &CircuitId,
+    ) -> Result<CachedRoute, RelayError> {
+        let mut state = self.inner.state.lock().await;
+        let Some(attachment) = state.attachments.get(&sender_id) else {
+            return Err(RelayError::policy(
+                "circuit-detached",
+                "socket is no longer attached",
+                true,
+            ));
+        };
+        let Attachment::Circuit { circuit, role } = attachment else {
+            return Err(RelayError::protocol(
+                "not-a-circuit",
+                "only joined circuit sockets may forward binary frames",
+            ));
+        };
+        if circuit != circuit_id {
+            return Err(RelayError::protocol(
+                "circuit-mismatch",
+                "socket attachment does not match its circuit handler",
+            ));
+        }
+        let role = *role;
+        let circuit = state.circuits.get_mut(circuit_id).ok_or_else(|| {
+            RelayError::policy("circuit-not-found", "relay circuit no longer exists", true)
+        })?;
+        if !circuit.ready {
+            return Err(RelayError::protocol(
+                "circuit-not-ready",
+                "wait for ready before sending binary frames",
+            ));
+        }
+        circuit.route.touch(Instant::now());
+        let recipient = match role {
+            RelayRole::Daemon => circuit.client.clone(),
+            RelayRole::Client => circuit.daemon.clone(),
+        }
+        .ok_or_else(|| {
+            RelayError::policy("peer-detached", "circuit peer is no longer attached", true)
+        })?;
+        Ok(CachedRoute { recipient, route: circuit.route.clone() })
+    }
+
+    async fn deliver(
+        &self,
+        recipient: &Peer,
+        circuit_id: &CircuitId,
+        bytes: Bytes,
+    ) -> Result<(), RelayError> {
         if let Err(error) = recipient.send_binary(bytes) {
             self.terminate_circuit(circuit_id, error.clone()).await;
             return Err(error);
@@ -1185,6 +1366,10 @@ impl Relay {
                     Vec::new()
                 }
                 Attachment::Circuit { circuit, .. } => remove_circuit(&mut state, &circuit),
+                Attachment::Standby { slot } => {
+                    inline::remove_standby(&mut state, &slot, peer_id);
+                    Vec::new()
+                }
             }
         };
         for peer in peers {
@@ -1209,8 +1394,9 @@ impl Relay {
     }
 
     async fn cleanup_expired(&self, now: Instant) {
-        let (expired_controls, expired_circuits) = {
+        let (expired_controls, expired_circuits, expired_standbys) = {
             let mut state = self.inner.state.lock().await;
+            let expired_standbys = inline::expire_standbys(&mut state, now);
             let control_slots = state
                 .controls
                 .iter()
@@ -1235,7 +1421,7 @@ impl Relay {
                 .iter()
                 .filter(|(_, circuit)| {
                     if circuit.ready {
-                        now.saturating_duration_since(circuit.last_activity)
+                        now.saturating_duration_since(circuit.route.last_activity())
                             >= self.inner.config.idle_timeout
                     } else {
                         now.saturating_duration_since(circuit.created_at)
@@ -1249,8 +1435,9 @@ impl Relay {
                 .flat_map(|id| remove_circuit(&mut state, &id))
                 .collect::<Vec<_>>();
             prune_inactive_slot_usage(&mut state, now);
-            (expired_controls, expired_circuits)
+            (expired_controls, expired_circuits, expired_standbys)
         };
+        inline::close_expired_standbys(expired_standbys);
 
         for peer in expired_controls {
             peer.shutdown(CloseNotice::error(RelayError::policy(
@@ -1407,6 +1594,7 @@ fn join_claims(
         issued_at_unix: validity.0,
         expires_at_unix: validity.1,
         grant: None,
+        region: None,
     }
 }
 
@@ -1538,6 +1726,7 @@ fn remove_circuit(state: &mut RelayState, circuit_id: &CircuitId) -> Vec<Peer> {
     let Some(circuit) = state.circuits.remove(circuit_id) else {
         return Vec::new();
     };
+    circuit.route.live.store(false, Ordering::Release);
     if let Some(usage) = state.slot_usage.get_mut(&circuit.slot) {
         let count =
             if circuit.ready { &mut usage.active_circuits } else { &mut usage.pending_circuits };
@@ -1790,6 +1979,7 @@ mod tests {
                 issued_at_unix,
                 expires_at_unix,
                 grant: None,
+                region: None,
             })
             .unwrap()
     }
@@ -2483,5 +2673,145 @@ mod tests {
         assert_eq!(code_of(&connect_answer(&server, &config).await), ("slot-offline", true));
         server.relay.cleanup_expired(Instant::now()).await;
         assert_eq!(code_of(&connect_answer(&server, &config).await), ("slot-offline", true));
+    }
+
+    async fn open_standby(server: &TestServer, slot: &str) -> TestSocket {
+        let mut standby = server.connect().await;
+        send_control(
+            &mut standby,
+            RelayControl::Standby {
+                protocol: REMOTE_PROTOCOL_VERSION,
+                slot: slot.into(),
+                ticket: format!("{slot}-daemon-ticket"),
+            },
+        )
+        .await;
+        assert!(matches!(receive_control(&mut standby).await, RelayControl::Registered { .. }));
+        standby
+    }
+
+    fn inline_connect(slot: &str, lane: &str, generation: u64) -> RelayControl {
+        RelayControl::Connect {
+            protocol: REMOTE_PROTOCOL_VERSION,
+            slot: slot.into(),
+            ticket: format!("{slot}-client-ticket"),
+            lane: LaneToken(lane.into()),
+            generation,
+            accepts_parked: false,
+            grant: None,
+            inline: true,
+        }
+    }
+
+    /// RFD 0039 cut 5: an inline Connect takes the daemon's Standby. Both sockets get `Ready` for
+    /// one circuit, the registration hears no `Incoming`, and binary frames flow both ways.
+    #[tokio::test]
+    async fn inline_connect_pairs_with_a_standby_and_forwards_both_ways() {
+        let server =
+            TestServer::start(RelayConfig { allow_open: true, ..RelayConfig::default() }).await;
+        let mut daemon = register_open_daemon(&server, "slot-a").await;
+        let mut standby = open_standby(&server, "slot-a").await;
+
+        send_control(&mut standby, RelayControl::Ping { nonce: 7 }).await;
+        assert!(matches!(receive_control(&mut standby).await, RelayControl::Pong { nonce: 7 }));
+
+        let mut client = server.connect().await;
+        send_control(&mut client, inline_connect("slot-a", "interactive", 3)).await;
+        let RelayControl::Ready { circuit, lane, generation } = receive_control(&mut client).await
+        else {
+            panic!("inline connect was not answered ready");
+        };
+        assert_eq!((lane.0.as_str(), generation), ("interactive", 3));
+        assert!(matches!(
+            receive_control(&mut standby).await,
+            RelayControl::Ready { circuit: standby_circuit, .. } if standby_circuit == circuit
+        ));
+        let health = server.relay.health().await;
+        assert_eq!((health.pending_circuits, health.ready_circuits), (0, 1));
+
+        client.send(ClientMessage::Binary(Bytes::from_static(b"client->daemon"))).await.unwrap();
+        assert_eq!(receive_binary(&mut standby).await, Bytes::from_static(b"client->daemon"));
+        standby.send(ClientMessage::Binary(Bytes::from_static(b"daemon->client"))).await.unwrap();
+        assert_eq!(receive_binary(&mut client).await, Bytes::from_static(b"daemon->client"));
+
+        // The registration was never sent Incoming: its next control is the Pong it asked for.
+        send_control(&mut daemon, RelayControl::Ping { nonce: 9 }).await;
+        assert!(matches!(receive_control(&mut daemon).await, RelayControl::Pong { nonce: 9 }));
+
+        // A standby is taken once: the next inline Connect, with none free, is answered classically.
+        let mut second = server.connect().await;
+        send_control(&mut second, inline_connect("slot-a", "bulk", 3)).await;
+        assert!(matches!(receive_control(&mut second).await, RelayControl::Allocated { .. }));
+        assert!(matches!(receive_control(&mut daemon).await, RelayControl::Incoming { .. }));
+    }
+
+    /// With no Standby, an inline Connect falls back to `Allocated` and the daemon's `Incoming`.
+    #[tokio::test]
+    async fn inline_connect_without_a_standby_is_allocated() {
+        let server =
+            TestServer::start(RelayConfig { allow_open: true, ..RelayConfig::default() }).await;
+        let mut daemon = register_open_daemon(&server, "slot-a").await;
+        let mut client = server.connect().await;
+        send_control(&mut client, inline_connect("slot-a", "interactive", 1)).await;
+        assert!(matches!(receive_control(&mut client).await, RelayControl::Allocated { .. }));
+        assert!(matches!(receive_control(&mut daemon).await, RelayControl::Incoming { .. }));
+        assert_eq!(server.relay.health().await.pending_circuits, 1);
+    }
+
+    /// A slot holds at most `MAX_STANDBY_SOCKETS_PER_SLOT` standbys; one more is refused, retryable.
+    #[tokio::test]
+    async fn standby_sockets_are_capped_per_slot() {
+        let server =
+            TestServer::start(RelayConfig { allow_open: true, ..RelayConfig::default() }).await;
+        let mut held = Vec::new();
+        for _ in 0..inline::MAX_STANDBY_SOCKETS_PER_SLOT {
+            held.push(open_standby(&server, "slot-a").await);
+        }
+        let mut extra = server.connect().await;
+        send_control(
+            &mut extra,
+            RelayControl::Standby {
+                protocol: REMOTE_PROTOCOL_VERSION,
+                slot: "slot-a".into(),
+                ticket: "slot-a-daemon-ticket".into(),
+            },
+        )
+        .await;
+        assert_eq!(code_of(&receive_control(&mut extra).await), ("standby-capacity", true));
+    }
+
+    #[tokio::test]
+    async fn a_standby_socket_pings_before_it_attaches_while_the_hold_lasts() {
+        let held = TestServer::start(RelayConfig {
+            allow_open: true,
+            preattach_hold: Duration::from_secs(30),
+            ..RelayConfig::default()
+        })
+        .await;
+        let mut socket = held.connect().await;
+        for nonce in [1, 2] {
+            send_control(&mut socket, RelayControl::Ping { nonce }).await;
+            assert!(
+                matches!(receive_control(&mut socket).await, RelayControl::Pong { nonce: n } if n == nonce)
+            );
+        }
+        send_control(
+            &mut socket,
+            RelayControl::Register {
+                protocol: REMOTE_PROTOCOL_VERSION,
+                slot: "slot-a".into(),
+                ticket: "daemon-ticket".into(),
+            },
+        )
+        .await;
+        assert!(matches!(receive_control(&mut socket).await, RelayControl::Registered { .. }));
+
+        // The default, no hold: a Ping first is answered, then the socket is refused.
+        let plain =
+            TestServer::start(RelayConfig { allow_open: true, ..RelayConfig::default() }).await;
+        let mut socket = plain.connect().await;
+        send_control(&mut socket, RelayControl::Ping { nonce: 3 }).await;
+        assert!(matches!(receive_control(&mut socket).await, RelayControl::Pong { nonce: 3 }));
+        assert_eq!(code_of(&receive_control(&mut socket).await), ("missing-attachment", false));
     }
 }

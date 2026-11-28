@@ -78,6 +78,9 @@ pub struct Answer {
     /// `link start-chat plan`'s `seed_refused` for a machine too small for the folder (`machine.too_small`): the
     /// machine's name, for "more than <machine> has room for".
     pub machine_title: Option<String>,
+    /// `link seed push`: how the folder reached the machine (copied, not cloned) and what stayed on
+    /// this Mac, for the done toast; none when it cloned and left nothing ([`super::landed::read`]).
+    pub landed: Option<super::landed::Landed>,
 }
 
 impl Answer {
@@ -178,6 +181,7 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         left_on_mac: left_on_mac(&object),
         size_locked: object.get("size_locked").filter(|size| size.is_object()).cloned(),
         machine_title: string(&object, "machine_title"),
+        landed: super::landed::read(&object),
     };
     (answer, Some(object))
 }
@@ -296,6 +300,7 @@ pub struct StartChatPlan {
     /// a person's own create direct, since a retry must take the first send's route.
     pub keeps_create_route: bool,
     pub environment_id: Option<String>,
+    pub ensured_environment: Option<String>,
     pub setup: Option<Setup>,
     /// `machine` was made for this send by this plan (the platform's workspace machine it created
     /// now): a start that can't go on after it deletes it, as it deletes one the app made for it.
@@ -323,6 +328,10 @@ pub fn start_chat_plan(
         create_route: string(object, "create_route"),
         keeps_create_route: boolean(object, "create_routes").unwrap_or(false),
         environment_id: info.environment_id,
+        ensured_environment: object
+            .get("ensured")
+            .and_then(Value::as_object)
+            .and_then(|ensured| string(ensured, "selected_environment")),
         setup: info.setup,
         made_for_send: string(object, "machine").is_some()
             && object
@@ -445,6 +454,9 @@ pub enum Call {
         /// answer without it (every Move to Cloud) interrupts, as before.
         #[serde(default = "interrupts")]
         interrupt: bool,
+        /// The owner's agent login comes on stdin ([`super::login`]): `--login-stdin`.
+        #[serde(default)]
+        login: bool,
     },
     /// `link machine update`: `--to-bundled`, and with `--if-older` only onto an older build.
     MachineUpdate {
@@ -463,6 +475,11 @@ pub enum Call {
     InferenceGatewayStatus {
         #[serde(default)]
         team: Option<String>,
+        /// The caller hands its held install token on stdin (`--token-stdin`), so the read mints none: the nested
+        /// `cmux auth token --team` mint could take up to 25 s inside this read's 10 s bound, and the gate then
+        /// refused a start the gateway served (hq#19758).
+        #[serde(default)]
+        held: bool,
     },
     /// `link start-chat reserve|release --request JSON`.
     StartChatReservation {
@@ -691,6 +708,7 @@ pub fn invocation(call: &Call) -> Invocation {
             vm_kind,
             to_pid,
             interrupt,
+            login,
         } => {
             let surface = surface.to_string();
             let mut args = words(&[
@@ -709,6 +727,9 @@ pub fn invocation(call: &Call) -> Invocation {
             let syncs: Vec<&FrozenSync> = sync.iter().chain(then_sync).collect();
             let flags = if *interrupt { agent_move_flags } else { agent_move_flags_at_boundary };
             args.extend(flags(&syncs, *ask_first, vm_kind.as_deref(), *to_pid));
+            if *login {
+                args.push(super::login::FLAG.to_owned());
+            }
             plain(args)
         }
         Call::MachineUpdate { socket, to_bundled, if_older } => {
@@ -731,10 +752,13 @@ pub fn invocation(call: &Call) -> Invocation {
             min_timeout_seconds: None,
         },
         // One status read on a start's path, before any machine: short, so a slow API costs a start little.
-        Call::InferenceGatewayStatus { team } => {
+        Call::InferenceGatewayStatus { team, held } => {
             let mut args = words(&["inference", "gateway", "status", "--json"]);
             if let Some(team) = team {
                 args.extend(words(&["--team", team]));
+            }
+            if *held {
+                args.extend(words(&["--token-stdin"]));
             }
             Invocation { args, timeout_seconds: Some(10), min_timeout_seconds: None }
         }

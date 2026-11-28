@@ -22,6 +22,8 @@ use serde_json::{Value, json};
 
 const SURFACE: u64 = 7;
 const SESSION: &str = "acp_chat_1";
+/// The public id of tab [`SURFACE`], which outlives a restart of the source daemon.
+const TAB: &str = "tab_0000000000000000000000000000000a";
 
 /// What a fake daemon does with one request line.
 enum Reply {
@@ -112,12 +114,75 @@ struct Source {
     continues: bool,
     /// The `interrupt` of each begin, in order.
     interrupts: Vec<Value>,
+    /// Serves `agent-transfer-begin-token-v1`: keeps a begin's `begin_token` with its move and
+    /// hands it back in a `transfer.moving` refusal (else an older daemon).
+    keeps_token: bool,
+    /// The token the move in `moving` was begun with.
+    moving_token: Option<String>,
+    /// Serves `agent-transfer-history-later-v1` and its acpmux can.
+    later: bool,
+    /// Tail first: the staged last turns, and the history that follows.
+    prefix: Vec<(String, Vec<u8>)>,
+    history: Vec<(String, Vec<u8>)>,
+    /// The begin took the staged prefix (its bundle lacks the prefix's events).
+    began_staged: bool,
+    /// Every `prepare_id` a begin named, in order.
+    begin_prepares: Vec<Value>,
+    /// Answers the tab's public id ([`TAB`]) and takes `tab` for `surface` (else an older
+    /// daemon, which refuses `tab` as an unknown field).
+    tab_ids: bool,
+    /// The daemon restarted: its tabs are back in new slots, so [`SURFACE`] names none.
+    restarted: bool,
+    /// The next read is lost as the daemon restarts (and `restarted` is set).
+    restart_at_read: bool,
+    /// The daemon is killed as it takes this command (the request is lost, `restarted` is set):
+    /// for the next [`OUTAGE`] requests after it, it is not back yet.
+    restart_at: Option<&'static str>,
+    /// The daemon is killed right after a begin whose answer is lost.
+    restart_after_lost_begin: bool,
+    /// After a restart the tab is back in this slot (else in none that `--surface` names).
+    slot: Option<u64>,
+    /// Requests left that find the daemon still restarting: lost, or (for a tab named by its
+    /// public id) "not an agent tab" while its restore has not run.
+    outage: u32,
 }
+
+/// How many requests find a killed source still restarting.
+const OUTAGE: u32 = 3;
 
 impl Source {
     fn handle(&mut self, request: &Value) -> Reply {
         let cmd = request["cmd"].as_str().unwrap_or_default();
-        if request.get("surface").is_some() && request["surface"] != json!(SURFACE) {
+        if self.restart_at == Some(cmd) {
+            self.restart_at = None;
+            self.restarted = true;
+            self.outage = OUTAGE;
+            return Reply::Drop;
+        }
+        if self.outage > 0 {
+            self.outage -= 1;
+            return if request.get("tab").is_some() && self.outage % 2 == 1 {
+                Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into())
+            } else {
+                Reply::Drop
+            };
+        }
+        let slot = if self.restarted { self.slot } else { Some(SURFACE) };
+        if request
+            .get("surface")
+            .is_some_and(|surface| Some(surface) != slot.map(|slot| json!(slot)).as_ref())
+        {
+            return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
+        }
+        if let Some(tab) = request.get("tab") {
+            if !self.tab_ids {
+                return Reply::Error("agent_transfer.bad_request", "unknown field tab".into());
+            }
+            if tab != &json!(TAB) {
+                return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
+            }
+        } else if self.restarted && self.slot.is_none() && request.get("surface").is_some() {
+            // The tab is restored in another slot.
             return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
         }
         let transfer = request["transfer_id"].as_str().map(str::to_string);
@@ -135,48 +200,106 @@ impl Source {
             };
         }
         match cmd {
-            "identify" if self.continues => Reply::Data(json!({"capabilities":
-                ["agent-transfer-v1", "agent-transfer-continues-v1"]})),
-            "identify" => Reply::Data(json!({"capabilities": ["agent-transfer-v1"]})),
+            "identify" => {
+                let mut capabilities = vec!["agent-transfer-v1"];
+                if self.later {
+                    capabilities.push("agent-transfer-history-later-v1");
+                }
+                if self.continues {
+                    capabilities.push("agent-transfer-continues-v1");
+                }
+                if self.keeps_token {
+                    capabilities.push("agent-transfer-begin-token-v1");
+                }
+                Reply::Data(json!({"capabilities": capabilities}))
+            }
+            "agent-transfer-history-ready" => Reply::Data(json!({"history_later": self.later})),
+            "agent-transfer-prepare" => {
+                assert!(self.moving.is_none(), "a prepare runs before the freeze");
+                Reply::Data(json!({"prepare_id": "pre_1", "after_seq": 7, "history_later": true,
+                                   "manifest": prefix_manifest("pre_1", &self.prefix)}))
+            }
+            "agent-transfer-history-export" => {
+                assert_eq!(self.committed, transfer, "the history follows the commit");
+                assert_eq!(request["have"], json!(0));
+                Reply::Data(json!({"prepare_id": "pre_h", "through_seq": 7,
+                                   "manifest": prefix_manifest("pre_h", &self.history)}))
+            }
             "agent-transfer-source" => {
                 let session = self.rebound.clone().unwrap_or_else(|| SESSION.to_string());
-                Reply::Data(json!({"session": session}))
+                let mut answer = json!({"session": session});
+                if self.tab_ids {
+                    answer["tab"] = json!(TAB);
+                }
+                Reply::Data(answer)
             }
             "agent-transfer-begin" => {
                 self.interrupts.push(request["interrupt"].clone());
+                self.begin_prepares.push(request["prepare_id"].clone());
+                self.began_staged = request["prepare_id"] == json!("pre_1");
                 if self.committed.is_some() {
                     return Reply::Error("agent_transfer.unknown_tab", "closed".into());
                 }
                 if let Some(moving) = &self.moving {
+                    let mut details = json!({"transfer_id": moving});
+                    if let Some(token) = &self.moving_token {
+                        details["begin_token"] = json!(token);
+                    }
                     return Reply::Detailed(
                         "agent_transfer.refused",
                         "acpmux refused the request: transfer.moving: this chat is already \
                          being moved"
                             .into(),
-                        json!({"transfer_id": moving}),
+                        details,
                     );
                 }
                 self.begun += 1;
                 let id = format!("xfer_{}", self.begun);
                 self.moving = Some(id.clone());
+                self.moving_token = if self.keeps_token {
+                    request["begin_token"].as_str().map(str::to_string)
+                } else {
+                    None
+                };
                 if std::mem::take(&mut self.lose_begin_answer) {
+                    if self.restart_after_lost_begin {
+                        self.restarted = true;
+                        self.outage = OUTAGE;
+                    }
                     return Reply::Drop;
                 }
                 let files: Vec<Value> = self
-                    .files
+                    .bundle_files()
                     .iter()
                     .map(|(path, bytes)| json!({"path": path, "size": bytes.len()}))
                     .collect();
-                Reply::Data(json!({"transfer_id": id, "source_session": SESSION, "manifest": {
+                let mut answer = json!({"transfer_id": id, "source_session": SESSION, "manifest": {
                     "schema": "acpmux.transfer.v1", "transferId": id, "sessionId": SESSION,
-                    "files": files, "session": {"sessionId": SESSION, "harness": "claude"}}}))
+                    "files": files, "session": {"sessionId": SESSION, "harness": "claude"}}});
+                if self.tab_ids {
+                    answer["tab"] = json!(TAB);
+                }
+                if self.began_staged {
+                    answer["staged"] = json!(true);
+                    answer["history_later"] = json!(true);
+                }
+                Reply::Data(answer)
             }
             "agent-transfer-read" => {
-                if transfer != self.moving {
-                    return Reply::Error("agent_transfer.unknown_transfer", "no move".into());
+                if std::mem::take(&mut self.restart_at_read) {
+                    self.restarted = true;
+                    return Reply::Drop;
                 }
+                let files = match transfer.as_deref() {
+                    Some("pre_1") if self.later => self.prefix.clone(),
+                    Some("pre_h") if self.later => self.history.clone(),
+                    _ if transfer == self.moving => self.bundle_files(),
+                    _ => {
+                        return Reply::Error("agent_transfer.unknown_transfer", "no move".into());
+                    }
+                };
                 let path = request["path"].as_str().unwrap_or_default();
-                let Some((_, bytes)) = self.files.iter().find(|(p, _)| p == path) else {
+                let Some((_, bytes)) = files.iter().find(|(p, _)| p == path) else {
                     return Reply::Error("agent_transfer.bad_request", "not listed".into());
                 };
                 let offset = request["offset"].as_u64().unwrap() as usize;
@@ -188,10 +311,12 @@ impl Source {
                                    "eof": end == bytes.len()}))
             }
             "agent-transfer-commit" if transfer.is_some() && transfer == self.moving => {
+                self.moving_token = None;
                 self.committed = self.moving.take();
                 Reply::Data(json!({"committed": true}))
             }
             "agent-transfer-abort" if transfer.is_some() && transfer == self.moving => {
+                self.moving_token = None;
                 self.aborted.extend(self.moving.take());
                 Reply::Data(json!({"aborted": true}))
             }
@@ -201,6 +326,22 @@ impl Source {
             _ => Reply::Error("agent_transfer.bad_request", format!("unexpected {cmd}")),
         }
     }
+}
+
+impl Source {
+    /// The bundle a begin lists: without the staged prefix's events when it took it.
+    fn bundle_files(&self) -> Vec<(String, Vec<u8>)> {
+        let staged = |path: &str| self.began_staged && path.starts_with("events/");
+        self.files.iter().filter(|(path, _)| !staged(path)).cloned().collect()
+    }
+}
+
+/// A prepare's or export's manifest of `files`.
+fn prefix_manifest(prepare_id: &str, files: &[(String, Vec<u8>)]) -> Value {
+    let files: Vec<Value> =
+        files.iter().map(|(path, bytes)| json!({"path": path, "size": bytes.len()})).collect();
+    json!({"schema": "acpmux.transfer.prefix.v1", "prepareId": prepare_id,
+           "sessionId": SESSION, "files": files})
 }
 
 // MARK: The target daemon
@@ -220,6 +361,9 @@ enum Finish {
     /// The answer is lost while the finish still runs: the next receive-aborts answer "cannot
     /// say yet" (the real daemon's answer during a finish), then the chat lands.
     DropStillFinishing,
+    /// The machine's processes are killed before the chat lands: the daemon is back at once,
+    /// its acpmux a moment later, so the next receive-aborts answer `agent_transfer.unavailable`.
+    KilledRestarting,
 }
 
 struct Receive {
@@ -247,8 +391,25 @@ struct Target {
     takes_vm_kind: bool,
     /// The `vm_kind` of each receive and finish, in order.
     vm_kinds: Vec<Value>,
+    /// Serves `agent-transfer-credentials-v1` too.
+    takes_credentials: bool,
+    takes_bound_credentials: bool,
+    /// Withdraw the saved key as the frozen chat's bundle is copied.
+    turn_off_cloud: Option<PathBuf>,
+    /// Every request's text, as the target read it.
+    requests: Vec<String>,
     /// Receive-aborts still answered "cannot say yet" before the running finish lands the chat.
     finishing_asks: u32,
+    /// Receive-aborts still answered `agent_transfer.unavailable` while acpmux restarts.
+    restarting_asks: u32,
+    /// Serves `agent-transfer-history-later-v1` and its acpmux can.
+    later: bool,
+    /// The stage each receive took, in order.
+    receive_stages: Vec<Value>,
+    /// The chat's log here: staged prefixes, then the history installed after.
+    log: Vec<u8>,
+    /// Stages finished, by id.
+    staged_done: HashSet<String>,
 }
 
 impl Target {
@@ -258,7 +419,77 @@ impl Target {
         if cmd == "agent-transfer-receive" || cmd == "agent-transfer-finish" {
             self.vm_kinds.push(request["vm_kind"].clone());
         }
+        self.requests.push(request.to_string());
         match cmd {
+            "identify" if self.takes_bound_credentials => Reply::Data(json!({"capabilities":
+                ["agent-transfer-v1", "agent-transfer-vm-kind-v1", "agent-transfer-credentials-v1",
+                "agent-session-credential-withdrawal-v1"]})),
+            "identify" if self.takes_credentials => Reply::Data(json!({"capabilities":
+                ["agent-transfer-v1", "agent-transfer-vm-kind-v1", "agent-transfer-credentials-v1"]})),
+            "identify" if self.later => Reply::Data(json!({"capabilities":
+                ["agent-transfer-v1", "agent-transfer-history-later-v1"]})),
+            "agent-transfer-history-ready" => Reply::Data(json!({"history_later": self.later})),
+            "agent-transfer-stage" => {
+                self.made += 1;
+                let id = format!("stg_{}", self.made);
+                let manifest = &request["manifest"];
+                let sizes = manifest["files"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|f| {
+                        (
+                            f["path"].as_str().unwrap().to_string(),
+                            f["size"].as_u64().unwrap() as usize,
+                        )
+                    })
+                    .collect();
+                let stage = Receive {
+                    transfer_id: manifest["prepareId"].as_str().unwrap().to_string(),
+                    session_id: SESSION.into(),
+                    sizes,
+                    files: HashMap::new(),
+                    finished: false,
+                };
+                self.receives.insert(id.clone(), stage);
+                Reply::Data(json!({"stage_id": id}))
+            }
+            "agent-transfer-stage-finish" => {
+                let stage_id = request["stage_id"].as_str().unwrap().to_string();
+                let stage = self.receives.get_mut(&stage_id).unwrap();
+                assert!(
+                    stage.sizes.iter().all(|(p, n)| stage.files.get(p).map_or(0, Vec::len) == *n)
+                );
+                stage.finished = true;
+                if stage.transfer_id == "pre_1" {
+                    let mut paths: Vec<_> = stage.files.keys().cloned().collect();
+                    paths.sort();
+                    for path in paths {
+                        self.log.extend_from_slice(&stage.files[&path]);
+                    }
+                }
+                self.staged_done.insert(stage_id);
+                Reply::Data(json!({"after_seq": 7, "records": 2}))
+            }
+            "agent-transfer-history-have" => {
+                assert!(self.landed.contains_key(SESSION), "asked after the chat landed");
+                Reply::Data(json!({"have": 0}))
+            }
+            "agent-transfer-history" => {
+                let stage_id = request["stage_id"].as_str().unwrap();
+                assert!(self.staged_done.contains(stage_id), "installed after its stage-finish");
+                let stage = &self.receives[stage_id];
+                let mut history = Vec::new();
+                let mut paths: Vec<_> = stage.files.keys().cloned().collect();
+                paths.sort();
+                for path in paths {
+                    history.extend_from_slice(&stage.files[&path]);
+                }
+                // The history goes before the tail.
+                history.extend_from_slice(&self.log);
+                self.log = history;
+                Reply::Data(json!({"through_seq": 7, "records": 5}))
+            }
             "identify" if self.takes_vm_kind => Reply::Data(json!({"capabilities":
                 ["agent-transfer-v1", "agent-transfer-vm-kind-v1"]})),
             // An older daemon; it shows no sign of being a Cloud VM (a guest can hide any).
@@ -271,6 +502,13 @@ impl Target {
                     return Reply::Error("agent_transfer.unknown_receive", "no receive".into());
                 };
                 let (transfer, session) = (receive.transfer_id.clone(), receive.session_id.clone());
+                if self.restarting_asks > 0 {
+                    self.restarting_asks -= 1;
+                    return Reply::Error(
+                        "agent_transfer.unavailable",
+                        "this daemon has no acpmux or host to move chats with".into(),
+                    );
+                }
                 if self.finishing_asks > 0 {
                     self.finishing_asks -= 1;
                     if self.finishing_asks == 0 {
@@ -299,6 +537,7 @@ impl Target {
                 "agent chats cannot be moved onto a team VM".into(),
             );
         }
+        self.receive_stages.push(request["stage_id"].clone());
         let manifest = &request["manifest"];
         let transfer_id = manifest["transferId"].as_str().unwrap().to_string();
         let session_id = manifest["sessionId"].as_str().unwrap().to_string();
@@ -335,6 +574,11 @@ impl Target {
             return Reply::Error("agent_transfer.unknown_receive", "no receive".into());
         };
         self.writes += 1;
+        if let Some(dir) = self.turn_off_cloud.take() {
+            let mut file = acpmux::routes::find(Some(&dir), "move-key").unwrap().file;
+            file.cloud_enabled = Some(false);
+            acpmux::routes::add(Some(&dir), "move-key", &file, true).unwrap();
+        }
         if self.fail_write_at == Some(self.writes) {
             return refused("transfer.write: disk full");
         }
@@ -368,6 +612,10 @@ impl Target {
             }
             Finish::DropStillFinishing => {
                 self.finishing_asks = 3;
+                return Reply::Drop;
+            }
+            Finish::KilledRestarting => {
+                self.restarting_asks = 3;
                 return Reply::Drop;
             }
             _ => {}
@@ -404,6 +652,8 @@ struct World {
     target: Arc<Mutex<Target>>,
     target_down: Arc<AtomicBool>,
     log: Log,
+    /// The `--surface` a run names.
+    surface: std::sync::atomic::AtomicU64,
 }
 
 /// A chat bundle with a file larger than one page and an empty one.
@@ -447,6 +697,7 @@ impl World {
             target,
             target_down,
             log,
+            surface: SURFACE.into(),
             _dir: dir,
         }
     }
@@ -458,16 +709,28 @@ impl World {
 
     /// `run_move` with `extra` flags.
     fn run_move_with(&self, extra: &[&str]) -> (i32, Value) {
-        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        self.run_move_stdin(extra, b"")
+    }
+
+    /// `run_move_with`, `stdin` on its stdin.
+    fn run_move_stdin(&self, extra: &[&str], stdin: &[u8]) -> (i32, Value) {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["link", "agent", "move", "--from-socket"])
             .arg(&self.from)
-            .args(["--surface", &SURFACE.to_string(), "--to-socket"])
+            .args(["--surface", &self.surface.load(Ordering::SeqCst).to_string(), "--to-socket"])
             .arg(&self.to)
             .args(["--cwd", &self.cwd, "--state-dir"])
             .arg(&self.state)
             .args(extra)
-            .output()
+            // Tail first only when a test asks for it.
+            .env_remove("ACPMUX_MOVE_HISTORY_LATER")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
             .unwrap();
+        child.stdin.take().unwrap().write_all(stdin).unwrap();
+        let output = child.wait_with_output().unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<&str> = stdout.lines().collect();
         assert_eq!(
@@ -478,6 +741,40 @@ impl World {
         );
         assert_eq!(self.source.lock().unwrap().attached, 0, "the pump never attaches the chat");
         (output.status.code().unwrap(), serde_json::from_str(lines[0]).unwrap())
+    }
+
+    fn saved_move_key(&self, provider: &str) -> (PathBuf, Value) {
+        let dir = self._dir.path().join("routes");
+        let file = serde_json::from_value(json!({
+            "kind": "direct-api-key", "provider": provider, "secret": "env:CMUX_TEST_MOVE_KEY",
+            "cloud_enabled": true
+        }))
+        .unwrap();
+        let route = acpmux::routes::add(Some(&dir), "move-key", &file, false).unwrap();
+        let socket = self._dir.path().join("acp.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let route_path = route.path;
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            for line in BufReader::new(stream).lines() {
+                let request: Value = serde_json::from_str(&line.unwrap()).unwrap();
+                let Some(id) = request.get("id") else { continue };
+                let result = match request["method"].as_str() {
+                    Some("initialize") => json!({"protocolVersion": 1}),
+                    Some("_acpmux/route/show") => {
+                        assert_eq!(request["params"]["id"], "move-key");
+                        json!({"path": route_path})
+                    }
+                    other => panic!("unexpected method {other:?}"),
+                };
+                writeln!(writer, "{}", json!({"jsonrpc": "2.0", "id": id, "result": result}))
+                    .unwrap();
+            }
+        });
+        let consent = json!({"socket": socket, "id": "move-key",
+                            "instance": route.file.credential_instance.unwrap()});
+        (dir, consent)
     }
 
     fn calls(&self) -> Vec<String> {
@@ -612,6 +909,231 @@ mod agent_move {
     }
 
     #[test]
+    fn a_source_daemon_that_restarts_mid_copy_gives_the_chat_back_by_its_tab() {
+        // kill-mid-move drill `cloud-cloud after-receive` (run 45389153532): the source VM's
+        // daemon restarted under the move, its restore gave the tab a new surface slot, and the
+        // give back by `--surface` was refused "not an agent tab": the chat stayed frozen there.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at_read = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("source_unreachable"), "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here: {answer}");
+        assert!(source.moving.is_none() && source.committed.is_none());
+    }
+
+    #[test]
+    fn a_rerun_after_the_source_daemon_restarted_commits_by_the_tab() {
+        // The chat landed with the target gone before it answered; then the source daemon
+        // restarted (new surface slots). The rerun confirms the chat and closes it by its tab.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        world.source.lock().unwrap().tab_ids = true;
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+
+        world.source.lock().unwrap().restarted = true;
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_1"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"));
+        assert_eq!(source.begun, 1);
+    }
+
+    #[test]
+    fn a_rerun_by_the_tabs_new_slot_after_a_source_restart_closes_the_landed_chat() {
+        // kill-mid-move drill off-src, run 45907132927 (local-cloud after-finish, cloud-local
+        // before-finish): the chat landed, the source was powered off before its commit, and its
+        // restart restored the tab in a new surface slot (52 -> 67). The rerun by that slot found
+        // no record under the old one and began a second move: the chat stayed open in two
+        // places and its queued prompt ran on both.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.slot = Some(SURFACE + 60);
+        }
+        world.surface.store(SURFACE + 60, Ordering::SeqCst);
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_1"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"), "closed here: {answer}");
+        assert_eq!(source.begun, 1, "no second move of the landed chat");
+        assert!(source.aborted.is_empty());
+        assert_eq!(world.target.lock().unwrap().landed.len(), 1, "landed once");
+    }
+
+    #[test]
+    fn a_rerun_by_a_third_slot_after_a_rerun_by_the_old_one_finds_one_record() {
+        // The alias the tab-filed record leaves for its first slot is followed and kept whole:
+        // a rerun by the old slot (no tab answered) saves through it, and a later rerun by the
+        // tab's next slot reads that same record, not an older copy.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let files = |world: &World| {
+            let mut names: Vec<String> = std::fs::read_dir(&world.state)
+                .map(|dir| {
+                    dir.filter_map(Result::ok)
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .filter(|name| name.ends_with(".json"))
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        };
+        let before = files(&world);
+        assert_eq!(before.len(), 2, "the tab's record and its slot alias: {before:?}");
+
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.slot = Some(SURFACE + 60);
+        }
+        world.surface.store(SURFACE + 60, Ordering::SeqCst);
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(world.source.lock().unwrap().committed.as_deref(), Some("xfer_1"));
+        assert!(
+            std::fs::read_dir(&world.state)
+                .unwrap()
+                .filter_map(Result::ok)
+                .all(|entry| std::fs::read(entry.path()).is_err()
+                    || !entry.file_name().to_string_lossy().ends_with(".json")),
+            "the ended move leaves no record: {:?}",
+            files(&world)
+        );
+    }
+
+    #[test]
+    fn a_source_still_restarting_when_the_chat_is_given_back_is_waited_for() {
+        // kill-mid-move drill kill-src (run 45435064422): the source was killed mid-copy, the
+        // give back found its daemon still down (connection refused), and the chat stayed frozen.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at = Some("agent-transfer-read");
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("source_unreachable"), "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here: {answer}");
+        assert!(source.moving.is_none() && source.committed.is_none());
+    }
+
+    #[test]
+    fn a_source_killed_as_the_chat_lands_is_waited_for_to_close_it() {
+        // Drill kill-src before-finish/after-finish: the chat landed on the target, the commit
+        // found the source killed, and the chat stayed open in two places.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at = Some("agent-transfer-commit");
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"), "closed here: {answer}");
+    }
+
+    #[test]
+    fn a_rerun_waits_for_the_source_that_restarts_and_closes_the_landed_chat() {
+        // The immediate rerun of the drill found the source still restarting and said "cannot
+        // confirm the tab still shows the chat this move took; nothing was ended".
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        world.source.lock().unwrap().tab_ids = true;
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.outage = OUTAGE;
+        }
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(world.source.lock().unwrap().committed.as_deref(), Some("xfer_1"));
+    }
+
+    #[test]
+    fn a_rerun_after_a_source_killed_at_its_begin_names_the_tab_and_moves_the_chat() {
+        // Drill kill-src before-begin: the begin's answer was lost with the source daemon. The
+        // rerun asked by the old surface slot ("not an agent tab") and never learned the move.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+            source.lose_begin_answer = true;
+            source.restart_after_lost_begin = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the unanswered begin's freeze is ended");
+        assert_eq!(source.committed.as_deref(), Some("xfer_2"));
+    }
+
+    #[test]
+    fn an_older_source_without_tab_ids_is_named_by_surface() {
+        let world = World::new(Target { finish: Finish::DropWithoutLanding, ..Target::default() });
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_failed"), "{answer}");
+        assert_eq!(world.source.lock().unwrap().aborted, ["xfer_1"]);
+    }
+
+    #[test]
+    fn a_target_killed_before_the_finish_is_waited_for_then_the_chat_is_given_back() {
+        // kill-mid-move drill `local-cloud before-finish kill-dst` (run 45389153532): the
+        // target's daemon came back at once but its acpmux did not, the receive-abort was
+        // answered `agent_transfer.unavailable` and the pump (and its rerun 264 ms later)
+        // said "cannot say": the chat stayed frozen here and its queued prompt never ran.
+        let world = World::new(Target { finish: Finish::KilledRestarting, ..Target::default() });
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_failed"), "{answer}");
+        assert_eq!(world.count("target:agent-transfer-receive-abort"), 4);
+        assert!(world.target.lock().unwrap().forgotten.contains("xfer_1"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here");
+        assert!(source.moving.is_none() && source.committed.is_none());
+    }
+
+    #[test]
     fn a_lost_finish_answer_for_a_chat_that_did_not_land_aborts_the_source() {
         let world = World::new(Target { finish: Finish::DropWithoutLanding, ..Target::default() });
         let (code, answer) = world.run_move();
@@ -708,6 +1230,137 @@ mod agent_move {
         assert_eq!(mac.target.lock().unwrap().vm_kinds, [Value::Null, Value::Null]);
     }
 
+    /// `--login-stdin`: the owner's login goes to the target with the finish alone, and never
+    /// reaches the answer line, stderr or the move's record. Without `--vm-kind owner`, or to a
+    /// target without `agent-transfer-credentials-v1`, or unreadable, the move stops before the
+    /// chat freezes with a reason that names the step.
+    #[test]
+    fn the_owners_login_goes_with_the_finish_alone_and_nowhere_else() {
+        const TOKEN: &str = "sk-ant-oat01-move-test-token";
+        let login = format!(r#"{{"env":{{"CLAUDE_CODE_OAUTH_TOKEN":"{TOKEN}"}}}}"#);
+        let world = World::new(Target { takes_credentials: true, ..Target::default() });
+        let (code, answer) =
+            world.run_move_stdin(&["--vm-kind", "owner", "--login-stdin"], login.as_bytes());
+        assert_eq!(code, 0, "{answer}");
+        assert!(!answer.to_string().contains(TOKEN), "{answer}");
+        {
+            let target = world.target.lock().unwrap();
+            let carrying: Vec<&String> =
+                target.requests.iter().filter(|request| request.contains(TOKEN)).collect();
+            assert_eq!(carrying.len(), 1, "{carrying:?}");
+            let finish: Value = serde_json::from_str(carrying[0]).unwrap();
+            assert_eq!(finish["cmd"], json!("agent-transfer-finish"));
+            assert_eq!(finish["credentials"], json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": TOKEN}}));
+        }
+        for entry in walk(&world.state) {
+            let text = std::fs::read(&entry).unwrap_or_default();
+            assert!(!String::from_utf8_lossy(&text).contains(TOKEN), "{}", entry.display());
+        }
+
+        let refusals: [(&[&str], Target, &str, Option<&str>); 3] = [
+            (
+                &["--login-stdin"],
+                Target { takes_credentials: true, ..Target::default() },
+                "agent_session.owner_only",
+                None,
+            ),
+            (
+                &["--vm-kind", "owner", "--login-stdin"],
+                Target { takes_vm_kind: true, ..Target::default() },
+                "machine_outdated",
+                Some("target"),
+            ),
+            (
+                &["--vm-kind", "team", "--login-stdin"],
+                Target { takes_credentials: true, ..Target::default() },
+                "agent_session.owner_only",
+                None,
+            ),
+        ];
+        for (flags, target, code_name, side) in refusals {
+            let world = World::new(target);
+            let (code, answer) = world.run_move_stdin(flags, login.as_bytes());
+            assert_eq!(code, 1, "{answer}");
+            assert_eq!(answer["error_code"], json!(code_name), "{answer}");
+            assert_eq!(answer["side"].as_str(), side, "{answer}");
+            assert!(answer["error"].as_str().unwrap().contains("agent login"), "{answer}");
+            assert!(!answer.to_string().contains(TOKEN), "{answer}");
+            assert_eq!(world.count("source:agent-transfer-begin"), 0, "the chat froze");
+        }
+        let world = World::new(Target { takes_credentials: true, ..Target::default() });
+        let bad = format!(r#"{{"env":"{TOKEN}"}}"#);
+        let (code, answer) =
+            world.run_move_stdin(&["--vm-kind", "owner", "--login-stdin"], bad.as_bytes());
+        assert_eq!(code, 1, "{answer}");
+        assert_eq!(answer["error_code"], json!("agent_session.login_unreadable"), "{answer}");
+        assert!(!answer.to_string().contains(TOKEN), "{answer}");
+        assert_eq!(world.count("source:agent-transfer-begin"), 0, "the chat froze");
+    }
+
+    #[test]
+    fn a_bound_login_needs_guest_withdrawal_before_the_source_freezes() {
+        let token = "sk-ant-api03-bound-fixture";
+        let credentials = json!({"env":{"ANTHROPIC_API_KEY":token},
+            "connection":format!("move-key:{}", "a".repeat(64))});
+        let input = |world: &World| {
+            let mut input = credentials.clone();
+            input["consent"] = world.saved_move_key("anthropic").1;
+            input.to_string()
+        };
+        let args = ["--vm-kind", "owner", "--login-stdin"];
+        let older = World::new(Target { takes_credentials: true, ..Target::default() });
+        let (code, refused) = older.run_move_stdin(&args, input(&older).as_bytes());
+        assert_eq!(code, 1);
+        assert_eq!(refused["error_code"], "machine_outdated");
+        assert_eq!(refused["side"], "target");
+        assert_eq!(older.count("source:agent-transfer-begin"), 0);
+        assert!(!refused.to_string().contains(token));
+
+        let current = World::new(Target { takes_bound_credentials: true, ..Target::default() });
+        let (code, reply) = current.run_move_stdin(&args, input(&current).as_bytes());
+        assert_eq!(code, 0, "{reply}");
+        assert!(!reply.to_string().contains(token));
+        let target = current.target.lock().unwrap();
+        let finish = target
+            .requests
+            .iter()
+            .filter_map(|request| serde_json::from_str::<Value>(request).ok())
+            .find(|request| request["cmd"] == "agent-transfer-finish")
+            .unwrap();
+        assert_eq!(finish["credentials"], credentials);
+    }
+
+    #[test]
+    fn a_key_turned_off_during_the_copy_never_reaches_finish() {
+        for (provider, variable) in
+            [("anthropic", "ANTHROPIC_API_KEY"), ("openai", "OPENAI_API_KEY")]
+        {
+            let world = World::new(Target { takes_bound_credentials: true, ..Target::default() });
+            let (dir, consent) = world.saved_move_key(provider);
+            world.target.lock().unwrap().turn_off_cloud = Some(dir);
+            let key = "sk-fixture-cloud-move";
+            let input = json!({
+                "env": {(variable): key},
+                "connection": format!("move-key:{}", "a".repeat(64)),
+                "consent": consent,
+            });
+            let (code, reply) = world.run_move_stdin(
+                &["--vm-kind", "owner", "--login-stdin"],
+                input.to_string().as_bytes(),
+            );
+            assert_eq!(code, 1, "{reply}");
+            assert_eq!(reply["error_code"], "connections.not_cloud", "{reply}");
+            assert!(world.count("target:agent-transfer-write") > 0);
+            assert_eq!(world.count("target:agent-transfer-finish"), 0);
+            assert_eq!(world.count("source:agent-transfer-abort"), 1);
+            let source = world.source.lock().unwrap();
+            assert!(source.moving.is_none() && source.committed.is_none());
+            let target = world.target.lock().unwrap();
+            assert!(target.landed.is_empty());
+            assert!(target.requests.iter().all(|request| !request.contains(key)));
+        }
+    }
+
     /// `--to-pid`: the owner word belongs to the link process the caller read
     /// it from. When another process listens on the socket by the time the
     /// pump connects for the receive (the link was replaced while the source
@@ -750,6 +1403,42 @@ mod agent_move {
         assert!(source.moving.is_none());
     }
 
+    /// The kill-mid-move drill (`move_kill_drill.rs`, `after-begin:off-src`): the source went
+    /// away right after it froze the chat, so the begin answer was lost. The rerun's begin is
+    /// refused as `transfer.moving` with the token this command began that move with: it is
+    /// this command's own and no target was ever asked to receive it, so the rerun gives it back
+    /// and moves the chat at once instead of leaving it frozen for the source's lease.
+    #[test]
+    fn a_rerun_after_a_lost_begin_answer_ends_its_own_move_and_moves_the_chat_at_once() {
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.keeps_token = true;
+            source.lose_begin_answer = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let token = world.source.lock().unwrap().moving_token.clone();
+        assert!(token.as_deref().is_some_and(|t| t.len() >= 32), "a random token: {token:?}");
+        assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_1"));
+
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_2"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"]);
+        assert_eq!(source.committed.as_deref(), Some("xfer_2"));
+        drop(source);
+        assert_eq!(world.count("target:agent-transfer-receive"), 1);
+        assert!(
+            world.first("source:agent-transfer-abort")
+                < world.first("target:agent-transfer-receive")
+        );
+    }
+
+    /// A source that keeps no begin token (an older daemon): nothing tells the lost move is
+    /// this command's, so it waits out the source's lease, as before.
     #[test]
     fn a_lost_begin_answer_waits_for_the_source_lease_then_moves_the_chat() {
         let world = World::new(Target::default());
@@ -779,22 +1468,31 @@ mod agent_move {
 
     #[test]
     fn another_clients_move_after_a_lost_begin_answer_is_never_aborted() {
-        let world = World::new(Target::default());
-        world.source.lock().unwrap().lose_begin_answer = true;
-        let (code, _) = world.run_move();
-        assert_eq!(code, 1);
-        {
-            // The lease ended that move; another client moved the chat since.
-            let mut source = world.source.lock().unwrap();
-            source.moving = Some("xfer_theirs".into());
+        // An older source, a source that keeps tokens with another client's token on the move,
+        // and one whose move carries none.
+        for (keeps_token, theirs) in [(false, None), (true, Some("tok_theirs")), (true, None)] {
+            let world = World::new(Target::default());
+            {
+                let mut source = world.source.lock().unwrap();
+                source.keeps_token = keeps_token;
+                source.lose_begin_answer = true;
+            }
+            let (code, _) = world.run_move();
+            assert_eq!(code, 1);
+            {
+                // The lease ended that move; another client moved the chat since.
+                let mut source = world.source.lock().unwrap();
+                source.moving = Some("xfer_theirs".into());
+                source.moving_token = theirs.map(str::to_string);
+            }
+            let (code, answer) = world.run_move();
+            assert_eq!(code, 1);
+            assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+            assert_eq!(answer["transfer_id"], json!("xfer_theirs"));
+            assert_eq!(world.count("source:agent-transfer-abort"), 0);
+            assert_eq!(world.count("source:agent-transfer-commit"), 0);
+            assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_theirs"));
         }
-        let (code, answer) = world.run_move();
-        assert_eq!(code, 1);
-        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
-        assert_eq!(answer["transfer_id"], json!("xfer_theirs"));
-        assert_eq!(world.count("source:agent-transfer-abort"), 0);
-        assert_eq!(world.count("source:agent-transfer-commit"), 0);
-        assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_theirs"));
     }
 
     #[test]
@@ -825,4 +1523,137 @@ mod agent_move {
         assert_eq!(world.count("target:agent-transfer-receive"), 0);
         assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_other"));
     }
+
+    // MARK: Tail first, history after
+
+    /// A world whose two sides serve tail first (`later`), with a chat whose
+    /// history is `history_bytes` and whose last turns are `tail_bytes`.
+    fn later_world(source_later: bool, target_later: bool, history_bytes: usize) -> World {
+        let world = World::new(Target { later: target_later, ..Target::default() });
+        let history: Vec<u8> = (0..history_bytes).map(|i| (i * 31 % 251) as u8).collect();
+        let tail: Vec<u8> = (0..64 * 1024usize).map(|i| (i * 7 % 13) as u8).collect();
+        let mut source = world.source.lock().unwrap();
+        source.later = source_later;
+        source.files[0].1.clone_from(&history);
+        source.history = vec![("events/history.cspb".into(), history)];
+        source.prefix = vec![("events/000002.ndjson".into(), tail)];
+        drop(source);
+        world
+    }
+
+    /// The source's chat log: its history, then its last turns.
+    fn source_log(world: &World) -> Vec<u8> {
+        let source = world.source.lock().unwrap();
+        [source.history[0].1.clone(), source.prefix[0].1.clone()].concat()
+    }
+
+    /// The move calls, without the capability probes.
+    fn move_calls(world: &World) -> Vec<String> {
+        let probe = |call: &String| call.ends_with(":identify") || call.ends_with("history-ready");
+        world.calls().into_iter().filter(|call| !probe(call)).collect()
+    }
+
+    #[test]
+    fn tail_first_moves_only_the_tail_before_live_then_the_history_arrives() {
+        let world = later_world(true, true, (2 << 20) + 12345);
+        let (code, answer) = world.run_move_with(&["--history-later", "4"]);
+        assert_eq!(code, 0, "{answer}");
+        assert!(answer["live_ms"].is_u64(), "{answer}");
+        assert_eq!(answer["history_records"], json!(5), "{answer}");
+        assert_eq!(answer["history_through_seq"], json!(7));
+        let order = [
+            "source:agent-transfer-prepare",
+            "target:agent-transfer-stage",
+            "target:agent-transfer-stage-finish",
+            "source:agent-transfer-begin",
+            "target:agent-transfer-receive",
+            "target:agent-transfer-finish",
+            "source:agent-transfer-commit",
+            "target:agent-transfer-history-have",
+            "source:agent-transfer-history-export",
+            "target:agent-transfer-history",
+        ];
+        let at: Vec<usize> = order.iter().map(|call| world.first(call)).collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "{:?}", world.calls());
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.begin_prepares, [json!("pre_1")]);
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"));
+        let history_len = source.history[0].1.len();
+        drop(source);
+        let target = world.target.lock().unwrap();
+        assert_eq!(target.receive_stages, [json!("stg_1")]);
+        // Before live only the tail moved: the frozen bundle held no events.
+        let landed = target.landed_files();
+        assert!(landed.keys().all(|path| !path.starts_with("events/")), "{:?}", landed.keys());
+        let frozen_bytes = answer["bytes"].as_u64().unwrap();
+        assert!(frozen_bytes < history_len as u64, "{frozen_bytes} of {history_len}");
+        // Then the history arrived: the target's log is the source's.
+        assert!(target.log == source_log(&world), "the target log equals the source's");
+    }
+
+    #[test]
+    fn switched_off_or_a_side_without_it_makes_todays_calls() {
+        // Today's move: no flag, a source and target that could.
+        let today = later_world(true, true, 4096);
+        let (code, answer) = today.run_move();
+        assert_eq!(code, 0, "{answer}");
+        let calls = move_calls(&today);
+        assert!(answer.get("live_ms").is_none() && answer.get("history_ms").is_none());
+        assert_eq!(today.count("source:agent-transfer-history-ready"), 0, "off asks nothing");
+        assert_eq!(today.source.lock().unwrap().begin_prepares, [Value::Null]);
+        assert_eq!(today.target.lock().unwrap().receive_stages, [Value::Null]);
+        // The env is read like the flag; 0 is off.
+        for (source_later, target_later, flag) in
+            [(true, false, "4"), (false, true, "4"), (false, false, "4"), (true, true, "0")]
+        {
+            let world = later_world(source_later, target_later, 4096);
+            let (code, answer) = world.run_move_with(&["--history-later", flag]);
+            assert_eq!(code, 0, "{answer}");
+            assert_eq!(move_calls(&world), calls, "{source_later} {target_later} {flag}");
+            assert_eq!(world.source.lock().unwrap().begin_prepares, [Value::Null]);
+            assert!(answer.get("history_ms").is_none(), "{answer}");
+        }
+    }
+
+    /// `cargo test -p cmux-tui --test it -- --ignored link_agent_move::agent_move::tail_first_bench --nocapture`:
+    /// a `CMUX_MOVE_BENCH_MB` (55) chat through the pump over loopback, off and on.
+    #[test]
+    #[ignore = "a bench: run it by name"]
+    fn tail_first_bench() {
+        let mb: usize =
+            std::env::var("CMUX_MOVE_BENCH_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(55);
+        let off = later_world(true, true, mb << 20);
+        let started = std::time::Instant::now();
+        let (code, answer) = off.run_move();
+        let off_ms = started.elapsed().as_millis();
+        assert_eq!(code, 0, "{answer}");
+        let on = later_world(true, true, mb << 20);
+        let started = std::time::Instant::now();
+        let (code, answer_on) = on.run_move_with(&["--history-later", "4"]);
+        let on_ms = started.elapsed().as_millis();
+        assert_eq!(code, 0, "{answer_on}");
+        assert!(on.target.lock().unwrap().log == source_log(&on));
+        println!(
+            "tail_first_bench: {mb} MB off: live {off_ms} ms (total_ms {}, phases {}); on: live_ms {}, history_ms {}, history_bytes {}, total {on_ms} ms (phases {})",
+            answer["total_ms"],
+            answer["phases"],
+            answer_on["live_ms"],
+            answer_on["history_ms"],
+            answer_on["history_bytes"],
+            answer_on["phases"]
+        );
+    }
+}
+
+/// Every file under `dir`, recursively; none when it does not exist.
+fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(next) = todo.pop() {
+        for entry in std::fs::read_dir(&next).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() { todo.push(path) } else { files.push(path) }
+        }
+    }
+    files
 }

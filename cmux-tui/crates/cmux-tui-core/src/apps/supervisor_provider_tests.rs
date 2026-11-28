@@ -137,7 +137,7 @@ fn cmux_next_memory_search_routes_a_scoped_read_to_the_verified_provider() {
     let f = fixture_with(&[], Duration::from_secs(60), root);
     f.install("cmux/demo");
     f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
-    let rx = provider(&f, &["coderouter", "memory"]);
+    let rx = provider(&f, &["agent_cli", "memory"]);
     let params = json!({"roots":["root_home"],"query":"deploy key","limit":5});
     f.supervisor
         .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"memory.search", "params":params}), false)
@@ -171,7 +171,7 @@ fn a_toast_routes_to_the_provider_for_an_app_with_no_scopes() {
     let f = fixture_with(&[], Duration::from_secs(60), root);
     f.install("cmux/demo");
     f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
-    let rx = provider(&f, &["coderouter", "memory", "toast"]);
+    let rx = provider(&f, &["agent_cli", "memory", "toast"]);
     let params = json!({"title":"Focus for 25 minutes"});
     f.supervisor
         .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"toast.show", "params":params}), false)
@@ -416,7 +416,7 @@ fn cmux_next_media_routes_reads_and_only_tapped_controls_to_the_verified_provide
     f.install("cmux/reader");
     f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
     f.mount("m2", "cmux/reader", "cmux.section/1", json!({}));
-    let rx = provider(&f, &["coderouter", "memory", "toast", "media"]);
+    let rx = provider(&f, &["agent_cli", "memory", "toast", "media"]);
 
     f.supervisor
         .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"media.get", "params":{}}), false)

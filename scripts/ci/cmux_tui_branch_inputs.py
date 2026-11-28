@@ -82,7 +82,12 @@ def git(*args: str, lazy: bool = False, deadline: float) -> str:
 
 
 def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
-    if not superseded.needs_open_pull_request(ref) or ref in superseded.PROTECTED:
+    # A feat-cmux-next-* head is most often a pull request branch, and the superseded check keeps it as an
+    # integration ref (TRUNK_PREFIXES). It gets the unchanged-key rule only, never BASE-MOVED: a key that
+    # differs from its merge base's still builds. Until 2026-11-27 such heads built every push, the slowest
+    # check on 9 of 15 iOS pull requests that touched no tree-key input (darwin build 37 min on #61389).
+    integration_head = ref.startswith(superseded.TRUNK_PREFIXES) and ref not in superseded.TRUNK_REFS
+    if not integration_head and (not superseded.needs_open_pull_request(ref) or ref in superseded.PROTECTED):
         return False, f"{ref} is a trunk or integration ref; it builds every changed tree"
     deadline = time.monotonic() + DEADLINE_SECONDS
     # daemon-policy's opt-in, read in this checkout (superseded.asks_for_daemon_tests reads the cwd's repository).
@@ -90,7 +95,10 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     if "".join(trailer.split()).lower() == "run":
         return False, f"{sha[:12]} carries Cmux-Daemon-Tests: run"
     base_ref = f"refs/remotes/origin/{base}"
-    git("fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "--filter=tree:0", f"--shallow-since={since}", "origin",
+    # Only a shallow checkout fetches shallow: a full clone must not turn shallow.
+    shallow = git("rev-parse", "--is-shallow-repository", deadline=deadline).strip() == "true"
+    since_flag = [f"--shallow-since={since}"] if shallow else []
+    git("fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "--filter=tree:0", *since_flag, "origin",
         f"+refs/heads/{base}:{base_ref}", sha, lazy=True, deadline=deadline)
     try:
         merge_base = git("merge-base", sha, base_ref, deadline=deadline)
@@ -103,8 +111,9 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     # No haves: the server sends each commit's whole tree, not just what a shallow have implies.
     wanted = [rev for rev in dict.fromkeys((merge_base, base_tip if base_moved_gate else merge_base)) if rev != sha]
     if wanted:
+        depth_flag = ["--depth=1"] if shallow else []
         git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "--filter=blob:none",
-            "--depth=1", "origin", *wanted, lazy=True, deadline=deadline)
+            *depth_flag, "origin", *wanted, lazy=True, deadline=deadline)
     for revision in {sha, merge_base, *wanted}:
         # tree_key reads the inputs list blob with lazy fetches off; bring that one blob in.
         git("cat-file", "blob", f"{revision}:{tree_key.INPUTS_PATH}", lazy=True, deadline=deadline)
@@ -116,7 +125,7 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     if head_key == base_key:
         return True, (f"{sha[:12]} has the tree key {head_key[:12]} of its merge base {merge_base[:12]} with {base}: "
                       "it changes no tree-key input")
-    if base_moved_gate and base_tip != merge_base:
+    if base_moved_gate and not integration_head and base_tip != merge_base:
         try:
             tip_key = tree_key.tree_key(base_tip, "v2")
         except (OSError, RuntimeError, subprocess.SubprocessError) as error:

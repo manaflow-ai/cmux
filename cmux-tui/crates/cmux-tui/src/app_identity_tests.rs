@@ -13,26 +13,30 @@ fn control_socket_matches_the_app_table() {
         (
             Some("com.cmuxterm.app.debug.Feat_X"),
             None,
-            "/Users/a/.local/state/cmux/cmux-debug--ec0e7410.sock",
+            "/Users/a/.local/state/cmux-next/cmux-debug--ec0e7410.sock",
         ),
         (
             Some("com.cmuxterm.app.debug"),
             Some("clic"),
-            "/Users/a/.local/state/cmux/cmux-debug-clic.sock",
+            "/Users/a/.local/state/cmux-next/cmux-debug-clic.sock",
         ),
         (
             Some("com.cmuxterm.app.debug"),
             None,
-            "/Users/a/.local/state/cmux/cmux-debug--650e93e3.sock",
+            "/Users/a/.local/state/cmux-next/cmux-debug--650e93e3.sock",
         ),
-        (None, Some("nx9"), "/Users/a/.local/state/cmux/cmux-debug-nx9.sock"),
-        (Some("com.cmuxterm.app.nightly"), None, "/Users/a/.local/state/cmux/cmux-nightly.sock"),
+        (None, Some("nx9"), "/Users/a/.local/state/cmux-next/cmux-debug-nx9.sock"),
+        (
+            Some("com.cmuxterm.app.nightly"),
+            None,
+            "/Users/a/.local/state/cmux-next/cmux-nightly.sock",
+        ),
         (
             Some("com.cmuxterm.app.rc.try2"),
             None,
-            "/Users/a/.local/state/cmux/cmux-rc--36529c0e.sock",
+            "/Users/a/.local/state/cmux-next/cmux-rc--36529c0e.sock",
         ),
-        (Some("com.cmuxterm.app"), None, "/Users/a/.local/state/cmux/cmux.sock"),
+        (Some("com.cmuxterm.app"), None, "/Users/a/.local/state/cmux-next/cmux.sock"),
     ];
     for (bundle, tag, expected) in cases {
         assert_eq!(
@@ -41,6 +45,58 @@ fn control_socket_matches_the_app_table() {
             "{bundle:?} {tag:?}"
         );
     }
+}
+
+/// An app from before the move to `~/.local/state/cmux-next` is reached where it
+/// listens, in classic's `~/.local/state/cmux`; once the new socket exists it
+/// wins. Release's `cmux.sock` never falls back there (classic's own release
+/// socket has that name).
+#[test]
+fn control_socket_reaches_an_app_from_before_the_move() {
+    let home = tempfile::tempdir().unwrap();
+    let nightly = identity(Some("com.cmuxterm.app.nightly"), None);
+    let new = home.path().join(".local/state/cmux-next/cmux-nightly.sock");
+    let before = home.path().join(".local/state/cmux/cmux-nightly.sock");
+    assert_eq!(nightly.control_socket(home.path()), new);
+    std::fs::create_dir_all(before.parent().unwrap()).unwrap();
+    std::fs::write(&before, b"").unwrap();
+    assert_eq!(nightly.control_socket(home.path()), before);
+    std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+    std::fs::write(&new, b"").unwrap();
+    assert_eq!(nightly.control_socket(home.path()), new);
+
+    let release = identity(Some("com.cmuxterm.app"), None);
+    std::fs::write(home.path().join(".local/state/cmux/cmux.sock"), b"").unwrap();
+    assert_eq!(
+        release.control_socket(home.path()),
+        home.path().join(".local/state/cmux-next/cmux.sock")
+    );
+}
+
+/// A terminal from before the app moved its socket keeps `CMUX_SOCKET_PATH` at the old name. Once that
+/// name is gone and the build's own socket is there, the CLI reaches the live app; a live override, or
+/// one that names another socket, still wins (2026-11-27: every `cmux` in such a terminal
+/// said "no cmux app is running" while NIGHTLY answered).
+#[test]
+fn a_stale_pre_move_socket_override_reaches_the_moved_app() {
+    let home = tempfile::tempdir().unwrap();
+    let new = home.path().join(".local/state/cmux-next/cmux-nightly.sock");
+    let before = home.path().join(".local/state/cmux/cmux-nightly.sock");
+    let nightly = |over: &Path| {
+        AppIdentity::new(Some("com.cmuxterm.app.nightly".to_owned()), None, Some(over.to_owned()))
+    };
+    // Neither exists: the override is the answer (and the error names it).
+    assert_eq!(nightly(&before).control_socket(home.path()), before);
+    std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+    std::fs::write(&new, b"").unwrap();
+    assert_eq!(nightly(&before).control_socket(home.path()), new, "stale pre-move name");
+    let other = home.path().join(".local/state/cmux/cmux-debug-x.sock");
+    assert_eq!(nightly(&other).control_socket(home.path()), other, "another socket's name");
+    let elsewhere = home.path().join("relay/cmux-nightly.sock");
+    assert_eq!(nightly(&elsewhere).control_socket(home.path()), elsewhere, "a relay path");
+    std::fs::create_dir_all(before.parent().unwrap()).unwrap();
+    std::fs::write(&before, b"").unwrap();
+    assert_eq!(nightly(&before).control_socket(home.path()), before, "a live override wins");
 }
 
 #[test]

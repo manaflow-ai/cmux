@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import CoreGraphics
+import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -57,6 +58,35 @@ struct AgentPaneTabRowReloadTests {
         row.report(width: 0)
         #expect(row.sharedWidth(zoom: 1) == nil)
         #expect(row.sharedNeed(zoom: 1) == 180)
+    }
+
+    /// After a relaunch the chat is under the strip from its first layout: a row that waited for the page's first
+    /// report laid it below the strip and then under it, a 34 px drop of the composer after every launch.
+    @Test func aRelaunchedRowStartsWhereTheLastLaunchLeftIt() throws {
+        let suite = "AgentPaneTabRowKept-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(AgentPaneTabRow(defaults: defaults).sharedWidth(zoom: 1) == nil)
+        AgentPaneTabRow(defaults: defaults).report(width: 180)
+        let relaunched = AgentPaneTabRow(defaults: defaults)
+        #expect(relaunched.sharedWidth(zoom: 1) == 180)
+        #expect(relaunched.sharedNeed(zoom: 1) == 180)
+        relaunched.report(width: 0)
+        #expect(relaunched.sharedWidth(zoom: 1) == nil)
+    }
+
+    /// A first launch (nothing kept) starts under the strip too, from the shipped width, until the page reports.
+    @Test func aFirstLaunchRowStartsFromTheShippedWidth() throws {
+        let suite = "AgentPaneTabRowFirst-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = AgentPaneTabRow(defaults: defaults, firstLaunchWidth: 128)
+        #expect(first.sharedWidth(zoom: 1) == 128)
+        #expect(first.sharedNeed(zoom: 1) == 128)
+        first.report(width: 150)
+        #expect(first.sharedWidth(zoom: 1) == 150)
+        // The report is kept: the next launch starts from it, not from the shipped width.
+        #expect(AgentPaneTabRow(defaults: defaults, firstLaunchWidth: 128).sharedWidth(zoom: 1) == 150)
     }
 
     @Test func toolsThatLeaveGiveTheRowBack() {

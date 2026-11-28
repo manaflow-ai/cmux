@@ -39,7 +39,7 @@ impl FsStore {
     }
 
     fn path(&self, sha256: &str) -> PathBuf {
-        self.dir.join(&sha256[..2]).join(sha256)
+        self.dir.join(sha256.get(..2).unwrap_or(sha256)).join(sha256)
     }
 }
 
@@ -97,7 +97,7 @@ impl HttpStore {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime =
             tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build()?;
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("cmux_session_cloud::store")
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux-session-cloud/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(120))

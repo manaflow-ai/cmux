@@ -34,10 +34,6 @@ root = "Native/DiffSidecar"
 covered_by = ".github/workflows/ci-web.yml"
 
 [[workspace]]
-root = "coderouter"
-covered_by = ".github/workflows/coderouter-ci.yml"
-
-[[workspace]]
 root = "workers/cmux-vm/cli"
 covered_by = ".github/workflows/cmux-vm-clients.yml"
 
@@ -120,10 +116,6 @@ root = "cmux-tui/crates/acpmux-hot/guest"
 skip = "wasm32-wasip2 guest of the dev-only acpmux-hot prototype; built and run by hand on the fleet (crates/acpmux-hot/bench.sh), not linked into any app"
 
 [[workspace]]
-root = "cmux-tui/crates/cmux-cellgrid-bench"
-skip = "measurement tool run by hand (cell grid against video, HQ#7146 G5); not linked into the app"
-
-[[workspace]]
 root = "cmux-tui/crates/cmux-codecs"
 skip = "VP9 and AV1 screen-share adapters and codec-bench, run by hand on the fleet (`cmux-ci test`); builds libvpx from source, not linked into the app"
 
@@ -150,6 +142,10 @@ skip = "vendored upstream crate with cmux's patch; cmux-tui.yml runs its tests"
 [[workspace]]
 root = "scripts/cmux-next/rust-change-class"
 run = true
+
+[[workspace]]
+root = "scripts/bench/phone-speed"
+skip = "callgrind instruction-budget detector (cmux-phone-speed); ci/steps.toml step phone-speed-icount builds and runs it on Linux under valgrind, not clippy/cargo test"
 
 [[workspace]]
 root = "scripts/measure/workspace-factory"

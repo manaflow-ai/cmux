@@ -193,3 +193,132 @@ async fn bulk_reserve_keeps_tunnel_control_and_interactive_available() {
              interactive={interactive_result:?}"
     );
 }
+
+#[test]
+fn bulky_streams_default_off_the_interactive_lane() {
+    // Process event replays and computer-use screenshots never queue ahead of
+    // keystrokes; the tombstone of a closed process stream guards the lane its
+    // frames really use.
+    assert_eq!(default_lane(Service::ProcessStream), Lane::Bulk);
+    assert_eq!(default_lane(Service::ComputerUse), Lane::Control);
+    assert_eq!(default_lane(Service::MuxControl), Lane::Interactive);
+    assert_eq!(default_lane(Service::TerminalBytes), Lane::Interactive);
+    assert_eq!(default_lane(Service::WorkspaceRpc), Lane::Control);
+    assert_eq!(legal_tombstone_lane_mask(Service::ProcessStream), lane_bit(Lane::Bulk));
+}
+
+/// An endpoint whose sends wait until `resumed_at` (a carrier failing over,
+/// or a wedged peer), saying meanwhile whether it is recovering its carrier.
+struct StalledEndpoint {
+    resumed_at: tokio::time::Instant,
+    recovering: bool,
+    resets: AtomicU64,
+    closed: AtomicBool,
+    generation: watch::Sender<u64>,
+}
+
+#[async_trait]
+impl SessionEndpoint for StalledEndpoint {
+    async fn send_frame(
+        &self,
+        _expected_generation: Option<u64>,
+        _lane: Lane,
+        _stream: u64,
+        _payload: Bytes,
+        flags: FrameFlags,
+    ) -> Result<u64, ServiceError> {
+        tokio::time::sleep_until(self.resumed_at).await;
+        if flags.contains(FrameFlags::RESET) {
+            self.resets.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(1)
+    }
+
+    async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+        std::future::pending().await
+    }
+
+    fn subscribe_generation(&self) -> watch::Receiver<u64> {
+        self.generation.subscribe()
+    }
+
+    async fn close_session(&self) -> Result<(), ServiceError> {
+        self.closed.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    fn carrier_recovering(&self) -> bool {
+        self.recovering && tokio::time::Instant::now() < self.resumed_at
+    }
+}
+
+fn stalled(after: Duration, recovering: bool) -> Arc<StalledEndpoint> {
+    Arc::new(StalledEndpoint {
+        resumed_at: tokio::time::Instant::now() + after,
+        recovering,
+        resets: AtomicU64::new(0),
+        closed: AtomicBool::new(false),
+        generation: watch::channel(0).0,
+    })
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stream_dropped_while_the_carrier_fails_over_resets_after_the_resume_and_keeps_the_session()
+ {
+    // The relay was killed and the session is resuming onto ssh, 9 s of
+    // authorization and ssh dial: the dropped stream's RESET waits for it.
+    // It closed the session 2 s in, so the resume ended with "connection is
+    // closed" and no route line (the carrier ssh failover drill, 11-27).
+    let endpoint = stalled(Duration::from_secs(9), true);
+    let started = tokio::time::Instant::now();
+    send_reset_or_close_session(
+        endpoint.clone(),
+        None,
+        Lane::Interactive,
+        1,
+        None,
+        &AtomicBool::new(false),
+        TERMINAL_RESET_DEADLINE,
+    )
+    .await;
+    assert_eq!(endpoint.resets.load(Ordering::Relaxed), 1, "the RESET went on the resumed carrier");
+    assert!(!endpoint.closed.load(Ordering::Acquire), "the resuming session was closed");
+    assert_eq!(started.elapsed(), Duration::from_secs(9));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_reset_a_wedged_peer_never_takes_still_closes_the_session_at_its_deadline() {
+    let endpoint = stalled(Duration::from_secs(9), false);
+    let started = tokio::time::Instant::now();
+    send_reset_or_close_session(
+        endpoint.clone(),
+        None,
+        Lane::Interactive,
+        1,
+        None,
+        &AtomicBool::new(false),
+        TERMINAL_RESET_DEADLINE,
+    )
+    .await;
+    assert!(endpoint.closed.load(Ordering::Acquire));
+    assert_eq!(endpoint.resets.load(Ordering::Relaxed), 0);
+    assert_eq!(started.elapsed(), TERMINAL_RESET_DEADLINE);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_recovery_that_never_resumes_closes_the_session_at_the_recovery_bound() {
+    let endpoint = stalled(Duration::from_secs(600), true);
+    let started = tokio::time::Instant::now();
+    send_reset_or_close_session(
+        endpoint.clone(),
+        None,
+        Lane::Interactive,
+        1,
+        None,
+        &AtomicBool::new(false),
+        TERMINAL_RESET_DEADLINE,
+    )
+    .await;
+    assert!(endpoint.closed.load(Ordering::Acquire));
+    assert_eq!(started.elapsed(), TERMINAL_RESET_RECOVERY_DEADLINE);
+}

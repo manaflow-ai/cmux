@@ -55,7 +55,7 @@ env:
 jobs:
   duress:
     name: cmux-duress tests, bench and scenarios
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # A cold build of cmux-duress with ghostty-vt and cmux-agent-cli-render, debug and release, plus the bench
     # and the scenarios; a warm cache leaves most of this unused.
     timeout-minutes: 45
@@ -66,7 +66,7 @@ jobs:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -92,8 +92,13 @@ jobs:
       - name: Install Linux build dependencies
         if: steps.crate.outputs.have == 'true' && runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         if: steps.crate.outputs.have == 'true'
@@ -109,6 +114,12 @@ jobs:
 
       # The cargo cache setup of cmux-tui.yml's test job, under its own key (this job builds one package, debug
       # and release, not the workspace). Saved only from a feat-cmux-next push; every run restores it.
+      # Keyed on the toolchain and the UTC day, not cmux-tui/Cargo.lock (24 changes in the 24 h to 2026-11-28
+      # 02:30Z, each one a new entry in the 10 GB GitHub cache that evicts the rest): one save a day.
+      - name: Day of the target-dir cache
+        id: rust-day
+        if: steps.crate.outputs.have == 'true'
+        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
       - name: Cache cargo build
         if: steps.crate.outputs.have == 'true'
         id: cargo-cache
@@ -118,7 +129,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-duress-linux
+          shared-key: cmux-duress-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Report cargo cache hit

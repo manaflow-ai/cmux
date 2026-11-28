@@ -15,6 +15,13 @@
 //!   this caller's own fleet registry marks `agent_vm: true` (`agent_vm.rs`):
 //!   a dedicated agent VM of the person's own fleet.
 //!
+//! An authenticated owner's peer start that explicitly carries `approve-all` also selects
+//! this host profile, without requiring a fleet registry entry. `asked` is the single decision
+//! consumed by folder selection, saved session metadata, and sandbox launch. Mesh controls
+//! carry owner authority only after their server-side sameUser grant matches; other controls
+//! are stamped `via: device`. Asking starts retain the scratch sandbox unless the caller
+//! separately selected the existing dedicated-VM boundary.
+//!
 //! At the boundary a Claude Code chat runs without bwrap (`remote_sandbox.rs`)
 //! and a Codex bridge chat with approve-all settles in `agent-full-access`
 //! instead of `ask` (`policy_mode.rs` `bridge_settle_modes`).
@@ -49,15 +56,29 @@ pub const FIELD: &str = "vmBoundary";
 /// a peer forwarding one). The daemon it reaches holds it as not the owner's.
 pub const VIA_DEVICE: &str = "device";
 
-/// Whether a `session/new` asks for the VM boundary: `_meta.acpmux.vmBoundary`
-/// is exactly `true`, the connection presented this launch's peer token
+/// Whether a `session/new` selects the host profile: it explicitly names approve-all or
+/// `_meta.acpmux.vmBoundary` is exactly `true`, the connection presented this launch's peer token
 /// (`server/peer_auth.rs`), and the peer asks for itself ([`owner`]), not for a
 /// Web client (`via: web`) or a paired machine (`via: device`) of its own. From
 /// anything else it means nothing.
 pub fn asked(auth: crate::server::ConnAuth, control: Control, params: &Value) -> bool {
     auth.peer_daemon()
         && owner(auth, control, params)
-        && params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true))
+        && (params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true))
+            || (params.pointer("/_meta/acpmux/vmBoundary") != Some(&Value::Bool(false))
+                && named_approve_all(params)))
+}
+
+/// Whether a forwarded start explicitly carries the full-access policy. The policy is accepted
+/// from the same two request locations as the start gate (`_meta.acpmux.policy` first, then the
+/// top-level compatibility field); an unknown or non-string value never opts into the boundary.
+fn named_approve_all(params: &Value) -> bool {
+    params
+        .pointer("/_meta/acpmux/policy")
+        .and_then(Value::as_str)
+        .or_else(|| params.get("policy").and_then(Value::as_str))
+        .and_then(|policy| policy.parse::<crate::config::PermissionPolicy>().ok())
+        == Some(crate::config::PermissionPolicy::ApproveAll)
 }
 
 /// Whether a request is the person's own for the VM boundary: its connection
@@ -89,6 +110,7 @@ pub fn forwards(auth: crate::server::ConnAuth, control: Control) -> bool {
         | ConnAuth::CarrierTeam
         | ConnAuth::BrowserApp
         | ConnAuth::WebDevice
+        | ConnAuth::MeshControl
         | ConnAuth::None => false,
     }
 }
@@ -188,73 +210,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{asked, forwards, owner, vm_boundary_peer_approves};
-    use crate::hub::Control;
-    use crate::server::ConnAuth;
-    use serde_json::json;
-
-    #[test]
-    fn only_a_peer_token_connection_asking_for_itself_asks_for_the_vm_boundary() {
-        let vm = json!({"_meta": {"acpmux": {"vmBoundary": true}}});
-        assert!(asked(ConnAuth::PeerToken, Control::Peer, &vm));
-        // A peer forwarding for its own Web client (`via: web`).
-        assert!(!asked(ConnAuth::PeerToken, Control::Web, &vm));
-        for auth in [
-            ConnAuth::ListenerToken,
-            ConnAuth::LocalApp,
-            ConnAuth::LocalSocket,
-            ConnAuth::Device,
-            ConnAuth::ReadOnlyDevice,
-            ConnAuth::None,
-        ] {
-            for control in [Control::Peer, Control::Local, Control::Web] {
-                assert!(!asked(auth, control, &vm), "{auth:?} {control:?}");
-            }
-        }
-        for other in [
-            json!({}),
-            json!({"_meta": {"acpmux": {"vmBoundary": "true"}}}),
-            json!({"vmBoundary": true}),
-        ] {
-            assert!(!asked(ConnAuth::PeerToken, Control::Peer, &other), "{other}");
-        }
-    }
-
-    #[test]
-    fn only_the_persons_own_clients_get_the_boundary_forwarded() {
-        assert!(forwards(ConnAuth::LocalSocket, Control::Local));
-        assert!(forwards(ConnAuth::LocalApp, Control::Local));
-        assert!(forwards(ConnAuth::PeerToken, Control::Peer));
-        assert!(!forwards(ConnAuth::PeerToken, Control::Web), "a peer's own Web client");
-        for auth in
-            [ConnAuth::ListenerToken, ConnAuth::Device, ConnAuth::ReadOnlyDevice, ConnAuth::None]
-        {
-            for control in [Control::Peer, Control::Local, Control::Web] {
-                assert!(!forwards(auth, control), "{auth:?} {control:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn a_request_forwarded_for_a_paired_machine_is_never_the_owners() {
-        let device = json!({"_meta": {"acpmux": {"via": "device", "vmBoundary": true}}});
-        assert!(!owner(ConnAuth::PeerToken, Control::Peer, &device));
-        assert!(!asked(ConnAuth::PeerToken, Control::Peer, &device));
-        assert!(owner(ConnAuth::PeerToken, Control::Peer, &json!({})));
-        assert!(!owner(ConnAuth::Device, Control::Peer, &json!({})), "a paired client");
-        assert!(owner(ConnAuth::LocalApp, Control::Local, &json!({})));
-    }
-
-    #[test]
-    fn only_the_owner_peer_with_the_vm_boundary_gets_approve_all() {
-        assert!(vm_boundary_peer_approves(true, false, true, true));
-        assert!(!vm_boundary_peer_approves(true, false, false, true), "a Web client still asks");
-        assert!(!vm_boundary_peer_approves(true, true, true, true), "never on a Mac");
-        assert!(!vm_boundary_peer_approves(false, false, true, true), "only with the boundary");
-        assert!(
-            !vm_boundary_peer_approves(true, false, true, false),
-            "never while MDM forces full access off"
-        );
-    }
-}
+#[path = "vm_boundary_tests.rs"]
+mod tests;

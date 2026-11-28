@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextPalette
 import CmuxNextCompat
 import CmuxNextFilesUI
+import CmuxNextWindowRules
 
 /// The matches of one Find in Directory search as a palette page: one row
 /// per matching line, filtered by the palette's matcher on the line, the
@@ -52,7 +53,7 @@ enum FindInDirectoryPage {
             PaletteCommand(id: "copyRelativePath", title: FindInDirectoryStrings.copyRelativePath, symbol: "doc.on.doc",
                            effect: .perform { copy(match.relativePath) }),
             PaletteCommand(id: "insertPath", title: FindInDirectoryStrings.insertPath, symbol: "text.insert",
-                           effect: .perform { if let quoted = TerminalHandlers.shellQuoted(match.path) { insert(quoted) } }),
+                           effect: .perform { if let quoted = WindowRules().shellQuoted(match.path) { insert(quoted) } }),
         ]
         return PaletteItem(
             id: "\(match.path):\(match.line):\(match.column)", title: match.preview, subtitle: location,
