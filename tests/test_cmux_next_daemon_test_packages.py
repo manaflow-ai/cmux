@@ -142,6 +142,17 @@ class TargetsOfTheMatches(unittest.TestCase):
         box.commit()
         self.assertEqual(run(box.root), ["-p", "t"])
 
+    def test_a_package_with_its_own_workspace_is_not_named(self) -> None:
+        # cmux-next-linux (#64481): its own [workspace] keeps it out of cmux-tui's, so `-p cmux-next-linux`
+        # failed "did not match any packages" in 35 s on every feat-cmux-next daemon-tests run.
+        box = self.box
+        box.crate("a")
+        box.write("cmux-tui/crates/a/tests/hits.rs", "#[test] fn cmux_next_hit() {}\n")
+        box.write("cmux-tui/own/Cargo.toml", '[package]\nname = "own"\nversion = "0.1.0"\n\n[workspace]\n')
+        box.write("cmux-tui/own/src/main.rs", "use cmux_next_own::x;\nfn main() {}\n")
+        box.commit()
+        self.assertEqual(run(box.root), ["-p", "a", "--test", "hits"])
+
     def test_a_match_outside_a_member_tests_the_workspace(self) -> None:
         self.box.write("cmux-tui/loose/x.rs", "#[test] fn cmux_next_x() {}\n")
         self.box.commit()

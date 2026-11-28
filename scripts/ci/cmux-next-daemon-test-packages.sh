@@ -66,6 +66,12 @@ while IFS= read -r file; do
   if [[ "$dir" != */* && ! -f "$dir/Cargo.toml" ]] || ! grep -q '^\[package\]' "$dir/Cargo.toml" 2>/dev/null; then
     echo "--workspace"; exit 0
   fi
+  # A package with its own [workspace] table (cmux-next-linux, cmux-rd-host: they link GTK/WebKitGTK the
+  # cmux-tui build lacks) is not a cmux-tui member, so `-p NAME` here fails "did not match any packages"
+  # before anything compiles. cmux-next-linux's `use cmux_next_linux::` matched the filter: from #64481
+  # (2026-11-28 14:44Z) every feat-cmux-next daemon-tests run failed in 35 s and saved an empty test target.
+  # cargo's test filter cannot run its tests from this workspace anyway, so skip it.
+  grep -q '^\[workspace\]' "$dir/Cargo.toml" && continue
   name="$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' "$dir/Cargo.toml" | head -n 1)"
   [[ -n "$name" ]] || { echo "--workspace"; exit 0; }
   packages+=("-p" "$name")
