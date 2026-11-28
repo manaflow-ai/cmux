@@ -9,7 +9,9 @@ name: language boundaries
 # script's docstring has the limit). A pull request anywhere that removes Swift and adds React/web code (a Swift-to-
 # React port) fails too unless Lawrence or Leo added `react-port-ok` (Lawrence, relayed by Leo, 2026-11-11: "also
 # let's not move stuff to react anymore unless we talk about it / swift->rust is usually fine though"). Adding or
-# removing a label re-runs it.
+# removing a label re-runs it. A teammate's own pull request (a User author other than teamleaderleo, no bot) passes
+# with no label: the labels hold agents only (Leo, 2026-11-21: "and the whole label ceremony we need to make sure that
+# doesnt block teammates and whatnot").
 #
 # scripts/ci/language_boundaries.py decides, run from the base commit with the base's manifest, never the pull
 # request's code; the head is read only as a list of changed files. It runs on pull_request_target, so this file is
@@ -59,6 +61,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -97,7 +101,7 @@ jobs:
               --jq '.[] | {status, path: .filename, old: (.previous_filename // "")} | tojson' > "$files" \
               || { echo "::error::Could not list the changed files; re-run this check."; exit 1; }
           fi
-          set -- --files "$files" --format "$format" --labels-json "$LABELS_JSON"
+          set -- --files "$files" --format "$format" --labels-json "$LABELS_JSON" --author "$AUTHOR" --author-type "$AUTHOR_TYPE"
           if [ -n "$CHANGED_FILES" ]; then set -- "$@" --expected-files "$CHANGED_FILES"; fi
           if printf '%s' "$LABELS_JSON" | grep -qE '"(leo-approved-port|react-port-ok)"'; then
             # Only with an approval label on: who added it, and Leo's approval line, one compact JSON object per line
