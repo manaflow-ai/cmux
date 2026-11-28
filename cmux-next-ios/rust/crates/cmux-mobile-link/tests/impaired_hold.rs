@@ -177,6 +177,7 @@ async fn hold() -> Hold {
             while path.changed().await.is_ok() {
                 let now = *path.borrow_and_update();
                 if now != last && last != LinkPath::NoPath {
+                    eprintln!("IH_FLIP t_ms={} {:?} -> {:?}", FLAP_START.get().map(|s| s.elapsed().as_millis()).unwrap_or(0), last, now);
                     path_flips.fetch_add(1, Ordering::Relaxed);
                 }
                 last = now;
