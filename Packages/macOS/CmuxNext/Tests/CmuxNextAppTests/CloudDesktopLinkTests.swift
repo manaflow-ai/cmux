@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 @testable import CmuxNextDaemonService
+@testable import CmuxNextMobileHost
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions
 import CmuxNextSettings
@@ -87,7 +88,12 @@ import Testing
     /// The phone is never offered a Cloud desktop: it has no carrier route to one yet.
     @Test func thePhoneIsOfferedNoCloudDesktop() async {
         let services = MachineIconTests.services()
-        #expect(await services.phoneCloudLinks().desktops == false)
+        // The phone host's Cloud directory, wired as AppServices+Cloud wires it (#58953 moved it out of AppServices).
+        let reader = MobileCloudLinksReader(auth: services.cloud.auth, identity: services.cloud.installIdentity,
+            sessions: { services.machines.cloud }, machine: { ($0.machineID, $0.machine) }, link: { $0.appLink },
+            current: { services.machines.session($0.machineID) === $0 },
+            paid: { services.machines.cloudLimits?.paysForCloud ?? false })
+        #expect(await reader.read().desktops == false)
     }
 
     /// Open Desktop has only the carrier viewer: a classic machine (no carrier route), or a cmux-next one
