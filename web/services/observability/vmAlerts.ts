@@ -480,8 +480,13 @@ async function recentHungEvidence(
     .limit(1);
   if (!snapshot || snapshot.createdAt.getTime() > now.getTime()
     || now.getTime() - snapshot.createdAt.getTime() > maxAgeMs) return null;
-  if (!snapshot.report || typeof snapshot.report !== "object") return null;
-  const report = snapshot.report as {
+  return hungEvidenceFromReport(snapshot.report);
+}
+
+/** The hung VMs a complete, error-free health report names; null when it names none or is partial. */
+function hungEvidenceFromReport(value: unknown): HungEvidence | null {
+  if (!value || typeof value !== "object") return null;
+  const report = value as {
     readonly coverage?: { readonly inventoryComplete?: unknown; readonly skippedBudget?: unknown; readonly probeErrors?: unknown };
     readonly errors?: unknown;
     readonly hung?: unknown;
