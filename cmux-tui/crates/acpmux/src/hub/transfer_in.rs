@@ -972,8 +972,13 @@ impl Hub {
         steps.step("queues");
         let _ = crate::home_fs::remove_dir_all(&dir);
         steps.step("cleanup");
-        let summary = self.session_summary(&session);
+        let mut summary = self.session_summary(&session);
         steps.step("summary");
+        let mut split = steps.split();
+        if let Some(import) = super::transfer_out::transfer_live::take_import_steps(&session.id) {
+            split.set("importSteps", import);
+        }
+        summary.set("finishSteps", split);
         Ok(summary)
     }
 
