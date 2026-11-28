@@ -1105,6 +1105,26 @@ impl Hub {
         if !missing.is_empty() {
             tracing::warn!(session = %session.id, ?missing, "manifest-env: start lacks env");
         }
+        // A port its processes served that something else holds on this machine (a move's
+        // target, or a fork beside its parent's server): logged, never freed (`session_manifest.rs`).
+        // The process table is read only when there is a port to check: its first read may scan
+        // the log (`process_table`), and a start with the switch off or no port never pays it.
+        let recorded = crate::session_manifest::on()
+            && session.read_meta(|m| m.manifest.as_ref().is_some_and(|m| !m.ports.is_empty()));
+        if recorded {
+            let own: Vec<u16> =
+                self.running_for_move(session).into_iter().filter_map(|(.., port)| port).collect();
+            let taken = session.read_meta(|m| {
+                crate::session_manifest::check_ports(
+                    m.manifest.as_ref(),
+                    std::path::Path::new(&m.cwd),
+                    &own,
+                )
+            });
+            if !taken.is_empty() {
+                tracing::warn!(session = %session.id, ?taken, "manifest-ports: recorded port is taken");
+            }
+        }
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
