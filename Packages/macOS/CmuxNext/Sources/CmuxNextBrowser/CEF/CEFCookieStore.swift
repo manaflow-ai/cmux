@@ -21,7 +21,7 @@ struct CEFCookieStore {
             let expires = (entry["expires"] as? NSNumber)?.doubleValue
             return BrowserCookie(name: name, value: entry["value"] as? String ?? "", domain: domain, path: entry["path"] as? String ?? "/",
                                  expires: session ? nil : expires.flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil },
-                                 secure: entry["secure"] as? Bool ?? false, httpOnly: entry["httpOnly"] as? Bool ?? false)
+                                 secure: entry["secure"] as? Bool ?? false, httpOnly: entry["httpOnly"] as? Bool ?? false, sameSite: entry["sameSite"] as? String)
         }
     }
 
@@ -36,6 +36,7 @@ struct CEFCookieStore {
             params["url"] = "\(cookie.secure ? "https" : "http")://\(cookie.domain)\(cookie.path)"
         }
         if let expires = cookie.expires { params["expires"] = expires.timeIntervalSince1970 }
+        if let sameSite = cookie.sameSite { params["sameSite"] = sameSite.capitalized }
         // A refused cookie is a protocol error from devTools.
         _ = try await tab.runtime.devTools(browserID, method: "Network.setCookie", params: params)
     }
