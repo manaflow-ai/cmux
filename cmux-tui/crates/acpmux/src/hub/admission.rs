@@ -497,6 +497,19 @@ impl Hub {
         let peer_room = peers
             .as_ref()
             .is_some_and(|verdict| super::admission_scale_up::room_elsewhere(verdict).is_some());
+        // The model pool sheds and Codex has no room: a Claude create asks for no machine
+        // (`pool_pressure.rs`, default off). The family is read only when it would matter.
+        let held = match super::pool_pressure::holds_scale_up(pool.as_ref()) {
+            Some(why)
+                if super::pool_pressure::hold_on(|k| std::env::var(k).ok())
+                    && super::pool_pressure::is_claude(
+                        &self.admission_family(ask.harness.as_deref()).await,
+                    ) =>
+            {
+                Some(why)
+            }
+            _ => None,
+        };
         let mut scaling_up = false;
         let mut auto_joined = false;
         let no_peer_room = verdict.over.is_some()
@@ -511,7 +524,7 @@ impl Hub {
             // Subscribe before triggering the provider so a fast join cannot be missed.
             let peer_states = self.peer_states();
             let states = peer_states.subscribe();
-            let (trigger, result) = self.scale_up_wait(over, registry.as_ref());
+            let (trigger, result) = self.scale_up_wait(over, registry.as_ref(), held.as_deref());
             scaling_up = trigger.scaling();
             if scaling_up && let Some(result) = result {
                 // Tell the caller now that a machine is being added and its start waits for it.
@@ -538,7 +551,7 @@ impl Hub {
                 .as_ref()
                 .is_some_and(|verdict| super::admission_scale_up::room_elsewhere(verdict).is_none())
         {
-            let (trigger, _) = self.scale_up_wait(over, registry.as_ref());
+            let (trigger, _) = self.scale_up_wait(over, registry.as_ref(), held.as_deref());
             scaling_up = trigger.scaling();
         } else if let Some(last) = verdict.last_slot.as_ref()
             && super::admission_scale_up::wants_warm_spare(warm_spare, true, peer_room)
@@ -547,7 +560,7 @@ impl Hub {
             // connected host has room, so one machine is asked for now, ahead of the next
             // start. The run's single flight and cooldown keep it to one; once it joins, a
             // peer has room and nothing more is asked.
-            let (trigger, _) = self.scale_up_wait(last, registry.as_ref());
+            let (trigger, _) = self.scale_up_wait(last, registry.as_ref(), held.as_deref());
             tracing::info!(
                 live = last.live,
                 max = last.max,
@@ -645,6 +658,9 @@ impl Hub {
                 };
                 warning.set("warning", json!(combined));
                 warning.set("poolPressure", super::pool_pressure::field(&pressure));
+                if held.is_some() && verdict.over.is_some() {
+                    warning.set("scaleUpHeld", json!(true));
+                }
                 admitted.warning = Some(warning);
             }
         }
@@ -733,9 +749,14 @@ impl Hub {
         &self,
         over: &OverCap,
         registry: Option<&Value>,
+        held: Option<&str>,
     ) -> (super::admission_scale_up::Trigger, Option<super::admission_scale_up::ResultReceiver>)
     {
         use super::admission_scale_up::{ScaleUp, plan, workspace_of};
+        if let Some(why) = held {
+            tracing::info!(machine = over.machine, "scale-up held: {why}");
+            return (super::admission_scale_up::Trigger::Cooling, None);
+        }
         let workspace = workspace_of(&over.source);
         let Some(plan) = registry
             .and_then(|registry| plan(registry, &over.source, &over.machine, workspace.as_deref()))

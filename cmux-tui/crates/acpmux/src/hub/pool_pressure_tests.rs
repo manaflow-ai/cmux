@@ -61,3 +61,31 @@ fn only_background_work_sleeps_sooner_and_only_while_the_pool_sheds() {
     assert!(!sleeps_sooner(None, BACKGROUND));
     assert!(is_claude("claude") && is_claude("claude-sr2") && !is_claude("codex"));
 }
+
+#[test]
+fn scale_up_is_held_only_while_the_pool_sheds_with_no_codex_room() {
+    let now = 5.0;
+    let shed_no_room = parse(&doc("shed", now, false), now);
+    let why = holds_scale_up(shed_no_room.as_ref()).expect("shed, no Codex room: held");
+    assert!(why.contains("model pool shedding (claude 1/209 usable)"), "{why}");
+    assert!(why.contains("Codex has no room (30/47 usable)"), "{why}");
+    assert_eq!(
+        holds_scale_up(parse(&doc("shed", now, true), now).as_ref()),
+        None,
+        "Codex has room"
+    );
+    assert_eq!(
+        holds_scale_up(parse(&doc("tight", now, false), now).as_ref()),
+        None,
+        "tight only warns"
+    );
+    assert_eq!(holds_scale_up(None), None, "no verdict: as before");
+}
+
+#[test]
+fn the_scale_up_hold_is_off_unless_switched_on() {
+    assert!(!hold_on(|_| None), "default off");
+    assert!(!hold_on(|_| Some("0".into())));
+    assert!(!hold_on(|_| Some("maybe".into())));
+    assert!(hold_on(|k| (k == HOLD_ENV).then(|| "1".into())));
+}

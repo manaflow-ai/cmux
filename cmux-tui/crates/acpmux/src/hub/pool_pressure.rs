@@ -23,6 +23,12 @@
 //!   full idle period, logged with the cause `pool-pressure`. The elastic fleet holds scale-up
 //!   while the pool sheds (`tools/lane_elastic.py`), so sleeping lanes free host room for the
 //!   work that waits. Its next prompt resumes it as any hibernated chat.
+//! - Scale-up (`admission.rs`, `admission_scale_up.rs`; default off,
+//!   `ACPMUX_POOL_HOLDS_SCALE_UP=1`): a Claude create past the lane cap does not ask the fleet
+//!   for a machine while the level is shed and Codex has no room either ([`holds_scale_up`],
+//!   lane_elastic's `pool_hold`): a new host would only start lanes into a pool that answers
+//!   529 and 503 (RFD 0205 section 3.6). The create still starts as asked, and the warning says
+//!   `scaleUpHeld`.
 
 use super::*;
 use std::path::{Path, PathBuf};
@@ -146,6 +152,23 @@ pub(crate) fn field(p: &Pressure) -> Value {
 /// Whether a session of subrouter priority `priority` sleeps after [`SHED_IDLE`] under `p`.
 pub(crate) fn sleeps_sooner(p: Option<&Pressure>, priority: &str) -> bool {
     p.is_some_and(|p| p.level == Level::Shed) && priority == crate::subrouter_priority::BACKGROUND
+}
+
+/// The environment switch of the scale-up hold (module docs): on only when set to 1, true,
+/// on or yes.
+pub(crate) const HOLD_ENV: &str = "ACPMUX_POOL_HOLDS_SCALE_UP";
+
+/// Whether the scale-up hold is switched on in an environment read through `env`.
+pub(crate) fn hold_on(env: impl Fn(&str) -> Option<String>) -> bool {
+    super::cold_wake::env_flag(env(HOLD_ENV).as_deref()) == Some(true)
+}
+
+/// Why a Claude create's scale-up is held under `p`, or None: the pool sheds and Codex has no
+/// room either (lane_elastic `pool_hold`'s rule, so the daemon and the fleet scaler agree).
+pub(crate) fn holds_scale_up(p: Option<&Pressure>) -> Option<String> {
+    let p = p.filter(|p| p.level == Level::Shed && !p.codex_room)?;
+    let codex = p.codex.as_deref().unwrap_or("?");
+    Some(format!("model pool shedding ({}) and Codex has no room ({codex} usable)", p.why))
 }
 
 impl Hub {
