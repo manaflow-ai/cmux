@@ -220,6 +220,25 @@ fn a_wanted_peer_retries_within_seconds_however_long_the_backoff_grew() {
 }
 
 #[test]
+fn a_wanted_peer_that_keeps_failing_backs_off_to_the_slow_cap() {
+    for failures in 0..=Backoff::WANTED_FAST_FAILURES {
+        assert_eq!(Backoff::wanted_cap(failures), Backoff::WANTED_CAP, "{failures}");
+    }
+    let mut last = Backoff::WANTED_CAP;
+    for failures in Backoff::WANTED_FAST_FAILURES..40 {
+        let cap = Backoff::wanted_cap(failures);
+        assert!(cap >= last && cap <= Backoff::WANTED_SLOW_CAP, "{failures}: {cap:?}");
+        last = cap;
+    }
+    assert_eq!(last, Backoff::WANTED_SLOW_CAP);
+    assert_eq!(Backoff::wanted_cap(u32::MAX), Backoff::WANTED_SLOW_CAP);
+    let long = Backoff::wanted_after(Backoff::CAP, 0.999_999, 20);
+    assert!(long > Backoff::WANTED_CAP && long <= Backoff::WANTED_SLOW_CAP, "{long:?}");
+    assert_eq!(Backoff::wanted_after(Backoff::CAP, 0.0, 20), Backoff::WANTED_SLOW_CAP / 2);
+    assert_eq!(Backoff::wanted(Backoff::CAP, 0.0), Backoff::WANTED_CAP / 2);
+}
+
+#[test]
 fn the_unreachable_error_names_the_state_age_and_last_error() {
     let mut link = Link::default();
     link.opened(0);

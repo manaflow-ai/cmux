@@ -1,6 +1,6 @@
 use super::*;
 
-fn delivery(n: usize) -> Delivery {
+pub(super) fn delivery(n: usize) -> Delivery {
     let now = crate::store::now_ms();
     Delivery {
         id: format!("d-{n}"),

@@ -108,6 +108,27 @@ struct Prepacked {
     ms: u64,
 }
 
+/// A log line's fields as `emit_lines` reads them, its message unparsed, in an
+/// `EventRecord`'s order. A line is copied as it is only when it is this written back (its
+/// fields exactly an `EventRecord`'s, in its order, no space): the bytes `serde_json` writes
+/// for the record, its message as `serde_json` wrote it (keys sorted: no `preserve_order`).
+#[derive(serde::Deserialize, serde::Serialize)]
+// A local log line, not a peer's: one with a field this build does not know is parsed whole.
+// skew: strict a line read here falls back to a whole parse, never refused
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LoggedLine<'a> {
+    seq: u64,
+    at: u64,
+    #[serde(borrow)]
+    dir: std::borrow::Cow<'a, str>,
+    #[serde(borrow)]
+    kind: std::borrow::Cow<'a, str>,
+    #[serde(borrow)]
+    msg: &'a serde_json::value::RawValue,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_seq: Option<u64>,
+}
+
 /// The most records one scan of [`Hub::write_lines`] writes before it lets the store's
 /// fork-view lock go and scans on from the last one. Three in tests, so every export and pack
 /// test writes its lines in several passes and checks they are the bytes one pass wrote.
@@ -611,21 +632,65 @@ impl Hub {
         // chat queues behind that waiting commit. A whole 30 MB log written in one scan, on the
         // pack worker's background-priority thread (`pack_as_it_grows.rs`) of a loaded host, held
         // it for minutes (the coordinator Mac, 2026-11-27: every acpmux delivery there timed out).
+        //
+        // Each pass reads the log's lines as they are (`Store::scan_raw`) and copies a line that
+        // reads the same written back (every record `display_logged` leaves as it is: the
+        // stored line is `serde_json`'s of the record, and so the bytes it writes) without
+        // parsing its message; only the last line (its digest) and the ones `display_logged` may
+        // change are parsed whole. Parsing every line into a `Value` was a whole core on a
+        // loaded host (cosmic-gray, 2026-11-28: the pack-grow thread, 1,079 of 1,846 samples in
+        // `scan_lines` and its allocations).
         loop {
             let (mut seen, mut ended) = (0usize, true);
             let from = last;
-            self.store.scan(&session.id, from, &mut |mut e: EventRecord| {
-                if e.seq > through {
+            let mut again = Vec::new();
+            self.store.scan_raw(&session.id, from, &mut |line: &[u8]| {
+                let head = match serde_json::from_slice::<LoggedLine>(line) {
+                    Ok(head) => Some(head),
+                    Err(_) => None,
+                };
+                let seq = match &head {
+                    Some(head) => head.seq,
+                    // A line the head does not read (a field it does not know): parsed whole
+                    // below, or skipped as `scan` skips one it cannot read.
+                    None => match serde_json::from_slice::<EventRecord>(line) {
+                        Ok(rec) => rec.seq,
+                        Err(_) => return true,
+                    },
+                };
+                if seq <= from {
+                    return true;
+                }
+                if seq > through {
                     return false;
                 }
-                let at_end = e.seq == through;
+                let at_end = seq == through;
                 let step = (|| -> anyhow::Result<()> {
-                    if at_end {
-                        digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+                    last = seq;
+                    match &head {
+                        Some(head)
+                            if !at_end
+                                && !super::permissions::display_may_change(
+                                    &head.dir,
+                                    &head.kind,
+                                    head.msg.get(),
+                                )
+                                && {
+                                    again.clear();
+                                    serde_json::to_writer(&mut again, head).is_ok() && again == line
+                                } =>
+                        {
+                            out.write_all(line)?;
+                        }
+                        _ => {
+                            let mut e = serde_json::from_slice::<EventRecord>(line)?;
+                            if at_end {
+                                digest = crate::sha256::sha256_hex(&serde_json::to_vec(&e)?);
+                            }
+                            self.display_logged(Some(session), &mut e);
+                            serde_json::to_writer(&mut *out, &e)?;
+                        }
                     }
-                    last = e.seq;
-                    self.display_logged(Some(session), &mut e);
-                    serde_json::to_writer(&mut *out, &e)?;
                     out.write_all(b"\n")?;
                     Ok(())
                 })();
@@ -828,6 +893,9 @@ impl Hub {
     }
 }
 
+#[cfg(test)]
+#[path = "emit_lines_tests.rs"]
+mod emit_lines_tests;
 #[cfg(test)]
 #[path = "pack_through_kept_tests.rs"]
 mod kept_tests;

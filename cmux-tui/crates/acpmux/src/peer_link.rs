@@ -360,11 +360,33 @@ impl Backoff {
     /// `delay` for a peer a client waits on: unchanged when it is within `WANTED_CAP`, else
     /// drawn again from that cap's upper half with `jitter` (in `0.0..1.0`).
     pub fn wanted(delay: Duration, jitter: f64) -> Duration {
-        if delay <= Self::WANTED_CAP {
+        Self::wanted_after(delay, jitter, 0)
+    }
+
+    /// Failed attempts in a row a wanted peer still retries within `WANTED_CAP`: a restart or one
+    /// failed handshake. Past them the bound doubles per failure up to `WANTED_SLOW_CAP`.
+    pub const WANTED_FAST_FAILURES: u32 = 3;
+    /// The longest step for a wanted peer that keeps failing. Dozens of peers whose machines are
+    /// off or unreachable (connect timed out, no route), each wanted by some list or watch, were
+    /// redialed once a second apiece: the daemon held 130-220% CPU and a Mac's load stood at 76
+    /// (2026-11-28). Each failed attempt is an ssh login, so the bound grows with the failures.
+    pub const WANTED_SLOW_CAP: Duration = Duration::from_secs(15);
+
+    /// The bound on a wanted peer's wait after `failures` failed attempts in a row.
+    pub fn wanted_cap(failures: u32) -> Duration {
+        let doublings = failures.saturating_sub(Self::WANTED_FAST_FAILURES).min(8);
+        Self::WANTED_CAP.saturating_mul(1u32 << doublings).min(Self::WANTED_SLOW_CAP)
+    }
+
+    /// `wanted` for a peer that has failed `failures` attempts in a row: the bound is
+    /// `wanted_cap(failures)`, the delay drawn from its upper half.
+    pub fn wanted_after(delay: Duration, jitter: f64, failures: u32) -> Duration {
+        let cap = Self::wanted_cap(failures);
+        if delay <= cap {
             return delay;
         }
-        let half = Self::WANTED_CAP.mul_f64(0.5);
-        half.saturating_add(Self::WANTED_CAP.mul_f64(jitter.clamp(0.0, 1.0) / 2.0))
+        let half = cap.mul_f64(0.5);
+        half.saturating_add(cap.mul_f64(jitter.clamp(0.0, 1.0) / 2.0))
     }
 
     /// The delay before the next attempt; `jitter` is in `0.0..1.0`.

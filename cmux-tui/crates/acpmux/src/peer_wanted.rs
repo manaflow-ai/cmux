@@ -281,8 +281,17 @@ impl Peer {
     /// ran on the monotonic clock, which stood still, so the attempt would otherwise come up to
     /// a minute after the wake, while the network that failed before the sleep is likely back.
     pub(super) async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
+        self.wait_backoff_after(delay, 0).await
+    }
+
+    /// `wait_backoff` for a peer that has failed `failures` attempts in a row: the bound a
+    /// client's ask gives (and the spacing between asks' cuts) grows with them
+    /// (`Backoff::wanted_cap`), so an unreachable peer that is asked about all the time is dialed
+    /// ever less often, not once per `WANTED_CAP` for as long as the asks last.
+    pub(super) async fn wait_backoff_after(&self, delay: Duration, failures: u32) -> BackoffWait {
         let started = Instant::now();
-        let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
+        let cap = Backoff::wanted_cap(failures);
+        let wanted = Backoff::wanted_after(delay, crate::peer_link::jitter(), failures);
         // After a refused ssh login no ask shortens the wait: a chat that keeps asking would
         // otherwise send the remote one refused login a second (`Backoff::login_refused`).
         // A refused host key likewise waits its own short backoff (`Backoff::host_key_refused`).
@@ -317,7 +326,7 @@ impl Peer {
                     // per cap, not one per ask.
                     let now = Instant::now();
                     let mut cut = self.wanted.cut_at.lock().unwrap_or_else(|e| e.into_inner());
-                    if cut.is_none_or(|at| now.saturating_duration_since(at) >= Backoff::WANTED_CAP) {
+                    if cut.is_none_or(|at| now.saturating_duration_since(at) >= cap) {
                         *cut = Some(now);
                         return BackoffWait::Done;
                     }
