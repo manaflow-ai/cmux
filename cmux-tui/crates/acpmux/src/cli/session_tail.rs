@@ -22,6 +22,7 @@ use crate::cli::run::resolve_id;
 use crate::client::Client;
 use crate::rpc::{Message, method};
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -313,7 +314,7 @@ fn gone(e: &io::Error) -> bool {
 
 pub(crate) fn with_cursor(id: &str, mut e: Value) -> Value {
     if let Some(seq) = e.get("seq").and_then(Value::as_u64) {
-        e["cursor"] = json!(format!("{id}:{seq}"));
+        e.set("cursor", json!(format!("{id}:{seq}")));
     }
     e
 }

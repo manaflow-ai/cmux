@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronRight } from "./icons";
+import { ChipDisclosureChevron } from "../chips/ChipDisclosureChevron";
 import { copyTextResult } from "./clipboard";
 import { useT } from "../i18n";
 
@@ -9,7 +10,18 @@ import { useT } from "../i18n";
 /// beside it for a bug report. Closed by default; the chat's chevron, never the browser's triangle.
 /// The failed turn card, the start-failed card and the agent CLI line all draw it, so the three read
 /// and copy the same way.
-export function ErrorDetails({ text, className }: { text: string; className?: string }) {
+/// `chipChevron` draws the composer chips' chevron turned right (ComposerPickers.tsx ChevronIcon) in
+/// place of the transcript's: New Tab's start failure sits over those chips, so its Details chevron
+/// takes their size (2026-11-23: "make sure all of the icons are the same size").
+export function ErrorDetails({
+  text,
+  className,
+  chipChevron = false,
+}: {
+  text: string;
+  className?: string;
+  chipChevron?: boolean;
+}) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -20,7 +32,11 @@ export function ErrorDetails({ text, className }: { text: string; className?: st
     >
       <summary className="cv-turn-note__summary">
         {t("turn.failure.details")}
-        <ChevronRight size={12} aria-hidden="true" className={`cv-rotor${open ? " is-open" : ""}`} />
+        {chipChevron ? (
+          <ChipDisclosureChevron className={`cv-rotor acpmux-chip-disclosure${open ? " is-open" : ""}`} />
+        ) : (
+          <ChevronRight size={12} aria-hidden="true" className={`cv-rotor${open ? " is-open" : ""}`} />
+        )}
       </summary>
       <span className="cv-turn-error__raw">
         <span data-error-detail className="block font-mono text-detail whitespace-pre-wrap text-dim select-text">

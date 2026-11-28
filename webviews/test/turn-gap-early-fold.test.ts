@@ -17,7 +17,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { layoutConversation, MESSAGE_RUN, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
+import { TRANSCRIPT_RUN_GAP, TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
 
 afterEach(() => {
@@ -85,25 +85,27 @@ const opened: Step[] = [
   ["mux", "turn_result", { turnId: "t2", status: "completed" }],
 ];
 
-// The turn's line heads it, over the message (#50242: one header row from its first call): the block
-// gap over that line, and the message flush under it as the turn's first step, on the tool rows' pitch
+// The turn's line heads it, over the message (#50242: one header row from its first call): the run
+// gap (16) over that line under the turn before's footer row (transcriptGrid.ts FOOTER_WORKING_GAP_LOOKS; Leo,
+// 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc buttons and the next
+// working for?"), and the message flush under it as the turn's first step, on the tool rows' pitch
 // (Leo, 2026-11-22: "i think it's the message recieving not properly getting treated like the tool call
 // ish thing it should be and instead as if it were a message?").
-test("user_message(turnId) > turn_started > tool_call: the turn's line has the block gap over it, the message none", async () => {
+test("user_message(turnId) > turn_started > tool_call: the turn's line has the run gap over it, the message none", async () => {
   for (const count of [7, 8]) {
     const { view, gap } = await after(opened, count, true);
     const message = view[lastIndex(view, (row) => row.kind === "user")]!;
     expect(message.incoming?.kind).toBe("message");
     const line = view[view.indexOf(message) - 1]!;
     expect(line.id).toBe(`worked-${message.id}`);
-    expect(gap(line.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    expect(gap(line.id)).toBe(TRANSCRIPT_RUN_GAP);
     expect(gap(message.id)).toBe(0);
   }
   // turn_result: the line becomes "Worked for" and the message folds into it, so the row over it is the turn
-  // before's footer: the block gap a footer stands over "Worked for" (rowGapTable.test.ts footer -> worked).
+  // before's footer: the run gap (16) a footer stands over "Worked for" (rowGapTable.test.ts footer -> worked).
   const { view, gap } = await after(opened, opened.length, false);
   const worked = view.filter((row) => row.kind === "worked").at(-1)!;
-  expect(gap(worked.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+  expect(gap(worked.id)).toBe(TRANSCRIPT_RUN_GAP);
 });
 
 const steered: Step[] = [
@@ -127,9 +129,17 @@ for (const fold of [undefined, "runs"] as const)
       expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(0);
       expect(view.some((row) => row.kind === "activity")).toBe(true);
     }
-    // The agent's paragraph ends the run: it folds then, still mid-turn, as a run of calls does.
+    // The agent's paragraph ends the run. By default (live-turn-work `open`, #48766) nothing folds while
+    // the turn runs (Leo, 2026-11-21: "i thought we dont fold while you're still going"): every call
+    // stays in sight on its own line.
     const said = await after(steered, 8, true);
-    expect(said.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
+    expect(said.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(0);
+    expect(said.view.some((row) => row.kind === "activity")).toBe(true);
+    // Under `runs` (the Codex app's way) the paragraph folds the run then, still mid-turn.
+    globalThis.cmuxExperiments = { ...(fold && { "claude-turn-fold": fold }), "live-turn-work": "runs" };
+    const runs = await after(steered, 8, true);
+    expect(runs.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
+    globalThis.cmuxExperiments = fold ? { "claude-turn-fold": fold } : undefined;
     // And at turn_result it is folded too.
     const done = await after(steered, steered.length, false);
     const rows: AcpmuxRow[] = done.view;
@@ -188,7 +198,7 @@ for (const kind of ["message", "notice"] as const)
 // A turn that ends on work (no reply) draws "Worked for" and, since G04 (cmuxterm-hq#13766), its own
 // footer row with the calls' Copy. The notice or message that opens the next turn stands the block gap
 // under that footer, as under any finished turn's footer, so it never reads as that turn's last step.
-test("turn_result (ended on work) > user_message(turnId, notice) > turn_started: the notice has a block gap over it", async () => {
+test("turn_result (ended on work) > user_message(turnId, notice) > turn_started: the notice has the run gap over it", async () => {
   const steps: Step[] = [
     ["mux", "user_message", { text: "Watch the broker", turnId: "t1" }],
     ["mux", "turn_started", { turnId: "t1" }],
@@ -224,8 +234,8 @@ test("turn_result (ended on work) > user_message(turnId, notice) > turn_started:
     // Once its turn runs, the turn's own line stands that gap over it, and the notice sits flush under it.
     const head = view[at - 1]!;
     if (head.id === `worked-${notice.id}`) {
-      expect(gap(head.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+      expect(gap(head.id)).toBe(TRANSCRIPT_RUN_GAP);
       expect(gap(notice.id)).toBe(0);
-    } else expect(gap(notice.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    } else expect(gap(notice.id)).toBe(TRANSCRIPT_RUN_GAP);
   }
 });

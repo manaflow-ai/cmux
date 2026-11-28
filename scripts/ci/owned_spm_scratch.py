@@ -5,7 +5,8 @@
     owned_spm_scratch.py lease WORKSPACE [STORE]
     owned_spm_scratch.py evict [STORE]
     owned_spm_scratch.py drop-bundles BUILD
-    owned_spm_scratch.py seeded
+    owned_spm_scratch.py seeded [ROOT KEY]
+    owned_spm_scratch.py seed-kept ROOT PREFIX
 
 With CMUX_FAST_TIER_OWNED_SEED=1 (cmux-next.yml's fast tier, unless vars.CI_FAST_TIER_OWNED_SEED is "0"),
 `lease` first holds the mini's seed root (seed_lease): the workspace path the R2 base seed is built at,
@@ -108,6 +109,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unicodedata
 from typing import Mapping
 
@@ -815,6 +817,72 @@ SEED_SETTING = "CMUX_FAST_TIER_OWNED_SEED"  # "1" from cmux-next.yml unless vars
 # The seed's CmuxNext and CmuxHomeRender builds (15 GiB `du` in seed job 134522053219), rounded up.
 SEED_BYTES_ESTIMATE = 16 * 1024**3
 SEED_BUILDS = ("Packages/macOS/CmuxNext/.build", "Packages/Shared/CmuxHomeRender/.build")
+# A seed root keeps the last job's build. The fast tier and generated-files downloaded the seed into it
+# again on every job: 7.8 min (job 137945651156) to 11.6 min (job 138202614348) from R2 on a mini, before
+# a build that compiled about as many files as without it. The marker says the kept build descends from
+# a seed restored under KEY at AT, and only jobs with KEY's prefix (toolchain, manifests, path) built on it
+# since: such a build is SwiftPM's normal incremental state, and mirror() kept the time of every file
+# whose content it already had, so the next job of that prefix builds on it with no download.
+# seed_lease sets the marker aside (SEED_PENDING); `seed-kept` puts it back only for a job of the same
+# prefix within SEED_KEEP_MINUTES (vars.CI_FAST_TIER_SEED_KEEP_MINUTES; "0" restores every time), and
+# `seeded ROOT KEY` writes it after a restore. A job that reads neither leaves no marker behind.
+SEED_KEPT_MARKER = "cmux-seed-kept.json"
+SEED_PENDING = "cmux-seed-kept.pending"
+SEED_KEEP_SETTING = "CMUX_FAST_TIER_SEED_KEEP_MINUTES"
+SEED_KEEP_MINUTES = 120
+
+
+def seed_marker(root: Path, name: str = SEED_KEPT_MARKER) -> Path:
+    return root / SEED_BUILDS[0] / name
+
+
+def set_seed_marker_aside(root: Path) -> None:
+    """At lease: the kept build's marker waits for `seed-kept` to judge it against this job's prefix."""
+    marker, pending = seed_marker(root), seed_marker(root, SEED_PENDING)
+    try:
+        os.replace(marker, pending)
+    except FileNotFoundError:
+        pending.unlink(missing_ok=True)
+
+
+def write_seed_marker(root: Path, key: str, at: float | None = None) -> Path | None:
+    build = root / SEED_BUILDS[0]
+    if not key or not build.is_dir():
+        return None
+    marker = seed_marker(root)
+    staged = marker.with_name(f"{marker.name}.{os.getpid()}")
+    staged.write_text(json.dumps({"key": key, "at": time.time() if at is None else at}) + "\n", encoding="utf-8")
+    staged.replace(marker)
+    seed_marker(root, SEED_PENDING).unlink(missing_ok=True)
+    return marker
+
+
+def seed_keep_minutes(environ: Mapping[str, str] = os.environ) -> float:
+    try:
+        return max(0.0, float(environ.get(SEED_KEEP_SETTING) or SEED_KEEP_MINUTES))
+    except ValueError:
+        return float(SEED_KEEP_MINUTES)
+
+
+def take_kept_seed(root: Path, prefix: str, now: float | None = None,
+                   environ: Mapping[str, str] = os.environ) -> str | None:
+    """The seed key the root's kept build descends from, when this job (PREFIX) may build on it instead of
+    restoring a seed: the same prefix, restored at most seed_keep_minutes ago, and a planned build still
+    in every seed directory. Puts the marker back for it; drops it otherwise."""
+    pending = seed_marker(root, SEED_PENDING)
+    try:
+        record = json.loads(pending.read_text(encoding="utf-8"))
+        key, at = str(record["key"]), float(record["at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        pending.unlink(missing_ok=True)
+        return None
+    pending.unlink(missing_ok=True)
+    age = (time.time() if now is None else now) - at
+    if (not prefix or not key.startswith(prefix) or not 0 <= age <= seed_keep_minutes(environ) * 60
+            or not all(any((root / build).glob("*/*/description.json")) for build in SEED_BUILDS)):
+        return None
+    write_seed_marker(root, key, at=at)
+    return key
 
 
 def seed_fits(free: int, kept: int, floor_gib: float, growth_gib: float, footprint: int) -> bool:
@@ -933,6 +1001,8 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
         if seed_workspace.is_symlink() or not seed_workspace.is_dir():
             seed_workspace.unlink()
     seed_workspace.mkdir(exist_ok=True)
+    with contextlib.suppress(OSError):
+        set_seed_marker_aside(seed_workspace)  # before the mirror: a half-mirrored root keeps no marker
     mirror(workspace, seed_workspace)
     for package in packages(seed_workspace):
         build = package / ".build"
@@ -941,7 +1011,7 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
         else:
             drop_resource_bundles(build)  # the last job may have built another branch (cmux#26961)
     if verdict is not None:
-        verdict.update(state="cold", reason="seed root", bytes=0)
+        verdict.update(state="cold", reason="seed root", bytes=kept)
     return seed_workspace
 
 
@@ -1061,9 +1131,29 @@ def main(argv: list[str]) -> int:
         if verdict:
             report(verdict)
         return 0
-    if len(argv) == 2 and argv[1] == "seeded":
+    if len(argv) in (2, 4) and argv[1] == "seeded":
         write_seeded()
+        if len(argv) == 4:
+            with contextlib.suppress(OSError):
+                write_seed_marker(Path(argv[2]), argv[3])
         print("owned SwiftPM scratch: the base seed was restored into the seed root (starts seeded)")
+        return 0
+    if len(argv) == 4 and argv[1] == "seed-kept":
+        root = Path(argv[2])
+        try:
+            key = take_kept_seed(root, argv[3])
+        except OSError as error:
+            print(f"owned SwiftPM scratch: no kept seed ({error})")
+            key = None
+        if key is None:
+            write_output("kept", "0")
+            print("owned SwiftPM scratch: the seed root keeps no build of this prefix; restoring the seed")
+            return 0
+        kept_bytes = sum(tree_bytes(root / build) for build in SEED_BUILDS)
+        write_output("kept", "1")
+        write_output("key", key)
+        write_warm_start("warm", kept_bytes, "kept seed")
+        print(f"owned SwiftPM scratch: starts warm (kept seed {key}, {kept_bytes / 1024**3:.1f} GiB kept); no restore")
         return 0
     if len(argv) == 3 and argv[1] == "drop-bundles":
         dropped = drop_resource_bundles(Path(argv[2]))

@@ -1,5 +1,6 @@
 public import CmuxNextAgentActivity
 import CmuxNextCompat
+import CmuxNextDesign
 public import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
@@ -18,9 +19,31 @@ public final class SidebarPriorityFeed {
     public struct Settings {
         public var enabled: @MainActor () -> Bool
         public var shown: @MainActor () -> Bool
-        public init(enabled: @escaping @MainActor () -> Bool, shown: @escaping @MainActor () -> Bool) {
+        /// `sidebar.priorityView.filters`: the All, Waiting, Unread and Running chips with their counts,
+        /// and Mark All as Read.
+        public var filters: @MainActor () -> Bool
+        /// `sidebar.priorityView.showIdle`: off, only chats that need the person or run a turn are
+        /// listed (a pinned or dragged idle chat stays).
+        public var showIdle: @MainActor () -> Bool
+        /// `sidebar.priorityView.statusWords`: each row says its state in words.
+        public var statusWords: @MainActor () -> Bool
+        public init(enabled: @escaping @MainActor () -> Bool, shown: @escaping @MainActor () -> Bool,
+                    filters: @escaping @MainActor () -> Bool = { false }, showIdle: @escaping @MainActor () -> Bool = { true },
+                    statusWords: @escaping @MainActor () -> Bool = { false }) {
             self.enabled = enabled
             self.shown = shown
+            self.filters = filters
+            self.showIdle = showIdle
+            self.statusWords = statusWords
+        }
+
+        /// The app's: each key read from the live settings (`DesignSettings.shared.sidebarSections`), so a
+        /// settings or theme-file save redraws the view.
+        @MainActor public static var app: Settings {
+            let preferences = { DesignSettings.shared.sidebarSections }
+            return Settings(enabled: { preferences().priorityViewEnabled }, shown: { preferences().priorityViewShown },
+                            filters: { preferences().priorityViewFilters }, showIdle: { preferences().priorityViewShowIdle },
+                            statusWords: { preferences().priorityViewStatusWords })
         }
     }
 
@@ -120,14 +143,37 @@ public final class SidebarPriorityFeed {
             !$0.sidebarRequiresOpen || opened.contains($0.id) || state.pinned.contains($0.id)
         }.map(\.id))
         let answerable = approvals?.answerable ?? [:]
-        let entries = chats.entries(built, now: Date()).filter { visible.contains($0.id) }.map { entry in
+        let showIdle = settings.showIdle()
+        let entries = chats.entries(built, now: Date()).filter { entry in
+            guard visible.contains(entry.id) else { return false }
+            // Without idle rows the view is the Codex app's activity list: waiting, unread, running
+            // (and failed or Red CI). A chat the person pinned or dragged to a place stays.
+            return showIdle || entry.state != .idle || entry.pinned || state.placed[entry.id] != nil
+        }.map { entry in
             var entry = entry
             entry.answerRequest = entry.state == .needsYou ? answerable[entry.id] : nil
             return entry
         }
-        return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
-                                    collapsed: state.collapsed, shortcut: hooks.shortcut(),
+        listed = entries
+        let filters = settings.filters() ? SidebarPriorityFilterBar(selected: state.filter, all: entries) : nil
+        let rows = shown ? entries.filter { filters?.selected.includes($0) ?? true } : entries.filter(\.needsAttention)
+        return SidebarPriorityPanel(entries: rows, shown: shown, collapsed: state.collapsed, shortcut: hooks.shortcut(),
+                                    filters: filters, statusWords: settings.statusWords(),
                                     archived: shown ? archived(open: state.archivedOpen) : SidebarArchivedChats())
+    }
+
+    /// Every row the last `panel` listed, in rank order, before a filter picked some: Mark All as
+    /// Read marks them, and a drag under a filter keeps the others' places.
+    private var listed: [SidebarPriorityEntry] = []
+
+    /// The whole list's order after the person dragged a row to `order` under a filter, which shows
+    /// only some rows: the shown rows take the slots they held in the whole list, in their new order,
+    /// and every hidden row keeps its slot.
+    static func merged(_ order: [String], into all: [String]) -> [String] {
+        let shown = Set(order)
+        guard order.count < all.count, shown.isSubset(of: all) else { return order }
+        var next = order.makeIterator()
+        return all.map { shown.contains($0) ? next.next() ?? $0 : $0 }
     }
 
     /// The Archived fold: only its count while folded (no row is built or sorted), else the newest
@@ -146,8 +192,15 @@ public final class SidebarPriorityFeed {
         case .markRead, .togglePin, .snooze, .archive: hooks.rowAction(action)
         case .answer(let id, let request, let allow): approvals?.answer(session: id, request: request, allow: allow)
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
-        case .place(let id, let order): marks.place(id, in: order)
+        case .place(let id, let order):
+            // Under a filter the shown rows trade the slots they held in the whole list, so each
+            // keeps its new slot; under All only the dragged row moved.
+            let all = listed.map(\.id)
+            marks.place(id, in: Self.merged(order, into: all), moved: order.count < all.count ? Set(order) : [])
         case .toggleShown: hooks.toggleShown()
+        case .setFilter(let filter): marks.setFilter(filter)
+        case .markAllRead:
+            for entry in listed where entry.canMarkRead { hooks.rowAction(.markRead(entry.id)) }
         case .restore: hooks.rowAction(action)
         case .openArchived(let id):
             if let lane = chats.lane(id) { hooks.open(lane) } else { hooks.openSession(id) }

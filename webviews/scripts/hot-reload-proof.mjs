@@ -1,7 +1,9 @@
 // Proves the web UI hot-reloads while it is in use: the dev server `web-overlay.sh server --local`
 // runs (vite.config.ts, `/agent-pane/`), the agent pane on the in-page mock daemon with a turn
 // streaming and a draft typed, then real source edits. Each edit must show up in the open page
-// without a page reload, with the draft and the transcript kept.
+// without a page reload, with the draft and the transcript kept. Each edit's row also says where its
+// time went (`parts`, ms after the save): written, seen by the server's watcher, update sent, the
+// updated module fetched, a stylesheet's <style> replaced, and the frame after it.
 //   node scripts/hot-reload-proof.mjs [--audit] [out dir]
 // --audit also touches every component file the pane loaded and reports which ones hot-swap
 // and which ones reload the page (a reload drops the draft and the scroll position).
@@ -19,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium } from "playwright";
+import { isDynamicImportFailure, optimizerSettled } from "./hot-reload-proof-load.mjs";
 
 const ownWebviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // What the pane's dev server reads from the repository: webviews and the files outside it that
@@ -84,6 +87,8 @@ const results = [];
 // A cold first load's bound: 142 s on a GCP lane VM on 2026-11-24; the proof's own timeout in CI is 360 s.
 const COLD_LOAD_MS = 240_000;
 let coldLoadMs;
+const coldLoadRetries = [];
+
 try {
   const root = path.dirname(ownWebviews);
   const skip = new Set([path.join(ownWebviews, "node_modules"), path.join(ownWebviews, "dist")]);
@@ -142,6 +147,20 @@ try {
     },
     logLevel: "warn",
   });
+  // Where a probe's time goes (its row's `parts`): the server's side here, the page's in `trace`
+  // below. Every mark is wall-clock ms (timeOrigin + now) on this one machine, so node's and
+  // the page's marks subtract.
+  const clock = () => performance.timeOrigin + performance.now();
+  const serverMarks = {};
+  server.watcher.on("change", (file) => {
+    serverMarks.watched ??= { file, at: clock() };
+  });
+  const hot = server.environments?.client?.hot ?? server.ws;
+  const hotSend = hot.send.bind(hot);
+  hot.send = (...payload) => {
+    if (payload[0]?.type === "update") serverMarks.sent ??= clock();
+    return hotSend(...payload);
+  };
   await server.listen();
   const { port } = server.httpServer.address();
   browser = await chromium.launch({
@@ -152,6 +171,27 @@ try {
     handleSIGTERM: false,
   });
   const page = await browser.newPage({ viewport: { width: 980, height: 820 } });
+  // The page's marks for `parts`: when it fetched the updated module, when a stylesheet's
+  // <style> took the new text (Vite's updateStyle), and the frame after that.
+  await page.addInitScript(() => {
+    const trace = (window.__hotReloadTrace = { fetches: [], styled: 0, framed: 0 });
+    const clock = (at = performance.now()) => performance.timeOrigin + at;
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries())
+        if (entry.name.includes("?t=") || entry.name.includes("&t="))
+          trace.fetches.push({ name: entry.name, start: clock(entry.startTime), end: clock(entry.responseEnd) });
+    }).observe({ type: "resource" });
+    new MutationObserver((records) => {
+      if (trace.styled) return;
+      for (const record of records) {
+        const node = record.target.nodeType === Node.TEXT_NODE ? record.target.parentNode : record.target;
+        if (!(node instanceof HTMLStyleElement) || !node.dataset.viteDevId) continue;
+        trace.styled = clock();
+        requestAnimationFrame(() => (trace.framed = clock()));
+        return;
+      }
+    }).observe(document, { subtree: true, childList: true, characterData: true });
+  });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   // Vite's client logs each hot update and each Fast Refresh it gives up on, with the module.
@@ -204,11 +244,41 @@ try {
   // outgrew Playwright's 30 s navigation and the 60 s composer wait on 2026-11-24 (the probe read "report.json
   // unreadable" from 14:06Z). It is not what the probe measures (save to shown), so it gets its own bound and its time
   // goes in the report.
+  // Vite's dependency optimizer can bundle again while that load runs: the entry's dynamic import of
+  // acpmux/main.tsx then fails ("Failed to fetch dynamically imported module") and the page never mounts
+  // the composer (the probe's 08:11Z run and three of four local runs on 2026-11-27 waited out all 240 s).
+  // The gallery's warm-up meets the same race (test/support/galleryFrame.ts): load again once the
+  // optimizer has settled, within the same bound. The failed loads' errors are the cold load's, not the
+  // probes'.
   const loadStarted = performance.now();
-  await page.goto(`http://127.0.0.1:${port}/agent-pane/?mock`, { timeout: COLD_LOAD_MS });
-  await page.locator(".ProseMirror").first().waitFor({ timeout: COLD_LOAD_MS });
+  const coldLeft = () => Math.max(1, COLD_LOAD_MS - (performance.now() - loadStarted));
+  for (;;) {
+    const errorsAtLoad = errors.length;
+    let importFailed;
+    const failed = new Promise((resolve) => {
+      importFailed = (error) => isDynamicImportFailure(error.message) && resolve("import failed");
+      page.on("pageerror", importFailed);
+    });
+    try {
+      await page.goto(`http://127.0.0.1:${port}/agent-pane/?mock`, { timeout: coldLeft() });
+      const outcome = await Promise.race([
+        page
+          .locator(".ProseMirror")
+          .first()
+          .waitFor({ timeout: coldLeft() })
+          .then(() => "mounted"),
+        failed,
+      ]);
+      if (outcome === "mounted") break;
+    } finally {
+      page.off("pageerror", importFailed);
+    }
+    coldLoadRetries.push(...errors.splice(errorsAtLoad));
+    console.log(`cold load: the pane's entry failed to import (the optimizer bundled again); loading again`);
+    await optimizerSettled(server, coldLeft);
+  }
   coldLoadMs = Math.round(performance.now() - loadStarted);
-  console.log(`cold load: ${coldLoadMs} ms`);
+  console.log(`cold load: ${coldLoadMs} ms${coldLoadRetries.length ? ` (${coldLoadRetries.length} reloads)` : ""}`);
   const reloadsBefore = reloads;
   const editor = () => page.locator(".ProseMirror").first();
   // A full reload destroys the page's context mid-read: wait for the new page, then read again.
@@ -243,11 +313,29 @@ try {
     const reloadsAtWrite = reloads;
     // This turn's last reply has not arrived yet: the edit lands mid-turn.
     const midTurn = (await repliesDone()) === repliesBefore;
+    await inPage(() => Object.assign(window.__hotReloadTrace, { fetches: [], styled: 0, framed: 0 }));
+    for (const key of Object.keys(serverMarks)) delete serverMarks[key];
     const started = performance.now();
+    const savedAt = clock();
     await write(probe.file, (text) => probe.edit(text, n));
+    const wroteAt = clock();
     let shown = true;
     await page.waitForFunction(probe.seen, n, { timeout: 15_000 }).catch(() => (shown = false));
     const ms = Math.round(performance.now() - started);
+    const trace = await inPage(() => window.__hotReloadTrace);
+    const fetched = trace.fetches.find((entry) => entry.name.includes(path.basename(probe.file)));
+    // ms after the save each step was done; null when it never happened (a reload, a probe file
+    // the page imports through another module).
+    const since = (at) => (at ? Math.round(at - savedAt) : null);
+    const parts = {
+      written: since(wroteAt),
+      watched: since(serverMarks.watched?.file === path.join(webviews, probe.file) && serverMarks.watched.at),
+      sent: since(serverMarks.sent),
+      fetchStarted: since(fetched?.start),
+      fetched: since(fetched?.end),
+      styled: since(trace.styled),
+      framed: since(trace.framed),
+    };
     // A reload can follow the update (Vite invalidates up the importers first): let it land.
     await settle();
     const now = await inPage(
@@ -273,6 +361,7 @@ try {
       midTurn,
       shown,
       ms,
+      parts,
       ...now,
       reloaded: reloads > reloadsAtWrite,
       turnFinished,
@@ -286,6 +375,9 @@ try {
       `${row.probe} (${row.file}, saved ${row.midTurn ? "mid-turn" : "after the turn"}): ${row.shown ? `shown in ${row.ms} ms` : "never shown"}, ` +
         `reloaded ${row.reloaded}, same page ${row.samePage}, draft kept ${row.draftKept}, transcript kept ${row.transcriptKept}, ` +
         `turn finished ${row.turnFinished}` +
+        `\n    ms after the save: ${Object.entries(row.parts)
+          .map(([part, at]) => `${part} ${at ?? "-"}`)
+          .join(", ")}, shown ${row.ms}` +
         (row.vite.length ? `\n    ${row.vite.join("\n    ")}` : ""),
     );
   console.log(`page reloads: ${live.reloads}`);
@@ -390,7 +482,16 @@ try {
     console.log(`replay ${replay}: ${hot.length} of ${counted.length} saves the page loads hot-applied`);
   }
 
-  const report = { port, coldLoadMs, live, audit: auditRows, replay: replayRows, pageErrors: errors, vite };
+  const report = {
+    port,
+    coldLoadMs,
+    coldLoadRetries,
+    live,
+    audit: auditRows,
+    replay: replayRows,
+    pageErrors: errors,
+    vite,
+  };
   await fs.writeFile(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.log(out);
   const ok = replay

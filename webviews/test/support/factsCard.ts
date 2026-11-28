@@ -3,6 +3,7 @@
 // no dwell), not the trigger's hidden description.
 import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
+import { loadLazyChunks } from "../../src/lazyChunk";
 import { settleReact } from "./domTeardown";
 
 /** The label as drawn, excluding the hidden descriptions used by the facts card. */
@@ -24,6 +25,9 @@ export async function factsCardText(element: Element): Promise<string> {
   try {
     await act(async () => {
       element.dispatchEvent(new view.FocusEvent("focusin", { bubbles: true }));
+      // A card asked for before its chunk is in opens when it arrives (src/lazyChunk.ts): a file
+      // that loaded the card's trigger after its first test began has it fetched only now.
+      await loadLazyChunks();
     });
     const card = element.ownerDocument.querySelector("[data-facts-card]");
     const text = card?.textContent ?? "";
@@ -124,4 +128,13 @@ export async function renderInDom(node: ReactNode): Promise<{ container: HTMLEle
       }
     },
   };
+}
+
+/// `element`'s text as a sighted person reads it: its `textContent` without the hidden elements
+/// (a WithFacts trigger's description, `hidden`) that sit beside the words for screen readers.
+export function shownText(element: Element | null | undefined): string {
+  if (!element) return "";
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll("[hidden]")) hidden.remove();
+  return copy.textContent ?? "";
 }

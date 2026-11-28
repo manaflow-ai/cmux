@@ -309,6 +309,8 @@ pub struct Seed {
     /// with (never a submodule's or LFS's); None when none reached it (a
     /// delta seed, a fetch that failed).
     reached: Option<Credential>,
+    /// The warm mirrors' folder a clone borrows from ([`mirror`]); `None`: clone directly.
+    mirrors: Option<PathBuf>,
 }
 
 impl Seed {
@@ -324,7 +326,26 @@ impl Seed {
         let chosen = credentials.first().cloned().unwrap_or(Credential::Anonymous);
         // The job's folder is where this seed writes: one source, never a second copy to agree.
         let folder = job.folder.clone();
-        Self { job, params, folder, bundle, carry, roots, git, credentials, chosen, reached: None }
+        Self {
+            job,
+            params,
+            folder,
+            bundle,
+            carry,
+            roots,
+            git,
+            credentials,
+            chosen,
+            reached: None,
+            mirrors: None,
+        }
+    }
+
+    /// Clones borrow the warm mirror under `mirrors` ([`mirror`]).
+    #[must_use]
+    pub fn with_mirrors(mut self, mirrors: Option<PathBuf>) -> Self {
+        self.mirrors = mirrors;
+        self
     }
 
     /// `barrier`: the sync this seed holds; a head-first seed marks its head on it.
@@ -448,6 +469,9 @@ impl Seed {
         if not_empty {
             return Err(failed("seed.folder_not_empty", "the folder exists and is not empty"));
         }
+        if self.borrow_clone() {
+            return Ok(());
+        }
         self.clone_into(&folder)
     }
 
@@ -569,9 +593,13 @@ impl Seed {
         self.clone_into(&folder)
     }
 
-    /// A blobless clone without a checkout into the (absent or empty) folder.
+    /// A blobless clone without a checkout into the (absent or empty) folder: from the
+    /// machine's warm mirror of the remote when it can ([`mirror`]), else from the remote.
     fn clone_into(&mut self, folder: &Path) -> Result<(), Failed> {
         self.job.enter(Phase::Clone);
+        if folder == self.folder && self.borrow_mirror() {
+            return Ok(());
+        }
         let folder = folder.to_path_buf();
         let existed = folder.exists();
         let url = self.params.url.clone();
@@ -1171,6 +1199,9 @@ impl Seed {
             return Ok(());
         }
         self.job.enter(Phase::Submodules);
+        // Each from its warm mirror when it can; what is left (nested, relative, failed) as
+        // before.
+        self.submodules_from_mirrors();
         let folder = self.folder.clone();
         self.net(
             Some(&folder),
@@ -1316,6 +1347,10 @@ mod carry;
 /// A warm mirror's objects through alternates, and the promisor sources.
 #[path = "borrow.rs"]
 pub(super) mod borrow;
+
+/// The clone from the machine's warm mirror of the remote.
+#[path = "mirror.rs"]
+pub(super) mod mirror;
 
 /// A test's hold of a seed at its head ([`Seed::mark_head`]), so it can read the
 /// checkout and the barrier there.

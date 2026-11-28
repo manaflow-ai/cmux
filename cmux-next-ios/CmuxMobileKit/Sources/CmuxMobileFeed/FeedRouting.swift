@@ -12,12 +12,6 @@ final class FeedRowContext {
     let store: FeedStore
     /// Opens an event (set by the Feed screen; it owns the navigation path).
     var open: (FeedItem) -> Void = { _ in }
-    /// Opens an event from its long-press preview: the preview has already grown to the full
-    /// screen (the system's pop), so the chat appears in place with no second push.
-    var openFromPeek: (FeedItem) -> Void = { _ in }
-    /// The event's chat when the phone holds it in memory (nil: never opened in this launch, or
-    /// its tab is gone): the long-press preview draws its newest turns, and never loads one.
-    var chat: (FeedItem) -> AgentChatStore? = { _ in nil }
 
     init(store: FeedStore) {
         self.store = store

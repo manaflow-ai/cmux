@@ -11,8 +11,10 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { translate: t } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -220,6 +222,25 @@ test("a Cloud start sent with a folder names that folder while it is out, never 
   // The page without it, as before the fix: the same start read No folder.
   await mount({ ...cloud, cloudStartOut: true, summary: page.summary });
   expect(folderLabel()?.textContent).toBe(t("composer.cloudNoFolder"));
+});
+
+// cmux#53226: a GitHub repository picked for a Cloud chat turned into a plain folder icon on Return; its start is a
+// clone of the repository, and the chip keeps the repository's logo while it is out.
+test("a Cloud start of a GitHub repository keeps the GitHub logo and its name while it is out", async () => {
+  const { cloudStartBegun } = await import("../src/agent-session/acpmux/cloudStartProgress");
+  const { withCloudStartFolder, withDraftFolder } = await import("../src/agent-session/acpmux/newtab/draftFolder");
+  const start = cloudStartBegun("k-3", "whats in this pr?", "github:manaflow-ai/cmuxterm-hq", "Claude Code");
+  const page = {
+    sessionId: undefined,
+    summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" },
+  } as unknown as Parameters<typeof withCloudStartFolder>[0];
+  const shown = withCloudStartFolder(withDraftFolder(page, undefined), start.cwd);
+  await mount({ ...cloud, cloudStartOut: true, summary: shown.summary });
+  expect(folderLabel()?.textContent).toBe("manaflow-ai/cmuxterm-hq");
+  const chip = folderLabel()?.parentElement;
+  // The GitHub glyph (GitHubIcons.tsx), not the folder icon.
+  expect(chip?.querySelector('svg[viewBox="-2 -2 20 20"]')).not.toBeNull();
+  expect(chip?.querySelector(".acpmux-location-icon")).toBeNull();
 });
 
 test("a folderless Cloud start still reads No folder while it is out", async () => {

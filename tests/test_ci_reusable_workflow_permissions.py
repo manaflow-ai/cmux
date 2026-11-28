@@ -546,8 +546,135 @@ def test_ci_runs_this_guard_in_workflow_guard_tests() -> None:
     assert "python3 tests/test_ci_reusable_workflow_permissions.py" in reached, job
 
 
+def test_issue_55503_a_second_caller_of_the_same_callee_without_its_grant_fails() -> None:
+    # #55503's shape: base-coalesce.yml's coalesce job asks for actions: read (skipped by an `if:` on the
+    # mark_failed call); cmux-tui-artifacts.yml's coalesce job granted it, its new coalesce-failed job, under the
+    # workflow's `permissions: {}`, did not. GitHub failed every run of the caller at startup, with no check posted.
+    callee = """\
+        on:
+          workflow_call:
+            inputs:
+              mark_failed:
+                type: boolean
+                default: false
+        permissions: {}
+        jobs:
+          coalesce:
+            if: ${{ !inputs.mark_failed }}
+            permissions:
+              actions: read
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo decide
+          mark:
+            if: ${{ inputs.mark_failed }}
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo mark
+        """
+    caller = textwrap.dedent("""\
+        on: push
+        permissions: {}
+        jobs:
+          coalesce:
+            permissions:
+              actions: read
+            uses: ./.github/workflows/base-coalesce.yml
+          coalesce-failed:
+            needs: [coalesce]
+            uses: ./.github/workflows/base-coalesce.yml
+            with:
+              mark_failed: true
+        """)
+    failures = failures_for({"artifacts.yml": caller, "base-coalesce.yml": callee})
+    assert len(failures) == 1, failures
+    assert "job 'coalesce-failed'" in failures[0] and "requests 'actions: read'" in failures[0], failures
+    fixed = caller.replace("    needs: [coalesce]\n", "    needs: [coalesce]\n    permissions:\n      actions: read\n")
+    assert failures_for({"artifacts.yml": fixed, "base-coalesce.yml": callee}) == []
+
+
+def test_every_pull_request_head_runs_the_check_over_every_workflow() -> None:
+    # A PR's own CI often runs none of the workflows it changes, so the check runs in the pr router's route job
+    # (every head into feat-cmux-next), over the merge commit's whole .github/workflows.
+    router = (WORKFLOWS_DIR / "pr-router.yml").read_text(encoding="utf-8")
+    route = router.split("\n  route:\n", 1)[1].split("\n  size-budget:\n", 1)[0]
+    assert "            .github/workflows/\n" in route, "the route job's sparse checkout lacks .github/workflows/"
+    assert "python3 -I scripts/ci/check_reusable_workflow_permissions.py --workflows-dir .github/workflows" in route
+    assert route.index("check_reusable_workflow_permissions.py --workflows-dir") < route.index("pr_router.py route")
+
+
 if __name__ == "__main__":
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):
             value()
     print("PASS: reusable workflow permission guard")
+
+
+GATE = ROOT / "scripts" / "cmux-next" / "prepush-gate.py"
+
+
+def _gate():
+    gate_spec = importlib.util.spec_from_file_location("cmux_prepush_gate_for_perms", GATE)
+    assert gate_spec and gate_spec.loader
+    gate = importlib.util.module_from_spec(gate_spec)
+    sys.modules[gate_spec.name] = gate
+    gate_spec.loader.exec_module(gate)
+    return gate
+
+
+def test_prepush_gate_refuses_a_push_that_adds_a_startup_failure() -> None:
+    """2026-11-25 #55503: base-coalesce's coalesce job gained `actions: read` (if-gated) and two callers granted none;
+    every feat-cmux-next run of both ended startup_failure. This detector then ran only in ci.yml's guard group, which a
+    feat-cmux-next pull request without full-ci never starts; the pre-push gate (REUSABLE_PERMS_CHECK) runs it locally
+    and names only what the push adds."""
+    gate = _gate()
+    tmp = tempfile.TemporaryDirectory()
+    _keepalive.append(tmp)
+    repo = Path(tmp.name)
+    env_git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    workflows = repo / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    callee = textwrap.dedent("""\
+        on:
+          workflow_call: {}
+        permissions: {}
+        jobs:
+          gated:
+            if: ${{ false }}
+            runs-on: ubuntu-latest
+            permissions:
+              actions: %s
+            steps:
+              - run: "true"
+        """)
+    caller = textwrap.dedent("""\
+        on: push
+        permissions: {}
+        jobs:
+          call:
+            uses: ./.github/workflows/callee.yml
+        """)
+
+    def commit(callee_scope: str) -> str:
+        (workflows / "callee.yml").write_text(callee % callee_scope)
+        (workflows / "caller.yml").write_text(caller)
+        subprocess.run([*env_git, "add", "-A"], check=True)
+        subprocess.run([*env_git, "commit", "-qm", callee_scope], check=True)
+        return subprocess.run([*env_git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+
+    base = commit("none")
+    broken = commit("read")
+    found = gate.reusable_perms_drift(repo, base, broken)
+    assert len(found) == 1 and "caller.yml: job 'call'" in found[0] and "actions: read" in found[0], found
+    # A failure the base already had is the base's, not this push's: another workflow edit pushes through.
+    (workflows / "other.yml").write_text("on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: \"true\"\n")
+    subprocess.run([*env_git, "add", "-A"], check=True)
+    subprocess.run([*env_git, "commit", "-qm", "other"], check=True)
+    again = subprocess.run([*env_git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    assert gate.reusable_perms_drift(repo, broken, again) == []
+    # A push that changes no workflow reads nothing.
+    (repo / "README").write_text("x")
+    subprocess.run([*env_git, "add", "-A"], check=True)
+    subprocess.run([*env_git, "commit", "-qm", "readme"], check=True)
+    assert gate.reusable_perms_drift(repo, again, "HEAD") == []

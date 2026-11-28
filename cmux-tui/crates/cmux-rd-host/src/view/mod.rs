@@ -143,6 +143,12 @@ fn run(target: Option<&str>, scope: &str, list: bool, opts: &Opts) -> Res<()> {
         .call("POST", "/v1/sessions", Some(&json!({ "hostId": host.id, "scope": scope })))
         .map_err(|e| explain_request(e, &host.name))?;
     let session_id = request["session"]["id"].as_str().ok_or("no session id")?.to_owned();
+    let hub_approval = match request["session"]["hubApproval"].as_str() {
+        Some("permission" | "requested") => {
+            request["session"]["hubApproval"].as_str().map(str::to_owned)
+        }
+        _ => None,
+    };
     if request["session"]["state"].as_str() == Some("pending") {
         eprintln!(
             "Asked {} to {} it. Waiting for its person to allow this...",
@@ -158,7 +164,7 @@ fn run(target: Option<&str>, scope: &str, list: bool, opts: &Opts) -> Res<()> {
         }
     };
     let decoder = decoder.ok_or("no decoder")?;
-    let result = view_session(&hub, &mut user, &ticket, &host, scope, opts, decoder);
+    let result = view_session(&hub, &mut user, &ticket, &host, scope, hub_approval, opts, decoder);
     let reason = match &result {
         Ok(o) if o.connected => "viewer_disconnected",
         _ => "failed",
@@ -328,7 +334,7 @@ fn wait_for_ticket(user: &mut WebSocket, session_id: &str) -> Res<Ticket> {
                     "the hub closed this device's socket ({code} {})",
                     printable(&why)
                 )
-                .into())
+                .into());
             }
             Some(Message::Text(text)) => match serde_json::from_str::<Value>(&text) {
                 Ok(v) => v,
@@ -346,7 +352,7 @@ fn wait_for_ticket(user: &mut WebSocket, session_id: &str) -> Res<Ticket> {
                     "the request ended: {}",
                     printable(push["reason"].as_str().unwrap_or("no reason"))
                 )
-                .into())
+                .into());
             }
             _ => {}
         }
@@ -378,6 +384,7 @@ fn view_session(
     ticket: &Ticket,
     host: &HostDevice,
     scope: &str,
+    hub_approval: Option<String>,
     opts: &Opts,
     decoder: cmux_encode::openh264::OpenH264Decoder,
 ) -> Res<Outcome> {
@@ -403,12 +410,20 @@ fn view_session(
     let peer = unhex32(&answer.key).ok_or("the host's session key is malformed")?;
     let (stun, turn) = rd_doc::servers(&ticket.ice);
     let (stun, stun_later) = crate::carrier::stun_servers(&stun, false);
+    // Every relay, UDP first (`servers` sorts them): the TCP and TLS ones are the way
+    // through a network that blocks UDP.
     let turn: Vec<crate::carrier::TurnSetup> = turn
         .into_iter()
         .map(|t| crate::carrier::TurnSetup {
             addr: t.addr,
             username: t.username,
             password: t.password,
+            transport: match t.transport {
+                rd_doc::TurnTransport::Udp => "udp",
+                rd_doc::TurnTransport::Tcp => "tcp",
+                rd_doc::TurnTransport::Tls => "tls",
+            }
+            .to_owned(),
         })
         .collect();
     let net = cmux_rd_link::net::Net::start(NetConfig {
@@ -452,6 +467,7 @@ fn view_session(
             control: scope == "full",
             viewer_id: hub.device.id.clone(),
             stats_file: opts.get("stats-file").map(PathBuf::from),
+            hub_approval,
         };
         let ended = stream::run(net, decoder, &config, &from_hub, &waker, &to_hub);
         drop(to_hub);
@@ -584,7 +600,7 @@ fn wait_for_answer(
                     "signaling closed before the answer ({code} {})",
                     printable(&why)
                 )
-                .into())
+                .into());
             }
             Some(Message::Text(text)) => text,
         };
@@ -608,7 +624,7 @@ fn wait_for_answer(
                     "the host left signaling: {}",
                     printable(frame["reason"].as_str().unwrap_or("no reason"))
                 )
-                .into())
+                .into());
             }
             _ => {}
         }

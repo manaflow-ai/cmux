@@ -231,7 +231,14 @@ pub(super) fn listed(
     // under it are listed.
     #[cfg(test)]
     super::read_probe::ran(super::read_probe::Read::Listing, &repository.root);
-    let listing = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
+    let mut listing =
+        vec!["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
+    // In the home folder itself, the home folder's repository lists what it
+    // tracks only: its untracked files are every file the person has
+    // (`cmux_git::home`). A folder below it lists the files below that folder.
+    if !repository.lists_untracked() && is_top(repository, directory) {
+        listing.retain(|argument| !matches!(*argument, "--others" | "--exclude-standard"));
+    }
     let listed = run_git(directory, &repository.overrides, &listing, MAX_LISTING_BYTES)
         .map_err(|failure| git_failed(operation, &failure))?;
     let mut bytes = listed.stdout;
@@ -247,6 +254,13 @@ pub(super) fn listed(
     files.dedup();
     files.retain(|path| !path.contains('\u{FFFD}'));
     Ok((files, listed.truncated))
+}
+
+/// Whether `directory` is the repository's top folder, as spelled or with its
+/// symlinks resolved (git names the top folder resolved).
+fn is_top(repository: &Repository, directory: &Path) -> bool {
+    directory == repository.root
+        || std::fs::canonicalize(directory).is_ok_and(|resolved| resolved == repository.root)
 }
 
 /// What scoring one path found.

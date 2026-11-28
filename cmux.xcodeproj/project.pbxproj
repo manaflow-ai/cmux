@@ -86,7 +86,6 @@
 				cmux-cli-path/zsh-agent/.zshrc,
 				cmux-themes,
 				cmux.entitlements,
-				coderouter-cli.json,
 				feed-tui,
 				ghostty,
 				ghostty/terminfo/78/xterm-ghostty,
@@ -168,6 +167,7 @@
 				CE7A0000000000000000000A /* Frameworks */,
 				CE7A00000000000000000048 /* Embed Frameworks */,
 				CE7A0000000000000000000B /* Resources */,
+				CE7A00000000000000000049 /* Pack markdown-viewer libraries */,
 				CE7A0000000000000000000D /* Reject Bundled Provider Binaries */,
 				CE7A0000000000000000001B /* Bundle CLI resources */,
 				CE7A0000000000000000001C /* Build Diff Sidecar */,
@@ -410,6 +410,7 @@
 				"$(SRCROOT)/scripts/cmux-next/cmux-tui-tree-inputs.txt",
 				"$(SRCROOT)/scripts/cmux-next/cmux-tui.pin",
 				"$(SRCROOT)/scripts/cmux-next/write-daemon-capabilities.sh",
+				"$(SRCROOT)/scripts/cmux-next/write-cmux-tui-build-stamp.sh",
 				"$(SRCROOT)/scripts/cmux-next/check-daemon-capabilities.sh",
 				"$(SRCROOT)/cmux-tui",
 				"$(CMUX_NEXT_TUI_BIN)",
@@ -434,6 +435,7 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui.version",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui.version.json",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-app-host",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-cloud",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-browser-host",
@@ -788,6 +790,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/cmux-next/embed-files-host-dev.sh\" || exit $?\nexec \"${SRCROOT}/scripts/cmux-next/embed-cmux-remote-dev.sh\"\n";
+		};
+		CE7A00000000000000000049 /* Pack markdown-viewer libraries */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/pack-markdown-libraries.py",
+			);
+			name = "Pack markdown-viewer libraries";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Mermaid, Ondine and Vega stored xz-packed in the app, unpacked on first use (CMUX-570; PackedResource.swift).\n# After Resources: Xcode copies the markdown-viewer folder whole, then this replaces those files with <name>.xz.\nexec /usr/bin/env python3 \"${SRCROOT}/scripts/cmux-next/pack-markdown-libraries.py\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/markdown-viewer\" --cache \"${TARGET_TEMP_DIR}/packed-markdown-libraries\"\n";
 		};
 		CE7A00000000000000000018 /* Bundle Ghostty resources */ = {
 			isa = PBXShellScriptBuildPhase;

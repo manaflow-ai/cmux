@@ -18,6 +18,7 @@ for arg in "\$@"; do [[ "\$arg" == -resolvePackageDependencies ]] && exit 0; don
 while [[ \$# -gt 0 ]]; do
   [[ "\$1" == ARCHS=* ]] && printf '%s\n' "\$1" >> "$TMP/archs"
   [[ "\$1" == OTHER_SWIFT_FLAGS=* ]] && printf '%s\n' "\$1" >> "$TMP/swiftflags"
+  [[ "\$1" == SWIFT_OPTIMIZATION_LEVEL=* || "\$1" == CMUX_SWIFT_OPT_* ]] && printf '%s\n' "\$1" >> "$TMP/sizeopts"
   if [[ "\$1" == "-derivedDataPath" ]]; then
     printf '%s\n' "\$2" >> "$TMP/paths"
     [[ -n "\$(ls -A "\$2" 2>/dev/null)" ]] && echo nonempty >> "$TMP/existed"
@@ -169,16 +170,26 @@ done
 #    "OTHER_SWIFT_FLAGS=OTHER_SWIFT_FLAGS=...": c6d2865fcf9 passed that to xcodebuild, which then read
 #    "-DXcode..." as an input file and failed every plain Release compile (landq 2026-10-25, tip 7921f4febe78).
 rm -f "$TMP/swiftflags"
+rm -f "$TMP/sizeopts"
 run || fail "the plain release compile exited $?"
 [[ "$(cat "$TMP/swiftflags")" == 'OTHER_SWIFT_FLAGS=$(inherited)' ]] \
   || fail "plain OTHER_SWIFT_FLAGS is '$(cat "$TMP/swiftflags")'"
+[[ ! -e "$TMP/sizeopts" ]] || fail "plain Release unexpectedly passed size settings"
 rm -f "$TMP/swiftflags"
+rm -f "$TMP/sizeopts"
 RC_ARG=--bench-hooks run || fail "the bench-hooks release compile exited $?"
 # The bench defines come from one shared file (lib/bench-swift-defines.sh, also reload.sh's).
 # shellcheck source=../lib/bench-swift-defines.sh
 source "$ROOT/scripts/cmux-next/lib/bench-swift-defines.sh"
 [[ "$(cat "$TMP/swiftflags")" == "OTHER_SWIFT_FLAGS=\$(inherited) $CMUX_BENCH_SWIFT_DEFINES" ]] \
   || fail "bench OTHER_SWIFT_FLAGS is '$(cat "$TMP/swiftflags")'"
+[[ ! -e "$TMP/sizeopts" ]] || fail "bench hooks unexpectedly passed nightly size settings"
+rm -f "$TMP/swiftflags" "$TMP/sizeopts"
+RC_ARG=--nightly run || fail "the nightly release compile exited $?"
+source "$ROOT/scripts/cmux-next/lib/swift-size-opt.sh"
+swift_size_opt_xcodebuild_args > "$TMP/expected-sizeopts"
+cmp -s "$TMP/expected-sizeopts" "$TMP/sizeopts" \
+  || fail "nightly size settings were not passed exactly"
 
 # 8. A measurement step builds the app in <checkout>/.build/DerivedData/cmux-measure (reload.sh,
 #    measurement_derived_data_path), which its worker keeps between steps. A step that reused such a folder

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.tokens.github.workflowHelp" : {
+      "comment" : "Settings > Developer: explains the workflow snippet; CMUX_TOKEN is an environment variable name, keep as is",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add this job to a workflow in an allowed repository. Its later steps get CMUX_TOKEN."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أضف هذه المهمة إلى سير عمل في مستودع مسموح به. ستحصل خطواتها اللاحقة على CMUX_TOKEN."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dodajte ovaj posao u tok rada u dozvoljenom repozitoriju. Njegovi kasniji koraci dobijaju CMUX_TOKEN."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Føj dette job til et workflow i et tilladt repository. De efterfølgende trin får CMUX_TOKEN."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Füge diesen Job einem Workflow in einem erlaubten Repository hinzu. Seine späteren Schritte erhalten CMUX_TOKEN."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Añade este trabajo a un flujo de trabajo de un repositorio permitido. Sus pasos posteriores reciben CMUX_TOKEN."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajoutez cette tâche à un flux de travail d’un dépôt autorisé. Ses étapes suivantes reçoivent CMUX_TOKEN."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aggiungi questo job a un flusso di lavoro in un repository consentito. I passaggi successivi ricevono CMUX_TOKEN."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "許可されたリポジトリのワークフローにこのジョブを追加してください。以降のステップで CMUX_TOKEN を使用できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ថែមការងារនេះទៅលំហូរការងារនៅក្នុងឃ្លាំងដែលបានអនុញ្ញាត។ ជំហានបន្ទាប់របស់វានឹងទទួលបាន CMUX_TOKEN។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "허용된 저장소의 워크플로에 이 작업을 추가하세요. 이후 단계에서 CMUX_TOKEN을 사용할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Legg til denne jobben i en arbeidsflyt i et tillatt repositorium. De neste trinnene får CMUX_TOKEN."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dodaj to zadanie do przepływu pracy w dozwolonym repozytorium. Jego kolejne kroki otrzymają CMUX_TOKEN."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adicione este job a um fluxo de trabalho em um repositório permitido. As etapas seguintes recebem CMUX_TOKEN."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Добавьте это задание в рабочий процесс разрешенного репозитория. Его следующие шаги получат CMUX_TOKEN."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เพิ่มงานนี้ลงในเวิร์กโฟลว์ของรีโพสิทอรีที่อนุญาต ขั้นตอนถัดไปจะได้รับ CMUX_TOKEN"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu işi izin verilen bir depodaki bir iş akışına ekleyin. Sonraki adımları CMUX_TOKEN alır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Додайте це завдання до робочого процесу дозволеного репозиторію. Його наступні кроки отримають CMUX_TOKEN."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thêm job này vào một quy trình trong kho lưu trữ được cho phép. Các bước sau đó sẽ nhận được CMUX_TOKEN."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将此作业添加到允许的仓库中的工作流程。其后续步骤会获得 CMUX_TOKEN。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將此工作加入允許的儲存庫中的工作流程。其後續步驟會取得 CMUX_TOKEN。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

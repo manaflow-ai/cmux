@@ -70,7 +70,7 @@ on:
       - cmux NEXT Stable
       - cmux-next frame pacing
       - cmux-next media
-      - cmux-next PR autofix
+      - cmux-next PR autofix (advisory)
       - cmux-next CEF shim C++ tests
       - cmux-next car guards
       - cmux-next
@@ -85,6 +85,7 @@ on:
       - SSH remote daemon
       - Terminal hang diagnostics
       - Feed reply provider verification
+      - Cloud chat proof (staging and production, tagged DEV app)
     types: [requested, completed]
   workflow_dispatch:
     inputs:
@@ -143,6 +144,7 @@ env:
     .github/workflows/remote-daemon.yml
     .github/workflows/terminal-hang-diagnostics.yml
     .github/workflows/test-feed-reply-providers.yml
+    .github/workflows/cloud-chat-proof.yml
 
 concurrency:
   group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt) }}
@@ -172,7 +174,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Checkout trusted rescue
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: main
           persist-credentials: false

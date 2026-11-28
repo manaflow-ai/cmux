@@ -312,11 +312,20 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         &c,
     );
     if let Some(changed) = changed_rows {
+        // Per-frame work (cmux-view-rows frame_work): the rows the cache rebuilt, and their text
+        // copied; a frame with no change to the transcript has none.
+        #[cfg(test)]
+        {
+            let rebuilt = app.transcript_cache.rows.len().saturating_sub(changed);
+            cmux_view_rows::frame_work::built(rebuilt);
+            cmux_view_rows::frame_work::cloned(rebuilt);
+        }
         app.rows_cache.truncate(changed);
         app.row_meta.truncate(changed);
-        app.rows_cache.extend(app.transcript_cache.rows[changed..].iter().map(|r| r.text.clone()));
+        app.rows_cache
+            .extend(app.transcript_cache.rows.iter().skip(changed).map(|r| r.text.clone()));
         app.row_meta
-            .extend(app.transcript_cache.rows[changed..].iter().map(|r| (r.item, r.toggle)));
+            .extend(app.transcript_cache.rows.iter().skip(changed).map(|r| (r.item, r.toggle)));
     }
     let rows = &app.transcript_cache.rows;
     let track = Rect { x: area.x + area.width - 1, y: inner.y, width: 1, height: inner.height };
@@ -348,11 +357,27 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             vp.follow = false;
         }
     }
+    // A return lands at the "N new messages" line when the news runs past one screen.
+    let new_row = app.new_line.as_ref().filter(|l| l.session == id).and_then(|l| {
+        let meta: Vec<(usize, &str)> = rows.iter().map(|r| (r.item, r.text.as_str())).collect();
+        crate::new_line::row(&meta, l.item)
+    });
+    if let (Some(r), Some(line)) = (new_row, app.new_line.as_mut())
+        && !line.landed
+    {
+        line.landed = true;
+        if let Some(o) = crate::new_line::landing(r, rows.len(), inner.height as usize) {
+            vp.offset = o.min(vp.max_offset());
+            vp.follow = false;
+        }
+    }
     vp.hover = hover.map(|(hx, hy)| vp.track_contains(hx, hy)).unwrap_or(false);
     let offset = vp.offset;
     let sel = app.selection.as_ref().filter(|s| s.session == id).cloned();
     app.transcript_hitboxes.clear();
     for (i, row) in rows.iter().enumerate().skip(offset).take(inner.height as usize) {
+        #[cfg(test)]
+        cmux_view_rows::frame_work::walked(1);
         let y = inner.y + (i - offset) as u16;
         let row_width = row.line.width().min(inner.width as usize) as u16;
         if row_width > 0 {
@@ -425,6 +450,16 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
                 }
             }
         }
+    }
+    // The "N new messages" line, over the blank row before the first new block (new_line.rs).
+    if let (Some(r), Some(line)) = (new_row, app.new_line.as_ref())
+        && r >= offset
+        && r < offset + inner.height as usize
+    {
+        let w = (inner.width as usize).saturating_sub(2).min(COLUMN_WIDTH as usize);
+        let text = crate::new_line::rule(&line.label(), w);
+        let y = inner.y + (r - offset) as u16;
+        buf.set_stringn(inner.x, y, &text, w, Style::default().fg(c.prompt_button_accent_fg));
     }
     app.link_cells.extend(link_runs);
     if vp.has_scrollbar() {

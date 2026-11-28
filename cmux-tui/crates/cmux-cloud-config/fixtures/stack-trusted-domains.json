@@ -1,0 +1,30 @@
+{
+  "comment": "Each auth project's redirect allowlist as the live project answered on probedAt. The list lives only in the auth dashboard; scripts/stack-trusted-domains-probe.py re-asks the live projects (read-only, public client keys) and fails when an answer differs from `probes`. trustedDomains holds only entries a probe has seen accepted, so it is the known part of each list, not the whole of it. Edit this file only from a probe run.",
+  "probedAt": "2026-11-19",
+  "projects": {
+    "development": {
+      "projectId": "454ecd03-1db2-4050-845e-4ce5b0cd9895",
+      "publishableClientKey": "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g",
+      "allowLocalhost": true,
+      "trustedDomains": []
+    },
+    "production": {
+      "projectId": "9790718f-14cd-4f7e-824d-eaf527a82b82",
+      "publishableClientKey": "",
+      "allowLocalhost": true,
+      "trustedDomains": ["https://cmux.com", "https://www.cmux.com"]
+    }
+  },
+  "probes": [
+    { "project": "development", "origin": "https://cmux-staging.vercel.app", "accepted": false },
+    { "project": "development", "origin": "https://cmux-dev-backend-1.tail137216.ts.net:4123", "accepted": false },
+    { "project": "development", "origin": "https://cmux.com", "accepted": false },
+    { "project": "development", "origin": "http://127.0.0.1:53111", "accepted": true },
+    { "project": "development", "origin": "http://localhost:3777", "accepted": true },
+    { "project": "production", "origin": "https://cmux.com", "accepted": true },
+    { "project": "production", "origin": "https://www.cmux.com", "accepted": true },
+    { "project": "production", "origin": "https://cmux-staging.vercel.app", "accepted": false },
+    { "project": "production", "origin": "http://127.0.0.1:53111", "accepted": true },
+    { "project": "production", "origin": "https://example.invalid", "accepted": false }
+  ]
+}

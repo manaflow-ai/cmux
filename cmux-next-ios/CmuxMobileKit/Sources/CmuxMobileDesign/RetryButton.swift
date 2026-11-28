@@ -37,6 +37,7 @@ public struct RetryButton: View {
 
     /// The default title: "Retry".
     public static var defaultTitle: String {
+        // retry-prompt-ok: the title of the button kept only at marked person-choice sites
         String(localized: "recovery.retry", defaultValue: "Retry", bundle: .module)
     }
 

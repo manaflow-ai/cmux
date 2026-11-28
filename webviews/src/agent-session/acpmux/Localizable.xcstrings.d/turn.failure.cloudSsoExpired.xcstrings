@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.cloudSsoExpired" : {
+      "comment" : "Agent pane: a failed turn's note when the cloud SSO sign-in the agent uses expired and its profile is unknown; {harness} is the agent's name; keep the command aws sso login --profile as is",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "انتهت صلاحية تسجيل دخول SSO السحابي لـ {harness}. شغّل aws sso login --profile مع ملفه الشخصي، ثم أعد المحاولة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud SSO prijava za {harness} je istekla. Pokrenite aws sso login --profile s njegovim profilom, pa pokušajte ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness}s cloud-SSO-login er udløbet. Kør aws sso login --profile med dens profil, og prøv så igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Cloud-SSO-Anmeldung von {harness} ist abgelaufen. Führe aws sso login --profile mit seinem Profil aus und versuche es erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness}'s cloud SSO sign-in expired. Run aws sso login --profile with its profile, then retry."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El inicio de sesión SSO en la nube de {harness} caducó. Ejecuta aws sso login --profile con su perfil y reintenta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La connexion SSO cloud de {harness} a expiré. Exécutez aws sso login --profile avec son profil, puis réessayez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'accesso SSO cloud di {harness} è scaduto. Esegui aws sso login --profile con il suo profilo, poi riprova."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} のクラウド SSO サインインが期限切れです。そのプロファイルで aws sso login --profile を実行してから、再試行してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការចូល SSO cloud របស់ {harness} ផុតកំណត់។ រត់ aws sso login --profile ជាមួយប្រវត្តិរូបរបស់វា រួចសាកម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness}의 클라우드 SSO 로그인이 만료되었습니다. 해당 프로필로 aws sso login --profile을 실행한 뒤 다시 시도하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sky-SSO-påloggingen til {harness} er utløpt. Kjør aws sso login --profile med profilen, og prøv igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logowanie SSO do chmury dla {harness} wygasło. Uruchom aws sso login --profile z jego profilem, potem spróbuj jeszcze raz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O login SSO na nuvem de {harness} expirou. Execute aws sso login --profile com o perfil dele e tente novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вход SSO в облако для {harness} истёк. Выполните aws sso login --profile с его профилем, затем повторите."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การลงชื่อเข้าใช้ SSO คลาวด์ของ {harness} หมดอายุ เรียกใช้ aws sso login --profile กับโปรไฟล์ของมัน แล้วลองใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} için bulut SSO oturumunun süresi doldu. Profiliyle aws sso login --profile çalıştırın, sonra yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вхід SSO у хмару для {harness} закінчився. Виконайте aws sso login --profile з його профілем, потім повторіть."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đăng nhập SSO đám mây của {harness} đã hết hạn. Chạy aws sso login --profile với hồ sơ của nó, rồi thử lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} 的云 SSO 登录已过期。请用其配置文件运行 aws sso login --profile，然后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} 的雲端 SSO 登入已過期。請用其設定檔執行 aws sso login --profile，然後重試。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
