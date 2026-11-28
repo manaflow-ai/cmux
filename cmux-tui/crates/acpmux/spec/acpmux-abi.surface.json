@@ -1,5 +1,5 @@
 {
-  "revision": 2,
+  "revision": 3,
   "surface": {
     "event:_acpmux/admission_waiting": {
       "/*untyped*": {
@@ -14263,12 +14263,6 @@
       }
     },
     "request:_acpmux/host_notice": {
-      "/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "request:_acpmux/host_overload": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -36533,12 +36527,6 @@
       }
     },
     "response:_acpmux/host_notice": {
-      "/data/*untyped*": {
-        "ty": "json",
-        "nullable": true
-      }
-    },
-    "response:_acpmux/host_overload": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

@@ -22,9 +22,9 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
+import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -52,9 +52,7 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
-import { AutoSizeDock, MoveDock } from "../place/PlaceMounts";
-import { OverloadNotice } from "../OverloadNotice";
-import type { HostOverload } from "../overloadNoticeModel";
+import { MoveDock, AutoSizeDock } from "../place/PlaceMounts";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
 import { RulesNotice } from "../RulesNotice";
 import { composerShell, shellContextAttachments, type ShellRuns } from "../shell/shellRuns";
@@ -90,7 +88,7 @@ import { untilAcpmuxTakesSends, paneSends } from "../sendWhenReady";
 import { keptAttachments, postComposerFilled } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
-import type { AutoRow, RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
+import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
 import type { MachineHarnessCheck } from "../machineHarnesses";
@@ -138,8 +136,6 @@ type WorktreeError = {
 export type PaneComposerDeps = {
   /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
   markDockEdge: (lit: boolean) => void;
-  /// acpmux's overload verdict for this Mac (App.tsx `useHostOverload`); the notice shows only when over.
-  hostOverload: HostOverload | undefined;
   readOnlySubagent: boolean;
   /// The Composer relayed to the subagent a subagent pane shows (Composer.tsx `relay`).
   subagentRelay: ComposerRelay | undefined;
@@ -436,7 +432,6 @@ export type PaneComposerDeps = {
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
-  hostOverload,
   markDockEdge,
   composerTurnQueue,
   readOnlySubagent,
@@ -874,7 +869,6 @@ export function drawPaneComposer({
                 {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
               </output>
             </Notice>
-            <OverloadNotice state={hostOverload} />
             {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
             {!showNewTab && !quick && (
               <>
