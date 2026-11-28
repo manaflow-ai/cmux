@@ -2971,6 +2971,19 @@ inputs = [
   "cmux-tui/persisted-formats/*",
   "cmux-tui/persisted-formats/agent-host-record/*",
   "cmux-tui/persisted-formats/terminal-host-record/*",
+  "cmux-tui/crates/acpmux/src/agent/command/*",
+  "cmux-tui/crates/acpmux/src/claude_token/store/*",
+  "cmux-tui/crates/acpmux/src/daemon/handoff/*",
+  "cmux-tui/crates/acpmux/src/subscription_store/*",
+  "cmux-tui/crates/acpmux/src/subscriptions/*",
+  "cmux-tui/crates/acpmux/src/subscriptions/openrouter/*",
+  "cmux-tui/crates/acpmux/src/vault/store/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-long/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-long/events/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-short/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-short/events/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/plain/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/plain/events/*",
 ]
 run = '''
 python3 -I tests/test_ci_daemon_pr_member_steps.py
@@ -3343,6 +3356,7 @@ inputs = [
   "cmux-tui/crates/cmux-tui/tests/support/*",
   "cmux-tui/crates/cmux-tui/tests/terminal_host_recovery/*",
   "cmux-tui/crates/cmux-tui/tests/ws_cloud_conversations/*",
+  "cmux-tui/crates/cmux-tui/src/localization/app_control/*",
 ]
 run = '''
 python3 -I tests/test_ci_daemon_pr_member_steps.py
