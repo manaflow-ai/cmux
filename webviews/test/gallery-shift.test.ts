@@ -163,6 +163,21 @@ test("a browser layout shift that is the step's own expansion does not count; an
   window.close();
 });
 
+test("a box under visibility: hidden is not sampled: it moves where no frame paints it", () => {
+  // A New Tab page's chat dock is hidden and inert; its composer moving under New Tab is unseen.
+  const window = new Window({ width: 800, height: 600 });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = `
+    <div class="dock" style="visibility: hidden"><div data-row-id="hidden">composer</div></div>
+    <div data-row-id="shown">New Tab</div>`;
+  const box = { x: 0, y: 100, width: 800, height: 40, top: 100, left: 0, right: 800, bottom: 140 };
+  for (const element of doc.querySelectorAll("[data-row-id]"))
+    (element as HTMLElement).getBoundingClientRect = () => ({ ...box, toJSON: () => box }) as DOMRect;
+  const labels = [...sampleBoxes(doc, null).values()].map((sample) => sample.label);
+  expect(labels).toEqual(["div[row shown]"]);
+  window.close();
+});
+
 test("toggles the play clicked itself are the next step's targets too: their pushes are theirs", () => {
   // A play that opens four lines with plain clicks, then waits: the wait has no target of its own.
   const window = new Window({ width: 800, height: 600 });
