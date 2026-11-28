@@ -235,21 +235,19 @@ export type HostRecovery = {
   failureShown?: boolean;
 };
 
-/// The pane's own recovery as a dot item, under HostRecoveringLine's rule (hostRetry.ts
-/// `hostRecoveryLine`): it follows the connection's state, never a clock (Leo, 2026-11-22: "surely we
-/// can think of better fixes than random timing which can shift"). "Restoring sessions…" while the
-/// host says acpmux restores; a link coming back says nothing (Leo, 2026-11-24: "let's just keep
-/// optimistically connecting"), nor does a failure the pane already says. No `wakeAt`: only a new
-/// state changes the answer.
+/// The pane's restoration waits the same CONNECTION_QUIET_MS as HostRecoveringLine. Use the
+/// host's elapsed restore time so new reports and mounting the dot do not restart the bound.
+/// Ordinary reconnects stay silent; a recovered link cancels the dot's pending wake.
 export function hostRecoveryItem(host: HostRecovery | undefined, now: number): { item?: StatusItem; wakeAt?: number } {
   const line = host && hostRecoveryLine({ ...host, now });
-  if (line?.kind === "restoring") {
+  if (line?.kind === "restoring" && host?.restoring) {
     return {
       item: {
         kind: "restoringSessions",
         level: "info",
         words: "status.restoringSessions.restoring",
         since: now - line.waitedMs,
+        showAt: host.restoring.at - host.restoring.waitedMs + CONNECTION_QUIET_MS,
       },
     };
   }

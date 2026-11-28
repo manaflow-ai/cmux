@@ -36,6 +36,7 @@ type Props = {
   /// over a mock transcript and composer: `chip` is shipped, `dot` and `corner` are the alternates;
   /// `restoring` is the host's "Restoring sessions" as a chip.
   chip?: ConnectionChipVariant | "restoring";
+  restoreElapsedMs?: number;
 };
 
 /// The pane's dock around the host line: three transcript rows above, the composer under. The slot sits
@@ -96,6 +97,7 @@ function GalleryHostError({
   selfRetrying,
   outage,
   chip,
+  restoreElapsedMs = 12_000,
 }: Props) {
   const [retrying, setRetrying] = useState(initialRetrying);
   const [restarting, setRestarting] = useState(false);
@@ -107,8 +109,8 @@ function GalleryHostError({
         {chip ? (
           <HostRecoveringLine
             linkDown
-            restoring={chip === "restoring" ? { waitedMs: 12_000, at: 0 } : undefined}
-            now={12_000}
+            restoring={chip === "restoring" ? { waitedMs: 0, at: 0 } : undefined}
+            now={restoreElapsedMs}
             variant={chip === "restoring" ? undefined : chip}
           />
         ) : outage ? (
@@ -206,6 +208,14 @@ export default componentEntry<Props>({
     "chip-corner": {
       props: { message: "", initialRetrying: false, withRetry: false, chip: "corner" },
       note: "Alternate, not shipped: the chip fixed in the pane's top end corner, away from the composer. Never over the text being read, but far from where the person is typing.",
+    },
+    "restore-before-bound": {
+      props: { message: "", initialRetrying: false, withRetry: false, chip: "restoring", restoreElapsedMs: 9_999 },
+      note: "Restoration before the shared 10-second bound leaves the cached transcript and composer alone.",
+    },
+    "restore-at-bound": {
+      props: { message: "", initialRetrying: false, withRetry: false, chip: "restoring", restoreElapsedMs: 10_000 },
+      note: "At the bound, one out-of-flow restoration chip; input and layout stay available.",
     },
     "chip-restoring": {
       props: { message: "", initialRetrying: false, withRetry: false, chip: "restoring" },
