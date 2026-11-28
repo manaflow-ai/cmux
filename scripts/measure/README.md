@@ -17,6 +17,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | bench | wraps (script) | what |
 |---|---|---|
 | localization-discovery | `localization-discovery.py` (anywhere, checkout source) | Swift source discovery with 2,000 excluded dependency directories: directory reads and wall time; compare `--arg algorithm=baseline` with `--arg algorithm=current`. |
+| local-summary | `local_summary_gate.py` (`local-summary-gate.sh` as a fleet Mac step) | Smallest installed on-device model (ollama, llama.cpp, mlx_lm) writing the sidebar's one-line session summary for 30 labeled, redacted sessions: warm/cold p95, first token, length, key-fact recall, unsupported status claims, against the deterministic baseline; verdict pass, fail or no-runtime (hq finding 2026-11-20-local-model-session-summary). |
 | coordinator-cpu | `chat-open.sh --coordinator-cpu` | Whole-renderer CPU on a 10,000-row chat with twenty ACP children updating at 1 Hz. Saves raw CPU intervals, daemon tick receipts, a JavaScript profile and a macOS sample. |
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |

@@ -137,6 +137,26 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
     return bool(plan.script_packages or plan.eslint_files)
 
 
+# The webviews checks gate's lint-class checks that web lint's own webviews run (package.json's check:pieces) also
+# runs, with the same base comparison: when both gates run on one merge, the second run of each only repeats the
+# first (11 of the gate's 13 checks; typecheck and the bundle matrix are the gate's own). 2026-11-28: web lint 220 s
+# beside webviews checks 280 s on the same runner, the same scripts twice. The post-merge workflow keeps the full run.
+WEB_LINT_RUNS = ("check:effect-cleanup", "check:browser-lanes", "check:fixed-waits", "check:whole-list-rows",
+                 "check:design-tokens", "check:ui-review", "check:catalog-keys", "check:catalog-unused",
+                 "check:popup-hover-reveals", "check:surface-bypass", "check:status-outside-dot")
+
+
+def web_lint_runs_webviews(repo: Path, base: str, merge: str) -> bool:
+    """Whether web lint's plan on base..merge runs the webviews package's scripts (so WEB_LINT_RUNS ran there)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import web_lint_prepush  # noqa: PLC0415  (scripts/web_lint_prepush.py)
+
+    files = web_lint_prepush.changed_files(repo, base, merge)
+    exists, _ = web_lint_prepush.snapshot(repo, merge)
+    plan = web_lint_prepush.make_plan(repo, files, guard_executed=False, exists=exists)
+    return any(package.directory == "webviews" for package in plan.script_packages)
+
+
 # The webviews checks' inputs: webviews/ itself, and outside it the string catalogs (check:catalog-keys) and the
 # acpmux protocol spec (acpmux-protocol:check), which ci-web's react-apps routing does not run them for.
 # A webviews/ change runs them here too, though ci-web's react-apps-check runs them on the same merge: that run is
@@ -725,6 +745,11 @@ def run(args: argparse.Namespace) -> int:
         # 2026-11-22 webviews checks (93 s) waited out crash-class rules (61 s) in a second batch, a 157 s step whose
         # critical gate was 93 s (job 137149366688), and fast gates' p90 sat at 4.0 min against its 3.0 min budget.
         names = {name for name, _ in active}
+        if {"web lint", "webviews checks"} <= names and web_lint_runs_webviews(repo, args.base, merge):
+            skips = [flag for check in WEB_LINT_RUNS for flag in ("--skip", check)]
+            active = [(n, a + skips if n == "webviews checks" else a) for n, a in active]
+            print(f"fast-gates: webviews checks leaves {len(WEB_LINT_RUNS)} checks to web lint's own run of them",
+                  flush=True)
         shared_install = {"web lint", "webviews checks"} <= names and preinstall_webviews(repo)
         if shared_install:
             active = [(n, a + ["--no-install"] if n == "webviews checks" else a) for n, a in active]
