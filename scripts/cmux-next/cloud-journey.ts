@@ -2166,7 +2166,7 @@ const ROOM_POLL_MS = 15_000;
  * for one to go. Each attempt gets its own number (`attempt`, from 0) for its idempotency key: a refused create made
  * nothing, and a key reused after a refusal could answer the refusal again.
  */
-export async function createWithRoom<T>(create: (attempt: number) => Promise<T>, budgetMs = Number(process.env.CLOUD_JOURNEY_ROOM_WAIT_MS ?? ROOM_WAIT_MS), pause: (ms: number) => Promise<unknown> = sleep, now: () => number = Date.now): Promise<{ value: T; waitedMs: number; refusals: number }> {
+export async function createWithRoom<T>(create: (attempt: number) => Promise<T>, budgetMs = Number(process.env.CLOUD_JOURNEY_ROOM_WAIT_MS ?? ROOM_WAIT_MS), pause: (ms: number) => Promise<unknown> = sleep, now: () => number = Date.now, noRoomComing?: (refusal: string) => Promise<string | null>): Promise<{ value: T; waitedMs: number; refusals: number }> {
   const t0 = now();
   for (let attempt = 0; ; attempt++) {
     try {
@@ -2174,6 +2174,9 @@ export async function createWithRoom<T>(create: (attempt: number) => Promise<T>,
     } catch (e) {
       const m = String((e as Error)?.message ?? e);
       if (!ROOM_REFUSAL.test(m)) throw e;
+      // A refusal no wait can lift (the total machine cap held by machines no journey deletes soon) ends at once.
+      const stop = noRoomComing ? await noRoomComing(m).catch(() => null) : null;
+      if (stop) throw new Error(`${m.slice(0, 600)} (no room coming: ${stop}; ${attempt + 1} refusals)`);
       if (now() - t0 >= budgetMs) throw new Error(`${m.slice(0, 600)} (no room after ${Math.round((now() - t0) / 1000)} s, ${attempt + 1} refusals)`);
       await pause(ROOM_POLL_MS);
     }
@@ -2209,14 +2212,77 @@ export const CAPACITY_PREFLIGHT_STEP = "capacity preflight (quota headroom)";
  * so cmux-platform journey-after-deploy.sh reads it as a capacity refusal (verdict not-run), never as the deploy's
  * own red.
  */
-export function capacityHeadroom(plan: any, need: number, team: string): { ok: true; detail: string } | { ok: false; final: boolean; reason: string } {
+export function capacityHeadroom(plan: any, need: number, team: string, slots?: MachineSlots | null): { ok: true; detail: string } | { ok: false; final: boolean; reason: string } {
   const max = Number(plan?.limits?.max_active);
   const active = Number(plan?.usage?.active);
   if (!Number.isInteger(max) || !Number.isInteger(active)) return { ok: true, detail: `cloud.plan.get named no max_active/active (${JSON.stringify({ limits: plan?.limits ?? null, usage: plan?.usage ?? null }).slice(0, 200)}); not judged` };
   if (plan?.spend_cap?.state === "at_cap") return { ok: false, final: true, reason: `cloud.quota.headroom spend_cap:${team} at cap (${plan.spend_cap.spent_usd ?? "?"} of ${plan.spend_cap.cap_usd ?? "?"} USD)` };
   if (max < need) return { ok: false, final: true, reason: `cloud.quota.headroom quota_cap:${team} max_active ${max} < need ${need}` };
   if (max - active < need) return { ok: false, final: false, reason: `cloud.quota.headroom quota_headroom:${team} used ${active}/${max}, need ${need}` };
+  // The total machine cap create enforces (cmux-platform Admission.ts max_machines: paused machines count too). Run
+  // 46102010769 (11-28 03:2xZ): "used 6/20 ... room" here, then create refused 16 times over 241 s with "this plan
+  // allows 20 machines in all, paused ones included", used 20/20: 14 of the team's 19 listed machines were paused.
+  const slot = machineSlotLimit(plan);
+  if (slot !== null && slots) {
+    const short = slot - slots.held < need;
+    if (short && slot - slots.held + slots.leaving < need) return { ok: false, final: true, reason: `cloud.quota.headroom quota_machines:${team} held ${slots.held}/${slot} (paused included), need ${need}, ${slots.leaving} leaving soon` };
+    if (short) return { ok: false, final: false, reason: `cloud.quota.headroom quota_machines:${team} held ${slots.held}/${slot} (paused included), need ${need}` };
+    return { ok: true, detail: `quota_headroom:${team} used ${active}/${max}, machines ${slots.held}/${slot}, need ${need}: room` };
+  }
   return { ok: true, detail: `quota_headroom:${team} used ${active}/${max}, need ${need}: room` };
+}
+
+/** The plan's total machine cap from cloud.plan.get (`max_machines`, next to `max_cpu`), or null where it names none. */
+export function machineSlotLimit(plan: any): number | null {
+  const v = Number(plan?.max_machines ?? plan?.limits?.max_machines);
+  return Number.isInteger(v) && v > 0 ? v : null;
+}
+
+/** The machines a team holds against its total cap, and how many of them leave on their own within the room wait. */
+export type MachineSlots = { held: number; leaving: number };
+
+/**
+ * The machine slot from a cloud.machine.list read, counted as create counts it (cmux-platform Caps.ts machinesForCap):
+ * every row but a deleted one and a failed create that made no VM, paused ones included. `leaving`: the rows a wait
+ * can expect to go, those deleting and other journeys' machines that are not paused (each run deletes its own at its
+ * end, minutes later). A paused machine or one not named by a journey stays.
+ */
+export function machineSlots(rows: any[], own?: string): MachineSlots {
+  let held = 0;
+  let leaving = 0;
+  for (const r of rows) {
+    if (!r || r.status === "deleted" || r.deleted_at != null) continue;
+    if (r.status === "failed" && r.no_vm === true) continue;
+    held++;
+    const name = typeof r.name === "string" ? r.name : "";
+    // This run's own machines stay through its wait (its chat machine, held while it makes the cold one).
+    if (own && name.startsWith(own)) continue;
+    if (r.status === "deleting" || (r.status !== "paused" && r.status !== "pausing" && isJourneyRunMachine(name))) leaving++;
+  }
+  return { held, leaving };
+}
+
+/** A machine a journey run makes and deletes at its end (staleJourneyMachines' names, and the chat and cold machines). */
+export function isJourneyRunMachine(name: string): boolean {
+  return /^cloud journey (auto )?jr-[0-9a-z]+\b/.test(name) || /^cloud start bench jr-[0-9a-z]+ /.test(name) || /^auto journey aj-[0-9a-z]+$/.test(name);
+}
+
+/** `details.resource` of a ROOM_REFUSAL (cloud.quota.exceeded's `machines` is the total cap, paused included). */
+export function refusalResource(refusal: string): string | null {
+  return /"resource"\s*:\s*"([a-z_]+)"/.exec(refusal)?.[1] ?? null;
+}
+
+/**
+ * For createWithRoom: a refusal of the total machine cap waits only while a listed machine will leave on its own; with
+ * none leaving (paused machines, a person's) it names the holders at once instead of asking 16 times over 4 min.
+ */
+export function totalCapStop(list: () => Promise<any[]>, own?: string, nowMs: () => number = Date.now): (refusal: string) => Promise<string | null> {
+  return async (refusal) => {
+    if (refusalResource(refusal) !== "machines") return null;
+    const rows = await list();
+    const s = machineSlots(rows, own);
+    return s.leaving > 0 ? null : `the total machine cap (paused included) is held by machines none of which leaves soon (held ${s.held}, leaving 0); held by ${quotaHolders(rows, nowMs())}`;
+  };
 }
 
 /**
@@ -2225,7 +2291,7 @@ export function capacityHeadroom(plan: any, need: number, team: string): { ok: t
  * deleted within minutes), then throws the named reason. A final reason (a cap below `need`, the spend cap) throws at
  * once. A read that fails is no verdict on capacity: it answers `ok` with the error, and the creates judge room.
  */
-export async function capacityPreflight(read: () => Promise<any>, need: number, team: string, budgetMs = Number(process.env.CLOUD_JOURNEY_ROOM_WAIT_MS ?? ROOM_WAIT_MS), pause: (ms: number) => Promise<unknown> = sleep, now: () => number = Date.now): Promise<{ detail: string; waitedMs: number }> {
+export async function capacityPreflight(read: () => Promise<any>, need: number, team: string, budgetMs = Number(process.env.CLOUD_JOURNEY_ROOM_WAIT_MS ?? ROOM_WAIT_MS), pause: (ms: number) => Promise<unknown> = sleep, now: () => number = Date.now, list?: () => Promise<any[]>): Promise<{ detail: string; waitedMs: number }> {
   const t0 = now();
   for (let reads = 1; ; reads++) {
     let plan: any;
@@ -2234,7 +2300,9 @@ export async function capacityPreflight(read: () => Promise<any>, need: number, 
     } catch (e) {
       return { detail: `cloud.plan.get failed, not judged: ${String((e as Error)?.message ?? e).slice(0, 200)}`, waitedMs: now() - t0 };
     }
-    const h = capacityHeadroom(plan, need, team);
+    // The machine list only where the plan names its total cap; a list that fails leaves the slot to create.
+    const slots = list && machineSlotLimit(plan) !== null ? await list().then(machineSlots, () => null) : null;
+    const h = capacityHeadroom(plan, need, team, slots);
     if (h.ok) return { detail: reads > 1 ? `${h.detail} (after ${Math.round((now() - t0) / 1000)} s, ${reads} reads)` : h.detail, waitedMs: now() - t0 };
     if (h.final) throw new Error(h.reason);
     if (now() - t0 >= budgetMs) throw new Error(`${h.reason} (no room after ${Math.round((now() - t0) / 1000)} s, ${reads} reads)`);
@@ -6049,7 +6117,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const need = 1 + (only.has("cold") ? 0 : 1);
       await J.step(CAPACITY_PREFLIGHT_STEP, async () => {
         try {
-          const r = await capacityPreflight(() => api.read("cloud.plan.get", {}), need, api.team ?? team ?? "account-team");
+          const r = await capacityPreflight(() => api.read("cloud.plan.get", {}), need, api.team ?? team ?? "account-team", undefined, undefined, undefined, () => listAllMachines((params) => api.read("cloud.machine.list", params)));
           return { value: null, detail: r.detail };
         } catch (e) {
           // Name what holds the cap: a fresh list (the sweep's is minutes old by now), else the sweep's.
@@ -6184,7 +6252,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             J.firstText.mark("create");
             createSentAt = Date.now();
             return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(keep ? {} : machineTtl), ...(seed === "none" ? { seed: "none" } : {}), ...(machineProvider ? { provider: machineProvider } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
-          });
+          }, undefined, undefined, undefined, totalCapStop(() => listAllMachines((params) => api.read("cloud.machine.list", params))));
           const v = room.value;
           if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);
           machine = v.machine.id as string;
@@ -6427,7 +6495,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           let deadline = Date.now() + COLD_CREATE_BOUND_MS;
           let room: { value: any; waitedMs: number; refusals: number };
           try {
-            room = await createWithRoom((n) => api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE, ...(keep ? {} : machineTtl) }, n ? `${tag}-cold-create-${n}` : `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, (deadline = Date.now() + COLD_CREATE_BOUND_MS)));
+            room = await createWithRoom((n) => api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE, ...(keep ? {} : machineTtl) }, n ? `${tag}-cold-create-${n}` : `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, (deadline = Date.now() + COLD_CREATE_BOUND_MS)), undefined, undefined, undefined, totalCapStop(() => listAllMachines((params) => api.read("cloud.machine.list", params)), machineName));
           } catch (error) {
             // No answer, so no id: cleanup finds the machine by its name and deletes it off the step's clock.
             coldDeletes.push(deleteByName(coldName, `${tag}-cold-delete`));
