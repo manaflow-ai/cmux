@@ -28,9 +28,9 @@ use sha2::{Digest as _, Sha256};
 
 use crate::agent_hook_install;
 
-const VERB: &str = "claude-wrapper";
+pub(crate) const VERB: &str = "claude-wrapper";
 /// Identifies the shim so the wrapper never resolves `claude` back to it.
-const SHIM_MARKER: &str = "# cmux-tui-claude-shim";
+pub(crate) const SHIM_MARKER: &str = "# cmux-tui-claude-shim";
 /// Set on the launched Claude so a launcher that re-resolves `claude` from
 /// PATH passes through instead of stacking a second set of hooks.
 const WRAPPER_ACTIVE_ENV: &str = "CMUX_TUI_CLAUDE_WRAPPER_ACTIVE";
