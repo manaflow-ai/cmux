@@ -122,7 +122,7 @@ static EXIT_LINE: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"(?m)^Exit code (\d+)\s*$").ok());
 
 /// Whether `command` runs tests.
-fn is_test_command(command: &str) -> bool {
+pub(super) fn is_test_command(command: &str) -> bool {
     TEST_COMMAND.as_ref().is_some_and(|re| re.is_match(command))
 }
 
@@ -180,7 +180,7 @@ fn line_delta(old: &str, new: &str) -> (u64, u64) {
 
 /// The text a call returned, at most [`MAX_OUTPUT_BYTES`] from its end: `rawOutput` (a string, or
 /// its `output`, `stdout`, `stderr`, `formatted_output` or `content`) and each text content item.
-fn output_text(update: &Map<String, Value>) -> String {
+pub(super) fn output_text(update: &Map<String, Value>) -> String {
     let mut out = String::new();
     let mut push = |s: &str| {
         if !out.is_empty() {
@@ -226,7 +226,7 @@ fn exit_code(update: &Map<String, Value>, output: &str) -> Option<i64> {
 }
 
 /// The command a call runs: its `rawInput.command` (a string, or Codex's argv list).
-fn command_of(update: &Map<String, Value>) -> Option<String> {
+pub(super) fn command_of(update: &Map<String, Value>) -> Option<String> {
     match update.get("rawInput")?.get("command")? {
         Value::String(s) => Some(s.clone()),
         Value::Array(argv) => {

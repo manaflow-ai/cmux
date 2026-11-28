@@ -11,6 +11,7 @@ import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
 import { RunningTime } from "./RunningTime";
 import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
+import { TestResultsPanel } from "./TestResultsPanel";
 import { inBackground } from "./runElsewhereModel";
 import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
@@ -168,6 +169,8 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       {/* A call that went on in the background says how it stands there, not why it failed. */}
       {!tool.background && <ToolFailureCause failure={failure} />}
       <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />
+      {/* A test command's counts and failures, ticking as it runs (TestResultsPanel.tsx). */}
+      {tool.testResults && <TestResultsPanel results={tool.testResults} />}
       {fold.present && (
         <div {...fold.bodyProps}>
           <ShellBlock
