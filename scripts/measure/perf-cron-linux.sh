@@ -107,7 +107,10 @@ else
   echo "perf-cron-linux.sh: the branch tip's perf-cron.py was not fetched or has no part $part; using the commit's own"
 fi
 
-python3 -I "$cron" run-linux-part --part "$part" --runner-class fleet-linux-c4d-32 --out "$work/part"
+# -u: the part's progress lines (the god part's pane build and paired rounds, each up to 20 min) reach the step log
+# as they print. Piped, Python block-buffers them, so a healthy web-ui-god run looked silent and cmux-ci's 45 min
+# silent limit stopped it (step 26f423b903ecd334a1dbe269, 2026-11-28).
+python3 -I -u "$cron" run-linux-part --part "$part" --runner-class fleet-linux-c4d-32 --out "$work/part"
 [ -f "$work/part/result.json" ] || { echo "perf-cron-linux.sh: run-linux-part wrote no result" >&2; exit 1; }
 python3 -I - "$work/part" "$out/step.json" <<'PY'
 import json, os, sys
