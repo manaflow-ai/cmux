@@ -21,6 +21,7 @@
 // (`localStorage["cmux.layoutWatch"] = "1"`); one frame callback per frame reading the visible rows'
 // boxes; it stops when its stop function is called (the transcript unmounts) and pauses while the page
 // is hidden. First PR: warn-only (console and overlay), never a failure.
+import { cssEscape } from "../../../cssEscape";
 
 /// Reader input this recent explains any move.
 export const INPUT_GRACE_MS = 300;
@@ -509,7 +510,7 @@ export function startLayoutWatch(scroller: HTMLElement, options: LayoutWatchOpti
 }
 
 function outline(scroller: HTMLElement, item: ShiftFlag): void {
-  const row = scroller.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${CSS.escape(item.rowId)}"]`);
+  const row = scroller.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${cssEscape(item.rowId)}"]`);
   if (!row) return;
   row.dataset.layoutFlag = item.invariant;
   // One timer per flag, ended by itself (stop condition: 600 ms).

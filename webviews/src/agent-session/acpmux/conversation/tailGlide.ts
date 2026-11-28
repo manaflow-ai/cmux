@@ -54,6 +54,7 @@ import { ARRIVAL_EASE, arrivalStepMs } from "./followChase";
 import type { PinCarry } from "./pinnedLiveLine";
 import { SINCE_DIVIDER } from "../model";
 import { LIVE_THINKING } from "./turns";
+import { cssEscape } from "../../../cssEscape";
 
 /// How the rows under a change move. `arrive` (shipped): on the arrival step, with the follow chase on
 /// the same step. `quick`: on the entry step (120 ms, ease-out), the follow chase on its spring.
@@ -142,7 +143,7 @@ function placedFromPage(thread: HTMLElement): PlacedRows {
 /// The mounted row `id` of `thread`, looked up only for a row that moves or lies across one that does.
 function rowOf(thread: HTMLElement, placed: PlacedRows, id: string): HTMLElement | null {
   if (placed.rowAt) return placed.rowAt(placed.indexOf(id)) ?? null;
-  const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
+  const name = cssEscape(id);
   return thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${name}"]`);
 }
 

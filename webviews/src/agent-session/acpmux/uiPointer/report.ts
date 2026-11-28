@@ -1,6 +1,7 @@
 // What the page reports for a picked element (the native UIInspectorController builds the reference
 // the agent receives from these fields; their names and values must not change), and the selector
 // the report and the live label (labelModel.ts) share.
+import { cssEscape } from "../../../cssEscape";
 
 /** What the page reports for a picked element: the native controller builds the reference from it. */
 export type UiPointerReport = {
@@ -34,11 +35,11 @@ const STYLE_KEYS = [
 const bounded = (value: unknown, limit: number) => String(value || "").slice(0, limit);
 
 export function selectorOf(element: Element): string {
-  if (element.id) return `#${CSS.escape(element.id)}`;
+  if (element.id) return `#${cssEscape(element.id)}`;
   const testid = element.getAttribute("data-testid");
-  if (testid) return `${element.localName}[data-testid="${CSS.escape(testid)}"]`;
+  if (testid) return `${element.localName}[data-testid="${cssEscape(testid)}"]`;
   const aria = element.getAttribute("aria-label");
-  if (aria) return `${element.localName}[aria-label="${CSS.escape(aria)}"]`;
+  if (aria) return `${element.localName}[aria-label="${cssEscape(aria)}"]`;
   return element.localName || "element";
 }
 

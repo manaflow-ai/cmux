@@ -45,6 +45,7 @@ import {
   type TranscriptBlock,
 } from "./subagentTranscriptModel";
 import { transcriptRunsLook } from "./transcriptRuns.experiment";
+import { cssEscape } from "../../../cssEscape";
 /// A tool call's output shown when opened, at most (the full output stays in the transcript).
 const OUTPUT_CHARS = 4000;
 /// How close to the bottom counts as at the bottom, in px.
@@ -65,7 +66,7 @@ function capture(view: HTMLElement, settled: boolean): Hold {
 
 /// Puts the held row's bottom edge back where it was; with that row gone, the distance from the bottom.
 function restore(view: HTMLElement, hold: Hold) {
-  const row = hold.id ? view.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(hold.id)}"]`) : null;
+  const row = hold.id ? view.querySelector<HTMLElement>(`[data-row-id="${cssEscape(hold.id)}"]`) : null;
   if (!row) {
     view.scrollTop = view.scrollHeight - hold.fromBottom;
     return;
@@ -189,7 +190,7 @@ export function SubagentTranscript({
     if (!placed.current) {
       if (units.length === 0) return;
       placed.current = true;
-      const target = anchor ? view.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(anchor)}"]`) : null;
+      const target = anchor ? view.querySelector<HTMLElement>(`[data-row-id="${cssEscape(anchor)}"]`) : null;
       if (target) view.scrollTop = Math.max(0, target.offsetTop - view.clientHeight / 3);
       else view.scrollTop = view.scrollHeight;
       return;

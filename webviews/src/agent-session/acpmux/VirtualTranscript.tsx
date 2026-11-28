@@ -302,6 +302,7 @@ export { RowContent } from "./transcript/RowFrame";
 export type { ScrollAnchor } from "./transcript/scrollAnchors";
 export { JumpToLatest, JumpUp } from "./transcript/JumpButtons";
 import { JumpToLatest } from "./transcript/JumpButtons";
+import { cssEscape } from "../../cssEscape";
 
 /// How soon after the last width step's work finished a new width counts as the same live resize,
 /// and how long a width holds before the whole chat is measured at it, come from
@@ -1520,7 +1521,7 @@ function TranscriptView({
     for (let index = shown.length - 1; index >= Math.max(0, shown.length - 6); index -= 1) {
       const row = shown[index]!;
       if (row.kind !== "assistant") continue;
-      const name = typeof CSS === "undefined" ? row.id.replace(/["\\]/g, "\\$&") : CSS.escape(row.id);
+      const name = cssEscape(row.id);
       const node = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
       return node ? { id: row.id, height: node.offsetHeight } : undefined;
     }
@@ -1586,7 +1587,7 @@ function TranscriptView({
       return Number.isFinite(y) ? y : 0;
     };
     const rowTop = (id: string, drawn: number) => {
-      const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
+      const name = cssEscape(id);
       const row = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
       return row ? row.getBoundingClientRect().top - drawn : undefined;
     };
@@ -6865,7 +6866,7 @@ function TranscriptView({
     // scroll write over at step 10.
     const motionList: MotionList = {
       offsetOf: (rowId) => {
-        const row = node.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(rowId)}"]`);
+        const row = node.querySelector<HTMLElement>(`[data-row-id="${cssEscape(rowId)}"]`);
         return row ? row.getBoundingClientRect().top - node.getBoundingClientRect().top : undefined;
       },
       scrollBy: () => {},
@@ -7399,7 +7400,7 @@ function TranscriptView({
     markedTurn.current = null;
     const host = thread.current;
     if (id === undefined || !host) return;
-    const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
+    const name = cssEscape(id);
     const row = host.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
     row?.setAttribute("data-turn-revealed", "");
     markedTurn.current = row;

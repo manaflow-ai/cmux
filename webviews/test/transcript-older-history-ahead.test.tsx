@@ -6,6 +6,7 @@ import { afterAll, expect, spyOn, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
+import { installTranscriptScrollHeight } from "./support/transcriptScrollHeight";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -52,6 +53,7 @@ const { turnView } = await import("../src/agent-session/acpmux/conversation/turn
 
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
+installTranscriptScrollHeight(dom.window);
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {

@@ -10,6 +10,7 @@ import { Tooltip } from "../../../ui/Tooltip";
 import { cx } from "../../../ui/cx";
 import type { HybridLook, HybridView } from "./hybridModel";
 import "./cloudToggle.css";
+import { cssEscape } from "../../../cssEscape";
 
 /// `chip`: the cloud and "Keep Running" (the strip above the composer, Session Info).
 /// `icon`: the cloud alone (the quiet row under the composer).
@@ -81,7 +82,7 @@ export function CloudToggle({
             <path
               className="acpmux-hybrid-cloud__shape"
               d={CLOUD}
-              style={{ "--acpmux-hybrid-paint": `url(#${CSS.escape(paint)})` } as React.CSSProperties}
+              style={{ "--acpmux-hybrid-paint": `url(#${cssEscape(paint)})` } as React.CSSProperties}
             />
           </svg>
         </span>

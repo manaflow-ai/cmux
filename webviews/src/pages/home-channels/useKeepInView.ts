@@ -3,11 +3,12 @@
 // the key alone; the timeline's virtual window renders rows near the viewport, so the next row
 // of j/k is always in the DOM.
 import { useLayoutEffect, type RefObject } from "react";
+import { cssEscape } from "../../cssEscape";
 
 export function useKeepInView(scroller: RefObject<HTMLElement | null>, key: string | undefined): void {
   useLayoutEffect(() => {
     if (!key) return;
-    const row = scroller.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`);
+    const row = scroller.current?.querySelector<HTMLElement>(`[data-key="${cssEscape(key)}"]`);
     row?.scrollIntoView({ block: "nearest" });
   }, [scroller, key]);
 }

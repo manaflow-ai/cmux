@@ -32,6 +32,7 @@ import {
   type PerfTransport,
 } from "./perf";
 import { acpWire, type AcpWireLog, type WireEntry } from "./wire";
+import { cssEscape } from "../../cssEscape";
 
 /** Sends one `_acpmux/perf` request (the page's client, direct.ts `perf`). */
 export type PerfSend = (params: Record<string, unknown>) => Promise<unknown>;
@@ -361,7 +362,7 @@ const ROW_SELECTOR = ".acpmux-row[data-row-id]";
 function domProbe(): PerfProbe {
   return {
     sendRows: (rowId) => {
-      const user = document.querySelector(`${ROW_SELECTOR}[data-row-id="${CSS.escape(rowId)}"]`);
+      const user = document.querySelector(`${ROW_SELECTOR}[data-row-id="${cssEscape(rowId)}"]`);
       if (!user) return { user: false, reserved: false };
       let reserved = false;
       for (const row of document.querySelectorAll(ROW_SELECTOR)) {
