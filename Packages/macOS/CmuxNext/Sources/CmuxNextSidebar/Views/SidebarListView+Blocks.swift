@@ -50,6 +50,13 @@ struct SidebarListBlocks: Equatable {
     var drawsLines: Bool
     var appHeights: [LayoutSectionID: CGFloat]
 
+    /// The same sections, drawing inputs and heights of app sections as `other`, whatever their items' infos.
+    func differsOnlyInInfos(from other: SidebarListBlocks) -> Bool {
+        var same = other
+        same.infos = infos
+        return same == self
+    }
+
     /// Section `id` without `hiding` and with a gap at `gap` (an index among the items left), as wide as the first hidden item.
     /// `joinsAbove`: a block drawn right before it, so the two keep one band's spacing (the list's row gap between them,
     /// or a section gap and its line in a lines look; the band's padding only at the run's top). A block has no bottom padding in the list: the list puts its row
@@ -197,6 +204,53 @@ extension SidebarListViewComponents {
         }
         // A band row runs past the region's edge by the row trim; the card it morphs to stops at the list's.
         return slot.map { $0.frame.offsetBy(dx: 0, dy: row.y).clippedX(to: bounds) }
+    }
+
+    /// Shows `new` in place when it differs from the drawn blocks only in their items' looks (`infos`: a pinned
+    /// workspace's status or progress, a badge, a title) and every block keeps the height the shown layout gave it
+    /// (`drawnBlockHeights`): each drawn block shows its new content and no row moves. False, changing nothing,
+    /// otherwise: an item added, moved or hidden, a height change (a chip that wraps), another input, a change held
+    /// under the pointer (the shown layout is older than `blocks`), a drag, drop or landing under way. The caller
+    /// then lays the list out again. Before, each progress report of a pinned workspace laid out every row of the
+    /// list (400 rows, about 4 times a second in the CMUX NEXT Stable `sidebar.400.ticking` bench, whose first
+    /// workspace is pinned and ticking).
+    func patchBlocks(_ new: SidebarListBlocks) -> Bool {
+        guard let old = blocks, let drawn = drawnBlockHeights, old.differsOnlyInInfos(from: new), !holdsModelChange,
+              drag == nil, settling == nil, landing == nil, external == nil else { return false }
+        let byUser = model.followsUserIntent
+        return SidebarPerfCounters.timed {
+            // Under the pointer, a change nobody here asked for waits when it moves an item in a block (an inline
+            // chip that widens moves the chips after it, calm-sidebar-movement); one that moves nothing (a pinned
+            // row's status or progress) draws now.
+            let held = !byUser && holdsModelChangeNow
+            let before = held ? blockItemFrames() : nil
+            blocks = new
+            guard blockHeights(includeGap: true) == drawn, before == nil || blockItemFrames() == before else {
+                blocks = old
+                return false
+            }
+            SidebarPerfCounters.add(.blockPatches)
+            for (key, view) in rowViews {
+                guard case .block = key, let row = displayed.row(for: key) else { continue }
+                // A change the user asked for moves its items on the spring, as its reload would.
+                configure(view, row: row, animated: byUser)
+            }
+            // A shown hover card reads its row's new status, and one whose anchor left closes, as after a reload.
+            if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
+            updateHover()
+            return true
+        }
+    }
+
+    /// Each block's items, headers and cards where its layout at the list's width places them.
+    func blockItemFrames() -> [String: [SidebarRegionRow]] {
+        guard let blocks else { return [:] }
+        var frames: [String: [SidebarRegionRow]] = [:]
+        for id in blocks.sections.keys {
+            guard let content = blockContent(id, includeGap: true) else { continue }
+            frames[id] = SidebarRegionView.layout(of: content, width: bounds.width).rows
+        }
+        return frames
     }
 
     /// Each block's height at the list's width.
