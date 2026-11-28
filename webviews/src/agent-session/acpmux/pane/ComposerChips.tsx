@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type AcpmuxSnapshot } from "../model";
 import { newTabChipSnapshot } from "../newtab/chipDefaults";
 import { useHarnessesPage } from "../harnesses/harnessesPage";
@@ -12,7 +12,6 @@ import {
 } from "../cloudAgentPick";
 import { HELD_EFFORT_ID, HELD_FAST_ID, isEffortOption, isFastModeOption } from "../heldOptions";
 import { isDefaultChoice } from "../defaultChoice";
-import { useCloudLastPick } from "../cloudLastPick";
 import { useDraftActionsVersion } from "../composerDraft";
 import { useHarnessesListed } from "../catalog";
 import { usePickerCatalog } from "../modelCatalogHost";
@@ -145,15 +144,20 @@ function PickerChips({
   // page's snapshot names it goes to that agent's chat, never back to the one the page showed before
   // (cmux#59716: Opus 5.5, then Medium, switched the page back to Codex).
   const pickedHarness = useRef<string | undefined>(undefined);
-  // Dropped once the page names that agent itself, or has a session.
-  if (snapshot.summary?.sessionId || snapshot.summary?.harness === pickedHarness.current)
-    pickedHarness.current = undefined;
+  // Dropped once the page names that agent itself, or has a session (an effect, so render reads
+  // no ref; `start` applies the same test for a pick before the effect runs).
+  const summarySession = snapshot.summary?.sessionId;
+  const summaryHarness = snapshot.summary?.harness;
+  useEffect(() => {
+    if (summarySession || summaryHarness === pickedHarness.current) pickedHarness.current = undefined;
+  }, [summarySession, summaryHarness]);
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
   // `faceHarness`: the agent the chips name where the snapshot names none yet (ComposerPickers'
   // chip harness), the one a New Tab's mode pick starts.
   const start = (faceHarness?: string) => {
-    const harness = pickedHarness.current ?? snapshot.summary?.harness ?? faceHarness;
+    const picked = summarySession || summaryHarness === pickedHarness.current ? undefined : pickedHarness.current;
+    const harness = picked ?? summaryHarness ?? faceHarness;
     if (!startsChat || !harness || snapshot.summary?.sessionId) return;
     void callNative("chat.new", { harness, ...inFolder }).catch(() => undefined);
   };

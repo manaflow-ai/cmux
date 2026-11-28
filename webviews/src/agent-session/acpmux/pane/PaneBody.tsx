@@ -37,7 +37,6 @@ import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
 import { cloudAgentPick, cloudStartPick, rememberedCloudAgentPick } from "../cloudAgentPick";
-import { cloudLastPick } from "../cloudLastPick";
 import { jumpSide } from "../jumpPlace";
 import type { ComposerPlace } from "../composerPlace.experiment";
 import { StyleSwitch } from "../newtab/StyleSwitch";
