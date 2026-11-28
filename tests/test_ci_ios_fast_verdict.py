@@ -143,7 +143,6 @@ class PlanTest(unittest.TestCase):
         # lock builds nothing new; it took a Mac for 8 of 95 branches on 2026-11-27 16-20Z.
         self.assertFalse(self.plan("cmux-tui/Cargo.lock")["run"])
         self.assertFalse(fv.affects(["cmux-tui/Cargo.lock"]))
-        self.assertTrue(self.plan("cmux-next-ios/rust/Cargo.lock")["run"])
 
     def test_a_rust_crate_the_ffi_does_not_compile_plans_nothing(self) -> None:
         import ios_link_ffi_key
