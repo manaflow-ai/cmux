@@ -7,7 +7,7 @@
 //! as four fractions of the screen's pane area. A client without the
 //! capability ignores the list and shows every pane tiled.
 
-use cmux_layout_reducer::floating_panes::{FloatFrame, FloatMode, Floating, Quick, QuickMode};
+use cmux_layout_reducer::floating_panes::{FloatFrame, FloatMode, QuickMode};
 
 use super::*;
 use crate::FloatPaneError;
@@ -178,26 +178,6 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
 fn frame_json(frame: FloatFrame) -> Value {
     let [x, y, w, h] = frame.fractions();
     json!({"x": x, "y": y, "w": w, "h": h})
-}
-
-/// `Screen.floating`: one `{pane, x, y, w, h}` for each floating pane, back to
-/// front.
-pub(super) fn floating_json(list: &[Floating<PaneId>]) -> Value {
-    Value::Array(
-        list.iter()
-            .map(|entry| {
-                let [x, y, w, h] = entry.frame.fractions();
-                json!({"pane": entry.pane, "x": x, "y": y, "w": w, "h": h})
-            })
-            .collect(),
-    )
-}
-
-/// `Screen.quick_terminal`: the pane of the quick terminal, whether it is
-/// hidden, and `from`, the pane that gets the focus back at a hide (null when
-/// the mark names none).
-pub(super) fn quick_terminal_json(pane: PaneId, mark: Quick<PaneId>) -> Value {
-    json!({"pane": pane, "hidden": mark.hidden, "from": mark.from})
 }
 
 #[cfg(test)]
