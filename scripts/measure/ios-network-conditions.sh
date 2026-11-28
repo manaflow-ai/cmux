@@ -206,6 +206,11 @@ PY
   done
 }
 
+# libtest prints "test NAME ... " with no newline before a test's own output, so its first
+# NETCOND line arrives as "test NAME ... NETCOND {...}"; read that prefix off, or every test's
+# run 0 drops out (a 1x cell of 19 runs, which the record refuses as short).
+netcond_line='^\(test [^ ]* \.\.\. \)\{0,1\}NETCOND '
+
 # r1 LABEL TREE: R1 time to readable, the chat list from the phone's own store with the link cut
 # (cmux-mobile-core tests/read_first_r1.rs); its NETCOND lines labelled into lines.txt.
 r1() {
@@ -217,7 +222,7 @@ r1() {
     NETCOND_MODE="$mode" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" \
     cargo test --release ${locked[@]+"${locked[@]}"} -p cmux-mobile-core --test read_first_r1 -- \
       --ignored --nocapture --test-threads 1 >"$log" 2>&1) || code=$?
-  sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
+  sed -n "s/$netcond_line/$label /p" "$log" >>"$work/lines.txt"
   grep -E '^NETCOND-ERROR' "$log" | sed "s/^/$label /" || true
   echo "NETCOND-STATUS $label r1 exit=$code log=$log"
   (( code == 0 )) || { tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label r1 /"; return 1; }
@@ -244,9 +249,9 @@ transcript() {
     (cd "$tree" && CMUX_TRANSCRIPT_R1_BENCH=1 NETCOND_MODE="$mode" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" \
       NETCOND_SEED_BASE="$seed" swift test "${release[@]}" --package-path cmux-next-ios/CmuxMobileKit --skip-build \
       --filter TranscriptReadFirstR1Bench 2>&1 | tee -a "$log" |
-      { sed -un "s/^NETCOND /NETCOND-LIVE $label /p" || true; }) || code=$?
+      { sed -un "s/$netcond_line/NETCOND-LIVE $label /p" || true; }) || code=$?
   fi
-  sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
+  sed -n "s/$netcond_line/$label /p" "$log" >>"$work/lines.txt"
   grep -E '^NETCOND-ERROR' "$log" | sed "s/^/$label /" || true
   echo "NETCOND-STATUS $label transcript exit=$code log=$log"
   (( code == 0 )) || { tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label transcript /"; return 1; }
@@ -281,8 +286,8 @@ bench() {
     cargo test --release ${locked[@]+"${locked[@]}"} -p "$crate" --test mobile_link_conditions -- \
       ${filter[@]+"${filter[@]}"} --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
     # Live as they come, so a run cut at its deadline still shows how far it got.
-    { sed -un -e "s/^NETCOND /NETCOND-LIVE $label /p" -e "s/^netcond: /NETCOND-PROGRESS $label /p" || true; }) || code=$?
-  sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
+    { sed -un -e "s/$netcond_line/NETCOND-LIVE $label /p" -e "s/^netcond: /NETCOND-PROGRESS $label /p" || true; }) || code=$?
+  sed -n "s/$netcond_line/$label /p" "$log" >>"$work/lines.txt"
   grep -E '^NETCOND-(ERROR|FIXTURE|SKIP)' "$log" | sed "s/^/$label /" || true
   echo "NETCOND-STATUS $label $surface exit=$code log=$log"
   [[ "$surface" == chat && ( "$mode" == links || "$mode" == duress ) ]] && { r1 "$label" "$tree" || code=1; }

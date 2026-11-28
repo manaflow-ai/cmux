@@ -153,6 +153,9 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == "__remote-sandbox-keeper") {
         crate::linux_sandbox::keeper::main(args.into_iter().skip(1).collect());
     }
+    if args.first().is_some_and(|arg| arg == crate::subscriptions::grok_hook::ARG) {
+        return crate::subscriptions::grok_hook::run(args.get(1).and_then(|arg| arg.to_str()));
+    }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
@@ -383,6 +386,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
     match command {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
+        Some(Command::GhRead(args)) => crate::cli::gh_read::run(args, json_out).await,
         Some(Command::Ci(ci)) => crate::cli::ci_wait::run(ci, json_out).await,
         Some(Command::RunAsk { file }) => crate::run_ask::run_cli(file).await,
         // Before anything that reads or writes the home: this runs as root.
@@ -707,6 +711,12 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         }
         Some(Command::Exec(crate::cli::command::ExecCmd::Trace { last })) => {
             match crate::placement::exec_router::trace_main(last, cli.json) {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
+        Some(Command::Exec(crate::cli::command::ExecCmd::Conformance { cases, dir, keep })) => {
+            match crate::placement::exec_conformance::main(&cases, dir, keep, cli.json).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, cli.json),
             }
