@@ -729,6 +729,12 @@ class RequiredGateTest(unittest.TestCase):
         env = gate["steps"][-1]["env"]
         self.assertEqual(env["PAIR_STATE"], "${{ needs.fast-gates.outputs.pair_verdict }}")
         self.assertEqual(env["IOS_STATE"], "${{ needs.ios-fast-status.outputs.verdict }}")
+        self.assertNotIn("CANCELLED", env)
+        reject = next(s for s in gate["steps"] if s.get("name") == "Reject a cancelled workflow")
+        self.assertEqual(reject["if"], "${{ cancelled() }}")
+        self.assertEqual(subprocess.run(["bash", "-c", reject["run"]]).returncode, 1)
+        for job in (gate, jobs["ios-gate-unrelated"]):
+            self.assertNotIn("cancelled()", job["name"])
         noop = jobs["ios-gate-unrelated"]
         self.assertEqual(noop["needs"], "route")  # no wait for heavy jobs, no checkout or network request
         self.assertEqual(noop["permissions"], {})
@@ -786,7 +792,7 @@ class RequiredGateTest(unittest.TestCase):
                         functions = {"always": True, "cancelled": cancelled}
                         names = [gh_expr.evaluate(gh_expr.condition(jobs[j]["name"]), context, functions)
                                  for j in ("ios-gate-unrelated", "ios-gate")]
-                        if route == "skipped" and not cancelled:
+                        if route == "skipped":
                             self.assertEqual(names.count("cmux/ios-gate"), 0)
                             self.assertFalse(gh_expr.truthy(gh_expr.evaluate(gh_expr.condition(jobs["ios-gate"]["if"]), context, functions)))
                             continue

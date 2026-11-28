@@ -745,13 +745,13 @@ jobs:
       - run: echo 'No iOS or connection inputs changed'
 
   ios-gate:
-    name: ${{ needs.route.result == 'skipped' && !cancelled() && 'iOS gate metadata (ignored)' || needs.route.result == 'success' && needs.route.outputs.ios_gate_ios == 'false' && needs.route.outputs.ios_gate_pair == 'false' && 'iOS gate result (not applicable)' || 'cmux/ios-gate' }}
+    name: ${{ needs.route.result == 'skipped' && 'iOS gate metadata (ignored)' || needs.route.result == 'success' && needs.route.outputs.ios_gate_ios == 'false' && needs.route.outputs.ios_gate_pair == 'false' && 'iOS gate result (not applicable)' || 'cmux/ios-gate' }}
     needs: [route, ios-fast-status, fast-gates]
     # Waiting is the Actions DAG, not a runner polling. Affected or unknown paths run even on cancel
     # so missing execution is red; unrelated paths need no dependent execution.
     # workflow-job-bounds.json records this required-check exception. Ignored metadata/label events
     # skip route deliberately; they use no canonical name and cannot replace a previous head verdict.
-    if: ${{ always() && (needs.route.result != 'skipped' || cancelled()) && !(needs.route.result == 'success' && needs.route.outputs.ios_gate_ios == 'false' && needs.route.outputs.ios_gate_pair == 'false') }}
+    if: ${{ always() && needs.route.result != 'skipped' && !(needs.route.result == 'success' && needs.route.outputs.ios_gate_ios == 'false' && needs.route.outputs.ios_gate_pair == 'false') }}
     runs-on: ${{ github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 2
     permissions:
@@ -772,10 +772,13 @@ jobs:
             scripts/ci/workflow_paths_cover_inputs.py
             scripts/ci/gh_expressions.py
           sparse-checkout-cone-mode: false
+      # Status functions are supported only in `if`, not job names or step environment values.
+      - name: Reject a cancelled workflow
+        if: ${{ cancelled() }}
+        run: exit 1
       - name: Mirror the exact-head dependency verdicts
         env:
           ROUTE_JOB: ${{ needs.route.result }}
-          CANCELLED: ${{ cancelled() }}
           IOS_REQUIRED: ${{ needs.route.outputs.ios_gate_ios }}
           PAIR_REQUIRED: ${{ needs.route.outputs.ios_gate_pair }}
           IOS_STATE: ${{ needs.ios-fast-status.outputs.verdict }}
