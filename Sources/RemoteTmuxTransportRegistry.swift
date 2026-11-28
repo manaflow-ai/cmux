@@ -823,7 +823,12 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         }
         // Arguments only: the executable is supplied separately (see ``executablePath()``),
         // exactly as the ssh profile does. Including it here would pass `et` twice.
-        var argv = ["-p", String(port)]
+        //
+        // `--port` and, below, `--command`, never `-p` and `-c`. et 7.1 gave its short flags to
+        // the bootstrap ssh: `-p` became sshd's port and `-c` a cipher spec, so the short forms
+        // send etserver's port to ssh and fail the attach with "Unknown cipher type". The long
+        // forms mean the same thing on 6.x and 7.x.
+        var argv = ["--port", String(port)]
         if let remoteTerminalPath {
             // ET interpolates this value into its SSH bootstrap shell command. Keep the
             // ordinary absolute path spelling unchanged — ET treats the option value as the
@@ -860,7 +865,7 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         // host, never an option. Measured against et 6.2.11+7 - with the guard, `-weirdhost` is
         // reported as an unreachable host; without it, et swallows it and exits "Missing host to
         // connect to".
-        argv += ["-c", "exec \(remote)", "--", host.destination]
+        argv += ["--command", "exec \(remote)", "--", host.destination]
         return argv
     }
 

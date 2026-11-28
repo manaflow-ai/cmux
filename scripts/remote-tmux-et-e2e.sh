@@ -100,7 +100,7 @@ fi
 # produces no output. Match the whole shape so another agent's `script` or `et` cannot pass
 # this for us.
 pty_wrapped_et() {
-  pgrep -f "script -q /dev/null .*et -p $PORT .*$HOST" >/dev/null 2>&1
+  pgrep -f "script -q /dev/null .*et --port $PORT .*$HOST" >/dev/null 2>&1
 }
 if pty_wrapped_et; then
   pass "this host's et was spawned under a pseudo-terminal"

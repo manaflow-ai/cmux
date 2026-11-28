@@ -84,5 +84,5 @@ name:       $NAME
 port:       $PORT
 state:      $DIR
 session:    $SESSION (socket $SOCKET)
-client:     et -p $PORT --macserver -c '<command>' $USER@127.0.0.1
+client:     et --port $PORT --macserver --command '<command>' $USER@127.0.0.1
 INFO

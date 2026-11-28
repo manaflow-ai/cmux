@@ -34,11 +34,11 @@
 #                             (6.2.11 spelling; 7.0.0 spells it PseudoTerminalConsole)
 #   PsuedoTerminalConsole.hpp tcgetattr(0, …); cfmakeraw(…); tcsetattr(0, …)   -- returns unchecked
 # So the client does not require a tty, but it does not tolerate its absence by design either: it
-# always builds a console unless `-N` is given, and the termios calls simply fail silently on a
+# always builds a console unless `--no-terminal` is given, and the termios calls simply fail silently on a
 # pipe. Control mode still comes up (measured, including with no controlling terminal at all), but
 # with no usable termios the client cannot suppress local echo, which is why the same stream is
 # far larger without a pty (measured 1324 bytes with vs 44576 without, one session on a loopback
-# server). `-N` is not an alternative: it discards the stream entirely.
+# server). `--no-terminal` is not an alternative: it discards the stream entirely.
 # The interesting non-difference: 7.x rewrote the pty input path specifically because 6.x
 # deadlocks on a large input burst, yet the delivery bound is unchanged. The limit belongs to the
 # tty line discipline, not to how the server writes to it, so it survives that rewrite.
@@ -272,7 +272,7 @@ et_run() {
     # `--` before the destination, as cmux's own et argv does: a destination beginning with `-`
     # has to be a host, never an option.
     python3 scripts/pty-run.py --timeout "$timeout_s" -- \
-      "$ET_CLIENT" -p "$PORT" --terminal-path "$ET_TERMINAL" -c "$command" -- "$HOST" 2>&1 \
+      "$ET_CLIENT" --port "$PORT" --terminal-path "$ET_TERMINAL" --command "$command" -- "$HOST" 2>&1 \
       | tee "$TTY_SINK"
   fi
 }
@@ -373,7 +373,7 @@ if [ "$gate_ok" -ne 1 ]; then
 fi
 echo "=== precondition holds: a trivial command survives the transport"
 
-echo "--- claim: a pty is what keeps the stream bounded, and -N discards it entirely"
+echo "--- claim: a pty is what keeps the stream bounded, and --no-terminal discards it entirely"
 # This is why the profile carries requiresPseudoTerminal and the spawn is wrapped in script(1). A
 # silent transport is indistinguishable from an unreachable host, which is what made the original
 # failure expensive to diagnose.
@@ -385,15 +385,15 @@ else
   #   - control mode IS reached over pipes, so the pty is not what makes the transport work;
   #   - without usable termios the client cannot go raw, so the same stream arrives far larger,
   #     padded with redraws, and cmux parses and budgets against that stream;
-  #   - `-N` suppresses the console, and et writes the remote output only when a console exists,
+  #   - `--no-terminal` suppresses the console, and et writes the remote output only when a console exists,
   #     so it receives the stream and discards it.
   # The last one is the sharp, cheap assertion, so that is what is checked here.
   tmux -f /dev/null new-session -d -s "${SESSION}p" 2>/dev/null
   PCMD="TMUX_TMPDIR=$TMUX_TMPDIR; export TMUX_TMPDIR; exec tmux -CC attach-session -t ${SESSION}p"
-  withpty="$(python3 scripts/pty-run.py --timeout 20 -- "$ET_CLIENT" -p "$PORT" \
-               --terminal-path "$ET_TERMINAL" -c "$PCMD" "$HOST" 2>&1)" || true
-  withN="$(python3 scripts/pty-run.py --timeout 20 -- "$ET_CLIENT" -N -p "$PORT" \
-               --terminal-path "$ET_TERMINAL" -c "$PCMD" "$HOST" 2>&1)" || true
+  withpty="$(python3 scripts/pty-run.py --timeout 20 -- "$ET_CLIENT" --port "$PORT" \
+               --terminal-path "$ET_TERMINAL" --command "$PCMD" "$HOST" 2>&1)" || true
+  withN="$(python3 scripts/pty-run.py --timeout 20 -- "$ET_CLIENT" --no-terminal --port "$PORT" \
+               --terminal-path "$ET_TERMINAL" --command "$PCMD" "$HOST" 2>&1)" || true
   wp_bytes=$(printf '%s' "$withpty" | wc -c | tr -d ' ')
   wn_bytes=$(printf '%s' "$withN" | wc -c | tr -d ' ')
   if printf '%s' "$withpty" | grep -q '%begin'; then
@@ -402,19 +402,19 @@ else
     fail "no control mode even under a pty — something more basic is wrong"
   fi
   if printf '%s' "$withN" | grep -q '%begin'; then
-    fail "-N still delivered the stream; cmux could drop the pty wrapper and pass -N instead"
+    fail "--no-terminal still delivered the stream; cmux could drop the pty wrapper and pass --no-terminal instead"
   elif printf '%s' "$withN" | grep -qE "Could not reach|onnection refused|uthentication|rror"; then
     # Absence of %begin only means something if the run actually connected. Without this, an
-    # unreachable port scored as "-N discards the stream" — measured.
-    fail "the -N run did not connect, so its lack of a stream proves nothing"
+    # unreachable port scored as "--no-terminal discards the stream" — measured.
+    fail "the --no-terminal run did not connect, so its lack of a stream proves nothing"
     note "$(printf '%s' "$withN" | tr -d '\r' | grep -aE 'Could not reach|rror' | head -1)"
   else
-    pass "-N connected and still produced no stream (${wn_bytes} bytes), so it is not an alternative"
+    pass "--no-terminal connected and still produced no stream (${wn_bytes} bytes), so it is not an alternative"
   fi
   # Absent a pty the stream is padded with redraws. Reported rather than asserted: the exact
   # multiple depends on the shell and the window size, and only its magnitude matters.
-  nopty="$("$TIMEOUT_BIN" 20 "$ET_CLIENT" -p "$PORT" --terminal-path "$ET_TERMINAL" \
-             -c "$PCMD" "$HOST" </dev/null 2>&1)" || true
+  nopty="$("$TIMEOUT_BIN" 20 "$ET_CLIENT" --port "$PORT" --terminal-path "$ET_TERMINAL" \
+             --command "$PCMD" "$HOST" </dev/null 2>&1)" || true
   np_bytes=$(printf '%s' "$nopty" | wc -c | tr -d ' ')
   note "same session: ${wp_bytes} bytes under a pty vs ${np_bytes} without one"
   tmux kill-session -t "${SESSION}p" 2>/dev/null
@@ -563,9 +563,9 @@ if [ -n "$TRANSPORT_BROKER" ]; then
   rej="$("$TIMEOUT_BIN" 15 "$TRANSPORT_BROKER" $TRANSPORT_BROKER_ARGS --definitely-not-a-flag \
            "$TRANSPORT_HOST" -c true 2>&1; true)"
 else
-  # -p must be present, or this fails on connection before argv is ever judged and the
+  # --port must be present, or this fails on connection before argv is ever judged and the
   # connection error gets misread as the rejection wording.
-  rej="$("$TIMEOUT_BIN" 15 "$ET_CLIENT" -p "$PORT" --definitely-not-a-flag "$HOST" 2>&1; true)"
+  rej="$("$TIMEOUT_BIN" 15 "$ET_CLIENT" --port "$PORT" --definitely-not-a-flag "$HOST" 2>&1; true)"
 fi
 if printf '%s' "$rej" | grep -qiE "unrecognized option|unknown option|flag provided but not defined|invalid option"; then
   pass "a rejected argv says so in wording cmux classifies as unrecoverable"
