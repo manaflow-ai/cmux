@@ -50,7 +50,7 @@ impl Mux {
                 let index = pane.tabs.len() - 1;
                 fence_layout_undo_for_tab_membership(&mut state, &[target]);
                 let screen = state.workspaces[wi].screens[si].id;
-                let entity = crate::server::tree_entity_json(
+                let entity = crate::tree_wire::tree_entity_json(
                     &state,
                     &notifications,
                     TreeDeltaKind::TabAdded,
@@ -84,7 +84,7 @@ impl Mux {
                     pane_id,
                 ));
                 state.workspaces[wi].active_screen = 0;
-                let entity = crate::server::tree_entity_json(
+                let entity = crate::tree_wire::tree_entity_json(
                     &state,
                     &notifications,
                     TreeDeltaKind::ScreenAdded,
@@ -239,7 +239,7 @@ impl Mux {
                         let (wi, si) = state.screen_of(pane_id)?;
                         let pane = state.panes.get(&pane_id)?;
                         let index = pane.tabs.iter().position(|id| *id == surface.id)?;
-                        let entity = crate::server::tree_entity_json(
+                        let entity = crate::tree_wire::tree_entity_json(
                             &state,
                             &notifications,
                             TreeDeltaKind::TabAdded,

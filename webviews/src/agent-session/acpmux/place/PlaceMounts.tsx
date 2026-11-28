@@ -3,15 +3,27 @@ import { useExperimentSwitch } from "../../../experiments/switches";
 import { CLOUD_TOGGLE_SWITCH } from "../hybrid/hybridModel";
 import { MoveProgress, type MoveProgressLook } from "./MoveProgress";
 import { PlaceControl, type PlaceControlLook } from "./PlaceControl";
+import type { PlaceState } from "./placeModel";
 import { placeActions, type PlaceClaims } from "./usePlace";
 import { useHeaderState } from "../header/headerState";
 import { AutoStatusLine } from "../auto/AutoStatusLine";
 import { statusTicks, type StatusActionId } from "../auto/computerStatus";
+import { AutoSizeFold } from "../autosize/AutoSizeRow";
+import { callNative } from "../callNative";
+import { translate } from "../i18n";
+import { errorMessage } from "../transportErrors";
 
 /// What ships: the chip in the composer's location row, and the card over the composer
 /// (PlaceControl.gallery.tsx and MoveProgress.gallery.tsx compare the other looks).
 const SHIPPED_CONTROL: PlaceControlLook = "menu";
 const SHIPPED_MOVE: MoveProgressLook = "card";
+
+/// Whether the place controls draw: Cloud Toggle's switch, or a `place` whose app offers choices
+/// (`place.modes`: AutoCloud on lets each chat turn AutoCloud on or off, without the experiment).
+function useOffered(place: PlaceState | undefined): boolean {
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
+  return on || (place?.modes?.length ?? 0) > 0;
+}
 
 /// The chat's place control, reading `pane.tabState`'s `place`; nothing while the app reports none.
 export function PlaceChip({
@@ -26,8 +38,8 @@ export function PlaceChip({
   claims?: () => PlaceClaims;
   look?: PlaceControlLook;
 }) {
-  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const { place } = useHeaderState();
+  const on = useOffered(place);
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
   if (!on || !place || !actions) return null;
   return <PlaceControl place={place} look={look} onMode={actions.setMode} />;
@@ -48,7 +60,7 @@ export function MoveDock({
 }) {
   const { place } = useHeaderState();
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
-  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
+  const on = useOffered(place);
   const move = place?.move;
   if (!on || !move || !actions || (move.session && session && move.session !== session)) return null;
   return <MoveProgress move={move} look={look} onCancel={actions.cancel} onRetry={actions.retry} />;
@@ -71,8 +83,8 @@ export function ComputerStatusLine({
   /// The queue and draft the page holds, read at a Retry or a Run on This Mac.
   claims?: () => PlaceClaims;
 }) {
-  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const { place } = useHeaderState();
+  const on = useOffered(place);
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
   const status = place?.status;
   const ticking = on && status !== undefined && statusTicks(status);
@@ -90,4 +102,25 @@ export function ComputerStatusLine({
     else if (id === "run_on_mac") actions.setMode("local");
   };
   return <AutoStatusLine status={status} nowMs={nowMs} offered={OFFERED} onAction={run} />;
+}
+
+/// RFD 0080 piece 4 over the composer: what AutoSize did to the chat's computer (`place.autosize`), the newest row
+/// drawn and the rest folded behind "N earlier". A held row's Upgrade asks for the plan (`cloud.plan.subscribe`, the
+/// pricing card's call; the app opens checkout) and says a refusal in `say`. Nothing while Settings > Experiments'
+/// Cloud Toggle is off or there is no row.
+export function AutoSizeDock({ say }: { say?: (text: string) => void }) {
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
+  const { place } = useHeaderState();
+  const rows = place?.autosize;
+  if (!on || !rows || rows.length === 0) return null;
+  const upgrade = (plan: string) => {
+    void callNative("cloud.plan.subscribe", { plan }).catch((error: unknown) =>
+      say?.(errorMessage(error).trim() || translate("cloudStart.plans.subscribeFailed")),
+    );
+  };
+  return (
+    <div className="autosize-dock">
+      <AutoSizeFold rows={rows} onUpgrade={upgrade} />
+    </div>
+  );
 }

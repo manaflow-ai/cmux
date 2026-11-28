@@ -46,6 +46,16 @@ class GracefulSwapTest(unittest.TestCase):
         self.assertEqual(row["labels"]["drafts_kept"], "3/4")
         self.assertTrue(ctx.notes)
 
+    def test_latency_note_prints_the_now_publish_command(self):
+        # NOW reads hand-measure state, not the ledger: the import says the exact publish line (11-28).
+        ctx = Context(bench=BENCH, build={"channel": "other", "version": None, "sha": "d78f9131"},
+                      host_role="anywhere", args={"capture_host": "mac-1", "step": "8c6948cce97df9f68e663837"},
+                      timestamp="2026-11-22T00:00:00Z")
+        BENCH.ingest(ctx, FIXTURES / "latency.json")
+        line = next(n for n in ctx.notes if "now_hand_measures.py publish" in n)
+        self.assertIn("--row hot_swap.mac.unfocused_pane.p95_ms@mac-1 --value 540", line)
+        self.assertIn("--step 8c6948cce97df9f68e663837 --sha d78f9131", line)
+
     def test_missed_runs_bound_the_p95(self):
         # 75ef6ec3 on a fleet Mac: 2 of 20 saves showed (73, 90 ms), 18 had not when the 2.5 s film ended.
         ctx = Context(bench=BENCH, build={"channel": "nightly", "version": None, "sha": None}, host_role="anywhere",
