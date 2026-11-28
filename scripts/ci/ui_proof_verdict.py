@@ -341,8 +341,13 @@ def build_record(out: Path, *, repo: str, pr: int, head: str, suite: str | None 
         elif before is not None:
             cap["verdict"] = "new"
         captures.append(cap)
-    errors = receipt.get("errors") or []
-    looked = bool(shots) and (out / "after" / "light.png").is_file() and not errors
+    errors = list(receipt.get("errors") or [])
+    if not (out / "after" / "light.png").is_file():
+        # Name the file and the layout the gate reads: a fail with no note sends the reader into the CI log.
+        found = ", ".join(sorted(p.name for p in (out / "after").glob("*.png"))) or "none"
+        errors.insert(0, f"missing after/light.png (after/ has: {found}); expected layout: before/{{light,dark}}.png, "
+                         "after/{light,dark}.png, optional steps/*.png, video.mp4, receipt.json")
+    looked = bool(shots) and not errors
     runs = [{"name": "look", "result": "pass" if looked else "fail", "mode": ",".join(plan.get("layers") or []),
              "seconds": (receipt.get("phases") or {}).get("total"),
              **({"note": "; ".join(errors)[:300]} if errors else {})}]
@@ -401,20 +406,36 @@ def api(path: str, token: str, method: str = "GET", body: dict | None = None):
 def post_status(state: str, description: str, repo: str, sha: str, tokens: list[str], target_url: str = "") -> bool:
     body = {"state": state, "context": STATUS_CONTEXT, "description": description[:140],
             **({"target_url": target_url} if target_url else {})}
-    for attempt in range(3):
+    # A rate limit refuses before the call runs, so asking again cannot double the post (the rule of
+    # gh_http.request_through_rate_limit; this file is checked out alone and cannot import it): when every token in a
+    # round was rate limited, wait the limit out (a minute a round, ten minutes in all) instead of leaving the
+    # status pending, which a land then waits on for hours (cmux#60053's cmux/ios-fast).
+    limited_rounds = 0
+    attempt = 0
+    while attempt < 3 + limited_rounds and limited_rounds < 10:
+        limited = 0
         for token in tokens:
             try:
                 api(f"repos/{repo}/statuses/{sha}", token, "POST", body)
                 return True
-            except Exception as e:  # noqa: BLE001 - the next token, then the next round
+            except urllib.error.HTTPError as e:
                 why = ""
-                if isinstance(e, urllib.error.HTTPError):  # the refusal's own words: "Forbidden" alone hid a spent hour
-                    try:
-                        why = " " + e.read().decode("utf-8", "replace")[:200]
-                    except Exception:  # noqa: BLE001
-                        pass
-                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e}){why}", file=sys.stderr)
-        time.sleep(5 * (attempt + 1))
+                try:  # the refusal's own words: "Forbidden" alone hid a spent hour
+                    why = " " + e.read().decode("utf-8", "replace")[:200]
+                except Exception:  # noqa: BLE001
+                    pass
+                print(f"{STATUS_CONTEXT}: post refused (HTTP {e.code}){why}", file=sys.stderr)
+                if e.code in (403, 429) and (e.headers.get("retry-after") or e.headers.get("x-ratelimit-remaining") == "0"
+                                             or e.code == 429):
+                    limited += 1
+            except Exception as e:  # noqa: BLE001 - the next token, then the next round
+                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e})", file=sys.stderr)
+        if limited == len(tokens):
+            limited_rounds += 1
+            time.sleep(60)
+        else:
+            time.sleep(5 * (attempt + 1))
+        attempt += 1
     return False
 
 
