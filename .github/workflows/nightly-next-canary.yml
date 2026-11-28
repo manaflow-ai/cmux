@@ -244,8 +244,19 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$SHORT" =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid CMUXCommit '$SHORT'" >&2; exit 1; }
-          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHORT" --jq .sha)"
-          git fetch --no-tags --depth=1 origin "$sha"
+          # Resolve the short CMUXCommit with git, not the REST API: run 46181800174 failed here when the shared
+          # REST limit reset 1,225 s out, past GH_BUDGET_WAIT_MAX_SECONDS, and the build went unsampled. A
+          # commits-only fetch (no trees, no blobs) of 60 days of the branches nightlies build from names every
+          # candidate; --shallow-since reaches past the shallow checkout this job starts from.
+          sha="$(git rev-parse --verify -q "$SHORT^{commit}" 2>/dev/null || true)"
+          if [ -z "$sha" ]; then
+            git fetch --no-recurse-submodules --no-tags --filter=tree:0 --shallow-since=60.days.ago origin \
+              +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next +refs/heads/main:refs/remotes/origin/main
+            sha="$(git rev-parse --verify -q "$SHORT^{commit}" 2>/dev/null || true)"
+          fi
+          # A commit on neither branch (an off-branch release): the API is the last resort.
+          [ -n "$sha" ] || sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHORT" --jq .sha)"
+          git fetch --no-recurse-submodules --no-tags --depth=1 origin "$sha"
           # The owned Macs keep this checkout between jobs but empty RUNNER_TEMP, so an earlier job's worktree
           # can still be registered here with its folder gone ("is a missing but already registered worktree",
           # run 44020590372). Remove one whose folder survived, then prune the rest.
