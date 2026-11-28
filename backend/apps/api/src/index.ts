@@ -28,7 +28,7 @@ import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handlePairInviteWait } from "./pair-invite-routes.ts"
-import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
+import { handleSsoCallback, handleSsoRedeem, handleSsoSamlAcs, handleSsoSamlMetadata, handleSsoStart } from "./sso-routes.ts"
 import { AUTH_HANDOFFS_PATH, AUTH_HANDOFFS_REDEEM_PATH, handleAuthHandoffMint, handleAuthHandoffRedeem } from "./auth-handoff-routes.ts"
 import { CI_SESSION_PATH, handleCiSession } from "./ci-session.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
@@ -337,6 +337,10 @@ export default {
     const ssoCallbackPath = url.pathname.match(/^\/v1\/sso\/callback\/([^/]+)$/)
     if (ssoCallbackPath) return handleSsoCallback(request, env, ssoCallbackPath[1]!)
     if (url.pathname === "/v1/sso/redeem") return handleSsoRedeem(request, env)
+    const samlAcs = url.pathname.match(/^\/v1\/sso\/saml\/acs\/([^/]+)$/)
+    if (samlAcs) return handleSsoSamlAcs(request, env, samlAcs[1]!)
+    const samlMetadata = url.pathname.match(/^\/v1\/sso\/saml\/metadata\/([^/]+)\/([^/]+)$/)
+    if (samlMetadata) return handleSsoSamlMetadata(request, env, samlMetadata[1]!, samlMetadata[2]!)
     // Sign-in hand-off to another device of the same person (auth-handoff.ts): each route checks its own credential.
     if (url.pathname === AUTH_HANDOFFS_PATH) return handleAuthHandoffMint(request, env)
     if (url.pathname === AUTH_HANDOFFS_REDEEM_PATH) return handleAuthHandoffRedeem(request, env)
