@@ -51,7 +51,7 @@ def fetch(work: Path) -> tuple[Path, dict]:
     launch = module("accounts_nightly_launch", ROOT / "scripts/measure/accounts-nightly-launch.py")
     run(["curl", "-fsSL", "--max-time", "60", "-o", str(work / "feed.xml"), launch.FEED])
     selected = launch.pick_feed((work / "feed.xml").read_bytes())
-    run(["curl", "-fsSL", "--max-time", "600", "-o", str(work / "nightly.dmg"), selected["url"]], timeout=620)
+    launch.download(selected["url"], work / "nightly.dmg")
     artifact = module("nightly_artifact", ROOT / "scripts/ci/nightly_next_artifact_check.py")
     selected["sha256"] = artifact.check_dmg(work / "nightly.dmg", selected["length"], selected["signature"])
     mount = work / "mount"

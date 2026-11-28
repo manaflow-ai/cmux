@@ -66,6 +66,7 @@ CHECKS = (
     "check:surface-bypass",
     "check:status-outside-dot",
     "check:bundle-matrix",
+    "check:refresh-exports",
 )
 # Per check: ("lint", "") reports and is fixed forward on the nightly (--advisory-out); ("blocks", why) still fails it.
 LINT = ("lint", "")
@@ -83,6 +84,7 @@ CHECK_CLASSES = {
     "check:surface-bypass": LINT,
     "check:status-outside-dot": LINT,
     "check:bundle-matrix": ("blocks", "two pull requests each imported layoutGeometry into VirtualTranscript.tsx: green alone, red merged, 2026-11-27"),
+    "check:refresh-exports": LINT,
 }
 # Ratchets introduced together with their baseline and package script: a base without the script cannot run them.
 NEW_CHECK_SCRIPTS = {
@@ -91,6 +93,7 @@ NEW_CHECK_SCRIPTS = {
     "check:surface-bypass": "scripts/check-surface-bypass.ts",
     "check:status-outside-dot": "scripts/check-status-outside-dot.ts",
     "check:bundle-matrix": "../scripts/ci/web-bundle-matrix.sh",
+    "check:refresh-exports": "scripts/check-refresh-exports.mjs",
 }
 ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
 # A typecheck red only in files the app never ships (benches, tests, galleries, the dev server, scripts) says
@@ -483,6 +486,9 @@ def main(argv: list[str] | None = None) -> int:
             script = NEW_CHECK_SCRIPTS.get(check)
             if script and not (base_webviews / script).is_file():
                 print(f"webviews checks: {check} is new; base has no command, so this transition is not charged", flush=True)
+                continue
+            if check == "check:refresh-exports" and not (base_webviews / "scripts/check-refresh-exports.mjs").is_file():
+                print("webviews checks: check:refresh-exports is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
