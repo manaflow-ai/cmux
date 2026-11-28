@@ -78,6 +78,8 @@ pub(in crate::cli) trait Port {
     fn turn_start(&mut self, chat: &str) -> Result<u64, Value>;
     /// The chat's transcript items after `after`, each whole.
     fn read(&mut self, chat: &str, after: u64) -> Result<Vec<Value>, Value>;
+    /// The chat's harness id (`_acpmux/info`'s `harness`), when it can be read.
+    fn harness(&mut self, chat: &str) -> Option<String>;
     fn pause(&mut self, duration: Duration);
     fn now(&mut self) -> Instant;
 }
@@ -411,12 +413,18 @@ pub(in crate::cli) fn run_turn(port: &mut dyn Port, begin: &Begin, timeout: Dura
                     .then(|| failed_turn_message(&ended, &chat));
                 answer.set("reply", ended.reply.map_or(Value::Null, Value::String));
                 if let Some(message) = failed {
-                    return Outcome::Failed {
-                        error: json!({"code": "chat.turn_failed",
-                                      "message": message,
-                                      "details": answer, "retryable": false}),
-                        exit: 1,
-                    };
+                    let mut error = json!({"code": "chat.turn_failed", "message": message,
+                                           "details": answer, "retryable": false});
+                    // An account out of usage or turned off says so, and the ways on (cmux#55066).
+                    // A send or a wait names no agent in its answer: the chat's own harness.
+                    if let Some(said) = ended.failure.get("error").and_then(Value::as_str) {
+                        let harness = match error["details"].get("agent").and_then(Value::as_str) {
+                            Some(agent) => agent.to_owned(),
+                            None => port.harness(&chat).unwrap_or_default(),
+                        };
+                        crate::cli::account_limit::explain(&mut error, said, &harness);
+                    }
+                    return Outcome::Failed { error, exit: 1 };
                 }
                 return Outcome::Done(answer);
             }
@@ -569,6 +577,12 @@ impl<B: Backend> Port for Live<'_, B> {
     fn read(&mut self, chat: &str, after: u64) -> Result<Vec<Value>, Value> {
         let (id, app) = self.socket(chat)?;
         chat::turn_items_of(&chat::Chat { id, app }, after).map_err(call_error)
+    }
+
+    fn harness(&mut self, chat: &str) -> Option<String> {
+        let (chat, socket) = self.socket(chat).ok()?;
+        let (_, info) = chat::acp::lookup(&chat, socket.as_deref()).ok()?;
+        info.get("harness").and_then(Value::as_str).map(str::to_owned)
     }
 
     fn pause(&mut self, duration: Duration) {

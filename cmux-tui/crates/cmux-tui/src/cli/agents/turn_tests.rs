@@ -27,6 +27,7 @@ struct Fake {
     read_after: Vec<u64>,
     slices: Vec<Duration>,
     clock: Instant,
+    harness: Option<String>,
 }
 
 impl Fake {
@@ -41,6 +42,7 @@ impl Fake {
             read_after: Vec::new(),
             slices: Vec::new(),
             clock: Instant::now(),
+            harness: None,
         }
     }
 }
@@ -72,6 +74,11 @@ impl Port for Fake {
     fn read(&mut self, _chat: &str, after: u64) -> Result<Vec<Value>, Value> {
         self.read_after.push(after);
         Ok(self.reads.pop_front().unwrap_or_default())
+    }
+
+    fn harness(&mut self, chat: &str) -> Option<String> {
+        assert_eq!(chat, CHAT);
+        self.harness.clone()
     }
 
     fn pause(&mut self, duration: Duration) {
@@ -382,6 +389,72 @@ fn an_event_inside_the_check_gap_is_checked_when_the_gap_passes() {
     assert!(gate.due(false, at(450)), "the owed check runs once the gap passed");
     assert!(!gate.due(false, at(700)), "nothing owed: a wake does not check");
     assert!(gate.due(false, at(1450)), "the recheck still runs every second");
+}
+
+/// cmux#55066: a chat here whose turn failed on a used-up account said only "the turn ended
+/// failed". The turn's own words come through, and an account out of usage says so and the way on.
+#[test]
+fn a_failed_turn_here_says_the_agents_words_and_an_account_limits_way_on() {
+    let weekly = "You've hit your weekly limit · resets Nov 27, 7am (UTC)";
+    let mut fake = Fake::new(new_receipt());
+    fake.waits = VecDeque::from([idle()]);
+    fake.turn_start = 1;
+    let failed =
+        json!({"id": 2, "role": "turn_end", "text": "", "status": "failed", "error": weekly});
+    fake.reads = VecDeque::from([vec![item(1, "user", "reply ok"), failed]]);
+    let outcome =
+        run_turn(&mut fake, &Begin::New(vec!["reply ok".into()]), Duration::from_secs(60));
+    let Outcome::Failed { error, exit } = &outcome else { panic!("{outcome:?}") };
+    assert_eq!((error["code"].as_str(), *exit), (Some("chat.turn_failed"), 1));
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.starts_with(
+            "Claude's account hit its weekly usage limit; it resets Nov 27, 7am (UTC)."
+        ),
+        "{message}"
+    );
+    assert!(message.contains("--agent codex"), "{message}");
+    assert_eq!(error["details"]["errorKind"], "usage.limit");
+    assert_eq!(error["details"]["agent_error"], weekly);
+
+    // Another failure keeps its own words, as the base says them (`failed_turn_message`).
+    let mut fake = Fake::new(new_receipt());
+    fake.waits = VecDeque::from([idle()]);
+    fake.turn_start = 1;
+    let other = json!({"id": 2, "role": "turn_end", "text": "", "status": "failed", "error": "API Error: 500"});
+    fake.reads = VecDeque::from([vec![item(1, "user", "go"), other]]);
+    let outcome = run_turn(&mut fake, &Begin::New(vec!["go".into()]), Duration::from_secs(60));
+    let Outcome::Failed { error, .. } = &outcome else { panic!("{outcome:?}") };
+    assert_eq!(error["message"], "the turn ended failed: API Error: 500");
+    assert!(error["details"].get("errorKind").is_none(), "{error}");
+}
+
+/// Review of cmux#55066: a send or a wait answers with no `agent`, so a Codex chat out of usage
+/// was told "Claude's account" and sent to Codex. Its own harness names the account.
+#[test]
+fn a_send_or_wait_on_a_used_up_codex_chat_names_codex_and_the_way_to_claude() {
+    let weekly = "You've hit your usage limit. Try again at 7:00 AM.";
+    let send = Begin::Send { session: CHAT.into(), text: "next".into() };
+    let wait = Begin::Wait { session: CHAT.into() };
+    for begin in [send, wait] {
+        let receipt = json!({"action": "chat.send", "result": {"chat": CHAT, "message_id": "m9",
+                                                              "state": "delivered"}});
+        let mut fake = Fake::new(receipt);
+        fake.harness = Some("codex".into());
+        fake.last_seq = 40;
+        fake.waits = VecDeque::from([idle()]);
+        fake.turn_start = 41;
+        let failed =
+            json!({"id": 42, "role": "turn_end", "text": "", "status": "failed", "error": weekly});
+        fake.reads = VecDeque::from([vec![item(41, "user", "next"), failed]]);
+        let outcome = run_turn(&mut fake, &begin, Duration::from_secs(60));
+        let Outcome::Failed { error, .. } = &outcome else { panic!("{outcome:?}") };
+        let message = error["message"].as_str().unwrap();
+        assert!(message.starts_with("Codex's account hit its usage limit"), "{begin:?}: {message}");
+        assert!(message.contains("--agent claude"), "{begin:?}: {message}");
+        assert_eq!(error["details"]["harness"], "codex");
+        assert_eq!(error["details"]["sign_in"], "cmux harness login codex");
+    }
 }
 
 fn ended(status: &str, failure: Value) -> Ended {

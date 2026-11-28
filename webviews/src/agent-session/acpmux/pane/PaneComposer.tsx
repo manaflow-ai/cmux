@@ -76,7 +76,7 @@ import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "..
 import { heldSendNotice } from "../sendFailure";
 import { lostPrompt, resentAfterLoss, keepLostPrompt } from "../lostPrompt";
 import { guestMention } from "../mentionItems";
-import { clearHeldFork, sendHeldFork, heldFork } from "../forkHold";
+import { clearHeldFork, heldFork, sendHeldFork } from "../forkHold";
 import { CloudChatHint } from "../CloudChatHint";
 import { AutoArrival, AutoAddingMachineLine } from "../AutoWhere";
 import { AUTO_LOOK, type AutoLanding } from "../autoWhereModel";
@@ -1071,7 +1071,7 @@ export function drawPaneComposer({
                 switchPending: harnessSwitch.view().intent !== undefined,
                 startsChat: Boolean(projectDraft && !snapshot.sessionId),
                 cloudStart: cloudPicked,
-                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted"),
+                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted" && !cloudRecovery.chatGone),
                 sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
               };
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
@@ -1102,7 +1102,7 @@ export function drawPaneComposer({
                 switchPending: harnessSwitch.view().intent !== undefined,
                 startsChat: Boolean(projectDraft && !snapshot.sessionId),
                 cloudStart: cloudPicked,
-                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted"),
+                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted" && !cloudRecovery.chatGone),
                 sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
               };
               return client && plainPath && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
@@ -1264,7 +1264,13 @@ export function drawPaneComposer({
               // A Cloud chat whose machine is paused or out of reach: the send wakes the machine and
               // waits in the pane under "Waking the machine…", then goes once the chat is back
               // (cloudWake.ts). Enter's gesture resumes the machine; the prompt keeps the send's.
-              if (cloudWakeChat && cloudRecovery.state !== "deleted" && !quick && !snapshot.summary?.watching) {
+              if (
+                cloudWakeChat &&
+                cloudRecovery.state !== "deleted" &&
+                !cloudRecovery.chatGone &&
+                !quick &&
+                !snapshot.summary?.watching
+              ) {
                 setCloudWaking(true);
                 trustHeld.hold(
                   text,

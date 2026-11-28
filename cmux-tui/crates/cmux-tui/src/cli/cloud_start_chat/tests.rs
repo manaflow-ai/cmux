@@ -1402,10 +1402,12 @@ fn a_failed_turn_read_through_exec_answers_its_error_not_the_last_reply() {
     };
     assert_eq!(exit, 1);
     assert_eq!(error["code"], "chat.turn_failed");
-    // The turn's own error, explained (account_limit.rs, cmux#55066), never the turn before's reply.
+    // The turn's own error, read as what happened to the account (account_limit.rs, cmux#55066),
+    // never the turn before's reply; its words stay in details.
     let message = error["message"].as_str().unwrap();
-    assert!(message.contains("weekly usage limit"), "{message}");
+    assert!(message.starts_with("Claude's account hit its weekly usage limit"), "{message}");
     assert!(!message.contains("PONG-2350"), "{message}");
+    assert_eq!(error["details"]["agent_error"], "You've hit your weekly limit");
     assert_eq!(error["details"]["turn"]["status"], "failed");
     assert!(error["details"].get("reply").is_none(), "{error}");
 }
@@ -1511,6 +1513,11 @@ fn a_pushed_turn_failed_on_an_account_limit_says_what_happened_and_the_way_on() 
         // A rate limit is not the account's allowance: its words pass through as they were.
         ("You've hit your rate limit, slow down.", "", "You've hit your rate limit, slow down."),
         ("You've hit your daily rate limit.", "", "You've hit your daily rate limit."),
+        (
+            "You've hit your weekly, limit: resets 7am",
+            "usage.limit",
+            "Codex's account hit its weekly usage limit; it resets 7am.",
+        ),
     ] {
         let mut fake = Fake::new(vec![
             signed_in(),
@@ -1531,7 +1538,7 @@ fn a_pushed_turn_failed_on_an_account_limit_says_what_happened_and_the_way_on() 
         assert_eq!(error["code"], "chat.turn_failed", "{error}");
         let message = error["message"].as_str().unwrap();
         if kind.is_empty() {
-            assert!(!message.contains("account hit"), "{message}");
+            assert_eq!(message, starts);
             assert!(!message.contains("--agent claude"), "{message}");
             assert!(error["details"].get("errorKind").is_none(), "{error}");
             continue;
