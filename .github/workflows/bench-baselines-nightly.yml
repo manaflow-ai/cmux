@@ -12,6 +12,13 @@ name: Bench baselines (nightly)
 # Nightly without a schedule: a scheduled workflow runs main's copy, and this measures feat-cmux-next. Each push to
 # feat-cmux-next asks whether the newest record (bench-baselines/v1/_stamp.json) is older than RECORD_HOURS; a run
 # that finds it fresh stops after one HTTP read. workflow_dispatch records now.
+#
+# The Mac-only areas (the sidebar first: SidebarLagBench, SidebarScrollBench, the full flush) have no Linux bench, so
+# `record-mac-fleet` runs SidebarChiefLagTests 3 times in one fleet Mac step (cmux-ci, submitted from a cmux-linux
+# runner as cmux-next-sidebar-bench.yml does), reads its SIDEBAR-CHIEF-LAG lines (`cmux-bench baselines from-log`)
+# and writes bench-baselines/v1/macos-arm64-fleet-light/<area>.json with its own stamp. Either recorder is red when it
+# records nothing; the pull request side stays fail-open. The job id ends in -fleet: the runner hook admits a
+# cmux-linux job by that suffix (it refused `measure` on cmux#63279 and took `measure-fleet`).
 on:
   push:
     branches: [feat-cmux-next]
@@ -93,29 +100,88 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
           CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: bash scripts/bench/baselines-upload.sh "$RUNNER_TEMP/baselines" bench-baselines/v1/_stamp.json
+
+  record-mac-fleet:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Record the Mac-only areas' bench baselines (fleet Mac)
+    runs-on: cmux-linux
+    # The client's queue wait (20 min) and run limit (40 min: one build, the suite 3 times), and the upload.
+    timeout-minutes: 70
+    environment: next-cache-writer
+    permissions:
+      contents: read
+    env:
+      CMUX_BENCH_MACHINE_CLASS: macos-arm64-fleet-light
+    steps:
+      - name: Is a record due
+        id: due
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -uo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then echo "due=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          stamp="$(curl -fsS --max-time 10 "$CI_CACHE_R2_PUBLIC_URL/bench-baselines/v1/$CMUX_BENCH_MACHINE_CLASS/_stamp.json?t=$(date +%s)" 2>/dev/null)" || stamp=""
+          due="$(python3 -I -c '
+          import json, sys, time, calendar
+          try:
+              at = json.loads(sys.argv[1])["recorded_at"]
+              age = (time.time() - calendar.timegm(time.strptime(at, "%Y-%m-%dT%H:%M:%SZ"))) / 3600
+          except Exception:
+              print("true"); sys.exit()
+          print("true" if age >= float(sys.argv[2]) else "false")
+          ' "$stamp" "$RECORD_HOURS")"
+          echo "due=$due" | tee -a "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: steps.due.outputs.due == 'true'
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/actions/fleet-client
+            scripts/bench
+            docs/benches
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        if: steps.due.outputs.due == 'true'
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
+      - name: Run SidebarChiefLagTests 3 times on a fleet Mac
+        if: steps.due.outputs.due == 'true'
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error::$client is not installed on runner $RUNNER_NAME: no Mac baseline recorded"
+            exit 1
+          fi
+          # One build, then the suite 3 times on the same worker (package-test-lane.sh runs each filter in turn).
+          status=0
+          "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$GITHUB_SHA" \
+            --arg=suite --arg=Packages/macOS/CmuxNext \
+            --arg=SidebarChiefLagTests --arg=SidebarChiefLagTests --arg=SidebarChiefLagTests --no-supersede \
+            --env=CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=600 \
+            --timeout 2400 --queue-timeout 1200 > "$RUNNER_TEMP/mac-bench.log" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/mac-bench.log"
+          # A budget miss still printed its numbers; what was measured is the baseline. Nothing printed is red below.
+          echo "fleet step client exit $status"
+
+      - name: Read the bench lines
+        if: steps.due.outputs.due == 'true'
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/baselines"
-          put() { # <file> <object key>
-            local code
-            code="$(printf 'user = "%s:%s"\n' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" \
-              | curl --config - --silent --show-error --retry 3 --retry-delay 2 --max-time 60 \
-                  --aws-sigv4 "aws:amz:auto:s3" -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
-                  -H "Content-Type: application/json" -H "Cache-Control: max-age=600" \
-                  -X PUT --upload-file "$1" -o /dev/null -w '%{http_code}' \
-                  "$CI_CACHE_R2_ENDPOINT/$CI_CACHE_R2_BUCKET/$2")"
-            [ "$code" = 200 ] || { echo "::error::PUT $2 answered HTTP $code"; return 1; }
-            echo "put $2"
-          }
-          n=0
-          while IFS= read -r f; do
-            put "$f" "${f#"$root"/}"
-            n=$((n + 1))
-          done < <(find "$root" -type f -name '*.json' | sort)
-          if [ "$n" -eq 0 ]; then
-            echo "::warning::No bench measured all 3 repeats; nothing recorded, the stamp stays old"
-            exit 0
-          fi
-          printf '{"recorded_at": "%s", "sha": "%s", "objects": %d}\n' \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" "$n" > "$RUNNER_TEMP/_stamp.json"
-          put "$RUNNER_TEMP/_stamp.json" bench-baselines/v1/_stamp.json
+          python3 -I scripts/bench/cmux-bench baselines from-log "$RUNNER_TEMP/mac-bench.log" \
+            --out "$RUNNER_TEMP/mac-baselines" --sha "$GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to R2
+        if: steps.due.outputs.due == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: bash scripts/bench/baselines-upload.sh "$RUNNER_TEMP/mac-baselines" "bench-baselines/v1/$CMUX_BENCH_MACHINE_CLASS/_stamp.json"
