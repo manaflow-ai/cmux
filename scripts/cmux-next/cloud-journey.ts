@@ -7927,8 +7927,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     await readFailureFacts();
     // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
     await saveSendTraceOnce();
-    await runJourneyOnly?.().catch(() => undefined);
-    await runScrollProbe?.().catch(() => undefined);
+    // Each may throw between its own steps too (run 46134450737's fs/write): recorded, never dropped.
+    await runJourneyOnly?.().catch((e) => J.unrecorded(e));
+    await runScrollProbe?.().catch((e) => J.unrecorded(e));
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
   }
