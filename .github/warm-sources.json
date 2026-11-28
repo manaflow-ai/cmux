@@ -41,6 +41,7 @@
     "ios-sim-linux-build.yml:build-fleet": {"class": "fleet-dispatch", "warm": [], "exempt": "dispatches the simulator build to the fleet and uploads its products; no local compilation"},
     "ios-sim-linux-build.yml:file-goldens": {"class": "fleet-dispatch", "warm": [], "exempt": "cold: builds only cmux-shotdiff to bless and file the fleet's simulator stills"},
     "ios-sim-linux-build.yml:parity-key": {"class": "fleet-dispatch", "warm": [], "exempt": "cold: builds only cmux-shotdiff to look up the screen-parity golden key"},
+    "nightly-interaction-latency.yml:benches": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "nightly.yml:nightly-next-deltas": {"class": "mac-sign", "warm": [], "exempt": "builds Sparkle deltas from the downloaded signed DMG; compiles no app or package"},
     "nightly.yml:report-nightly-shelf-red": {"class": "mac-report", "warm": [], "exempt": "updates the shelf issue after a failed check; the reporter builds nothing"},
     "pause-ab.yml:ab": {"class": "linux-js", "warm": [], "exempt": "Bun runs the unit tests and staging A/B script directly from source"},
