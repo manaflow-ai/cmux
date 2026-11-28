@@ -625,6 +625,21 @@ impl Translator {
                     {
                         self.dedupe_hook(&rid, req).await;
                     }
+                    // Harness magic: a repo's rule for a path the call touched (path_rules.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(path_rules::PATH_RULES_CALLBACK) =>
+                    {
+                        self.path_rules_hook(&rid, req).await;
+                    }
+                    // Harness magic: a directory's rules, the first time it is touched
+                    // (dir_rules.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(dir_rules::DIR_RULES_CALLBACK) =>
+                    {
+                        self.dir_rules_hook(&rid, req).await;
+                    }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
                     // Anything else (mcp_message) is declined with an error
@@ -959,6 +974,17 @@ impl Translator {
                 }
                 // The turn's dedupe counts, on its result while the feature is on.
                 let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
+                // The turn's stop-hook continuations (`hub/stop_condition.rs`), likewise.
+                let continue_counts =
+                    Some(self.stop_continue.lock().await.turn_ended()).filter(|_| {
+                        self.stop_condition.load(Ordering::Relaxed)
+                            && crate::hub::stop_condition::continue_enabled()
+                    });
+                // And its path rules' counts, while that feature is on (path_rules.rs).
+                let path_rule_counts =
+                    Some(self.path_rules.turn_ended()).filter(|_| path_rules::enabled());
+                let dir_rule_counts =
+                    Some(self.dir_rules.turn_ended()).filter(|_| dir_rules::enabled());
                 // The turn's cache misses by cause (RFD 0158 §1); the hub drops them when the
                 // alarm is off (`hub/cache_alarm.rs`).
                 let cache_misses = self.cache.take_turn_misses().to_json();
@@ -995,8 +1021,20 @@ impl Translator {
                     if let Some(dedupe) = dedupe_counts {
                         hm.insert("dedupe".into(), dedupe.to_json());
                     }
+                    if let Some(counts) = path_rule_counts {
+                        hm.insert(path_rules::FEATURE.into(), counts.to_json());
+                    }
+                    if let Some(rules) = dir_rule_counts {
+                        hm.insert("dirRules".into(), rules.to_json());
+                    }
                     if let Some(misses) = cache_misses {
                         hm.insert("cacheAlarm".into(), misses);
+                    }
+                    if let Some(counts) = continue_counts {
+                        hm.insert(
+                            crate::hub::stop_condition::CONTINUE_FEATURE.into(),
+                            counts.to_json(),
+                        );
                     }
                     if !hm.is_empty() {
                         meta.set("harnessMagic", Value::Object(hm));
@@ -1036,6 +1074,9 @@ impl Translator {
                 self.awaiting_summary.store(true, Ordering::SeqCst);
                 // What was read before is in the summary at most (dedupe.rs).
                 self.dedupe.reset();
+                // The rules said before it are gone from the context: due again (path_rules.rs).
+                self.path_rules.reset();
+                self.dir_rules.reset();
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
                 if !self.cancelled_compaction_boundary.load(Ordering::SeqCst) {

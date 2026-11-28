@@ -21,6 +21,8 @@ cmux-mobile-link = { path = "crates/cmux-mobile-link" }
 # Auto chats from the phone with no Mac (plans/cmux-next/auto-mode/DESIGN.md, slice E), and the
 # shared core they use: the Cloud store's wire types and the store as a trait.
 cmux-mobile-auto = { path = "crates/cmux-mobile-auto" }
+# transport.tailnetCarrier modes for the phone FFI (RFD 0164 T5).
+cmux-mobile-tailnet = { path = "crates/cmux-mobile-tailnet" }
 cmux-auto-session = { path = "../../cmux-tui/crates/cmux-auto-session" }
 # Phone read-first cache shared by mobile surfaces.
 cmux-mobile-core = { path = "../../cmux-tui/crates/cmux-mobile-core" }
@@ -48,6 +50,8 @@ cmux-composer-send = { path = "../../cmux-tui/crates/cmux-composer-send" }
 # Where the person was (workspace, chat or terminal, scroll anchor, selection), opened again on launch.
 cmux-mobile-last-place = { path = "../../cmux-tui/crates/cmux-mobile-last-place" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
+# JSONC to JSON for cmux-next.json (cmux-mobile-host reads transport.tailnetCarrier).
+cmux-json = { path = "../../cmux-tui/crates/cmux-json" }
 # The system proxy (PAC included), CONNECT and SOCKS5 tunnels and the OS trust store, shared with
 # cmux-remote (cmux-mobile-link re-exports it as `egress`).
 cmux-proxy = { path = "../../cmux-tui/crates/cmux-proxy" }
@@ -87,6 +91,9 @@ cmux-egress = { path = "../../cmux-tui/crates/cmux-egress" }
 # Mac and VMs, and the embedded tsnet node behind its `tsnet` feature.
 cmux-tailnet-join = { path = "../../cmux-tui/crates/cmux-tailnet-join" }
 cmux-tailnet = { path = "../../cmux-tui/crates/cmux-tailnet" }
+# The cmux vault (cmuxterm-hq docs/design/e2e-vault.md): end to end encrypted secrets, this phone one
+# enrolled device; it seals values to the machines it starts (crates/cmux-mobile-link-ffi/src/vault.rs).
+cmux-vault-e2e = { path = "../../cmux-tui/crates/cmux-vault-e2e" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"

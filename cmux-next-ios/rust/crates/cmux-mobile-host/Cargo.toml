@@ -25,6 +25,8 @@ blake3 = "1"
 # The Chief's push body as words, not Markdown (src/notify.rs).
 cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true
+# JSONC to JSON for cmux-next.json's transport.tailnetCarrier (src/lan.rs, RFD 0164 T5).
+cmux-json.workspace = true
 # The relay publisher (src/relay_publish.rs): seals the newest snapshot and each delta per phone.
 cmux-relay-snapshot.workspace = true
 # Mac output to phone paint (src/output_paint.rs): its ring and window math.

@@ -96,7 +96,7 @@ where
     F: FnMut(A) -> Fut,
     Fut: Future<Output = io::Result<T>>,
 {
-    run(targets, policy, connect).await.map(|(won, _)| won)
+    run(targets, policy, connect, &mut |_, _| {}).await.map(|(won, _)| won)
 }
 
 /// [`race`], with the attempts still in flight when the winner answered handed back as
@@ -115,7 +115,28 @@ where
     F: FnMut(A) -> Fut,
     Fut: Future<Output = io::Result<T>>,
 {
-    let (won, running) = run(targets, policy, connect).await?;
+    race_keeping_losers_observed(targets, policy, connect, |_, _| {}).await
+}
+
+/// [`race_keeping_losers`], telling `on_failure` each attempt that failed before the race
+/// ended: the index of its target in `targets`, and its error (`TimedOut` for one that ran
+/// out of time). The feed for broken-route marks and the per-leg record ([`crate::legs`]).
+///
+/// # Errors
+/// The race's error: the last attempt's.
+pub async fn race_keeping_losers_observed<A, T, F, Fut, O>(
+    targets: &[A],
+    policy: RacePolicy,
+    connect: F,
+    mut on_failure: O,
+) -> io::Result<(Won<T>, Losers<A, Fut>)>
+where
+    A: Clone,
+    F: FnMut(A) -> Fut,
+    Fut: Future<Output = io::Result<T>>,
+    O: FnMut(usize, &io::Error),
+{
+    let (won, running) = run(targets, policy, connect, &mut on_failure).await?;
     Ok((won, Losers { targets: targets.to_vec(), running }))
 }
 
@@ -139,6 +160,15 @@ impl<A: Clone, Fut> Losers<A, Fut> {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.running.is_empty()
+    }
+
+    /// The targets still in flight, one per attempt.
+    #[must_use]
+    pub fn in_flight(&self) -> Vec<A> {
+        self.running
+            .iter()
+            .filter_map(|attempt| self.targets.get(attempt.target_index).cloned())
+            .collect()
     }
 
     /// The next loser that connects; `None` once every one has connected, failed or run out of
@@ -188,12 +218,16 @@ impl<T, Fut: Future<Output = io::Result<T>>> Future for Attempt<Fut> {
     }
 }
 
-async fn run<A, T, F, Fut>(
+// Generic in `on_failure` (not `&mut dyn FnMut`): the race's future is `Send` exactly when the
+// caller's closure is, so a race spawned on a multi-thread runtime still compiles.
+async fn run<A, T, F, Fut, O>(
     targets: &[A],
     policy: RacePolicy,
     mut connect: F,
+    on_failure: &mut O,
 ) -> io::Result<(Won<T>, FuturesUnordered<Attempt<Fut>>)>
 where
+    O: FnMut(usize, &io::Error),
     A: Clone,
     F: FnMut(A) -> Fut,
     Fut: Future<Output = io::Result<T>>,
@@ -250,6 +284,7 @@ where
                 // A failed attempt frees its place: the next starts at once (RFC 8305 section
                 // 5), not when the stagger since the last start runs out.
                 Err(error) => {
+                    on_failure(target_index, &error);
                     last_error = Some(error);
                     next_launch = Instant::now();
                 }
