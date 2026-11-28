@@ -24,6 +24,40 @@ impl Overlay {
     }
 }
 
+/// One aging pass over the content store of a projection no daemon has mounted, in its state
+/// folder `state`; `None` when it has no store (none is made).
+///
+/// With no live overlay there is no manifest to resolve pins to files, so the pins come from the
+/// state folder's persisted [`pin::PINS_FILE`], the list a mount reads back
+/// ([`pin::read_pins`]): every name at or under a pinned path is kept, whatever its size or
+/// mtime (a superset of what the mount would pin). When that file cannot be read, nothing is
+/// known to be unpinned, so the pass only compresses ([`Aging::compress_only`]) and deletes
+/// nothing; a cold blob still thaws on its next read. The caller keeps the projection unmounted
+/// for the pass (two stores over one folder would race on its index).
+pub fn age_unmounted(state: &Path, now: SystemTime, aging: &Aging) -> Option<AgeReport> {
+    let dir = state.join("content");
+    if !dir.join("blobs").is_dir() {
+        return None;
+    }
+    let content = content::Content::open(&dir)?;
+    let (pinned, aging) = match pin::read_pins(&state.join(pin::PINS_FILE)) {
+        Ok(pins) => {
+            let under = |path: &str| {
+                pins.iter().any(|pin| {
+                    pin.is_empty()
+                        || path == pin
+                        || path.strip_prefix(pin.as_str()).is_some_and(|rest| rest.starts_with('/'))
+                })
+            };
+            let pinned: HashSet<content::Name> =
+                content.names().into_iter().filter(|name| under(&name.path)).collect();
+            (pinned, *aging)
+        }
+        Err(_) => (HashSet::new(), aging.compress_only()),
+    };
+    Some(content.age(now, &aging, &pinned))
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -100,6 +134,84 @@ mod tests {
         let report = content.age(now + 10 * DAY, &Aging::default(), &HashSet::new());
         assert_eq!((report.cold_blobs, report.deleted_blobs), (0, 1));
         assert!(!content.has(&old));
+    }
+
+    #[test]
+    fn a_re_put_refreshes_the_last_read_past_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let now = SystemTime::now();
+        let bytes = vec![3u8; 4096];
+        let first = name("a.txt", bytes.len());
+        let again = name("b.txt", bytes.len());
+        {
+            let content = store(dir.path());
+            content.put(first.clone(), &bytes).unwrap();
+            content.set_read_at(&first, now - 5 * DAY);
+            // The same bytes fetched again under another name: a read, though the blob is hot.
+            content.put(again.clone(), &bytes).unwrap();
+            let report = content.age(now, &Aging::default(), &HashSet::new());
+            assert_eq!((report.went_cold_blobs, report.hot_blobs), (0, 1));
+        }
+        // A new daemon reads the last read off the blob's mtime: still fresh.
+        let content = store(dir.path());
+        let report = content.age(now, &Aging::default(), &HashSet::new());
+        assert_eq!((report.went_cold_blobs, report.hot_blobs), (0, 1), "{report:?}");
+        assert!(content.has(&first) && content.has(&again));
+    }
+
+    /// A store of `keep/x.rs` and `drop/y.rs`, both last read 20 days ago, in `state/content`.
+    fn unmounted(state: &Path, now: SystemTime) -> (Name, Name) {
+        let content = store(&state.join("content"));
+        let kept = name("keep/x.rs", 4096);
+        let gone = name("drop/y.rs", 4096);
+        // `keepsake/z.rs` shares a prefix with the pin, not its folder: aged like any other.
+        let near = name("keepsake/z.rs", 4096);
+        for (key, byte) in [(&kept, 1u8), (&gone, 2), (&near, 4)] {
+            content.put(key.clone(), &[byte; 4096]).unwrap();
+            content.set_read_at(key, now - 20 * DAY);
+        }
+        (kept, gone)
+    }
+
+    #[test]
+    fn an_unmounted_store_ages_by_its_persisted_pins() {
+        let state = tempfile::tempdir().unwrap();
+        let now = SystemTime::now();
+        let (kept, gone) = unmounted(state.path(), now);
+        fs::write(state.path().join(pin::PINS_FILE), b"keep\0").unwrap();
+
+        let first = age_unmounted(state.path(), now, &Aging::default()).unwrap();
+        assert_eq!((first.went_cold_blobs, first.kept_pinned), (2, 1));
+        let second = age_unmounted(state.path(), now, &Aging::default()).unwrap();
+        assert_eq!((second.deleted_blobs, second.kept_pinned), (2, 1));
+
+        let content = store(&state.path().join("content"));
+        assert!(content.has(&kept), "a pinned blob of an unmounted projection stays");
+        assert!(!content.has(&gone));
+    }
+
+    #[test]
+    fn an_unmounted_store_with_unreadable_pins_only_compresses() {
+        let state = tempfile::tempdir().unwrap();
+        let now = SystemTime::now();
+        let (kept, gone) = unmounted(state.path(), now);
+        // A pins file that cannot be read (a folder): nothing is known unpinned.
+        fs::create_dir(state.path().join(pin::PINS_FILE)).unwrap();
+
+        let first = age_unmounted(state.path(), now, &Aging::default()).unwrap();
+        assert_eq!(first.went_cold_blobs, 3);
+        let second = age_unmounted(state.path(), now, &Aging::default()).unwrap();
+        assert_eq!((second.deleted_blobs, second.cold_blobs), (0, 3));
+
+        let content = store(&state.path().join("content"));
+        assert!(content.has(&kept) && content.has(&gone));
+    }
+
+    #[test]
+    fn an_unmounted_projection_without_a_store_is_left_alone() {
+        let state = tempfile::tempdir().unwrap();
+        assert!(age_unmounted(state.path(), SystemTime::now(), &Aging::default()).is_none());
+        assert!(!state.path().join("content").exists(), "no store is made");
     }
 
     #[test]

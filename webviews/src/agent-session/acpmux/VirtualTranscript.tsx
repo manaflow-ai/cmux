@@ -101,6 +101,7 @@ import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRowCatchUp } from "./streamingRow";
 import { drewThoughts, lineHeardNow, liveThoughtHeard, rowsDrawnNow } from "./liveThought";
 import { drewLiveLine, liveCallLineHeard } from "./liveCallLine";
+import { drewHiddenRows } from "./hiddenReply";
 import { followTrace } from "./followTrace";
 import {
   FIELD_GROWTH_EVENT,
@@ -1067,6 +1068,7 @@ function TranscriptView({
   useLayoutEffect(() => {
     if (!streams) return;
     drewThoughts(paneRows);
+    drewHiddenRows(paneRows);
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
       const row = paneRows[index]!;
       if (row.kind === "assistant" && row.streaming) {
@@ -1199,6 +1201,8 @@ function TranscriptView({
 
   const jumpBack = useRef<JumpBack | undefined>(undefined);
   const [jumpBackHeld, setJumpBackHeld] = useState(false);
+  const jumpBackHeldRef = useRef(jumpBackHeld);
+  jumpBackHeldRef.current = jumpBackHeld;
   /// Lets go of the way back a Jump up press holds.
   const dropJumpBack = useCallback(() => {
     jumpBack.current = undefined;
@@ -2418,11 +2422,13 @@ function TranscriptView({
   const footRoom = useRef(0);
   const olderDragPending = useRef(false);
   const [scrollbarRange, setScrollbarRange] = useState<{ session: string; height: number } | undefined>(undefined);
+  const scrollbarRangeRef = useRef(scrollbarRange);
+  scrollbarRangeRef.current = scrollbarRange;
   const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
   useLayoutEffect(() => {
     if (olderDragPending.current) {
       olderDragPending.current = false;
-      setScrollbarRange(undefined);
+      if (scrollbarRangeRef.current !== undefined) setScrollbarRange(undefined);
     }
   }, [sessionKey]);
   /// How far the reader has scrolled up among the rows while room was owed (olderReserve.ts `rose`),
@@ -6798,7 +6804,7 @@ function TranscriptView({
   }, [jumpBackHeld]);
   // Another chat: its own places (its idle stretch loads with it, above), nothing held from this one.
   useLayoutEffect(() => {
-    if (jumpBack.current) dropJumpBack();
+    if (jumpBack.current || jumpBackHeldRef.current) dropJumpBack();
   }, [sessionId, dropJumpBack]);
   useEffect(() => {
     const node = ref.current;
