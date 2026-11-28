@@ -3,6 +3,7 @@
 
   ci/run route --paths-file F            the routed steps by job, as JSON
   ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES] [--pr-scope] [--tier pr|full]
+  ci/run step NAME                       run that one step here, whatever routes it, and exit with its verdict
 
 `ci/run` is the entry (it calls this file). `run` starts the job's routed steps, as many at
 once as the machine has CPUs, each as `bash -euo pipefail -c RUN` in the current directory
@@ -24,6 +25,13 @@ runs only those of the routed steps; empty means every routed step. A name the t
 not have is a notice and is skipped, never an error: the pull request that adds a step runs
 against a base whose table lacks it. Two workflows run steps of the `advisory` job, each its
 own (pr-body-checks.yml the description lints, pr-checks.yml the rest), so each names them.
+
+`step NAME` runs one step by name, as its job runs it (the job's setup, the tools it needs, its timeout), with no
+diff (routing never skips it), the full tier, the step's first label as the event when it lists labels, and no step
+results (it always runs). Unlike `run` it exits 1 when the step fails whether or not it blocks, and 2 when the table
+has no such step or the step's job runs on another OS (STEP_JOB_OS). This is the build fleet's entry for any step
+(`cmux-ci run --step NAME --ref SHA`, through scripts/ci/run-step.sh; Leo, 2026-11-19: "can't you... just be able to
+run whatever ci steps?").
 
 The table's rules (checked on load): every step names one of the table's jobs, there are
 at most 8 jobs, and a step that does not block runs in the `advisory` job in class `idle`.
@@ -70,6 +78,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import re
 import signal
 import subprocess
@@ -108,6 +117,10 @@ EVENT_VARS = (
 MACHINE_VARS = ("RUNNER_OS", "RUNNER_ARCH", "ImageOS", "DEVELOPER_DIR")
 PIPELINE_PATHS = ("ci/steps.toml", "ci/run", "scripts/ci/ci_steps.py", ".github/workflows/pr-pipeline.yml")
 ADVISORY_JOB = "advisory"
+# The OS (platform.system()) a job's steps run on, for `step`; a job not listed runs on Linux. `verdict` has no
+# machine, so `step` refuses its steps.
+STEP_JOB_OS = {"mac": "Darwin", "ios": "Darwin"}
+NO_MACHINE_JOBS = ("verdict",)
 LOG_LOCK = threading.Lock()
 CLASSES = ("feed", "named", "pr", "batch", "idle")
 
@@ -583,7 +596,7 @@ def step_env(base: Mapping[str, str], tools: str) -> dict[str, str]:
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
             root: Path = ROOT, pr_scope: bool = False, tier: str = "full", tools_only: bool = False,
-            alone_on_red: bool = False) -> int:
+            alone_on_red: bool = False, strict: bool = False) -> int:
     names = route(table, paths, label, pr_scope=pr_scope, tier=tier).get(job, [])
     if pr_scope:
         deferred = [n for n in route(table, paths, label, tier=tier).get(job, []) if n not in names]
@@ -684,15 +697,39 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                       f"inputs did not hold (the key is evicted)", file=out)
         if store.error:
             print(f"::warning title=Step results::{store.url} {store.error}; nothing reused or stored", file=out)
-    return finish(results, job, out)
+    return finish(results, job, out, strict=strict)
 
 
-def finish(results: list[Result], job: str, out=sys.stdout) -> int:
+def finish(results: list[Result], job: str, out=sys.stdout, strict: bool = False) -> int:
     summary = report(results, job, out, logs=False)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
             f.write(summary)
-    return 1 if any(not r.ok and r.step.blocks for r in results) else 0
+    # STRICT (`step`): the one step's own verdict, a step that does not block included.
+    return 1 if any(not r.ok and (r.step.blocks or strict) for r in results) else 0
+
+
+def run_named_step(table: Table, name: str, out=sys.stdout, workers: int | None = None, root: Path = ROOT,
+             system: str | None = None) -> int:
+    """`step NAME`: the one step, as its job runs it, with its own verdict (the module's docs). 2: no such step, or
+    its job runs on another OS (a Linux step on a Mac would say nothing about the Linux check)."""
+    step = table.steps.get(name)
+    if step is None:
+        print(f"ci/run step: no step {name!r} in {TABLE.relative_to(ROOT)} at this commit", file=out)
+        return 2
+    if step.job in NO_MACHINE_JOBS:
+        print(f"ci/run step: step {name} is in job {step.job}, which runs on no machine", file=out)
+        return 2
+    want = STEP_JOB_OS.get(step.job, "Linux")
+    here = system or platform.system()
+    if here != want:
+        print(f"ci/run step: step {name} is in job {step.job}, which runs on {want}; this machine is {here}", file=out)
+        return 2
+    label = step.labels[0] if step.labels else None
+    print(f"ci/run step: {name} (job {step.job}{', label ' + label if label else ''})", file=out, flush=True)
+    code = run_job(table, step.job, None, label, out=out, workers=workers, only=[name], store=None, root=root,
+                   tier="full", alone_on_red=True, strict=True)
+    return code
 
 
 def read_paths(path: str | None) -> list[str] | None:
@@ -715,6 +752,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--pr-scope", action="store_true", help="route by named inputs only (see the module's docs)")
     r.add_argument("--tier", choices=("pr", "full"), default="full",
                    help="pr: leave the steps marked `tier = \"push\"` to the push tier; full (default): every routed step")
+    one = sub.add_parser("step", help="run one step by name here and exit with its verdict (the module's docs)")
+    one.add_argument("name")
+    one.add_argument("--workers", type=int, default=0)
     x = sub.add_parser("run")
     x.add_argument("--job", required=True)
     x.add_argument("--paths-file")
@@ -733,10 +773,12 @@ def main(argv: list[str] | None = None) -> int:
                         "CI_RUN_ALONE_ON_RED=1 says the same")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
-    paths = read_paths(args.paths_file)
+    paths = read_paths(getattr(args, "paths_file", None))
     if args.command == "route":
         print(json.dumps(route(table, paths, pr_scope=args.pr_scope, tier=args.tier), indent=1, sort_keys=True))
         return 0
+    if args.command == "step":
+        return run_named_step(table, args.name, workers=args.workers or None, root=Path.cwd())
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
     # A label event runs only the steps that name the label: those read the event, so none is reused.
