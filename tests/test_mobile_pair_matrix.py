@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Terminal receipts must identify failed and unexecuted compatibility cells."""
 import importlib.util
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -20,6 +21,97 @@ spec.loader.exec_module(matrix)
 result_spec = importlib.util.spec_from_file_location("mobile_pair_result", ROOT / "scripts/ci/mobile_pair_result.py")
 pair_result = importlib.util.module_from_spec(result_spec)
 result_spec.loader.exec_module(pair_result)
+fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests/git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(fixture_spec)
+fixture_spec.loader.exec_module(git_fixture_env)
+
+
+class BinaryCacheProvenance(unittest.TestCase):
+    def exercise(self, *, mutation="", stale=False, require_locked=False):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / "repo"
+            repo.mkdir()
+            git_fixture_env.init_repo(repo)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            git("config", "core.hooksPath", "/dev/null")
+            rust = repo / "cmux-next-ios/rust"
+            rust.mkdir(parents=True)
+            (rust / "Cargo.lock").write_text("version = 3\n")
+            (rust / "source.rs").write_text("// committed source\n")
+            git("add", ".")
+            git("commit", "-qm", "fixture")
+            sha = git("rev-parse", "HEAD")
+            tools = root / "tools"
+            tools.mkdir()
+            (tools / "rustc").write_text("#!/bin/sh\nprintf 'fixture compiler\\n'\n")
+            (tools / "cargo").write_text('''#!/usr/bin/env python3
+import os, pathlib, subprocess, sys
+root = pathlib.Path(os.environ["FIXTURE_ROOT"])
+with (root / "builds").open("a") as log: log.write(" ".join(sys.argv[1:]) + "\\n")
+if os.environ["REQUIRE_LOCKED"] == "1" and "--locked" not in sys.argv: sys.exit(47)
+mutation = os.environ["MUTATION"]
+if mutation:
+    pathlib.Path("source.rs" if mutation == "source" else "Cargo.lock").write_text("changed\\n")
+    if mutation == "commit":
+        subprocess.run(["git", "add", "Cargo.lock"], check=True)
+        subprocess.run(["git", "commit", "-qm", "changed head"], check=True)
+target = pathlib.Path(os.environ["CARGO_TARGET_DIR"]) / "release"
+target.mkdir(exist_ok=True)
+for name in ("cmux-mobile-host", "cmux-mobile-stub-tui", "cmux-mobile-dial", "cmux-mobile-fake-backend"):
+    binary = target / name
+    binary.write_text("#!/bin/sh\\nexit 0\\n")
+    binary.chmod(0o755)
+''')
+            for tool in tools.iterdir():
+                tool.chmod(0o755)
+            cache = root / "cache"
+            cache.mkdir()
+            if stale:
+                platform = subprocess.check_output(["uname", "-sm"], text=True).strip()
+                key = hashlib.sha256(("\n".join(["pair-binaries-v1", sha, "host", "fixture compiler", platform]) + "\n").encode()).hexdigest()
+                entry = cache / key
+                entry.mkdir()
+                (entry / "complete").write_text(sha + " host\n")
+                for name in ("cmux-mobile-host", "cmux-mobile-stub-tui"):
+                    (entry / name).write_text("#!/bin/sh\nexit 0\n")
+                    (entry / name).chmod(0o755)
+            work = root / "work"
+            (work / "bin").mkdir(parents=True)
+            function = (ROOT / "scripts/ci/mobile-pair-skew.sh").read_text().split(
+                "build_role() {", 1)[1].split('\nbuild_role "$old" host', 1)[0]
+            env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+                   "FIXTURE_ROOT": str(root), "MUTATION": mutation,
+                   "REQUIRE_LOCKED": "1" if require_locked else "0", "tree": str(repo),
+                   "work": str(work), "target": str(root / "target"), "SKEW_BINARY_CACHE_DIR": str(cache)}
+            result = subprocess.run(["bash", "-c", "set -euo pipefail\nbuild_role() {" + function +
+                                     '\nbuild_role "$tree" host\nbuild_role "$tree" host\n'],
+                                    env=env, text=True, capture_output=True, timeout=90)
+            return result, list(cache.glob("*/complete")), (root / "builds").read_text().splitlines() if (root / "builds").exists() else []
+
+    def test_locked_clean_build_publishes_once_and_reuses_cache(self):
+        result, complete, builds = self.exercise(require_locked=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(complete), 1)
+        self.assertEqual(len(builds), 1)
+        self.assertIn("--locked", builds[0])
+
+    def test_changed_lock_source_or_head_cannot_publish(self):
+        for mutation in ("lock", "source", "commit"):
+            with self.subTest(mutation=mutation):
+                result, complete, builds = self.exercise(mutation=mutation)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(complete)
+                self.assertEqual(len(builds), 1)
+
+    def test_old_unlocked_cache_is_not_reused(self):
+        result, complete, builds = self.exercise(stale=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(builds), 1)
+        self.assertEqual(len(complete), 2)
 
 
 class MatrixReceipts(unittest.TestCase):

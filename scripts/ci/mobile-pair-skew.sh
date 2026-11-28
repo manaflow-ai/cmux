@@ -45,7 +45,8 @@ build_role() {
   sha=$(git -C "$tree" rev-parse HEAD)
   git -C "$tree" diff --quiet HEAD -- || { echo "::error::dirty pair source $tree"; return 1; }
   compiler=$(cd "$tree/cmux-next-ios/rust" && rustc -vV)
-  key=$(printf '%s\n' "pair-binaries-v1" "$sha" "$role" "$compiler" "$(uname -sm)" | sha256sum | cut -d' ' -f1)
+  # v1 allowed unlocked builds and checked provenance only before Cargo ran.
+  key=$(printf '%s\n' "pair-binaries-v2" "$sha" "$role" "$compiler" "$(uname -sm)" | sha256sum | cut -d' ' -f1)
   cached="${SKEW_BINARY_CACHE_DIR:-$work/binary-cache}/$key"
   mkdir -p "$(dirname "$cached")"
   # A cache restore/build may overlap another invocation. All readers and writers
@@ -69,7 +70,12 @@ build_role() {
     mkdir -p "$target"
     exec {target_lock}>"$target/pair-build.lock"
     flock "$target_lock"
-    (cd "$tree/cmux-next-ios/rust" && CARGO_TARGET_DIR=$target cargo build --release -p cmux-mobile-host "${args[@]}")
+    (cd "$tree/cmux-next-ios/rust" && CARGO_TARGET_DIR=$target cargo build --locked --release -p cmux-mobile-host "${args[@]}")
+    # Build scripts can change tracked inputs or even leave a different clean HEAD.
+    # Never publish those outputs as binaries from the original source commit.
+    [[ "$(git -C "$tree" rev-parse HEAD)" == "$sha" ]] && git -C "$tree" diff --quiet HEAD -- || {
+      echo "::error::pair source changed during build $tree"; return 1;
+    }
     mkdir -p "$cached"
     for bin in "${bins[@]}"; do cp "$target/release/$bin" "$cached/$bin"; done
     printf '%s\n' "$sha $role" > "$cached/complete"

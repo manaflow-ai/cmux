@@ -196,9 +196,9 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/pair-binaries
-          key: phone-pair-binaries-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.shipped.outputs.fingerprint }}-${{ hashFiles('cmux-next-ios/rust/rust-toolchain.toml') }}
+          key: phone-pair-binaries-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.shipped.outputs.fingerprint }}-${{ hashFiles('cmux-next-ios/rust/rust-toolchain.toml') }}
           restore-keys: |
-            phone-pair-binaries-v1-${{ runner.os }}-${{ runner.arch }}-
+            phone-pair-binaries-v2-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

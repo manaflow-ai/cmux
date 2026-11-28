@@ -163,6 +163,46 @@ class PhonePairRouting(unittest.TestCase):
                     lambda manifest: {"scripts/ci/pr_router.json": manifest + "\n"},
                     event), "required=true")
 
+    def test_inherited_cargo_build_inputs_require_pair(self):
+        # Feature-only workspace dependency edits need not change Cargo.lock.
+        for path in ("cmux-tui/Cargo.toml", ".cargo/config.toml"):
+            for event in ("pull_request", "workflow_dispatch"):
+                with self.subTest(path=path, event=event):
+                    self.assertEqual(self.route(
+                        lambda manifest: {"docs/base.md": "base advanced\n"},
+                        lambda manifest: {path: "# changed inherited build input\n"},
+                        event), "required=true")
+
+
+class PhonePairCargoInputs(unittest.TestCase):
+    """The required route covers the source graph the pair harness materializes."""
+
+    def assert_routes(self, paths):
+        router = load(ROOT / "scripts/ci/pr_router.py")
+        config = router.load_manifest()["ios-link-ffi-linux.yml"]
+        missing = [path for path in paths if not (
+            router.matches_filter(config, [path]) and router.affects(config, [path]))]
+        self.assertFalse(missing, "pair route omits Cargo inputs:\n" + "\n".join(missing))
+
+    def test_all_local_dependency_sources_route(self):
+        matrix = load(ROOT / "scripts/ci/mobile_pair_matrix.py")
+        names = subprocess.check_output(
+            ["git", "ls-files", "--", "*Cargo.toml"], cwd=ROOT, text=True).splitlines()
+        docs = {name: (ROOT / name).read_text() for name in names if (ROOT / name).is_file()}
+        sources = matrix.cargo_paths(docs)
+        # Probe code and manifests separately: source-only globs miss feature edits.
+        self.assert_routes([path + suffix for path in sources
+                            for suffix in ("/Cargo.toml", "/src/lib.rs")
+                            if path != "cmux-next-ios/rust"])
+
+    def test_workspace_toolchain_and_config_inputs_route(self):
+        self.assert_routes([
+            prefix + name
+            for prefix in ("", "cmux-tui/", "cmux-next-ios/", "cmux-next-ios/rust/")
+            for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml",
+                         ".cargo/config", ".cargo/config.toml")
+        ] + ["ghostty-next", "scripts/ci/zig-packages.lock", ".gitmodules"])
+
 
 class PhonePairRequiredGate(unittest.TestCase):
     def verdict(self, **overrides):
