@@ -183,14 +183,6 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
             encoding.maxFramerate = NSNumber(value: settings.maxFramerate)
             encoding.scaleResolutionDownBy = NSNumber(value: settings.scaleDown)
         }
-        #if DEBUG
-        let knobs = ScreenEncodingExperiment.current
-        if let value = knobs.degradation { parameters.degradationPreference = NSNumber(value: value.rawValue) }
-        for encoding in parameters.encodings {
-            if let value = knobs.maxBitrate { encoding.maxBitrateBps = NSNumber(value: value) }
-            if let value = knobs.maxFramerate { encoding.maxFramerate = NSNumber(value: value) }
-        }
-        #endif
         sender.parameters = parameters
     }
 
@@ -497,13 +489,7 @@ extension VNCPeerLink {
     /// track content hint "detail" or "text" selects (`VideoRtpSender::SetSend`
     /// maps both to `is_screencast`; Petal sets `ContentHint::Detailed`). The
     /// Objective-C SDK has no content hint, so this source is how we set it.
-    static func makeScreenSource() -> RTCVideoSource {
-        #if DEBUG
-        return factory.videoSource(forScreenCast: ScreenEncodingExperiment.current.screencast)
-        #else
-        return factory.videoSource(forScreenCast: true)
-        #endif
-    }
+    static func makeScreenSource() -> RTCVideoSource { factory.videoSource(forScreenCast: true) }
 }
 
 extension VNCPeerLink {
@@ -614,35 +600,3 @@ final class ScreenDecoderFactory: NSObject, RTCVideoDecoderFactory {
         }
     }
 }
-
-#if DEBUG
-/// Measurement knobs (tests only): `CMUX_VNC_ENCODING_EXPERIMENT` names
-/// overrides for the sender's encoding, read when a stream starts.
-struct ScreenEncodingExperiment: Sendable {
-    var screencast = true
-    var degradation: RTCDegradationPreference?
-    var maxBitrate: Int?
-    var maxFramerate: Int?
-    /// The bitrate ceiling follows the changed area (``ChangedArea``).
-    var areaBitrate = false
-
-    static var current: ScreenEncodingExperiment {
-        var knobs = ScreenEncodingExperiment()
-        switch getenv("CMUX_VNC_ENCODING_EXPERIMENT").map { String(cString: $0) } ?? "" {
-        case "motion": knobs.screencast = false
-        case "cap2M": knobs.maxBitrate = 2_000_000
-        case "cap1M": knobs.maxBitrate = 1_000_000
-        case "cap500k": knobs.maxBitrate = 500_000
-        case "fps30": knobs.maxFramerate = 30
-        case "balanced": knobs.degradation = .balanced
-        case "maintainFramerate": knobs.degradation = .maintainFramerate
-        case "area": knobs.areaBitrate = true
-        case "areaFps30":
-            knobs.areaBitrate = true
-            knobs.maxFramerate = 30
-        default: break
-        }
-        return knobs
-    }
-}
-#endif
