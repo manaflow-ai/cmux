@@ -34,7 +34,8 @@ const storageOf = (store: DurableObjectStorage | DurableObjectTransaction): Ledg
 export class TenantLimitsObject extends DurableObject {
   private readonly ledger = new TenantLedger(storageOf(this.ctx.storage));
   /** Used only by the object named PROVIDER_CREATE_QUEUE_NAME: the environment's provider create queue. */
-  private readonly createQueue = new CreateAdmissionQueue(storageOf(this.ctx.storage));
+  private readonly createQueue = new CreateAdmissionQueue(storageOf(this.ctx.storage), undefined,
+    (event) => console.error(JSON.stringify({ event: "vm_create_queue", ...event })));
 
   admitCreate(holder: string, cap: number, queueWaitMs: number, leaseMs: number, background?: boolean): Promise<CreateAdmission> { return this.createQueue.admit(holder, { cap, queueWaitMs, leaseMs }, background === true); }
   releaseCreate(holder: string): Promise<void> { return this.createQueue.release(holder); }
