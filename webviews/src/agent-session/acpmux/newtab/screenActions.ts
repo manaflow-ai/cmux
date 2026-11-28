@@ -208,9 +208,17 @@ export function newTabScreenActions(deps: {
       ignore(callNative("tab.open", { kind: "browser", text, search: true, ...placeParam(how) })),
     // A typed command (the Run row): a terminal in the tab's folder runs it, in this page's tab. The
     // page stays until the host closes it under the terminal, so a refused open keeps the typed text.
+    // `pick`: the page's own pick, so a page opened from a Cloud chat runs it on the chat's machine (cmux#57249).
     onShell(command) {
       ignore(
-        callNative("tab.open", { kind: "terminal", text: command, run: true, inPlace: true, ...(cwd ? { cwd } : {}) }),
+        callNative("tab.open", {
+          kind: "terminal",
+          text: command,
+          run: true,
+          inPlace: true,
+          pick: true,
+          ...(cwd ? { cwd } : {}),
+        }),
       );
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
@@ -234,14 +242,14 @@ export function newTabScreenActions(deps: {
     onTouched: () => ignore(callNative("newTab.touched")),
     onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
-    // `inPlace`: it takes this page's tab, never a split, as every pick does.
+    // `inPlace`: it takes this page's tab, never a split, as every pick does; `pick`: from a Cloud chat, on its machine.
     onCreate: (kind) =>
       ignore(
         callNative(
           "tab.open",
           kind === "terminal"
-            ? { kind, text: "", run: false, inPlace: true, ...(cwd ? { cwd } : {}) }
-            : { kind, text: "", inPlace: true },
+            ? { kind, text: "", run: false, inPlace: true, pick: true, ...(cwd ? { cwd } : {}) }
+            : { kind, text: "", inPlace: true, pick: true },
         ),
       ),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),
