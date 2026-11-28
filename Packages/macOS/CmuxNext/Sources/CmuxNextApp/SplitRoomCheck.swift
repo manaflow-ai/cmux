@@ -22,7 +22,7 @@ extension AppServices {
     /// Applies the sizing a move that splits `pane` at `edge` lands with, once it landed: the ratios its
     /// drop target previewed (`LayoutModel.dropSizingChanges`: `layout.splitSizing` as a keyboard split
     /// does, #22287, and the close sizing of `emptied`, the pane the move closes). Computed now.
-    /// The returned closure sends them once, however many of the move's settle points call it.
+    /// The returned closure sends them once, however many of the move's settle points call it, with the move's tree (hq#19032).
     func splitSizing(for pane: PaneModel, edge: PaneEdge, emptying emptied: PaneModel?) -> @MainActor () -> Void {
         guard let controller = paneController(for: pane), let content = controller.workspace else { return {} }
         let changes = content.layoutModel.dropSizingChanges(splitting: controller.layoutPaneID, zone: edge.dropZone,
@@ -31,7 +31,7 @@ extension AppServices {
         return { [weak content] in
             guard !sent.value else { return }
             sent.value = true
-            content?.layoutModel.applySplitSizing(changes)
+            content?.layoutModel.applySplitSizing(changes); content?.applyLayoutIfChanged()
         }
     }
 
