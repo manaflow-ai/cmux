@@ -2590,7 +2590,7 @@
       }
     },
     "TerminalIO": {
-      "$comment": "Hand-written still: set-attach-visibility, clear-history, the clipboard subscribe and reply, cancel-creating-input, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); set-size-policy (nested Policy); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work).",
+      "$comment": "Hand-written still: the clipboard subscribe and reply, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); set-size-policy (nested Policy); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work).",
       "enums": {},
       "requests": {
         "send-key": {
@@ -2766,6 +2766,68 @@
             "url"
           ],
           "response": "generate"
+        },
+        "set-attach-visibility": {
+          "name": "SetAttachVisibilityRequest",
+          "allow_unadvertised_capability": "attach-visibility-v1",
+          "doc": [
+            "`set-attach-visibility` (`attach-visibility-v1`): this connection's snapshot attach of `surface` shows the terminal",
+            "or not. A hidden viewer gets its output once per wall-clock second (all hidden viewers on the same second), at once",
+            "when shown again (SWITCH FRAMES SF-5: each hidden busy terminal woke the app per output frame).",
+            "The app sent it before the daemon advertised the capability; it stays ungated."
+          ],
+          "order": [
+            "surface",
+            "visible"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            }
+          },
+          "response": "generate"
+        },
+        "cancel-creating-input": {
+          "name": "CancelCreatingInputRequest",
+          "allow_unadvertised_capability": "creating-input-cancel-v1",
+          "doc": [
+            "The person closed the pane of a terminal this connection is still creating",
+            "(`creating-input-cancel-v1`): the daemon drops the input this connection queued for it with no",
+            "give-back, writes none of it to the new terminal, and refuses later input by this id until the",
+            "creation ends and for a short time after. The creation itself goes on; its close is a",
+            "separate request. Only the connection that asked for the terminal can cancel. It stays ungated, as before."
+          ],
+          "fields": {
+            "terminal_id": {
+              "name": "terminalID"
+            }
+          },
+          "response": "generate"
+        },
+        "clear-history": {
+          "name": "ClearHistoryRequest",
+          "allow_unadvertised_capability": "clear-history-v1",
+          "doc": [
+            "`clear-history`: Cmd-K (Clear Screen and Scrollback) in the daemon, which owns the terminal",
+            "state. The daemon erases the primary screen's rows before the shell prompt and the retained",
+            "history, and every attached view gets the same erase; an alternate-screen program is left",
+            "untouched, or gets `fallbackKey` encoded with the terminal's own keyboard modes. It fails",
+            "without a change when it cannot restore the cursor exactly, and with",
+            "``fallbackUnrepresentable`` when the program's keyboard mode has no encoding for the key. Ungated, as before."
+          ],
+          "order": [
+            "surface",
+            "fallback_key"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "fallback_key": {
+              "type": "DaemonKeyInput"
+            }
+          },
+          "response": "EmptyResponse"
         }
       },
       "objects": {
