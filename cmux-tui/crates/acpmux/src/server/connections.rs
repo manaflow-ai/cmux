@@ -16,7 +16,7 @@
 //! Who may call: the list, also the local app; every change, every ChatGPT call and every
 //! one-click Claude token call (`claude_token.*`, `crate::claude_token`), only the
 //! unix socket (the app's host calls them from a person's action; the gateway asks for tokens).
-//! Never Web or a peer. No secret is resolved here and no token is logged.
+//! Never Web or a peer. The list exposes only public metadata and whether sign-in is available.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -29,7 +29,12 @@ use zeroize::Zeroizing;
 
 use super::Origin;
 use super::accounts::{self, CLAUDE_LOGIN_ID};
+use crate::agent_credentials::AgentCredential;
+use crate::agent_login::{Agent, Cli};
+use crate::byo_endpoint::{self, Kind};
 use crate::chatgpt;
+use crate::claude_token::store;
+use crate::config::{self, HarnessProfile, ProfileSources};
 use crate::hub::Hub;
 use crate::key_check;
 use crate::routes::{self, Auth, Bindings, Route, RouteFile, RouteKind};
@@ -42,9 +47,17 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_REMOVE,
     method::MUX_CONNECTIONS_KEY_ADD,
     method::MUX_CONNECTIONS_KEY_CHECK,
+    method::MUX_CONNECTIONS_SECRET_STORE,
+    method::MUX_CONNECTIONS_SECRET_DELETE,
     method::MUX_CONNECTIONS_CHATGPT_BEGIN,
     method::MUX_CONNECTIONS_CHATGPT_WAIT,
     method::MUX_CONNECTIONS_CHATGPT_CANCEL,
+    method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN,
+    method::MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT,
+    method::MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL,
+    method::MUX_CONNECTIONS_SUBSCRIPTION_BEGIN,
+    method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT,
+    method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL,
     method::MUX_CONNECTIONS_CHATGPT_TOKEN,
     method::MUX_CONNECTIONS_CHATGPT_IMPORT,
     method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
@@ -61,13 +74,23 @@ pub(super) const CONNECTIONS_NOTE: &str = "_acpmux_connections";
 /// The longest `chatgpt.wait` holds a request.
 const WAIT_LIMIT: Duration = Duration::from_secs(25);
 
-/// Whether `m` answers a connection's token (`_acpmux/connections/credential`,
-/// `_acpmux/connections/chatgpt.token`): read only on a connection that proved the person
+/// Whether this method reads a token or runs the credential capture flow.
+/// These require a connection that proved the person
 /// (`hub/person.rs`), the Mac app's person line. An agent runs as the user and reaches the same
 /// socket, with a proven caller session, a wrong token, or nothing at all, so anything short of
 /// the person proof is refused (`requests.rs`).
 pub(super) fn reads_token(m: &str) -> bool {
-    matches!(m, method::MUX_CONNECTIONS_CREDENTIAL | method::MUX_CONNECTIONS_CHATGPT_TOKEN)
+    matches!(
+        m,
+        method::MUX_CONNECTIONS_CREDENTIAL
+            | method::MUX_CONNECTIONS_SUBSCRIPTION_BEGIN
+            | method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT
+            | method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL
+            | method::MUX_CONNECTIONS_CHATGPT_TOKEN
+            | method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN
+            | method::MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT
+            | method::MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL
+    )
 }
 
 /// Route writes that change the connection list (announced after they succeed).
@@ -87,6 +110,10 @@ pub(super) fn changes_connections(m: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(super) struct Connection {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credential_instance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_revision: Option<String>,
     pub kind: &'static str,
     pub provider: String,
     pub families: Vec<String>,
@@ -94,9 +121,25 @@ pub(super) struct Connection {
     pub email: Option<String>,
     pub plan: Option<String>,
     pub signed_in: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sign_in_reason: Option<&'static str>,
     pub enabled: bool,
     pub default_for: Vec<String>,
     pub serves_cloud: bool,
+    pub can_serve_cloud: bool,
+    pub can_check_access: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub can_replace_key: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<EndpointFields>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_credentials: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_families: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_harness: Option<&'static str>,
 }
 
 /// An API-key provider: its label, the families it serves and its base URLs.
@@ -144,9 +187,17 @@ const PROVIDERS: &[Provider] = &[
         bearer: false,
     },
     Provider {
+        id: "vertex-express",
+        label: "Vertex AI Express key",
+        families: &["gemini"],
+        anthropic: None,
+        openai: Some("https://aiplatform.googleapis.com"),
+        bearer: false,
+    },
+    Provider {
         id: "xai",
         label: "xAI API key",
-        families: &["codex"],
+        families: &["grok"],
         anthropic: None,
         openai: Some("https://api.x.ai/v1"),
         bearer: false,
@@ -155,6 +206,127 @@ const PROVIDERS: &[Provider] = &[
 
 fn provider(id: &str) -> Option<&'static Provider> {
     PROVIDERS.iter().find(|p| p.id == id)
+}
+
+fn model_endpoint(provider: &Provider) -> Option<(&str, crate::byo_endpoint::Kind)> {
+    use crate::byo_endpoint::Kind;
+    provider
+        .openai
+        .map(|url| (url, Kind::OpenAi))
+        .or_else(|| provider.anthropic.map(|url| (url, Kind::Anthropic)))
+}
+
+pub(crate) fn standard_key_endpoint(
+    file: &RouteFile,
+) -> Option<(&'static str, crate::byo_endpoint::Kind)> {
+    let provider = provider(file.provider())?;
+    let legacy_direct = matches!(provider.id, "anthropic" | "openai");
+    let matches = |configured: Option<&str>, official: Option<&str>| match configured {
+        Some(url) => Some(url.trim_end_matches('/')) == official,
+        None => official.is_none() || legacy_direct,
+    };
+    if file.kind != RouteKind::DirectApiKey
+        || file.secret.is_none()
+        || !file.headers.is_empty()
+        || !matches(file.anthropic_base_url.as_deref(), provider.anthropic)
+        || !matches(file.openai_base_url.as_deref(), provider.openai)
+    {
+        return None;
+    }
+    model_endpoint(provider)
+}
+
+/// The revision of the saved reference used by the Cloud consent action.
+pub(super) fn key_revision(file: &RouteFile) -> Option<String> {
+    let provider = file.provider();
+    if !serves_cloud("api-key", provider) || standard_key_endpoint(file).is_none() {
+        return None;
+    }
+    let reference = file.secret.as_deref()?;
+    Some(config::profiles::content_revision(&format!("{provider}:{reference}")))
+}
+
+/// List models for a draft or a saved API-key route. A saved credential uses only its
+/// configured provider's standard endpoint. The call never changes a profile or a key.
+pub(super) async fn check_models(dir: Option<PathBuf>, params: &Value) -> Result<Value, RpcError> {
+    use crate::byo_endpoint::{self, Kind};
+    use zeroize::Zeroizing;
+
+    let (base, kind, key) = if let Some(id) = params["id"].as_str() {
+        let id = id.to_owned();
+        blocking(move || {
+            let route = routes::find(dir.as_deref(), &id).map_err(|e| route_error(&e))?;
+            let Some(((url, kind), reference)) =
+                standard_key_endpoint(&route.file).zip(route.file.secret.as_deref())
+            else {
+                return Err(RpcError::invalid_params(
+                    "only standard API-key connections can list models",
+                ));
+            };
+            Ok((url.to_owned(), kind, Some(Zeroizing::new(resolve(&id, reference)?))))
+        })
+        .await??
+    } else {
+        let key = params["apiKey"].as_str().filter(|key| !key.is_empty());
+        if key.is_some_and(|key| {
+            key.len() > 16_384 || !key.bytes().all(|b| (0x21..=0x7e).contains(&b))
+        }) {
+            return Err(RpcError::invalid_params("invalid API key format"));
+        }
+        let (url, kind) = if let Some(id) = params["provider"].as_str() {
+            if key.is_none() {
+                return Err(RpcError::invalid_params("an API key is required"));
+            }
+            provider(id)
+                .and_then(model_endpoint)
+                .ok_or_else(|| RpcError::invalid_params("unknown API-key provider"))?
+        } else {
+            (
+                params["baseUrl"]
+                    .as_str()
+                    .ok_or_else(|| RpcError::invalid_params("a base URL is required"))?,
+                Kind::OpenAi,
+            )
+        };
+        (url.to_owned(), kind, key.map(|key| Zeroizing::new(key.to_owned())))
+    };
+    let key = key.as_ref().map(|key| key.as_str());
+    let answer = if base == "https://openrouter.ai/api/v1" && key.is_some() {
+        // The public catalog can answer without authentication. This one requires a valid key.
+        byo_endpoint::fetch_model_list(
+            kind,
+            "https://openrouter.ai/api/v1/models/user",
+            key,
+            byo_endpoint::FETCH_TIMEOUT,
+        )
+        .await
+    } else {
+        byo_endpoint::fetch_models(kind, &base, key, byo_endpoint::FETCH_TIMEOUT).await
+    };
+    match answer {
+        Ok(mut models) => {
+            // A model list is untrusted provider data. Never echo a key back to the page.
+            models.retain(|id| {
+                id != "*"
+                    && !key.is_some_and(|key| id.contains(key))
+                    && !byo_endpoint::looks_like_secret(id)
+            });
+            Ok(json!({"models": models}))
+        }
+        Err(message) => Ok(json!({"failure": message})),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct EndpointFields {
+    kind: &'static str,
+    base_url: String,
+    models: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    revision: Option<String>,
 }
 
 struct Facts {
@@ -168,14 +340,23 @@ struct Facts {
 }
 
 /// Whether a connection can serve a Cloud chat (Revision 2: its credential goes to the
-/// machine's agent): a ChatGPT plan, a Claude Code token, an Anthropic or OpenAI key. The Mac's
-/// CLI logins and added subscription accounts serve local chats only.
+/// machine's agent). CLI logins and added local accounts serve local chats only.
 pub(super) fn serves_cloud(kind: &str, provider: &str) -> bool {
     match kind {
         "chatgpt-plan" | "claude-token" => true,
-        "api-key" => matches!(provider, "anthropic" | "openai"),
+        "api-key" => {
+            matches!(provider, "anthropic" | "openai" | "google" | "vertex-express" | "xai")
+        }
         _ => false,
     }
+}
+
+fn token_expired(expires_at: Option<u64>) -> bool {
+    expires_at.is_some_and(|expiry| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .is_ok_and(|time| time.as_secs() >= expiry)
+    })
 }
 
 fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
@@ -191,25 +372,144 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
             .cloned()
             .collect()
     };
-    let serves_cloud = serves_cloud(facts.kind, &facts.provider);
+    let openrouter = facts.kind == "api-key" && facts.provider == "openrouter";
+    let native = route.native_key_provider();
+    let standard_endpoint = standard_key_endpoint(&route.file).is_some();
+    let can_check_access = standard_endpoint && facts.provider != "vertex-express";
+    let mut families = facts.families;
+    if openrouter && can_check_access && !families.iter().any(|family| family == "openrouter") {
+        families.push("openrouter".into());
+    }
+    let can_serve_cloud =
+        serves_cloud(facts.kind, &facts.provider) && (facts.kind != "api-key" || standard_endpoint);
+    // Only these API keys served Cloud before per-key consent was added.
+    let legacy_cloud_default =
+        facts.kind != "api-key" || matches!(facts.provider.as_str(), "anthropic" | "openai");
     Connection {
         id: route.id.clone(),
+        credential_instance: route.file.credential_instance.clone(),
+        key_revision: key_revision(&route.file),
         kind: facts.kind,
         provider: facts.provider,
-        families: facts.families,
+        families,
         label: route.name(),
         email: facts.email,
         plan: facts.plan,
-        signed_in: facts.signed_in,
+        signed_in: facts.signed_in && !token_expired(route.file.claude_token_expires_at),
+        sign_in_reason: None,
         enabled: !route.file.disabled,
         default_for,
-        serves_cloud,
+        serves_cloud: can_serve_cloud && route.file.cloud_enabled.unwrap_or(legacy_cloud_default),
+        can_serve_cloud,
+        can_check_access,
+        can_replace_key: (standard_endpoint && route.file.credential_instance.is_some())
+            .then_some(true),
+        endpoint: None,
+        expires_at: route.file.claude_token_expires_at,
+        endpoint_credentials: native.is_some().then_some(true),
+        cloud_families: native.map(|provider| vec![provider.name().into()]),
+        launch_harness: native.map(|provider| provider.name()).or_else(|| {
+            crate::subscriptions::Provider::for_kind(route.file.kind).map(|provider| {
+                if provider.family() == "github-copilot" { "opencode" } else { provider.family() }
+            })
+        }),
     }
+}
+
+/// Read the endpoint fields without resolving its Keychain reference.
+fn endpoint_fields(profile: &HarnessProfile) -> Option<EndpointFields> {
+    let kind = Kind::of_env(&profile.env)?;
+    let models = profile
+        .models
+        .iter()
+        .map(|model| {
+            let id = model.id();
+            match kind {
+                Kind::OpenAi => id.strip_prefix("byo/").unwrap_or(id),
+                Kind::Anthropic => id,
+            }
+            .to_owned()
+        })
+        .collect::<Vec<_>>();
+    let config;
+    let base_url = match kind {
+        Kind::Anthropic => profile.env.get("ANTHROPIC_BASE_URL")?,
+        Kind::OpenAi => {
+            config =
+                serde_json::from_str::<Value>(profile.env.get("OPENCODE_CONFIG_CONTENT")?).ok()?;
+            config["provider"][byo_endpoint::OPENCODE_PROVIDER]["options"]["baseURL"].as_str()?
+        }
+    };
+    let base_url = byo_endpoint::check_base_url(base_url).ok()?;
+    Some(EndpointFields {
+        kind: match kind {
+            Kind::Anthropic => "anthropic-endpoint",
+            Kind::OpenAi => "openai-endpoint",
+        },
+        base_url,
+        models,
+        preset: None,
+        revision: None,
+    })
+}
+
+fn endpoint_connection(
+    id: &str,
+    profile: &HarnessProfile,
+    display_name: Option<&str>,
+    revision: Option<String>,
+    credential_instance: Option<String>,
+    preset: Option<String>,
+) -> Option<Connection> {
+    let kind = Kind::of_env(&profile.env)?;
+    let has_key = profile
+        .env
+        .get(kind.secret_key())
+        .is_some_and(|value| value.starts_with("${keychain:") && value.ends_with('}'));
+    Some(Connection {
+        id: id.to_owned(),
+        credential_instance,
+        key_revision: None,
+        kind: "endpoint",
+        provider: id.to_owned(),
+        families: vec![id.to_owned()],
+        label: display_name.unwrap_or(id).to_owned(),
+        email: None,
+        plan: None,
+        signed_in: has_key,
+        sign_in_reason: None,
+        enabled: true,
+        default_for: vec![],
+        serves_cloud: false,
+        can_serve_cloud: false,
+        can_check_access: false,
+        can_replace_key: None,
+        endpoint: revision.and_then(|revision| {
+            let mut fields = endpoint_fields(profile)?;
+            if !byo_endpoint::check_models(&fields.models)
+                .is_ok_and(|models| models == fields.models)
+            {
+                return None;
+            }
+            fields.revision = Some(revision);
+            fields.preset = preset;
+            Some(fields)
+        }),
+        expires_at: None,
+        endpoint_credentials: None,
+        cloud_families: None,
+        launch_harness: None,
+    })
 }
 
 /// Every connection, in the listing order the default order sorts (stably): the Codex CLI's
 /// login, the routes by id, the Claude Code login.
-pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connection> {
+fn list(
+    dir: Option<&Path>,
+    home: &Path,
+    b: &Bindings,
+    sources: &ProfileSources,
+) -> Vec<Connection> {
     let mut out = Vec::new();
     if let Ok(codex) = routes::find(dir, routes::CODEX_LOGIN_ROUTE_ID) {
         let folder = codex
@@ -230,12 +530,15 @@ pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connect
         };
         out.push(connection(&codex, facts, b));
     }
-    let records: HashMap<String, chatgpt::store::Record> =
+    let records: HashMap<String, chatgpt::store::Metadata> =
         chatgpt::store::all(home).into_iter().collect();
-    for route in routes::load(dir).0 {
+    let saved_routes = routes::load(dir).0;
+    let saved_ids: BTreeSet<_> = saved_routes.iter().map(|route| route.id.clone()).collect();
+    for mut route in saved_routes {
         if route.id == routes::CODEX_LOGIN_ROUTE_ID {
             continue;
         }
+        let _ = routes::ensure_credential_instance(dir, &mut route);
         let file = &route.file;
         let facts = match file.kind {
             RouteKind::DirectSubscription => {
@@ -265,9 +568,28 @@ pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connect
                     kind: "chatgpt-plan",
                     provider: "openai".into(),
                     families: vec!["codex".into()],
-                    signed_in: record.is_some_and(chatgpt::store::Record::signed_in),
+                    signed_in: record.is_some_and(chatgpt::store::Metadata::signed_in),
                     email: record.and_then(|r| r.email.clone()),
                     plan: record.and_then(|r| r.plan.clone()),
+                    builtin: false,
+                }
+            }
+            RouteKind::GrokPlan | RouteKind::CopilotPlan | RouteKind::KimiPlan => {
+                let Some(provider) = crate::subscriptions::Provider::for_kind(file.kind) else {
+                    continue;
+                };
+                Facts {
+                    kind: file.kind.as_str(),
+                    provider: if provider == crate::subscriptions::Provider::Kimi {
+                        "kimi-code"
+                    } else {
+                        provider.name()
+                    }
+                    .into(),
+                    families: file.families.clone(),
+                    signed_in: provider.signed_in(home, &route.id),
+                    email: provider.login(home, &route.id),
+                    plan: None,
                     builtin: false,
                 }
             }
@@ -307,6 +629,7 @@ pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connect
     let route = Route {
         id: CLAUDE_LOGIN_ID.into(),
         file: RouteFile {
+            credential_instance: None,
             name: Some("Claude Code login".into()),
             kind: RouteKind::DirectSubscription,
             families: vec!["claude".into()],
@@ -314,6 +637,8 @@ pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connect
             openai_base_url: None,
             auth: None,
             secret: None,
+            claude_token_expires_at: None,
+            cloud_enabled: None,
             headers: Default::default(),
             health_url: None,
             fallback: vec![],
@@ -336,6 +661,27 @@ pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connect
         builtin: true,
     };
     out.push(connection(&route, facts, b));
+    for (id, (profile, meta)) in config::profiles::load(sources).profiles {
+        let editable = meta.source == config::profiles::ProfileSource::UserFile
+            && sources.user_dir.as_ref().is_some_and(|dir| {
+                Path::new(&meta.source_path) == dir.join(format!("{id}.toml")).as_path()
+            });
+        if let Some(mut endpoint) = endpoint_connection(
+            &id,
+            &profile,
+            meta.display_name.as_deref(),
+            if editable { meta.content_revision } else { None },
+            meta.credential_instance,
+            meta.endpoint_preset,
+        ) {
+            if id == CLAUDE_LOGIN_ID || saved_ids.contains(&id) || routes::find(None, &id).is_ok() {
+                // Route and profile IDs have separate owners. Keep the endpoint editable
+                // while a legacy collision makes its launch ID ambiguous.
+                endpoint.id = format!("endpoint:{id}");
+            }
+            out.push(endpoint);
+        }
+    }
     out
 }
 
@@ -367,31 +713,72 @@ pub(super) fn ordered(mut list: Vec<Connection>, explicit: &[String]) -> Vec<Con
 }
 
 /// The `ConnectionsState`.
-pub(super) fn state(dir: Option<&Path>, home: &Path) -> Value {
-    let b = routes::bindings(home);
-    let connections = ordered(list(dir, home, &b), &b.connection_order);
-    json!({
-        "connections": connections,
+fn state(dir: Option<&Path>, home: &Path, sources: &ProfileSources) -> Value {
+    let mut b = routes::bindings_with_disconnects(home);
+    let mut connections = list(dir, home, &b, sources);
+    // A removal records its marker first. A route that is still present can be retried.
+    for connection in &mut connections {
+        if let Some(instance) = &connection.credential_instance
+            && let Some(instances) = b.disconnected_credentials.get_mut(&connection.id)
+        {
+            instances.remove(instance);
+        }
+        if !connection.signed_in {
+            continue;
+        }
+        let available = if connection.kind == "chatgpt-plan" {
+            chatgpt::store::available(home, &connection.id)
+        } else if let Some(provider) =
+            RouteKind::parse(connection.kind).and_then(crate::subscriptions::Provider::for_kind)
+        {
+            provider.available(home, &connection.id)
+        } else {
+            continue;
+        };
+        match available {
+            Err(
+                error @ (crate::subscription_store::Error::KeychainOtherBuild
+                | crate::subscription_store::Error::ReauthRequired),
+            ) => {
+                connection.signed_in = false;
+                connection.sign_in_reason = Some(error.code());
+            }
+            Ok(false) => connection.signed_in = false,
+            _ => {}
+        }
+    }
+    b.disconnected_credentials.retain(|_, instances| !instances.is_empty());
+    let mut state = json!({
+        "connections": ordered(connections, &b.connection_order),
         "spread": b.spread.unwrap_or(false),
         "order_explicit": !b.connection_order.is_empty(),
-    })
+    });
+    if !b.disconnected_credentials.is_empty() {
+        state["disconnected_credentials"] = json!(b.disconnected_credentials);
+    }
+    state
 }
 
 fn route_error(e: &routes::RouteError) -> RpcError {
     crate::hub::route_error(e)
 }
 
-/// Stores the person's order. Every id must name a connection, once.
+/// Stores the person's order of managed connections, ignoring detected sign-ins.
 pub(super) fn set_order(
     dir: Option<&Path>,
     home: &Path,
     ids: &[String],
+    sources: &ProfileSources,
 ) -> Result<Value, RpcError> {
     let known: BTreeSet<String> =
-        list(dir, home, &routes::bindings(home)).into_iter().map(|c| c.id).collect();
+        list(dir, home, &routes::bindings(home), sources).into_iter().map(|c| c.id).collect();
     let mut seen = BTreeSet::new();
+    let mut order = Vec::new();
     for id in ids {
         if !known.contains(id) {
+            if NATIVE_SIGN_INS.iter().any(|(_, native_id, _)| id.as_str() == *native_id) {
+                continue;
+            }
             return Err(RpcError::invalid_params(format!("no connection {id:?}"))
                 .with_data(json!({"reason": "connections.unknown_id", "id": id})));
         }
@@ -399,15 +786,20 @@ pub(super) fn set_order(
             return Err(RpcError::invalid_params(format!("{id:?} is listed twice"))
                 .with_data(json!({"reason": "connections.duplicate_id", "id": id})));
         }
+        order.push(id.clone());
     }
-    routes::update_bindings(home, |b| b.connection_order = ids.to_vec())
-        .map_err(|e| route_error(&e))?;
-    Ok(state(dir, home))
+    routes::update_bindings(home, |b| b.connection_order = order).map_err(|e| route_error(&e))?;
+    Ok(state(dir, home, sources))
 }
 
-pub(super) fn set_spread(dir: Option<&Path>, home: &Path, on: bool) -> Result<Value, RpcError> {
+fn set_spread(
+    dir: Option<&Path>,
+    home: &Path,
+    on: bool,
+    sources: &ProfileSources,
+) -> Result<Value, RpcError> {
     routes::update_bindings(home, |b| b.spread = Some(on)).map_err(|e| route_error(&e))?;
-    Ok(state(dir, home))
+    Ok(state(dir, home, sources))
 }
 
 /// Adds a provider API key whose secret is a reference (`keychain:ITEM`); never the key.
@@ -417,6 +809,8 @@ pub(super) fn add_key(
     provider_id: &str,
     secret: &str,
     label: Option<&str>,
+    sources: &ProfileSources,
+    cloud_enabled: Option<bool>,
 ) -> Result<(String, Value), RpcError> {
     let p = provider(provider_id).ok_or_else(|| {
         RpcError::invalid_params(format!(
@@ -424,11 +818,13 @@ pub(super) fn add_key(
             routes::PROVIDERS.join(", ")
         ))
     })?;
+    let profiles = config::profiles::load(sources);
     let id = std::iter::once(format!("{}-key", p.id))
         .chain((2..1000).map(|n| format!("{}-key-{n}", p.id)))
-        .find(|id| routes::find(dir, id).is_err())
+        .find(|id| routes::find(dir, id).is_err() && !profiles.profiles.contains_key(id))
         .ok_or_else(|| RpcError::invalid_params("too many keys for this provider"))?;
     let file = RouteFile {
+        credential_instance: None,
         name: Some(label.map(str::trim).filter(|l| !l.is_empty()).unwrap_or(p.label).to_owned()),
         kind: RouteKind::DirectApiKey,
         families: p.families.iter().map(|f| (*f).to_owned()).collect(),
@@ -436,6 +832,8 @@ pub(super) fn add_key(
         openai_base_url: p.openai.map(str::to_owned),
         auth: p.bearer.then_some(Auth::Bearer),
         secret: Some(secret.to_owned()),
+        claude_token_expires_at: None,
+        cloud_enabled: Some(cloud_enabled.unwrap_or(false)),
         headers: Default::default(),
         health_url: None,
         fallback: vec![],
@@ -448,90 +846,130 @@ pub(super) fn add_key(
     };
     // `add` validates: an inline key is refused (route.secret_inline).
     routes::add(dir, &id, &file, false).map_err(|e| route_error(&e))?;
-    Ok((id, state(dir, home)))
+    Ok((id, state(dir, home, sources)))
 }
 
-/// Adds Claude Code's `claude setup-token` token as a secret reference (`keychain:ITEM`).
-pub(super) fn add_claude_token(
+/// Keep the route's local settings while retiring the old Cloud credential.
+fn replace_key(
     dir: Option<&Path>,
     home: &Path,
+    id: &str,
+    provider: &str,
     secret: &str,
-    label: Option<&str>,
-) -> Result<(String, Value), RpcError> {
-    let id = std::iter::once("claude-token".to_owned())
-        .chain((2..1000).map(|n| format!("claude-token-{n}")))
-        .find(|id| routes::find(dir, id).is_err())
-        .ok_or_else(|| RpcError::invalid_params("too many Claude tokens"))?;
-    let file = RouteFile {
-        name: Some(
-            label
-                .map(str::trim)
-                .filter(|l| !l.is_empty())
-                .unwrap_or("Claude Code token")
-                .to_owned(),
-        ),
-        kind: RouteKind::ClaudeToken,
-        families: vec!["claude".into()],
-        anthropic_base_url: None,
-        openai_base_url: None,
-        auth: None,
-        secret: Some(secret.to_owned()),
-        headers: Default::default(),
-        health_url: None,
-        fallback: vec![],
-        auto_fallback: false,
-        notes: Some("claude setup-token: served to Cloud machines' Claude agents".into()),
-        account_home: None,
-        shadow_of: None,
-        disabled: false,
-        provider: Some("anthropic".into()),
-    };
-    // `add` validates: an inline token is refused (route.secret_inline).
-    routes::add(dir, &id, &file, false).map_err(|e| route_error(&e))?;
-    Ok((id, state(dir, home)))
+    expected_instance: &str,
+    sources: &ProfileSources,
+) -> Result<Value, RpcError> {
+    let (_, previous) = routes::edit(dir, id, |file| {
+        if file.provider() != provider
+            || standard_key_endpoint(file).is_none()
+            || file.credential_instance.as_deref() != Some(expected_instance)
+        {
+            return Err(routes::RouteError::BadParams(
+                "replacement needs a matching API-key connection".into(),
+            ));
+        }
+        if file.secret.as_deref() == Some(secret) {
+            return Ok(None);
+        }
+        let previous = file.secret.replace(secret.to_owned());
+        routes::validate(file)?;
+        // Publish before changing the route. The connection list hides this marker while
+        // the old identity is still present, including when writing the replacement fails.
+        routes::record_disconnect(home, id, expected_instance)?;
+        routes::pin_replaced_key_bindings(home, id, expected_instance)?;
+        Ok(previous)
+    })
+    .map_err(|e| route_error(&e))?;
+    let mut result = state(dir, home, sources);
+    if let Some(reference) = previous.filter(|reference| {
+        reference.starts_with(&format!("keychain:cmux-model-key/{provider}-"))
+            && !routes::load(dir)
+                .0
+                .iter()
+                .any(|route| route.file.secret.as_ref() == Some(reference))
+    }) {
+        result["replaced_secret"] = json!(reference);
+    }
+    Ok(result)
 }
 
 /// What a Cloud machine's agent needs from a secret-reference connection: its family, kind,
 /// the variable it is delivered in and the reference. A ChatGPT plan is not one (its token is
 /// the daemon's own, `chatgpt::Service::token_lasting`).
-pub(super) fn credential_plan(
+fn credential_plan(
     dir: Option<&Path>,
     home: &Path,
     id: &str,
-) -> Result<(String, &'static str, &'static str, Option<String>), RpcError> {
-    let found = list(dir, home, &routes::bindings(home))
+    sources: &ProfileSources,
+) -> Result<(String, &'static str, &'static str, Option<String>, Option<String>), RpcError> {
+    let route = match routes::for_credential(dir, id) {
+        Ok(route) => Some(route),
+        Err(routes::RouteError::NotFound(_)) => None,
+        Err(error) => return Err(route_error(&error)),
+    };
+    let found = list(dir, home, &routes::bindings(home), sources)
         .into_iter()
         .find(|c| c.id == id)
         .ok_or_else(|| RpcError::not_found(format!("no connection {id:?}")))?;
     if !found.serves_cloud {
-        return Err(RpcError::invalid_params(format!("{id} does not serve Cloud chats"))
-            .with_data(json!({"reason": "connections.not_cloud", "id": id})));
+        return Err(not_cloud(id));
+    }
+    let route = route.ok_or_else(|| RpcError::not_found(format!("no connection {id:?}")))?;
+    if found.credential_instance != route.file.credential_instance {
+        return Err(RpcError::invalid_params("the connection changed during credential delivery"));
     }
     if !found.enabled {
         return Err(RpcError::invalid_params(format!("{id} is turned off"))
             .with_data(json!({"reason": "connections.disabled", "id": id})));
     }
-    let family = found.families.first().cloned().unwrap_or_default();
+    if token_expired(found.expires_at) {
+        return Err(RpcError::invalid_params("Claude Cloud access has expired")
+            .with_data(json!({"reason": "connections.expired", "id": id})));
+    }
+    let family = found
+        .cloud_families
+        .as_ref()
+        .unwrap_or(&found.families)
+        .first()
+        .cloned()
+        .unwrap_or_default();
     let var = match (found.kind, found.provider.as_str()) {
+        ("claude-token", _) => byo_endpoint::ANTHROPIC_KEY_ENV,
+        ("api-key", "google") => "GEMINI_API_KEY",
+        ("api-key", "vertex-express") => "GOOGLE_API_KEY",
+        ("api-key", "xai") => "XAI_API_KEY",
         ("chatgpt-plan", _) => {
-            return Ok((family, "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN", None));
+            return Ok((
+                family,
+                "chatgpt-plan",
+                "CMUX_CHATGPT_ACCESS_TOKEN",
+                None,
+                route.file.credential_instance,
+            ));
         }
-        ("claude-token", _) => "CLAUDE_CODE_OAUTH_TOKEN",
         ("api-key", "anthropic") => "ANTHROPIC_API_KEY",
-        ("api-key", _) => "OPENAI_API_KEY",
-        _ => unreachable_kind(id)?,
+        ("api-key", "openai") => "OPENAI_API_KEY",
+        _ => return Err(not_cloud(id)),
     };
-    let route = routes::find(dir, id).map_err(|e| route_error(&e))?;
     let secret = route.file.secret.ok_or_else(|| {
         RpcError::invalid_params(format!("{id} has no secret"))
             .with_data(json!({"reason": "connections.no_secret", "id": id}))
     })?;
-    Ok((family, found.kind, var, Some(secret)))
+    Ok((family, found.kind, var, Some(secret), route.file.credential_instance))
 }
 
-fn unreachable_kind(id: &str) -> Result<&'static str, RpcError> {
-    Err(RpcError::invalid_params(format!("{id} does not serve Cloud chats"))
-        .with_data(json!({"reason": "connections.not_cloud", "id": id})))
+/// A `cmux-model-key` account as `new_account` makes it (`<store>-<8 hex>`), or the refusal.
+fn model_key_account(account: String) -> Result<String, RpcError> {
+    if store::is_account(&account) {
+        Ok(account)
+    } else {
+        Err(RpcError::invalid_params("account must be <store>-<8 hex>"))
+    }
+}
+
+fn not_cloud(id: &str) -> RpcError {
+    RpcError::invalid_params(format!("{id} does not serve Cloud chats"))
+        .with_data(json!({"reason": "connections.not_cloud", "id": id}))
 }
 
 /// The value a connection of KIND sends: a Claude setup token with every whitespace character
@@ -548,10 +986,33 @@ fn delivered(kind: &str, value: String) -> String {
 
 /// The secret a reference names; the error says why it did not resolve, never a value.
 fn resolve(id: &str, reference: &str) -> Result<String, RpcError> {
-    routes::resolve_reference(reference).map_err(|why| {
-        RpcError::invalid_params(format!("{id}'s secret did not resolve: {why}"))
-            .with_data(json!({"reason": "connections.secret_unresolved", "id": id}))
-    })
+    routes::resolve_reference(reference).map_err(|why| unresolved(id, &why))
+}
+
+/// The value a connection of KIND sends for `reference` ([`delivered`]). A Claude token kept in a
+/// `file:` is read with its line breaks too: the plain file read refuses a wrapped token as no
+/// single-line secret before [`delivered`] could take them out.
+fn resolve_delivered(kind: &str, id: &str, reference: &str) -> Result<String, RpcError> {
+    if let (true, Some(path)) = (kind == "claude-token", reference.strip_prefix("file:")) {
+        return crate::config::profiles::file_secret_unwrapped(path)
+            .map_err(|why| unresolved(id, &why));
+    }
+    resolve(id, reference).map(|value| delivered(kind, value))
+}
+
+fn unresolved(id: &str, why: &str) -> RpcError {
+    RpcError::invalid_params(format!("{id}'s secret did not resolve: {why}"))
+        .with_data(json!({"reason": "connections.secret_unresolved", "id": id}))
+}
+
+fn subscription_failure(code: crate::subscriptions::Failure) -> RpcError {
+    let message = if code == "keychain_other_build" {
+        crate::subscription_store::Error::KeychainOtherBuild.message()
+    } else {
+        "Subscription sign-in is unavailable"
+    };
+    RpcError::new(-32000, message)
+        .with_data(json!({"reason": format!("subscription.{code}"), "code": code}))
 }
 
 fn failure(f: chatgpt::Failure) -> RpcError {
@@ -574,10 +1035,15 @@ fn failure_in(scope: &str, f: chatgpt::Failure) -> RpcError {
 
 /// `claude_token.wait`'s answer for `status`: the connection once done (as listed), the code once
 /// failed. Never the token: the attempt holds only the connection's id.
-fn token_wait_reply(dir: Option<&Path>, home: &Path, status: &chatgpt::Status) -> Value {
+fn token_wait_reply(
+    dir: Option<&Path>,
+    home: &Path,
+    status: &chatgpt::Status,
+    sources: &ProfileSources,
+) -> Value {
     let connection = match status {
         chatgpt::Status::Done(id) => {
-            list(dir, home, &routes::bindings(home)).into_iter().find(|c| &c.id == id)
+            list(dir, home, &routes::bindings(home), sources).into_iter().find(|c| &c.id == id)
         }
         _ => None,
     };
@@ -592,13 +1058,12 @@ fn token_wait_reply(dir: Option<&Path>, home: &Path, status: &chatgpt::Status) -
 /// `reference` (`keychain:cmux-model-key/claude-token-…`) and `label`; its id.
 fn add_token_reference(
     dir: Option<&Path>,
-    home: &Path,
     reference: &str,
     label: Option<&str>,
 ) -> Result<String, chatgpt::Failure> {
-    add_claude_token(dir, home, reference, label)
-        .map(|(id, _)| id)
-        .map_err(|e| chatgpt::Failure::new("add", e.message))
+    routes::add_claude_token(dir, reference, label)
+        .map(|route| route.id)
+        .map_err(|e| chatgpt::Failure::new("add", route_error(&e).message))
 }
 
 async fn blocking<T: Send + 'static>(
@@ -607,16 +1072,92 @@ async fn blocking<T: Send + 'static>(
     tokio::task::spawn_blocking(work).await.map_err(|e| RpcError::internal(e.to_string()))
 }
 
+const NATIVE_SIGN_INS: [(Agent, &str, &str); 3] = [
+    (Agent::Gemini, "gemini-login", "Gemini CLI"),
+    (Agent::Grok, "grok-native-login", "Grok Build"),
+    (Agent::Cursor, "cursor-native-login", "Cursor"),
+];
+
+/// The CLI owns these credentials. They appear in Models without a route or a Cloud credential.
+fn native_sign_in(agent: Agent, id: &str, label: &str, cli: &Cli) -> Option<Connection> {
+    cli.has_stored_sign_in(agent).then(|| Connection {
+        id: id.into(),
+        credential_instance: None,
+        key_revision: None,
+        kind: "native-login",
+        provider: agent.name().into(),
+        families: vec![agent.name().into()],
+        label: label.into(),
+        email: None,
+        plan: None,
+        signed_in: true,
+        sign_in_reason: None,
+        enabled: true,
+        default_for: vec![],
+        serves_cloud: false,
+        can_serve_cloud: false,
+        can_check_access: false,
+        can_replace_key: None,
+        endpoint: None,
+        expires_at: None,
+        endpoint_credentials: None,
+        cloud_families: None,
+        launch_harness: None,
+    })
+}
+
+async fn include_native_sign_ins(hub: &Hub, mut state: Value) -> Value {
+    let Some(connections) = state.get_mut("connections").and_then(Value::as_array_mut) else {
+        return state;
+    };
+    let config = hub.config.read().await.clone();
+    if let Ok((rows, claude_available)) = blocking(move || {
+        let claude_available = cfg!(target_os = "macos") && installed_claude_cli(&config).is_some();
+        let rows = NATIVE_SIGN_INS
+            .into_iter()
+            .filter_map(|(agent, id, label)| {
+                let cli = super::agent_login::cli_for(&config, agent, None)?;
+                native_sign_in(agent, id, label, &cli)
+            })
+            .collect::<Vec<_>>();
+        (rows, claude_available)
+    })
+    .await
+    {
+        for row in rows {
+            if !connections
+                .iter()
+                .any(|connection| connection["id"].as_str() == Some(row.id.as_str()))
+            {
+                connections.push(json!(row));
+            }
+        }
+        state["claude_code_available"] = json!(claude_available);
+    }
+    state
+}
+
+fn installed_claude_cli(config: &config::Config) -> Option<Cli> {
+    let mut cli = super::agent_login::cli_for(config, Agent::Claude, None)?;
+    let program = Path::new(&cli.program);
+    if program.is_absolute() {
+        return crate::harness_install::is_executable(program).then_some(cli);
+    }
+    cli.program = config::which(&cli.program)?;
+    Some(cli)
+}
+
 /// Sends the current state to watching connections.
-pub(super) async fn announce(hub: &Arc<Hub>) {
-    let (dir, home) = routes::places(&*hub.config.read().await);
-    if let Ok(state) = blocking(move || state(dir.as_deref(), &home)).await {
+async fn announce(hub: &Arc<Hub>) {
+    let (dir, home, sources) = places(hub).await;
+    if let Ok(state) = blocking(move || state(dir.as_deref(), &home, &sources)).await {
+        let state = include_native_sign_ins(hub, state).await;
         hub.send_watch_note(json!({ CONNECTIONS_NOTE: state }));
     }
 }
 
 /// `announce` without holding up the caller's answer.
-pub(super) fn announce_later(hub: &Arc<Hub>) {
+pub(crate) fn announce_later(hub: &Arc<Hub>) {
     let hub = hub.clone();
     announce_scope().spawn_named("connections announce", async move { announce(&hub).await });
 }
@@ -658,10 +1199,16 @@ fn import_chatgpt(
 }
 
 /// The listed connection `id`, as `chatgpt.wait` answers a finished sign-in.
-fn connection_state(dir: Option<&Path>, home: &Path, id: &str) -> Result<Value, RpcError> {
+fn connection_state(dir: Option<&Path>, home: &Path, id: &str, sources: &ProfileSources) -> Value {
     let b = routes::bindings(home);
-    let found = list(dir, home, &b).into_iter().find(|c| c.id == id);
-    Ok(json!({"connection": found}))
+    let found = list(dir, home, &b, sources).into_iter().find(|c| c.id == id);
+    json!({"connection": found})
+}
+
+async fn places(hub: &Hub) -> (Option<PathBuf>, PathBuf, ProfileSources) {
+    let config = hub.config.read().await;
+    let (dir, home) = routes::places(&config);
+    (dir, home, config.profile_sources.clone())
 }
 
 pub(super) async fn handle(
@@ -680,7 +1227,7 @@ pub(super) async fn handle(
             "changing a connection or reading its token: only the unix socket may ask",
         ));
     }
-    let (dir, home) = routes::places(&*hub.config.read().await);
+    let (dir, home, sources) = places(hub).await;
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
     let need = |key: &str| {
         text(key)
@@ -688,7 +1235,10 @@ pub(super) async fn handle(
             .ok_or_else(|| RpcError::invalid_params(format!("{key} is required")))
     };
     match m {
-        method::MUX_CONNECTIONS => blocking(move || state(dir.as_deref(), &home)).await,
+        method::MUX_CONNECTIONS => {
+            let state = blocking(move || state(dir.as_deref(), &home, &sources)).await?;
+            Ok(include_native_sign_ins(hub, state).await)
+        }
         method::MUX_CONNECTIONS_ORDER_SET => {
             let ids = params
                 .get("ids")
@@ -701,7 +1251,8 @@ pub(super) async fn handle(
                         .ok_or_else(|| RpcError::invalid_params("ids are strings"))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let state = blocking(move || set_order(dir.as_deref(), &home, &ids)).await??;
+            let state =
+                blocking(move || set_order(dir.as_deref(), &home, &ids, &sources)).await??;
             announce_later(hub);
             Ok(state)
         }
@@ -710,7 +1261,7 @@ pub(super) async fn handle(
                 .get("on")
                 .and_then(Value::as_bool)
                 .ok_or_else(|| RpcError::invalid_params("on is required (true or false)"))?;
-            let state = blocking(move || set_spread(dir.as_deref(), &home, on)).await??;
+            let state = blocking(move || set_spread(dir.as_deref(), &home, on, &sources)).await??;
             announce_later(hub);
             Ok(state)
         }
@@ -718,8 +1269,32 @@ pub(super) async fn handle(
             let provider = need("provider")?;
             let secret = need("secret")?;
             let label = text("label").map(str::to_owned);
-            let (_, state) = blocking(move || {
-                add_key(dir.as_deref(), &home, &provider, &secret, label.as_deref())
+            let replace = text("replace")
+                .map(|id| need("replaceInstance").map(|instance| (id.to_owned(), instance)))
+                .transpose()?;
+            let cloud_enabled = params
+                .get("servesCloud")
+                .map(|value| {
+                    value
+                        .as_bool()
+                        .ok_or_else(|| RpcError::invalid_params("servesCloud must be a boolean"))
+                })
+                .transpose()?;
+            let state = blocking(move || {
+                if let Some((id, instance)) = replace {
+                    replace_key(dir.as_deref(), &home, &id, &provider, &secret, &instance, &sources)
+                } else {
+                    add_key(
+                        dir.as_deref(),
+                        &home,
+                        &provider,
+                        &secret,
+                        label.as_deref(),
+                        &sources,
+                        cloud_enabled,
+                    )
+                    .map(|(_, state)| state)
+                }
             })
             .await??;
             announce_later(hub);
@@ -745,14 +1320,64 @@ pub(super) async fn handle(
                 "message": verdict.sentence(&provider),
             }))
         }
+        method::MUX_CONNECTIONS_SECRET_STORE => {
+            let account = model_key_account(need("account")?)?;
+            let label =
+                text("label").unwrap_or("cmux model key").chars().take(128).collect::<String>();
+            let secret = Zeroizing::new(need("secret")?);
+            // The keychain may ask: off the runtime's threads. The value stays in this arm.
+            let reference = blocking(move || {
+                store::keychain_store(&account, &label, &secret)
+                    .map(|()| format!("keychain:{}/{account}", store::SERVICE))
+                    .map_err(RpcError::invalid_params)
+            })
+            .await??;
+            Ok(json!({ "secret": reference }))
+        }
+        method::MUX_CONNECTIONS_SECRET_DELETE => {
+            let account = model_key_account(need("account")?)?;
+            // Only an item no connection uses: a rollback or a replaced key, never a live one.
+            let reference = format!("keychain:{}/{account}", store::SERVICE);
+            blocking(move || {
+                if routes::load(dir.as_deref())
+                    .0
+                    .iter()
+                    .any(|route| route.file.secret.as_deref() == Some(reference.as_str()))
+                {
+                    return Err(RpcError::invalid_params("a connection still uses that key"));
+                }
+                store::keychain_delete(&account).map_err(RpcError::internal)
+            })
+            .await??;
+            Ok(json!({}))
+        }
         method::MUX_CONNECTIONS_REMOVE => {
             let id = need("id")?;
+            let instance = need("instance")?;
             let (d, h, i) = (dir.clone(), home.clone(), id.clone());
             let found = blocking(move || {
-                list(d.as_deref(), &h, &routes::bindings(&h)).into_iter().find(|c| c.id == i)
+                list(d.as_deref(), &h, &routes::bindings(&h), &ProfileSources::none())
+                    .into_iter()
+                    .find(|c| c.id == i)
             })
             .await?
             .ok_or_else(|| RpcError::not_found(format!("no connection {id:?}")))?;
+            if let Some(provider) = crate::routes::RouteKind::parse(found.kind)
+                .and_then(crate::subscriptions::Provider::for_kind)
+            {
+                hub.subscriptions
+                    .remove(
+                        provider,
+                        chatgpt::Places { routes: dir.clone(), home: home.clone() },
+                        id,
+                        instance,
+                    )
+                    .await
+                    .map_err(subscription_failure)?;
+                let state = blocking(move || state(dir.as_deref(), &home, &sources)).await?;
+                announce_later(hub);
+                return Ok(include_native_sign_ins(hub, state).await);
+            }
             match found.kind {
                 "codex-login" | "claude-login" => {
                     return Err(RpcError::invalid_params(format!(
@@ -760,48 +1385,150 @@ pub(super) async fn handle(
                     )));
                 }
                 "chatgpt-plan" => {
-                    hub.chatgpt.remove(&home, &id).await.map_err(failure)?;
+                    hub.chatgpt
+                        .remove(
+                            &chatgpt::Places { routes: dir.clone(), home: home.clone() },
+                            &id,
+                            &instance,
+                        )
+                        .await
+                        .map_err(failure)?;
+                    let state = blocking(move || state(dir.as_deref(), &home, &sources)).await?;
+                    announce_later(hub);
+                    return Ok(state);
                 }
                 _ => {}
             }
-            let (d, h) = (dir.clone(), home.clone());
-            blocking(move || routes::remove(d.as_deref(), &h, &id))
-                .await?
-                .map_err(|e| route_error(&e))?;
-            let state = blocking(move || state(dir.as_deref(), &home)).await?;
+            let state = blocking(move || {
+                let (_, legacy) = routes::remove_with(
+                    dir.as_deref(),
+                    &home,
+                    &id,
+                    Some(&instance),
+                    |route| {
+                        Ok(route
+                            .file
+                            .secret
+                            .clone()
+                            .filter(|_| route.file.kind == RouteKind::ClaudeToken))
+                    },
+                    |e| route_error(&e),
+                )?;
+                let mut result = state(dir.as_deref(), &home, &sources);
+                if let Some(reference) = legacy.filter(|reference| {
+                    reference.starts_with("keychain:cmux-model-key/claude-token-")
+                        && !routes::load(dir.as_deref())
+                            .0
+                            .iter()
+                            .any(|route| route.file.secret.as_ref() == Some(reference))
+                }) {
+                    result["replaced_secret"] = json!(reference);
+                }
+                Ok::<_, RpcError>(result)
+            })
+            .await??;
             announce_later(hub);
             Ok(state)
         }
-        method::MUX_CONNECTIONS_CHATGPT_BEGIN => {
-            let reauth = text("id").map(str::to_owned);
-            if let Some(id) = &reauth {
-                let route = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
-                if route.file.kind != RouteKind::ChatgptPlan {
-                    return Err(RpcError::invalid_params(format!("{id} is not a ChatGPT sign-in")));
+        method::MUX_CONNECTIONS_SUBSCRIPTION_BEGIN => {
+            let name = need("provider")?;
+            let owner = Arc::downgrade(hub);
+            let on_finish = move || {
+                if let Some(hub) = owner.upgrade() {
+                    announce_later(&hub);
                 }
+            };
+            if matches!(name.as_str(), "grok" | "copilot") {
+                return Err(RpcError::invalid_params("This subscription cannot be connected here"));
+            }
+            let provider = crate::subscriptions::Provider::parse(&name)
+                .ok_or_else(|| RpcError::invalid_params("invalid subscription provider"))?;
+            let region = text("region")
+                .map(|value| {
+                    crate::subscriptions::KimiRegion::parse(value)
+                        .ok_or_else(|| RpcError::invalid_params("invalid Kimi Code region"))
+                })
+                .transpose()?;
+            let challenge = hub
+                .subscriptions
+                .begin(
+                    provider,
+                    chatgpt::Places { routes: dir, home },
+                    text("id").map(str::to_owned),
+                    region,
+                    on_finish,
+                )
+                .await
+                .map_err(subscription_failure)?;
+            Ok(json!({"attempt": challenge.attempt, "verification_url": challenge.url,
+            "user_code": challenge.user_code, "expires_at": challenge.expires_at, "interval": challenge.interval}))
+        }
+        method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT | method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL => {
+            use crate::subscriptions::Status;
+            let attempt = need("attempt")?;
+            let status = if m == method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT {
+                hub.subscriptions.wait(&attempt, WAIT_LIMIT).await
+            } else {
+                hub.subscriptions.cancel(&attempt).await
+            }
+            .map_err(subscription_failure)?;
+            Ok(match status {
+                Status::Pending => json!({"status": "pending"}),
+                Status::Done(id) => json!({"status": "done", "connection_id": id}),
+                Status::Cancelled => json!({"status": "cancelled"}),
+                Status::Failed(code) => json!({"status": "failed", "error": code}),
+            })
+        }
+        method::MUX_CONNECTIONS_CHATGPT_BEGIN | method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN => {
+            let reauth = text("id").map(str::to_owned);
+            if let Some(id) = reauth.clone() {
+                let lookup_dir = dir.clone();
+                blocking(move || {
+                    let route =
+                        routes::find(lookup_dir.as_deref(), &id).map_err(|e| route_error(&e))?;
+                    if route.file.kind != RouteKind::ChatgptPlan {
+                        return Err(RpcError::invalid_params("id is not a ChatGPT sign-in"));
+                    }
+                    Ok(())
+                })
+                .await??;
             }
             let places = chatgpt::Places { routes: dir, home };
             let announcer = hub.clone();
-            let begun = hub
-                .chatgpt
-                .begin(places, reauth, move |status| {
-                    if matches!(status, chatgpt::Status::Done(_)) {
-                        announce_later(&announcer);
-                    }
-                })
-                .await
-                .map_err(failure)?;
-            Ok(json!({"attempt": begun.attempt, "url": begun.url}))
+            let finished = move |status: &chatgpt::Status| {
+                if matches!(status, chatgpt::Status::Done(_)) {
+                    announce_later(&announcer);
+                }
+            };
+            if m == method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN {
+                let begun =
+                    hub.chatgpt.begin_device(places, reauth, finished).await.map_err(failure)?;
+                Ok(json!({
+                    "attempt": begun.attempt, "user_code": begun.user_code,
+                    "verification_url": begun.verification_url,
+                    "expires_at": begun.expires_at, "interval": begun.interval,
+                }))
+            } else {
+                let begun = hub.chatgpt.begin(places, reauth, finished).await.map_err(failure)?;
+                Ok(json!({"attempt": begun.attempt, "url": begun.url}))
+            }
         }
-        method::MUX_CONNECTIONS_CHATGPT_WAIT => {
+        method::MUX_CONNECTIONS_CHATGPT_WAIT | method::MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT => {
             let attempt = need("attempt")?;
-            let status = hub.chatgpt.wait(&attempt, WAIT_LIMIT).await.map_err(failure)?;
+            let status = if m == method::MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT {
+                hub.chatgpt.wait_device(&attempt, WAIT_LIMIT).await
+            } else {
+                hub.chatgpt.wait(&attempt, WAIT_LIMIT).await
+            }
+            .map_err(failure)?;
             let connection = match &status {
                 chatgpt::Status::Done(id) => {
                     let id = id.clone();
                     blocking(move || {
                         let b = routes::bindings(&home);
-                        list(dir.as_deref(), &home, &b).into_iter().find(|c| c.id == id)
+                        list(dir.as_deref(), &home, &b, &ProfileSources::none())
+                            .into_iter()
+                            .find(|c| c.id == id)
                     })
                     .await?
                 }
@@ -811,18 +1538,37 @@ pub(super) async fn handle(
                 chatgpt::Status::Failed(code) => Some(code.clone()),
                 _ => None,
             };
+            if let chatgpt::Status::WrongAccount { actual, expected } = &status {
+                return Ok(json!({"status": "failed", "error": "different_account",
+                    "actual": actual, "expected": expected}));
+            }
             Ok(json!({"status": status.as_str(), "connection": connection, "error": error}))
         }
-        method::MUX_CONNECTIONS_CHATGPT_CANCEL => {
+        method::MUX_CONNECTIONS_CHATGPT_CANCEL | method::MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL => {
             let attempt = need("attempt")?;
+            if m == method::MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL {
+                let status = hub.chatgpt.cancel_device(&attempt).await.map_err(failure)?;
+                let id = match &status {
+                    chatgpt::Status::Done(id) => Some(id),
+                    _ => None,
+                };
+                return Ok(
+                    json!({"attempt": attempt, "status": status.as_str(), "connection_id": id}),
+                );
+            }
             let status = hub.chatgpt.cancel(&attempt).await.map_err(failure)?;
             Ok(json!({"attempt": attempt, "status": status.as_str()}))
         }
         method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD => {
             let secret = need("secret")?;
             let label = text("label").map(str::to_owned);
-            let (_, state) = blocking(move || {
-                add_claude_token(dir.as_deref(), &home, &secret, label.as_deref())
+            let state = blocking(move || {
+                let added = routes::add_claude_token(dir.as_deref(), &secret, label.as_deref())
+                    .map_err(|e| route_error(&e))?;
+                let mut reply = state(dir.as_deref(), &home, &sources);
+                reply["added_connection"] =
+                    json!({"id": added.id, "credential_instance": added.file.credential_instance});
+                Ok::<_, RpcError>(reply)
             })
             .await??;
             announce_later(hub);
@@ -835,7 +1581,7 @@ pub(super) async fn handle(
                 .claude_token
                 .begin(
                     move |reference| {
-                        add_token_reference(dir.as_deref(), &home, reference, label.as_deref())
+                        add_token_reference(dir.as_deref(), reference, label.as_deref())
                     },
                     move |status| {
                         if matches!(status, chatgpt::Status::Done(_)) {
@@ -851,7 +1597,7 @@ pub(super) async fn handle(
             let attempt = need("attempt")?;
             let status =
                 hub.claude_token.wait(&attempt, WAIT_LIMIT).await.map_err(token_failure)?;
-            blocking(move || token_wait_reply(dir.as_deref(), &home, &status)).await
+            blocking(move || token_wait_reply(dir.as_deref(), &home, &status, &sources)).await
         }
         method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE => {
             let attempt = need("attempt")?;
@@ -867,24 +1613,40 @@ pub(super) async fn handle(
         method::MUX_CONNECTIONS_CREDENTIAL => {
             let id = need("id")?;
             let (d, h, i) = (dir.clone(), home.clone(), id.clone());
-            let (family, kind, var, reference) =
-                blocking(move || credential_plan(d.as_deref(), &h, &i)).await??;
+            let (family, kind, var, reference, instance) =
+                blocking(move || credential_plan(d.as_deref(), &h, &i, &sources)).await??;
             let (value, expires_at) = match reference {
                 None => {
                     let (token, expires_at) = hub
                         .chatgpt
                         .token_lasting(&home, &id, chatgpt::CREDENTIAL_MARGIN_SECS)
                         .await
-                        .map_err(failure)?;
+                        .map_err(|error| {
+                            if matches!(error.code.as_str(), "reauth_required" | "signed_out") {
+                                announce_later(hub);
+                            }
+                            failure(error)
+                        })?;
+                    let current_id = id.clone();
+                    let current = blocking(move || routes::find(dir.as_deref(), &current_id))
+                        .await?
+                        .map_err(|e| route_error(&e))?;
+                    if current.file.credential_instance != instance {
+                        return Err(RpcError::invalid_params(
+                            "the connection changed during credential delivery",
+                        ));
+                    }
                     (token, Some(expires_at))
                 }
                 // The keychain may ask: off the runtime's threads.
                 Some(reference) => {
-                    (delivered(kind, blocking(move || resolve(&id, &reference)).await??), None)
+                    (blocking(move || resolve_delivered(kind, &id, &reference)).await??, None)
                 }
             };
+            let wire = json!({"env": {var: value}});
+            AgentCredential::parse(&wire)?;
             Ok(
-                json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),
+                json!({"family": family, "kind": kind, "env": wire["env"], "expires_at": expires_at, "credential_instance": instance}),
             )
         }
         method::MUX_CONNECTIONS_CHATGPT_IMPORT => {
@@ -894,7 +1656,7 @@ pub(super) async fn handle(
             let id =
                 blocking(move || import_chatgpt(origin, enabled, d, h, &secret_file)).await??;
             announce_later(hub);
-            blocking(move || connection_state(dir.as_deref(), &home, &id)).await?
+            blocking(move || connection_state(dir.as_deref(), &home, &id, &sources)).await
         }
         method::MUX_CONNECTIONS_CHATGPT_TOKEN => {
             let id = need("id")?;

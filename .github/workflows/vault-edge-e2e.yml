@@ -20,6 +20,10 @@ name: Vault edge grants E2E
 # Dispatch (main carries an inert copy so GitHub registers it):
 #   gh workflow run vault-edge-e2e.yml -R manaflow-ai/cmux --ref feat-cmux-next [-f backend=staging]
 on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/vault-edge-e2e.yml
   workflow_dispatch:
     inputs:
       backend:
@@ -41,11 +45,12 @@ env:
 
 jobs:
   e2e:
-    if: github.ref == 'refs/heads/feat-cmux-next'
+    # The own-path push registers the workflow; only a dispatch creates test resources.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next'
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     steps:
       - name: Refuse any ref but feat-cmux-next

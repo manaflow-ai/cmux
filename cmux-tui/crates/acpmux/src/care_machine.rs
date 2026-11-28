@@ -185,8 +185,43 @@ pub const LABEL: &str = "com.cmux.care";
 pub fn systemd_service(exe: &Path) -> String {
     format!(
         "[Unit]\nDescription=cmux care: keep this machine's disk under budget\n\n[Service]\nType=oneshot\nNice=10\nIOSchedulingClass=idle\nExecStart={} care tick\n",
-        exe.display()
+        systemd_quote(&exe.to_string_lossy())
     )
+}
+
+/// One `ExecStart=` word: double-quoted, `\` and `"` escaped, `%` doubled
+/// (a specifier otherwise), `$` doubled (a variable otherwise), so a path
+/// with spaces or those characters stays one program path.
+fn systemd_quote(word: &str) -> String {
+    let mut out = String::with_capacity(word.len() + 2);
+    out.push('"');
+    for c in word.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '%' => out.push_str("%%"),
+            '$' => out.push_str("$$"),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Text for a plist `<string>`.
+fn xml_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 pub fn systemd_timer() -> String {
@@ -199,19 +234,29 @@ pub fn systemd_timer() -> String {
 pub fn launch_agent(exe: &Path) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n  <key>Label</key><string>{LABEL}</string>\n  <key>ProgramArguments</key>\n  <array><string>{}</string><string>care</string><string>tick</string></array>\n  <key>StartInterval</key><integer>{TICK_SECS}</integer>\n  <key>RunAtLoad</key><true/>\n  <key>ProcessType</key><string>Background</string>\n  <key>LowPriorityIO</key><true/>\n  <key>Nice</key><integer>10</integer>\n</dict>\n</plist>\n",
-        exe.display()
+        xml_escape(&exe.to_string_lossy())
     )
 }
 
 /// Writes `content` to `path` unless it already holds it; whether it wrote.
 fn write_if_changed(path: &Path, content: &str) -> Result<bool, String> {
-    if std::fs::read_to_string(path).is_ok_and(|old| old == content) {
+    let same = crate::home_fs::OpenOptions::new()
+        .read(true)
+        .open(path)
+        .ok()
+        .and_then(|mut file| {
+            use std::io::Read as _;
+            let mut old = String::new();
+            file.read_to_string(&mut old).ok().map(|_| old == content)
+        })
+        .unwrap_or(false);
+    if same {
         return Ok(false);
     }
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        crate::home_fs::create_dirs(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    std::fs::write(path, content).map_err(|e| format!("{}: {e}", path.display()))?;
+    crate::home_fs::write(path, content).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(true)
 }
 
@@ -291,11 +336,28 @@ mod tests {
         let files = timer_files(Path::new("/h"), Path::new("/bin/acpmux"), false);
         assert_eq!(files.len(), 2);
         assert!(files[0].0.ends_with(".config/systemd/user/cmux-care.service"));
-        assert!(files[0].1.contains("ExecStart=/bin/acpmux care tick"));
+        assert!(files[0].1.contains("ExecStart=\"/bin/acpmux\" care tick"));
         assert!(files[1].1.contains("OnUnitActiveSec=5min"));
         let mac = timer_files(Path::new("/h"), Path::new("/bin/acpmux"), true);
         assert!(mac[0].1.contains("<integer>300</integer>"));
         assert!(mac[0].1.contains("<string>care</string><string>tick</string>"));
+    }
+
+    #[test]
+    fn a_binary_path_with_spaces_or_markup_stays_one_word() {
+        let exe = Path::new("/Users/a b/100% \"x\" $HOME/<&>'/acpmux");
+        let unit = systemd_service(exe);
+        assert!(
+            unit.contains(r#"ExecStart="/Users/a b/100%% \"x\" $$HOME/<&>'/acpmux" care tick"#),
+            "{unit}"
+        );
+        let plist = launch_agent(exe);
+        assert!(
+            plist.contains(
+                "<string>/Users/a b/100% &quot;x&quot; $HOME/&lt;&amp;&gt;&apos;/acpmux</string>"
+            ),
+            "{plist}"
+        );
     }
 
     #[test]
@@ -306,5 +368,40 @@ mod tests {
         assert!(!write_if_changed(&path, "x").unwrap());
         assert!(write_if_changed(&path, "y").unwrap());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writing_a_timer_stays_in_the_held_home_after_replacement() {
+        crate::lost_home_race_tests::isolated(
+            module_path!(),
+            "writing_a_timer_stays_in_the_held_home_after_replacement",
+            |home| {
+                let path = home.join(".config/systemd/user/cmux-care.timer");
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, "old").unwrap();
+                crate::config::hold_home();
+                crate::lost_home_race_tests::replace(home);
+
+                assert!(!write_if_changed(&path, "old").unwrap());
+                assert!(
+                    home.with_extension("old")
+                        .join(".config/systemd/user/cmux-care.timer")
+                        .exists()
+                );
+                assert!(!path.exists(), "the replacement home stays untouched");
+
+                assert!(write_if_changed(&path, "new").unwrap());
+                assert_eq!(
+                    std::fs::read_to_string(
+                        home.with_extension("old").join(".config/systemd/user/cmux-care.timer")
+                    )
+                    .unwrap(),
+                    "new"
+                );
+                assert!(!path.exists(), "the replacement home stays untouched");
+            },
+            |_, _| {},
+        );
     }
 }

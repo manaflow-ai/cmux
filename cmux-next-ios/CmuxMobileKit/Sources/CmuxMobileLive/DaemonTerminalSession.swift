@@ -696,8 +696,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// A reply the terminal wrote by itself (a cursor or device report, a
     /// focus or mouse report): sent only while attached. Held through an
     /// outage it would be stale, and its drop is no key the person typed, so
-    /// it is never queued for a reattach, never refused and never makes the
-    /// "Keys typed while your Mac was unreachable" notice (Leo, 2026-11-12:
+    /// it is never queued for a reattach and never refused (Leo, 2026-11-12:
     /// "thjs chatters too often with connectivity").
     public func sendReply(_ bytes: Data) {
         guard !bytes.isEmpty, attached, !refusingInput else { return }
@@ -818,6 +817,12 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// The phone projects this terminal (``TerminalProjectingSession``).
     private var projectsLocally = false
+    public private(set) var preservesHostGrid = false
+
+    public func setPreservesHostGrid(_ preserves: Bool) {
+        preservesHostGrid = preserves
+        if preserves { setClaimsSize(false) }
+    }
 
     public func setProjectsLocally(_ projects: Bool) {
         projectsLocally = projects
@@ -829,6 +834,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// the Mac's pane gets its own size back; coming back claims the last
     /// size again.
     public func setClaimsSize(_ claims: Bool) {
+        let claims = claims && !preservesHostGrid
         guard claims != claimsSize else { return }
         claimsSize = claims
         claimGeneration &+= 1
@@ -1862,6 +1868,17 @@ public final class DaemonTerminalSession: TerminalSession {
             eventTask = nil
             inbox?.close()
             inbox = nil
+            // The link came back while this attach was out (its `reconnect()` was remembered,
+            // not run): this failure is the old link's, so a fresh round attaches on the new
+            // one instead of giving up on it. Before, only a "no link" failure honoured it, and
+            // a refused attach on the old link ("unknown surface") gave up with the new link up
+            // ("Can't reach this terminal" over a Mac that was back). Once: the flag is spent.
+            if reconnectWhileAttaching, handler != nil, !ended {
+                reconnectWhileAttaching = false
+                attachRetries = 0
+                Task { [weak self] in self?.reconnect() }
+                return
+            }
             // Retries ran out. Nothing is written into the terminal: transport
             // words ("[daemon channel closed]") are not the Mac's output, and bytes
             // on the stream read as live content (the page dropped its cached
@@ -2038,7 +2055,7 @@ public final class DaemonTerminalSession: TerminalSession {
         // nothing to hold back. A hidden full-screen app still waits for the
         // phone's grid, so a return never shows it stretched.
         let projectsPrimary = projectsLocally && !isAlternateScreen
-        var claims = claimsSize || projectsPrimary
+        var claims = claimsSize || projectsPrimary || preservesHostGrid
         var unwanted = false
         if case .hostGrid(let columns, let rows) = event, let phoneGrid {
             if phoneGrid == TerminalReclaimHold.Grid(columns: columns, rows: rows) {
@@ -2719,7 +2736,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// After the retries ran out, a fresh round starts on its own this long later (as well as on
     /// a keystroke, Retry or a new link), so a terminal never waits for the person to ask
     /// (Leo, 2026-11-22: "vacuous decisions like that should be just done").
-    var gaveUpRetryDelay: Duration = .seconds(30)
+    /// It was 30 s: a terminal whose round failed under a live link then sat dark that long, the
+    /// size of "intermittent 30s lag/disconnects on ios app on terminal" (Leo, 2026-11-21). Now
+    /// it is the backoff's own last step, so a terminal keeps retrying at the pace it already had.
+    var gaveUpRetryDelay: Duration = DaemonTerminalSession.defaultGaveUpRetryDelay
+    /// The backoff's longest step (8 s).
+    static let defaultGaveUpRetryDelay: Duration =
+        .milliseconds(Int64((defaultReattachBackoff.last ?? 8) * 1000))
     private var gaveUpRetry: Task<Void, Never>?
 
     private func scheduleGaveUpRetry() {

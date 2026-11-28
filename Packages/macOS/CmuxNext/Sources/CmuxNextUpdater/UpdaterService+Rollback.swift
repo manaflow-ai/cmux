@@ -159,6 +159,7 @@ extension UpdaterService {
     /// here (a quit that installs an update staged before this launch).
     public func updaterWillInstallUpdate(build: String) {
         installingBuild = build
+        stopPrewarmForInstall()
         guard keptRunningBuild == nil else { return }
         do {
             // The install is waiting: the full check of the copy runs at the next launch (sealPending).
@@ -210,10 +211,22 @@ extension UpdaterService {
 
 extension UpdaterService {
     /// Builds at or below this are not offered after a rollback.
-    static let skipsBuildsThroughKey = "cmux.next.updates.skipsBuildsThrough"
+    nonisolated static let skipsBuildsThroughKey = "cmux.next.updates.skipsBuildsThrough"
     /// The build a rollback or Install this version went to: while it runs, a newer build waits
     /// for the person's click (``UpdateController/asksBeforeInstalling``); any other build clears it.
     static let pickedBuildKey = "cmux.next.updates.pickedBuild"
+
+    /// A skip the running build has passed hides nothing any more (every build offered is newer
+    /// than the running one), so launch drops it: an older NIGHTLY's rollback or failed install
+    /// check no longer rides along in the defaults of every build after it. A skip at or above the
+    /// running build (the rollback is still in effect) stays. True when it dropped one.
+    @discardableResult
+    nonisolated static func dropOutgrownSkip(defaults: UserDefaults, running: String) -> Bool {
+        guard let skip = defaults.string(forKey: skipsBuildsThroughKey),
+              AppcastSelector.isOlder(skip, than: running) else { return false }
+        defaults.removeObject(forKey: skipsBuildsThroughKey)
+        return true
+    }
 
     /// Whether the running build is the one a rollback or Install this version went to, so a newer
     /// build waits for the person's click (the driver's hold, and ``applyDownloadPolicy()``'s resume).
@@ -231,7 +244,7 @@ extension UpdaterService {
         // A staged update would install as the quit ends and relaunch forward (cmux#41013 review
         // F2): it is cancelled first, and a rollback does not run while one it cannot cancel waits.
         if let staged = stagedBuild(), !staged.isEmpty {
-            guard cancelStaged() else { throw StagedUpdateWaits(build: staged) }
+            guard cancelStagedUpdate() else { throw StagedUpdateWaits(build: staged) }
             log.append("rollback: cancelled the staged update \(staged), so the quit does not install it")
         }
         // The keep that staging started writes the same kept folder the swap does (on the files lane at
@@ -327,6 +340,7 @@ extension UpdaterService {
     /// Then puts back what a swap cut short left (``RollbackSwap/recover(current:store:)``) and reads
     /// the build Go back would take (``refreshRevertOffer()``), off the main thread.
     func restoreRollbackSkip() {
+        Self.dropOutgrownSkip(defaults: defaults, running: identity.build)
         controller?.skipsBuildsThrough = defaults.string(forKey: Self.skipsBuildsThroughKey)
         let picked = defaults.string(forKey: Self.pickedBuildKey)
         if picked != nil && picked != identity.build { defaults.removeObject(forKey: Self.pickedBuildKey) }

@@ -1409,37 +1409,6 @@
           ]
         },
         {
-          "key": "agentPane.display.sessionInfo.sections.carried",
-          "name": "sessionInfoShowsCarried",
-          "note": "Whether Session Info (the chat's thread details) shows its Carried memory section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
-          "title": {
-            "key": "settings.agentPane.display.sessionInfo.sections.carried",
-            "text": "Session Info: Carried memory"
-          },
-          "help": {
-            "key": "settings.agentPane.display.sessionInfo.sections.carried.help",
-            "text": "The MCP servers and carried the chat has."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "agent",
-            "chat",
-            "acp",
-            "display",
-            "session",
-            "info",
-            "thread",
-            "details",
-            "section",
-            "show",
-            "hide",
-            "carried",
-            "memory",
-            "instructions"
-          ]
-        },
-        {
           "key": "agentPane.display.environment.placement",
           "name": "environmentPlacement",
           "note": "The machine and folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).",
@@ -1903,6 +1872,57 @@
           ]
         },
         {
+          "key": "agentPane.display.streaming",
+          "note": "How an agent reply's text shows while it streams (webviews conversation/streamingStyle.ts). Words is today's whole-word reveal with its newest words fading in; Lines ends the reveal at a whole line; Instant shows text as it arrives with no fade, as Reduce Motion does. A theme or profile file may set it.",
+          "title": {
+            "key": "settings.agentPane.display.streaming",
+            "text": "Reply Streaming"
+          },
+          "help": {
+            "key": "settings.agentPane.display.streaming.help",
+            "text": "How an agent's reply text appears as it arrives."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "words",
+              "title": {
+                "key": "settings.choice.streamingWords",
+                "text": "Word by Word"
+              }
+            },
+            {
+              "value": "lines",
+              "title": {
+                "key": "settings.choice.streamingLines",
+                "text": "Line by Line"
+              }
+            },
+            {
+              "value": "instant",
+              "title": {
+                "key": "settings.choice.streamingInstant",
+                "text": "Instant"
+              }
+            }
+          ],
+          "default": "words",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "streaming",
+            "reveal",
+            "fade",
+            "words",
+            "lines",
+            "instant",
+            "animation",
+            "typing"
+          ]
+        },
+        {
           "key": "agentPane.display.thinking.shimmer",
           "name": "thinkingShimmer",
           "note": "How the live line's light band moves while the agent works (webviews agent chat). Cadenced is today's one-second sweep every four seconds; Continuous sweeps back to back, eased in and out, over shimmerPeriod.",
@@ -2278,6 +2298,32 @@
           ]
         },
         {
+          "key": "agentPane.display.ownHarnessUpdatesOnly",
+          "note": "Whether the model menus' update footer (webviews harnessUpdateList.ts, HarnessUpdates.tsx) offers only the chat's own agent CLI. Off, the default: every outdated agent CLI on this Mac (Leo 2026-11-12, ask-3fdf0982ec). On: the chat's own update alone, as a one-agent app's model menu (customize-app-profiles: the Claude Code app lists no Codex update in a Claude chat). A look turns it on.",
+          "title": {
+            "key": "settings.agentPane.display.ownHarnessUpdatesOnly",
+            "text": "Only This Chat's Agent Updates"
+          },
+          "help": {
+            "key": "settings.agentPane.display.ownHarnessUpdatesOnly.help",
+            "text": "The model menu offers an update for this chat's agent only, not for every agent on this Mac."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "menu",
+            "update",
+            "updates",
+            "harness",
+            "codex",
+            "claude"
+          ]
+        },
+        {
           "key": "agentPane.display.queueing",
           "note": "Whether a prompt sent while a turn runs waits in the queue (webviews queueing.ts; Leo, 2026-10-21, after ChatGPT's and Codex's \"Turn off queueing\"). A queued row's menu and the composer's button row write it; the agent pages' storage ends with the launch, so the pick lives here.",
           "title": {
@@ -2502,6 +2548,26 @@
             "shell"
           ],
           "page_hidden": "a list of preset names and rule objects, edited in cmux-next.json"
+        },
+        {
+          "key": "experiments.chat_render_pipeline",
+          "name": "chatRenderPipeline",
+          "title": {
+            "key": "settings.experiments.chat_render_pipeline",
+            "text": "Chat Render Pipeline"
+          },
+          "help": {
+            "key": "settings.experiments.chat_render_pipeline.help",
+            "text": "Skip rendering offscreen rows from completed turns while keeping their place in the chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "chat",
+            "render",
+            "scroll"
+          ]
         },
         {
           "key": "agentPane.display.layout.messages",

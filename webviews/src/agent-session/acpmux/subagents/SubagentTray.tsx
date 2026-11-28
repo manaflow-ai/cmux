@@ -399,10 +399,9 @@ export const SubagentTray = memo(function SubagentTray({
   const hidesInHead = Boolean(onTuck) && headed && openLook === "hide";
   // The `eye`, `pill` and `bar` arms (hatHeader.experiment.ts): the hide control's own place in the top
   // bar, instead of today's tab on the top edge.
-  // The one-line hat with marks (hatLine.experiment.ts) hides from an eye flush at the line's end: the
-  // top edge's tab sat over the middle of the line's words.
-  const lineHide = Boolean(onTuck) && headed && !hidesInHead && foldHead === "line" && lineLook !== "words";
-  const hideAt = onTuck && headed && !hidesInHead && !lineHide ? hideOf(headerLook) : undefined;
+  // The one-line hat draws no hide eye of its own (Leo, 2026-11-27: "remove the hide eye icon"): on its
+  // card it tucks from the top edge's tab, as the other headers do.
+  const hideAt = onTuck && headed && !hidesInHead ? hideOf(headerLook) : undefined;
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
   // chevron.
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
@@ -819,8 +818,10 @@ export const SubagentTray = memo(function SubagentTray({
   };
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0;
-  // A card (the tray's glass, joined to the composer) only while there is more than the one line.
-  const carded = lineHead ? open && headed : items.length > 0 || surface !== "none";
+  // A card (the tray's glass, joined to the composer), the one line's too: folded it is the line on its
+  // own opaque backing, at the composer's row height (Leo, 2026-11-27: "add the opaque backing to it
+  // again with proper size"). #56287 had dropped it for a bare line.
+  const carded = items.length > 0 || surface !== "none";
   // The `line` arm: Esc tucks the open list back to its line, focus back on the line.
   const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (!lineHead || !open || !headed || event.key !== "Escape" || event.defaultPrevented) return;
@@ -856,7 +857,7 @@ export const SubagentTray = memo(function SubagentTray({
       // shows through it (Leo, 2026-11-02, on a done line over a reply's footer icons: "this running
       // thing now looks mildly awkward").
       data-card={carded || undefined}
-      // The `line` arm: folded, the hat is one muted line flush on the composer, no bar around it.
+      // The `line` arm: the hat is one plain sentence on its card, at the chat's text size.
       data-line={lineHead || undefined}
       data-motion={motion}
       data-narrow={narrow || undefined}
@@ -965,6 +966,7 @@ export const SubagentTray = memo(function SubagentTray({
                   size={ROW_ICON}
                   fallback={mark.icon}
                   plain
+                  blankUnknown={mark.tone !== undefined}
                 />
               ))}
             </span>
@@ -1093,9 +1095,6 @@ export const SubagentTray = memo(function SubagentTray({
           {opensPanel === "button" && (!lineHead || open) && (
             <span className="acpmux-running-tray__open-slot" aria-hidden="true" />
           )}
-          {/* The one line's hide eye's room, in the chevron column the line leaves empty (the eye lies over
-              it, outside this button). */}
-          {lineHide && <span className="acpmux-hat-hide-slot" data-at="line" aria-hidden="true" />}
           {/* The one trailing column every line's chevron ends in. */}
           {!lineHead && (
             <span className="acpmux-running-tray__status">
@@ -1163,24 +1162,6 @@ export const SubagentTray = memo(function SubagentTray({
           </Button>
         </Tooltip>
       )}
-      {lineHide && (
-        // The one line's hide control (hatLine.experiment.ts): an eye-slash flush at the line's end, in
-        // muted ink at rest, never over the words; open, it rides the header's end the same way.
-        <Tooltip label={t("tray.tuck")}>
-          <Button
-            bare
-            type="button"
-            className="acpmux-hat-hide"
-            data-at="line"
-            data-open={open || undefined}
-            data-with-panel={opensPanel === "button" || undefined}
-            aria-label={t("tray.tuck")}
-            onClick={onTuck}
-          >
-            <Icon name="action.hide" size={12} />
-          </Button>
-        </Tooltip>
-      )}
       {(hideAt === "eye" || hideAt === "pill") && (
         // The `eye` arm: a small eye-slash circle in the bar's trailing controls, shown at rest in muted
         // ink (never a hover-only control). The `pill` arm: a glass pill leading the bar, attached to the
@@ -1199,7 +1180,7 @@ export const SubagentTray = memo(function SubagentTray({
           </Button>
         </Tooltip>
       )}
-      {onTuck && !hidesInHead && !hideAt && !lineHide && (
+      {onTuck && !hidesInHead && !hideAt && (
         <Tooltip label={t("tray.tuck")}>
           <Button bare type="button" className="acpmux-running-tray__tuck" aria-label={t("tray.tuck")} onClick={onTuck}>
             <Icon name="disclosure.expanded" size={12} />
@@ -1769,6 +1750,7 @@ function HeadKind({
           size={ROW_ICON}
           fallback={part.icon}
           plain
+          blankUnknown
         />
       ) : (
         <Icon name={part.icon} size={ROW_ICON} row />
@@ -1778,8 +1760,10 @@ function HeadKind({
   );
 }
 
-/// A kind's mark in the `summary` header: a subagent kind its harness's logo in its first subagent's
-/// tone, as its line draws it; any other kind its own icon.
+/// A kind's mark in the `summary` header: a subagent kind its harness's logo, plain like every hat
+/// mark (no session badge: Leo, 2026-11-27, "there was a really dumb looking symbol in the top left
+/// of the composer hat"); its first subagent's tone still colors a fallback glyph. Any other kind
+/// draws its own icon.
 function KindMark({ part, chatHarness }: { part: TrayHeadPart; chatHarness: string | undefined }) {
   const lead = part.items[0];
   const agent = part.key.startsWith("agents") && lead?.kind === "agent" ? lead.agent : undefined;
@@ -1790,6 +1774,8 @@ function KindMark({ part, chatHarness }: { part: TrayHeadPart; chatHarness: stri
       tone={agentTone(agent.id)}
       size={ROW_ICON}
       fallback={part.icon}
+      plain
+      blankUnknown
     />
   ) : (
     <Icon name={part.icon} size={ROW_ICON} row />

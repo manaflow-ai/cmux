@@ -123,6 +123,7 @@ impl Hub {
             credential,
             create_key,
             placed_by,
+            priority,
         } = req;
         // A create sent again after a restart cut its reply: the session the first one made
         // answers it, on this daemon or the one before (`create_key.rs`).
@@ -327,7 +328,15 @@ impl Hub {
             .clone()
             .filter(|_| profile.kind == crate::config::HarnessKind::ClaudeStdio)
             .filter(|e| crate::claude_stdio::takes_effort_at_spawn(e));
+        meta.credential_connection =
+            credential.as_ref().and_then(|c| c.connection().map(str::to_owned));
+        if meta.credential_connection.is_some() {
+            meta.credential_model = model.clone();
+        }
         meta.workspace_id = workspace_id;
+        // Its Sources, then the folders every new chat gets (`agents.additionalDirectories`).
+        let additional_directories =
+            super::additional_dirs::with_settings(additional_directories, remote);
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
         // Claude Code (stdio) takes it as a Stop hook, Codex (codex-acp) as its goal
@@ -343,6 +352,7 @@ impl Hub {
         meta.subsession = subsession;
         meta.lineage = lineage;
         meta.created_by = created_by;
+        self.stamp_chief_owner(&mut meta);
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
@@ -388,7 +398,7 @@ impl Hub {
         // A named route is checked before anything is created: it exists and
         // serves this chat's harness family.
         if let Some(route_id) = &route {
-            self.check_new_route(route_id, &family).await?;
+            self.check_new_route(route_id, &family, &profile).await?;
         }
         let stores = super::adoption::store_families(&*self.config.read().await);
         // An evicted chat this create may meet (its id, key, name, or adopted agent session) is
@@ -466,6 +476,13 @@ impl Hub {
             meta.throwaway = throwaway;
             meta.create_key = create_key;
             meta.placed_by = placed_by;
+            // Before the session is published, so its first spawn already runs at the class its
+            // creator asked for (`NewRequest::priority`).
+            if let Some(value) = priority {
+                let tag = crate::store::Tag { value, expires_at: None };
+                // fleet-only-ok: every user's Cloud chat hits the gateway's class split.
+                meta.tags.insert(crate::subrouter_priority::TAG.to_owned(), tag);
+            }
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
@@ -554,14 +571,14 @@ impl Hub {
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).modes =
                 Some(json!({ "currentModeId": mode }));
         }
-        let spawned =
-            match self.spawn_profile(&session, &profile, launch_digest, &defaults.env).await {
-                Ok(spawn) => {
-                    let checked = checked_cwd.as_ref();
-                    self.ensure_checked_child(&session, &spawn, checked, created_stops).await
-                }
-                Err(e) => Err(e),
-            };
+        let spawned = self
+            .ensure_checked_child(
+                &session,
+                (&profile, launch_digest, &defaults.env),
+                checked_cwd.as_ref(),
+                created_stops,
+            )
+            .await;
         if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
@@ -727,7 +744,7 @@ impl Hub {
         }
         Err(super::subsession_guard::refusal(
             "start.starter_changing",
-            "session/new refused: the session that started this one kept changing its permissions while it started; start it again".into(),
+            "session/new refused: the session that started this one kept changing its permissions while it started, so this one did not start".into(),
             json!({"starter": starter}),
         ))
     }
@@ -742,7 +759,11 @@ impl Hub {
     pub(super) async fn ensure_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        profile: &super::spawn::Spawn,
+        launch: (
+            &crate::config::HarnessProfile,
+            String,
+            &std::collections::BTreeMap<String, String>,
+        ),
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // MDM's off as this start begins: its one read, before it waits on anything (review 123),
@@ -751,6 +772,25 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        // One spawn at a time per session; a caller that waited here finds
+        // the child the previous holder started. The idle pass never ends the harness meanwhile.
+        self.touch(session);
+        let _using = session.harness_use.read().await;
+        let _spawning = self.spawn_lease(session).await;
+        if session.read_meta(super::credentials::claude_login_needs_restart) {
+            let child = session.child.lock().await.clone();
+            if let Some(child) = child
+                && child.is_alive().await
+            {
+                return Err(super::credentials::claude_login_busy());
+            }
+            if !Self::host_record_gone(&session.id) {
+                return Err(super::credentials::claude_login_busy());
+            }
+        }
+        let (profile, digest, defaults) = launch;
+        let spawn = self.spawn_profile(session, profile, digest, defaults).await?;
+        let profile = &spawn;
         // Harness startup can itself run repository hooks and write files. A harness that gates
         // every tool on the sync itself starts at the repository's head (repo_sync.rs).
         let head_ok = super::repo_sync::gates_its_tools(profile);
@@ -759,11 +799,6 @@ impl Hub {
             session.stops.load(Ordering::SeqCst) != stops
         })
         .await?;
-        // One spawn at a time per session; a caller that waited here finds
-        // the child the previous holder started. The idle pass never ends the harness meanwhile.
-        self.touch(session);
-        let _using = session.harness_use.read().await;
-        let _spawning = self.spawn_lease(session).await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
         // A chat being deleted starts nothing either, whatever stop count its request read
@@ -797,6 +832,11 @@ impl Hub {
         // A transcript a cloud offload removed comes back before the agent resumes from it
         // (`transcript_offload.rs`): one `stat` when none ever was.
         self.restore_transcripts(session).await;
+        // A wake on a lane host past its cap or held: where placement would start it instead,
+        // logged as `wake-place` (`wake_place.rs`, RFD 0181 B6); it still starts here.
+        if self.waking(session) {
+            let _ = Box::pin(self.wake_place(session)).await;
+        }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
         let wake = self.wake_began(session);
         let child = match Box::pin(self.reach_or_start(session, profile, stops, &off)).await {
@@ -1053,6 +1093,38 @@ impl Hub {
             self.save_meta(session);
         }
         *session.launch_env.lock().unwrap_or_else(|e| e.into_inner()) = Some(profile.env.clone());
+        // A start after a move or a fork's first that lacks env its first start had (a key this
+        // machine has none of): logged by name, never value (`session_manifest.rs`).
+        let missing = session.read_meta(|m| {
+            crate::session_manifest::check_env(
+                m.manifest.as_ref(),
+                std::path::Path::new(&m.cwd),
+                &profile.env,
+            )
+        });
+        if !missing.is_empty() {
+            tracing::warn!(session = %session.id, ?missing, "manifest-env: start lacks env");
+        }
+        // A port its processes served that something else holds on this machine (a move's
+        // target, or a fork beside its parent's server): logged, never freed (`session_manifest.rs`).
+        // The process table is read only when there is a port to check: its first read may scan
+        // the log (`process_table`), and a start with the switch off or no port never pays it.
+        let recorded = crate::session_manifest::on()
+            && session.read_meta(|m| m.manifest.as_ref().is_some_and(|m| !m.ports.is_empty()));
+        if recorded {
+            let own: Vec<u16> =
+                self.running_for_move(session).into_iter().filter_map(|(.., port)| port).collect();
+            let taken = session.read_meta(|m| {
+                crate::session_manifest::check_ports(
+                    m.manifest.as_ref(),
+                    std::path::Path::new(&m.cwd),
+                    &own,
+                )
+            });
+            if !taken.is_empty() {
+                tracing::warn!(session = %session.id, ?taken, "manifest-ports: recorded port is taken");
+            }
+        }
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
@@ -1290,6 +1362,13 @@ impl Hub {
             // (`host_unheard`, review 68 of #23322).
             && !(child.is_stopped() && self.full_access_managed_off())
         {
+            // Read credential changes under the spawn lock, when handing the child to the caller.
+            if session.read_meta(|meta| meta.credential_withdrawn) {
+                return Err(super::credentials::credential_needed());
+            }
+            if session.read_meta(super::credentials::claude_login_needs_restart) {
+                return Err(super::credentials::claude_login_busy());
+            }
             return Ok(child.clone());
         }
         // Its own host first, when one ran at the start (a second agent would take its turn),
@@ -1306,8 +1385,7 @@ impl Hub {
             (profile, cfg.defaults_for(&agent))
         };
         let digest = profile.launch_digest();
-        let spawn = self.spawn_profile(session, &profile, digest, &defaults.env).await?;
-        self.ensure_child(session, &spawn, stops).await
+        self.ensure_child(session, (&profile, digest, &defaults.env), stops).await
     }
 }
 
@@ -1371,20 +1449,20 @@ mod taken_name_tests;
 /// agent's updates and markers never touch it. A start abandoned mid-load never ends it, so
 /// what that agent still had queued stays out of the preview as well, beside the next agent's
 /// own hold (`Session::replaying` keeps both).
-struct ReplayHold<'a> {
+pub(super) struct ReplayHold<'a> {
     session: &'a Session,
     agent: &'a crate::agent::ChildAgent,
 }
 
 impl<'a> ReplayHold<'a> {
-    fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
+    pub(super) fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
         session.replaying.lock().unwrap_or_else(|e| e.into_inner()).push(agent.generation);
         Self { session, agent }
     }
 
     /// Lifts the hold once the inbound loop reaches what the agent sent so far; at once when
     /// its queue is closed (nothing more can arrive).
-    async fn end(self) {
+    pub(super) async fn end(self) {
         if !self.agent.queue_replay_done().await {
             self.session.end_replay(self.agent.generation);
         }

@@ -234,13 +234,21 @@ def scope(root, entries, changed, labels):
     return run, build, skipped
 
 
+# The fast tier builds cmux-tui-core's test library at opt-level 0; mux-dev's debug builds keep the
+# workspace's 1 (Cargo.toml [profile.dev]: render lag at 0). A PR that rebuilds cmux-tui-core sat in that one
+# rustc for 11.8 of the job's 17.5 min at 1 (run 46153153413, 14:13:39-14:25:25Z), ahead of the Mac Release
+# compile, which waits on this job (note-cheap-gate). The entry runs only mux::tests::matrix, well inside its cap
+# at 0. The build and the run take the same flags, so the run reuses the build.
+CARGO_FAST_PROFILE = ["--config", "profile.dev.package.cmux-tui-core.opt-level=0"]
+
+
 def command(entry):
     """(argv, working directory relative to the root) for one run of the entry."""
     kind = entry["kind"]
     if kind == "swift":
         return ["swift", "test", "--skip-build", "--package-path", entry["package"], "--filter", entry["filter"]], "."
     if kind == "cargo":
-        argv = ["cargo", "test", "--locked", "-p", entry["package"], *cargo_targets(entry)]
+        argv = ["cargo", "test", "--locked", *CARGO_FAST_PROFILE, "-p", entry["package"], *cargo_targets(entry)]
         if entry.get("filter"):
             argv += ["--", entry["filter"]]
         return argv, entry["path"]
@@ -356,15 +364,34 @@ def run_build(root, argv, cwd, what, log_lock):
     refusals = []
     stop_after_error = argv[0] == "swift" and len(argv) > 1 and argv[1] == "build"
     compiler_error = False
+    # After a task's failure header the build reads on for the compiler's own words (see SWIFT_TASK_FAILED).
+    drain_left, drain_timer = None, None
     for output_line in proc.stdout:
         with log_lock:
             print(f"[{what}] {output_line.rstrip()}", flush=True)
         if STALE_LOCK_HINT in output_line:
             refusals.append(output_line)
-        if stop_after_error and SWIFT_COMPILER_ERROR.search(output_line):
+        if not stop_after_error:
+            continue
+        if drain_left is None and SWIFT_TASK_FAILED.search(output_line):
+            drain_left = SWIFT_DRAIN_LINES
+            drain_timer = threading.Timer(SWIFT_DRAIN_SECONDS, stop_tree, args=(proc.pid,))
+            drain_timer.daemon = True
+            drain_timer.start()
+            continue
+        if drain_left is not None:
+            drain_left -= 1
+        # Another task's failure head is not the compiler's words either: Swift Build heads every failed task in a
+        # batch before their output, and stopping at the second head hid the cause of seed runs 46130036758,
+        # 46128526801, 46122008939 and 46120818270 (two heads, then nothing).
+        task_head = SWIFT_TASK_FAILED.search(output_line)
+        if (SWIFT_COMPILER_ERROR.search(output_line) and not task_head) or drain_left == 0:
             compiler_error = True
             stop_tree(proc.pid)
             break
+    if drain_timer is not None:
+        drain_timer.cancel()
+        compiler_error = True
     if compiler_error:
         try:
             proc.wait(timeout=5)
@@ -388,6 +415,15 @@ STALE_LOCK_HINT = "--locked was passed"
 # `error:`. A warning's source excerpt (` 446 |  func f(_ error: Error)`) holds the same
 # word, and matching it there stopped a clean CmuxNext build (seed run 45854893499).
 SWIFT_COMPILER_ERROR = re.compile(r"^(?:[^\s|][^|]*?:\d+(?::\d+)?: )?(?:fatal\s+)?error: ", re.IGNORECASE)
+
+# Swift Build (Xcode 27's `swift build`) heads a failed task `error: SwiftCompile normal arm64 X.swift failed with a
+# nonzero exit code. Command line: ...` and prints the compiler's own output (its diagnostic, or a crash's stack dump)
+# after that head. Stopping at the head hid the cause: fast tier job 140640571539 failed on
+# DevicesCategoryLayoutTests.swift with no diagnostic. The build reads on to the next diagnostic head, for at most
+# SWIFT_DRAIN_LINES lines or SWIFT_DRAIN_SECONDS, then stops.
+SWIFT_TASK_FAILED = re.compile(r"^error: .* failed with a nonzero exit code\b")
+SWIFT_DRAIN_LINES = 400
+SWIFT_DRAIN_SECONDS = 90
 
 
 def stale_lock_explained(root, refusals):
@@ -433,7 +469,7 @@ def build_packages(root, entries, dry_run, timing):
     # features, so the reducer entry's own `cargo test -p cmux-layout-reducer`
     # rebuilt libc, serde_json and proptest inside its 60 s cap (57.6 s of build,
     # then a timeout: job 137088937648 on cmux-runner-pool).
-    cargo = [(["cargo", "test", "--locked", "--no-run", "-p", package, *targets], path, f"{path} {package}")
+    cargo = [(["cargo", "test", "--locked", *CARGO_FAST_PROFILE, "--no-run", "-p", package, *targets], path, f"{path} {package}")
              for path, package, targets in dict.fromkeys(
                  (e["path"], e["package"], tuple(cargo_targets(e))) for e in entries if e["kind"] == "cargo")]
     builds = swift + cargo

@@ -9,7 +9,8 @@ public import Foundation
 /// - `cloudMachine.list {}` -> `{signedIn, loaded, machines: [{id, name, stage, evictAt?, size?: {cpu?, memoryMb?, diskMb?}}], lastSeenAt?}`, read-only.
 ///   `lastSeenAt` (epoch ms) marks a list kept from an earlier launch, shown before the first fresh one lands.
 ///   `cloudMachine.list {fresh: true}` (``freshList``) reads the Cloud plan again, past the kept read: a Send the plan
-///   would hold, and the pricing card's re-read back from checkout, never act on a minute-old plan.
+///   would hold, and the pricing card's re-read back from checkout, never act on a minute-old plan. On a cold start it
+///   also waits for a fresh machine read (``freshList``) rather than answering the kept list: Retry and a pick of a kept row.
 ///   `stage` is the machine's `CloudMachineStage` name (`ready`, `paused`, `connecting`, …);
 ///   `loaded` is false until the App holds a list the server answered for the account signed in.
 /// - `cloudMachine.recoveryList {}` -> the same inventory, refreshed for a disconnected chat.
@@ -138,8 +139,11 @@ public final class AgentPaneCloudMachines {
         /// The machine's size as its record says it (``CloudMachine/Size``); nil when it says none.
         /// The composer's machine card names it (webviews MachineCard.tsx).
         public var size: Size?
-        public init(id: String, name: String, stage: String, evictAt: Date? = nil, size: Size? = nil) {
+        /// The workspace registry shared by this VM's app and acpmux links.
+        public var cloudRegistryID: String?
+        public init(id: String, name: String, stage: String, evictAt: Date? = nil, size: Size? = nil, cloudRegistryID: String? = nil) {
             (self.id, self.name, self.stage, self.evictAt, self.size) = (id, name, stage, evictAt, size)
+            self.cloudRegistryID = cloudRegistryID
         }
 
         /// vCPUs, memory and disk; each nil when the record does not say.
@@ -212,6 +216,10 @@ public final class AgentPaneCloudMachines {
     }
 
     public var list: (@MainActor () async -> Inventory)?
+    /// The list for `cloudMachine.list {fresh: true}`: on a cold start it waits for a fresh read instead
+    /// of answering the kept list at once (``CloudLastSeenMachines``), so Retry and a pick of a kept row
+    /// act on what the server says now. Nil: ``list``.
+    public var freshList: (@MainActor () async -> Inventory)?
     /// Fresh inventory for a disconnected chat; avoids the picker cache hiding a paused machine.
     public var recoveryList: (@MainActor () async -> Inventory)?
     /// What Resume machine on an unavailable chat does, decided on a fresh read of the machine:
@@ -343,7 +351,12 @@ extension AgentPaneCloudMachineRequest {
     func reply(_ machines: AgentPaneCloudMachines?, gestures: AgentPaneUserGestures) async -> [String: Any] {
         switch self {
         case .list, .freshList, .recoveryList:
-            guard let list = (self == .recoveryList ? machines?.recoveryList : machines?.list) else { return AgentPaneModel.unsupported(method) }
+            let read = switch self {
+            case .recoveryList: machines?.recoveryList
+            case .freshList: machines?.freshList ?? machines?.list
+            default: machines?.list
+            }
+            guard let list = read else { return AgentPaneModel.unsupported(method) }
             if self == .freshList { machines?.planReads.forget() }
             let inventory = await list()
             let rows: [[String: Any]] = inventory.machines.prefix(Self.maximumListed).map { machine in
@@ -352,6 +365,7 @@ extension AgentPaneCloudMachineRequest {
                 if let evictAt = machine.evictAt { row["evictAt"] = (evictAt.timeIntervalSince1970 * 1000).rounded() }
                 // vCPUs, memory and disk (cloudMachines.ts `size`), for the composer's machine card.
                 if let size = machine.size?.reply, !size.isEmpty { row["size"] = size }
+                if let id = machine.cloudRegistryID { row["cloudRegistryId"] = id }
                 return row
             }
             var value: [String: Any] = ["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows, "complete": inventory.complete && inventory.machines.count <= Self.maximumListed]

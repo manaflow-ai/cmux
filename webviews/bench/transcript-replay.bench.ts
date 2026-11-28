@@ -64,6 +64,7 @@ import {
   type ReplayLog,
 } from "./replayLogs";
 import { cpuSession } from "./stability";
+import { newestPage } from "./daemonPage";
 import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
@@ -87,6 +88,12 @@ const CPU_CLOCK = process.env.CLOCK === "cpu";
 /// burst of one right after the same burst of the other (`pairedLiveRound`), and prints both runs' rows: the god
 /// ones with `god` in their names, as FIXTURE=god does. No open phase. bench/god-ratio-ab.sh runs it this way.
 const PAIRED = process.env.PAIRED === "1";
+/// `RENDERS=1` counts, per burst record, the components React committed again (perf.ts `renders`, counted by
+/// `useCountedRender` and `acpmuxPerf.render`): the pane, its header and composer, each transcript row and its content.
+/// It emits `transcript_replay.long.<kind>.renders_per_record` (every component) and `.row_renders_per_record` (the
+/// transcript's `row:` frames) and prints each kind's components. An appended record that touches one row commits one
+/// row and nothing else. Counting turns the pane's perf measurement on, so a RENDERS run's ms rows are not clean ones.
+const RENDERS = process.env.RENDERS === "1";
 /// `INVALIDATIONS=1` prints, per burst, what restyled the page and the rows React drew (`invalidations`).
 const INVALIDATIONS = process.env.INVALIDATIONS === "1";
 /// `SPLIT=1` prints, per burst, the ms per record of each main-thread phase (script, style, layout, forced
@@ -107,6 +114,16 @@ const FIXTURE = benchFixture();
 const perfRow = scaledPerfRow(printRow, FIXTURE);
 /// The log whose bursts make the per-update rows: the long log, or at god scale the god session.
 const BURST_LOG = FIXTURE === "god" ? "god" : "long";
+/// `GOD_TURNS=N` sizes the god session (bench/godFixture.ts, 7,000 turns by default), for the length curve
+/// (bench/god-length-curve.sh: the same per-update and heap rows at 1k, 10k and 100k turns, which must stay flat).
+const GOD_TURNS = process.env.GOD_TURNS === undefined ? undefined : Number(process.env.GOD_TURNS);
+if (GOD_TURNS !== undefined && (!Number.isInteger(GOD_TURNS) || GOD_TURNS < 10)) {
+  console.error("transcript-replay: GOD_TURNS is a whole number of turns, 10 or more");
+  process.exit(2);
+}
+/// `TAIL=1` opens the live page at the last checkpoint (`tailStart`) and plays only its records live.
+const TAIL = process.env.TAIL === "1";
+const godOf = () => godLog("god", GOD_TURNS === undefined ? {} : { turns: GOD_TURNS });
 if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "recorded", "mock"].includes(name))) {
   console.error("usage: bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]");
   process.exit(2);
@@ -124,6 +141,12 @@ const BUDGET = {
   slope: 0.1,
   heapMb: 64,
   idleMsPerS: 1,
+  /// Pane redraws per record for a record whose one changed row the running turn's closed fold hides.
+  hiddenPaneRenders: 0.1,
+  /// Transcript renders per streamed token, as counted: each render counts twice (VirtualTranscript's
+  /// `useCountedRender` at commit and `acpmuxPerf.render` in the body), so 2.4 is 1.2 real renders a
+  /// token. A token is one render; more is a second pass a layout read or a listener queued.
+  tokenTranscriptRenders: 2.4,
 } as const;
 const webviews = path.resolve(import.meta.dir, "..");
 
@@ -141,16 +164,54 @@ const summary = (p: Play) => ({
   turnCount: p.log.events.filter((event) => event.kind === "user_message").length,
   updatedAt: p.log.events.at(-1)?.at ?? Date.now(),
 });
-function answer(p: Play, method: string): unknown {
+/// `OPEN=whole` hands the page the whole log at attach, as this bench did before god-chat-snapshot-tail: a full
+/// replay acpmux never does. By default the stand-in pages as acpmux does (hub/paging.rs via `newestPage`):
+/// attach the newest page under the pane's `limit`/`maxBytes`, older pages by `beforeSeq`, the prompt index
+/// whole, so the pane's open costs what is on screen, not the chat's length.
+const OPEN_WHOLE = process.env.OPEN === "whole";
+function answer(p: Play, method: string, params: Record<string, any> = {}): unknown {
+  const served = () => p.log.events.slice(0, p.served);
   switch (method) {
     case "initialize":
       return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     case "_acpmux/watch":
       return { sessions: [summary(p)] };
-    case "_acpmux/attach":
-      return { session: summary(p), lastSeq: p.served, events: p.log.events.slice(0, p.served) };
-    case "_acpmux/events":
+    case "_acpmux/attach": {
+      if (OPEN_WHOLE) return { session: summary(p), lastSeq: p.served, events: served() };
+      const records = served();
+      if (params.afterSeq !== undefined) {
+        const after = Number(params.afterSeq);
+        return { session: summary(p), lastSeq: p.served, events: records.filter((event) => event.seq > after) };
+      }
+      const { page, hasMore } = newestPage(records, { limit: Number(params.limit ?? 400), maxBytes: params.maxBytes });
+      return { session: summary(p), lastSeq: p.served, events: page, hasMore };
+    }
+    case "_acpmux/events": {
+      if (OPEN_WHOLE) return { events: [], hasMore: false, lastSeq: p.served };
+      const records = served();
+      const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
+      if (params.promptIndex === true)
+        return {
+          events: records.filter((event) => event.kind === "user_message" && event.seq < before),
+          hasMore: false,
+          lastSeq: p.served,
+        };
+      if (params.beforeSeq !== undefined) {
+        const { page, hasMore } = newestPage(records, {
+          limit: Number(params.limit ?? 400),
+          beforeSeq: before,
+          maxBytes: params.maxBytes,
+        });
+        return { events: page, hasMore, lastSeq: p.served };
+      }
+      if (params.afterSeq !== undefined) {
+        const after = Number(params.afterSeq);
+        const limit = Number(params.limit ?? 400);
+        const page = records.filter((event) => event.seq > after).slice(0, limit);
+        return { events: page, hasMore: page.length === limit && page.at(-1)!.seq < p.served, lastSeq: p.served };
+      }
       return { events: [], hasMore: false, lastSeq: p.served };
+    }
     default:
       return null;
   }
@@ -572,6 +633,8 @@ type BurstResult = {
   /// PROBE=1: what one record cost besides time (foldFrameReport.ts): geometry reads from script, the
   /// layouts script forced, transcript rows React drew again, and the most layout objects and restyled
   /// elements one pass touched. Work per update that follows the rows in view shows here.
+  /// RENDERS=1: committed renders per record by component (`row:<id>` counts as `row`), and their sum (events apart).
+  renders?: { total: number; byComponent: Record<string, number> };
   probe?: {
     reads: number;
     forced: number;
@@ -583,6 +646,51 @@ type BurstResult = {
     phases: { script: number; style: number; layout: number; paint: number };
   };
 };
+/// Names of perf.ts `renders` that count something other than one more component commit: the transcript's anchor
+/// passes, scroll flushes and layout flags, a row's mount (`mount:`), RowFrame's commit (`frame:`), which is the
+/// same render `row:` already counted, and the pane's notes on records whose row is hidden (`record:`, `pane:`). They print, but stay out of a record's render total.
+const RENDER_EVENTS = /^(transcript:|layout\.|frame:|mount:|pane:|record:)/;
+/// Names whose part after the first `:` is one row's id: each folds into its kind (`row:a`, `row:b` count as `row`).
+const PER_ROW = new Set(["row", "content", "notice", "frame", "mount"]);
+/// A burst's render counts (perf.ts `renders`) per record, by component (pure): `total` sums components' commits,
+/// events (`RENDER_EVENTS`) apart; `byComponent` lists both, most first.
+export function rendersPerRecord(
+  counts: Record<string, number>,
+  records: number,
+): { total: number; byComponent: Record<string, number> } {
+  const per = (value: number) => Math.round((value / Math.max(records, 1)) * 100) / 100;
+  const groups = new Map<string, number>();
+  let total = 0;
+  for (const [name, count] of Object.entries(counts)) {
+    const head = name.split(":")[0]!;
+    const group = PER_ROW.has(head) ? head : name;
+    groups.set(group, (groups.get(group) ?? 0) + count);
+    if (!RENDER_EVENTS.test(name)) total += count;
+  }
+  const byComponent = Object.fromEntries(
+    [...groups.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => [name, per(count)]),
+  );
+  return { total: per(total), byComponent };
+}
+/// One row per record kind of `bursts` (RENDERS=1), means over its bursts (pure): pane and transcript renders per
+/// record, the share of records whose one changed row the running turn's closed fold hides (`record:row-hidden`), and
+/// the pane renders per record those hidden ones still cost (`pane:row-hidden`), which should be 0.
+export function kindRenderTable(
+  bursts: readonly Pick<BurstResult, "kind" | "renders">[],
+): { kind: string; pane: number; transcript: number; hiddenShare: number; hiddenPane: number }[] {
+  const byKind = new Map<string, Record<string, number>[]>();
+  for (const burst of bursts)
+    if (burst.renders) byKind.set(burst.kind, [...(byKind.get(burst.kind) ?? []), burst.renders.byComponent]);
+  const mean = (all: Record<string, number>[], name: string) =>
+    Math.round((all.reduce((sum, each) => sum + (each[name] ?? 0), 0) / all.length) * 100) / 100;
+  return [...byKind.entries()].map(([kind, all]) => ({
+    kind,
+    pane: mean(all, "pane"),
+    transcript: mean(all, "transcript"),
+    hiddenShare: mean(all, "record:row-hidden"),
+    hiddenPane: mean(all, "pane:row-hidden"),
+  }));
+}
 /// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
 /// script work over every row; one that grows with them is the page's own (style, layout).
 const domSize = (page: Page) =>
@@ -731,10 +839,35 @@ type LiveReplay = {
   finish(measureIdle: boolean): Promise<Live>;
   close(): Promise<void>;
 };
+/// TAIL=1: the index of the first record of the log's last checkpoint, the latest burst from which on every burst
+/// kind the log has plays (pure; exported for the test).
+export function tailStart(log: Pick<ReplayLog, "events" | "bursts">): number {
+  const kinds = new Set(log.bursts.map((burst) => burst.kind));
+  const seen = new Set<string>();
+  let from = log.bursts.length;
+  while (from > 0 && seen.size < kinds.size) seen.add(log.bursts[--from]!.kind);
+  const seq = log.bursts[from]?.fromSeq;
+  if (seq === undefined) return 0;
+  // From the record after the last one not in a burst before it: the checkpoint turn's prompt plays live too.
+  let at = log.events.findIndex((event) => event.seq === seq);
+  while (at > 0 && log.events[at - 1]!.kind !== "turn_result") at--;
+  return Math.max(0, at);
+}
+
 /// The live phase: an empty session, then every record as a live event at the page's top speed.
 async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<LiveReplay> {
-  const first = log.events[0]?.at ?? Date.now();
-  const { page, cdp, play } = await openPage(ctx, daemon, log, 0, "running", first);
+  // TAIL=1: open the chat at its last checkpoint, as a pane opens a long chat (the newest page, older pages on
+  // scroll), and play live only that checkpoint's records, instead of the whole transcript from an empty pane.
+  const tailFrom = TAIL ? tailStart(log) : 0;
+  const first = (tailFrom ? log.events[tailFrom - 1]?.at : log.events[0]?.at) ?? Date.now();
+  const { page, cdp, play } = await openPage(
+    ctx,
+    daemon,
+    log,
+    tailFrom ? log.events[tailFrom - 1]!.seq : 0,
+    "running",
+    first,
+  );
   const started = performance.now();
   try {
     await page.goto(ctx.url(log, daemon));
@@ -755,7 +888,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
   const inBurst = new Map<number, Burst>();
   for (const burst of log.bursts) inBurst.set(burst.fromSeq, burst);
   const burstWindows: [number, number][] = [];
-  let index = 0;
+  let index = tailFrom;
   return {
     async next() {
       while (index < log.events.length) {
@@ -795,6 +928,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       };
       const records = burst.toSeq - burst.fromSeq + 1;
       let probe: BurstResult["probe"];
+      let renders: BurstResult["renders"];
       if (PROBE) {
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
         const cost = await measureToggle(page, burst.kind, playBurst, () => paint(page, 2), cdp);
@@ -819,6 +953,15 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
             paint: per(cost.paintMs ?? 0),
           },
         };
+      } else if (RENDERS) {
+        await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+        await playBurst();
+        await paint(page, 2);
+        const counts = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+          string,
+          number
+        >;
+        renders = rendersPerRecord(counts, records);
       } else if (SPLIT) {
         console.log(`  ${burst.kind} at ${burst.rows} rows: ${await split(cdp, playBurst, page, records)}`);
       } else if (INVALIDATIONS) {
@@ -845,6 +988,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       bursts.push({
         dom,
         ...(probe ? { probe } : {}),
+        ...(renders ? { renders } : {}),
         kind: burst.kind,
         rows: burst.rows,
         msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
@@ -1073,6 +1217,61 @@ export function judge(opens: Open[], lives: Live[], burstLog = "long"): { rows: 
         },
         `one ${BURST_NAMES[kind]} costs more main-thread time than a frame's work`,
       );
+      const counted = longLive.bursts.filter((b) => b.kind === kind && b.renders);
+      if (counted.length) {
+        const totals = counted.map((b) => b.renders!.total);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.renders_per_record`,
+            p50: median(totals),
+            p95: worst(totals),
+            unit: "count",
+            floor: 0.5,
+          },
+          `one ${BURST_NAMES[kind]} commits this many components again`,
+        );
+        const rowRenders = counted.map((b) => b.renders!.byComponent.row ?? 0);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.row_renders_per_record`,
+            p50: median(rowRenders),
+            p95: worst(rowRenders),
+            unit: "count",
+            floor: 0.5,
+          },
+          `one ${BURST_NAMES[kind]} commits this many transcript rows again`,
+        );
+        // A record whose one changed row the running turn's closed fold hides draws nothing anyone
+        // sees in its row: the pane must not redraw for it (drawnRows.ts, `pane:row-hidden`). A quiet
+        // call's start or end moves only the live line, which hears it without the pane
+        // (liveCallLine.ts); a shell's or an edit's still redraws it.
+        const hiddenPane = counted.map((b) => b.renders!.byComponent["pane:row-hidden"] ?? 0);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.hidden_pane_renders_per_record`,
+            p50: median(hiddenPane),
+            p95: worst(hiddenPane),
+            unit: "count",
+            target: BUDGET.hiddenPaneRenders,
+            floor: 0.05,
+          },
+          `one ${BURST_NAMES[kind]} whose row sits under the running turn's closed fold still redraws the pane`,
+        );
+        if (kind === "token") {
+          const transcript = counted.map((b) => b.renders!.byComponent.transcript ?? 0);
+          row(
+            {
+              name: "transcript_replay.long.token.transcript_renders_per_record",
+              p50: median(transcript),
+              p95: worst(transcript),
+              unit: "count",
+              target: BUDGET.tokenTranscriptRenders,
+              floor: 0.5,
+            },
+            "one streamed token renders the transcript more than once",
+          );
+        }
+      }
       const growth = Math.round(slope(points) * 1000) / 1000;
       row(
         {
@@ -1138,7 +1337,7 @@ if (import.meta.main) {
   try {
     const now = Date.now();
     const logs: ReplayLog[] = [];
-    if (FIXTURE === "god") logs.push(godLog("god"));
+    if (FIXTURE === "god") logs.push(godOf());
     else if (ONLY.includes("long"))
       logs.push(
         longLog({
@@ -1163,11 +1362,17 @@ if (import.meta.main) {
         },
         websocket: {
           message(ws, raw) {
-            const message = JSON.parse(String(raw)) as { id?: number; method: string };
+            const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
             const p = daemon.play;
             if (message.method === "_acpmux/attach" && p) p.socket = ws;
             if (message.id !== undefined)
-              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: p ? answer(p, message.method) : null }));
+              ws.send(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: message.id,
+                  result: p ? answer(p, message.method, message.params) : null,
+                }),
+              );
           },
         },
       });
@@ -1223,7 +1428,7 @@ if (import.meta.main) {
     if (PAIRED) {
       const small = logs.find((log) => log.name === "long");
       if (!small) throw new Error("PAIRED=1 plays the long log beside the god session: run it with --only long");
-      const god = godLog("god");
+      const god = godOf();
       checkSeq(god);
       logs.length = 0;
       const [godLive, smallLive] = await pairedLiveRound(ctx, god, small);
@@ -1282,6 +1487,13 @@ if (import.meta.main) {
                   `${burst.probe.layoutObjects} restyled ${burst.probe.styled}; ms script ` +
                   `${burst.probe.phases.script} style ${burst.probe.phases.style} layout ${burst.probe.phases.layout} ` +
                   `paint ${burst.probe.phases.paint}`
+                : "") +
+              (burst.renders
+                ? ` renders per record ${burst.renders.total}: ` +
+                  Object.entries(burst.renders.byComponent)
+                    .slice(0, Number(process.env.RENDERS_TOP) || 12)
+                    .map(([name, count]) => `${name}=${count}`)
+                    .join(" ")
                 : ""),
           );
         // PROFILE_JSON=FILE writes every profiled burst's self and total times, for comparing two runs.
@@ -1327,6 +1539,18 @@ if (import.meta.main) {
         console.log(`transcript-replay: ${log.name} FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    if (RENDERS)
+      for (const live of lives) {
+        const table = kindRenderTable(live.bursts);
+        if (!table.length) continue;
+        console.log(`transcript-replay: ${live.log} renders per record by kind`);
+        console.log("  kind         pane  transcript  hidden-row share  pane per hidden record");
+        for (const each of table)
+          console.log(
+            `  ${each.kind.padEnd(12)} ${String(each.pane).padStart(4)}  ${String(each.transcript).padStart(10)}  ` +
+              `${String(each.hiddenShare).padStart(16)}  ${String(each.hiddenPane).padStart(22)}`,
+          );
+      }
     const { rows, misses } = judge(opens, lives, BURST_LOG);
     for (const each of rows) perfRow(each);
     for (const miss of misses) console.log(`transcript-replay: ${miss}`);

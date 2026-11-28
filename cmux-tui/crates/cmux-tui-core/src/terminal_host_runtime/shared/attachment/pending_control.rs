@@ -132,7 +132,7 @@ impl HostAttachment {
         if !self.record.supports_clear_history {
             return Ok(None);
         }
-        let payload = crate::server::encode_terminal_host_clear_history(fallback_key)
+        let payload = crate::protocol_key::encode_terminal_host_clear_history(fallback_key)
             .map_err(ClearHistoryFailure::known_not_delivered)?;
         let pending = self.begin_control_request(
             MessageKind::ClearHistory,

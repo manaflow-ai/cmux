@@ -24,12 +24,16 @@ import Testing
         var running: () -> Bool = { false }
         /// The approval request a pending answer names.
         var request = "req_1"
+        /// The backend's refusal of its approved run, sent back as the pending answer's `last_run_error`.
+        var lastRunError: JSONValue?
 
         func call(_ key: String?) throws -> JSONValue {
             keys.append(key)
             if pending > 0 || running() {
                 pending = max(pending - 1, 0)
-                throw CloudAppOpFailure(code: CloudAppOpFailure.approvalPending, message: "", details: .object(["request": .string(request)]))
+                var details: [String: JSONValue] = ["request": .string(request)]
+                if let lastRunError { details["last_run_error"] = lastRunError }
+                throw CloudAppOpFailure(code: CloudAppOpFailure.approvalPending, message: "", details: .object(details))
             }
             let slot = "\(team)|\(key ?? "")"
             let id = machines[slot] ?? "vm_\(machines.count + 1)"
@@ -123,6 +127,21 @@ import Testing
         #expect(Set(backend.keys) == ["k1"] && backend.machines.count == 1)
     }
 
+    /// Proof run 45821163961: staging's approved create kept failing, its pending answers carried why
+    /// (`last_run_error`), and the Mac said only "still waits for approval". The failure now names it.
+    @Test func anApprovedCreateWhoseRunKeepsFailingNamesTheRunsError() async throws {
+        let backend = Backend(), time = Time()
+        backend.running = { true }
+        backend.lastRunError = .object(["code": .string("provider.unavailable"), "message": .string("no capacity in us-east"), "at": .string("2026-11-26T14:15:00Z")])
+        let failure = CloudMachineCreateFlow.Failure.stillPending(request: "req_1", lastRunError: "provider.unavailable: no capacity in us-east")
+        await #expect(throws: failure) {
+            _ = try await timed(flow(backend), time).create(name: nil, startedByPerson: true, key: "k1")
+        }
+        #expect(CloudStrings.errorText(failure) == "\(CloudStrings.createStillPending) (provider.unavailable: no capacity in us-east)")
+        #expect(CloudAppOpFailure(code: "c", message: "", details: .object(["last_run_error": .object(["code": .string("x")])])).lastRunError == "x")
+        #expect(CloudAppOpFailure(code: "c", message: "", details: .object(["request": .string("req_1")])).lastRunError == nil)
+    }
+
     @Test func aPendingAnswerForAnotherRequestAfterTheApprovalFailsAtOnce() async throws {
         let backend = Backend(), time = Time()
         backend.running = { true }
@@ -148,6 +167,21 @@ import Testing
             _ = try await cancelled.create(name: nil, startedByPerson: true, key: "k1")
         }
         #expect(backend.keys.count == 2, "a retry went out after the cancel: \(backend.keys)")
+    }
+
+    /// A create whose machine was gone before it answered (`cloud.machine.not_found {machine}`) is asked again with a new key,
+    /// at most twice; a gone snapshot, a quota refusal or a cancelled-out third try ends it (cosmic-gray 2026-11-27:
+    /// "Couldn't create Cloud machine X (no such machine in this team)").
+    @Test func aCreateWhoseMachineWasGoneIsAskedAgainWithANewKey() {
+        let gone = CloudAppOpFailure(code: "cmux.cloud.not_found", message: "no such machine in this team")
+        #expect(CloudStartCore().createMachineGoneRetries(gone, attempt: 1))
+        #expect(CloudStartCore().createMachineGoneRetries(CloudAppOpFailure(code: "cmux.cloud.not_found", message: "", details: .object(["machine": .string("vm_1")])), attempt: 2))
+        #expect(!CloudStartCore().createMachineGoneRetries(gone, attempt: 3))
+        #expect(!CloudStartCore().createMachineGoneRetries(CloudAppOpFailure(code: "cmux.cloud.not_found", message: "no such snapshot"), attempt: 1))
+        #expect(!CloudStartCore().createMachineGoneRetries(CloudAppOpFailure(code: "cmux.cloud.quota_exceeded", message: "no such machine"), attempt: 1))
+        var sent = CloudMachineRequest(); sent.wasSent = true; sent.team = "team_a"; sent.approvedRequest = "apr_1"
+        let renewed = sent.renewed
+        #expect(renewed.idempotencyKey != sent.idempotencyKey && !renewed.wasSent && renewed.team == nil && renewed.approvedRequest == nil && renewed.route == nil)
     }
 
     /// A person reads the failure's own sentence, not "Something went wrong. Try again." (it was only a `description`).

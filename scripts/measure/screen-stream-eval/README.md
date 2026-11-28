@@ -88,7 +88,7 @@ form on the host Mac. The verbs are:
 | Verb | Does |
 | --- | --- |
 | `build` | builds its host and viewer into `EVAL_BIN` |
-| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. `latency-only` (`iphone-sim`) is the reverse: the latency stage, and no window or OCR repeats. A target without the verb runs both stages |
+| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. `latency-only` (`iphone-sim`) is the reverse: the latency stage, and no window or OCR repeats. A target without the verb runs both stages. `owes-ocr`, `owes-skips` and `owes-budget-bpp` lines name the numbers every run of it owes (`rd`: OCR error and encoder skips, plus budget bits per pixel with the ladder on, `rd-ladder`; `apple-*`: OCR error). A requested target that did not bring one (its scene did not start, its OCR calibration did not hold, a repeat lacks the number) makes the run exit 6, and its last line names the target and the field (`eval.py owed`); results.json is still written |
 | `host-start`, `host-stop` | starts its host on this Mac's main display at its defaults, and returns once the host is ready; stops it |
 | `latency-view INPUT SAMPLES RAW`, `latency-report INPUT RAW OUT` | INPUT `key` or `pointer`: SAMPLES inputs on the marker through its viewer; OUT gets `{"g2g_ms": {"n", "p50", "p95", ...}, "lost", "split": {"input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method"}}` (transport: what is left between encode and decode, by each target's own method; not comparable across targets). rd's split also has `input_to_capture_parts`: `{"render_ms", "sck_ms", "to_arrived_ms", "pickup_ms", "gate_ms", "arrived_to_release_ms", "encode_ms", "sck_all_frames_ms", "draw_ms", "commit_to_vsync_ms"}`, each `{"n", "p50", "p95"}`, from the host's per-frame timing log, plus `frame_before_commit` (a count) and `refresh_hz`. `draw_ms` and `commit_to_vsync_ms` come from the marker's `commit COUNTER T_US` lines (it logs them with `--verbose`). `sck_ms`, `sck_all_frames_ms` and `commit_to_vsync_ms` are signed: ScreenCaptureKit's display time is the vsync the frame is shown at, usually after the callback |
 | `window-view SECONDS FRAME GO RAW`, `window-report RAW OUT` | a viewer that sends nothing for SECONDS. It creates GO once its first frame shows, which starts the scene's timeline (the scene then holds its last screen until the harness stops it). FRAME gets the last decoded frame (PNG or PPM), and OUT gets `{"series": [{"unix_ms", "bytes", "frames", "decode_ms", "encode_ms"}], "extra"}`, one row a second, each row stamped at the end of its second |
@@ -125,6 +125,22 @@ Today's targets:
   and view refuse, since a viewer Mac's simulator would have nothing on the host Mac to stop it.
   Its `host-stop` (also run by the harness's exit trap, on a signal too) deletes every simulator
   in its own `/tmp/iphsim.*` set and the set.
+- `iphone-link`: the Mac's screen as `cmux.rd/1` over the cmux link (WireGuard) into the same
+  iPhone app in an iOS simulator, the Mac Screen over Link viewer's path, with the same rows as
+  `iphone-sim` so one run compares them (`--arg=targets=iphone-sim,iphone-link`). The host needs no
+  cmux app: `cmux-mobile-host` standalone, signaling through `cmux-mobile-fake-backend` on
+  loopback, its `surface` service streaming `d~0` from a child `cmux-rd surface-source`
+  (`CMUX_MOBILE_SURFACE_SOURCE`, `CMUX_MOBILE_MAC_DISPLAY=1`): the rd target's ScreenCaptureKit
+  capture and VideoToolbox encode, so the step needs the Screen Recording and Accessibility grants
+  the rd target has. The app is launched with `CMUX_MOBILE_RD_LINK` (`ScreenSharingRdLinkRoot`,
+  DEBUG only): it dials with the app's `FFIMacLinkDialer` and shows `d~0` on
+  `StreamedBrowserModel` and `StreamedViewOnlySurface`. Its probe reads the marker from each
+  picture `BrowserVideoDecoder` enqueued (`debugPicture`, DEBUG only) and times the present as
+  iphone-sim's sample-buffer path does (the first display link tick after the enqueue). A
+  view-only rd/1 session takes no input, so the app sends each input as a loopback datagram with
+  a per-run token to the source (`CMUX_RD_SURFACE_EVAL_INPUT`, `CMUX_RD_SURFACE_EVAL_TOKEN`), which
+  injects it; the timer starts at that send. No netem, latency only, one Mac only; it reuses
+  iphone-sim's app build and simulator set (`iphone-sim.sh ensure-sim`, `fractions`).
 - `cu-png`: the computer-use preview's frame path as the app runs it today (`CmuxNextComputerUse`
   `ComputerUseLiveCapture`), replayed by `cu-png.swift` on the scene's window. It captures a window
   stream, reads it at 6 fps, scales it to 360 px on the long side, and encodes PNG and a base64
@@ -378,7 +394,7 @@ It needs root for `ip netns` and `tc` and a kernel with `sch_netem`, so on the f
 HQ's netem route (cmuxterm-hq `docs/handbook/netem-route-without-host-module.md`), from an HQ checkout:
 
 ```
-cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp -d);
+cmux-ci test --setup netem --timeout 7200 --artifact DIR -- bash -c 'set -e; d=$(mktemp -d);
   git -C "$d" init -q; git -C "$d" fetch -q --depth=1 https://github.com/manaflow-ai/cmux.git DRIVER_SHA;
   git -C "$d" checkout -q FETCH_HEAD -- scripts/measure/screen-stream-eval/rd-netem-linux.py;
   python3 "$d/scripts/measure/screen-stream-eval/rd-netem-linux.py" --deps --out "$FAST_CHECKS_OUT" \
@@ -407,6 +423,32 @@ cmux-ci wait JOB && cmux-ci log JOB
 ```
 
 The JSON lines and the table are in the job's log.
+
+### Seconds to 15 Mbps on demand, and a controller sweep
+
+The goal screen-share-rate-control reads `rate_s_to_15mbps` from the wired Mac pair, and the pair
+measures it only when its scheduled leg runs. `rate-sweep.py` measures the same number in minutes, on
+any Linux box with root and `sch_netem`: a lane VM itself, or a pool host through the routes above. It
+builds `cmux-rd` once at `--commit`. Each `--var` then rewrites constants of the rate controller
+(`cmux-tui/crates/cmux-rd-core/src/cc.rs`: a `const`, or a `CcConfig::default()` field) and rebuilds
+incrementally. Every variant runs `--trials` fresh-host passive sessions, interleaved, through
+`rd-netem-linux.py`'s rig. The trials are scored with NOW's rule: both the host's target and the
+received rate at 15 Mbps on the 100 ms rows, and an unreached trial counts as its length + 1 s.
+
+```
+sudo -n true && python3 -I scripts/measure/screen-stream-eval/rate-sweep.py --commit FULL_SHA --out DIR \
+  --work ~/rate-sweep-work --trials 10 --profile clean --profile loss-1 \
+  --var pg3:PROBE_GROWTH_PER_S=3.0 --var start12:start_bps=12_000_000
+python3 scripts/measure/screen-stream-eval/rate-sweep.py table DIR/sweep.jsonl [MORE.jsonl ...]
+```
+
+`clean` is a LAN, so the LAN start (`lan_start_bps` under `lan_rtt_us`) applies, as on the wired pair.
+`loss-1` is a 20 ms round trip with 1 % loss, so the start runs from `start_bps` and the growth
+constants decide the number. To split a sweep across machines, give each one a disjoint set of `--var`
+(add `--no-base` on all but one) and join their `sweep.jsonl` files with `table`. The Linux host
+captures `cmux-rd testapp --workload motion` on Xvfb, not the pair's synthetic churn scene. So this
+is a reading for comparing controller settings against each other. The pair's leg stays the goal's
+production reading.
 
 ## Two Macs
 
@@ -537,6 +579,13 @@ CmuxScreenEvalLauncher in System Settings > Privacy & Security. The first run li
 (`launcher --request`). Until then the run writes `run.blocked`, naming the app, and exits 3.
 macOS 15 and later may ask again, after some weeks, to keep allowing screen capture. A run blocked
 again on a mini that ran before is that prompt waiting at its console.
+
+On a dedicated fleet Mac the step can skip that console visit: `seed-grants=1`, inside a fleet console
+step only (`CMUX_CI_CONSOLE_SESSION=1` with `CMUX_CI_STEP_KEY`, after `person_guard.py` has refused a
+person's Mac), runs `launcher/seed-grants.sh`. It writes the two rows that console grant makes into the system
+TCC database with `sudo -n sqlite3`, keyed to the launcher's designated requirement. That is the same write the
+zero-touch screen-share probe makes for the app's helper. The step log prints one
+`SCREEN-STREAM-EVAL-LAUNCHER-SEED` line with each grant `held`, `seeded` or `refused: WHY`.
 
 **Trust.** The app holds both grants and runs the harness for any process of its user that asks:
 the path check only guards against a wrong path, since that user can edit its own checkout anyway.

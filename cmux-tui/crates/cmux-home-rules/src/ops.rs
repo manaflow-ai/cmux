@@ -90,6 +90,42 @@ pub fn parse<T: DeserializeOwned>(request: &Value) -> Result<T, OpError> {
     T::deserialize(request).map_err(|err| OpError::Invalid(err.to_string()))
 }
 
+/// Runs the op `op` on `bytes` (a JSON object, UTF-8) and writes its reply as JSON bytes: what
+/// `cmux_home_call` (cmux-app-ffi `src/home.rs`) answers. Ops with a typed path read the request
+/// straight into their request type and write their reply straight to bytes; the rest go through
+/// [`call`]. Either way the reply is the same JSON (key order aside), and a request that is not a
+/// JSON object is [`OpError::Invalid`].
+pub fn call_json(op: &str, bytes: &[u8]) -> Result<Vec<u8>, OpError> {
+    if let Some(("mapping", name)) = op.split_once('.')
+        && let Some(reply) = crate::mapping::call_bytes(name, bytes)
+    {
+        return reply;
+    }
+    let request = match serde_json::from_slice::<Value>(bytes) {
+        Ok(value @ Value::Object(_)) => value,
+        Ok(_) => return Err(OpError::Invalid("the request is not a JSON object".into())),
+        Err(err) => return Err(OpError::Invalid(err.to_string())),
+    };
+    let reply = call(op, &request)?;
+    serde_json::to_vec(&reply).map_err(|err| OpError::Invalid(err.to_string()))
+}
+
+/// An op's typed path from bytes: `None` when `bytes` is not an object its request type reads
+/// (a typed read also takes an array, and refuses duplicate keys the `Value` read keeps the last
+/// of), so the `Value` path answers those as it always did.
+pub fn typed_bytes<Req: DeserializeOwned, Rep: serde::Serialize>(
+    bytes: &[u8],
+    op: impl FnOnce(Req) -> Result<Rep, OpError>,
+) -> Option<Result<Vec<u8>, OpError>> {
+    if bytes.iter().find(|b| !b.is_ascii_whitespace()) != Some(&b'{') {
+        return None;
+    }
+    let request: Req = serde_json::from_slice(bytes).ok()?;
+    Some(op(request).and_then(|reply| {
+        serde_json::to_vec(&reply).map_err(|err| OpError::Invalid(err.to_string()))
+    }))
+}
+
 /// Writes `reply` as JSON.
 pub fn reply<T: serde::Serialize>(reply: &T) -> Result<Value, OpError> {
     serde_json::to_value(reply).map_err(|err| OpError::Invalid(err.to_string()))

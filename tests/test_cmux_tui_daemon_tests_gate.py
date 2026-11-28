@@ -79,10 +79,19 @@ def flat(text: str) -> str:
 
 
 class DaemonTestsGateTests(unittest.TestCase):
-    def test_the_gate_runs_on_the_shared_linux_label_on_every_attempt(self) -> None:
+    def test_the_gate_runs_on_the_shared_linux_label_and_a_nightly_rerun_leaves_it(self) -> None:
+        # A nightly-ref rerun takes the reserved GCP pool: 2026-11-28 run 46107444639 failed this
+        # gate on one cmux-linux box (cargo EACCES) and every promote waited on that pool.
         runs_on = sole_runs_on(jobs()["cmux-next-daemon-tests"])
         for context in contexts():
-            expected = "cmux-linux" if context["github.repository_owner"] == "manaflow-ai" else "ubuntu-24.04"
+            nightly = context["github.event_name"] == "workflow_dispatch" or context["github.ref"] in (
+                "refs/heads/nightly-next", "refs/heads/feat-cmux-next")
+            if context["github.repository_owner"] != "manaflow-ai":
+                expected = "ubuntu-24.04"
+            elif int(context["github.run_attempt"]) > 1 and nightly:
+                expected = "cmux-gcp-nightly-x64"
+            else:
+                expected = "cmux-linux"
             self.assertEqual(route(runs_on, context), expected, context)
 
     def test_the_job_keeps_its_id_and_setup(self) -> None:
@@ -101,6 +110,11 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertIn("scripts/ci/cmux-next-daemon-tests.sh", step(daemon, "cargo test cmux_next_")["run"])
         script = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text(encoding="utf-8")
         self.assertIn("--locked cmux_next_", script)
+        # A 14 GiB cmux-linux slot SIGKILLed the test compile at -j8 (job 140997699588): the jobs follow its memory,
+        # and an OOM-killed attempt retries at half.
+        self.assertIn("scripts/ci/cargo-mem-jobs.sh", script)
+        self.assertLess(script.index("cargo-mem-jobs.sh"), script.index("for attempt in 1 2 3"))
+        self.assertIn("signal: 9, SIGKILL", script)
         self.assertNotIn("continue-on-error", daemon)
 
     def test_a_pass_writes_the_marker_without_naming_an_os(self) -> None:
@@ -282,6 +296,69 @@ class DaemonTestsDiskFloorTests(unittest.TestCase):
         self.assertLess(floor, names.index("Cache cargo build"))
         self.assertLess(floor, names.index("Restore the cargo build from the CI cache bucket"))
         self.assertIn("cmux-tui-test-target.sh floor", step(jobs()["cmux-next-daemon-tests"], names[floor])["run"])
+
+
+
+# A fake r2-cache.sh: FAKE_R2=hit unpacks a workspace build into the target, FAKE_R2=miss unpacks nothing.
+FAKE_R2 = """#!/usr/bin/env bash
+[[ "$1" == restore ]] || exit 0
+[[ "$FAKE_R2" == hit ]] || exit 0
+mkdir -p "$2/debug/.fingerprint/acpmux-r2" "$2/debug/.fingerprint/hyper-r2"
+"""
+
+
+class TestTargetRestoreTakesTheFullTarget(unittest.TestCase):
+    """A rust-cache restore holds third-party output only; it must not hide the bucket's full target (job 140315082442)."""
+
+    def restore(self, existing: list[str], r2: str) -> tuple[subprocess.CompletedProcess, list[str], list[str]]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            (repo / "scripts" / "ci").mkdir(parents=True)
+            (repo / "scripts" / "ci" / "cmux-tui-test-target.sh").write_text(TARGET_SCRIPT.read_text(encoding="utf-8"))
+            (repo / "scripts" / "ci" / "r2-cache.sh").write_text(FAKE_R2)
+            (repo / "scripts" / "ci" / "timeout.sh").write_text('shift; exec "$@"\n')
+            (repo / "cmux-tui" / "rust-toolchain.toml").parent.mkdir(parents=True)
+            (repo / "cmux-tui" / "rust-toolchain.toml").write_text("[toolchain]\n")
+            for name in existing:
+                (repo / "cmux-tui" / "target" / "debug" / ".fingerprint" / name).mkdir(parents=True)
+            bin_dir = Path(tmpdir) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "df").write_text(FAKE_DF)
+            (bin_dir / "df").chmod(0o755)
+            (Path(tmpdir) / "elsewhere").mkdir()
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", FAKE_REPO=str(repo), FAKE_R2=r2,
+                       FREE_KIB_WITH_TARGET=str(80 * GIB), FREE_KIB_WITHOUT=str(80 * GIB), FREE_KIB_TMP=str(80 * GIB),
+                       TMPDIR=str(Path(tmpdir) / "elsewhere"), GITHUB_ACTIONS="true", GITHUB_REPOSITORY="manaflow-ai/cmux")
+            env.pop("CARGO_TARGET_DIR", None)
+            result = subprocess.run(["bash", str(repo / "scripts" / "ci" / "cmux-tui-test-target.sh"), "restore"],
+                                    env=env, capture_output=True, text=True, timeout=60)
+            fingerprints = repo / "cmux-tui" / "target" / "debug" / ".fingerprint"
+            left = sorted(p.name for p in fingerprints.iterdir()) if fingerprints.is_dir() else []
+            siblings = sorted(p.name for p in (repo / "cmux-tui").iterdir())
+            return result, left, siblings
+
+    def test_a_third_party_only_target_gives_way_to_a_hit(self) -> None:
+        result, left, siblings = self.restore(["hyper-rc"], "hit")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["acpmux-r2", "hyper-r2"], result.stdout)
+        self.assertEqual(siblings, ["rust-toolchain.toml", "target"], "the set-aside target is removed")
+
+    def test_a_miss_puts_the_third_party_output_back(self) -> None:
+        result, left, siblings = self.restore(["hyper-rc"], "miss")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["hyper-rc"], result.stdout)
+        self.assertEqual(siblings, ["rust-toolchain.toml", "target"])
+
+    def test_a_workspace_build_is_kept(self) -> None:
+        result, left, _ = self.restore(["acpmux-kept", "hyper-kept"], "hit")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["acpmux-kept", "hyper-kept"], result.stdout)
+        self.assertIn("already holds a workspace build", result.stdout)
+
+    def test_an_empty_workspace_takes_the_hit(self) -> None:
+        result, left, _ = self.restore([], "hit")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["acpmux-r2", "hyper-r2"], result.stdout)
 
 
 if __name__ == "__main__":

@@ -32,7 +32,10 @@ def calls_gh_attestation(run: str) -> bool:
 
 
 def exempt(runs_on: str) -> bool:
-    return "provenance" in runs_on or re.search(r"macos", runs_on, re.I) is not None
+    # A provenance job reads RUNNER_POOLS.provenance, or names GitHub-hosted Ubuntu itself since
+    # scripts/ci/one_linux_label.py froze that read to the label it resolved to.
+    return ("provenance" in runs_on or re.fullmatch(r"ubuntu-[a-z0-9.-]+", runs_on.strip()) is not None
+            or re.search(r"macos", runs_on, re.I) is not None)
 
 
 def violations(jobs: dict) -> list[str]:
@@ -66,6 +69,7 @@ class GhAttestationHasGh(unittest.TestCase):
         jobs = {
             "fleet": {"runs-on": "${{ vars.LINUX_RUNNER }}", "steps": [verify]},
             "hosted": {"runs-on": "${{ fromJSON(vars.RUNNER_POOLS).provenance }}", "steps": [verify]},
+            "hosted-label": {"runs-on": "ubuntu-latest", "steps": [verify]},
             "ensured": {"runs-on": "${{ vars.LINUX_RUNNER }}",
                         "steps": [{"run": "source scripts/ci/ensure-gh-attestation.sh\n" + verify["run"]}]},
             "too-late": {"runs-on": "${{ vars.LINUX_RUNNER }}",

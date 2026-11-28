@@ -63,6 +63,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ),
             ("Read the facts from stdin", "acpmux session route --facts -"),
             (
+                "Name it: this machine's hub fills its host's state and its copy of the chat",
+                "acpmux session route vm-a/review-27 --facts fleet-facts.json --show-facts",
+            ),
+            (
                 "Ask what to do with a dead session: restart, move or a successor",
                 "acpmux session route --facts /tmp/review-27-death.json",
             ),
@@ -446,6 +450,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Run coord in the cloud", "acpmux session place coord --on cloud"),
             ("Let acpmux pick", "acpmux session place coord --on auto --reason \"laptop asleep\""),
+        ],
+    ),
+    (
+        "session place-set",
+        &[
+            ("Run an existing chat in the cloud", "acpmux session place-set coord --mode cloud"),
+            (
+                "Move it to one of your machines",
+                "acpmux session place-set coord --mode machine --machine studio --yes",
+            ),
+            ("Move it back where it was", "acpmux session place-set coord --undo"),
         ],
     ),
 ];

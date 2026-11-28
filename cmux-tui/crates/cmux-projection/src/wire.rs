@@ -285,10 +285,11 @@ fn write_answer_as(out: &mut impl Write, ask: u32, parts: &[Part], packed: bool)
 
 /// `part`'s bytes as one zstd frame, when it is a file's bytes and the frame is smaller.
 fn pack(part: &Part) -> Option<Vec<u8>> {
-    if part.status != OK || part.bytes.len() < ZSTD_MIN {
+    let level = crate::tune::zstd_level();
+    if part.status != OK || part.bytes.len() < ZSTD_MIN || level == 0 {
         return None;
     }
-    let frame = zstd::bulk::compress(&part.bytes, ZSTD_LEVEL).ok()?;
+    let frame = zstd::bulk::compress(&part.bytes, level).ok()?;
     (frame.len() < part.bytes.len()).then_some(frame)
 }
 

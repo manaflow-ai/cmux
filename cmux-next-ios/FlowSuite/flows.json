@@ -127,6 +127,7 @@
       "id": "pairing-mac-identity",
       "title": "Pairing keeps the Mac's identity across relaunch; no false 'Mac's identity changed'",
       "source": ["regression:9"],
+      "pair_e2e": true,
       "kit": [],
       "ui": [],
       "swift": [
@@ -155,6 +156,7 @@
       "id": "workspaces-empty-mac-loads",
       "title": "A Mac with no workspaces shows an empty list, not Loading forever, and the route does not flap",
       "source": ["regression:11"],
+      "pair_e2e": true,
       "kit": ["CmuxMobileWorkspacesTests/WorkspaceInboxTests", "CmuxMobileTransportTests/NetworkPathFilterTests"],
       "ui": [],
       "paths": [
@@ -317,6 +319,33 @@
       "kit": ["CmuxMobileTerminalTests/TerminalShowsCacheTests"],
       "ui": ["TerminalComposerBarUITests"],
       "paths": ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/**"]
+    },
+    {
+      "id": "new-chat-starts-from-phone",
+      "title": "A new chat tab shows no 'hasn't started' notice; its first send from the phone starts the chat, and a failed start hands the draft back",
+      "source": ["leo:ask-651cea797f"],
+      "kit": ["CmuxMobileLiveTests/UnboundAgentStartTests"],
+      "ui": [],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LiveWorkspaceCreation.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LiveWorkspaceCreation+UnboundStart.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LiveCoordinator.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/**"
+      ]
+    },
+    {
+      "id": "read-first-kept-chat-first-frame",
+      "title": "Reopening a kept chat draws all its kept turns in the first frame, not Loading chat",
+      "source": ["leo:ask-8339601091", "leo:ask-432404d083", "leo:ask-6e4dab7cf1"],
+      "kit": ["CmuxMobileLiveTests/KeptChatFirstFrameReadBackTests"],
+      "ui": [],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/KeptTerminalChats.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/AccountKeptTerminalChats.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/AgentTranscriptCache.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LiveCoordinator.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/**"
+      ]
     }
   ]
 }

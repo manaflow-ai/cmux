@@ -32,7 +32,7 @@ Headlines (INFTABS lines, and one PERF_ROW JSON line each for the perf cron):
                        for a wake whose placeholder showed none: no kept frame, or the page was back first
   snapshot_covered     the share of those wakes a kept last frame covered
 INFTABS-KIND lines give each process kind at empty and full (count, RSS, footprint, CPU, wakeups).
-INFTABS-RENDERER lines give each Chromium renderer at full: its pid, RSS, footprint and peak, its distinguishing
+INFTABS-RENDERER lines give each Chromium renderer at empty and at full (phase=): its pid, RSS, footprint and peak, its distinguishing
 ps args (--renderer-client-id, extension) and the live pages it hosts with their owning tab (renderers.list).
 --app-vm: INFTABS-APPVM lines give the app process's `vmmap --summary`, `footprint` and `heap --sortBySize` at empty
 and at full, so the two diff region by region (the app is Chromium's browser process and PartitionAlloc is its
@@ -351,7 +351,7 @@ def kinds_table(empty: dict, full: dict):
 RENDERER_ARG_KEYS = ("renderer-client-id", "extension", "site", "origin", "cmux", "process-per")
 
 
-def renderers(app: bm.App, pid: int, bundle: str, sample: dict) -> list[dict]:
+def renderers(app: bm.App, pid: int, bundle: str, sample: dict, phase: str = "full") -> list[dict]:
     """One row per Chromium renderer at `sample`: its distinguishing ps args and the live pages the app says
     it hosts. `renderers.list` (Release too) names each helper's `--renderer-client-id` and each live page's
     renderer clients and owning tab; `debug.cef_pages` (bench or DEV build) is the fallback, without owners."""
@@ -378,10 +378,10 @@ def renderers(app: bm.App, pid: int, bundle: str, sample: dict) -> list[dict]:
                      "max_footprint_mb": row.get("max_footprint_mb"), "client": client, "args": args, "pages": hosted})
     unplaced = [p.get("url") or p.get("origin") for p in pages if not p.get("renderer_clients")]
     for row in rows:
-        print(f"INFTABS-RENDERER pid={row['pid']} rss_mb={row['rss_mb']} footprint_mb={row['footprint_mb']} "
+        print(f"INFTABS-RENDERER phase={phase} pid={row['pid']} rss_mb={row['rss_mb']} footprint_mb={row['footprint_mb']} "
               f"peak_footprint_mb={row['max_footprint_mb']} args={' '.join(row['args']) or '-'} "
               f"pages={json.dumps(row['pages'])}", flush=True)
-    print(f"INFTABS-RENDERER live_pages={len(pages)} source={'renderers.list' if 'helpers' in listed else 'debug.cef_pages'} "
+    print(f"INFTABS-RENDERER phase={phase} live_pages={len(pages)} source={'renderers.list' if 'helpers' in listed else 'debug.cef_pages'} "
           f"no_renderer={json.dumps(unplaced)}", flush=True)
     return rows
 
@@ -508,6 +508,9 @@ def run(argv: list[str]) -> int:
         phase(pid, bundle, sock, "empty", 0, args.measure, report)
         app_memory(pid, "empty", args, report)
         report["chat_heap_empty"] = chat_heap(app, pid, bundle, "empty")  # after the window: the empty app's own floor
+        # The empty app's renderers too: a renderer that is in both phases (a spare, Home's) costs the ratio nothing
+        # to keep and raises it when cut, so only a renderer new at full, or one that grew, is a cut for the goal.
+        report["empty_renderers"] = renderers(app, pid, bundle, report["phases"]["empty"], "empty")
         chats = bm.FakeChats(app, bundle, args.fake_agent) if args.chats else None
         started = time.monotonic()
         for index in range(args.workspaces):
@@ -530,6 +533,13 @@ def run(argv: list[str]) -> int:
                 hibernate(app, sock, made[-1 - args.lag], tally)
             if (index + 1) % 20 == 0:
                 now = bm.sample(pid, bundle, f"build-{index + 1}", index + 1)
+                # The biggest renderer as the build goes: whether a renderer's peak (the chat page's reached
+                # 724 MB footprint, then settled at 196 MB with 652 MB still resident) comes with the chats
+                # (the first --chats workspaces) or with the tabs after them.
+                big = sorted((r for r in now["processes"] if r["kind"] == "cef-renderer"),
+                             key=lambda r: r["footprint_mb"], reverse=True)[:2]
+                print("INFTABS-BUILD-RENDERER " + f"workspaces={index + 1} " + " ".join(
+                    f"pid={r['pid']}:rss={r['rss_mb']}:fp={r['footprint_mb']}:peak={r.get('max_footprint_mb')}" for r in big), flush=True)
                 print(f"INFTABS-BUILD workspaces={index + 1} made={len(made)} pages={sum(len(e['pages']) for e in made)} "
                       f"elapsed_s={round(time.monotonic() - started)} total_rss_mb={now['total_rss_mb']} "
                       f"renderers={now['kinds'].get('cef-renderer', {}).get('count', 0)} counts={json.dumps(counts(sock))}", flush=True)
@@ -576,6 +586,11 @@ def run(argv: list[str]) -> int:
         # collection and a purge give back (the switches after it start from a collected renderer).
         away = next((entry["workspace"] for entry in made if entry["kind"] == "terminal"), None)
         report["chat_heap_full"] = chat_heap(app, pid, bundle, "full", away=away, back=front)
+        # Closed chat pages whose view is still in memory, read after the retirer's 30 s bound (the settle and the
+        # measure window above): nonzero is a leak that debug.agent_pages' page list hides.
+        pages_report = app.call("debug.agent_pages", timeout=30) or {}
+        report["agent_pages_full"] = {k: pages_report.get(k) for k in ("closed_alive", "made_alive", "violations", "visible_tabless")}
+        print("INFTABS-AGENTPAGES " + " ".join(f"{k}={v}" for k, v in report["agent_pages_full"].items()), flush=True)
         with_pages = [entry for entry in made if entry["pages"]]
         step = max(1, len(with_pages) // max(1, args.wake))
         for entry in with_pages[::step][: args.wake]:
@@ -595,6 +610,8 @@ def run(argv: list[str]) -> int:
         perf_row("wakeups_per_s", summary["wakeups_per_s"], "1/s")
         perf_row("wakeups_empty_per_s", summary["wakeups_empty_per_s"], "1/s")
         perf_row("renderer_mb_per_tab", summary["renderer_mb_per_tab"], "MB")
+        if report["agent_pages_full"].get("closed_alive") is not None:
+            perf_row("agent_pages_closed_alive", report["agent_pages_full"]["closed_alive"], "pages")
         if summary["switch_pictures"]:
             perf_row("switch_picture_ms", summary["switch_picture_p50_ms"], "ms", summary["switch_picture_p95_ms"])
         perf_row("switch_mounted_ms", summary["switch_mounted_p50_ms"], "ms", summary["switch_mounted_p95_ms"])

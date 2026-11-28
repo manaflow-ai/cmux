@@ -137,12 +137,11 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
-    /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
-    public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
     /// Said while keys typed before the attach wait for it (``TerminalSessionEvent/inputHeld(bytes:)``),
     /// beside Discard.
     public static let inputHeldNotice = "Keys you typed go when the terminal reconnects."
-    /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
+    /// Said only when voice mode's prompt did not reach the Mac's terminal: its words are not in the
+    /// composer to come back. A composer send that did not go says nothing (its draft comes back).
     public static let composerSendNotSentNotice = "Your message was not sent."
     /// Said when the composer's message may have reached the Mac's terminal but its answer never
     /// came (the link failed after it went out): its text stays out of the composer, so a second
@@ -271,6 +270,9 @@ public protocol TerminalSession: AnyObject {
     /// Mac's own grid back from the screen while the primary screen shows.
     /// Sessions without a Mac ignore it.
     func setProjectsLocally(_ projects: Bool)
+    /// Render the host grid unchanged, without claiming the phone's dimensions.
+    var preservesHostGrid: Bool { get }
+    func setPreservesHostGrid(_ preserves: Bool)
     /// Where the reader is, in the page's rows: from the document's end to
     /// the top of the screen they read (the screen's height at the bottom).
     /// A projection keeps those lines when it re-wraps at a new width.
@@ -388,6 +390,8 @@ extension TerminalSession {
     public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool { false }
 
     public func setProjectsLocally(_ projects: Bool) {}
+    public var preservesHostGrid: Bool { false }
+    public func setPreservesHostGrid(_ preserves: Bool) {}
 
     public func noteReaderRowsFromEnd(_ rows: Int) {}
 

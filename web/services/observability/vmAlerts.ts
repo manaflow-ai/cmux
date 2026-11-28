@@ -1,10 +1,11 @@
-import { and, count, eq, gte, inArray, isNull, isNotNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, isNotNull, lt, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
 import { cloudDb } from "../../db/client";
-import { cloudVmAlertStates, cloudVmLeases, cloudVms, cloudVmUsageEvents } from "../../db/schema";
+import { cloudVmAlertStates, cloudVmHealthSnapshots, cloudVmLeases, cloudVms, cloudVmUsageEvents } from "../../db/schema";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
+import { allProbesConclusive, confirmedHungThisSweep, VM_HEALTH_PROVIDER } from "../vms/health/evidence";
 import { reportError } from "./report";
 import { readFreestyleTlsRuleUsage, tlsRuleCapacityAlert, TLS_RULE_CAPACITY_ALERT_KEY, type TlsRuleUsage } from "./providerRuleCapacity";
 
@@ -86,7 +87,7 @@ export async function runVmAlertChecks(options: {
   const createFailures = await countCreateFailures(db, createFailureSince);
   const stuckProvisioning = await listStuckProvisioningVms(db, stuckProvisioningBefore);
   const expiredLeases = await listExpiredUnrevokedLeases(db, now);
-  const unhealthy = await listUnhealthyVms(db, new Date(now.getTime() - healthStaleMs));
+  const unhealthy = await listUnhealthyVms(db, new Date(now.getTime() - healthStaleMs), now, healthStaleMs);
   const tlsRuleCapacity = await checkTlsRuleCapacity(options.readTlsRuleUsage, env, alertStateStore, now);
 
   const triggeredAlerts: AlertInput[] = [];
@@ -134,15 +135,7 @@ export async function runVmAlertChecks(options: {
 
   triggeredAlerts.push(...tlsRuleCapacity.alerts);
 
-  const triggeredKeys = new Set(triggeredAlerts.map((alert) => alert.key));
-  for (const key of [
-    "vm-create-failure-spike",
-    "vm-stuck-provisioning",
-    "vm-expired-unrevoked-leases",
-    "vm-health-stale",
-  ]) {
-    if (!triggeredKeys.has(key)) await clearAlertState(alertStateStore, key, now);
-  }
+  await clearResolvedAlertStates(alertStateStore, triggeredAlerts, unhealthy.canClear, now);
 
   for (const alert of triggeredAlerts) {
     const claim = await claimAlertDelivery(alertStateStore, alert, now);
@@ -408,18 +401,40 @@ async function listExpiredUnrevokedLeases(
   return { count: Number(countRow?.total ?? 0), samples };
 }
 
+async function clearResolvedAlertStates(
+  store: VmAlertStateStore,
+  triggeredAlerts: readonly AlertInput[],
+  canClearHealth: boolean,
+  now: Date,
+): Promise<void> {
+  const triggeredKeys = new Set(triggeredAlerts.map((alert) => alert.key));
+  for (const key of [
+    "vm-create-failure-spike",
+    "vm-stuck-provisioning",
+    "vm-expired-unrevoked-leases",
+    ...(canClearHealth ? ["vm-health-stale"] : []),
+  ]) {
+    if (!triggeredKeys.has(key)) await clearAlertState(store, key, now);
+  }
+}
+
 async function listUnhealthyVms(
   db: ReturnType<typeof cloudDb>,
   before: Date,
+  now: Date,
+  evidenceMaxAgeMs: number,
 ): Promise<{
+  readonly canClear: boolean;
   readonly count: number;
   readonly samples: Array<{ readonly id: string; readonly updatedAt: Date }>;
 }> {
+  const evidence = await recentHungEvidence(db, now, evidenceMaxAgeMs);
+  const canClear = evidence?.canClear ?? false;
+  if (!evidence?.providerVmIds.length) return { count: 0, samples: [], canClear };
   const stale = and(
     eq(cloudVms.status, "running"),
-    // Only classify rows that have reported at least once. A legacy image
-    // without the reporter is unknown rather than silently treated as dead;
-    // new images and the stats route establish this heartbeat on first use.
+    eq(cloudVms.provider, VM_HEALTH_PROVIDER),
+    inArray(cloudVms.providerVmId, evidence.providerVmIds),
     sql`(${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'providerVmId') = ${cloudVms.providerVmId}`,
     sql`CASE WHEN ((${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt') ~ '^[0-9]+$')
       THEN ((${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt')::double precision)
@@ -437,9 +452,53 @@ async function listUnhealthyVms(
     .where(stale)
     .limit(VM_ALERT_SAMPLE_LIMIT);
   return {
+    canClear,
     count: Number(rows[0]?.total ?? 0),
     samples: rows.map(({ id, updatedAt }) => ({ id, updatedAt })),
   };
+}
+
+type HungEvidence = {
+  readonly canClear: boolean;
+  readonly providerVmIds: readonly string[];
+};
+
+/**
+ * A stale reporter sample is diagnostic only. Critical classification needs a
+ * recent, complete control-path sweep that independently observed the guest
+ * as hung. Incomplete or old snapshots are deliberately inconclusive.
+ */
+async function recentHungEvidence(
+  db: ReturnType<typeof cloudDb>,
+  now: Date,
+  maxAgeMs: number,
+): Promise<HungEvidence | null> {
+  const [snapshot] = await db
+    .select({ createdAt: cloudVmHealthSnapshots.createdAt, report: cloudVmHealthSnapshots.report })
+    .from(cloudVmHealthSnapshots)
+    .orderBy(desc(cloudVmHealthSnapshots.createdAt))
+    .limit(1);
+  if (!snapshot || snapshot.createdAt.getTime() > now.getTime()
+    || now.getTime() - snapshot.createdAt.getTime() > maxAgeMs) return null;
+  if (!snapshot.report || typeof snapshot.report !== "object") return null;
+  const report = snapshot.report as {
+    readonly coverage?: { readonly inventoryComplete?: unknown; readonly skippedBudget?: unknown; readonly probeErrors?: unknown };
+    readonly errors?: unknown;
+    readonly hung?: unknown;
+  };
+  if (report.coverage?.inventoryComplete !== true || report.coverage.skippedBudget !== 0
+    || !Array.isArray(report.errors) || report.errors.length > 0 || !Array.isArray(report.hung)) return null;
+  const ids = report.hung.map(confirmedProviderVmId);
+  return {
+    canClear: allProbesConclusive(report.coverage) && !ids.includes(null),
+    providerVmIds: [...new Set(ids.filter((id): id is string => id !== null))],
+  };
+}
+
+function confirmedProviderVmId(entry: unknown): string | null {
+  if (!entry || typeof entry !== "object") return null;
+  const hung = entry as { readonly vmId?: unknown; readonly confirmedThisSweep?: unknown };
+  return typeof hung.vmId === "string" && hung.vmId && confirmedHungThisSweep(hung) ? hung.vmId : null;
 }
 
 function healthAlerts(

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.endpoint.azureBaseUrl" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استخدم عنوان URL الأساسي لـ Azure OpenAI الذي ينتهي بـ ‎/openai/v1‎."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koristite osnovni URL za Azure OpenAI koji završava na /openai/v1."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brug basis-URL'en til Azure OpenAI, der ender på /openai/v1."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwende die Azure OpenAI-Basis-URL, die auf /openai/v1 endet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use the Azure OpenAI base URL ending in /openai/v1."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa la URL base de Azure OpenAI que termina en /openai/v1."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisez l’URL de base Azure OpenAI qui se termine par /openai/v1."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa l’URL di base di Azure OpenAI che termina con /openai/v1."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "末尾が /openai/v1 の Azure OpenAI ベース URL を使用してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្រើ URL មូលដ្ឋាន Azure OpenAI ដែលបញ្ចប់ដោយ /openai/v1។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/openai/v1로 끝나는 Azure OpenAI 기본 URL을 사용하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bruk basis-URL-en for Azure OpenAI som slutter på /openai/v1."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Użyj bazowego adresu URL usługi Azure OpenAI kończącego się na /openai/v1."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use a URL base do Azure OpenAI que termina em /openai/v1."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Используйте базовый URL Azure OpenAI, который заканчивается на /openai/v1."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้ URL พื้นฐานของ Azure OpenAI ที่ลงท้ายด้วย /openai/v1"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/openai/v1 ile biten Azure OpenAI temel URL’sini kullanın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Використайте базову URL-адресу Azure OpenAI, що закінчується на /openai/v1."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dùng URL cơ sở của Azure OpenAI có đuôi /openai/v1."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请使用以 /openai/v1 结尾的 Azure OpenAI 基础 URL。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請使用以 /openai/v1 結尾的 Azure OpenAI 基底 URL。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

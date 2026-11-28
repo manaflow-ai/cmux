@@ -145,6 +145,18 @@ pub struct Delivery {
     /// well. Cleared when the hub refuses it outright (`server/outbox.rs` `relay_attempt`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_post: Option<crate::mesh::OutMessage>,
+    /// No post of [`Self::relay_post`] can be at the hub: every one so far failed before it left
+    /// this daemon (`HubError::never_reached`), and it is saved false before any post that might
+    /// not. Only then may a copy go to its machine directly (`server/mesh_direct.rs`). False for a
+    /// record saved before the field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relay_unreached: bool,
+    /// A direct copy may have reached its machine (`server/mesh_direct.rs`): saved before it goes,
+    /// and from then on only the direct path tries it again, under the same key, which the far
+    /// daemon runs once; the hub is never posted it. Cleared when the direct attempt provably
+    /// did not run it (no circuit, or the far daemon refused before it ran).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub direct_maybe: bool,
     /// Delivered to a peer's session, and not yet seen in that peer's journal after a later
     /// link: the machine may have lost it with its disk (a session moved to a fresh machine,
     /// a VM back on an older snapshot). Every link of the peer that comes up gives back its
@@ -509,6 +521,12 @@ impl OutboxState {
         let mut book = self.book();
         book.pending_targets = None;
         book.deliveries.extend(saved.deliveries);
+        // A file over the bounds is rewritten within them now, not at the first change a day on.
+        let trimmed = book.cap_settled() > 0;
+        if trimmed {
+            // The cut goes to `outbox.json` itself, not a journal line (a drop is not a change a journal can say).
+            self.disk.lock().unwrap_or_else(|e| e.into_inner()).snapshot_next = true;
+        }
         book.stats = super::outbox_stats::read(path, crate::store::now_ms());
         // Attachments come back from beside the file; ones no waiting delivery names go.
         let dir = attachments_dir(path);
@@ -531,7 +549,7 @@ impl OutboxState {
         let pending = book.deliveries.values().filter(|d| !d.settled()).cloned().collect();
         // A journal left over is folded into the snapshot now, so the files read alone by an
         // older daemon hold everything.
-        if saved.journal_bytes > 0 {
+        if saved.journal_bytes > 0 || trimmed {
             let change = book.changed();
             drop(book);
             self.save(change);
@@ -771,6 +789,8 @@ impl OutboxState {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -1253,6 +1273,7 @@ impl Book {
             // Open on its peer is not settled for this: kept until it closes or lapses.
             !d.settled() || d.open_on_peer || now.saturating_sub(d.updated_at) < keep
         });
+        self.cap_settled();
         self.changes += 1;
         self.changes
     }
@@ -1356,6 +1377,10 @@ fn projected_message(d: &Delivery) -> Option<&Value> {
     d.request.pointer("/_meta/acpmux/forwardProjection/messageId")
 }
 
+#[path = "outbox_cap.rs"]
+mod cap;
+pub use cap::{MAX_SETTLED, MAX_SETTLED_RECEIPTS};
+
 #[cfg(test)]
 #[path = "outbox_model_tests.rs"]
 mod model_tests;
@@ -1364,7 +1389,7 @@ mod model_tests;
 mod tests {
     use super::*;
 
-    fn delivery(n: usize) -> Delivery {
+    pub(super) fn delivery(n: usize) -> Delivery {
         let now = crate::store::now_ms();
         Delivery {
             id: format!("d-{n}"),
@@ -1379,6 +1404,8 @@ mod tests {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -1993,6 +2020,8 @@ mod tests {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,

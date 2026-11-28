@@ -1,3 +1,8 @@
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::os::unix::fs::FileExt as _;
+use std::os::unix::net::UnixListener;
+use std::process::Command;
+
 use super::*;
 
 #[test]
@@ -92,6 +97,107 @@ fn a_file_replaced_by_rename_after_the_manifest_is_re_listed_and_read() {
     std::fs::remove_file(root.join("index")).unwrap();
     std::os::unix::fs::symlink("/etc/hostname", root.join("index")).unwrap();
     assert_eq!(Source::read(&listed, entry, 0, 64).status, wire::FAILED);
+}
+
+#[test]
+fn a_removed_source_is_reported_and_never_falls_back_to_bytes() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    std::fs::write(root.join("gone.txt"), "before").unwrap();
+    let listed = list(&std::fs::canonicalize(root).unwrap()).unwrap();
+    let entry = listed.manifest.resolve("gone.txt").unwrap();
+    std::fs::remove_file(root.join("gone.txt")).unwrap();
+    assert_eq!(Source::read(&listed, entry, 0, 16).status, wire::FAILED);
+}
+
+#[test]
+fn a_huge_single_file_uses_ranged_reads_instead_of_whole() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    let path = root.join("huge.bin");
+    let file = std::fs::File::create(&path).unwrap();
+    let size: u64 = 64 * 1024 * 1024 * 1024 + 17;
+    file.set_len(size).unwrap();
+    let offset = u64::from(u32::MAX) + 4096;
+    let sentinel = b"past u32 range";
+    file.write_at(sentinel, offset).unwrap();
+    drop(file);
+
+    let listed = list(&std::fs::canonicalize(root).unwrap()).unwrap();
+    let entry = listed.manifest.resolve("huge.bin").unwrap();
+    assert_eq!(listed.manifest.entry(entry).unwrap().size, size);
+    assert_eq!(
+        Source::read(&listed, entry, offset, sentinel.len() as u32),
+        Part::ok(sentinel.to_vec())
+    );
+    assert_eq!(Source::read(&listed, entry, size - 2, 64), Part::ok(vec![0, 0]));
+    assert_eq!(Source::read(&listed, entry, size, 1), Part::ok(Vec::new()));
+    assert_eq!(Source::whole(&listed, entry).status, wire::FAILED);
+}
+
+#[test]
+fn line_carrier_preserves_manifest_bytes_including_newlines_and_nuls() {
+    let bytes = b"before\n\0middle\r\nafter\0\n";
+    let mut framed = Vec::new();
+    cmux_tui_core::projection::LineWriter::new(&mut framed).write_all(bytes).unwrap();
+    assert!(framed.starts_with(b"~"));
+    assert!(framed.ends_with(b"\n"));
+
+    let mut decoded = Vec::new();
+    cmux_tui_core::projection::LineReader::new(BufReader::new(std::io::Cursor::new(framed)))
+        .read_to_end(&mut decoded)
+        .unwrap();
+    assert_eq!(decoded, bytes);
+}
+
+#[test]
+fn dial_uses_the_line_carrier_for_manifest_bytes() {
+    let folder = tempfile::tempdir().unwrap();
+    let socket = folder.path().join("carrier.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let manifest = b"manifest\nwith\0bytes\n".to_vec();
+    let expected = manifest.clone();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut first = String::new();
+        reader.read_line(&mut first).unwrap();
+        let first: Value = serde_json::from_str(first.trim()).unwrap();
+        assert_eq!(first["lines"], true);
+        assert_eq!(first["redial"], false);
+        assert_eq!(first["manifest_bytes"], expected.len());
+
+        let mut decoded = vec![0; expected.len()];
+        cmux_tui_core::projection::LineReader::new(&mut reader).read_exact(&mut decoded).unwrap();
+        assert_eq!(decoded, expected);
+
+        let mut writer = stream;
+        writer.write_all(b"{\"id\":1,\"ok\":true,\"data\":{}}\n").unwrap();
+        writer.flush().unwrap();
+    });
+
+    let (reader, answer) =
+        dial(&socket, "chat-test", "/workspace", &manifest, None, false).unwrap();
+    assert!(ok(&answer));
+    drop(reader);
+    server.join().unwrap();
+}
+
+#[test]
+fn env_zero_disables_projection_without_mutating_machine_state() {
+    const CHILD: &str = "CMUX_PROJECTED_FOLDERS_TEST_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        assert!(!enabled());
+        return;
+    }
+
+    let status = Command::new(std::env::current_exe().unwrap())
+        .arg("env_zero_disables_projection_without_mutating_machine_state")
+        .env(ENV, "0")
+        .env(CHILD, "1")
+        .status()
+        .unwrap();
+    assert!(status.success());
 }
 
 #[test]
@@ -380,4 +486,43 @@ fn an_empty_or_non_git_folder_is_projected_not_skipped() {
     let listed = list(&std::fs::canonicalize(plain.path()).unwrap()).unwrap();
     assert!(listed.manifest.resolve("notes.txt").is_some());
     assert!(!listed.manifest.encode().unwrap().is_empty());
+}
+
+#[test]
+fn moves_project_by_default_and_env_zero_turns_them_off() {
+    const CHILD: &str = "CMUX_PROJECTED_MOVES_TEST_CHILD";
+    if let Some(want) = std::env::var_os(CHILD) {
+        assert_eq!(moves_enabled(), want == "on");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    for (moves, want) in [(None, "on"), (Some("0"), "off"), (Some("1"), "on")] {
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child
+            .arg("moves_project_by_default_and_env_zero_turns_them_off")
+            .env_remove(ENV)
+            .env_remove(MOVES_ENV)
+            .env("CMUX_TUI_STATE_DIR", state.path())
+            .env(CHILD, want);
+        if let Some(moves) = moves {
+            child.env(MOVES_ENV, moves);
+        }
+        assert!(child.status().unwrap().success(), "{moves:?} should be {want}");
+    }
+}
+
+#[test]
+fn a_failed_or_unserved_projection_is_a_fallback_and_off_or_small_is_not() {
+    assert_eq!(outcome(Ok(Ok(json!({"ok": true})))), Ok(json!({"ok": true})));
+    assert_eq!(outcome(Ok(Err(NotProjected::Off))), Err(None));
+    assert_eq!(outcome(Ok(Err(NotProjected::Small))), Err(None));
+    let unserved = outcome(Ok(Err(NotProjected::Unserved))).unwrap_err().unwrap();
+    assert_eq!(unserved.code, "projection.unserved");
+    let failed = outcome(Err(anyhow::anyhow!("mount timed out\nsecond line").context("dial")))
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(failed.code, "projection.failed");
+    assert!(failed.why.starts_with("dial: mount timed out"), "{}", failed.why);
+    assert!(!failed.why.contains("second line"), "only the first line: {}", failed.why);
+    assert_eq!(failed.json()["code"], json!("projection.failed"));
 }

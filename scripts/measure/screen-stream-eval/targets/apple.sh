@@ -168,10 +168,17 @@ connect() {
   # launched, never a Screen Sharing window someone else opened.
   local before new count pid candidate expected
   before=" $(viewer_pids | tr '\n' ' ') "
-  if ! open -g -n -a "$app" "vnc://$host" >/dev/null 2>&1; then
+  # The login (vnc_url.py: the --vnc-login step's file, the login file, the fleet keychain item):
+  # without one Screen Sharing stops at its login sheet and the scene never shows. The URL holds
+  # the password: only `open` sees it, never a log (screen-share-vs.py opens the same form).
+  local vnc
+  vnc=$(python3 -I "$EVAL_ROOT/scripts/measure/screen-stream-eval/vnc_url.py" "$host") || vnc="vnc://$host"
+  if ! open -g -n -a "$app" "$vnc" >/dev/null 2>&1; then
+    unset vnc
     echo "apple-$mode: Screen Sharing.app could not open the connection" >&2
     return 1
   fi
+  unset vnc
   new="" count=0
   for _ in $(seq 1 150); do
     new="" count=0
@@ -357,7 +364,9 @@ PY
 }
 
 case "$verb" in
-  caps) echo viewer-grants ;;
+  # Apple's OCR error is the comparison every quality-ladder run owes (eval.py OWED); the viewer
+  # half takes Screen Sharing's grants on the viewer Mac.
+  caps) printf 'viewer-grants\nowes-ocr\n' ;;
   build)
     screen_sharing_app >/dev/null || { echo "apple-$mode: Screen Sharing.app is unavailable" >&2; exit 1; }
     command -v screencapture >/dev/null || { echo "apple-$mode: screencapture is unavailable" >&2; exit 1; }

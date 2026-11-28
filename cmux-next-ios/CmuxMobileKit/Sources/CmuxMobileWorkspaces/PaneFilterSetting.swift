@@ -9,8 +9,8 @@ import Observation
 /// toggle"). One choice for every workspace, kept across launches. The rule is Rust's
 /// (`pane_filter_apply`); this holds the choice and saves it.
 ///
-/// The default is agent sessions and terminals, browsers one tap away behind their toggle (Leo
-/// called the dev-server browser case rare: "we tuck that ... in some kinda toggle").
+/// The default is agent sessions and terminals with browsers shown. The filter can hide them
+/// with its own toggle (Leo: "we tuck that ... in some kinda toggle").
 @MainActor
 @Observable
 public final class PaneFilterSetting {

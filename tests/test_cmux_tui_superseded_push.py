@@ -385,6 +385,17 @@ def check_verdicts():
                 _check(got == want, f"over git: {why} ({got!r}, want {want!r})")
                 paths = [r.split("?")[0].removeprefix(f"/repos/{REPO}/") for r in api.requests]
                 _check(paths == asked, f"over git: {why} asks exactly {asked} ({paths})")
+            # A rate-limited dispatch lookup is not a request: the head builds nothing (11-26: every sampled
+            # branch build was this fail-open). CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN=1 keeps the run as before.
+            git(remote, "update-ref", "refs/pull/7/head", head)
+            for code in (403, 429):
+                api.reset({dispatch_path: (code, {"message": "API rate limit exceeded"})})
+                got = run_check(api, repo, script, "push", "refs/heads/lane/current", head, over_git)
+                _check(got == "true", f"over git: a {code} dispatch lookup skips an on-request head ({got!r})")
+                api.reset({dispatch_path: (code, {"message": "API rate limit exceeded"})})
+                got = run_check(api, repo, script, "push", "refs/heads/lane/current", head,
+                                dict(over_git, CMUX_TUI_ON_REQUEST_LOOKUP_FAIL_OPEN="1"))
+                _check(got == "false", f"over git: the undo keeps the run on a {code} lookup ({got!r})")
             # CMUX_TUI_BRANCH_ON_REQUEST=0 keeps the old open-PR-head rule: that head runs, read over git only.
             git(remote, "update-ref", "refs/pull/7/head", head)
             api.reset({})
@@ -492,12 +503,15 @@ def check_wiring():
            "owner hand-off recheck stays off the shared workflow-token budget")
     _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
-    # cmux-next-daemon-tests enters next-cache-writer on feat-cmux-next for its R2 cargo cache (#55067); neither job
-    # enters the routing environment.
+    # cmux-next-daemon-tests enters next-cache-writer on feat-cmux-next for its R2 cargo cache (#55067); it never
+    # enters the routing environment. darwin-fallback-plan enters it only to read the CI pool's keys, which live
+    # there (#64913): a job in the environment that reads none of its secrets holds an unused protected token.
     for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
         environment = all_jobs[name].get("environment")
         environment = environment.get("name") if isinstance(environment, dict) else environment
-        _check("ci-routing-agent" not in str(environment or ""), f"{name} has no unused routing environment")
+        uses_environment = "secrets.CMUX_CI_POOL_KEYS" in str(all_jobs[name].get("steps"))
+        _check("ci-routing-agent" not in str(environment or "") or (name != "cmux-next-daemon-tests" and uses_environment),
+               f"{name} has no unused routing environment")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]

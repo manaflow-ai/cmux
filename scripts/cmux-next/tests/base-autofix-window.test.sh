@@ -20,7 +20,7 @@ EOF
 chmod +x "$tmp/bin/gh"
 export PATH="$tmp/bin:$PATH" GH_STUB_LOG="$tmp/gh.log" GH_STUB_ROWS="$tmp/rows"
 export GITHUB_REPOSITORY=o/r GITHUB_EVENT_NAME=push GITHUB_RUN_ATTEMPT=1 BASE_AUTOFIX_WINDOW_NOW=1800000000
-unset NEXT_BASE_AUTOFIX_WINDOW_MINUTES GH_STUB_FAIL GH_STUB_FAIL_TOKENS BASE_AUTOFIX_POOL_TOKENS
+unset NEXT_BASE_AUTOFIX_WINDOW_MINUTES BASE_AUTOFIX_CARGO_CHANGED GH_STUB_FAIL GH_STUB_FAIL_TOKENS BASE_AUTOFIX_POOL_TOKENS
 export GH_TOKEN=job
 
 rows() { printf '%s\n' "$@" | tr '|' '\037' > "$tmp/rows"; }
@@ -40,7 +40,7 @@ grep -q 'actions/workflows/cmux-next-base-autofix.yml/runs?branch=feat-cmux-next
 # 2. An older run that repaired (green or red) holds this one; so does one still in flight.
 rows "499|completed|success|fix: a thing"
 expect false "run 499 ended success"
-rows "480|completed|failure|fix: a thing"
+rows "510|completed|success|chore(next): base autofix at 0123456789ab" "480|completed|failure|fix: a thing"
 expect false "run 480 ended failure"
 rows "499|in_progress||fix: b"
 expect false "run 499 is in flight"
@@ -53,6 +53,30 @@ rows "499|completed|cancelled|fix: a" "498|completed|skipped|fix: b" \
   "496|in_progress||chore(next): pin GhosttyKit for ghostty 0123456789ab" \
   "501|in_progress||fix: newer" "502|completed|success|fix: newer"
 expect true "no run repaired"
+
+# 3b. A held run whose cancel was refused ends success (or failure) in seconds: it repaired nothing, so it never holds
+#     this one (2026-11-27: each such run held the next and nothing repaired for 7 h). A long run still holds.
+rows "499|completed|success|fix: a|95" "498|completed|failure|fix: b|11"
+expect true "no run repaired"
+rows "499|completed|success|fix: a|95" "498|completed|success|fix: b|2300"
+expect false "run 498 ended success"
+rows "510|completed|success|chore(next): base autofix at 0123456789ab" "499|completed|failure|fix: a|2355"
+expect false "run 499 ended failure"
+
+# 3c. A failed run with no repair commit pushed after it pushed nothing, so it never holds this one (2026-11-28: run
+#     46113326457 failed having pushed nothing and the window held every push run for 120 min). A repair commit
+#     pushed before it does not count for it.
+rows "499|completed|failure|fix: a|2355"
+expect true "no run repaired"
+rows "499|completed|failure|fix: a|2355" "470|completed|success|chore(next): base autofix at 0123456789ab"
+expect true "no run repaired"
+rows "499|completed|success|fix: a|2355"
+expect false "run 499 ended success"
+rows "499|completed|success|fix: a|95"
+NEXT_BASE_AUTOFIX_HELD_MAX_SECONDS=60 expect false "run 499 ended success"
+NEXT_BASE_AUTOFIX_HELD_MAX_SECONDS=junk expect true "no run repaired"
+rows "499|in_progress||fix: a|"
+expect false "run 499 is in flight"
 
 # 4. Fail open: an unreadable list, a window of 0 or garbage, a dispatch and a re-run all run.
 rows "499|completed|success|fix: a"
@@ -76,5 +100,13 @@ GITHUB_RUN_ATTEMPT=2 expect true "re-run"
 rows
 NEXT_BASE_AUTOFIX_WINDOW_MINUTES=30 expect true "within the last 30 min"
 grep -q 'created=%3E%3D2027-01-15T07:30:00Z' "$tmp/gh.log" || fail "30-minute window read: $(cat "$tmp/gh.log")"
+
+# 6. A push that changes a Cargo file repairs now, whatever repaired within the window (cmux#57132: one lock of five
+#    updated, every --locked build red until the window let a repair run). Anything but "true" is held as before.
+rows "499|completed|success|fix: a" "498|in_progress||fix: b"
+BASE_AUTOFIX_CARGO_CHANGED=true expect true "changes a Cargo.toml or Cargo.lock"
+[[ ! -s "$tmp/gh.log" ]] || fail "a Cargo push read GitHub: $(cat "$tmp/gh.log")"
+BASE_AUTOFIX_CARGO_CHANGED=false expect false "run 499 ended success"
+BASE_AUTOFIX_CARGO_CHANGED="" expect false "run 499 ended success"
 
 echo "base-autofix-window: ok"

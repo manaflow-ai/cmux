@@ -9,6 +9,13 @@
 //! WebSocket device and a peer are refused before anything is read (as the background-task
 //! methods are), and so is the chat's own agent. A start goes only while the tree still has the
 //! digest the plan showed.
+//!
+//! A machine goes one of two ways. An ssh peer runs the script over `ssh <peer> bash -s`. A
+//! Cloud or AutoCloud machine (any of the person's machines the hub carrier reaches) gets the
+//! script written into a private (0700) folder in its temp folder and run there, all as `_acpmux/machine_files_call`
+//! actions (`machine_files_relay.rs`) that its own grant and policy decide; the task's runner is
+//! `acpmux run-elsewhere-carrier` (`cli/run_elsewhere_carrier.rs`). That way holds a run to ten
+//! minutes and 256 KB of output per stream, and its output comes when the run ends.
 
 use super::{Conn, str_param};
 use crate::hub::Hub;
@@ -41,22 +48,76 @@ pub(super) async fn dispatch(
     Some(handle(hub, m, params).await)
 }
 
-/// The connected machines a run can go to, each with its ssh destination, and the others with
-/// why not.
-fn machines(hub: &Hub) -> Vec<(String, Result<String, String>)> {
-    hub.peers()
+/// How a run reaches its machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Route {
+    /// `ssh <destination> bash -s`.
+    Ssh(String),
+    /// The machine's name, reached over the hub carrier (`machine_files_relay.rs`).
+    Carrier(String),
+}
+
+/// The connected machines a run can go to, each with its route, and the others with why not.
+fn machines(hub: &Hub) -> Vec<(String, Result<Route, String>)> {
+    #[cfg(feature = "hub-carrier")]
+    let carrier = Some((hub.hub_carrier.get().is_some(), hub.mesh_book_machines()));
+    #[cfg(not(feature = "hub-carrier"))]
+    let carrier: Option<(bool, Vec<(String, String)>)> = None;
+    routes(&hub.peers(), carrier)
+}
+
+/// [`machines`] from the peer rows and, with the hub carrier built in, whether it runs and the
+/// person's machines it reaches (`(daemonId, host)`).
+pub(super) fn routes(
+    peers: &[Value],
+    carrier: Option<(bool, Vec<(String, String)>)>,
+) -> Vec<(String, Result<Route, String>)> {
+    let on_carrier = |name: &str| -> Option<Result<Route, String>> {
+        let (up, book) = carrier.as_ref()?;
+        // One machine by this name, as `machine_call_service::machine_key` finds it for the call.
+        let mut found = book.iter().filter(|(key, host)| host == name || key == name);
+        found.next()?;
+        if found.next().is_some() {
+            return None;
+        }
+        Some(if *up {
+            Ok(Route::Carrier(name.to_owned()))
+        } else {
+            Err("this machine's hub carrier is off (not signed in?)".to_owned())
+        })
+    };
+    let mut out: Vec<(String, Result<Route, String>)> = peers
         .iter()
         .filter_map(|p| {
             let name = p.get("name")?.as_str()?.to_owned();
             let connected = p.get("connected").and_then(Value::as_bool).unwrap_or(false);
-            let route = match p.get("url").and_then(Value::as_str).map(crate::peer::ssh_target) {
-                _ if !connected => Err("not connected now".to_owned()),
-                Some(Ok(t)) => Ok(t.destination),
-                _ => Err("reached without ssh; runs need ssh for now".to_owned()),
+            let ssh = p.get("url").and_then(Value::as_str).map(crate::peer::ssh_target);
+            let route = match ssh {
+                Some(Ok(t)) if connected => Ok(Route::Ssh(t.destination)),
+                _ => match on_carrier(&name) {
+                    Some(route) => route,
+                    None if !connected => Err("not connected now".to_owned()),
+                    None => Err("reached without ssh or the hub carrier".to_owned()),
+                },
             };
             Some((name, route))
         })
-        .collect()
+        .collect();
+    // The person's signed-in machines no peer row names (a Cloud or AutoCloud machine): each by
+    // its host, or by its id when two share a host.
+    if let Some((_, book)) = &carrier {
+        for (key, host) in book {
+            let shared = book.iter().filter(|(_, other)| other == host).count() > 1;
+            let name = if shared { key } else { host };
+            if out.iter().any(|(listed, _)| listed == name) {
+                continue;
+            }
+            if let Some(route) = on_carrier(name) {
+                out.push((name.clone(), route));
+            }
+        }
+    }
+    out
 }
 
 async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
@@ -110,8 +171,8 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
     }
     let peer =
         str_param(params, "peer").ok_or_else(|| RpcError::invalid_params("peer is required"))?;
-    let destination = match machines.into_iter().find(|(name, _)| name == peer) {
-        Some((_, Ok(destination))) => destination,
+    let route = match machines.into_iter().find(|(name, _)| name == peer) {
+        Some((_, Ok(route))) => route,
         Some((_, Err(why))) => return Err(RpcError::invalid_params(format!("{peer}: {why}"))),
         None => return Err(RpcError::invalid_params(format!("{peer} is not a connected machine"))),
     };
@@ -132,12 +193,35 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         .map_err(RpcError::invalid_params)?;
     let path = write_script(&run_id, &script)
         .map_err(|e| RpcError::internal(format!("save the run's script: {e}")))?;
-    let task = re::task_command("ssh", &destination, &path);
+    let task = match &route {
+        Route::Ssh(destination) => re::task_command("ssh", destination, &path),
+        Route::Carrier(machine) => {
+            if script.len() as u64 > crate::hand::fsops::MAX_FILE_BYTES {
+                let _ = std::fs::remove_file(&path);
+                return Err(RpcError::invalid_params(format!(
+                    "{peer}: the changes are too big to send to a Cloud machine (over 8 MB); commit and push them first"
+                )));
+            }
+            let me = crate::self_command::SelfCommand::current()
+                .map_err(|e| RpcError::internal(format!("find this acpmux: {e}")))?;
+            re::carrier_task_command(&me, machine, &path)
+        }
+    };
     let description = format!("{} on {peer}", crate::bg_run::label(None, command));
     // The task's own shell removes the script when the run ends; a start acpmux refuses (a stopped
     // chat, too many tasks) leaves it here, readable only by this user.
     let started = hub
-        .bg_start(&session, &task, Some(plan.root.clone()), Some(description), false, false, None)
+        .bg_start(
+            &session,
+            &task,
+            Some(plan.root.clone()),
+            Some(description),
+            false,
+            false,
+            None,
+            None,
+            Default::default(),
+        )
         .await?;
     Ok(json!({
         "task": started,
@@ -160,3 +244,7 @@ fn write_script(run_id: &str, script: &str) -> std::io::Result<PathBuf> {
     options.open(&path)?.write_all(script.as_bytes())?;
     Ok(path)
 }
+
+#[cfg(test)]
+#[path = "run_elsewhere_tests.rs"]
+mod tests;

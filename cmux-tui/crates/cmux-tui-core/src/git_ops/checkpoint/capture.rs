@@ -118,6 +118,28 @@ impl Plan {
     }
 }
 
+/// How long a capture waits for another git process's index lock.
+const INDEX_LOCK_WAIT: Duration = Duration::from_secs(5);
+
+/// Waits (quietly, bounded) for another git process to drop `lock`: a git
+/// command holds it for moments, so asking the person to run the checkpoint
+/// again would only repeat this wait by hand. A lock still there at the
+/// deadline is usually one a crashed git left behind, and the message says so.
+fn wait_for_index_lock(lock: &Path, wait: Duration) -> Result<(), String> {
+    crate::retry::Patience::new("the git index lock", wait).quiet().run(|| {
+        if lock.exists() {
+            Err(crate::retry::Attempt::Retry(format!(
+                "another git process still holds the index lock after {} s; if no git \
+                 command is running in this repository, remove the stale {}",
+                wait.as_secs(),
+                lock.display()
+            )))
+        } else {
+            Ok(())
+        }
+    })
+}
+
 pub(super) fn capture(
     git: &WriteGit<'_>,
     repository: &Repository,
@@ -127,11 +149,12 @@ pub(super) fn capture(
     stamp: &Stamp<'_>,
     operation: &'static str,
 ) -> Result<Captured, ResourceError> {
+    wait_for_index_lock(&layout.git_dir.join("index.lock"), INDEX_LOCK_WAIT)
+        .map_err(|message| failed(operation, "repository_busy", message))?;
+    // A producer may finish its index replacement while the lock is held. Take
+    // the baseline after that producer has released the lock so the capture
+    // describes the index that it will actually read.
     let before = scan::observe(repository, operation)?;
-    if layout.git_dir.join("index.lock").exists() {
-        let message = "another git process holds the index lock; try again when it finishes";
-        return Err(failed(operation, "repository_busy", message));
-    }
     let mut plan = Plan::default();
     plan_tracked(repository, &before.entries, request, &mut plan);
     plan_untracked(repository, request, &mut plan, operation)?;
@@ -622,5 +645,43 @@ fn os(path: &[u8]) -> OsString {
     #[cfg(not(unix))]
     {
         OsString::from(String::from_utf8_lossy(path).into_owned())
+    }
+}
+
+#[cfg(test)]
+mod index_lock_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// A fresh lock file in its own temporary folder (removed by the test).
+    fn held_lock(name: &str) -> (PathBuf, PathBuf) {
+        let unique = format!("cmux-index-lock-{name}-{}", std::process::id());
+        let dir = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("index.lock");
+        std::fs::write(&lock, "").unwrap();
+        (dir, lock)
+    }
+
+    #[test]
+    fn a_capture_waits_for_a_short_lived_index_lock() {
+        let (dir, lock) = held_lock("short");
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(200));
+                assert!(std::fs::remove_file(&lock).is_ok());
+            });
+            assert_eq!(wait_for_index_lock(&lock, Duration::from_secs(5)), Ok(()));
+        });
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_lock_left_behind_names_the_stale_file() {
+        let (dir, lock) = held_lock("stale");
+        let message = wait_for_index_lock(&lock, Duration::from_millis(150)).unwrap_err();
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(message.contains("remove the stale"), "{message}");
+        assert!(!message.contains("try again"), "{message}");
     }
 }

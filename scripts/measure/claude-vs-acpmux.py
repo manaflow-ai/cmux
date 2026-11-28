@@ -17,6 +17,8 @@ Arms (`--arms`, default stdio,acpmux):
           `sr2 claude` runs its TUI only in a cmux terminal: run this arm from one.
   gui     A cmux NEXT chat in a running app (`--app-socket`, a dev build's control socket): debug.agent_pane
           new_chat + send_prompt, the page polled (`query`) for the first tool card and the first answer text.
+  acpmux_b  The acpmux arm against a second daemon (`--b-acpmux-bin`, `--b-acpmux-home`): a build to compare, same
+          Mac and minutes.
   mcp     The cause found in cmux#57487, alone: a new chat's `cmux mcp serve` answering its first `tools/list`,
           which Claude Code waits for before its first turn (`--mcp-runs`).
 
@@ -40,6 +42,7 @@ limit (GUARDS below).
 
   python3 scripts/measure/claude-vs-acpmux.py --runs 5
   python3 scripts/measure/claude-vs-acpmux.py --arms mcp --mcp-runs 8 --guard
+  python3 scripts/measure/claude-vs-acpmux.py --arms mcp --mcp-command cmux-tui/target/debug/cmux-tui   # a build's
   python3 scripts/measure/claude-vs-acpmux.py --arms gui --app-socket "$HOME/.local/state/cmux-next-dev-TAG/cmux.sock" \
       --acpmux-bin "/path/to/cmux NEXT DEV TAG.app/Contents/Resources/bin/acpmux"
 """
@@ -332,8 +335,22 @@ def _daemon_pid(home: Path) -> int | None:
         return None
 
 
-def arm_acpmux(a, run: int) -> list[dict]:
+def arm_acpmux_b(a, run: int) -> list[dict]:
+    """The acpmux arm against a second daemon (`--b-acpmux-bin`, `--b-acpmux-home`): a build to compare."""
+    if not a.b_acpmux_bin:
+        raise RuntimeError("the acpmux_b arm needs --b-acpmux-bin and --b-acpmux-home")
+    b = argparse.Namespace(**vars(a))
+    b.acpmux_bin, b.acpmux_home = a.b_acpmux_bin, a.b_acpmux_home
+    rows = arm_acpmux(b, run, env_extra={"ACPMUX_HOME": a.b_acpmux_home,
+                                         "ACPMUX_SOCKET": str(Path(a.b_acpmux_home) / "acpmux.sock")})
+    for row in rows:
+        row["arm"] = "acpmux_b"
+    return rows
+
+
+def arm_acpmux(a, run: int, env_extra: dict | None = None) -> list[dict]:
     env = clean_env()
+    env.update(env_extra or {})
     name = f"bench-acpmux-{os.getpid()}-{run}-{int(now())}"
     home = Path(a.acpmux_home)
     t0 = now()
@@ -550,7 +567,8 @@ def arm_mcp(a, run: int) -> list[dict]:
         child_env = clean_env()
         child_env.update({k: v for k, v in launch["env"]})
         t0 = now()
-        proc = subprocess.Popen([launch["command"], *launch["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        command = a.mcp_command or launch["command"]  # another build's `cmux` against the same chat
+        proc = subprocess.Popen([command, *launch["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL, env=child_env, text=True, bufsize=1,
                                 cwd=launch.get("cwd") or None)
         proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
@@ -571,7 +589,7 @@ def arm_mcp(a, run: int) -> list[dict]:
         subprocess.run([a.acpmux_bin, "archive", name], capture_output=True, env=env)
 
 
-ARMS = {"stdio": arm_stdio, "acpmux": arm_acpmux, "tui": arm_tui, "gui": arm_gui, "mcp": arm_mcp}
+ARMS = {"stdio": arm_stdio, "acpmux": arm_acpmux, "acpmux_b": arm_acpmux_b, "tui": arm_tui, "gui": arm_gui, "mcp": arm_mcp}
 METRICS = ["spawn", "start_wait", "first_token", "daemon_first_token", "first_block", "first_tool", "tool_rt",
            "model_after_tool", "throughput", "total", "cpu_s", "rss_mb", "daemon_cpu_s", "initialize", "first_list"]
 
@@ -630,6 +648,10 @@ def main() -> int:
     p.add_argument("--pane", default="focused", help="gui arm: the pane to open chats in")
     p.add_argument("--tool-selector", default="[data-tool-call-id], .acpmux-tool-call")
     p.add_argument("--text-selector", default="[data-role=assistant] .markdown, .acpmux-agent-message")
+    p.add_argument("--b-acpmux-bin", help="acpmux_b arm: the other build's acpmux")
+    p.add_argument("--b-acpmux-home", help="acpmux_b arm: that daemon's ACPMUX_HOME (its socket is acpmux.sock there)")
+    p.add_argument("--mcp-command", help="mcp arm: this `cmux` binary in place of the one the gateway would start "
+                                          "(a build to compare against the installed app's)")
     p.add_argument("--guard", action="store_true", help="exit 1 when a guarded p50 is over its limit")
     p.add_argument("--json", help="write every row here too")
     a = p.parse_args()

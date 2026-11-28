@@ -62,6 +62,7 @@ import { hiddenSessionInfoSections, type PickableSessionInfoSection } from "./se
 import { configureKeyStyle } from "../../ui/keyStyle";
 import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
+import { configureStreamingStyle } from "./conversation/streamingStyle";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 import {
   DEFAULT_RESOLVED_TRANSCRIPT_LOOK,
@@ -248,6 +249,11 @@ export const MODEL_PICKER_ORDER_KEY = "agentPane.display.modelPickerOrder";
 /// turns it on. Not part of ChatDisplay.
 export const MODEL_PICKER_STYLE_KEY = "agentPane.display.modelPickerStyle";
 export type ModelPickerStyle = "list" | "menu";
+/// Settings > Agent Chat > Only This Chat's Agent Updates (harnessUpdateList.ts `ownOnly`): the model
+/// menus' update footer offers the chat's own agent CLI alone, as a one-agent app's model menu does
+/// (the Claude Code app lists no Codex update; customize-app-profiles). Off by default: every
+/// outdated agent CLI (Leo 2026-11-12, ask-3fdf0982ec). A look turns it on. Not part of ChatDisplay.
+export const OWN_HARNESS_UPDATES_KEY = "agentPane.display.ownHarnessUpdatesOnly";
 /// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
 /// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
 const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY, MODEL_PICKER_ORDER_KEY] as const;
@@ -604,6 +610,7 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
+let renderPipelineOn = false;
 let statusPillsOn = false;
 let headerBreadcrumbOn = false;
 let subagentOfOn = false;
@@ -627,6 +634,7 @@ let sessionInfoHidden: readonly PickableSessionInfoSection[] = NO_HIDDEN_SECTION
 let environmentCardOn = false;
 let changesPillOn = false;
 let modelPickerStyle: ModelPickerStyle = "list";
+let ownHarnessUpdatesOnly = false;
 /// The PICKED_KEYS values as JSON, so a change to one of them alone reaches its listeners.
 let picked = "[]";
 /// Whether a `display` value came (the host's, or the page's own change): until then the picks are
@@ -680,6 +688,7 @@ export function setChatDisplay(value: unknown): void {
   configureStatusVerbs(raw);
   configureChatLayout(raw);
   configureThinkingLook(raw);
+  configureStreamingStyle(raw);
   configureSenderIconLook(raw);
   // `app.keyStyle` and `app.shortcutLayout` (Swift AgentPaneDisplaySetting.followedAppPaths): every list here.
   configureKeyStyle(raw);
@@ -687,6 +696,7 @@ export function setChatDisplay(value: unknown): void {
   const nextHighContrastArm = experimentArm(highContrastLook);
   const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
+  const renderPipeline = raw["experiments.chat_render_pipeline"] === true;
   const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
   const subagentOf = raw[SUBAGENT_OF_KEY] === true;
@@ -724,6 +734,7 @@ export function setChatDisplay(value: unknown): void {
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
   const changesPill = raw[CHANGES_PILL_KEY] === true;
   const pickerStyle: ModelPickerStyle = raw[MODEL_PICKER_STYLE_KEY] === "menu" ? "menu" : "list";
+  const ownUpdates = raw[OWN_HARNESS_UPDATES_KEY] === true;
   const pickedNow = JSON.stringify(PICKED_KEYS.map((key) => raw[key] ?? null));
   const first = !received;
   received = true;
@@ -749,6 +760,7 @@ export function setChatDisplay(value: unknown): void {
     sameLook &&
     !facesChanged &&
     minimap === minimapOn &&
+    renderPipeline === renderPipelineOn &&
     statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
     subagentOf === subagentOfOn &&
@@ -768,6 +780,7 @@ export function setChatDisplay(value: unknown): void {
     environmentCard === environmentCardOn &&
     changesPill === changesPillOn &&
     pickerStyle === modelPickerStyle &&
+    ownUpdates === ownHarnessUpdatesOnly &&
     sameHiddenSections
   )
     return;
@@ -778,7 +791,9 @@ export function setChatDisplay(value: unknown): void {
   environmentCardOn = environmentCard;
   changesPillOn = changesPill;
   modelPickerStyle = pickerStyle;
+  ownHarnessUpdatesOnly = ownUpdates;
   minimapOn = minimap;
+  renderPipelineOn = renderPipeline;
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
   subagentOfOn = subagentOf;
@@ -945,6 +960,9 @@ export const promptCoachEnabled = (): boolean => promptCoachOn;
 const promptCoachSnapshot = () => promptCoachOn;
 export const usePromptCoachOn = (): boolean =>
   useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
+const renderPipelineSnapshot = () => renderPipelineOn;
+export const useChatRenderPipeline = (): boolean =>
+  useSyncExternalStore(subscribe, renderPipelineSnapshot, renderPipelineSnapshot);
 const sessionInfoHiddenSnapshot = () => sessionInfoHidden;
 /// The Session Info sections the person turned off (`agentPane.display.sessionInfo.sections.<id>`
 /// false): SessionInfo.tsx draws none of them. Not part of ChatDisplay: no transcript row moves.
@@ -963,6 +981,10 @@ const sendScrollsToTopSnapshot = () => sendScrollsToTopOn;
 export const useSendScrollsToTop = (): boolean =>
   useSyncExternalStore(subscribe, sendScrollsToTopSnapshot, sendScrollsToTopSnapshot);
 const modelPickerStyleSnapshot = () => modelPickerStyle;
+const ownHarnessUpdatesSnapshot = () => ownHarnessUpdatesOnly;
+/// Whether the model menus' update footer offers the chat's own agent alone (OWN_HARNESS_UPDATES_KEY).
+export const useOwnHarnessUpdatesOnly = (): boolean =>
+  useSyncExternalStore(subscribe, ownHarnessUpdatesSnapshot, ownHarnessUpdatesSnapshot);
 /// What a click on the model chip opens (MODEL_PICKER_STYLE_KEY): the harness columns or the compact menu.
 export const useModelPickerStyle = (): ModelPickerStyle =>
   useSyncExternalStore(subscribe, modelPickerStyleSnapshot, modelPickerStyleSnapshot);

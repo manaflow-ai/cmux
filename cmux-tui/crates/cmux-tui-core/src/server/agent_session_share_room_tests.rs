@@ -514,6 +514,45 @@ fn an_account_redeem_answers_the_invitees_role_and_nothing_else_about_the_accoun
 }
 
 #[test]
+fn a_transferred_share_reconnects_with_the_same_guest_role() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-transfer-share", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let id = share["share_id"].as_str().unwrap();
+    let invite = owner.request(json!({"cmd":"agent-session-share-invite", "share_id":id,
+        "account":"tom@example.com", "role":"talk"}));
+    assert_eq!(invite["ok"], true, "{invite}");
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"v":1,"t":"redeem","request_id":"before","attempt_id":"attempt-1",
+        "account":"tom@example.com","name":"Tom"}));
+    let redeemed = room.frame(conn);
+    let guest = redeemed["guest_id"].clone();
+    assert_eq!(redeemed["role"], "talk");
+
+    let directory = mux.session_state_directory();
+    let payload = shares(&mux)
+        .export_for_transfer(directory.as_deref(), SESSION)
+        .expect("the active share is carried by the move");
+    shares(&mux).detach_for_transfer(directory.as_deref(), SESSION).unwrap();
+    // Re-open the room host from the imported record after a source daemon handoff. The room's
+    // durable guest and role survive the host replacement, so a retry gets the same talk role.
+    super::super::stage_transferred_chat_shares(&mux, "aborted", SESSION, payload.clone()).unwrap();
+    assert!(shares(&mux).export_for_transfer(directory.as_deref(), SESSION).is_none());
+    super::super::finish_transferred_chat_shares(&mux, "aborted", false).unwrap();
+    super::super::stage_transferred_chat_shares(&mux, "moved", SESSION, payload).unwrap();
+    assert!(shares(&mux).export_for_transfer(directory.as_deref(), SESSION).is_none());
+    room.drop_host();
+    super::super::finish_transferred_chat_shares(&mux, "moved", true).unwrap();
+    let (again, _) = room.host();
+    assert_eq!(room.frame(again)["active"], json!([guest]));
+    room.send(json!({"v":1,"t":"redeem","request_id":"after","attempt_id":"attempt-1",
+        "account":"tom@example.com","name":"Tom"}));
+    let retried = room.frame(again);
+    assert_eq!((retried["guest_id"].clone(), retried["role"].clone()), (guest, json!("talk")));
+}
+
+#[test]
 fn a_kick_is_resent_until_the_room_acknowledges_it_and_a_revoke_ends_and_deletes() {
     let room = FakeRoom::start(&[]);
     let (_fake, _mux, surface, mut owner) = bridged("room-kick", &room);
@@ -892,11 +931,19 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
     let mux = Mux::open_persistent("room-restart", options, &root).unwrap();
     let shares = shares_of(&mux);
 
+    // Hold one tokenless worker at its final read until the expiry timer has tried to
+    // start cleanup. The worker releasing that claim must pick up the missed expiry.
+    let id = "pending-0";
+    assert!(shares.claim_room_delete(id));
+    let worker = DeleteGuard { mux: Arc::downgrade(&mux), share_id: id.into(), tokenless: true };
+
     // A restart has no owner credential or host token for these failed provisions. It must still
     // resume the records and wake a credentialless cleanup at their expiry.
     start_link_share_bridge(&mux, Some(&room.url));
     shares.advance(Duration::from_secs(2 * 86_400));
     shares.expired(&mux);
+    assert!(view(&mux, id).unwrap().delete);
+    drop(worker);
     // Each settles on the bridge's own worker (`delete`), not inside `expired`.
     let pending = || {
         shares
@@ -2313,7 +2360,7 @@ fn a_host_token_or_room_the_shares_file_cannot_keep_is_refused() {
 #[test]
 fn the_rooms_request_frame_records_an_access_request_the_owner_approves() {
     let room = FakeRoom::start(&[]);
-    let (_fake, _mux, surface, mut owner) = bridged("room-access-request", &room);
+    let (_fake, mux, surface, mut owner) = bridged("room-access-request", &room);
     let share = create(&mut owner, surface)["data"].clone();
     let share_id = share["share_id"].clone();
     let (conn, _) = room.host();
@@ -2342,6 +2389,27 @@ fn the_rooms_request_frame_records_an_access_request_the_owner_approves() {
     let shown = state(&mut owner);
     assert_eq!(shown["requests"].as_array().unwrap().len(), 1, "{shown}");
     assert_eq!(shown["requests"][0]["account"], "sam@example.com");
+    // The owner is told, once, on the chat's surface (ask-fe19418926: Docs-like sharing).
+    let asks = |mux: &Mux| {
+        mux.resource_notifications(256)
+            .into_iter()
+            .filter(|n| n.title.ends_with("asks to join this chat"))
+            .collect::<Vec<_>>()
+    };
+    let told = asks(&mux);
+    assert_eq!(told.len(), 1, "one notification for a new request");
+    assert_eq!(told[0].title, "Sam Park asks to join this chat");
+    assert_eq!(told[0].body, "sam@example.com · Open Share to approve or decline.");
+    assert_eq!(
+        told[0].surface,
+        Some(surface),
+        "it opens the shared chat: {told:?} tab_session={:?} terminal={:?}",
+        crate::server::agent_session_attach::tab_session(&mux, surface),
+        mux.surface(surface).and_then(|s| s.terminal_public_id().cloned())
+    );
+    room.send(request("r1b", Some("sam@example.com")));
+    assert_eq!(room.frame(conn)["state"], "requested");
+    assert_eq!(asks(&mux).len(), 1, "a repeat ask is not told again");
     // Not yet: the account holds no access.
     room.send(json!({"v": 1, "t": "redeem", "request_id": "d1", "attempt_id": "a1",
         "name": "Sam", "account": "sam@example.com"}));
@@ -2368,6 +2436,8 @@ fn the_rooms_request_frame_records_an_access_request_the_owner_approves() {
     room.send(request("r4", Some("eve@example.com")));
     assert_eq!(room.frame(conn)["state"], "requested", "a declined account is not told");
     assert_eq!(state(&mut owner)["requests"], json!([]));
+    // Sam's and Eve's first asks only: refusals, repeats and the declined ask tell nothing.
+    assert_eq!(asks(&mux).len(), 2, "the owner is not told of a declined account asking again");
 }
 
 #[test]

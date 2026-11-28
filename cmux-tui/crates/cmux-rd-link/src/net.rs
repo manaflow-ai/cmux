@@ -64,6 +64,8 @@ mod media_queue;
 mod no_path;
 #[path = "socket.rs"]
 mod socket;
+#[path = "stream_relay.rs"]
+mod stream_relay;
 #[cfg(unix)]
 #[path = "net_unix.rs"]
 mod sys;
@@ -73,7 +75,10 @@ mod sys;
 
 use media_queue::{MediaFrame, MediaQueue};
 use socket::send_to_observed;
-use sys::{Wake, grow_udp_buffers, interface_addresses, mark_interactive_video, wait_readable};
+use stream_relay::StreamRelay;
+use sys::{
+    Wake, grow_udp_buffers, interface_addresses, mark_interactive_video, wait_readable, wait_ready,
+};
 
 /// STUN requests are retried this often until each server answers or gives up.
 const STUN_RETRY_US: u64 = 300_000;
@@ -161,12 +166,44 @@ pub struct NetConfig {
     pub relay_only: bool,
 }
 
-/// A TURN server with long-term credentials (RFC 8656 over UDP).
+/// A TURN server with long-term credentials (RFC 8656), reached over UDP, TCP or TLS.
 #[derive(Clone, PartialEq, Eq)]
 pub struct TurnServer {
     pub addr: SocketAddr,
     pub username: String,
     pub password: String,
+    pub transport: TurnTransport,
+}
+
+/// How this side reaches a TURN server. The allocation is UDP on the server's side in
+/// every case; TCP and TLS are for a network that blocks UDP (RFC 8656 §3.1).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum TurnTransport {
+    /// Datagrams from the driver's one socket.
+    #[default]
+    Udp,
+    /// One TCP connection, STUN and padded ChannelData framed on it.
+    Tcp,
+    /// TCP with TLS; the server's certificate must name `server_name`.
+    Tls { server_name: String },
+}
+
+impl TurnTransport {
+    /// From a setup line's relay entry: `transport` is `udp` (or empty), `tcp` or `tls`, and
+    /// TLS checks the certificate against the host part of `addr` (`host:port`,
+    /// `[v6]:port`). `None` for a transport this side does not know.
+    pub fn from_setup(transport: &str, addr: &str) -> Option<Self> {
+        match transport {
+            "" | "udp" => Some(Self::Udp),
+            "tcp" => Some(Self::Tcp),
+            "tls" => {
+                let host = addr.rsplit_once(':').map_or(addr, |(host, _)| host);
+                let host = host.trim_start_matches('[').trim_end_matches(']');
+                (!host.is_empty()).then(|| Self::Tls { server_name: host.to_owned() })
+            }
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Debug for TurnServer {
@@ -174,6 +211,7 @@ impl std::fmt::Debug for TurnServer {
         f.debug_struct("TurnServer")
             .field("addr", &self.addr)
             .field("username", &self.username)
+            .field("transport", &self.transport)
             .finish_non_exhaustive()
     }
 }
@@ -447,16 +485,7 @@ impl Net {
                     done: false,
                 })
                 .collect(),
-            relays: config
-                .turn
-                .iter()
-                .take(MAX_TURN_SERVERS)
-                .map(|server| Relay {
-                    server: server.addr,
-                    client: TurnClient::new(&server.username, &server.password, seed()),
-                    settled: false,
-                })
-                .collect(),
+            relays: Vec::new(),
             stun_later: None,
             turn_later: None,
             remote: Vec::new(),
@@ -476,6 +505,10 @@ impl Net {
                 kind: CandidateKind::Host,
                 addr: SocketAddr::new(ip, local_addr.port()),
             }));
+        }
+        // UDP relays first, then TCP and TLS ones, in the order given.
+        for server in config.turn.iter().take(MAX_TURN_SERVERS) {
+            driver.add_turn(server.clone());
         }
         if driver.stun.is_empty() && driver.relays.is_empty() {
             driver.candidates_done = true;
@@ -656,6 +689,36 @@ struct Relay {
     client: TurnClient,
     /// Allocated or failed: `CandidatesDone` no longer waits for it.
     settled: bool,
+    /// TCP or TLS to the server; `None`: datagrams from the driver's socket.
+    stream: Option<StreamRelay>,
+    /// The stream failed or ended: nothing goes through this relay again.
+    dead: bool,
+}
+
+impl Relay {
+    /// The TURN client may send: UDP always, a stream once connected (and TLS shaken hands).
+    fn live(&self) -> bool {
+        !self.dead && self.stream.as_ref().is_none_or(StreamRelay::is_ready)
+    }
+
+    /// One TURN message to the server, on the stream or as a datagram.
+    fn transmit(
+        &mut self,
+        socket: &UdpSocket,
+        refused: &mut BTreeMap<i32, u64>,
+        packet: &[u8],
+    ) -> Option<(u64, usize)> {
+        if self.dead {
+            return None;
+        }
+        match self.stream.as_mut() {
+            None => send_counted(socket, refused, packet, self.server),
+            Some(stream) => {
+                let wire = stream.send(packet)?;
+                Some((socket::monotonic_us()?, wire))
+            }
+        }
+    }
 }
 
 struct StunQuery {
@@ -846,8 +909,11 @@ impl Driver {
             Route::Udp(addr) => send_counted(&self.socket, &mut self.refused, packet, addr),
             Route::Relay { relay, peer } => {
                 let r = self.relays.get_mut(usize::from(relay))?;
+                if !r.live() {
+                    return None;
+                }
                 let wrapped = r.client.send(peer, packet, now)?;
-                send_counted(&self.socket, &mut self.refused, &wrapped, r.server)
+                r.transmit(&self.socket, &mut self.refused, &wrapped)
             }
         }
     }
@@ -884,16 +950,79 @@ impl Driver {
     }
 
     fn add_turn(&mut self, server: TurnServer) {
+        let stream = server.transport != TurnTransport::Udp;
+        // One server may take UDP and TCP on one port: a UDP and a stream relay to it are two.
         if self.relays.len() >= MAX_TURN_SERVERS
-            || self.relays.iter().any(|r| r.server == server.addr)
+            || self.relays.iter().any(|r| r.server == server.addr && r.stream.is_some() == stream)
         {
             return;
         }
+        let now = now_us(self.start);
+        let connected = match &server.transport {
+            TurnTransport::Udp => Ok(None),
+            TurnTransport::Tcp => StreamRelay::connect(server.addr, None, now).map(Some),
+            TurnTransport::Tls { server_name } => {
+                StreamRelay::connect(server.addr, Some(server_name), now).map(Some)
+            }
+        };
+        let (stream, failed) = match connected {
+            Ok(stream) => (stream, None),
+            Err(e) => (None, Some(format!("connect: {e}"))),
+        };
         self.relays.push(Relay {
             server: server.addr,
             client: TurnClient::new(&server.username, &server.password, seed()),
             settled: false,
+            stream,
+            dead: false,
         });
+        if let Some(reason) = failed {
+            self.relay_failed(self.relays.len() - 1, reason, now);
+        }
+    }
+
+    /// A stream relay's connection failed or ended: it is settled and stays out of every path.
+    fn relay_failed(&mut self, index: usize, reason: String, now: u64) {
+        let Some(r) = self.relays.get_mut(index) else { return };
+        if r.dead {
+            return;
+        }
+        r.dead = true;
+        r.settled = true;
+        r.stream = None;
+        let server = r.server;
+        self.emit(NetEvent::RelayFailed { server, reason });
+        self.maybe_done(now);
+    }
+
+    /// Reads every stream relay and feeds its messages to the relay's TURN client, as the
+    /// UDP loop does for datagrams from a server. True when the peer closed the session.
+    fn read_streams(&mut self, now: u64) -> Result<bool, LinkError> {
+        for index in 0..self.relays.len() {
+            let Some(stream) = self.relays.get_mut(index).and_then(|r| r.stream.as_mut()) else {
+                continue;
+            };
+            let mut messages = Vec::new();
+            let ended = stream.read(|m| messages.push(m.to_vec())).err();
+            for message in messages {
+                let Some(r) = self.relays.get_mut(index) else { break };
+                match r.client.on_packet(&message, now) {
+                    TurnReceive::Data { peer, payload } => {
+                        self.heard += 1;
+                        let relay = u16::try_from(index).unwrap_or(u16::MAX);
+                        if self.deliver(Route::Relay { relay, peer }, payload, now)? {
+                            return Ok(true);
+                        }
+                    }
+                    TurnReceive::Handled => self.turn_events(now),
+                    TurnReceive::Ignored => {}
+                }
+            }
+            if let Some(reason) = ended {
+                self.relay_failed(index, reason, now);
+            }
+        }
+        Ok(false)
     }
 
     fn add_stun(&mut self, server: SocketAddr) {
@@ -943,9 +1072,17 @@ impl Driver {
     }
 
     fn turn_tick(&mut self, now: u64) {
-        for r in &mut self.relays {
+        for index in 0..self.relays.len() {
+            let Some(r) = self.relays.get_mut(index) else { continue };
+            if let Some(Err(reason)) = r.stream.as_mut().map(|stream| stream.poll(now)) {
+                self.relay_failed(index, reason, now);
+                continue;
+            }
+            if !r.live() {
+                continue;
+            }
             for packet in r.client.poll_transmit(now) {
-                send_counted(&self.socket, &mut self.refused, &packet, r.server);
+                r.transmit(&self.socket, &mut self.refused, &packet);
             }
         }
         self.turn_events(now);
@@ -954,6 +1091,9 @@ impl Driver {
     fn turn_events(&mut self, now: u64) {
         for index in 0..self.relays.len() {
             let Some(relay) = self.relays.get_mut(index) else { continue };
+            if relay.dead {
+                continue;
+            }
             let events = relay.client.take_events();
             if !events.is_empty() {
                 relay.settled = true;
@@ -986,7 +1126,7 @@ impl Driver {
         let (Ok(relay), Some(r)) = (u16::try_from(index), self.relays.get_mut(index)) else {
             return;
         };
-        if r.client.relayed().is_some() && r.client.add_peer(peer, now) {
+        if r.live() && r.client.relayed().is_some() && r.client.add_peer(peer, now) {
             self.endpoint.add_path(Route::Relay { relay, peer }, PathKind::TurnRelay, now);
         }
     }
@@ -1049,7 +1189,16 @@ impl Driver {
         let stun = self.stun.iter().filter(|q| !q.done).map(|q| q.next_us).min();
         let later =
             (self.stun_later.is_some() || self.turn_later.is_some()).then_some(now + LATER_POLL_US);
-        let turn = self.relays.iter().filter_map(|r| r.client.next_deadline_us()).min();
+        // A stream still connecting: its give-up time, not the client's (it has not started).
+        let turn = self
+            .relays
+            .iter()
+            .filter(|r| !r.dead)
+            .filter_map(|r| match &r.stream {
+                Some(stream) if !stream.is_ready() => stream.deadline_us(),
+                _ => r.client.next_deadline_us(),
+            })
+            .min();
         let gather = (!self.candidates_done && now < RELAY_GATHER_US).then_some(RELAY_GATHER_US);
         match [self.endpoint.next_deadline_us(), stun, later, turn, gather]
             .into_iter()
@@ -1102,7 +1251,11 @@ impl Driver {
                 }
             }
             let timeout = self.deadline_ms(now);
-            wait_readable(&[sys::raw(&self.socket), self.command_wake.raw()], timeout);
+            let mut wait = vec![(sys::raw(&self.socket), false), (self.command_wake.raw(), false)];
+            for stream in self.relays.iter().filter_map(|r| r.stream.as_ref()) {
+                wait.push((stream.raw(), stream.wants_write()));
+            }
+            wait_ready(&wait, timeout);
             self.command_wake.drain();
             let now = now_us(self.start);
             self.watch_wake(now);
@@ -1139,8 +1292,22 @@ impl Driver {
                             }
                         }
                         for r in &mut self.relays {
-                            for packet in r.client.close() {
-                                send_counted(&self.socket, &mut self.refused, &packet, r.server);
+                            if !r.live() {
+                                continue;
+                            }
+                            let packets = r.client.close();
+                            match r.stream.as_mut() {
+                                Some(stream) => stream.close(packets),
+                                None => {
+                                    for packet in packets {
+                                        send_counted(
+                                            &self.socket,
+                                            &mut self.refused,
+                                            &packet,
+                                            r.server,
+                                        );
+                                    }
+                                }
                             }
                         }
                         return Ok(());
@@ -1151,8 +1318,11 @@ impl Driver {
                 match self.socket.recv_from(&mut buf) {
                     Ok((n, from)) => {
                         let packet = buf.get(..n).unwrap_or_default();
-                        if let Some((index, server)) =
-                            self.relays.iter_mut().enumerate().find(|(_, r)| r.server == from)
+                        if let Some((index, server)) = self
+                            .relays
+                            .iter_mut()
+                            .enumerate()
+                            .find(|(_, r)| r.server == from && r.stream.is_none())
                         {
                             match server.client.on_packet(packet, now) {
                                 TurnReceive::Data { peer, payload } => {
@@ -1189,6 +1359,9 @@ impl Driver {
                     Err(_) => break,
                 }
             }
+            if self.read_streams(now)? {
+                return Ok(());
+            }
             for _ in 0..256 {
                 let Ok(queued) = self.media.try_recv() else { break };
                 if self.endpoint.link().is_established()
@@ -1214,33 +1387,5 @@ fn is_handshake(packet: &[u8]) -> bool {
 }
 
 #[cfg(test)]
-mod media_handoff_tests {
-    use super::*;
-
-    #[test]
-    fn stalled_rd_media_handoff_expires_without_aging_control() {
-        let queued = QueuedMedia { queued_at: Instant::now(), datagram: vec![1] };
-        let at = queued.queued_at;
-        assert_eq!(queued.take_payload_if_fresh(at + Duration::from_millis(50)), Some(vec![1]));
-        let queued = QueuedMedia { queued_at: at, datagram: vec![2] };
-        assert!(queued.take_payload_if_fresh(at + Duration::from_millis(51)).is_none());
-    }
-
-    /// The wake-up both platforms wait on: idle, pending after wakes, idle again once drained.
-    #[test]
-    fn wake_is_readable_only_while_pending() {
-        let wake = Wake::new().unwrap();
-        let idle = Instant::now();
-        wait_readable(&[wake.raw()], 50);
-        assert!(idle.elapsed() >= Duration::from_millis(40), "idle wake was readable");
-        wake.wake();
-        wake.wake();
-        let pending = Instant::now();
-        wait_readable(&[wake.raw()], 5_000);
-        assert!(pending.elapsed() < Duration::from_secs(4), "pending wake never became readable");
-        wake.drain();
-        let drained = Instant::now();
-        wait_readable(&[wake.raw()], 50);
-        assert!(drained.elapsed() >= Duration::from_millis(40), "drained wake stayed readable");
-    }
-}
+#[path = "net_media_handoff_tests.rs"]
+mod media_handoff_tests;

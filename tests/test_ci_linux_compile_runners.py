@@ -302,6 +302,14 @@ CMUX_LINUX |= {
     if selector(load(workflow)["jobs"][job_id], where).endswith(CMUX_LINUX_TAIL)
 }
 
+# A route frozen to one literal label (cmux#54437) reads no variable; it keeps its fork branch and names its label.
+FROZEN_LITERAL = {
+    (workflow, job_id, where)
+    for workflow, job_id, where, _label in EXPECTED
+    if "vars." not in selector(load(workflow)["jobs"][job_id], where)
+    and re.search(r"\|\| '[a-z0-9-]+' \}\}$", selector(load(workflow)["jobs"][job_id], where))
+} - CMUX_LINUX
+
 
 class LinuxCompileRunners(unittest.TestCase):
     def test_each_compile_job_runs_on_its_measured_size(self) -> None:
@@ -312,6 +320,8 @@ class LinuxCompileRunners(unittest.TestCase):
                 job = doc["jobs"].get(job_id)
                 self.assertIsNotNone(job, f"{workflow} has no job {job_id!r}")
                 value = selector(job, where)
+                if (workflow, job_id, where) in FROZEN_LITERAL:
+                    continue
                 if (workflow, job_id, where) in CMUX_LINUX:
                     self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
                     self.assertEqual(SHARED_VARIABLE.findall(value), [], value)
@@ -334,6 +344,8 @@ class LinuxCompileRunners(unittest.TestCase):
             # A fork keeps its label (test_fork_pull_requests_use_the_selected_blacksmith_size); this is every other run.
             value = unwrap_fork_pool_reads(selector(load(workflow)["jobs"][job_id], where))
             with self.subTest(workflow=workflow, job=job_id, where=where):
+                if (workflow, job_id, where) in FROZEN_LITERAL:
+                    continue
                 if (workflow, job_id, where) in CMUX_LINUX:
                     self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
                     self.assertNotIn("RUNNER_POOLS", value)
@@ -350,6 +362,8 @@ class LinuxCompileRunners(unittest.TestCase):
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
+                if (workflow, job_id, where) in FROZEN_LITERAL:
+                    continue
                 if (workflow, job_id, where) in CMUX_LINUX:
                     self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
                     prefix = PREFIX.get((workflow, job_id, where), (None, ""))[0]

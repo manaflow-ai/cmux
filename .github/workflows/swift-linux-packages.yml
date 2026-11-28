@@ -138,7 +138,7 @@ jobs:
           # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
-          # Whole packages that pass on Linux; CmuxIrohTransport's IrohLib and dnssd suites run on a Mac in relay-tls.yml.
+          # Whole packages that pass on Linux.
           - group: CmuxAgentBrands
             packages: Packages/Shared/CmuxAgentBrands
           - group: CmuxChiefList
@@ -149,8 +149,6 @@ jobs:
             packages: Packages/Shared/CmuxDeviceHub
           - group: CmuxEgress
             packages: Packages/Shared/CmuxEgress
-          - group: CmuxIrohTransport
-            packages: Packages/Shared/CmuxIrohTransport
           - group: CmuxVisibleRows
             packages: Packages/Shared/CmuxVisibleRows
     steps:
@@ -181,7 +179,7 @@ jobs:
       # (rustup under the package's .build, so the cache below keeps it; clang compiles the crates' C).
       - name: Install python3, SQLite and zlib headers, xz
         if: env.REACHED == '1'
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils
+        run: bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils
 
       - name: Cache key
         id: key
@@ -396,7 +394,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install python3
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3
+        run: bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3
       - name: Every listed target is in its package's Linux shape
         run: python3 scripts/ci/swift_linux_targets.py --verify
 
@@ -487,11 +485,25 @@ jobs:
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
           enableCrossOsArchive: true
           key: ${{ steps.xcf-key.outputs.fleet_key }}
+      # The same entry in R2 (ios-link-ffi-cache-seed.yml's r2 job): a Blacksmith Mac's actions/cache reads a store of its
+      # own, which the seed's cmux-linux save never reaches, so the GitHub-store restore above misses there.
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework from R2
+        id: xcf-r2-restore
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
       - name: Set up pinned Rust
-        if: ${{ steps.xcf-key.outputs.needed == '1' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        if: ${{ steps.xcf-key.outputs.needed == '1' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-r2-restore.outputs.cache-hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: ${{ steps.xcf-key.outputs.needed == '1' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        if: ${{ steps.xcf-key.outputs.needed == '1' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-r2-restore.outputs.cache-hit != 'true' }}
         env:
           JOBS: "8"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh

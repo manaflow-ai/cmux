@@ -49,6 +49,12 @@ if "--suite=launch-check" in sys.argv:
     if _flag("--json"):
         rest += ["--json", _flag("--json")]
     os.execv(sys.executable, [sys.executable, suite] + rest)
+# `--suite=scale-fixture`: 1,100 workspaces, 5 Chiefs and a 160 KB cmux.json; fails on a main-thread block over
+# 250 ms in the sidebar flush, scroll and switch flows (scripts/cmux-next/scale-fixture-bench.py). Before the GUI
+# check: with no GUI session it passes with a warning itself (fail open), as its PR check needs.
+if "--suite=scale-fixture" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scale-fixture-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=scale-fixture"])
 # Every other suite but pane-bench (package tests, no window) needs this account's GUI login session on the console:
 # without it the app never opens its socket (bench_launch.py). Say so at once instead of after a launch timeout (the
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
@@ -69,6 +75,11 @@ if "--suite=memory-agents" in sys.argv:
 if "--suite=cef-resize" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-resize-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-resize"])
+# `--suite=motion-frames`: blank or late frames around Cmd-Shift-Enter, Cmd-P and Cmd-W at the default motion and
+# under Reduce Motion (scripts/ci/frame-pacing/motion_frames_fleet.py, golden.py's motion_frames on this display).
+if "--suite=motion-frames" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci", "frame-pacing", "motion_frames_fleet.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=motion-frames"])
 # `--suite=relaunch`: quit and reopen with the session restored, to the window, the chats live again and the terminals
 # live; `--suite=wake`: the app after every process of it was frozen and resumed, a wake proxy. Both as perf-cron rows
 # (scripts/cmux-next/relaunch-wake-cron.py, which keeps the --suite argument).
@@ -86,6 +97,16 @@ if "--suite=chat-size" in sys.argv:
 if "--suite=chat-snappy" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "measure", "snappy-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=chat-snappy"])
+# `--suite=graceful-swap`: a webview .tsx save to the first changed frame of the focused pane, the unfocused pane and a
+# hidden tab, drafts kept (scripts/measure/graceful-swap-cron.py; the perf cron's hot-swap part, goal hot-swap-fast).
+if "--suite=graceful-swap" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "measure", "graceful-swap-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=graceful-swap"])
+# `--suite=infinite-tabs`: 500 browser tabs, 200 workspaces and 100 chats hibernated, over the empty app (scripts/measure/
+# infinite-tabs-cron.py; the perf cron's infinite-tabs part, goal infinite-tabs-flat).
+if "--suite=infinite-tabs" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "measure", "infinite-tabs-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=infinite-tabs"])
 # `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
 # then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
 if "--suite=renderer-rest" in sys.argv:

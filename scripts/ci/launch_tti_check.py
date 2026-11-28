@@ -87,7 +87,7 @@ process start to the typed key taken. With no key window at that frame (a backgr
 probe takes the front itself, as a Dock launch does, and the round's `probe_focus` says so (`app_inactive`,
 `window_not_key`; `key` when a window was key). `terminal.probe_no_key_window` (no window could take keys) fails the
 round. A chat round's launch has CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT=1 instead: the app types its key when the front chat
-first drew (`agent_pane.painted`), into the composer, and marks `chat.probe_key_typed` (a key at the first frame lands
+first drew live (`agent_pane.page_painted`), into the composer, and marks `chat.probe_key_typed` (a key at the first frame lands
 before any chat page is up, so the composer's echo never came and no chat round read a number). A round whose app typed
 it and whose composer never echoed fails; a build without the chat probe (no `chat.probe_*` mark within
 CHAT_PROBE_GRACE_S of the paint) ends when the chat drew, `unmeasured`, its paint number standing, and fails nothing.
@@ -140,12 +140,18 @@ LOAD_BOUND_PER_CORE = 0.5
 LOAD_WAIT_S = 120.0
 LOAD_POLL_S = 5.0
 MIN_QUIET_ROUNDS = 5
+# The plan stops starting rounds this many seconds after the check began, so its TTI lines print inside the workflow
+# step's 30-minute bound (next-dogfood.yml `Launch to first interaction`). A step killed at its bound printed no TTI line:
+# 4 legs of 2026-11-27 (jobs 140284181938, 140322193678, 140385791115, 140458119082) ran 30m13s each and
+# gave the nightly's 4 app_*_launch_to_interaction_ms rows nothing, once the plan grew 18 cold_install:terminal rounds.
+# 25 minutes leaves the round in flight, the quit and the summary 5.
+DEADLINE_S = 1500.0
 INPUT_MARK_MESSAGE = b"pane.inputEchoed"  # what a page posts when its composer drew a typed key (the mark's source)
 CHAT_MARK = "agent_pane.input_echoed"
 TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
 CHAT_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT"  # LaunchTypeProbe's chat scope: one key at the chat's first paint
 CHAT_PROBE_TYPED, CHAT_PROBE_NO_KEY_WINDOW = "chat.probe_key_typed", "chat.probe_no_key_window"
-CHAT_PROBE_GRACE_S = 3.0  # after agent_pane.painted: a build with no chat.probe_* mark by then has no chat probe
+CHAT_PROBE_GRACE_S = 3.0  # after agent_pane.page_painted: a build with no chat.probe_* mark by then has no chat probe
 LAUNCH_DELAY_VARIABLE = "CMUX_NEXT_LAUNCH_TEST_DELAY_MS"  # LaunchTestDelay: the app waits this long before any window
 PROBE_TYPED, PROBE_NO_KEY_WINDOW = "terminal.probe_key_typed", "terminal.probe_no_key_window"
 BROWSER_PAINT, BROWSER_INPUT = "browser_pane.first_paint", "browser_pane.input_ready"  # CEFLaunchMarks.swift
@@ -177,9 +183,14 @@ BROWSER_PAGE = (b"<!doctype html><html><head><meta charset=utf-8><title>tti page
 # launch kept the daemon that held the session or started a new one. hq run 45746889291's round 2 typed its key 1.2 s
 # before daemon_connected and the key never reached the pty; these say which of the two that launch was.
 FIRST_KEY_PREFIX = "terminal.first_key."
+# The app's own steps before the first frame (main.*, dfl.*, window.*, services.*, launch.*, app.*, frame.*) and stage
+# 0's (launch_shell.*): the terminal round's input_ms is the first frame plus about 26 ms (hq run 45924325260: probe
+# typed 603.1, echo 628.8), so the gap from did_finish_launching (199) to the first frame (601) is the whole number,
+# and without these the line could not say which step of it was slow or whether stage 0 showed.
 KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.", "after_open.",
-                      "daemon.", FIRST_KEY_PREFIX)
-KEPT_MARKS_MAX = 120  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
+                      "daemon.", FIRST_KEY_PREFIX, "main.", "dfl.", "window.", "services.", "launch.", "app.",
+                      "frame.", "launch_shell.", "layout_cache.", "cloud_env.")
+KEPT_MARKS_MAX = 200  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
 
 
 def kept_marks(marks: dict) -> dict:
@@ -566,7 +577,7 @@ def input_path(post_access: bool, chosen: str = "auto") -> str:
 
 def launch_env(env: dict, probe: Path, path: str, delay_ms: int = 0, which: str = "terminal") -> dict:
     """The measured launch's environment: the typing probe always, on the in_app path the app's own key (a terminal
-    round's at the first frame, a chat round's at the chat's first paint), and with `delay_ms` the positive control's
+    round's at the first frame, a chat round's at the live chat's first paint), and with `delay_ms` the positive control's
     known wait before the first window (LaunchTestDelay)."""
     out = {**env, "CMUX_NEXT_TYPING_PROBE": str(probe)}
     if path == "in_app":
@@ -589,6 +600,21 @@ def chat_probe_state(marks: dict) -> str | None:
     if CHAT_PROBE_NO_KEY_WINDOW in marks:
         return "no_key_window"
     return "typed" if CHAT_PROBE_TYPED in marks else None
+
+
+
+def chat_probe_finished(marks: dict, live_painted_at: float | None, now: float) -> tuple[bool, float | None]:
+    """Early end for an in-app chat probe: no key window, or no probe after the live page's grace.
+
+    A snapshot must not start the clock: under load it can precede the live page by seconds. Older builds without
+    a live-page mark keep the round's ordinary settle bound instead of guessing readiness from saved pixels.
+    """
+    if live_painted_at is None and "agent_pane.page_painted" in marks:
+        live_painted_at = now
+    state = chat_probe_state(marks)
+    finished = state == "no_key_window" or (
+        state is None and live_painted_at is not None and now - live_painted_at > CHAT_PROBE_GRACE_S)
+    return finished, live_painted_at
 
 
 def probe_focus(marks: dict) -> str | None:
@@ -945,12 +971,9 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
             # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run):
             # the round ends when the chat drew and types nothing into its draft; `no_mark`, not a failure of the app.
             took = CHAT_MARK in marks or (not has_marks["input"] and "agent_pane.painted" in marks)
-            # in_app: the app types into the chat when it drew (chat.probe_key_typed); a build with no chat probe marks
-            # nothing within CHAT_PROBE_GRACE_S, and one with no key window for it says so: both end the round.
-            if not took and path == "in_app" and "agent_pane.painted" in marks:
-                painted_at = painted_at or time.monotonic()
-                state = chat_probe_state(marks)
-                took = state == "no_key_window" or (state is None and time.monotonic() - painted_at > CHAT_PROBE_GRACE_S)
+            # in_app: wait for live-page readiness before the no-probe grace; a saved snapshot is not interactive.
+            if not took and path == "in_app":
+                took, painted_at = chat_probe_finished(marks, painted_at, time.monotonic())
         elif which == "browser":
             took = BROWSER_INPUT in marks or not has_marks["input"]
             # A build without the browser marks: the round ends 2 s after its first frame (nothing to read).
@@ -1117,9 +1140,15 @@ def restart_first_paint(rounds: list[dict], load: str) -> tuple[list[dict], list
 
 # ---- the check ------------------------------------------------------------------------------
 
+def round_fits(began: float, now: float, slowest: float, deadline_s: float) -> bool:
+    """Whether one more round, as slow as the slowest so far, ends before DEADLINE_S seconds after BEGAN."""
+    return now - began + slowest <= deadline_s
+
+
 def check(args) -> int:
     import fresh_home_launch_smoke as smoke
     result: dict = {"rounds": [], "recoveries": []}
+    began = time.monotonic()
     keys = Keys()
 
     def journey(process, socket_path, env, app, out, report):
@@ -1151,8 +1180,17 @@ def check(args) -> int:
         pristine.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["ditto", str(app), str(pristine)], check=True, timeout=600)
         failures = []
+        slowest = 0.0
         for n, (kind, which) in enumerate(args.plan, 1):
+            if not round_fits(began, time.monotonic(), slowest, args.deadline_s):
+                result["deadline"] = {"rounds_run": n - 1, "of": len(args.plan), "deadline_s": args.deadline_s,
+                                      "elapsed_s": round(time.monotonic() - began, 1), "slowest_round_s": round(slowest, 1)}
+                rr.safe_print("TTI-DEADLINE " + json.dumps(result["deadline"]), flush=True)
+                failures.append(f"deadline: {n - 1} of {len(args.plan)} rounds in {args.deadline_s:.0f} s")
+                break
+            round_began = time.monotonic()
             row, process, app = round_once(n, kind, which, process, inst, app, pristine, env, made, keys, args, out)
+            slowest = max(slowest, time.monotonic() - round_began)
             result["rounds"].append(row)
             failures += [f"round {n}: {f}" for f in row["failures"]]
             if process.poll() is not None:
@@ -1225,7 +1263,7 @@ def check(args) -> int:
         print("RESTART-FIRST-PAINT " + json.dumps(line), flush=True)
     for line in ratios:
         print("RESTART-FIRST-PAINT-RATIO " + json.dumps(line), flush=True)
-    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", "binders", "percentiles",
+    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "deadline", "stages", "binders", "percentiles",
              "recoveries", *summary)
     print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
@@ -1259,6 +1297,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan", default=DEFAULT_PLAN, help="KIND:FRONT rounds in order; KIND cold_install, "
                                                              "cold_after_update, warm or warm60, FRONT chat, terminal "
                                                              "or browser")
+    parser.add_argument("--deadline-s", type=float, default=DEADLINE_S,
+                        help="start no round that would end past this many seconds after the check began")
     parser.add_argument("--settle", type=float, default=30.0, help="seconds a launch may take to take a key")
     parser.add_argument("--input", choices=("auto", "posted", "in_app"), default="auto",
                         help="who types: posted (CGEventPostToPid, needs the PostEvent grant), in_app (the app's "

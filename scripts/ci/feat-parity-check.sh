@@ -419,6 +419,13 @@ if [[ "$mode" == clippy-changed ]]; then
   # A cold step (no free slot) builds it in its own checkout as before, and the worker removes it with the checkout.
   [[ -n "${CARGO_TARGET_DIR:-}" ]] || export CARGO_TARGET_DIR="$root/.build/cmux-tui-clippy-target"
   echo "cargo target: $CARGO_TARGET_DIR"
+  # A cold target (a just-created slot or a per-job checkout) starts from the base's build, written only by
+  # cmux-tui-clippy-seed.yml on feat-cmux-next; a reused slot is left alone, a miss builds cold as before.
+  step "clippy base seed" bash scripts/ci/clippy-base-seed.sh restore "$CARGO_TARGET_DIR"
+  # The base's recorded clippy verdict (cmux-tui-clippy-seed.yml): a member the base already fails to compile and this
+  # change does not touch is not linted (or ratchet-judged) again, so a base red no longer costs the whole run first.
+  step "clippy base verdict" bash scripts/ci/clippy-base-seed.sh verdict "$tools/base-verdict" "$base"
+  if [[ -s "$tools/base-verdict/verdict.json" ]]; then export CMUX_CLIPPY_BASE_VERDICT="$tools/base-verdict/verdict.json"; fi
   # The clippy step writes this when every error it found is in a file the change does not touch (a base red).
   export CMUX_CLIPPY_BASE_RED_FILE="$tools/clippy-base-red"
   step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base"
@@ -452,6 +459,7 @@ if [[ "$mode" == clippy-changed ]]; then
   else
     step "Rust panic ratchet on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base" --panic-ratchet "$root/.build/panic-clippy.jsonl" --compare-base
   fi
+  unset CMUX_CLIPPY_BASE_VERDICT
   finish
 fi
 if [[ "$mode" == head-check ]]; then
