@@ -1,6 +1,45 @@
 import Foundation
 
 extension ChromiumPageHostBridge {
+    // MARK: DevTools calls
+
+    /// The DevTools calls that set the page up, in order: ``setUp(documentScripts:)`` runs them
+    /// before the first document loads. The Runtime domain stays on until that document commits
+    /// (``documentCommitted()``).
+    public static func setupCalls(handlers: [String], documentScripts: [String]) -> [(String, [String: any Sendable])] {
+        var calls: [(String, [String: any Sendable])] = [
+            // New-document scripts run only while the Page domain is on, and bindings reach worlds
+            // made later only while the Runtime domain is on.
+            ("Page.enable", [:]),
+            ("Runtime.enable", [:]),
+            bindingCall,
+            ("Page.addScriptToEvaluateOnNewDocument", ["source": pageScript(handlers: handlers), "runImmediately": true]),
+        ]
+        for source in documentScripts {
+            calls.append(("Page.addScriptToEvaluateOnNewDocument", ["source": source, "runImmediately": true]))
+        }
+        return calls
+    }
+
+    nonisolated static let bindingCall: (String, [String: any Sendable]) = ("Runtime.addBinding", ["name": bindingName])
+
+    /// The calls that turn the Runtime domain on for a navigation: on, then the binding again
+    /// (`Runtime.disable` dropped the session's bindings; without it the new document never gets
+    /// one, measured).
+    nonisolated static let enableCalls: [(String, [String: any Sendable])] = [("Runtime.enable", [:]), bindingCall]
+
+    /// The calls for a committed main-frame document: the Runtime domain off (when it is on), then
+    /// the binding again. The binding call puts the binding in the document's main world whatever
+    /// the domain's state: a navigation the page started itself (``navigate(_:)`` did not turn the
+    /// domain on for it) gets it this way, a few milliseconds after its start, and the page script
+    /// keeps the page's messages until then. Where the binding is there already, it is a no-op.
+    nonisolated static func commitCalls(runtimeEnabled: Bool) -> [(String, [String: any Sendable])] {
+        var calls: [(String, [String: any Sendable])] = []
+        if runtimeEnabled { calls.append(("Runtime.disable", [:])) }
+        calls.append(bindingCall)
+        return calls
+    }
+
     // MARK: Page script
 
     /// Installs `window.webkit.messageHandlers.<name>` for ``PageHostTrust/handlerName`` (with

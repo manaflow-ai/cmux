@@ -93,24 +93,6 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         self.fireAndForget = fireAndForget
     }
 
-    /// The DevTools calls that set the page up, in order: ``setUp(documentScripts:)`` runs them
-    /// before the first document loads. The Runtime domain stays on until that document commits
-    /// (``documentCommitted()``).
-    public static func setupCalls(handlers: [String], documentScripts: [String]) -> [(String, [String: any Sendable])] {
-        var calls: [(String, [String: any Sendable])] = [
-            // New-document scripts run only while the Page domain is on, and bindings reach worlds
-            // made later only while the Runtime domain is on.
-            ("Page.enable", [:]),
-            ("Runtime.enable", [:]),
-            bindingCall,
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": pageScript(handlers: handlers), "runImmediately": true]),
-        ]
-        for source in documentScripts {
-            calls.append(("Page.addScriptToEvaluateOnNewDocument", ["source": source, "runImmediately": true]))
-        }
-        return calls
-    }
-
     public func install(_ handler: @escaping PageHostHandler) {
         guard self.handler == nil else { return }
         self.handler = handler
@@ -136,25 +118,6 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             for answer in answers { _ = try await answer() }
             self.runtimeEnabled = true
         }
-    }
-
-    nonisolated static let bindingCall: (String, [String: any Sendable]) = ("Runtime.addBinding", ["name": bindingName])
-
-    /// The calls that turn the Runtime domain on for a navigation: on, then the binding again
-    /// (`Runtime.disable` dropped the session's bindings; without it the new document never gets
-    /// one, measured).
-    nonisolated static let enableCalls: [(String, [String: any Sendable])] = [("Runtime.enable", [:]), bindingCall]
-
-    /// The calls for a committed main-frame document: the Runtime domain off (when it is on), then
-    /// the binding again. The binding call puts the binding in the document's main world whatever
-    /// the domain's state: a navigation the page started itself (``navigate(_:)`` did not turn the
-    /// domain on for it) gets it this way, a few milliseconds after its start, and the page script
-    /// keeps the page's messages until then. Where the binding is there already, it is a no-op.
-    nonisolated static func commitCalls(runtimeEnabled: Bool) -> [(String, [String: any Sendable])] {
-        var calls: [(String, [String: any Sendable])] = []
-        if runtimeEnabled { calls.append(("Runtime.disable", [:])) }
-        calls.append(bindingCall)
-        return calls
     }
 
     /// Starts a navigation the app asks for (`navigate` loads or reloads the page) once the Runtime
@@ -258,38 +221,6 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         enqueue(.call(body: body, name: name, text: text))
     }
 
-    /// One thing to run in the page: a script text, or a fixed body called with its data.
-    enum Push {
-        case script(String)
-        case call(body: String, name: String, text: String)
-
-        var bytes: Int {
-            switch self {
-            case .script(let script): script.utf8.count
-            case .call(_, _, let text): text.utf8.count
-            }
-        }
-
-        var script: String? {
-            if case .script(let script) = self { return script }
-            return nil
-        }
-
-        var text: String? {
-            if case .call(_, _, let text) = self { return text }
-            return nil
-        }
-
-        /// Whether `other` can go in the same round trip after this.
-        func joins(_ other: Push) -> Bool {
-            switch (self, other) {
-            case (.script, .script): true
-            case let (.call(body, name, _), .call(otherBody, otherName, _)): body == otherBody && name == otherName
-            default: false
-            }
-        }
-    }
-
     private func enqueue(_ push: Push) {
         scripts.append(push)
         guard !draining else { return }
@@ -324,14 +255,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     /// The pushes at the head of the queue that go in one round trip, up to ``maximumBatchBytes`` (at least one).
     private func takeBatch() -> [Push] {
-        guard let first = scripts.first else { return [] }
-        var bytes = 0
-        var count = 0
-        for push in scripts {
-            bytes += push.bytes
-            if count > 0, bytes > Self.maximumBatchBytes || !first.joins(push) { break }
-            count += 1
-        }
+        let count = Push.batchCount(scripts)
         defer { scripts.removeFirst(count) }
         return Array(scripts.prefix(count))
     }
@@ -358,24 +282,6 @@ public final class ChromiumPageHostBridge: PageHostBridge {
               let id = result["objectId"] as? String else { return nil }
         if epoch == senderEpoch { globalObject = (id, epoch) }
         return id
-    }
-
-    /// The one function text a body's pushes call: each text of the array argument in turn, as the
-    /// string parameter `name` of `body`, one that throws not stopping the ones after it.
-    nonisolated static func callDeclaration(body: String, argument name: String) -> String {
-        "function (texts) { const run = (\(name)) => { \(body) }; "
-            + "for (const text of texts) { try { run(text) } catch (e) { console.error(e) } } }"
-    }
-
-    /// The most script bytes sent in one `Runtime.evaluate`.
-    nonisolated static let maximumBatchBytes = 2 << 20
-
-    /// One expression that runs `scripts` in order, each in its own block, so that one that throws
-    /// does not stop the ones after it (as separate evaluations did) and their declarations do not meet.
-    /// A single script is sent as it is.
-    nonisolated static func batch(_ scripts: [String]) -> String {
-        guard scripts.count > 1 else { return scripts.first ?? "" }
-        return scripts.map { "try {\n\($0)\n} catch (e) { console.error(e) }" }.joined(separator: "\n")
     }
 
     nonisolated deinit {
