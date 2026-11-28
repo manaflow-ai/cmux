@@ -4,7 +4,7 @@
 Leo, 2026-11-08 (ask-ecadef4111): "three more “wow” ideas / you might as well just go for broke. say 20. we can just
 keep finding more and more work to do". Idea 4, "Head-to-head bench vs desktop apps": a page that updates daily.
 
-.github/workflows/rivals-nightly.yml runs scripts/measure/rivals.sh (apps cmux, claude, chatgpt) on one fleet Mac
+.github/workflows/rivals-nightly.yml runs scripts/measure/rivals.sh (RFD 0131's apps and ChatGPT) on one fleet Mac
 once a day and hands its results.json here with the previous history (index.json from the bucket, or none):
 
   rivals_page.py page --today results.json [--history index.json] --out DIR [--sha SHA] [--days 90]

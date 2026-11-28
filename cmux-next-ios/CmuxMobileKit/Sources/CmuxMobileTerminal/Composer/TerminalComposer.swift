@@ -435,26 +435,27 @@ struct TerminalComposer: View {
         }
     }
 
-    static func loadWithInactivityDeadline<T: Sendable>(
+    /// `clock` is the one the idle window is measured on; tests pass one they advance.
+    static func loadWithInactivityDeadline<T: Sendable, C: Clock<Duration>>(
         _ operation: (@escaping @Sendable (Result<T?, Error>) -> Void) -> Progress,
         inactivityDeadline: Duration = .seconds(30),
-        progressPoll: Duration = .milliseconds(250)
+        progressPoll: Duration = .milliseconds(250),
+        clock: C = ContinuousClock()
     ) async throws -> T {
         try Task.checkCancellation()
         let race = PhotoLoadRace<T?>()
         let progress = operation { [weak race] result in _ = race?.finish(result) }
         let monitor = Task {
-            let clock = ContinuousClock()
             var lastFraction = progress.fractionCompleted
             var lastAdvance = clock.now
             while !Task.isCancelled {
-                do { try await Task.sleep(for: progressPoll) }
+                do { try await clock.sleep(for: progressPoll) }
                 catch { return }
                 let fraction = progress.fractionCompleted
                 if fraction > lastFraction {
                     lastFraction = fraction
                     lastAdvance = clock.now
-                } else if clock.now - lastAdvance >= inactivityDeadline {
+                } else if lastAdvance.duration(to: clock.now) >= inactivityDeadline {
                     if race.finish(.failure(PhotoLoadError.deadline)) { progress.cancel() }
                     return
                 }
