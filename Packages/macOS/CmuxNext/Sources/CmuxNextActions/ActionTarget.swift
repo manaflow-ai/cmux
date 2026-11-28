@@ -140,7 +140,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     /// button): Check, Rotate Credential and Revoke.
     case joinedMachine
     /// A tab bar's empty area: the strip's or the vertical tab list's (Edge's and Chrome's
-    /// vertical-tab menus: New Tab, the vertical tabs rows, Task Manager).
+    /// vertical-tab menus: New Tab, the vertical tabs rows).
     case tabStrip
     /// A split's divider (its grab band, a hidden divider's too): Insert New, Hide or Show Divider. The menu passes
     /// the split as the rows' `split` argument.

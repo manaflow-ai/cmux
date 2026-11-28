@@ -1118,9 +1118,9 @@
       ],
       "cli" : "guiOnly",
       "cli_name" : "app task-manager",
-      "context_menu" : "offered",
+      "context_menu" : "noObject",
       "context_menus" : [
-        "tabStrip"
+
       ],
       "default_aliases" : [
 
@@ -64132,23 +64132,6 @@
           "id" : "tabs.verticalTabs.expandOnHover",
           "kind" : "action",
           "order" : 8,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 9
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "palette.openTaskManager",
-          "kind" : "action",
-          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,

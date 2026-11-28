@@ -468,7 +468,7 @@ pub static ACTIONS: &[Action] = &[
         category: "window",
         symbol: "gauge.with.dots.needle.33percent",
         surfaces: PALETTE | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("tabStrip", "view", 100)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "app task-manager",
         main_menu: Some("window"),
         ..Action::DEFAULT
