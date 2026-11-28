@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "7b7a3028061267748471393161f58e1bb7833056e8546873172990b0e750f54d"
+	SDKIRSHA256        = "d9aa68a5dabb61952b99173ca2112ad420ee5b10901a51c09e56d18abd059208"
 )
 
 type Authority string
@@ -268,6 +268,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"read-screen":                        {Name: "read-screen", GoMethod: "ReadScreen", Authority: AuthorityControl, Since: 5, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"read-scrollback":                    {Name: "read-scrollback", GoMethod: "ReadScrollback", Authority: AuthorityControl, Since: 7, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"reattach-view":                      {Name: "reattach-view", GoMethod: "ReattachView", Authority: AuthorityControl, Since: 12, Capability: "sizing-view-detach-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
+	"record-notification-delivery":       {Name: "record-notification-delivery", GoMethod: "RecordNotificationDelivery", Authority: AuthorityControl, Since: 12, Capability: "notification-ack-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"register-browser-provider":          {Name: "register-browser-provider", GoMethod: "RegisterBrowserProvider", Authority: AuthorityLocalAdmin, Since: 10, Capability: "browser-provider-v1", Stream: "", FieldSince: nil, FieldCapabilities: map[string]string{"hosting": "browser-provider-native-hosting-v1"}},
 	"release-attached-view-size":         {Name: "release-attached-view-size", GoMethod: "ReleaseAttachedViewSize", Authority: AuthorityFrontend, Since: 10, Capability: "view-attachment-lease-v1", Stream: "", FieldSince: map[string]uint32{"view": 12}, FieldCapabilities: map[string]string{"view": "shared-sizing-v1"}},
 	"release-surface-size":               {Name: "release-surface-size", GoMethod: "ReleaseSurfaceSize", Authority: AuthorityControl, Since: 7, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
@@ -528,7 +529,7 @@ func ProfileInfo(name Profile) (ProfileMetadata, bool) {
 }
 
 func AllCommandMetadata() []CommandMetadata {
-	result := make([]CommandMetadata, 0, 316)
+	result := make([]CommandMetadata, 0, 317)
 	result = append(result, cloneCommandMetadata(commandMetadata["ack-tab-notifications"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-screens-to-screen-group"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-tabs-to-tab-group"]))
@@ -735,6 +736,7 @@ func AllCommandMetadata() []CommandMetadata {
 	result = append(result, cloneCommandMetadata(commandMetadata["read-screen"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["read-scrollback"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["reattach-view"]))
+	result = append(result, cloneCommandMetadata(commandMetadata["record-notification-delivery"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["register-browser-provider"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["release-attached-view-size"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["release-surface-size"]))

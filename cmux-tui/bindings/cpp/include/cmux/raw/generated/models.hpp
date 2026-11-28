@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7b7a3028061267748471393161f58e1bb7833056e8546873172990b0e750f54d";
+inline constexpr std::string_view kProtocolIrSha256 = "d9aa68a5dabb61952b99173ca2112ad420ee5b10901a51c09e56d18abd059208";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -538,6 +538,7 @@ struct QuickTerminalRequest;
 struct ReadScreenRequest;
 struct ReadScrollbackRequest;
 struct ReattachViewRequest;
+struct RecordNotificationDeliveryRequest;
 struct RegisterBrowserProviderRequest;
 struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
@@ -4955,6 +4956,13 @@ struct ReattachViewResult {
     std::string participant{};
     SizeState state{};
     friend bool operator==(const ReattachViewResult&, const ReattachViewResult&) = default;
+};
+
+struct RecordNotificationDeliveryRequest {
+    std::string desktop{};
+    std::uint64_t notification{};
+    Field<std::string> reason{};
+    friend bool operator==(const RecordNotificationDeliveryRequest&, const RecordNotificationDeliveryRequest&) = default;
 };
 
 struct RegisterBrowserProviderRequest {
@@ -10218,6 +10226,12 @@ template <>
 struct Codec<ReattachViewRequest> {
     static Result<Json> encode(const ReattachViewRequest& value);
     static Result<ReattachViewRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RecordNotificationDeliveryRequest> {
+    static Result<Json> encode(const RecordNotificationDeliveryRequest& value);
+    static Result<RecordNotificationDeliveryRequest> decode(const Json& value);
 };
 
 template <>

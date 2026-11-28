@@ -50605,7 +50605,7 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand305FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand306FieldRequirements{{
     {"icon", 12U, "tab-group-icon-v1"},
 }};
-constexpr std::array<CommandMetadata, 316> kCommands{{
+constexpr std::array<CommandMetadata, 317> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
