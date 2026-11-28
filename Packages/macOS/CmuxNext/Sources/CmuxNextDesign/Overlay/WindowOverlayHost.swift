@@ -80,9 +80,14 @@ public final class WindowOverlayHost {
     /// The button of a press on an overlay that reached a window under the panel (`takeEventFromBelow`): its drags and
     /// its release go to the panel too. Nil while no such press is held.
     var takenButton: Int?
+    /// A left press from below on an overlay's control, held until its release (``takeEventFromBelow(_:)``): the
+    /// control's tracking loop then gets the release in the panel's coordinates. Nil while none is held.
+    var heldPress: (event: NSEvent, screen: NSPoint)?
     /// Another window (not the panel nor the overlay's own window) became key while a modal
     /// showed: dismissing it leaves the keyboard there (`focusMoved`).
     var otherWindowTookKey = false
+    /// The last window that took the keyboard while a modal showed (``otherWindowTookKey``), while it lives.
+    weak var keyTaker: NSWindow?
     /// A tab dialog (a modal with a region) showed: the rest of the window took clicks, so
     /// a first responder change there is a move. Kept here, as `endModal` runs after it left.
     var modalLeftWindowUsable = false
