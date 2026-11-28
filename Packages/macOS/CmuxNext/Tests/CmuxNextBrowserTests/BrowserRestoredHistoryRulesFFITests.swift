@@ -1,5 +1,6 @@
 import Foundation
 @testable import CmuxNextBrowser
+@testable import CmuxNextBrowserCore
 import Testing
 
 /// The saved back/forward entries around the engine's own list, ordered by Rust

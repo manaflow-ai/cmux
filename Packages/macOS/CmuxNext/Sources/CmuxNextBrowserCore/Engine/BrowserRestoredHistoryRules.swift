@@ -7,14 +7,14 @@ import Foundation
 /// entries; Rust says in what order they go.
 nonisolated enum BrowserRestoredHistoryRules {
     /// Where an entry of the answer comes from.
-    struct Slot: Decodable, Equatable {
-        enum Source: String, Decodable { case back, own, forward }
+    nonisolated struct Slot: Decodable, Equatable {
+        nonisolated enum Source: String, Decodable { case back, own, forward }
         var source: Source
         var index: Int
     }
 
     /// The entries in order, and the index of the engine's current one.
-    struct Arrangement: Decodable, Equatable {
+    nonisolated struct Arrangement: Decodable, Equatable {
         var slots: [Slot]
         var current: Int
     }
