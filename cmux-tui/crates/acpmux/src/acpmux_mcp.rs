@@ -844,10 +844,10 @@ fn trim_threads(answer: &mut Value) {
 
 /// The program relays among a thread's messages, newest first: `(by, machine)` of each relay
 /// record that names no session (`sender.relay` with `by` and `machine` only). Such a message came
-/// from a program outside any session (shadow-leo, NOW, glaeda-land), so its shown name is the
+/// from a program outside any session (a notifier or a bot), so its shown name is the
 /// machine alone, which is no mesh recipient: a send to it is refused 404
 /// `mesh.unknown_recipient` and dead-lettered. 2026-11-28: five
-/// shadow-leo/now notices answered with inbox_reply bounced that way.
+/// answers to such notices bounced that way.
 fn thread_program_relays(thread: &Value) -> Vec<(String, String)> {
     let mut relays: Vec<(String, String)> = Vec::new();
     for m in thread.get("messages").and_then(Value::as_array).into_iter().flatten() {
@@ -864,21 +864,6 @@ fn thread_program_relays(thread: &Value) -> Vec<(String, String)> {
         }
     }
     relays
-}
-
-/// Where a program relay's notice is answered, since it reads no reply.
-fn program_relay_answer_path(by: &str) -> &'static str {
-    match by {
-        "shadow-leo" => {
-            "shadow-leo reads an ask's answer from the asks ledger: `tools/asks-done c-ID \"WHY\"` when it is done, `tools/asks-done --reason c-ID \"WHY\"` when it is still open (leo-workspace)"
-        }
-        "now" => {
-            "a NOW FIRE wants a fix (or a dated expected_red with its owned cause), not a reply; `tools/now status --breakage` names each row's next step"
-        }
-        _ => {
-            "a program reads no reply: act on the notice, or `send` to the session that asked for it"
-        }
-    }
 }
 
 /// The names an inbox thread's newest sender goes by, newest message first: its relayed
@@ -919,8 +904,7 @@ fn reply_names(thread: &str, read: &Value) -> Result<Vec<String>, String> {
         .collect();
     match programs.first() {
         Some((by, machine)) if names.is_empty() => Err(format!(
-            "inbox_reply: thread {thread} was relayed by the program {by} on {machine}, which names no session to answer, so a reply would bounce (mesh.unknown_recipient) and was not sent. {}",
-            program_relay_answer_path(by)
+            "inbox_reply: thread {thread} was relayed by the program {by} on {machine}, which names no session to answer, so a reply would bounce (mesh.unknown_recipient) and was not sent. A program reads no reply: act on the notice as its text says, or `send` to the session that asked for it."
         )),
         _ => Ok(names),
     }

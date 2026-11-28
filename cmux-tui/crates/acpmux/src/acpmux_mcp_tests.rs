@@ -1573,20 +1573,20 @@ fn a_threads_sender_names_come_from_its_relay_its_name_then_its_key() {
 }
 
 /// 2026-11-28: five inbox_reply answers to notices that
-/// shadow-leo and NOW relayed (`sender.relay` with `by` and `machine`, no session) went to the bare
+/// programs relayed (`sender.relay` with `by` and `machine`, no session) went to the bare
 /// machine name, which the mesh hub refused 404 `mesh.unknown_recipient`; each was dead-lettered.
-/// Now such a reply is refused up front, naming where that program reads its answer.
+/// Now such a reply is refused up front, saying the program reads no reply.
 #[test]
-fn a_reply_to_a_program_relays_notice_is_refused_naming_its_answer_path() {
+fn a_reply_to_a_program_relays_notice_is_refused_up_front() {
     let relayed = |by: &str, machine: &str| json!({"messages": [{"from": machine, "sender": {"relay": {"by": by, "machine": machine}}}]});
-    let shadow = relayed("shadow-leo", "vm-2");
-    assert_eq!(thread_program_relays(&shadow), [("shadow-leo".to_owned(), "vm-2".to_owned())]);
-    let why = reply_names("from:vm-2", &shadow).unwrap_err();
-    assert!(why.contains("shadow-leo on vm-2") && why.contains("tools/asks-done"), "{why}");
+    let notifier = relayed("notifier", "vm-2");
+    assert_eq!(thread_program_relays(&notifier), [("notifier".to_owned(), "vm-2".to_owned())]);
+    let why = reply_names("from:vm-2", &notifier).unwrap_err();
+    assert!(why.contains("notifier on vm-2") && why.contains("reads no reply"), "{why}");
     let why = reply_names("from:cp-1", &relayed("now", "cp-1")).unwrap_err();
-    assert!(why.contains("expected_red") && why.contains("not sent"), "{why}");
-    let why = reply_names("t-1", &relayed("glaeda-land", "cp-1")).unwrap_err();
-    assert!(why.contains("glaeda-land") && why.contains("reads no reply"), "{why}");
+    assert!(why.contains("now on cp-1") && why.contains("not sent"), "{why}");
+    let why = reply_names("t-1", &relayed("bot", "cp-1")).unwrap_err();
+    assert!(why.contains("bot on cp-1") && why.contains("reads no reply"), "{why}");
     // A relay that names its session is a session's message: answered by name as before.
     let lane = json!({"messages": [{"from": "vm-1/fork-6",
         "sender": {"relay": {"by": "lane-gh", "machine": "vm-1", "session": "fork-6"}}}]});
