@@ -257,17 +257,19 @@ struct ShareHostDeviceTests {
                          #"{"event":"online","id":"\#(first.uuidString)","user_id":"u"}"#,
                          #"{"event":"push","text":"{}"}"#,
                          #"{"event":"online","id":"\#(second.uuidString)"}"#,
-                         #"{"event":"online","id":"\#(second.uuidString)","user_id":"u"}"#]
+                         #"{"event":"online","id":"\#(second.uuidString)","user_id":"u"}"#,
+                         #"{"event":"stopped","id":"\#(second.uuidString)"}"#]
             for line in lines {
                 guard RemoteSocket.writeAll(connection, Data(line.utf8) + Data([0x0A])) else { break }
             }
             return method
         }
-        var heard: [ShareHostOnline] = []
-        for await online in ShareHostDevice.channel(socketPath: path).onlineEvents() { heard.append(online) }
+        var heard: [ShareHostEvent] = []
+        for await event in ShareHostDevice.channel(socketPath: path).events() { heard.append(event) }
         #expect(await daemon.value == "device.watch")
-        #expect(heard == [ShareHostOnline(id: first.uuidString, userID: "u"), ShareHostOnline(id: second.uuidString, userID: "u")])
-        #expect(heard.first?.id == first.uuidString.lowercased())
+        #expect(heard == [.online(ShareHostOnline(id: first.uuidString, userID: "u")), .online(ShareHostOnline(id: second.uuidString, userID: "u")),
+                          .stopped(id: second.uuidString.lowercased())])
+        #expect(heard.first == .online(ShareHostOnline(id: first.uuidString.lowercased(), userID: "u")))
     }
 
     /// The app follows the daemon only to another device, and never to an account its last pick found to be another's.
@@ -281,6 +283,20 @@ struct ShareHostDeviceTests {
         #expect(ShareHostDevice.shouldFollow(online, running: app, declined: "other"))
         #expect(ShareHostOnline(line: #"{"event":"push","id":"x","user_id":"u"}"#) == nil)
         #expect(ShareHostOnline(line: #"{"event":"online","id":"x","user_id":""}"#) == nil)
+    }
+
+    /// A link that stops after the app adopted the daemon's device starts the hub again (it then registers its own);
+    /// a stop on another device, or while the app runs its own, does not.
+    @Test func aStoppedDaemonLinkOnTheAdoptedDeviceRestartsTheHub() {
+        let daemon = UUID().uuidString, app = UUID().uuidString
+        let stopped = ShareHostEvent.stopped(id: daemon.lowercased())
+        #expect(ShareHostDevice.shouldRestart(for: stopped, running: daemon, daemons: true, declined: nil))
+        #expect(!ShareHostDevice.shouldRestart(for: stopped, running: daemon, daemons: false, declined: nil), "the app owns this device")
+        #expect(!ShareHostDevice.shouldRestart(for: stopped, running: app, daemons: false, declined: nil), "another device stopped")
+        #expect(ShareHostDevice.shouldRestart(for: .online(ShareHostOnline(id: daemon, userID: "u")), running: app, daemons: false, declined: nil))
+        #expect(ShareHostEvent(line: #"{"event":"stopped","id":"\#(daemon)"}"#) == stopped)
+        #expect(ShareHostEvent(line: #"{"event":"stopped","id":""}"#) == nil)
+        #expect(ShareHostEvent(line: #"{"event":"push","text":"{}"}"#) == nil)
     }
 
     /// A fake share host at a fresh `<home>/share-host/device.sock`: one connection, answered until

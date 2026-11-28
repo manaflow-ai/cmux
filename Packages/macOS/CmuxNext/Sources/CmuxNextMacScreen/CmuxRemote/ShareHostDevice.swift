@@ -138,8 +138,10 @@ public nonisolated struct ShareHostDevice {
     /// While `hub` runs: each time the daemon comes online (`device.watch`) as a device `hub` is not, for an account the
     /// last pick did not decline, `deviceHub` starts its hub again and picks the daemon's. That is the app that asked before
     /// the daemon was up or signed in (it took the worker's or its own identity, which the hub then shows offline beside
-    /// the daemon's online one), or that holds a device the daemon replaced. A channel that ends (no daemon yet, one
-    /// restarting) opens again after a Rust-paced backoff, capped at 30 s.
+    /// the daemon's online one), or that holds a device the daemon replaced. And when the daemon's link stops on the
+    /// device `hub` runs (the hub dropped it, so it lists no This Mac), the hub starts again too: `device.identity` then
+    /// names no account, so the app registers its own device (``DeviceHub/ownsDevice``), the same id each time. A
+    /// channel that ends (no daemon yet, one restarting) opens again after a Rust-paced backoff, capped at 30 s.
     @MainActor private static func follow(_ hub: DeviceHub, in deviceHub: DeviceHubService, devices: CmuxRemoteDevices,
                                           link: Link) -> Task<Void, Never> {
         // task-owner: Link.watch: lives with the running hub; the next hubChanged cancels it.
@@ -148,9 +150,9 @@ public nonisolated struct ShareHostDevice {
             // wakeup-allow: a watch channel that ends or cannot open suspends for Rust backoff (capped at 30s); the daemon's
             // events wake it otherwise, and cancellation (another hub) ends it.
             while !Task.isCancelled {
-                for await online in devices.onlineEvents() {
+                for await event in devices.events() {
                     guard let deviceHub, let hub, let link else { return }
-                    if await restart(deviceHub, replacing: hub, for: online, link: link) { return }
+                    if await restart(deviceHub, replacing: hub, for: event, link: link) { return }
                 }
                 let delay = cmux_retry_pacer_failed(&retry, Double.random(in: 0..<1))
                 guard delay >= 0 else { return }
@@ -160,14 +162,28 @@ public nonisolated struct ShareHostDevice {
         }
     }
 
-    /// Starts `deviceHub`'s hub again when the daemon came online as `online` and ``shouldFollow(_:running:declined:)``
-    /// says `hub` should give way to it; whether it did.
-    @MainActor private static func restart(_ deviceHub: DeviceHubService, replacing hub: DeviceHub, for online: ShareHostOnline,
+    /// Starts `deviceHub`'s hub again when ``shouldRestart(for:running:daemons:declined:)`` says `hub` should give way
+    /// after `event`; whether it did.
+    @MainActor private static func restart(_ deviceHub: DeviceHubService, replacing hub: DeviceHub, for event: ShareHostEvent,
                                            link: Link) -> Bool {
-        guard shouldFollow(online, running: hub.identity.id, declined: link.declined) else { return false }
-        shareHostLogger.info("device hub: the acpmux daemon is online as another device; following it")
+        guard shouldRestart(for: event, running: hub.identity.id, daemons: !hub.ownsDevice, declined: link.declined) else { return false }
+        if case .stopped = event {
+            shareHostLogger.info("device hub: the acpmux daemon's link stopped on this Mac's device; registering the app's")
+        } else {
+            shareHostLogger.info("device hub: the acpmux daemon is online as another device; following it")
+        }
         deviceHub.restartHub(replacing: hub)
         return true
+    }
+
+    /// Whether the hub running device `running` (the daemon's when `daemons`) starts again after `event`: the daemon online
+    /// as another device it should follow (``shouldFollow(_:running:declined:)``), or its link stopped on the very device
+    /// this hub runs as the daemon's. A stop on another device (the app runs its own) changes nothing.
+    nonisolated static func shouldRestart(for event: ShareHostEvent, running: String, daemons: Bool, declined: String?) -> Bool {
+        switch event {
+        case .online(let online): shouldFollow(online, running: running, declined: declined)
+        case .stopped(let id): daemons && id == running.lowercased()
+        }
     }
 
     /// Whether the daemon online as `online` should replace the running hub's device `running`: another device, of an
