@@ -1340,7 +1340,7 @@ fn a_paused_machine_is_resumed_and_the_read_and_the_send_then_answer() {
         let started = std::time::Instant::now();
         let (route, answer) =
             runtime.block_on(perform_with(&client(), &req, || T0, policy, &move |step| {
-                log.lock().unwrap().push(step.to_owned())
+                log.lock().unwrap().push(step.to_owned());
             }));
         assert_eq!((route, answer.status), (Route::Proxy, 200), "{op:?}: {answer:?}");
         assert!(started.elapsed() < std::time::Duration::from_secs(20));

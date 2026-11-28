@@ -801,10 +801,10 @@ fn chief_reply(reply: &super::http::Reply, path: &str) -> Result<Value, Failure>
                 reply.retry_after.as_deref(),
             );
             // Add context without losing retry facts for a header-only refusal.
-            if let Failure::Http { code: None, message, .. } = &mut error {
-                if message.is_none() {
-                    *message = Some(format!("{path}: {}", body_summary(object.as_ref())));
-                }
+            if let Failure::Http { code: None, message, .. } = &mut error
+                && message.is_none()
+            {
+                *message = Some(format!("{path}: {}", body_summary(object.as_ref())));
             }
             Err(error)
         }
