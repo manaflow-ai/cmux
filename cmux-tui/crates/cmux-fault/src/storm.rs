@@ -166,7 +166,8 @@ impl<'a> Storm<'a> {
     }
 
     fn chose(&mut self, kind: &'static str, choice: &str) {
-        *self.flips.entry(kind).or_default() += 1;
+        let count = self.flips.entry(kind).or_default();
+        *count = count.saturating_add(1);
         // FNV-1a over the kind and the choice, in order.
         for byte in kind.bytes().chain([b'=']).chain(choice.bytes()).chain([b';']) {
             self.fingerprint = (self.fingerprint ^ u64::from(byte)).wrapping_mul(0x0100_0000_01B3);
