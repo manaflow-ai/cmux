@@ -224,7 +224,9 @@ pub fn call(name: &str, request: &Value) -> OpResult {
             if r.floors.len() != r.sizes.len() {
                 return Err(OpError::Invalid("one floor per size".into()));
             }
-            reply(&overlay_anchors(&r.sizes, &r.placements, r.bounds, |i, _| r.floors[i]))
+            reply(&overlay_anchors(&r.sizes, &r.placements, r.bounds, |i, _| {
+                r.floors.get(i).copied().unwrap_or_default()
+            }))
         }
         "detailCap" => reply(&detail_cap(parse::<DetailCapRequest>(request)?.window_height)),
         "padding" => {

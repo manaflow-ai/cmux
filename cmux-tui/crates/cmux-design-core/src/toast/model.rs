@@ -618,7 +618,7 @@ impl ToastStack {
             self.undo.push(serial);
         }
         while self.serials.len() > Self::LIMIT {
-            let oldest = self.serials[0];
+            let Some(&oldest) = self.serials.first() else { break };
             self.remove(oldest);
             removed.push(oldest);
         }
@@ -795,18 +795,16 @@ pub fn overlay_anchors(
     bounds: Rect,
     floor: impl Fn(usize, f64) -> f64,
 ) -> Vec<Rect> {
-    (0..sizes.len())
-        .map(|index| {
-            let below: Vec<f64> = sizes[index + 1..].iter().map(|s| s.height).collect();
-            let anchor = overlay_anchor(
-                sizes[index].height,
-                bounds,
-                Some(floor(index, sizes[index].width)),
-                &below,
-            );
+    sizes
+        .iter()
+        .enumerate()
+        .map(|(index, size)| {
+            let below: Vec<f64> = sizes.iter().skip(index).skip(1).map(|s| s.height).collect();
+            let anchor =
+                overlay_anchor(size.height, bounds, Some(floor(index, size.width)), &below);
             let placement = placements.get(index).copied().unwrap_or(ToastPlacement::BottomCenter);
             if placement == ToastPlacement::BottomTrailing {
-                overlay_trailing(anchor, sizes[index].width, bounds)
+                overlay_trailing(anchor, size.width, bounds)
             } else {
                 anchor
             }
@@ -980,7 +978,7 @@ pub fn playground_sheet() -> Vec<Toast> {
 /// The ones the playground's Fire button shows.
 pub fn playground_fired() -> Vec<Toast> {
     let kinds = playground_kinds();
-    vec![kinds[0].clone(), kinds[2].clone(), kinds[5].clone()]
+    [0, 2, 5].iter().filter_map(|&i| kinds.get(i).cloned()).collect()
 }
 
 // MARK: Surface zoom
