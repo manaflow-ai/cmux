@@ -102,6 +102,7 @@ import {
   type HistoryMutationResult,
   type DeveloperTokensRun,
   type DeveloperTokensState,
+  type ModelsAccessResult,
 } from "./ops";
 import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
@@ -119,6 +120,8 @@ import type { SlackConnection } from "./slackConnection";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
 
 export type MockOptions = {
+  modelAccess?: ModelsAccessResult;
+  chatgptDeviceCompletion?: ModelsState;
   chatFolders?: ListRow["folders"];
   managed?: Record<string, { value: unknown } & ManagedInfo>;
   values?: Record<string, unknown>;
@@ -374,6 +377,8 @@ export class MockSettingsProvider {
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
+    this.chatgptDeviceCompletion = options.chatgptDeviceCompletion;
+    this.modelAccess = options.modelAccess ?? { models: ["model-large", "model-small"] };
     this.managed = new Map(
       Object.entries(
         options.managed ?? {
@@ -556,8 +561,23 @@ export class MockSettingsProvider {
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": async (params) => {
-        if ((params as { action?: string }).action === "remove") await this.agents.endpoint.holdRemove;
-        return this.agents.run(params as unknown as AgentsRun);
+        const gesture = params as unknown as AgentsRun;
+        if (gesture.action === "remove") await this.agents.endpoint.holdRemove;
+        const result = this.agents.run(gesture);
+        if (
+          gesture.action === "remove" &&
+          this.models?.personal.connections.some((c) => c.id === gesture.id && c.kind === "endpoint")
+        ) {
+          const { personal } = this.models;
+          this.setModels({
+            ...this.models,
+            personal: {
+              ...personal,
+              connections: personal.connections.filter((c) => c.id !== gesture.id),
+            },
+          });
+        }
+        return result;
       },
       "cmux.settings.context_menus.set": (params) => {
         const menus = this.host.context_menus;
@@ -652,8 +672,22 @@ export class MockSettingsProvider {
       "cmux.chief.backend.add": async (params) => {
         await this.agents.endpoint.holdAdd;
         const before = this.agents.endpoint.addFails;
-        if (before) throw new ProtocolError(before, "the endpoint's model list could not be read");
+        const { validateEndpoint, model } = params as { validateEndpoint?: boolean; model?: string };
+        if (
+          before &&
+          (before !== "cmux.agents.endpoint_check" || validateEndpoint || model?.split(",").includes("*"))
+        ) {
+          throw new ProtocolError(before, "the endpoint's model list could not be read");
+        }
         const added = this.agents.addEndpoint(params);
+        const endpoint = this.agents.modelEndpoint(added.id);
+        if (endpoint && this.models) {
+          const { personal } = this.models;
+          const connections = personal.connections.some((c) => c.id === endpoint.id)
+            ? personal.connections.map((c) => (c.id === endpoint.id ? endpoint : c))
+            : [...personal.connections, endpoint];
+          this.setModels({ ...this.models, personal: { ...personal, connections } });
+        }
         const fail = this.agents.endpoint.addThenFail;
         if (fail) throw new ProtocolError(fail, "the add did not answer in time");
         return added;
@@ -883,16 +917,32 @@ export class MockSettingsProvider {
         this.allotment = runMockAllotment(this.allotment, run);
         return this.allotment;
       },
-      "cmux.settings.models.state": () => {
+      "cmux.settings.models.state": async () => {
+        if (this.modelsReadHold) await this.modelsReadHold;
         if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
         return this.models;
       },
-      "cmux.settings.models.run": (params) => {
+      "cmux.settings.models.run": async (params) => {
         const run = params as ModelsRun;
+        if (run.action === "checkClaudeLogin") {
+          if (run.machineName) await this.holdNamedClaudeStatus;
+          return {};
+        }
         this.modelRuns.push(run);
         if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
+        if (run.action === "signOutClaude" && this.claudeSignOutRefused)
+          throw new ProtocolError("cmux.models.failed", "Claude sign-out was refused");
+        if (run.action === "checkAccess") {
+          await this.holdModelAccess;
+          return this.modelAccess;
+        }
+        if (run.action === "addKey" && run.verifyAccess) {
+          await this.holdModelAccess;
+          if ("failure" in this.modelAccess) return { ...this.modelAccess, verificationFailed: true };
+        }
         try {
-          this.setModels(runMockModels(this.models, run));
+          const completed = run.action === "connectChatGPTDevice" ? this.chatgptDeviceCompletion : undefined;
+          this.setModels(completed ?? runMockModels(this.models, run));
         } catch (error) {
           throw new ProtocolError("cmux.settings.invalid", error instanceof Error ? error.message : String(error));
         }
@@ -1342,6 +1392,12 @@ export class MockSettingsProvider {
 
   /** Settings > Models as the app serves it (mockModels.ts); null is a host without the part. */
   models: ModelsState | null = structuredClone(mockModels.macLogins);
+  modelsReadHold: Promise<void> | null = null;
+  private readonly modelAccess: ModelsAccessResult;
+  private readonly chatgptDeviceCompletion?: ModelsState;
+  holdModelAccess: Promise<void> | null = null;
+  holdNamedClaudeStatus: Promise<void> | null = null;
+  claudeSignOutRefused = false;
   /** Models gestures the page sent (pasted keys included, so tests can check what was sent). */
   readonly modelRuns: ModelsRun[] = [];
   private readonly modelsChanged = new Set<EventSourceContext>();
