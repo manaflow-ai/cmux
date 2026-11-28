@@ -57,6 +57,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.settings",
         "cmux.sidebar-chats",
         "cmux.setup-card",
+        "cmux.skills",
         "cmux.stash",
         "cmux.stats",
         "cmux.task-manager",

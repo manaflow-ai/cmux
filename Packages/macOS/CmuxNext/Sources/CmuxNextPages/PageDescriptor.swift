@@ -308,6 +308,11 @@ public extension PageDescriptor {
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
         actions: ["app.open", "openSettings"], gestureActions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
+    /// The cross-harness skills, MCP server and plugin directory. Mutations are
+    /// confirmed by the page owner before reaching the local daemon.
+    static let skills = PageDescriptor(
+        id: "cmux.skills", resource: "skills", namespaces: ["cmux.skills."])
+
     /// The buttons at the end of each Settings section (`SettingsSchema.actions(in:)`), which the
     /// page runs through cmux.app.action.run with origin page (the actions' own rules still apply).
     static let settingsSectionActions: Set<String> = Set(SettingsSection.allCases.flatMap { section in

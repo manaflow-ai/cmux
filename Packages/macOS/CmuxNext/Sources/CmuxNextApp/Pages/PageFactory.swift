@@ -89,6 +89,15 @@ struct PageFactory {
         return page
     }
 
+    func skillsWebPage(route: String?) -> PageWebView? {
+        let confirming = ConfirmingPageProvider(inner: DaemonPageRelay(services: services), presenter: DialogPageConfirmationPresenter()) { op, params in
+            guard op.hasSuffix(".install") || op.hasSuffix(".remove") else { return nil }
+            let kind: PageConfirmation.Kind = op.hasSuffix(".remove") ? .uninstall : .install
+            return PageConfirmation(kind: kind, name: params["id"]?.stringValue ?? "Skill")
+        }
+        let page = PageWebView(descriptor: .skills, routes: [PageRoute(prefix: "cmux.skills.", provider: confirming)], route: route); confirming.anchor = { [weak page] in page }; return page
+    }
+
     /// The App Store's `cmux.apps.*` calls: the daemon relay behind the native consent card of
     /// ``AppsPageConfirmations`` (the card reads the listing first so it can name the scopes). The
     /// App Store page and the `app.install` / `app.remove` actions (CLI, palette, MCP) share it, so

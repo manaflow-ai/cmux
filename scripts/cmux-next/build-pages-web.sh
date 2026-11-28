@@ -54,6 +54,7 @@ stash
 stats
 glass-parity
 task-manager
+skills
 tasks
 terminal-history
 "

@@ -111,6 +111,17 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     ],
     "confirm": []
   },
+  "skills": {
+    "read": [
+      "skills.directory.list",
+      "skills.directory.status"
+    ],
+    "gesture": [],
+    "confirm": [
+      "skills.directory.install",
+      "skills.directory.remove"
+    ]
+  },
   "stash": {
     "read": [
       "stash.list"
@@ -225,6 +236,17 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
     "mutation": [
       "forum.thread.post",
       "forum.thread.reply"
+    ]
+  },
+  "skills": {
+    "owner": "skills.directory",
+    "read": [
+      "skills.directory.list",
+      "skills.directory.status"
+    ],
+    "mutation": [
+      "skills.directory.install",
+      "skills.directory.remove"
     ]
   },
   "tasks": {
