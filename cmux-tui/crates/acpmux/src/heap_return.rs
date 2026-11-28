@@ -24,6 +24,18 @@ pub fn return_freed() {
     unsafe {
         libc::malloc_trim(0);
     }
+    // The shipped macOS daemon runs on the system allocator (no global allocator is set there),
+    // whose zones also keep freed pages; this asks every zone to give them back.
+    #[cfg(all(target_os = "macos", not(feature = "dhat-heap")))]
+    // SAFETY: a null zone means every zone; a goal of 0 means as much as can be released.
+    unsafe {
+        malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+    }
+}
+
+#[cfg(all(target_os = "macos", not(feature = "dhat-heap")))]
+unsafe extern "C" {
+    fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
 }
 
 #[cfg(test)]
