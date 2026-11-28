@@ -3,6 +3,13 @@ use std::collections::{HashMap, VecDeque};
 
 use super::*;
 
+#[test]
+fn only_provisioning_uses_the_cold_create_deadline() {
+    assert_eq!(chief_request_timeout("cloud.machine.create"), Duration::from_secs(300));
+    assert_eq!(chief_request_timeout("chief.create"), Duration::from_secs(60));
+    assert_eq!(chief_request_timeout("cloud.machine.get"), Duration::from_secs(60));
+}
+
 /// A Cloud with one person: machines by idempotency key, the probes the machine answers in order
 /// (the last one repeats) and every call made.
 #[derive(Default)]
@@ -602,6 +609,21 @@ fn the_install_makes_a_root_only_folder_and_file_and_says_whether_it_changed() {
     assert!(script.contains("echo same") && script.contains("echo changed"));
     // The stage is removed whatever happens.
     assert!(script.starts_with(&format!("trap 'rm -f {}", chief_turn::TURN_ENV_STAGE)));
+    // A unit without the line (an image from before it) gets a drop-in, and that counts as changed.
+    assert!(script.contains("grep -qxF 'EnvironmentFile=-/run/cmux-chief/turn.env'"));
+    assert!(script.contains(&format!(
+        "printf '[Service]\\n%s\\n' 'EnvironmentFile=-/run/cmux-chief/turn.env' > {}",
+        chief_turn::TURN_UNIT_DROP_IN
+    )));
+    assert!(
+        script
+            .contains("load=$(systemctl show cmux-chief.service -p LoadState --value 2>/dev/null)")
+    );
+    assert!(script.contains("if command -v systemctl >/dev/null 2>&1; then"));
+    assert!(script.contains("echo 'systemd unavailable' >&2; exit 1"));
+    assert!(script.contains("[ \"$load\" = not-found ]"));
+    assert!(script.contains("systemctl daemon-reload; unit=added"));
+    assert!(script.contains("if [ \"$unit\" = added ]; then echo changed; else echo same; fi"));
     // On tmpfs.
     assert!(chief_turn::TURN_ENV_FILE.starts_with("/run/"));
     assert!(chief_turn::TURN_ENV_STAGE.starts_with("/dev/shm/"));

@@ -7,8 +7,10 @@ name: Cloud Chief start (machine.chief_start on staging)
 # and that cmux-chief.service runs. The test machine is cmux-test-<run>-chief-start, deleted in the finally path;
 # leftovers older than 3 h are swept by the next run.
 #
-# Secrets: the staging agent test account in cmux-next-vm-image-dev (as cloud-journey-pr.yml). Same-repo pull
-# requests only; without the pair the job fails, never skips.
+# Secrets: the staging agent test account in cmux-next-vm-image-dev (as cloud-journey-pr.yml) and a Claude
+# credential for the Chief's turns (ANTHROPIC_API_KEY, else the journey Claude Code token, as
+# cloud-chief-turn-proof.yml). Same-repo pull requests only; without them the job fails, never skips. A Chief reply
+# that names the credential's own limit judges nothing: the run ends NOT JUDGED with a warning, exit 0.
 
 on:
   workflow_dispatch:
@@ -16,9 +18,12 @@ on:
     branches: [feat-cmux-next]
     paths:
       - cmux-tui/crates/cmux-cloud-api/src/chief_machine*.rs
+      - cmux-tui/crates/cmux-cloud-api/src/chief_turn.rs
       - cmux-tui/crates/cmux-cloud-api/examples/cloud_call.rs
       - Native/OptChat/optchat-chief/src/cloud/**
       - scripts/cmux-next/cloud-chief-start-check.ts
+      - scripts/cmux-next/cloud-chief-start-check.test.ts
+      - scripts/cmux-next/cloud-chief-turn-proof.ts
       - .github/workflows/cloud-chief-start.yml
 
 permissions:
@@ -65,6 +70,11 @@ jobs:
         env:
           CARGO_NET_RETRY: "10"
           CARGO_HTTP_TIMEOUT: "120"
+          # Match cloud-journey-pr's check profile. Run 45862969979 was canceled
+          # while compiling cloud_call's generated client, before any live step.
+          CARGO_PROFILE_DEV_OPT_LEVEL: "0"
+          CARGO_PROFILE_DEV_DEBUG: line-tables-only
+          CARGO_INCREMENTAL: "0"
           CC_x86_64_unknown_linux_musl: musl-gcc
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
           # This binary only has to run for the check. The shipping profile (fat LTO, one codegen unit)
@@ -91,11 +101,16 @@ jobs:
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+      - name: Check the Chief reply verdicts
+        run: bun test scripts/cmux-next/cloud-chief-start-check.test.ts
       - name: Start a Chief on its own staging machine
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          # Owner mode, as the Mac app sends the owner's Claude login (stdin tail, never argv): staging installs no
+          # SR2 model route, so CHIEF_START_AUTH=sr2 answers "Not logged in" there. The same secrets as
+          # cloud-chief-turn-proof.yml; a reply naming the credential's limit ends NOT JUDGED (exit 0), not red.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
