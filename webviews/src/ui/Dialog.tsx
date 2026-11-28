@@ -23,6 +23,8 @@ export interface DialogProps {
   disablePointerDismissal?: boolean;
   className?: string;
   backdropClassName?: string;
+  /** Frost the page behind the backdrop (the lens blur), as a dialog that floats over busy content does. */
+  blurBackdrop?: boolean;
   /** The popup's own style (a custom property it reads). */
   style?: CSSProperties;
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
@@ -41,6 +43,7 @@ export function Dialog({
   disablePointerDismissal = false,
   className,
   backdropClassName,
+  blurBackdrop = false,
   style,
   initialFocus,
   finalFocus,
@@ -67,7 +70,10 @@ export function Dialog({
   return (
     <Root open={open} onOpenChange={(next) => onOpenChange(next)} {...dismissal}>
       <BaseDialog.Portal container={container}>
-        <BaseDialog.Backdrop className={cx("ui-backdrop", backdropClassName)} />
+        <BaseDialog.Backdrop
+          className={cx("ui-backdrop", backdropClassName)}
+          data-blur={blurBackdrop ? "" : undefined}
+        />
         <BaseDialog.Popup
           className={cx("ui-dialog", className)}
           data-host-glass={glass ? "popover" : undefined}

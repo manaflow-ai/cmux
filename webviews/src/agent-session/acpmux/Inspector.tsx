@@ -17,6 +17,7 @@ import type { PerfSend } from "./perfReporter";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import "./Inspector.css";
 import { exportFileName, clockTime, wireRow, sessionRow, visibleRows } from "./inspectorModel";
+import { Button } from "../../ui/Button";
 export type InspectorView = "wire" | "session" | "timing" | "perf";
 
 /** What the host did with an export: saved it, the user cancelled its save panel, or it cannot save (the log is copied instead). */
@@ -259,9 +260,9 @@ export function Inspector({
                 {t("inspector.pointed")}
               </button>
             )}
-            <button type="button" onClick={() => void exportLog()}>
+            <Button bare type="button" onClick={() => void exportLog()}>
               {t("inspector.export")}
-            </button>
+            </Button>
             {view === "wire" && (
               <button
                 type="button"
