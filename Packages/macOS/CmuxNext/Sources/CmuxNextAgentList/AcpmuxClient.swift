@@ -1,6 +1,7 @@
 import CAcpmuxClientFFI
 public import Foundation
 import CmuxNextCompat
+import Darwin
 
 /// crash-allow: all mutable state is confined to the private utility queue; C handles never escape it.
 public nonisolated final class AcpmuxClient: @unchecked Sendable {
@@ -101,13 +102,29 @@ public nonisolated final class AcpmuxClient: @unchecked Sendable {
     }
     @discardableResult public func chatPage(_ request: Data) -> Int32 { mutate(request) { handle, p, n in acpmux_client_chat_page(handle, p, n) } }
     public func chatBlob(_ request: Data) -> Data? { call(request) { handle, p, n, out in acpmux_client_chat_blob(handle, p, n, out) } }
-    /// Reads exact row measurements remembered by the native chat host.
+    /// Reads exact row measurements remembered by the native chat host. Nil until the pinned app FFI
+    /// carries the symbol (see ``rowHeightsCall``).
     public func rowHeightsRead(_ request: Data) -> Data? {
-        call(request) { handle, p, n, out in acpmux_client_row_heights_read(handle, p, n, out) }
+        guard let invoke = Self.rowHeightsCall("acpmux_client_row_heights_read") else { return nil }
+        return call(request) { handle, p, n, out in invoke(handle, p, n, out) }
     }
-    /// Stores exact row measurements for reuse by a later page mount.
+    /// Stores exact row measurements for reuse by a later page mount. Nil until the pinned app FFI
+    /// carries the symbol (see ``rowHeightsCall``).
     public func rowHeightsWrite(_ request: Data) -> Data? {
-        call(request) { handle, p, n, out in acpmux_client_row_heights_write(handle, p, n, out) }
+        guard let invoke = Self.rowHeightsCall("acpmux_client_row_heights_write") else { return nil }
+        return call(request) { handle, p, n, out in invoke(handle, p, n, out) }
+    }
+
+    typealias RowHeightsCall = @convention(c) (
+        UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<AcpmuxClientBytes>?
+    ) -> Int32
+    /// The row-height C ABI, looked up at run time: the app links the pinned `CCmuxAppFFI` release,
+    /// and the release before the one built from these crates has no such symbols, so a direct call
+    /// would not compile until the re-pin (the Rust ABI lands first, as #43130 did before #43937).
+    /// Nil where it is missing: the page then reads no remembered height and estimates, as before.
+    static func rowHeightsCall(_ name: String) -> RowHeightsCall? {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), name) else { return nil }
+        return unsafeBitCast(symbol, to: RowHeightsCall.self)
     }
 
     private func take(_ invoke: (UnsafeMutablePointer<AcpmuxClientBytes>) -> Int32) -> Data? {
