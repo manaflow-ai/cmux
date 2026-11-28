@@ -994,6 +994,63 @@ describe("auto-roll scripts", () => {
       expect(plan.reason).toMatch(/newest build published on HEAD/);
     }), 60_000);
 
+  // RFD 0224 phase 4: 2026-11-28 17:48Z the lock pinned c6cd14b5 while the Cloud machine channel served 632a901e,
+  // 629 commits newer; a push roll pinned the newest published build, not the binary running VMs take.
+  test("a push roll pins the commit the Cloud machine channel serves, and falls back when it cannot", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string, file?: string) => {
+        if (file) {
+          mkdirSync(path.dirname(path.join(full, file)), { recursive: true });
+          writeFileSync(path.join(full, file), msg);
+          await git(full, "add", file);
+        }
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const older = await commitOf("older build");
+      const pinned = await commitOf("pinned");
+      const served = await commitOf("channel build");
+      const newest = await commitOf("newest build");
+      const before = await commitOf("before");
+      await commitOf("image change", "images/cmux-vm/x.txt");
+      const tip = (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const fakeBin = path.join(dir, "bin");
+      mkdirSync(fakeBin);
+      const realBun = (await runChildOk("bash", ["-c", "command -v bun"], { env: process.env })).stdout.trim();
+      writeFileSync(
+        path.join(fakeBin, "bun"),
+        `#!/usr/bin/env bash\ncase "\${1:-}" in *pin-cmux-tui.ts)\n  if [ "\${2:-}" = --commit ]; then case " \${PUBLISHED:-} " in *" $3 "*) printf '{"commit":"%s","unchanged":false}' "$3"; exit 0;; esac; echo "$3/manifest.json: 404" >&2; exit 1; fi\n  printf '{"commit":"%s","unchanged":false}' "$LATEST"; exit 0;;\nesac\nexec ${realBun} "$@"\n`,
+      );
+      await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const channel = path.join(dir, "cloud-machine.json");
+      const serve = (commit: string) =>
+        writeFileSync(channel, JSON.stringify({ payload: Buffer.from(JSON.stringify({ channel: "cloud-machine", commit })).toString("base64"), signature: "x" }));
+      const planWith = async (where: string, published: string[]) => {
+        const out = await runChildOk(path.join(fakeBin, "bun"), [script, "plan", "--event", "push", "--commit", tip, "--before", before, "--tip", "HEAD", "--lock", lock, "--repo", full, "--channel", where], {
+          env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: newest, PUBLISHED: published.join(" ") },
+        });
+        return JSON.parse(out.stdout) as { roll: boolean; reason: string; pin: string; cmuxTui: string };
+      };
+      serve(served);
+      const fromChannel = await planWith(channel, [served, newest]);
+      expect(fromChannel).toMatchObject({ roll: true, pin: served, cmuxTui: served });
+      expect(fromChannel.reason).toContain("the commit the Cloud machine channel serves");
+      // The channel serves the pin: the image already carries it, so the newest build is not taken.
+      serve(pinned);
+      expect(await planWith(channel, [served, newest])).toMatchObject({ roll: true, pin: "", cmuxTui: pinned });
+      // Fallbacks to the newest published build: unreadable channel, an older commit, an unpublished one.
+      expect((await planWith(path.join(dir, "missing.json"), [newest])).pin).toBe(newest);
+      serve(older);
+      expect((await planWith(channel, [older, newest])).pin).toBe(newest);
+      serve(served);
+      expect((await planWith(channel, [newest])).pin).toBe(newest);
+    }), 60_000);
+
   // Roll 44191283358's re-run (attempt 2) promoted cmux-tui 6c776483 at 2026-11-18 04:53Z over roll 44224051230's
   // newer ecd5f536 (04:30Z): plan() refused an older build only against the pin at plan time.
   test("behind refuses a pin older than the tip's, allows the same or a newer one, and fails closed when shallow", () =>
