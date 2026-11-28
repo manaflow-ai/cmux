@@ -128,8 +128,8 @@ nonisolated final class NativeTranscriptRenderer: @unchecked Sendable {
                 renderer.rich.deliver(renderer.scene, id: id, row: row, texture: made.texture, visible: shown)
             }
         }
-        // concurrency-allow: a poll with timeout now on the render thread (never main): it never blocks.
-        guard inFlight.wait(timeout: .now()) == .success else {
+        // A poll with timeout now on the render thread (never main): it never blocks.
+        guard inFlight.blockingWait(timeout: .now()) == .success else {
             skipped += 1
             return
         }
