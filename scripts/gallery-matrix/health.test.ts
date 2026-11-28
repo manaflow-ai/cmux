@@ -98,3 +98,15 @@ test("retries run a quarter of the first render's workers, at least one", async 
   expect(retryConcurrency(3)).toBe(1);
   expect(retryConcurrency(1)).toBe(1);
 });
+
+test("the last retry of a few cases renders them one at a time, as the base replay does", async () => {
+  const { retryConcurrency, QUIET_RETRY_CASES } = await import("./health");
+  // Ten legs of batch run 46113542594 held load-only shift and ready-time reds through retries at a
+  // quarter of the workers; the base replay, one case at a time, rendered them clean and the judge failed them.
+  expect(retryConcurrency(12, true, 4)).toBe(1);
+  expect(retryConcurrency(12, true, QUIET_RETRY_CASES)).toBe(1);
+  // Many cases left (86 not ready in run 46081509797): one at a time outran the step, so a quarter still.
+  expect(retryConcurrency(12, true, 86)).toBe(3);
+  // An earlier retry still runs a quarter, however few cases it has.
+  expect(retryConcurrency(12, false, 4)).toBe(3);
+});
