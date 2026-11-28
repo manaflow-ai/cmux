@@ -42,7 +42,9 @@ carry a cmux-next.yml, so no single file tells them apart.)
 from __future__ import annotations
 
 import functools
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -431,6 +433,108 @@ class OwnedPoolSources(unittest.TestCase):
         if feat is None:
             self.skipTest("feat-cmux-next's workflows are not readable here")
         self.assertIn(".github/workflows/cmux-next-base-autofix.yml", self.owned[str(feat)])
+
+
+# A main twin is a workflow both branches carry because main's copy is the one that runs (a schedule fires the
+# default branch's copy) while it reads feat-cmux-next's scripts. Its header says so ("main twin", "Main-Twin").
+# 2026-11-28: cmux#63743 moved main's ui-proof-stale-sweep.yml onto the secret JIT label and added its GITHUB_TOKEN
+# floor, and feat-cmux-next's copy (cmux#63625) kept `runs-on: cmux-linux` with no floor, so a dispatch on
+# feat-cmux-next ran the sweep where main's guards refuse it. The twins must agree job by job on where a job runs
+# and whether it reads the floor; anything else may differ (the pre-push gate, scripts/cmux-next/prepush-gate.py,
+# judges their steps and schedules).
+TWIN_MARK = re.compile(r"(?i)\bmain[- ]twin\b")
+
+
+def declares_twin(text: str) -> bool:
+    """Whether a workflow's header (its comment lines before `jobs:`) calls it a main twin: a step named for the
+    pre-push gate's main-twin test (ci-guards.yml) is no twin."""
+    for line in text.splitlines():
+        if line.startswith("jobs:"):
+            return False
+        if line.lstrip().startswith("#") and TWIN_MARK.search(line):
+            return True
+    return False
+
+
+def twin_jobs(text: str) -> dict[str, tuple[str, bool]]:
+    """{job: (its runs-on, whether it runs job_token_floor.py)} of a workflow's TEXT."""
+    import yaml  # noqa: PLC0415
+    document = yaml.safe_load(text) or {}
+    jobs = document.get("jobs") if isinstance(document, dict) else None
+    found = {}
+    for name, job in (jobs or {}).items():
+        if isinstance(job, dict):
+            runs_on = job.get("runs-on")
+            found[str(name)] = (json.dumps(runs_on, sort_keys=True) if not isinstance(runs_on, str)
+                                else " ".join(runs_on.split()), "job_token_floor.py" in yaml.safe_dump(job))
+    return found
+
+
+def twin_drift(here: str, there: str) -> list[str]:
+    """How two copies of a main twin differ in where a job runs or whether it reads the floor."""
+    mine, theirs = twin_jobs(here), twin_jobs(there)
+    drift = []
+    for job in sorted(set(mine) & set(theirs)):
+        (runs_here, floor_here), (runs_there, floor_there) = mine[job], theirs[job]
+        if runs_here != runs_there:
+            drift.append(f"job {job} runs-on {runs_here!r} here, {runs_there!r} on the other branch")
+        if floor_here != floor_there:
+            drift.append(f"job {job} {'reads' if floor_here else 'does not read'} the GITHUB_TOKEN floor here "
+                         f"(scripts/ci/job_token_floor.py), the other branch's copy "
+                         f"{'does' if floor_there else 'does not'}")
+    return drift
+
+
+class MainTwinsAgree(unittest.TestCase):
+    """Both copies of a main twin run each job on the same runner, with the same GITHUB_TOKEN floor."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if branch() is None:
+            raise unittest.SkipTest("cannot tell whether this tree is main or feat-cmux-next; set "
+                                    "CMUX_OWNED_POOL_BRANCH")
+        cls.ref = other_ref()
+        fresh = fetch(cls.ref)
+        if fresh is None:
+            if ON_CI:
+                raise AssertionError(f"{cls.ref} is not available, so the main twins were not compared")
+            raise unittest.SkipTest(f"{cls.ref} is not available")
+        cls.here, cls.other = sources.Tree(ROOT), sources.Tree(ROOT, fresh)
+
+    def twins(self) -> list[str]:
+        shared = sorted(set(self.here.workflows()) & set(self.other.workflows()))
+        return [path for path in shared
+                if any(declares_twin(tree.read(path) or "") for tree in (self.here, self.other))]
+
+    def test_every_main_twin_runs_where_its_twin_does(self) -> None:
+        drifted = {}
+        for path in self.twins():
+            drift = twin_drift(self.here.read(path) or "", self.other.read(path) or "")
+            if drift:
+                drifted[path] = drift
+        if os.environ.get("CMUX_TWIN_REPORT"):
+            print(f"main twins: {len(self.twins())}: {', '.join(self.twins())}", file=sys.stderr)
+        self.assertFalse(drifted, "\n".join(
+            [f"{self.ref}: these main twins run a job differently from this branch's copy; change both copies "
+             "in the same change (one pull request per branch):"]
+            + [f"  {path}: {line}" for path, lines in sorted(drifted.items()) for line in lines]))
+
+    def test_the_drift_reader(self) -> None:
+        sweep = ("on:\n  schedule:\n    - cron: '17 * * * *'\njobs:\n  sweep:\n    runs-on: {runs_on}\n    steps:\n"
+                 "{floor}      - run: python3 sweep.py\n")
+        floor = "      - run: python3 scripts/ci/job_token_floor.py ui-proof-stale-sweep/sweep\n"
+        main = sweep.format(runs_on="${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                    "'cmux-gcp-secret-jit-x64' }}", floor=floor)
+        feat = sweep.format(runs_on="cmux-linux", floor="")
+        self.assertEqual(twin_drift(main, main), [])
+        drift = twin_drift(main, feat)
+        self.assertEqual(len(drift), 2, drift)
+        self.assertIn("runs-on", drift[0])
+        self.assertIn("GITHUB_TOKEN floor", drift[1])
+        # A job only one copy has is the pre-push gate's to judge, not a runner drift.
+        self.assertEqual(twin_drift(main, main.replace("sweep:", "other:")), [])
+        self.assertTrue(declares_twin("name: x\n# main carries this same file (its Main-Twin)\non: push\n"))
+        self.assertFalse(declares_twin("jobs:\n  a:\n    steps:\n      - name: Validate the prepush main twin\n"))
 
 
 class FetchLeavesTheCheckoutAlone(unittest.TestCase):
