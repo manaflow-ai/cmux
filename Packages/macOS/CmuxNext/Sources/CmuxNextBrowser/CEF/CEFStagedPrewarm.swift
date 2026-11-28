@@ -37,16 +37,29 @@ public struct CEFStagedPrewarm: Sendable {
         case browserRefused = 74
         /// The page did not finish loading within ``timeout``.
         case timedOut = 75
+        /// The whole run passed ``deadline``: a call outside the page and close waits (CefInitialize, the create,
+        /// CefShutdown) never returned, and the watchdog ended the process (its stage on stderr).
+        case stalled = 76
     }
 
     /// The longest the page may take to load.
     public var timeout: Duration
     /// The longest the page's close may take before `CefShutdown` (skipped past it: the helpers end with this process).
     public var closeTimeout: Duration
+    /// The longest the whole run may take, from Chromium's load to `CefShutdown`'s return: past it the watchdog ends the
+    /// process with ``Outcome/stalled``. The two waits above have their own deadlines, but CefInitialize, the create
+    /// and CefShutdown had none: one round in five hung past the measurer's 60 s on cmux8s (nightly-fresh-launch.py,
+    /// prewarm-update-moved, build 4612541169301, hq run 46137037007) while the others ended in 1.5 to 2.6 s, and the
+    /// updater's own stop (`StagedUpdatePrewarm.runTimeout`) is 60 s.
+    public var deadline: Duration
 
-    public init(timeout: Duration = .seconds(15), closeTimeout: Duration = .seconds(3)) {
+    /// What the calls outside the two waits may take together, beyond ``timeout`` and ``closeTimeout``.
+    nonisolated public static let callAllowance: Duration = .seconds(12)
+
+    public init(timeout: Duration = .seconds(15), closeTimeout: Duration = .seconds(3), deadline: Duration? = nil) {
         self.timeout = timeout
         self.closeTimeout = closeTimeout
+        self.deadline = deadline ?? timeout + closeTimeout + Self.callAllowance
     }
 
     /// The switches beyond the app's own: no background fetches into a profile that is thrown away. The staged
@@ -80,13 +93,33 @@ public struct CEFStagedPrewarm: Sendable {
         application.setActivationPolicy(.prohibited)
         let session = CEFPrewarmSession()
         session.endWithParent()
+        let stage = CEFPrewarmStage()
+        let limit = deadline
+        session.watchdog = Self.watchdog(after: limit) {
+            let line = "cmux --cmux-prewarm-chromium: stalled in \(stage.name) past \(limit)\n"
+            _ = line.withCString { write(STDERR_FILENO, $0, strlen($0)) }
+            _exit(Outcome.stalled.rawValue)
+        }
         // Chromium makes the root cache itself; the page opens in its in-memory profile (no cache path), so the folder
         // keeps only the GPU and log files of the last pre-warm and is reused by the next one, never growing.
         let root = Self.throwawayRoot(bundleIdentifier: Bundle.main.bundleIdentifier)
-        return withExtendedLifetime(session) { run(layout: layout, root: root, session: session) }
+        return withExtendedLifetime(session) { run(layout: layout, root: root, session: session, stage: stage) }
     }
 
-    private func run(layout: CEFRuntimeLayout, root: URL, session: CEFPrewarmSession) -> Outcome {
+    /// Runs `end` on a background queue once `limit` has passed, unless the returned source is cancelled or released
+    /// first; the caller keeps it for the watch to last. Off the main thread: the hang it ends holds the main thread.
+    nonisolated static func watchdog(after limit: Duration, then end: @escaping @Sendable () -> Void) -> any DispatchSourceTimer {
+        let parts = limit.components
+        let nanoseconds = Int(clamping: parts.seconds) &* 1_000_000_000 &+ Int(parts.attoseconds / 1_000_000_000)
+        let source = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+        source.schedule(deadline: .now() + .nanoseconds(max(0, nanoseconds)), repeating: .never)
+        source.setEventHandler { end() }
+        source.resume()
+        return source
+    }
+
+    private func run(layout: CEFRuntimeLayout, root: URL, session: CEFPrewarmSession, stage: CEFPrewarmStage) -> Outcome {
+        stage.name = "the framework load"
         guard case .success(let library) = CEFRuntime.loadLibrary(layout) else { return .loadFailed }
         let shim = library.shim
         guard shim.prepareApplication() == 1 else { return .application }
@@ -105,6 +138,7 @@ public struct CEFStagedPrewarm: Sendable {
         defer { storage.forEach { free($0) } }
         let log = root.appending(path: "cef.log", directoryHint: .notDirectory).path
         let context = Unmanaged.passUnretained(session).toOpaque()
+        stage.name = "CefInitialize"
         let ok = storage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil)
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 shim.initialize(layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
@@ -120,13 +154,16 @@ public struct CEFStagedPrewarm: Sendable {
         let outcome: Outcome = withExtendedLifetime(view) {
             // Pending from the create call until OnAfterCreated: the create is asynchronous, and until that callback
             // both counts below read 0 (see ``readyToShutDown(liveBrowsers:windows:pendingCreates:)``).
+            stage.name = "the page's create"
             session.createStarted()
             let started = shim.createWindow(1, Unmanaged.passUnretained(view).toOpaque(), Int32(size.width), Int32(size.height),
                                             "about:blank", nil)
             guard started == 1 else { session.createEnded(); return .browserRefused }
+            stage.name = "the page's load"
             spin(for: timeout) { session.loaded }
             return session.loaded ? .loaded : .timedOut
         }
+        stage.name = "the page's close"
         shim.closeAll()
         pump.pumpNow()
         // The app's quit order (CEFShutdownSequence): every browser closed, then every Chromium window gone. With only
@@ -142,6 +179,7 @@ public struct CEFStagedPrewarm: Sendable {
         // with this process instead (the caller ends it with `_exit`: no static destructors under Chromium's threads).
         guard settled() else { return outcome }
         pump.stop()
+        stage.name = "CefShutdown"
         shim.shutdown()
         return outcome
     }
@@ -168,8 +206,20 @@ public struct CEFStagedPrewarm: Sendable {
 
 /// One pre-warm's state behind the shim's C callbacks (their `ctx`, unretained; the pre-warm keeps it alive), and the
 /// watch that ends the process with the app that started it.
+/// Where the pre-warm is, for the watchdog's line: set on the main thread, read on the watchdog's queue.
+nonisolated final class CEFPrewarmStage: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = "the start"
+    var name: String {
+        get { lock.withLock { current } }
+        set { lock.withLock { current = newValue } }
+    }
+}
+
 final class CEFPrewarmSession {
     var pump: CEFMessagePump?
+    /// The whole run's deadline (``CEFStagedPrewarm/watchdog(after:then:)``), kept for as long as the pre-warm runs.
+    var watchdog: (any DispatchSourceTimer)?
     /// The page's main-frame load ended or failed.
     var loaded = false
     /// Browsers asked for whose OnAfterCreated has not come yet.
