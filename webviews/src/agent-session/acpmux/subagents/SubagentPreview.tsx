@@ -18,7 +18,7 @@ import { subagentStateText, subagentStatus, type SubagentStatus } from "../summa
 import { useAgentProgress } from "./agentProgressStore";
 import { isRepeatedAgentKind } from "./agentIdentityModel";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
-import { useNow, subagentTime } from "./subagentGroupModel";
+import { subagentTime, useNow } from "./subagentGroupModel";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { latestLine } from "./trayDetail";
 import { subagentSetup } from "./subagentSetup";

@@ -26,7 +26,7 @@ import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subag
 import { subagentProgress } from "../subagents/subagentProgress";
 import { namedAction } from "../subagents/trayDetail";
 import { nestAgents } from "../subagents/agentsPillModel";
-import { running, useNow, subagentTime } from "../subagents/subagentGroupModel";
+import { running, subagentTime, useNow } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { subsessionResumeRow } from "../subagents/resumeState";
