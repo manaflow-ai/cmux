@@ -2204,6 +2204,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-feed-push-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-felt"
 version = "0.1.0"
 dependencies = [
@@ -2611,6 +2621,7 @@ name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-conversation",
+ "cmux-feed-push-core",
  "cmux-mobile-core",
  "cmux-rd-screen",
  "serde_json",
