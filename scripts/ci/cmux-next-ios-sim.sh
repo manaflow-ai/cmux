@@ -436,9 +436,9 @@ if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
         pair_upload+=(--reconnect-drops "$n") ;;
       flaps=*)
         n="${word#flaps=}"
-        [[ "$n" =~ ^[1-9][0-9]?$ ]] || { echo "cmux-next-ios-sim.sh: flaps= wants 1-99, got '$n'" >&2; exit 2; }
+        [[ "$n" =~ ^([1-9][0-9]?|duration:[1-9][0-9]{1,3},every:[1-9][0-9]?-[1-9][0-9]?)$ ]] || { echo "cmux-next-ios-sim.sh: flaps= wants 1-99 flips or duration:S,every:A-B (seconds), got '$n'" >&2; exit 2; }
         pair_upload+=(--flaps "$n") ;;
-      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay, upload-block-udp, reconnect-drops=S,S and flaps=N, got '$word'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay, upload-block-udp, reconnect-drops=S,S and flaps=N|duration:S,every:A-B, got '$word'" >&2; exit 2 ;;
     esac
   done
 fi
