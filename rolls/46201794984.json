@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46201794984",
+  "recorded_at": "2026-11-28T23:42:17Z",
+  "reason": "cmux-tui 153e4b30bf6f changes the image's cmux-tui (pinned 2778ccff9252)",
+  "dry_run": false,
+  "cmux_tui": "153e4b30bf6f01ebd92a5be207050cb7b7523277",
+  "fixes": [
+    {
+      "sha": "8c9a889886adfd97ad08d87913d439763769a934",
+      "mergedAt": "2026-11-28T22:46:54Z",
+      "subject": "acpmux CLI: a call that parses skips the help examples walk (duress cpu leg start cost) (#64167)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T23:42:17Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
