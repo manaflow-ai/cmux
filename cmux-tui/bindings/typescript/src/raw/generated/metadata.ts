@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "604bfb484cb128e82a93bdd8545eb6e4150a1deba2839699549733137d0b9e97" as const;
+export const SDK_IR_SHA256 = "f26444d35b90e8b5dcfb3076976a7dceb4771ae8f27e4136ce5f1a6e259a15fb" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -7392,6 +7392,57 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "FloatingPane": {
+    "additional_properties": false,
+    "fields": {
+      "h": {
+        "description": "The height, 0 to 1.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "pane": {
+        "description": "floating-panes-v1: the pane, still a leaf of the screen's layout; x, y, w and h are its frame as fractions of the screen's pane area.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "w": {
+        "description": "The width, 0 to 1.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "x": {
+        "description": "The left edge, 0 to 1.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "y": {
+        "description": "The top edge, 0 to 1.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "FocusDirectionResult": {
     "additional_properties": false,
     "fields": {
@@ -11543,8 +11594,11 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "presence": "optional",
         "since": 12,
         "type": {
-          "kind": "ref",
-          "name": "JsonValue"
+          "items": {
+            "kind": "ref",
+            "name": "FloatingPane"
+          },
+          "kind": "array"
         }
       },
       "group": {
