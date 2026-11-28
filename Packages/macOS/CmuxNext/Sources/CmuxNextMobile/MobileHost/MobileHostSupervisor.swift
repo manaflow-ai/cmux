@@ -32,7 +32,9 @@ public actor MobileHostSupervisor {
         /// The app's surface sources (phone tabs' simulators, `s<n>`, and the owner's Cloud
         /// desktops, `c~<machine>~<team>`); nil when this build streams neither (hostd then refuses `surface`).
         public var surfaceHosts: (any MobileHostSurfaceHosting)?
-        /// Current new-architecture carriers and the plan's Cloud flag; fetched for every phone request, never cached here.
+        /// Platform-only exporter for Rust-authorized Open on iPhone requests.
+        public var siteData: (@Sendable (MobileHostSiteDataRequest) async throws -> MobileHostSiteData)?
+        /// Current Cloud carriers and plan, fetched per request.
         public var cloudLinks: @Sendable () async -> MobileHostCloudLinks
 
         public init(launch: MobileHostLaunch, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
@@ -40,7 +42,9 @@ public actor MobileHostSupervisor {
                     inherited: [String: String] = ProcessInfo.processInfo.environment,
                     browserHosts: (any MobileHostBrowserHosting)? = nil, macIdentity: MobileHostMacIdentity? = nil,
                     surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
-                    cloudLinks: (@Sendable () async -> MobileHostCloudLinks)? = nil) {
+                    cloudLinks: (@Sendable () async -> MobileHostCloudLinks)? = nil,
+                    siteData: (@Sendable (MobileHostSiteDataRequest) async throws -> MobileHostSiteData)? = nil) {
+            self.siteData = siteData
             self.macIdentity = macIdentity
             self.surfaceHosts = surfaceHosts
             self.cloudLinks = cloudLinks ?? { MobileHostCloudLinks() }
@@ -77,7 +81,14 @@ public actor MobileHostSupervisor {
     /// The last `tab_picture` line of each browser tab's part (`"<surface>-<part>"`): sent on every
     /// change and to each new hostd, until the tab closes (``forgetTabPictures(surface:)``).
     private var tabPictureLines: [String: Data] = [:]
-    /// The account the running hostd serves (its launch's user), nil with none running.
+    /// Default-off opt-in and in-flight exports; data is never retained here.
+    private var siteDataHandoffEnabled = false
+    private var siteDataTasks: [UUID: Task<Void, Never>] = [:]
+    private var siteDataEpoch: UInt64 = 0
+    private var siteDataReadIDs: [UInt64: UUID] = [:]
+    private var siteDataTimeouts: [UInt64: DemandTimer] = [:]
+    private var hasSiteDataExporter = false
+    /// The account the running hostd serves, nil with none running.
     private var processUser: String?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
@@ -150,6 +161,7 @@ public actor MobileHostSupervisor {
 
     /// Ends the current run and waits for its hostd to exit.
     private func halt() async {
+        cancelSiteData()
         let task = run
         run = nil
         task?.cancel()
@@ -294,8 +306,13 @@ public actor MobileHostSupervisor {
             return "cmux-mobile-host did not start: \(error.localizedDescription)"
         }
         process = child
+        hasSiteDataExporter = inputs.siteData != nil
         processUser = inputs.launch.userID
-        defer { (process, processUser) = (nil, nil) }
+        defer {
+            cancelSiteData()
+            hasSiteDataExporter = false
+            (process, processUser) = (nil, nil)
+        }
         // A new hostd knows none of the old one's browser hosts.
         defer { if let hosts = inputs.browserHosts { Task { await hosts.stopAll() } } }
         defer { if let sources = inputs.surfaceHosts { Task { await sources.stopAll() } } }
@@ -373,6 +390,8 @@ public actor MobileHostSupervisor {
                     let links = await inputs.cloudLinks()
                     if let line = MobileHostLaunch.cloudLinksLine(request: request, links: links) { child.send(line) }
                 }
+            case let .needSiteData(request):
+                readSiteData(child, inputs: inputs, request: request)
             case .pairRequest, .unpaired, .pairAnswer:
                 await pairingQueue.send(event)
             case let .needBrowser(request, tab, url):
@@ -404,6 +423,7 @@ public actor MobileHostSupervisor {
 
     /// Send initial state and start the independent token and acpmux lookups.
     private func handOver(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply, acpmux: MobileHostAcpmuxSupply) async {
+        child.send(MobileHostLaunch.siteDataHandoffLine(enabled: siteDataHandoffEnabled && inputs.siteData != nil))
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
@@ -412,6 +432,67 @@ public actor MobileHostSupervisor {
         for line in tabPictureLines.values { child.send(line) }
         await tokens.request()
         await acpmux.request()
+    }
+
+    /// The person's explicit opt-in. Defaults off, replays across hostd restarts.
+    public func setSiteDataHandoff(enabled: Bool) {
+        siteDataHandoffEnabled = enabled
+        if !enabled { cancelSiteData() }
+        process?.send(MobileHostLaunch.siteDataHandoffLine(enabled: enabled && hasSiteDataExporter))
+    }
+
+    private func cancelSiteData() {
+        siteDataEpoch &+= 1
+        siteDataTasks.values.forEach { $0.cancel() }
+        // Keep cancelled reads counted until they finish: an uncooperative engine must not
+        // create unbounded suspended tasks across timeouts or restarts.
+        siteDataReadIDs.removeAll()
+        siteDataTimeouts.values.forEach { $0.cancel() }
+        siteDataTimeouts.removeAll()
+    }
+
+    private func readSiteData(_ child: MobileHostProcess, inputs: Inputs, request: MobileHostSiteDataRequest) {
+        guard siteDataHandoffEnabled, let export = inputs.siteData,
+              siteDataTasks.count < 8, siteDataReadIDs[request.request] == nil else {
+            child.send(MobileHostLaunch.siteDataFailedLine(request: request.request))
+            return
+        }
+        let epoch = siteDataEpoch
+        let readID = UUID()
+        siteDataReadIDs[request.request] = readID
+        let timeout = DemandTimer(owner: "MobileHostSupervisor.siteData")
+        siteDataTimeouts[request.request] = timeout
+        timeout.schedule(after: .seconds(4)) { [weak self, weak child] in
+            await self?.timeoutSiteData(request.request, readID: readID, child: child)
+        }
+        // task-owner: bounded by hostd's pending requests; disable, stop and restart cancel all reads.
+        siteDataTasks[readID] = Task {
+            defer {
+                siteDataTasks.removeValue(forKey: readID)
+                if siteDataReadIDs[request.request] == readID {
+                    siteDataReadIDs.removeValue(forKey: request.request)
+                    siteDataTimeouts.removeValue(forKey: request.request)?.cancel()
+                }
+            }
+            do {
+                let data = try await export(request)
+                guard !Task.isCancelled, siteDataHandoffEnabled, siteDataEpoch == epoch,
+                      siteDataReadIDs[request.request] == readID else { return }
+                child.send(MobileHostLaunch.siteDataLine(request: request.request, data: data)
+                    ?? MobileHostLaunch.siteDataFailedLine(request: request.request))
+            } catch {
+                guard !Task.isCancelled, siteDataEpoch == epoch, siteDataReadIDs[request.request] == readID else { return }
+                child.send(MobileHostLaunch.siteDataFailedLine(request: request.request))
+            }
+        }
+    }
+
+    private func timeoutSiteData(_ request: UInt64, readID: UUID, child: MobileHostProcess?) {
+        guard siteDataReadIDs[request] == readID else { return }
+        siteDataReadIDs.removeValue(forKey: request)
+        siteDataTasks[readID]?.cancel()
+        siteDataTimeouts.removeValue(forKey: request)?.cancel()
+        child?.send(MobileHostLaunch.siteDataFailedLine(request: request))
     }
 
     /// Starts a browser host for hostd without holding up its other requests.

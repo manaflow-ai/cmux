@@ -39,36 +39,47 @@ public enum PhoneInput: Sendable, Hashable {
     /// Shows or hides the on-screen keyboard (iOS: the simulator's software keyboard toggle).
     case softwareKeyboard
 
-    /// The capability the backend needs for this input.
-    public var requiredCapability: PhoneCapabilities {
+    /// The short kind name used in `events.jsonl` ("tap", "swipe", ...), from `cmux-phone-core`'s `input_check`.
+    public var kind: String { check(on: PhoneDeviceID(mode: .simulator, raw: "-"), []).kind }
+
+    /// `cmux-phone-core`'s `input_check`: the kind, and whether a phone `id` with `capabilities` takes this input.
+    func check(on id: PhoneDeviceID, _ capabilities: PhoneCapabilities) -> (kind: String, allowed: Bool, what: String) {
+        let reply = PhoneRules.ask("input_check", ["input": wire, "id": id.description, "capabilities": capabilities.rawValue])
+        let kind = reply?["kind"] as? String ?? "input"
+        return (kind, reply?["allowed"] as? Bool ?? false, reply?["what"] as? String ?? kind)
+    }
+
+    /// The input as `cmux-phone-core`'s `PhoneInput` reads it.
+    var wire: [String: Any] {
         switch self {
-        case .tap, .swipe: .touch
-        case .text: .keyboard
-        case .button, .softwareKeyboard: .buttons
-        case .openURL: .openURL
-        case .pasteboard: .pasteboard
-        case .appearance: .appearance
-        case .location: .location
-        case .locale: .locale
-        case .install, .launch: .apps
+        case .tap(let point): ["kind": "tap", "x": point.x, "y": point.y]
+        case .swipe(let from, let to, let seconds):
+            ["kind": "swipe", "from_x": from.x, "from_y": from.y, "to_x": to.x, "to_y": to.y, "seconds": seconds]
+        case .text(let text): ["kind": "text", "text": text]
+        case .button(let button): ["kind": "button", "button": button.rawValue]
+        case .openURL(let url): ["kind": "open_url", "url": url.absoluteString]
+        case .pasteboard: ["kind": "pasteboard"]
+        case .appearance(let appearance): ["kind": "appearance", "dark": appearance == .dark]
+        case .location(let latitude, let longitude): ["kind": "location", "latitude": latitude, "longitude": longitude]
+        case .locale(let identifier): ["kind": "locale", "identifier": identifier]
+        case .install(let path): ["kind": "install", "path": path.path]
+        case .launch(let package): ["kind": "launch", "package": package]
+        case .softwareKeyboard: ["kind": "software_keyboard"]
         }
     }
 
-    /// The short kind name used in `events.jsonl` ("tap", "swipe", ...).
-    public var kind: String {
-        switch self {
-        case .tap: "tap"
-        case .swipe: "swipe"
-        case .text: "text"
-        case .button: "button"
-        case .openURL: "open-url"
-        case .pasteboard: "pasteboard"
-        case .appearance: "appearance"
-        case .location: "location"
-        case .locale: "locale"
-        case .install: "install"
-        case .launch: "launch"
-        case .softwareKeyboard: "software-keyboard"
+    /// A tap or swipe in `cmux-phone-core`'s wire shape read back; nil for any other.
+    init?(touch wire: [String: Any]) {
+        func number(_ key: String) -> Double? { (wire[key] as? NSNumber)?.doubleValue }
+        switch wire["kind"] as? String {
+        case "tap":
+            guard let x = number("x"), let y = number("y") else { return nil }
+            self = .tap(PhonePoint(x: x, y: y))
+        case "swipe":
+            guard let fromX = number("from_x"), let fromY = number("from_y"), let toX = number("to_x"), let toY = number("to_y"),
+                  let seconds = number("seconds") else { return nil }
+            self = .swipe(from: PhonePoint(x: fromX, y: fromY), to: PhonePoint(x: toX, y: toY), seconds: seconds)
+        default: return nil
         }
     }
 }

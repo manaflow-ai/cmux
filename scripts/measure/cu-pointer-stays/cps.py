@@ -37,6 +37,7 @@ LOG = os.path.join(OUT, "target.log")
 # so main() derives it from `cpsprobe screen`, and each gesture's sample is measured from the
 # position the park read back, never from the asked-for point.
 PARK = (1700.0, 900.0)
+VIDEO_S = 60  # the ten gestures take about 20 s; the movie covers them with room to spare
 RESULTS = os.path.join(OUT, "results.jsonl")
 T0 = time.time()
 
@@ -239,7 +240,7 @@ def main():
     ]
 
     video = os.path.join(OUT, "cps.mov")
-    rec = subprocess.Popen(["screencapture", "-v", "-C", "-k", "-x", "-V", "900", video],
+    rec = subprocess.Popen(["screencapture", "-v", "-C", "-k", "-x", "-V", str(VIDEO_S), video],
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=open(os.path.join(OUT, "screencapture.err"), "w"))
     video_t0 = time.time()
     time.sleep(3)
@@ -285,11 +286,16 @@ def main():
                  call_s=round(call_s, 3), video_s=round(t_call - video_t0, 2), ok=resp.get("ok"), is_error=is_error,
                  error=resp.get("error"), body=json.dumps(rbody)[:1500] if rbody is not None else None)
     time.sleep(2)
-    rec.send_signal(signal.SIGINT)
+    # screencapture -v writes its movie when its -V time runs out; a SIGINT ends it without one (the
+    # first runs' 0-byte cps.mov, rc -2). So let it finish, and interrupt only one that overruns.
     try:
-        rec.wait(timeout=30)
+        rec.wait(timeout=VIDEO_S + 30)
     except subprocess.TimeoutExpired:
-        rec.kill()
+        rec.send_signal(signal.SIGINT)
+        try:
+            rec.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            rec.kill()
     try:
         rec_err = open(os.path.join(OUT, "screencapture.err")).read()[-1500:]
     except OSError:

@@ -135,10 +135,10 @@ def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
     # The startup tests live in the cmux_tui library (src/main.rs since the
     # Windows thin-exe split); the cmux-tui bin's test binary has the same
     # cmux_tui-<hash> name and none of them.
-    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui/Cargo.toml").read_text()
-    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "src/main.rs"', cargo_toml)
+    cargo_toml = (ROOT / "cmux-tui/crates/cmux-tui-lib/Cargo.toml").read_text()
+    assert re.search(r'\[lib\]\nname = "cmux_tui"\npath = "../cmux-tui/src/main.rs"', cargo_toml)
     assert re.search(
-        r"cargo test \\\s+-p cmux-tui --lib \\\s+"
+        r"cargo test \\\s+-p cmux-tui-lib --lib \\\s+"
         r"-p ghostty-vt --test terminal \\\s+"
         r"--locked --no-run --message-format=json",
         build,
@@ -1603,10 +1603,17 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
                                 "run_attempt": attempt, "takeover": takeover, "repository": "manaflow-ai/cmux"}}
         )
 
+    # SPLIT_PAIR_STARVED: only the darwin `build` shares the feat-push group; build-linux keeps one group per
+    # run, so a newer window can never replace one leg of the pair publish needs while the other runs.
+    linux = jobs["build-linux"]["concurrency"]
+    assert feat(linux["group"]) == "cmux-tui-build-linux-" + "k" * 12 + "-7"
+    assert feat(linux["group"], run_id="8") != feat(linux["group"])
+    assert feat(linux["cancel-in-progress"]) == "False"
     for name, prefix in (("build", "cmux-tui-build-"), ("build-linux", "cmux-tui-build-linux-")):
         group = jobs[name]["concurrency"]["group"]
-        assert feat(group) == prefix + "feat-push", name
-        assert feat(group, run_id="8") == feat(group), name
+        if name == "build":
+            assert feat(group) == prefix + "feat-push", name
+            assert feat(group, run_id="8") == feat(group), name
         assert feat(jobs[name]["concurrency"]["cancel-in-progress"]) == "False", name
         assert feat(group, attempt=2) == prefix + "k" * 12 + "-7", name
         assert feat(group, takeover="true") == prefix + "k" * 12 + "-7", name
