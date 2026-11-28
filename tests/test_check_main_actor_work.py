@@ -108,13 +108,36 @@ class BlockingRuleTests(unittest.TestCase):
     def test_menu_remove_item_is_not_a_file_change(self):
         self.assertEqual(hits("func f(menu: NSMenu, item: NSMenuItem) {\n    menu.removeItem(item)\n    menu.removeItem(at: 0)\n}\n"), [])
 
-    def test_reviewed_exception_passes(self):
+    def test_untyped_exception_silences_the_call_but_is_its_own_hit(self):
+        # Lawrence, 2026-11-27: "The comment should have to name the UI type it touches, not how small the data is".
         source = """func f() {
     // main-actor-ok: a one-line pid file in the app's own container, written once at launch.
     try? Data().write(to: url)
 }
 """
-        self.assertEqual(hits(source), [])
+        self.assertEqual(hits(source), [(2, check.UNTYPED_RULE)])
+
+    def test_exception_naming_an_appkit_or_core_animation_type_passes(self):
+        for marker in ("main-actor-ok(NSView): walks the view tree on the picking move",
+                       "main-actor-ok(CATransaction): the commit's completion block"):
+            with self.subTest(marker=marker):
+                source = f"""func f() {{
+    // {marker}
+    let p = Process()
+}}
+"""
+                self.assertEqual(hits(source), [])
+
+    def test_exception_naming_a_data_type_is_untyped(self):
+        for marker in ("main-actor-ok(NSData): a few bytes", "main-actor-ok(String): two keys",
+                       "main-actor-ok(): small"):
+            with self.subTest(marker=marker):
+                source = f"func f() {{\n    let p = Process() // {marker}\n}}\n"
+                self.assertEqual(hits(source), [(2, check.UNTYPED_RULE)])
+
+    def test_untyped_exception_counts_off_main_too(self):
+        source = "nonisolated func f() {\n    // main-actor-ok: why\n    fsync(fd)\n}\n"
+        self.assertEqual(hits(source), [(2, check.UNTYPED_RULE)])
 
     def test_same_calls_off_main_are_not_flagged(self):
         source = """nonisolated func f() {

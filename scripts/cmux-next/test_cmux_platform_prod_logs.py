@@ -628,6 +628,16 @@ class NeverBoundTests(unittest.TestCase):
         for msg in ("cloud.create.submit", "cloud.start.submit", "cloud.start.trace"):
             self.assertIn(msg, logs.PLATFORM_MSGS)
 
+    def test_a_create_trace_keeps_why_it_ran_as_a_fixed_word(self):
+        """cmux-vm's create queue (3 slots, development and staging) refused 61 of 69 creates 2026-11-28 01:36-01:48Z;
+        cmux-platform#2507's create trace `kind` says who filled it. Only its fixed words are kept."""
+        for kind in ("spare", "restore", "person", "window", "refresh", "warm"):
+            row = logs.line(event({"msg": "cloud.create.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                                   "kind": kind, "total_ms": 31000}))
+            self.assertEqual(row["log"]["kind"], kind)
+        odd = logs.line(event({"msg": "cloud.create.trace", "machine": VM, "outcome": "ok", "kind": "spare_x"}))
+        self.assertNotIn("kind", odd["log"])
+
     def test_an_approved_run_keeps_its_delivery_split_and_steps(self):
         """Production 2026-11-27 02:15-03:15Z (hq#31342): 20 cloud.approval.run lines kept only msg, team, machine, op,
         outcome and path; cmux-platform#2295's queued/admit/delivery/run ms and the create's steps were dropped."""
@@ -640,6 +650,21 @@ class NeverBoundTests(unittest.TestCase):
                                       "path": "spare", "queued_ms": 410, "admit_ms": 12, "delivery_ms": 2140,
                                       "run_ms": 2128, "steps": {"spare_claim": 90, "provider": 1700, "vm_api": 2050}})
         self.assertIn("cloud.create.approved", logs.PLATFORM_MSGS)
+
+    def test_a_large_row_scan_keeps_its_table_counts_and_caller_names_only(self):
+        """Staging 2026-11-28 04:40-05:06Z (ask-6b8661d57a): cmux-platform#2511's cloud.rows.scan_large was unlisted,
+        so the read meant to name the CloudDO's CPU-heavy scan kept 0 rows."""
+        at = ("at CloudDO.approvalAhead (index.js:2553:9) < at async CloudCore.createMachine (index.js:1797:3) < "
+              "at /srv/hunter2/x.js:1:1")
+        row = logs.line(event({"msg": "cloud.rows.scan_large", "table": "machine", "rows": 4120, "yielded": 4120,
+                               "ms": 812, "at": at}))
+        self.assertEqual(row["log"], {"msg": "cloud.rows.scan_large", "table": "machine", "rows": 4120,
+                                      "yielded": 4120, "ms": 812,
+                                      "callers": ["CloudDO.approvalAhead", "CloudCore.createMachine"]})
+        self.assertNotIn("hunter2", json.dumps(row))
+        self.assertNotIn("index.js", json.dumps(row))
+        bare = logs.line(event({"msg": "cloud.rows.scan_large", "table": "machine", "rows": 9, "at": "nonsense"}))
+        self.assertNotIn("callers", bare["log"])
 
     def test_a_spare_fill_keeps_its_machine_and_refill_timing(self):
         """Production 2026-11-27 02:37Z (hq#31487): a create missed the spare after a 20 s fill wait; the fill lines
@@ -735,6 +760,15 @@ class NeverBoundTests(unittest.TestCase):
                  ("VM API: secret-tenant-words", "VM API: other"),
                  ("TypeError: secret-tenant-words is not a function", "TypeError"),
                  ("the machine network is unavailable", "the machine network is unavailable"),
+                 # ownhost/CloudProvider.ts: the step and its fixed tail, the status and the daemon's code token.
+                 ("own-host: find VM: no readable answer", "own-host: find VM: no readable answer"),
+                 ("own-host: create VM: HTTP 503 (host_full)", "own-host: create VM: HTTP 503 (host_full)"),
+                 ("own-host: create VM: HTTP 530", "own-host: create VM: HTTP 530"),
+                 ("own-host: resume VM: the host answered refused", "own-host: resume VM: the host answered refused"),
+                 ("own-host: no TLS edge rules", "own-host: no TLS edge rules"),
+                 ("own-host: create VM: HTTP 500 (Secret Tenant Words)", "own-host: create VM: other"),
+                 ("own-host: find VM: secret-tenant-words", "own-host: find VM: other"),
+                 ("own-host: secret-tenant-words: no readable answer", "own-host: other"),
                  (None, "other"))
         for message, want in cases:
             with self.subTest(message=message):
