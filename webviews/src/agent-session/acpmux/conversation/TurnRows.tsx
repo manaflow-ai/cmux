@@ -147,8 +147,11 @@ function workedOutcomeLabel(t: Translate, row: AcpmuxRow, arm: string): ReactNod
 }
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
-function WorkedLabel({ row }: { row: AcpmuxRow }) {
+function WorkedLabel({ row: sourceRow }: { row: AcpmuxRow }) {
   const t = useT();
+  const capacityWait = useContext(CapacityWaitContext);
+  // The daemon is continuing this exact turn; a temporary capacity cut is not its outcome.
+  const row = waitsFor(capacityWait, sourceRow.turnId) ? { ...sourceRow, status: undefined } : sourceRow;
   // The `header` arm of turnFoldSteered names the work the line holds after its time.
   const runs = row.workedRuns;
   const work = useMemo(() => (runs?.length ? toolRunSummary(t, runs) : undefined), [t, runs]);
@@ -478,9 +481,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // capacity_wait.rs) draws one calm wait instead of the failed card, its mark or red footer (RFD
   // model-overload-smoothing §3.8; Leo, 2026-11-24: "fix 529s properly with better designs").
   const capacityWait = useContext(CapacityWaitContext);
-  const waitLook =
-    failed && !row.recovered && waitsFor(capacityWait, row.turnId) ? experimentArm(capacityWaitLook) : "off";
-  const waiting = waitLook !== "off" && capacityWait !== undefined;
+  const waiting = failed && !row.recovered && waitsFor(capacityWait, row.turnId);
+  const chosenWaitLook = experimentArm(capacityWaitLook);
+  // Appearance overrides never turn a daemon-owned capacity hold into a failure.
+  const waitLook = chosenWaitLook === "off" ? "line" : chosenWaitLook;
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
   // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
@@ -559,10 +563,11 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     (row.status === undefined || row.status === "completed" || isStopped(row)) &&
     offersRetry(row) &&
     !isEmptyFooter(row);
-  const footerRetry = failedRetry;
+  const footerRetry = waiting ? undefined : failedRetry;
   // retry-prompt-ok: the turn's Retry sends the prompt again, a paid model request (and may change files again).
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
-  const retryModels = failed && prompt && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
+  const retryModels =
+    failed && !waiting && prompt && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
@@ -588,7 +593,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // turn the reader points at, from its answer to its footer).
   return (
     <>
-      {waiting && capacityWait && <CapacityWaitCard wait={capacityWait} look={waitLook} />}
+      {waiting && capacityWait && !capacityWait.groupedHelpers && (
+        <CapacityWaitCard wait={capacityWait} look={waitLook} />
+      )}
       {showsCard && (
         <TurnFailure
           onDismiss={() => dismissFailure(chat, row.id)}

@@ -2661,6 +2661,8 @@ function shapeTurn(
         kind: WORKED,
         foldOpen: open,
         status: final ? summary.status : "completed",
+        // The held turn's header uses the daemon's exact capacity-wait identity.
+        ...(final && summary.turnId && { turnId: summary.turnId }),
         toolCount,
         ...(named && { workedMessages: { sent: sent(), received } }),
         // The turn's one outer count, over the runs that each count their own (Leo, 2026-11-07: "do you

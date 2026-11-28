@@ -73,6 +73,8 @@ export function trayItems(
     // One acpmux retries is about to run again: it shows with the running ones, turn or not. A
     // sub-session's retry is on its own session row: its line carries it, to read "Retrying (2/4)".
     .flatMap((agent) => {
+      // The transcript's grouped row owns capacity waits, including in-flight resumes.
+      if (agent.capacityWait) return [];
       if (agent.state === "running" && (working || agent.background === true)) return [agent];
       // Stopped to wait on background work of its own: still live, its report still to come.
       if (awaitsOwnWork(agent)) return [agent];
@@ -126,7 +128,12 @@ export function finishedTrayItems(agents: readonly Subagent[], sessions: readonl
   const retries = childRetries(sessions);
   const known = new Map(agents.map((agent) => [agent.id, agent]));
   const ended = agents.filter(
-    (agent) => agent.state !== "running" && !awaitsOwnWork(agent) && !retries(agent) && !resumedRun(agent, known),
+    (agent) =>
+      agent.state !== "running" &&
+      !agent.capacityWait &&
+      !awaitsOwnWork(agent) &&
+      !retries(agent) &&
+      !resumedRun(agent, known),
   );
   // Each subtree's latest end, in one pass over a parent-to-children map (a loop is cut where it
   // meets an agent already on the path).
@@ -222,7 +229,10 @@ export type StartedLineModel = { named: Subagent[]; more: Subagent[] };
 /// record names it. Undefined when no subagent is left: no line, never a row of empty pills.
 export function startedLineModel(agents: readonly Subagent[], workflows: boolean): StartedLineModel | undefined {
   const shown = agents.filter(
-    (agent) => hasStarted(agent) && !agent.startUnseen && subagentNamed(agent) && !(workflows && isWorkflow(agent)),
+    (agent) =>
+      hasStarted(agent) &&
+      (agent.capacityWait || (!agent.startUnseen && subagentNamed(agent))) &&
+      !(workflows && isWorkflow(agent)),
   );
   if (!shown.length) return undefined;
   return { named: shown.slice(0, STARTED_LINE_NAMES), more: shown.slice(STARTED_LINE_NAMES) };
@@ -244,7 +254,16 @@ function startedLine(
     at,
     group.inBackground,
     line.named.length,
-    all.map(({ id, name, task, kind, prompt, harness }) => [id, name, task, kind, prompt, harness]),
+    all.map((agent) => [
+      agent.id,
+      agent.name,
+      agent.task,
+      agent.kind,
+      agent.prompt,
+      agent.harness,
+      agent.state,
+      retryKey(agent),
+    ]),
   ]);
   made.add(id);
   const kept = cache.get(id);
@@ -478,7 +497,13 @@ export function withSubagentLines(
       );
     for (const agent of subagents) {
       // One waiting on background work of its own has not finished: its line waits for its report.
-      if (agent.state === "running" || awaitsOwnWork(agent) || (workflowCards && isWorkflow(agent))) continue;
+      if (
+        agent.state === "running" ||
+        agent.capacityWait ||
+        awaitsOwnWork(agent) ||
+        (workflowCards && isWorkflow(agent))
+      )
+        continue;
       const endedAt = agent.endedAt ?? agent.startedAt;
       let at = index + 1;
       while (at < rows.length && (isSubagentGroup(rows[at]!) || rows[at]!.at <= endedAt)) at += 1;

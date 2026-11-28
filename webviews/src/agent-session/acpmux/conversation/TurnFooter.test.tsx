@@ -19,7 +19,7 @@ import {
   rowMark,
   transcriptGap,
 } from "../transcriptGrid";
-import { TurnFooter } from "./TurnRows";
+import { TurnFooter, WorkedFor } from "./TurnRows";
 import { CapacityWaitContext } from "../capacityWait";
 
 const t: Translate = (key, values) => translate(key, values, "en");
@@ -291,6 +291,26 @@ test("a work-only turn that said nothing has nothing to copy and stays empty; on
   expect(rowMark(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(MARK_FOOTER_ROW);
 });
 
+test("a held summary carries its daemon turn id onto the worked header", () => {
+  const rows = turnView(
+    [
+      { id: "prompt", version: 1, at: 0, kind: "user", text: "Run it" },
+      {
+        id: "summary",
+        version: 1,
+        at: 1,
+        kind: "turnSummary",
+        status: "failed",
+        turnId: "held-turn",
+        durationMs: 2_000,
+      },
+    ] as AcpmuxRow[],
+    new Set(),
+    { agentFamily: "claude", now: 2_000 },
+  );
+  expect(rows.find((row) => row.kind === "turnSummary")?.turnId).toBe("held-turn");
+});
+
 test("a turn held for capacity marks its footer waiting, so the last reply's rest rule skips it", () => {
   // conversation.css shows the chat's last footer at rest (`acpmux-row--final-footer`) except
   // `cv-turn-actions--waiting`: the calm wait card stays alone (Lucas, 2026-11-26).
@@ -310,4 +330,42 @@ test("a turn held for capacity marks its footer waiting, so the last reply's res
   );
   expect(other).toContain("cv-turn-actions--failed");
   expect(other).not.toContain("cv-turn-actions--waiting");
+});
+
+// A stored failure is still useful history; the daemon's exact turn id is what makes it a hold.
+test("a capacity-only turn stays calm even with the old off appearance override", () => {
+  const previous = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...previous, "capacity-wait": "off" };
+  try {
+    const row = footer({
+      status: "failed",
+      turnId: "held",
+      durationMs: 1_583_000,
+      error: "429 capacity exhausted",
+    });
+    for (const groupedHelpers of [false, true]) {
+      const markup = renderToStaticMarkup(
+        <CapacityWaitContext.Provider value={{ reason: "capacity", turnId: "held", groupedHelpers }}>
+          <WorkedFor row={row} expanded={false} onToggle={() => {}} />
+          <TurnFooter row={row} />
+        </CapacityWaitContext.Provider>,
+      );
+      expect(markup).not.toContain("Failed after");
+      expect(markup).toContain("Worked for");
+      expect(markup).not.toContain("cv-turn-error__icon");
+      expect(markup).not.toContain("cv-turn-actions--failed");
+      expect(markup.includes("cv-capacity-wait__line")).toBe(!groupedHelpers);
+    }
+    const other = renderToStaticMarkup(
+      <CapacityWaitContext.Provider value={{ reason: "capacity", turnId: "different", groupedHelpers: true }}>
+        <WorkedFor row={row} expanded={false} onToggle={() => {}} />
+        <TurnFooter row={row} />
+      </CapacityWaitContext.Provider>,
+    );
+    expect(other).toContain("Failed after");
+    expect(other).toContain("cv-turn-error__icon");
+  } finally {
+    if (previous === undefined) delete globalThis.cmuxExperiments;
+    else globalThis.cmuxExperiments = previous;
+  }
 });
