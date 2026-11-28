@@ -166,6 +166,7 @@ pub async fn run(args: RunElsewhereCarrierArgs) -> Result<i32> {
     Ok(code)
 }
 
-#[cfg(test)]
+// The tests stand in for the far Linux machine: a POSIX shell, unix file modes and umask.
+#[cfg(all(test, unix))]
 #[path = "run_elsewhere_carrier_tests.rs"]
 mod tests;
