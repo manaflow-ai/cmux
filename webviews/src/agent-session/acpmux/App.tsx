@@ -1054,6 +1054,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.render("pane");
+  const __vfp = ((globalThis as any).__vfp ??= {});
+  __vfp.paneRender = (__vfp.paneRender ?? 0) + 1;
+  useLayoutEffect(() => { __vfp.paneCommit = (__vfp.paneCommit ?? 0) + 1; });
   const t = useT();
   const { scrollToBottomOnSend, newChatsIn, emptyChatComposerPosition, cloudLeaseOnOpen } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
