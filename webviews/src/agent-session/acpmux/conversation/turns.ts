@@ -1751,8 +1751,7 @@ const repliesOnly = (rows: readonly AcpmuxRow[]) =>
 /// its line: it says how it ended. An unknown time leaves the rows to decide.
 export const FOLD_MIN_ROWS = 3;
 export const FOLD_MIN_MS = 5_000; // motion-allow: how long a turn ran before its work folds, not a motion
-// motion-allow: the shortest turn that folds, not a motion
-export const FLOOR_MS = 1_000;
+export const FLOOR_MS = 1_000; // motion-allow: the shortest turn that folds, not a motion
 
 /// The rows a fold would hide: each tool call, and each row another agent wrote
 /// (the turn's own prompt among them). Thinking counts by its time, not as a row.
@@ -1911,14 +1910,10 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
   // the agent read the steer its next words start a row under it (direct.ts `steer_read`), so an
   // answer already under the steer leaves the words over it in place: those were written before the
   // read (Leo, 2026-11-17: "the message you sent after my steer... shot up. instead of landing after
-  // my steer prompt"; carriedSteerOrder.test.ts). Words under the steer that pick up mid-line (they
-  // open on a space) are not a new reply but the rest of the one over it, which acpmux cut at the
-  // steer: that reply is the answer, and both halves move under the steer (chat-sim late-steer).
-  const firstSaidAfter = rows.slice(late + 1, end).find(isOwnText);
-  const continuesOver = /^\s/.test(firstSaidAfter?.text ?? "");
+  // my steer prompt"; carriedSteerOrder.test.ts).
   let from = late;
   // ends: from walks back to the first row or the preceding change of author
-  if (answerIndex < late || continuesOver) while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
+  if (answerIndex < late) while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
   const region = rows.slice(from, end);
   const steers = region.filter(isLateSteer);
   const said = region.filter(isOwnText);
@@ -3736,11 +3731,7 @@ export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[], clock
   const at = shaped.length - 1;
   const line = shaped[at];
   if (line?.kind !== THINKING) return shaped;
-  // Before the first output the line is timed from the prompt. The line with nothing heard yet carries
-  // `turnTotal` for its silence clock (heardKey "0:", the 2026-11-27 "mango" fix in `liveTurn`), yet it
-  // is still that prompt-timed line, so the retries' time leaves it too.
-  const nothingHeard = line.heardKey?.startsWith("0:") ?? false;
-  const timedFromPrompt = line.doing === undefined && line.liveState === undefined && (!line.turnTotal || nothingHeard);
+  const timedFromPrompt = line.doing === undefined && line.liveState === undefined && !line.turnTotal;
   const next: AcpmuxRow = {
     ...line,
     ...(retryRow.retry && { retry: retryRow.retry, retryAt: retryRow.at + clockOffset }),
@@ -3983,7 +3974,6 @@ function shapeLiveRows(
   if (steer) {
     let below = shaped.findIndex((row) => row.id === steer.id);
     // The note of a compaction that ended under the steer stays over the header, as the ended turn draws it.
-    // ends: `below` rises by one each pass and stops at the end of `shaped`, where no row is a compaction.
     while (below >= 0 && shaped[below + 1]?.kind === "compaction") below += 1;
     if (below >= 0) {
       header.id = `${WORKED}-${steer.id}`;
