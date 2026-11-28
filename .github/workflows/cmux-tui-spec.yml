@@ -2074,7 +2074,7 @@ jobs:
             fi
           }
           if [[ $run_acpmux == 1 ]]; then check acpmux-tui -p acpmux-tui --lib frame_work; fi
-          if [[ $run_tui == 1 ]]; then check cmux-tui -p cmux-tui-lib --lib frame_work; fi
+          if [[ $run_tui == 1 ]]; then check cmux-tui -p cmux-tui --lib frame_work; fi
           if [[ $run_acpmux == 0 && $run_tui == 0 ]]; then
             echo "No acpmux or cmux-tui input changed; skipping the frame work contracts." >> "$GITHUB_STEP_SUMMARY"
           fi

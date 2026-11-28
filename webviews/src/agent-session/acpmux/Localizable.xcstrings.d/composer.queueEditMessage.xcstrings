@@ -2,7 +2,7 @@
   "sourceLanguage" : "en",
   "strings" : {
     "composer.queueEditMessage" : {
-      "comment" : "Agent pane: item in a queued message's right-click menu; edits the message's text in its row",
+      "comment" : "Agent pane: item in a queued message's ⋯ menu and right-click menu; edits the message's text in its row",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {

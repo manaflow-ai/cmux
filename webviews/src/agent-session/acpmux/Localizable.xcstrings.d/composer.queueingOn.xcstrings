@@ -2,7 +2,7 @@
   "sourceLanguage" : "en",
   "strings" : {
     "composer.queueingOn" : {
-      "comment" : "Agent pane: item in a queued message's right-click menu and on the composer button row's right-click while queueing is off; a message sent while a turn runs waits in the queue again (⌘Return)",
+      "comment" : "Agent pane: item in a queued message's ⋯ menu and on the composer button row's right-click while queueing is off; a message sent while a turn runs waits in the queue again (⌘Return)",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {

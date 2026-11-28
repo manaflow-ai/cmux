@@ -197,7 +197,4 @@ jobs:
     uses: ./.github/workflows/mobile-old-phones.yml
     with:
       api: prod
-    # The called job's environment holds the test account it reads; the bot App key only mints a read-only
-    # (actions: read) token for the phone list, on the App's own quota.
-    secrets:
-      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
+    # No secrets passed: the called job's environment holds the test account it reads.

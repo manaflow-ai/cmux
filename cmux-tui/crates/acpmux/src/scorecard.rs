@@ -42,10 +42,7 @@
 //!   cannot tell a merge from a close nor see a merge done elsewhere, so the fleet tool asks GitHub
 //!   which merged. `tokensPerSettledPr` is every token the group spent per such pull request.
 //! - **harnessMagic counters**: every numeric `harnessMagic.<feature>.<counter>` on a turn's
-//!   `turn_result` (nested or as a flat key), summed. Two are divided out, RFD 0147's regret
-//!   rate: `dedupeRegretRate`, stubs the model asked past (`dedupe.stubRegrets`) per stub
-//!   (`dedupe.readsStubbed` + `callsStubbed` + `searchesStubbed`), and `spillReadBackRate`, spill
-//!   files read back (`dedupe.spillReadBacks`) per spill (`dedupe.spills`).
+//!   `turn_result` (nested or as a flat key), summed.
 
 use crate::store::{EventRecord, SessionMeta, Store, TurnUsage};
 use anyhow::Result;
@@ -172,8 +169,6 @@ pub struct Metrics {
     pub tokens_per_settled_pr: Option<f64>,
     pub leo_units_per_settled_pr: Option<f64>,
     pub harness_magic: BTreeMap<String, u64>,
-    pub dedupe_regret_rate: Option<f64>,
-    pub spill_read_back_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -281,7 +276,6 @@ impl Acc {
         let (read, write) = (u.cache_read_tokens.unwrap_or(0), u.cache_write_tokens.unwrap_or(0));
         let total = self.total_tokens();
         let directed = self.prompts_person + self.prompts_coordinator;
-        let hm = |k: &str| self.counters.get(k).copied().unwrap_or(0) as f64;
         Metrics {
             sessions: self.sessions,
             turns: self.turns,
@@ -311,13 +305,6 @@ impl Acc {
             tokens_per_settled_pr: ratio(total as f64, self.prs_settled as f64),
             leo_units_per_settled_pr: ratio(self.leo_units, self.prs_settled as f64),
             harness_magic: self.counters.clone(),
-            dedupe_regret_rate: ratio(
-                hm("dedupe.stubRegrets"),
-                hm("dedupe.readsStubbed")
-                    + hm("dedupe.callsStubbed")
-                    + hm("dedupe.searchesStubbed"),
-            ),
-            spill_read_back_rate: ratio(hm("dedupe.spillReadBacks"), hm("dedupe.spills")),
         }
     }
 }

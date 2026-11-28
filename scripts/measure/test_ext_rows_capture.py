@@ -25,10 +25,6 @@ class DrawingEvidenceTests(unittest.TestCase):
         self.ctx = SimpleNamespace(app=app, work=root, ext=Mock())
         (root / "fixture-ocr").touch()
         self.windows = [{"window_id": "242", "app_id": "test.isolated", "title": ""}]
-        # The unattended-Mac gate is its own test (test_unattended_capture.py); here a capture may run.
-        gate = patch.object(capture, "capture_refusal", return_value=None)
-        gate.start()
-        self.addCleanup(gate.stop)
 
     def image(self, args, **kwargs):
         if "list_windows" in args:
@@ -112,15 +108,6 @@ class DrawingEvidenceTests(unittest.TestCase):
             result = capture.capture_marker(self.ctx, "pane", "WEB PANE unique")
         self.assertFalse(result["drawn"])
         self.assertEqual(self.ctx.ext.call_count, 2)
-        run.assert_not_called()
-
-    def test_unattended_mac_without_bypass_captures_nothing(self):
-        with patch.object(capture, "capture_refusal", return_value="unattended Mac without the MDM bypass"), \
-                patch.object(capture.subprocess, "run") as run:
-            result = capture.capture_marker(self.ctx, "pane", "WEB PANE unique")
-        self.assertIsNone(result["drawn"])
-        self.assertIn("unattended", result["skipped"])
-        self.ctx.ext.assert_not_called()
         run.assert_not_called()
 
 

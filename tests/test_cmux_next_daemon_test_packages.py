@@ -88,28 +88,6 @@ class TargetsOfTheMatches(unittest.TestCase):
         self.assertEqual(pairs(args, "-p"), {"a", "b"}, args)
         self.assertEqual(pairs(args, "--test"), {"hits", "nested", "journey"}, args)
         self.assertIn("--lib", args)
-        # a's src/ match is in its lib, and a has no bin target: `--bins` would be asked of no package.
-        self.assertNotIn("--bins", args)
-
-    def test_a_bin_only_crate_gets_bins_not_lib(self) -> None:
-        # #60340 moved cmux-tui's lib into cmux-tui-lib; `-p cmux-tui --lib` then failed every pull request's
-        # cmux-next-tui step ("no library targets found in package `cmux-tui`", job 141118493284, cmux#65372).
-        self.box.crate("tui", '\n[[bin]]\nname = "tui"\npath = "src/bin/tui.rs"\n')
-        self.box.write("cmux-tui/crates/tui/src/bin/tui.rs", "fn main() {}\n#[test] fn cmux_next_bin() {}\n")
-        self.box.commit()
-        args = run(self.box.root)
-        self.assertEqual(args, ["-p", "tui", "--bins"])
-
-    def test_a_bin_only_crate_names_the_member_that_builds_its_lib(self) -> None:
-        # cmux-tui-lib builds ../cmux-tui/src as its [lib] (#60340): cmux-tui's unit tests are cmux-tui-lib's.
-        self.box.crate("tui", '\n[[bin]]\nname = "tui"\npath = "src/bin/tui.rs"\n')
-        self.box.write("cmux-tui/crates/tui/src/bin/tui.rs", "fn main() {}\n")
-        self.box.write("cmux-tui/crates/tui/src/app.rs", "#[test] fn cmux_next_app() {}\n")
-        self.box.crate("tui-lib", '\n[lib]\nname = "tui"\npath = "../tui/src/main.rs"\n')
-        self.box.commit()
-        args = run(self.box.root)
-        self.assertEqual(pairs(args, "-p"), {"tui", "tui-lib"}, args)
-        self.assertIn("--lib", args)
         self.assertIn("--bins", args)
 
     def test_a_match_with_only_test_targets_builds_no_lib(self) -> None:

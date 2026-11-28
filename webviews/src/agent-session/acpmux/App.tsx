@@ -8907,7 +8907,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   if (!quick && filesAt) commands.toggleFiles = () => runSplitAction(HEADER_ACTIONS.files, filesAt, "toggle");
   if (!quick && (previewUrl || litSplits.includes(HEADER_ACTIONS.preview)))
     commands.togglePreview = () => togglePreview(previewUrl);
-  // Ctrl-B's move, while it has something to move; queueing's toggle, as a queued row's right-click menu has it.
+  // Ctrl-B's move, while it has something to move; queueing's toggle, as a queued row's ⋯ menu has it.
   // The bridge runs these only while the client and this render still show the palette's chat
   // (`header:` above), so chat A's row never moves B's work or opens B's Session Info.
   if (!quick && (foreground.length > 0 || foregroundAgent)) commands.runInBackground = runInBackground;

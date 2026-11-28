@@ -135,9 +135,7 @@ class DaemonPrMemberSteps(unittest.TestCase):
         for name, (package, member) in STEPS.items():
             with self.subTest(step=name):
                 mine = pairs(targets(member))
-                # cmux-tui is bin-only since #60340: cmux-tui-lib builds its src/ as the lib, so its unit tests ride there.
-                lib_owner = {"-p cmux-tui-lib"} if package == "cmux-tui" else set()
-                self.assertEqual({a for a in mine if a.startswith("-p ")}, {f"-p {package}"} | lib_owner)
+                self.assertEqual({a for a in mine if a.startswith("-p ")}, {f"-p {package}"})
                 self.assertTrue(any(a == "--lib" or a.startswith("--test ") for a in mine))
                 self.assertLessEqual(mine, self.gate)
 

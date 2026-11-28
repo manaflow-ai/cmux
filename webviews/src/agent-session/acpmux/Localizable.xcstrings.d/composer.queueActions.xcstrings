@@ -2,7 +2,7 @@
   "sourceLanguage" : "en",
   "strings" : {
     "composer.queueActions" : {
-      "comment" : "Agent pane: the ⋯ button on another agent's queued message card (its tooltip and accessible name), which opens Send now and Dismiss",
+      "comment" : "Agent pane: the ⋯ button on a queued message (its tooltip and accessible name), which opens Edit message, Open in side chat and Turn off queueing",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {

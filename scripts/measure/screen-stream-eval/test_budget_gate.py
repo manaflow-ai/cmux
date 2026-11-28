@@ -129,8 +129,7 @@ class GateTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("screen_share_vs", VS_PATH)
         vs = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(vs)
-        # Sub-rows (" Readback", " Gate wait", ...) are informational splits of a stage and carry no budget.
-        self.assertEqual({row: ms for row, ms, _, _ in vs.BUDGET_ROWS if ms is not None}, gate.BUDGETS)
+        self.assertEqual({row: ms for row, ms, _, _ in vs.BUDGET_ROWS}, gate.BUDGETS)
 
 
 if __name__ == "__main__":

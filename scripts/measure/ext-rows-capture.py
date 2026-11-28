@@ -3,23 +3,14 @@
 Uses the supported Computer Use capture path and its existing permissions. A refusal
 is terminal: no settings changes, raw screen capture or debug-RPC fallback. Ordinary
 window.screenshot masks extension web panes and cannot prove their contents drew.
-On an unattended Mac without the MDM screen-capture alert bypass nothing is captured
-(unattended_capture.py): the answer is `drawn: None` with `skipped`, never a pass.
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import plistlib
 import subprocess
 import time
 from pathlib import Path
-
-_gate = Path(__file__).with_name("unattended_capture.py")
-_spec = importlib.util.spec_from_file_location("unattended_capture", _gate)
-unattended_capture = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(unattended_capture)
-capture_refusal = unattended_capture.capture_refusal
 
 
 def capture_marker(ctx, name: str, marker: str) -> dict:
@@ -30,9 +21,6 @@ def capture_marker(ctx, name: str, marker: str) -> dict:
     folder = ctx.work / name
     folder.mkdir(parents=True, exist_ok=True)
     receipt = {"drawn": False, "bundle_id": bundle_id, "marker": marker, "captures": []}
-    refused = capture_refusal()
-    if refused:
-        return {**receipt, "drawn": None, "skipped": refused}
     # A side copy may own several native windows (including helper panels).
     # Discover only its windows, then let the content-only marker identify the
     # evidence window. Never guess from frontmost order, an empty title or size.

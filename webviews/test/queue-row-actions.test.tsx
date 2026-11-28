@@ -56,13 +56,7 @@ test("a queued row shows Steer, Delete and More in both arms, and keeps its keys
   const draw = () =>
     act(async () =>
       root!.render(
-        <ComposerQueue
-          queue={queued as never}
-          t={t}
-          onRemove={async () => true}
-          onChange={async () => true}
-          onCancelEdit={async () => true}
-        />,
+        <ComposerQueue queue={queued as never} t={t} onRemove={async () => true} onChange={async () => true} />,
       ),
     );
   // The row's actions; its text is a button too (it opens the prompt whole), not an action.
@@ -72,7 +66,7 @@ test("a queued row shows Steer, Delete and More in both arms, and keeps its keys
     );
   root = createRoot(main.querySelector<HTMLElement>("#root")!);
   await draw();
-  expect(labels()).toEqual([t("composer.queueSteer"), t("message.edit"), t("composer.queueDelete")]);
+  expect(labels()).toEqual([t("composer.queueSteer"), t("composer.queueDelete"), t("composer.queueActions")]);
   const row = main.querySelector(".acpmux-queued")!;
   expect(row.getAttribute("aria-keyshortcuts")).toContain("Enter");
   expect(row.getAttribute("aria-keyshortcuts")).toContain("Delete");
@@ -82,7 +76,7 @@ test("a queued row shows Steer, Delete and More in both arms, and keeps its keys
     await act(async () => root!.unmount());
     root = createRoot(main.querySelector<HTMLElement>("#root")!);
     await draw();
-    expect(labels()).toEqual([t("composer.queueSteer"), t("message.edit"), t("composer.queueDelete")]);
+    expect(labels()).toEqual([t("composer.queueSteer"), t("composer.queueDelete"), t("composer.queueActions")]);
   } finally {
     delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
   }

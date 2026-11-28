@@ -4,7 +4,7 @@
 // (UsageRingMenu) also picks what it shows, the chat's context or the account's plan usage limits
 // (composerRing; Leo 2026-11-04: "i want to be able to right click disable it ... likewise, i guess
 // we can turn that into a 5h/weekly usage type thing instead as well for some people").
-// Queueing (queueing.ts) is no control, but turned off from a queued row's right-click menu it leaves no row
+// Queueing (queueing.ts) is no control, but turned off from a queued row's ⋯ menu it leaves no row
 // to turn it back on from once nothing waits, so the button row's right-click offers Turn on
 // queueing while it is off.
 import { type ReactNode } from "react";

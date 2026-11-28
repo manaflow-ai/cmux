@@ -378,16 +378,6 @@ from that record instead. A stage over budget fails the daily run with an error 
 that measured no stage fails too. The workflow's `budget` input (`STAGE=MS ...`) replaces budgets
 for one dispatched run, to prove the gate end to end; the daily run passes none.
 
-`gate.json` exists from the start of every run with `rd` in its targets: `budget_gate.py init` writes
-`{"verdict": "fail", "stage": "unknown", "last_stage_reached": null}` before the step reaches the
-fleet, `budget_gate.py follow` marks each stage the client's log names (submitted, queued N min, taken by a
-worker, eval started on HOST, each `SCREEN-STREAM-EVAL-STAGE`, each target reported, the step's exit) in
-`last_stage_reached` and `progress`, and `check` overwrites it with the verdict. A run killed, timed
-out or left without results.json uploads a fail naming the last stage it reached. `budget_gate.py`
-here is a shim over the shared runner `scripts/measure/budget_gate/budget_gate.py`; screen share is its
-`screen-share` probe (`probes/screen_share.py`: budgets, source mapping, markers, suspect commit), and
-another gate adds its own probe file.
-
 ## Linux, kernel netem jitter (no Mac)
 
 `rd-netem-linux.py` builds `cmux-rd` at each `--commit` and runs the Linux host (Xvfb,

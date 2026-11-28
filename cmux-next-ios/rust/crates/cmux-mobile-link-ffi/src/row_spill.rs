@@ -61,12 +61,13 @@ impl RowSpillPages {
             return;
         }
         let mut existing = self.pages();
-        let first = existing.last().map_or(0, |p| sequence(p)) + 1;
+        let mut next = existing.last().map_or(0, |p| sequence(p)) + 1;
         // The oldest rows fill the lower pages.
-        for (next, page) in (first..).zip(pages.rchunks(self.page_size)) {
+        for page in pages.rchunks(self.page_size) {
             let url = self.page_path(next);
             store(page, &url);
             existing.push(url);
+            next += 1;
         }
         // Past the cap the oldest pages go, as the list dropped rows before there was a spill.
         let max_pages = (self.max_rows / self.page_size).max(1);

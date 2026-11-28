@@ -118,7 +118,7 @@ class EntryPointTests(unittest.TestCase):
 
     def test_simulator_handoff_uses_the_shared_validator(self):
         text = SIM.read_text()
-        block = text[text.index('if [[ "$mode" == handoff ]]; then\n  [[ ( $# -eq 2'):]
+        block = text[text.index('if [[ "$mode" == handoff ]]; then\n  [[ $# -eq 2'):]
         block = block[:block.index("\nfi\n")]
         self.assertIn('cmux_attach_validate_dev_tag "$handoff_tag"', block)
 

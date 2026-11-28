@@ -44,17 +44,6 @@ fi
 # (cmux-tui-core, jobs 140926948698, 140911041297) and 1048 s (acpmux, job 140900588167).
 pkg="${args[1]}"
 targets=("${args[@]:2}")
-# The member and any member the package script names beside it (`-p cmux-tui-lib`: it builds cmux-tui's sources as its
-# [lib], #60340): their test binaries are the member's tests.
-declare -A owners=(["$pkg"]="$repo/cmux-tui/$member")
-for ((i = 0; i < ${#targets[@]}; i++)); do
-  [[ "${targets[i]}" == -p ]] || continue
-  for m in "$repo"/cmux-tui/crates/*/Cargo.toml; do
-    [[ "$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' "$m" | head -n 1)" == "${targets[i + 1]}" ]] && owners["${targets[i + 1]}"]="${m%/Cargo.toml}"
-  done
-done
-owner_args=()
-for name in "${!owners[@]}"; do owner_args+=("$name=${owners[$name]}/Cargo.toml"); done
 read -r -a gate <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
 selected=()
 for ((i = 0; i < ${#gate[@]}; i++)); do
@@ -76,18 +65,17 @@ member_tests() {
   built="$(mktemp /tmp/cmux-next-member-build.XXXXXX.json)"
   cargo test "${args[@]}" --locked --no-run --message-format=json-render-diagnostics >"$built" || rc=$?
   if [ "$rc" -eq 0 ]; then
-    while IFS=$'\t' read -r version name exe; do
+    while IFS=$'\t' read -r version exe; do
       echo "     Running $exe"
-      (cd "${owners[$name]}" && CARGO="$(command -v cargo)" CARGO_MANIFEST_DIR="$PWD" CARGO_PKG_NAME="$name" \
-        CARGO_PKG_VERSION="$version" CARGO_CRATE_NAME="${name//-/_}" "$exe" "$filter") || { rc=$?; break; }
-    done < <(python3 -I - "$built" "${owner_args[@]}" <<'EOF'
+      (cd "$repo/cmux-tui/$member" && CARGO="$(command -v cargo)" CARGO_MANIFEST_DIR="$PWD" CARGO_PKG_NAME="$pkg" \
+        CARGO_PKG_VERSION="$version" CARGO_CRATE_NAME="${pkg//-/_}" "$exe" "$filter") || { rc=$?; break; }
+    done < <(python3 -I - "$built" "$repo/cmux-tui/$member/Cargo.toml" <<'EOF'
 import json, sys
-# NAME=MANIFEST pairs: the member, and the member that builds its sources as its [lib] (cmux-tui-lib for cmux-tui).
-manifests = {path: name for name, path in (a.split("=", 1) for a in sys.argv[2:])}
+manifest = sys.argv[2]
 for line in open(sys.argv[1]):
     m = json.loads(line) if line.startswith("{") else {}
-    if m.get("reason") == "compiler-artifact" and m.get("executable") and m["profile"]["test"] and m["manifest_path"] in manifests:
-        print(m["package_id"].rsplit("@", 1)[-1].rsplit("#", 1)[-1], manifests[m["manifest_path"]], m["executable"], sep="\t")
+    if m.get("reason") == "compiler-artifact" and m.get("executable") and m["profile"]["test"] and m["manifest_path"] == manifest:
+        print(m["package_id"].rsplit("@", 1)[-1], m["executable"], sep="\t")
 EOF
     )
   fi

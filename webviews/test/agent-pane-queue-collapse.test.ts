@@ -1122,11 +1122,11 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       });
       expect(edits).toEqual([{ op: "remove", promptId: remove.id }]);
 
-      // Edit message is in the row's right-click menu: a right-click on the cut row's text must open
-      // that row's menu. The removal re-fits the list, so it first rests at its new height.
+      // Edit message is in the row's ⋯ menu: the press on the ⋯ must open that row's menu. The
+      // removal re-fits the list, so it first rests at its new height.
       await settled(page);
-      const edit = await cutRowAction(page, ".acpmux-queued-text");
-      await page.mouse.click(edit.x, edit.y, { button: "right" });
+      const edit = await cutRowAction(page, '[data-menu="queued-more"]');
+      await page.mouse.click(edit.x, edit.y);
       await page.getByRole("menuitem", { name: /Edit message/ }).click();
       const field = page.locator(`.acpmux-queued[data-prompt-id="${edit.id}"] textarea`);
       await field.waitFor({ timeout: 5_000 });

@@ -37,7 +37,6 @@ import type { ServerWebSocket } from "bun";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
 import { perfRow, TARGET_MS } from "./perfRow";
-import { sourceMapper } from "./sourceMapper";
 
 const CHILDREN = Number(process.argv[2] ?? 16);
 const SECONDS = Number(process.argv[3] ?? 30);
@@ -48,9 +47,6 @@ const CHANGE_RATE = Number(process.env.CHANGE_RATE ?? 2);
 const HISTORY = Number(process.env.HISTORY ?? 2000);
 const CLOUD = Math.min(CHILDREN, Number(process.env.CLOUD ?? Math.floor(CHILDREN / 2)));
 const UNTHROTTLED = process.env.UNTHROTTLED === "1";
-/// ORCH_PROFILE=1: an unminified, source-mapped build and a CPU profile of the streaming window, its top functions per
-/// second (inclusive and self) printed after the rows. The profiler costs frame time: its run is not a row to publish.
-const PROFILE = process.env.ORCH_PROFILE === "1";
 const FRAME_MS = 1000 / 60;
 /// The goal's bar: a frame that takes longer than this is over.
 const FRAME_BAR_MS = 16;
@@ -310,7 +306,7 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false, sourcemap: true } : {}) },
+    build: { outDir: out, emptyOutDir: true },
     logLevel: "error",
   });
   const statics = Bun.serve({
@@ -555,14 +551,7 @@ try {
   startStream();
   await Bun.sleep(1000);
   const counted = { ...counts };
-  const cdp = PROFILE ? await context.newCDPSession(page) : undefined;
-  if (cdp) {
-    await cdp.send("Profiler.enable");
-    await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
-    await cdp.send("Profiler.start");
-  }
   const busy = await frames(SECONDS);
-  if (cdp) printProfile(((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile, sourceMapper(out));
   const streamed = {
     events: counts.events - counted.events,
     changes: counts.changes - counted.changes,
@@ -643,55 +632,4 @@ try {
   console.log(JSON.stringify(summary));
 } finally {
   await release();
-}
-
-type CpuProfile = {
-  nodes: {
-    id: number;
-    callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
-    children?: number[];
-  }[];
-  samples: number[];
-  timeDeltas: number[];
-};
-
-/// ms per second of the window: each function's inclusive time (once per sample however deep it recurses) and self.
-function printProfile(profile: CpuProfile, mapUrl: (file: string, line: number, column: number) => string) {
-  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
-  const parent = new Map<number, number>();
-  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
-  const names = new Map<number, string>();
-  const name = (id: number) => {
-    let known = names.get(id);
-    if (known === undefined) {
-      const frame = byId.get(id)!.callFrame;
-      const file = frame.url.split("/").pop()?.split("?")[0] ?? "";
-      known = `${frame.functionName || "(anon)"} ${file ? mapUrl(file, frame.lineNumber, frame.columnNumber) : ":0"}`;
-      names.set(id, known);
-    }
-    return known;
-  };
-  const inclusive = new Map<string, number>();
-  const self = new Map<string, number>();
-  profile.samples.forEach((id, index) => {
-    const ms = (profile.timeDeltas[index + 1] ?? 0) / 1000;
-    const fn = byId.get(id)?.callFrame.functionName;
-    if (fn === "(idle)" || fn === "(program)") return;
-    self.set(name(id), (self.get(name(id)) ?? 0) + ms);
-    const seen = new Set<string>();
-    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
-      const key = name(at);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      inclusive.set(key, (inclusive.get(key) ?? 0) + ms);
-    }
-  });
-  const top = (map: Map<string, number>, count: number) =>
-    [...map.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, count)
-      .map(([key, ms]) => `  ${(ms / SECONDS).toFixed(2)} ms/s  ${key}`)
-      .join("\n");
-  console.log(`PROFILE inclusive:\n${top(inclusive, 120)}`);
-  console.log(`PROFILE self:\n${top(self, 50)}`);
 }

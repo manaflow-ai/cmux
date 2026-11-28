@@ -164,6 +164,27 @@ extension SidebarListViewComponents {
         }
         return o
     }
+    func frame(for row: SidebarRow) -> NSRect {
+        // A block's region draws its own insets, as the band did.
+        if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
+        // The one indent rule (`SidebarIndent`): from the drawn tree, a top-level group's rows flush with ungrouped
+        // rows (#23975), each deeper level one gutter in, capped in a narrow list.
+        let gutter = indentOffset(for: row)
+        // A group header reaches left over its members' rail (`groupRailReach`): the rail and the bar share one left edge.
+        let reach = railReach(for: row)
+        // Rows end `rowTrailingTrim` short of the list's right inset, so a row's pill never runs to
+        // the sidebar's edge (Leo 2026-10-20, Chrome's vertical tabs).
+        return NSRect(x: inset + gutter - reach, y: row.y,
+                      width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim) + reach, height: row.height)
+    }
+    /// How far left of its members' x `row` starts: a group header's reach over its rail (`SidebarStyle.groupLineX`)
+    /// and the line layout's overhang past it (`groupHeaderOverhang`), never past the list's edge; 0 for other rows.
+    func railReach(for row: SidebarRow) -> CGFloat {
+        // A plain folder draws no rail, nor does a card (its block wraps the rows): the header keeps the rows' own frame.
+        guard case .group = row.key, !indent.indentsTopLevel, !model.groupHeaderDetails.background.drawsCard else { return 0 }
+        let membersX = inset + indentOffset(for: row)
+        return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
+    }
     /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
     static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {
         var current = group.parent
@@ -173,6 +194,21 @@ extension SidebarListViewComponents {
             current = groups[id]?.parent
         }
         return false
+    }
+    /// The indent rule every row, rail, lifted card and drop line of this list uses.
+    var indent: SidebarIndent {
+        let folders = model.groupHeaderDetails.background.indentsMembers
+        return SidebarIndent(step: folders ? SidebarStyle.folderMemberStep : SidebarStyle.groupGutter, indentsTopLevel: folders)
+    }
+    /// The width a level-0 row has: the indent cap is computed from it.
+    var indentWidth: CGFloat { max(0, bounds.width - inset * 2 - SidebarStyle.rowTrailingTrim) }
+    /// How far `row` moves in from the list's inset.
+    func indentOffset(for row: SidebarRow) -> CGFloat {
+        let indent = indent
+        // A folder's header sits at its parent's members' x, one step left of its own members (a group header
+        // shares its members' level, `SidebarRow.indentLevel`).
+        let level = indent.indentsTopLevel && row.key.isGroupHeader ? row.indentLevel - 1 : row.indentLevel
+        return indent.offset(level: level, width: indentWidth)
     }
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.
@@ -601,14 +637,12 @@ extension SidebarListViewComponents {
         super.setFrameSize(newSize)
         guard widthChanged else { return }
         // Only the realized rows have views: visit those, never every row (a live resize runs this each frame).
-        withRowGeometry {
-            for (key, view) in rowViews {
-                guard let row = displayed.row(for: key) else { continue }
-                let target = frame(for: row)
-                listWork.laidOut()
-                view.targetSize = target.size
-                view.frame = target
-            }
+        for (key, view) in rowViews {
+            guard let row = displayed.row(for: key) else { continue }
+            let target = frame(for: row)
+            listWork.laidOut()
+            view.targetSize = target.size
+            view.frame = target
         }
         decorations.frame = bounds
         // The stuck header (set home above) takes the new width at its stuck place.
@@ -623,9 +657,6 @@ extension SidebarListViewComponents {
     /// view of its kind instead of a new one (no animation runs here).
     func realizeVisibleRows() {
         guard !isShiftingViewport else { return }
-        withRowGeometry { realizeVisibleRowsNow() }
-    }
-    private func realizeVisibleRowsNow() {
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
         defer { reportGooeySelection() } // a scroll moves the selected row under the window's shade
@@ -658,9 +689,6 @@ extension SidebarListViewComponents {
         updateHover()
     }
     func pruneOffscreen() {
-        withRowGeometry { pruneOffscreenNow() }
-    }
-    private func pruneOffscreenNow() {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.pruneMargin)
         // Only realized rows can be pruned: visit those, not every row.
         for (key, view) in rowViews {

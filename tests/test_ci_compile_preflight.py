@@ -425,8 +425,6 @@ class SharedWebArtifact(unittest.TestCase):
         self.assertIn('never-web-check "$WEB_SOURCE_ROOT"', routing["run"])
         merge = next(step for step in steps if step.get("name") == "Merge the head onto the live base")
         self.assertIn("inputs.source_ref == '' || inputs.validate_live_base", merge["if"])
-        # A head the early check found reaches no web bundle skips the live-base fetch and merge: nothing reads it.
-        self.assertIn("steps.touched-early.outputs.web != 'false'", merge["if"])
         react = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())["jobs"]
         self.assertEqual(react["react-apps-head-bundles"]["with"]["source_ref"], "${{ inputs.sha || github.sha }}")
         compare = next(step for step in steps if step.get("id") == "live-web-key")

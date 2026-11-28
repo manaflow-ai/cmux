@@ -7,7 +7,7 @@
 //
 // - Steer asks acpmux to send the prompt now (`_acpmux/queue_edit` op send_now);
 // - the trash can withdraws it (`_acpmux/queue_remove`) and the row leaves;
-// - the pencil takes it back (`_acpmux/queue_remove`): the row leaves and its text goes into the composer.
+// - ⋯ opens the row's menu, and its Edit message opens the prompt's text for editing in place.
 //
 // The row rests as one muted line, as ChatGPT's and Codex's queues do: no "Queued / Sends after
 // this turn" header and no number, and the actions show only while the pointer is on the row or
@@ -418,23 +418,22 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         await page.close();
       });
 
-      test("the pencil, pressed where it draws, takes the prompt back into the composer", async () => {
+      test("⋯, pressed where it draws, opens the row's menu, and Edit message opens the prompt in place", async () => {
         const page = await openChat(true, undefined, [], engine);
         await caughtUp(page, "the cwd fix.");
-        calls.length = 0;
         await hoverRow(page, ROW);
-        await press(page, `${ROW} [data-action="cancel-edit"]`);
-        await page.locator(ROW).waitFor({ state: "detached", timeout: 5_000 });
-        expect(
-          calls.filter((call) => call.method === "_acpmux/queue_remove").map((call) => call.params.promptId),
-        ).toEqual(["q-2"]);
-        await page.waitForFunction(
-          () =>
-            document.querySelector(".acpmux-composer-prompt .acpmux-md-root")?.textContent?.trim() ===
-            "also man what happened with the space thing",
-          undefined,
-          { timeout: 5_000 },
-        );
+        await press(page, `${ROW} [data-menu="queued-more"]`);
+        const edit = page.getByRole("menuitem", { name: /Edit message/ });
+        await edit.waitFor({ timeout: 5_000 });
+        // The menu stays open past the press (a menu that closes a frame later reads as a dead click).
+        await page.evaluate(async () => {
+          for (let frame = 0; frame < 3; frame++) await window.cmuxPaintFrame();
+        });
+        expect(await edit.isVisible()).toBe(true);
+        await press(page, ".acpmux-queued-more [role=menuitem]:first-child");
+        const field = page.locator(`${ROW} .acpmux-queued-edit`);
+        await field.waitFor({ timeout: 5_000 });
+        expect(await field.inputValue()).toBe("also man what happened with the space thing");
         await page.close();
       });
     });
@@ -492,18 +491,15 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         calls.filter((call) => call.method === "_acpmux/queue_remove").map((call) => call.params.promptId),
       ).toEqual(["q-2"]);
     },
-    edit: async (page: Page) => {
-      await press(page, `${ROW} [data-action="cancel-edit"]`);
-      await page.locator(ROW).waitFor({ state: "detached", timeout: 5_000 });
-      expect(
-        calls.filter((call) => call.method === "_acpmux/queue_remove").map((call) => call.params.promptId),
-      ).toEqual(["q-2"]);
+    more: async (page: Page) => {
+      await press(page, `${ROW} [data-menu="queued-more"]`);
+      await page.getByRole("menuitem", { name: /Edit message/ }).waitFor({ timeout: 5_000 });
     },
   } as const;
   const OPEN_CHIP_CASES: [keyof typeof CHIPS, keyof typeof ACTIONS][] = [
     ["access", "steer"],
     ["access", "trash"],
-    ["access", "edit"],
+    ["access", "more"],
     // The model chip opens the combined picker, 480px wide and centred on the chip (#25796,
     // #26071), so it covers all three actions, as the context card does: see the test below.
   ];
@@ -520,8 +516,8 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
           expect(await chipOpen(page, CHIPS[chip])).toBe(false);
           await page.close();
         });
-      // The model picker lies over every one of the row's actions, so a press where the pencil draws is
-      // the picker's own: it must not reach the row (no row menu, no queue edit or removal).
+      // The model picker lies over every one of the row's actions, so a press where ⋯ draws is the
+      // picker's own: it must not reach the row (no row menu, no queue edit or removal).
       test("the model picker covers the row's actions, and a press there stays in the picker", async () => {
         const page = await openChat(true, undefined, [], engine);
         await caughtUp(page, "the cwd fix.");
@@ -530,7 +526,7 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         // Whatever draws at the action's centre must belong to the open picker: a row, the search
         // field, or the menu's own gaps (a separator, its padding), never the queued row. Asked of the
         // DOM, not matched on the hit's markup, so a separator over the action counts as the picker's.
-        for (const action of ['[data-action="steer"]', '[data-action="cancel-edit"]', '[data-action="delete"]']) {
+        for (const action of ['[data-action="steer"]', '[data-action="delete"]', '[data-menu="queued-more"]']) {
           const { x, y } = await hitAt(page, `${ROW} ${action}`);
           const inPicker = await page.evaluate(
             ([px, py]) => document.elementFromPoint(px, py)?.closest(".acpmux-quick-menu, [role=menu]") != null,
@@ -538,7 +534,7 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
           );
           expect({ action, inPicker }).toEqual({ action, inPicker: true });
         }
-        const { x, y } = await hitAt(page, `${ROW} [data-action="cancel-edit"]`);
+        const { x, y } = await hitAt(page, `${ROW} [data-menu="queued-more"]`);
         await page.mouse.move(x, y, { steps: 4 });
         await page.mouse.down();
         await page.mouse.up();

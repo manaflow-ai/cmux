@@ -9,17 +9,15 @@
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue
 // and Delete removes it. Esc goes back to the prompt.
 //
-// Every row shows its actions on hover and while focus is in the row: Steer (its word beside its ↪
-// glyph), a pencil that takes the prompt back into the composer to edit, and a trash can that deletes
-// it (Leo, 2026-10-21: "I thought we had a trash can"). A held prompt (folder trust) shows the same
-// row without Steer. There is no ⋯ menu (2026-11-28): Edit message in place, Open in side chat (where
-// the chat can open one) and Turn off queueing (queueing.ts) are in the row's right-click menu. Steer
-// is the user's override: it steers the
+// Every row shows ChatGPT's and Codex's actions, in their order, on hover and while focus is in the
+// row (Leo, 2026-10-21: "is this really
+// the right order? ... I thought we had a trash can"): Steer (its word beside its ↪ glyph), a trash
+// can that deletes the prompt, and a ⋯ menu with Edit message, Open in side chat (where the chat
+// can open one) and Turn off queueing (queueing.ts). Steer is the user's override: it steers the
 // prompt into the running turn and stops only its current step, so the agent reads it at once and
 // the turn runs on; to an agent that cannot steer it runs next. It never cancels a turn. Only a
 // click steers, never a key: a held or repeated key once sent row after row (claude-sr2,
-// 2026-10-20). The row's right-click menu has Steer, Edit message, Open in side chat, Turn off
-// queueing, the moves and Delete.
+// 2026-10-20). The row's right-click menu has Steer, Edit message, the moves and Delete.
 //
 // Another agent's message waiting in the queue (`message`, direct.ts `queuedMessage`) is not the
 // person's prompt, and it is no row here (Leo, 2026-10-25: "I don't know why these things are queued
@@ -55,6 +53,7 @@ import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { KeyHint } from "../../ui/KeyHint";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
@@ -922,24 +921,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       event.preventDefault();
       event.stopPropagation();
     };
-    if ((event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) && mine) {
-      // A row reached by the arrows opens its menu from the keyboard, as its text button does: the
-      // menu (ContextMenu.tsx) opens on a contextmenu from inside its host, at the text's corner.
-      done();
-      const text = event.currentTarget.querySelector<HTMLElement>(".acpmux-queued-text");
-      // The row's own window (a test's DOM has no global one).
-      const view = text?.ownerDocument.defaultView;
-      if (!text || !view) return;
-      const rect = text.getBoundingClientRect();
-      text.dispatchEvent(
-        new view.MouseEvent("contextmenu", {
-          bubbles: true,
-          cancelable: true,
-          clientX: rect.left,
-          clientY: rect.bottom,
-        }),
-      );
-    } else if (event.key === "Enter" && event.metaKey) {
+    if (event.key === "Enter" && event.metaKey) {
       // ⌘↩ on a row does nothing: Send now is a click (above). It would send the prompt from the
       // composer otherwise.
       done();
@@ -985,22 +967,6 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     ),
     onSelect,
   });
-  // The menu (native or drawn) keeps its items while it is open: the pick asks the row as it is
-  // then, so a prompt edited meanwhile goes with its new text, or stays when it gained images.
-  const sideChatItem = (entry: QueuedEntry): ContextMenuItem[] =>
-    sideChat?.(entry)
-      ? [
-          {
-            id: "side-chat",
-            ariaLabel: t("composer.queueSideChat"),
-            label: t("composer.queueSideChat"),
-            onSelect: () => {
-              const now = drawnRows.current.find((row) => row.id === entry.id);
-              if (now && !theirs(now)) sideChat?.(now)?.();
-            },
-          },
-        ]
-      : [];
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] =>
     theirs(entry)
       ? []
@@ -1016,13 +982,6 @@ export const ComposerQueue = React.memo(function ComposerQueue({
               ]
             : []),
           ...(onChange ? [item("edit", t("composer.queueEditMessage"), "↩", () => setEditing(entry.id))] : []),
-          ...sideChatItem(entry),
-          {
-            id: "queueing",
-            ariaLabel: t(queueing ? "composer.queueingOff" : "composer.queueingOn"),
-            label: t(queueing ? "composer.queueingOff" : "composer.queueingOn"),
-            onSelect: () => setQueueing(!queueing),
-          },
           ...(move
             ? [
                 {
@@ -1046,12 +1005,11 @@ export const ComposerQueue = React.memo(function ComposerQueue({
               ]
             : []),
         ]);
-  // The row's actions: Steer (a glyph and its word), the pencil that takes the prompt back into the
-  // composer to edit, and the trash can, each icon named by its tooltip. Plain glyphs: a soft pill on
-  // hover only. The rest (Edit message in place, Open in side chat, Turn off queueing, the moves) is
-  // in the row's right-click menu.
+  // The row's actions, as ChatGPT and Codex show them: Steer (a glyph and its word), the trash can
+  // (an icon named by its tooltip), and the ⋯ menu. Plain glyphs: a soft pill on hover only.
   const actions = (entry: QueuedEntry) => {
     if (theirs(entry)) return null;
+    const side = sideChat?.(entry);
     return (
       <span className="acpmux-queued-actions" ref={revealControls}>
         {canSendNow(entry) && (
@@ -1075,7 +1033,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
             title={t("message.edit")}
             onClick={() => void cancelEdit(entry)}
           >
-            <Icon name="action.edit" size={14} />
+            <Icon name="action.close" size={14} />
           </button>
         )}
         {remove && (
@@ -1090,6 +1048,37 @@ export const ComposerQueue = React.memo(function ComposerQueue({
             <Icon name="action.delete" size={14} />
           </button>
         )}
+        <Menu>
+          <MenuButton
+            className="acpmux-queued-action"
+            data-menu="queued-more"
+            label={t("composer.queueActions")}
+            title={t("composer.queueActions")}
+            aria-haspopup="menu"
+          >
+            <Icon name="action.more" size={14} />
+          </MenuButton>
+          <MenuPopup
+            side="top"
+            align="end"
+            className="acpmux-quick-menu acpmux-queued-more"
+            label={t("composer.queueActions")}
+          >
+            {onChange && (
+              <MenuItem className="acpmux-quick-item" shortcut="↩" onSelect={() => setEditing(entry.id)}>
+                {t("composer.queueEditMessage")}
+              </MenuItem>
+            )}
+            {side && (
+              <MenuItem className="acpmux-quick-item" onSelect={side}>
+                {t("composer.queueSideChat")}
+              </MenuItem>
+            )}
+            <MenuItem className="acpmux-quick-item" onSelect={() => setQueueing(!queueing)}>
+              {t(queueing ? "composer.queueingOff" : "composer.queueingOn")}
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
       </span>
     );
   };
