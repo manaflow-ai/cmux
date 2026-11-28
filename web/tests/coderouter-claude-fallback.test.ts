@@ -14,6 +14,7 @@ import {
   fallbackCapCents,
   fallbackModelAllowed,
   FALLBACK_ACCOUNT_ENV,
+  NO_PLAN_TASTE_ENV,
   GLOBAL_DAILY_BUDGET_CENTS,
   INCLUDED_USAGE_NOTICE,
   UNPRICED_USD_PER_TOKEN,
@@ -151,6 +152,12 @@ describe("house route config, plan cap and model tier", () => {
     expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: "" })).toEqual({ kind: "off" });
     expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: "not-a-uuid" })).toEqual({ kind: "off" });
     expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: id })).toEqual({ kind: "on", accountId: id.toLowerCase() });
+    expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: id, [NO_PLAN_TASTE_ENV]: "1" })).toEqual({ kind: "on", accountId: id.toLowerCase(), noPlanTaste: true });
+    for (const value of ["", "0", "true", "yes"]) {
+      expect(claudeFallbackConfig({ [FALLBACK_ACCOUNT_ENV]: id, [NO_PLAN_TASTE_ENV]: value })).toEqual({ kind: "on", accountId: id.toLowerCase() });
+    }
+    // The taste switch alone never turns the route on.
+    expect(claudeFallbackConfig({ [NO_PLAN_TASTE_ENV]: "1" })).toEqual({ kind: "off" });
   });
 
   test("the plan picks the cap in cents; every other plan gets none", () => {
@@ -209,6 +216,26 @@ describe("house route selection", () => {
       expect(await service.hasActive(NEWCOMER, vmAccess)).toBe(false);
       expect(teamCents).not.toHaveBeenCalled();
     }
+  });
+
+  test("with the no-plan taste on, a team with no plan is capped as the taste; other plans are unchanged", async () => {
+    const fresh = await withFallbackAccount({ plan: null, spent: 0 });
+    fresh.setConfig({ ...fresh.on, noPlanTaste: true });
+    expect((await fresh.service.select(NEWCOMER, pick())).kind).toBe("selected");
+    expect(await fresh.service.hasActive(NEWCOMER, vmAccess)).toBe(true);
+    expect(fresh.todayCents).toHaveBeenCalled();
+    const used = await withFallbackAccount({ plan: null, spent: 50 });
+    used.setConfig({ ...used.on, noPlanTaste: true });
+    expect(await used.service.select(NEWCOMER, pick())).toEqual({ kind: "fallback_refused", reason: "included_usage_used_up" });
+    const budget = await withFallbackAccount({ plan: null, spent: 0, today: GLOBAL_DAILY_BUDGET_CENTS });
+    budget.setConfig({ ...budget.on, noPlanTaste: true });
+    expect(await budget.service.select(NEWCOMER, pick())).toEqual({ kind: "fallback_refused", reason: "included_daily_budget_reached" });
+    const pro = await withFallbackAccount({ plan: "pro" });
+    pro.setConfig({ ...pro.on, noPlanTaste: true });
+    expect(await pro.service.select(NEWCOMER, pick())).toEqual({ kind: "none" });
+    const opusAsk = await withFallbackAccount({ plan: null });
+    opusAsk.setConfig({ ...opusAsk.on, noPlanTaste: true });
+    expect(await opusAsk.service.select(NEWCOMER, pick(opus))).toEqual({ kind: "fallback_refused", reason: "model_not_included" });
   });
 
   test("a usage read that fails refuses (fail closed)", async () => {
