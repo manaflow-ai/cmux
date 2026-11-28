@@ -78,12 +78,13 @@ fn timings_name_each_phase_reached() {
         settle: Some(4),
         bind: Some(5),
         total: Some(1815),
+        agent_home: Some(240),
         step: Some("bind"),
     };
     assert_eq!(
         all.wire(),
         json!({"keyed_gate": 1, "acpmux_connect": 2, "acpmux_started": true, "checks": 3,
-               "session_new": 1800, "settle": 4, "bind": 5, "total": 1815})
+               "session_new": 1800, "settle": 4, "bind": 5, "total": 1815, "agent_home": 240})
     );
     let gated = StartTimings { keyed_gate: Some(7), total: Some(7), ..Default::default() };
     assert_eq!(gated.wire(), json!({"keyed_gate": 7, "total": 7, "acpmux_started": false}));
@@ -299,4 +300,130 @@ fn a_start_whose_route_cannot_serve_it_names_the_route() {
     );
     let StartRefused(_, data) = StartRefused::of_session_new(signed_out).naming(Some("grok"));
     assert_eq!(data.unwrap()["harness"], "cursor");
+}
+
+/// Step 5 of hq `plans/cloud/agent-memory-follows-user.md`: a fresh chat on the caller's own
+/// Cloud VM pulls the person's agent home before its harness spawns. Never on a Mac, an SSH
+/// host or a team VM, and never for a caller that is not the VM's owner.
+#[test]
+fn only_the_callers_own_solo_cloud_vm_pulls_the_agent_home() {
+    use AgentStartHost::{Allowed, OwnerCloud, TeamVm, UnknownCloud};
+    let starts = AgentSessionStarts::default();
+    assert!(!starts.pulls_agent_home(true));
+    for (host, owner, other) in [
+        (OwnerCloud, true, false),
+        (UnknownCloud, true, false),
+        (TeamVm, false, false),
+        (Allowed, false, false),
+    ] {
+        starts.set_host(Arc::new(move || host));
+        assert_eq!(starts.pulls_agent_home(true), owner, "{host:?}");
+        assert_eq!(starts.pulls_agent_home(false), other, "{host:?}");
+    }
+}
+
+/// The harness spawns only after the pull answered: what the pull wrote is in the home when
+/// the agent first reads it.
+#[test]
+fn the_agent_home_pull_comes_before_the_spawn() {
+    use super::agent_session_home_pull::{HomePull, then_spawn};
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let seen = order.clone();
+    let pull = HomePull::begin(Arc::new(move || {
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        seen.lock().unwrap().push("pull");
+        json!({"ok": true, "exit": 0, "ms": 80})
+    }));
+    let mut noted = None;
+    let spawned = then_spawn(pull, &mut noted, || {
+        order.lock().unwrap().push("spawn");
+        Ok::<_, (Refusal, Option<Value>)>(())
+    });
+    assert!(spawned.is_ok());
+    assert_eq!(*order.lock().unwrap(), ["pull", "spawn"]);
+    let noted = noted.expect("the pull is noted");
+    assert!(noted.ms >= 80, "{noted:?}");
+    assert_eq!(noted.note, json!({"ok": true, "exit": 0, "ms": 80}));
+}
+
+/// Only a pull that left revoked files in place (cmux-host's `refuse`, the pull's exit 1)
+/// refuses the start; any other failure starts the chat with the home it has.
+#[test]
+fn only_uncleared_revoked_files_refuse_the_start() {
+    use super::agent_session_home_pull::{HomePull, then_spawn};
+    let answer = |reply: Value| HomePull::begin(Arc::new(move || reply.clone()));
+    let revoked = json!({"ok": false, "exit": 1, "refuse": true, "code": "agent_home.not_cleared",
+                         "message": "...", "ms": 3});
+    let mut noted = None;
+    let mut ran = false;
+    let refused = then_spawn(answer(revoked), &mut noted, || {
+        ran = true;
+        Ok::<_, (Refusal, Option<Value>)>(())
+    });
+    assert!(!ran, "no harness starts with revoked files in its home");
+    let (refusal, data) = refused.unwrap_err();
+    assert_eq!(refusal, Refusal::AgentHomeNotCleared);
+    assert_eq!(refusal.code(), "agent_session.agent_home_not_cleared");
+    assert_eq!(data.unwrap()["agent_home"]["code"], json!("agent_home.not_cleared"));
+    for failed in [
+        json!({"ok": false, "refuse": false, "code": "agent_home.timeout", "ms": 5000}),
+        json!({"ok": false, "refuse": false, "exit": 2, "code": "agent_home.pull_failed"}),
+        json!({"ok": false, "code": "agent_home.unreachable"}),
+        json!({"ok": false, "code": "vm.unbound", "retryable": true}),
+    ] {
+        let mut noted = None;
+        let started =
+            then_spawn(answer(failed.clone()), &mut noted, || Ok::<_, (Refusal, Option<Value>)>(7));
+        assert_eq!(started.ok(), Some(7), "{failed}");
+        assert_eq!(noted.unwrap().note["code"], failed["code"]);
+    }
+    // No pull (not the owner's Cloud VM): the spawn alone.
+    let mut noted = None;
+    assert_eq!(then_spawn(None, &mut noted, || Ok::<_, (Refusal, Option<Value>)>(1)).ok(), Some(1));
+    assert!(noted.is_none());
+}
+
+/// A pull that does not answer holds the start no longer than its wait.
+#[test]
+fn a_slow_agent_home_pull_does_not_hold_the_start() {
+    use super::agent_session_home_pull::HomePull;
+    let pull = HomePull::begin(Arc::new(|| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        json!({"ok": true})
+    }))
+    .unwrap();
+    let began = Instant::now();
+    let pulled = pull.finish(std::time::Duration::from_millis(100));
+    assert!(began.elapsed() < std::time::Duration::from_secs(2));
+    assert_eq!(pulled.note, json!({"ok": false, "code": "agent_home.timeout"}));
+    assert!(!pulled.refuse);
+}
+
+/// The ask on the machine agent's socket is the one line cmux-host reads, with no fields.
+#[test]
+fn the_agent_home_ask_is_one_line_with_no_fields() {
+    use super::agent_session_home_pull::ask_socket;
+    use std::io::{BufRead, BufReader, Write};
+    let dir = std::env::temp_dir().join(format!("ahp-{}-{:?}", std::process::id(), Instant::now()));
+    let dir = std::path::PathBuf::from(
+        format!("{}", dir.display()).replace([' ', '{', '}', ':', ','], ""),
+    );
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("agent.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let served = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+        let mut stream = stream;
+        writeln!(stream, "{}", json!({"ok": true, "exit": 0, "ms": 41})).unwrap();
+        line
+    });
+    let reply = ask_socket(&path, std::time::Duration::from_secs(2));
+    assert_eq!(served.join().unwrap(), "{\"agent_home_pull\":{}}\n");
+    assert_eq!(reply, json!({"ok": true, "exit": 0, "ms": 41}));
+    let gone = ask_socket(&dir.join("none.sock"), std::time::Duration::from_secs(1));
+    assert_eq!(gone["code"], json!("agent_home.unreachable"));
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_dir(&dir);
 }
