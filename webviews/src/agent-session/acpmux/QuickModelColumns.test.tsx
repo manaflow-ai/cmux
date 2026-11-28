@@ -4,7 +4,7 @@ import { afterEach, expect, test } from "bun:test";
 import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { ChatAccountList, ChatAccounts, NewChatAccount } from "./chatAccounts";
+import type { ChatAccounts, NewChatAccount, ChatAccountList } from "./chatAccounts";
 import type { QuickFamily, QuickModel } from "./quickModelMenuModel";
 import { authText, type SessionAuth } from "./sessionAuth";
 import { translate } from "./i18n";
@@ -1208,7 +1208,7 @@ for (const [why, signIn] of [
 
 test("a harness this Mac does not have draws no avatar in the corner", async () => {
   await openMenu();
-  await click(tab("Gemini"));
+  await click(tab("Antigravity"));
   const corner = popup().querySelector(".acpmux-cols-corner")!;
   expect(corner.querySelector(".acpmux-cols-profile")).toBeNull();
   expect(corner.querySelector(".acpmux-cols-avatar")).toBeNull();
@@ -1376,7 +1376,7 @@ test("an unknown verdict draws no readiness row, before or during a search", asy
 
 test("a harness this Mac does not have keeps its Install row beside the chat's readiness", async () => {
   await openMenu(undefined, undefined, cases[0]!.auth);
-  await click(tab("Gemini"));
+  await click(tab("Antigravity"));
   expect(authRow()?.textContent).toContain(translate("auth.login.expired", { agent: "Claude Code" }));
   expect(
     [...popup().querySelectorAll("[role=listbox] [role=button]")].some(
@@ -1387,9 +1387,9 @@ test("a harness this Mac does not have keeps its Install row beside the chat's r
 
 test("a harness this Mac does not have leads its list with its note and Install row, above its models", async () => {
   await openMenu();
-  await click(tab("Gemini"));
+  await click(tab("Antigravity"));
   const rows = [...popup().querySelectorAll("[role=listbox][aria-label] > .acpmux-cols-row")]
     .filter((row) => row.closest("[role=listbox]")?.getAttribute("aria-label") === translate("picker.model"))
     .map((row) => row.textContent?.trim());
-  expect(rows.slice(0, 3)).toEqual(["Gemini not installed", translate("harnesses.install"), "Pro"]);
+  expect(rows.slice(0, 3)).toEqual(["Antigravity not installed", translate("harnesses.install"), "Pro"]);
 });

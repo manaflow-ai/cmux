@@ -18,7 +18,7 @@ const catalog: ModelPickerProps["catalog"] = [
   },
   {
     id: "gemini",
-    name: "Gemini CLI",
+    name: "Antigravity",
     pickable: true,
     notInstalled: true,
     models: [

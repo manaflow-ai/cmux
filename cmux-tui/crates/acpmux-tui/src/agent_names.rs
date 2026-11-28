@@ -5,7 +5,7 @@
 const KNOWN: &[(&str, &str)] = &[
     ("claude", "Claude Code"),
     ("codex", "Codex"),
-    ("gemini", "Gemini CLI"),
+    ("gemini", "Antigravity"),
     ("muse", "Muse Code"),
     ("opencode", "OpenCode"),
     ("cursor", "Cursor"),

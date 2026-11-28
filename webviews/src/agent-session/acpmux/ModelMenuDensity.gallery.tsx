@@ -19,7 +19,7 @@ const props: ModelPickerProps = {
     { id: "codex", name: "Codex", models: models(["GPT-6.1 Sol", "GPT-6 Astra", "GPT-6 Luna"]) },
     { id: "opencode", name: "OpenCode", models: models(["Big Pickle"]) },
     { id: "pi", name: "Pi", models: models(["GPT-6.1 Sol"]) },
-    { id: "gemini", name: "Gemini CLI", models: models(["Gemini 3 Pro"]) },
+    { id: "gemini", name: "Antigravity", models: models(["Gemini 3 Pro"]) },
   ],
   harness: "claude",
   harnessFixed: true,

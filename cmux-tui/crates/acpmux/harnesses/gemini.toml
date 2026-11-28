@@ -1,7 +1,7 @@
 # Gemini CLI with its ACP mode. Sign in once by running `gemini`.
 schema = 1
 id = "gemini"
-name = "Gemini CLI"
+name = "Antigravity"
 icon = "gemini"
 protocol = "acp"
 command = "gemini"

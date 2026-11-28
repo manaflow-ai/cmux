@@ -7,7 +7,7 @@ import { isDefaultChoice } from "./defaultChoice";
 const KNOWN: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
-  gemini: "Gemini CLI",
+  gemini: "Antigravity",
   antigravity: "Antigravity",
   muse: "Muse Code",
   opencode: "OpenCode",
