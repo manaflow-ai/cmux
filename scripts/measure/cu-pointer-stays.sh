@@ -177,6 +177,26 @@ tar -c -C "$b" cpsprobe cmux-rd guest.sh cps.py agent.plist -C "$ev" tcc-grant.s
 # Recording, Accessibility and event posting, in this throwaway SIP-off clone only.
 guest_n 'bash ~/cps/tcc-grant.sh /bin/bash ~/cps/cpsprobe ~/cps/cmux-rd' >"$out/grant.log" 2>&1 ||
   { cat "$out/grant.log"; finish "tcc-grant.sh failed in the guest (grant.log)"; exit 4; }
+# macOS 15+ asks again before a non-bundled process records the screen ("bash is requesting to
+# bypass the system private window picker"), past the TCC grant; that prompt covered the target and
+# left cps.mov empty. replayd reads its answers from ScreenCaptureApprovals.plist: pre-answer it for
+# the recorder's processes, in this throwaway guest only.
+guest_n '/usr/bin/python3 -I -c "
+import os, plistlib, datetime
+d = os.path.expanduser(\"~/Library/Group Containers/group.com.apple.replayd\")
+os.makedirs(d, exist_ok=True)
+p = os.path.join(d, \"ScreenCaptureApprovals.plist\")
+try:
+    a = plistlib.load(open(p, \"rb\"))
+except Exception:
+    a = {}
+t = datetime.datetime(2100, 1, 1)
+for k in (\"/bin/bash\", \"/usr/sbin/screencapture\", os.path.expanduser(\"~/cps/cpsprobe\"), \"/usr/bin/python3\"):
+    a[k] = t
+plistlib.dump(a, open(p, \"wb\"))
+print(\"approvals\", sorted(a))
+"; killall replayd 2>/dev/null; true' >>"$out/grant.log" 2>&1
+grep -h '^approvals' "$out/grant.log" | sed 's/^/CPS-STAGE /'
 guest_n 'sw_vers; csrutil status; /usr/bin/python3 -V; system_profiler SPDisplaysDataType | grep -E "Resolution|Retina"' >"$out/guest/facts.txt" 2>&1
 started=0
 for _ in $(seq 1 30); do
