@@ -6459,6 +6459,8 @@ _FAIL_FAST = ("head fail-fast (head-fail-fast.yml, #54837): cancels the head's o
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
         "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
+        "app-store-shelf-pr": "installs every App Store shelf listing at the head (app-store-shelf-check.sh): "
+                              "a product check whose red reads the packages, judged as any job's",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
