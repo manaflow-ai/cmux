@@ -11,9 +11,13 @@ import Foundation
 /// a hibernated or deferred one keeps it (`install`).
 extension TabContentCache {
     /// Called by every agent entry point before it acts on (or, `reading`, reads) tab `key`'s page. Never cleared.
-    func markAgentDriven(_ key: String, reading: Bool = false) {
+    /// `session`, the agent session the call runs for, is the one the tab's visits name from here on.
+    func markAgentDriven(_ key: String, reading: Bool = false, session: String? = nil) {
         agentDrivenTabs.insert(key)
-        browsers[key]?.tab.markAgent(reading: reading)
+        if let session { agentMarks.sessions[key] = session }
+        guard let page = browsers[key]?.tab else { return }
+        page.markAgent(reading: reading)
+        if let session { page.noteAgentSession(session) }
     }
 
     /// Replaces `key`'s live page with a new Chromium page for the same URL,
@@ -38,7 +42,7 @@ extension TabContentCache {
     /// script) is marked before its page exists, so its first page load
     /// never fills a saved password. When the page already exists by the time
     /// the tab arrives, the agent's first operation rebuilds it instead.
-    func markAgentDriven(surface: SurfaceID) { agentDrivenSurfaces.insert(surface) }
+    func markAgentDriven(surface: SurfaceID, session: String? = nil) { agentMarks.mark(surface: surface, session: session) }
 
     /// A browser split an agent asked for, by its new pane (``TabAgentMarks/mark(pane:machine:)``).
     func markAgentDriven(pane: String, machine: String) { agentMarks.mark(pane: pane, machine: machine) }

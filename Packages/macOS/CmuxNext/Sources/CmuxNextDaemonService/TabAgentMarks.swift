@@ -8,6 +8,10 @@ public struct TabAgentMarks {
     public var tabs: Set<String> = []
     public var surfaces: Set<SurfaceID> = []
     public var extensionOverrides: Set<String> = []
+    /// The agent session that last drove each tab (RFD 0125 D5: every agent visit names its session), by tab key.
+    public var sessions: [String: String] = [:]
+    /// The session of an agent that opened a surface, until its tab claims it.
+    private var surfaceSessions: [SurfaceID: String] = [:]
     /// Marked panes, each with the surfaces it has claimed so far.
     private var panes: [String: Set<SurfaceID>] = [:]
     /// Agents' split tabs a reply named before they mounted, by machine and surface: a surface number is
@@ -19,6 +23,14 @@ public struct TabAgentMarks {
     public mutating func forget(_ key: String) {
         tabs.remove(key)
         extensionOverrides.remove(key)
+        sessions.removeValue(forKey: key)
+    }
+
+    /// An agent opened `surface` (its tab is the agent's when it arrives, ``claim(surface:key:pane:machine:hasPage:)``),
+    /// for agent session `session` when the request named one.
+    public mutating func mark(surface: SurfaceID, session: String?) {
+        surfaces.insert(surface)
+        if let session { surfaceSessions[surface] = session }
     }
 
     /// A browser split an agent asked for (Insert New at a divider from the CLI, MCP or a script), by
@@ -44,9 +56,12 @@ public struct TabAgentMarks {
         let paneKey = pane.map { Self.paneKey(machine, $0) }
         let byPane = paneKey.map { panes[$0] != nil } ?? false
         let bySettledSplit = settled.remove(Self.surfaceKey(machine, surface)) != nil
-        guard surfaces.remove(surface) != nil || bySettledSplit || byPane, !hasPage else { return }
+        let bySurface = surfaces.remove(surface) != nil
+        let session = surfaceSessions.removeValue(forKey: surface)
+        guard bySurface || bySettledSplit || byPane, !hasPage else { return }
         if byPane, let paneKey { panes[paneKey]?.insert(surface) }
         tabs.insert(key)
+        if let session { sessions[key] = session }
     }
 
     private static func paneKey(_ machine: String, _ pane: String) -> String { machine + "\u{1F}" + pane }
