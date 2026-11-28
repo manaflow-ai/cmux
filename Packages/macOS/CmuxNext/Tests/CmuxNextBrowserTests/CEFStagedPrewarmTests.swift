@@ -80,7 +80,8 @@ import Testing
         #expect(CEFStagedPrewarm(deadline: .seconds(5)).deadline == .seconds(5))
         let (ends, end) = AsyncStream.makeStream(of: Bool.self)
         let source = CEFStagedPrewarm.watchdog(after: .milliseconds(20)) { end.yield(!Thread.isMainThread); end.finish() }
-        let fired = await ends.first { _ in true } ?? false
+        var fired = false
+        for await offMain in ends { fired = offMain }
         withExtendedLifetime(source) {}
         #expect(fired, "the watchdog ran on the main thread, which the hang it ends holds")
     }
