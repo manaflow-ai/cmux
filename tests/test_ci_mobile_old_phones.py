@@ -110,5 +110,73 @@ class Resolve(unittest.TestCase):
         self.assertEqual(got[1]["run"], 3)
 
 
+class RunsRequestTest(unittest.TestCase):
+    # The first real run (46111150746) died at resolve with HTTP 403: urllib's default agent.
+    def test_names_its_agent_and_api_version(self):
+        req = mop.runs_request("manaflow-ai/cmux", "tok")
+        self.assertTrue(req.get_header("User-agent", "").startswith("cmux-ci-mobile-old-phones"))
+        self.assertEqual(req.get_header("X-github-api-version"), "2022-11-28")
+        self.assertEqual(req.get_header("Authorization"), "Bearer tok")
+
+    def test_no_token_sends_no_authorization(self):
+        self.assertIsNone(mop.runs_request("manaflow-ai/cmux", "").get_header("Authorization"))
+
+class FetchRunsRetryTest(unittest.TestCase):
+    def _err(self, code):
+        import email.message, io, urllib.error
+        h = email.message.Message(); h["x-ratelimit-remaining"] = "0"
+        return urllib.error.HTTPError("u", code, "Forbidden", h, io.BytesIO(b'{"message":"rate limit"}'))
+
+    def test_403_then_ok_retries(self):
+        import io
+        calls = []
+        def opener(req, timeout):
+            calls.append(1)
+            if len(calls) == 1:
+                raise self._err(403)
+            return io.BytesIO(b'{"workflow_runs":[{"id":1}]}')
+        self.assertEqual(mop.fetch_runs("o/r", "t", opener=opener, sleep=lambda s: None), [{"id": 1}])
+        self.assertEqual(len(calls), 2)
+
+    def test_last_403_names_githubs_reason(self):
+        def opener(req, timeout):
+            raise self._err(403)
+        with self.assertRaises(SystemExit) as cm:
+            mop.fetch_runs("o/r", "t", opener=opener, sleep=lambda s: None)
+        self.assertIn("403", str(cm.exception))
+        self.assertIn("x-ratelimit-remaining=0", str(cm.exception))
+        self.assertIn("rate limit", str(cm.exception))
+
+class ResolveCacheTest(unittest.TestCase):
+    # Runs 46116606886 and 46125947911 died at resolve: "API rate limit exceeded for installation".
+    RUNS = [{"id": 9, "conclusion": "success", "created_at": "2026-11-28T05:17:48Z",
+             "display_title": "cmux-next-ios INTERNAL " + "a" * 40}]
+
+    @staticmethod
+    def refused(repo, token):
+        raise SystemExit("::error::GitHub answered 403 for the ios-internal-nightly runs (x-ratelimit-remaining=0)")
+
+    def test_fresh_read_fills_the_cache(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = Path(d) / "c" / "phones.txt"
+            lines, fresh = mop.resolve("o/r", "t", 3, cache, fetch=lambda r, t: self.RUNS)
+            self.assertTrue(fresh)
+            self.assertEqual(lines, ["a" * 40 + " 9 2026-11-28T05:17:48Z"])
+            self.assertEqual(cache.read_text(), lines[0] + "\n")
+
+    def test_rate_limited_read_answers_from_the_cache(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = Path(d) / "phones.txt"
+            cache.write_text("b" * 40 + " 8 2026-11-28T00:49:41Z\n")
+            lines, fresh = mop.resolve("o/r", "t", 3, cache, fetch=self.refused)
+            self.assertFalse(fresh)
+            self.assertEqual(lines, ["b" * 40 + " 8 2026-11-28T00:49:41Z"])
+
+    def test_rate_limited_read_without_a_cache_still_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(SystemExit):
+                mop.resolve("o/r", "t", 3, Path(d) / "none.txt", fetch=self.refused)
+
+
 if __name__ == "__main__":
     unittest.main()
