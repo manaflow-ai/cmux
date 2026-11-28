@@ -66,7 +66,9 @@ final class SubagentRowsMemo {
     private var turn: AgentTurn?
     private var rows: [TurnRow] = []
     /// The item each row starts at.
-    private var starts: [Int] = []
+    private(set) var starts: [Int] = []
+    /// Rows the last call kept as they were (all of them when the subagent did not change).
+    private(set) var unchangedPrefix = 0
     private var permissionTools: Set<String> = []
     /// Times the subagent changed and its turn was taken again (tests: not once per redraw).
     private(set) var builds = 0
@@ -74,7 +76,10 @@ final class SubagentRowsMemo {
     private(set) var rowsMade = 0
 
     func rows(for agent: AgentSubagent) -> (turn: AgentTurn, rows: [TurnRow]) {
-        if let last = self.agent, let turn, last == agent { return (turn, rows) }
+        if let last = self.agent, let turn, last == agent {
+            unchangedPrefix = rows.count
+            return (turn, rows)
+        }
         builds += 1
         let turn = agent.asTurn
         let items = agent.items
@@ -113,6 +118,7 @@ final class SubagentRowsMemo {
         }
         let made = TurnRowBuilder.rows(items, hidden: turn.hiddenToolCalls, permissionTools: tools, from: from)
         rowsMade += made.rows.count
+        unchangedPrefix = keep
         rows.removeSubrange(keep...)
         starts.removeSubrange(keep...)
         rows += made.rows

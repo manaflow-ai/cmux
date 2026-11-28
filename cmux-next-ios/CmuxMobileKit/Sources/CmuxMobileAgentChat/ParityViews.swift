@@ -169,24 +169,10 @@ struct SubagentsScreen: View {
         List {
             ForEach(order.ordered(store.subagents), id: \.agent.id) { entry in
                 Button { selected = entry.agent.id } label: {
-                    HStack(spacing: 12) {
-                        SubagentStateGlyph(state: entry.agent.state)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.agent.name).font(.body).lineLimit(1)
-                            Text(subtitle(entry.agent)).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
-                        }
-                        Spacer(minLength: 4)
-                        Text(Duration.seconds(entry.agent.duration).formatted(.units(allowed: [.minutes, .seconds], width: .narrow)))
-                            .font(.footnote.monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                        // Drill-down affordance, as on every pushed row.
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.leading, CGFloat(entry.depth) * 24)
-                    .frame(minHeight: 52)
-                    .contentShape(.rect)
+                    // Plain values only: SwiftUI compares them and skips the rows that did not change.
+                    SubagentRow(name: entry.agent.name, subtitle: subtitle(entry.agent), state: entry.agent.state,
+                                startedAt: entry.agent.startedAt, endedAt: entry.agent.endedAt, depth: entry.depth)
+                        .equatable()
                 }
                 .buttonStyle(.cmuxPressFill)
             }
@@ -211,6 +197,82 @@ struct SubagentsScreen: View {
         let status = agent.state == .running ? (agent.action ?? "Working") : agent.state.label
         guard let task = agent.task, task != agent.name else { return status }
         return "\(status) · \(task)"
+    }
+}
+
+/// A row of the Subagents list. Its own view, so a change to one subagent evaluates its row,
+/// not every row of the list.
+/// A subagent's time: its run's length once it ended, and while it runs a clock of its own that
+/// ticks each second (the row is not evaluated for that, nor for other subagents' changes). The
+/// list's inline row showed the time at its last evaluation: frozen while nothing changed.
+struct SubagentElapsed: View {
+    let startedAt: Date
+    let endedAt: Date?
+    #if DEBUG
+    /// The running clock's draws (tests: it ticks with no change to the store).
+    @Environment(\.renderProbe) private var probe
+    #endif
+
+    var body: some View {
+        if let endedAt {
+            label(endedAt)
+        } else {
+            TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                #if DEBUG
+                let _ = probe.map { $0.subagentClockTicks += 1 }
+                #endif
+                label(context.date)
+            }
+        }
+    }
+
+    private func label(_ now: Date) -> some View {
+        Text(Duration.seconds(max(0, now.timeIntervalSince(startedAt))).formatted(.units(allowed: [.minutes, .seconds], width: .narrow)))
+            .font(.footnote.monospacedDigit())
+            .foregroundStyle(.tertiary)
+    }
+}
+
+struct SubagentRow: View, Equatable {
+    let name: String
+    let subtitle: String
+    let state: AgentSubagent.State
+    let startedAt: Date
+    let endedAt: Date?
+    let depth: Int
+    #if DEBUG
+    /// Body evaluations (tests: per change, the changed rows only).
+    @Environment(\.renderProbe) private var probe
+    #endif
+
+    /// Every input the row draws from (the DEBUG probe is a test's counter, not something drawn).
+    /// SwiftUI compares rows by this, so a wrapper it cannot compare (the probe's environment
+    /// value) does not make every row on screen evaluate again on each change (#47189 r7b).
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.name == b.name && a.subtitle == b.subtitle && a.state == b.state && a.startedAt == b.startedAt
+            && a.endedAt == b.endedAt && a.depth == b.depth
+    }
+
+    var body: some View {
+        #if DEBUG
+        let _ = probe.map { $0.subagentRowBodies += 1; $0.subagentRowNames.append(name) }
+        #endif
+        HStack(spacing: 12) {
+            SubagentStateGlyph(state: state)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(.body).lineLimit(1)
+                Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 4)
+            SubagentElapsed(startedAt: startedAt, endedAt: endedAt)
+            // Drill-down affordance, as on every pushed row.
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.leading, CGFloat(depth) * 24)
+        .frame(minHeight: 52)
+        .contentShape(.rect)
     }
 }
 

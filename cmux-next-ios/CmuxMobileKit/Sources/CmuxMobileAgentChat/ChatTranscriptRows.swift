@@ -139,6 +139,9 @@ final class ChatTranscriptBuilder {
     /// A turn's row grouping (`AgentTurn.rows`) when the source keeps it by what changed (a
     /// subagent's long transcript: an appended item makes its own rows, `SubagentRowsMemo`).
     var turnRows: ((AgentTurn) -> [TurnRow])?
+    /// Turns that continue the turn above them (a subagent transcript's rows in chunks): their first
+    /// row takes the gap between rows, not a turn's first gap, so the rows lay out as one turn.
+    var continuesTurn: ((AgentTurn) -> Bool)?
     private var memos: [String: Memo] = [:]
     private var parses: [String: MarkdownStreamParse] = [:]
     /// Each answer's block rows as last built, by its parse's key: the blocks its next parse leaves
@@ -179,11 +182,24 @@ final class ChatTranscriptBuilder {
         assignSenderTones(turns)
         for (index, turn) in turns.enumerated() {
             let isLast = index == turns.count - 1
-            let context = ChatTurnContext(isFirst: index == 0, isLast: isLast, earlierHistory: index == 0 && earlierHistory,
+            var context = ChatTurnContext(isFirst: index == 0, isLast: isLast, earlierHistory: index == 0 && earlierHistory,
                                           followsActions: followsActions, askOpen: isLast && askOpen,
                                           choicesFor: isLast ? choicesFor : nil,
                                           nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt),
                                           senderTones: turnTones(turn), foldsWork: foldsWork)
+            if mode == .subagent {
+                // A subagent transcript's turns are its chunks (SubagentRowWindow). A chunk's place
+                // among them changes as the window grows, and nothing a subagent turn draws reads it
+                // (isLast, askOpen and nextPrompt feed only chat rows; isFirst only the prompt's gap,
+                // and only the first chunk has the prompt), so it is not part of the chunk's key, and a
+                // growth leaves the chunks it did not add as they were. A permission's choices show
+                // on its row in whichever chunk holds it, as in the whole transcript's one turn.
+                context.isFirst = !turn.prompt.isEmpty && index == 0
+                context.isLast = false
+                context.askOpen = false
+                context.nextPrompt = nil
+                context.choicesFor = choicesFor
+            }
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -268,7 +284,7 @@ final class ChatTranscriptBuilder {
         // The turn's own rows keep the key they were first drawn under (a prompt shown as it was
         // sent keeps its bubble when the Mac's id for the turn comes back).
         let rowKey = turn.rowKey
-        var nextGap = 16.0
+        var nextGap = continuesTurn?(turn) == true ? 10.0 : 16.0
         func add(_ id: String, _ kind: ChatRow.Kind, gap: Double? = nil) {
             rows.append(ChatRow(id: id, turnID: turnID, kind: kind, gap: gap ?? nextGap))
             nextGap = 10
