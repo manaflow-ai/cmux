@@ -270,11 +270,11 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                # A crate's Rust source also reaches the persisted-formats registry, next-state-roots and
-                # next-crash-safety (land_gate steps on every cmux-tui/crates/*/src .rs); Cargo.lock reaches the idle
-                # daemon tests.
+                # A crate's Rust source also reaches the persisted-formats registry, next-state-roots, the
+                # spawn-owner ratchet (#64665) and next-crash-safety (land_gate steps on every cmux-tui/crates/*/src .rs);
+                # Cargo.lock reaches the idle daemon tests.
                 expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
-                                ["persisted-formats", "next-state-roots", "next-crash-safety", "phone-speed-icount"],
+                                ["persisted-formats", "next-state-roots", "next-spawn-owner-ratchet", "next-crash-safety", "phone-speed-icount"],
                             "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]
                             }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
@@ -1178,7 +1178,7 @@ class SetupTest(unittest.TestCase):
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
         # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
         # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
-        pr_tier_tool_steps = {"web-tests-affected"}
+        pr_tier_tool_steps = {"web-tests-affected", "memory-per-item"}  # #62594: the per-PR memory A/B
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
                 self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
