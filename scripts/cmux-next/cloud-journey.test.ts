@@ -15,7 +15,7 @@ import { startMarks, claudeLoginPrograms, credentialSeen, judgeStubCredentials, 
   journeyTextReply, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
 import { oidcSignIn, ownerKindGated, startAfterOwnerKind, START_RESENT_ENV, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
-import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
+import { PROOF_PINNED, deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
@@ -1607,6 +1607,55 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(await provenLeak(entry, "t", gh({ run: { event: "workflow_dispatch", head_branch: "main" }, job: { head_branch: "main" } }).get)).toBeNull();
     // The run must be the job's own.
     expect(await provenLeak(entry, "t", gh({ run: { id: 1 } }).get)).toContain("did not read back");
+  });
+
+  // run 46000366770 job 140510160758: a pull request's own-branch run, pinned by id, run, workflow, branch and commit.
+  const PIN = PROOF_PINNED[0];
+  const WAKE_ID = "vm_351c4972138251aa9aad";
+  const WAKE_LOG = [
+    "2026-11-27T12:38:57.3556240Z PASS health 62 ms :: commit 0.1.0",
+    `2026-11-27T12:39:28.2033827Z PASS create machine 26251 ms :: ${WAKE_ID} status provisioning`,
+    '2026-11-27T13:35:03.2130925Z FAIL delete (cleanup) 36895 ms :: cloud.machine.delete: HTTP 503 {"code":"owner.unreachable","retryable":true}',
+  ].join("\n");
+  const wakeGh = (over: { job?: any; run?: any; log?: string } = {}) => {
+    const job = { id: Number(PIN.job), run_id: PIN.run, name: PIN.name, head_branch: PIN.branch, ...over.job };
+    const run = { id: PIN.run, path: PIN.workflow, event: PIN.event, head_branch: PIN.branch, head_sha: PIN.sha, run_attempt: 1,
+      repository: { full_name: "manaflow-ai/cmux" }, head_repository: { full_name: "manaflow-ai/cmux" }, ...over.run };
+    return async (url: string) => {
+      const ok = (body: unknown) => ({ status: 200, location: null, text: JSON.stringify(body) });
+      if (url.endsWith(`/actions/jobs/${PIN.job}`)) return ok(job);
+      if (url.endsWith(`/actions/runs/${PIN.run}`)) return ok(run);
+      if (url.endsWith(`/actions/jobs/${PIN.job}/logs`)) return { status: 200, location: null, text: over.log ?? WAKE_LOG };
+      return { status: 404, location: null, text: "{}" };
+    };
+  };
+  const wakeEntry = { id: WAKE_ID, job: PIN.job };
+
+  test("the pinned wake-echo job proves its leak; any other field, id or log does not", async () => {
+    expect(await provenLeak(wakeEntry, "t", wakeGh())).toBeNull();
+    // The same job a rerun, another commit or branch, a fork, another workflow or job name: refused.
+    for (const run of [{ run_attempt: 2 }, { head_sha: "0".repeat(40) }, { head_branch: "lane/other" }, { event: "push" },
+      { path: ".github/workflows/backend.yml" }, { head_repository: { full_name: "someone/cmux" } }, { id: 1 }]) {
+      expect(await provenLeak(wakeEntry, "t", wakeGh({ run }))).toContain("not the pinned job");
+    }
+    expect(await provenLeak(wakeEntry, "t", wakeGh({ job: { name: "other" } }))).toContain("not the pinned job");
+    // The log must still show this id's create and failed cleanup in one journey.
+    expect(await provenLeak({ ...wakeEntry, id: "vm_" + "a".repeat(20) }, "t", wakeGh())).toContain("no journey that made");
+    expect(await provenLeak(wakeEntry, "t", wakeGh({ log: WAKE_LOG.split("\n").slice(0, 2).join("\n") }))).toContain("logged no failed cleanup delete");
+    // The pin opens no other job of a pull request: the generic rule still refuses them.
+    expect(await provenLeak({ id: WAKE_ID, job: "128746706182" }, "t", gh({ run: { event: "pull_request" } }).get)).toContain("runs code a contributor may have written");
+  });
+
+  test("a wake-echo or journey machine named `cloud journey auto jr-… long` is eligible by the same age and activity rule, other names are not", () => {
+    const now = Date.parse("2026-11-28T16:00:00Z");
+    const row = (name: string, extra: object = {}) => ({ id: WAKE_ID, name, status: "running", created_at: Date.parse("2026-11-27T12:39:28Z"), last_active_at: null, ...extra });
+    expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long"), now).eligible).toBe(true);
+    expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss"), now).eligible).toBe(true);
+    expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long", { created_at: now - 3_600_000 }), now).eligible).toBe(false);
+    expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long", { last_active_at: now - 60_000 }), now).eligible).toBe(false);
+    for (const name of ["cloud journey kept jr-mwyywwss", "cloud journey auto jr-x long extra", "cloud journey auto kept jr-x", "my machine", ""]) {
+      expect(journeyMachineEligible(row(name), now).eligible).toBe(false);
+    }
   });
 
   test("no proof, no delete: another workflow, another repo, an unknown job, an unreadable log, a log without the leak", async () => {

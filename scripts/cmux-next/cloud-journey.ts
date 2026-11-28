@@ -5049,7 +5049,7 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
  * older than 24 h and not in use; never `cloud journey kept jr-*` (a --keep run's) and never anything else. When the
  * row leaves any doubt, the answer is no, with the reason.
  */
-export const JOURNEY_MACHINE_NAME = /^cloud journey jr-[a-z0-9]+( gateway)?$/;
+export const JOURNEY_MACHINE_NAME = /^cloud journey (?:auto )?jr-[a-z0-9]+(?: long| gateway)?$/;
 /** A strict machine id (cloud-machine-ops.ts MachineId). */
 export const MACHINE_ID = /^vm_[a-z0-9]{20}$/;
 const HOUR_MS = 3_600_000;
@@ -5197,15 +5197,35 @@ export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet =
   try {
     const job = await json(`${api}/jobs/${entry.job}`);
     if (String(job?.id) !== entry.job || !Number.isSafeInteger(job?.run_id)) return `job ${entry.job}: not a job of ${JOURNEY_REPO}`;
-    if (job.name !== PROOF_JOB) return `job ${entry.job}: ${short(job.name)} is not ${PROOF_JOB}`;
-    const run = await json(`${api}/runs/${job.run_id}`);
-    if (run?.id !== job.run_id) return `job ${entry.job}: its run did not read back`;
-    if (run?.repository?.full_name !== JOURNEY_REPO) return `job ${entry.job}: its run is not in ${JOURNEY_REPO}`;
-    if (run?.head_repository?.full_name !== JOURNEY_REPO) return `job ${entry.job}: its run ran code from ${short(run?.head_repository?.full_name)}, not ${JOURNEY_REPO}`;
-    if (!PROOF_EVENTS.has(String(run?.event))) return `job ${entry.job}: its run's event ${short(run?.event)} runs code a contributor may have written`;
-    if (!PROOF_BRANCHES.has(String(run?.head_branch)) || job.head_branch !== run.head_branch) return `job ${entry.job}: branch ${short(run?.head_branch)} is not feat-cmux-next or main`;
-    const workflow = String(run?.path ?? "").replace(/@.*$/, "");
-    if (workflow !== PROOF_WORKFLOW) return `job ${entry.job}: workflow ${workflow || "?"} is not ${PROOF_WORKFLOW}`;
+    const pin = PROOF_PINNED.find((p) => p.job === entry.job);
+    if (pin) {
+      // One reviewed job: every field must be the pinned one, so a rerun or another job of the workflow is refused.
+      const run = await json(`${api}/runs/${job.run_id}`);
+      const wf = String(run?.path ?? "").replace(/@.*$/, "");
+      const wrong = [
+        job.name !== pin.name && `job name ${short(job.name)}`,
+        job.run_id !== pin.run && `run ${short(job.run_id)}`,
+        run?.id !== pin.run && "its run did not read back",
+        run?.repository?.full_name !== JOURNEY_REPO && "its run is not in " + JOURNEY_REPO,
+        run?.head_repository?.full_name !== JOURNEY_REPO && `code from ${short(run?.head_repository?.full_name)}`,
+        wf !== pin.workflow && `workflow ${wf || "?"}`,
+        run?.event !== pin.event && `event ${short(run?.event)}`,
+        run?.head_branch !== pin.branch && `branch ${short(run?.head_branch)}`,
+        run?.head_sha !== pin.sha && `commit ${short(run?.head_sha)}`,
+        (run?.run_attempt ?? 1) !== 1 && `attempt ${short(run?.run_attempt)}`,
+      ].filter(Boolean);
+      if (wrong.length) return `job ${entry.job}: not the pinned job (${wrong.join(", ")})`;
+    } else {
+      if (job.name !== PROOF_JOB) return `job ${entry.job}: ${short(job.name)} is not ${PROOF_JOB}`;
+      const run = await json(`${api}/runs/${job.run_id}`);
+      if (run?.id !== job.run_id) return `job ${entry.job}: its run did not read back`;
+      if (run?.repository?.full_name !== JOURNEY_REPO) return `job ${entry.job}: its run is not in ${JOURNEY_REPO}`;
+      if (run?.head_repository?.full_name !== JOURNEY_REPO) return `job ${entry.job}: its run ran code from ${short(run?.head_repository?.full_name)}, not ${JOURNEY_REPO}`;
+      if (!PROOF_EVENTS.has(String(run?.event))) return `job ${entry.job}: its run's event ${short(run?.event)} runs code a contributor may have written`;
+      if (!PROOF_BRANCHES.has(String(run?.head_branch)) || job.head_branch !== run.head_branch) return `job ${entry.job}: branch ${short(run?.head_branch)} is not feat-cmux-next or main`;
+      const workflow = String(run?.path ?? "").replace(/@.*$/, "");
+      if (workflow !== PROOF_WORKFLOW) return `job ${entry.job}: workflow ${workflow || "?"} is not ${PROOF_WORKFLOW}`;
+    }
     const link = await read(`${api}/jobs/${entry.job}/logs`);
     let log = link.text;
     if (link.status === 302 && link.location) {
