@@ -176,6 +176,7 @@ def run_logged(cmd: list[str], env: dict, cwd: Path, out: Path, timeout: int) ->
 # How much of a failed run's log its result carries: the panic and the lines before the exit.
 FAIL_TAIL = 30
 PANIC = re.compile(r"panicked at|^thread '|assertion|^failures:|^---- |FAILED|error(\[E\d+\])?:")
+DIED = re.compile(r"(process didn't exit successfully): `(\S+).*?`\s*(\((?:signal|exit status)[^)]*\))\s*$")
 
 
 def failure_lines(code: int, text: str) -> list[str]:
@@ -187,25 +188,105 @@ def failure_lines(code: int, text: str) -> list[str]:
     lines = text.splitlines()
     picked = [line for line in lines if PANIC.search(line)][:40]
     tail = [line for line in lines[-FAIL_TAIL:] if line not in picked]
-    return [f"exit {code}" + (" (timed out)" if code == 124 else ""), *picked, *tail]
+    # cargo's "process didn't exit successfully: `rustc ...` (signal: 9, SIGKILL: kill)" is a
+    # several-KiB line whose cause sits at its end, past LOG_LINE (runs 46145570589, 46148652685).
+    died = [f"{m.group(1)}: {Path(m.group(2)).name} {m.group(3)}" for line in lines if (m := DIED.search(line))]
+    return [f"exit {code}" + (" (timed out)" if code == 124 else ""), *died, *picked, *tail]
 
 
 def cargo_env(args) -> dict:
     env = dict(os.environ)
     env.setdefault("CARGO_PROFILE_RELEASE_DEBUG", "line-tables-only")
+    # The shipping profile's thin LTO over one codegen unit makes the acpmux lib (and its test
+    # harness) one rustc whose peak outgrew a cmux-linux pool slot's MemoryMax: the kernel killed
+    # it 8 min in, no compiler error, both legs, two runs in a row (46145570589, 46148652685; the
+    # same build passed at 06:39Z, before the slots got a cap). The lab measures bytes, waits and
+    # memory at scale, not codegen, so its build skips LTO and splits the crate.
+    env.setdefault("CARGO_PROFILE_RELEASE_LTO", "off")
+    env.setdefault("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "16")
     if args.target_dir:
         env["CARGO_TARGET_DIR"] = args.target_dir
-    # The store refuses a state folder under a writable, non-sticky shared folder: a private TMPDIR.
-    tmp = Path(args.out) / "tmp"
+    env["TMPDIR"] = str(private_tmp(Path(args.out)))
+    return env
+
+
+def ancestor_refused(path: Path) -> str | None:
+    """Why acpmux's private store would refuse a state folder under `path`, by the rule of its
+    `validate_private_state_ancestors` (config.rs): every ancestor is this user's or root's, and a
+    writable one is sticky. None when it would take it."""
+    uid = os.getuid()
+    for p in [path, *path.parents, *path.resolve().parents]:
+        st = p.lstat()
+        if st.st_uid not in (uid, 0):
+            return f"{p} is owned by uid {st.st_uid}, not {uid} or root"
+        if p.is_dir() and st.st_mode & 0o022 and not st.st_mode & 0o1000:
+            return f"{p} is a non-sticky writable folder"
+    return None
+
+
+def private_tmp(out: Path) -> Path:
+    """A private TMPDIR the store takes. Under the run's out folder when its ancestors pass; a
+    shared self-hosted runner puts the workspace under another user's home (runner28 in
+    /home/runner/work), which the store refuses, so then a private folder in /tmp."""
+    tmp = out / "tmp"
     tmp.mkdir(mode=0o700, parents=True, exist_ok=True)
     tmp.chmod(0o700)
-    env["TMPDIR"] = str(tmp)
-    return env
+    why = ancestor_refused(tmp)
+    if why is None:
+        return tmp
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="degenerate-lab-", dir="/tmp"))
+    print(f"[lab] TMPDIR {tmp}: {why}", file=sys.stderr, flush=True)
+    return tmp
 
 
 def missing(path: Path, what: str) -> str | None:
     """Why a part cannot run on this tree: its harness is not in it yet (lane W0's, cmux#41882, #41833)."""
     return None if path.exists() else f"{what} is not in this tree ({path.relative_to(ROOT)})"
+
+
+# `cmux-tui/Cargo.toml` pins `codegen-units = 1` per package (`[profile.release.package.acpmux]`,
+# cmux-tui-core, cmux-tui), and a package override beats `CARGO_PROFILE_RELEASE_CODEGEN_UNITS`:
+# with the environment's 16 set, rustc still built the acpmux test library as one unit and the
+# slot's MemoryMax killed it 8 min in (signal 9, chat-x0.02-idle, run 46174754908). A `--config`
+# on the command line beats the manifest's package overrides, so these split those crates too.
+SPLIT_PACKAGES = ("acpmux", "cmux-tui-core", "cmux-tui")
+
+
+def split_units() -> list[str]:
+    """`--config` arguments giving each of [`SPLIT_PACKAGES`] the lab build's 16 codegen units."""
+    out = []
+    for package in SPLIT_PACKAGES:
+        out += ["--config", f'profile.release.package."{package}".codegen-units=16']
+    return out
+
+
+def cargo_test(args, part: str) -> list[str]:
+    """The `cargo test` a cargo part runs, up to its harness arguments."""
+    cargo = ["cargo", *split_units(), "test", "-p", "acpmux", "--release"]
+    if part == "daemon":
+        features = ["--features", "dhat-heap"] if args.heap else []
+        return [*cargo, *features, "--test", "god_daemon"]
+    return [*cargo, "--lib", "stress::god_chat"]
+
+
+def prebuild(args, part: str, out_root: Path) -> dict | None:
+    """Builds `part`'s test binary before any load starts and outside its run's timeout. A cold
+    release build of acpmux on a loaded runner took most of the hour `--timeout` gives one run, so
+    the nightly's x1 jobs died at exit 124 still compiling, the god run never started. The run
+    after this finds the build fresh (same command, same env) and its timeout times the test."""
+    if part not in ("daemon", "chat"):
+        return None
+    out = out_root / f"{part}-build"
+    out.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+    code, text = run_logged([*cargo_test(args, part), "--no-run"], cargo_env(args), TUI, out / "build.log",
+                            args.build_timeout)
+    log(f"{part} build: exit {code} in {time.monotonic() - started:.0f}s")
+    if code == 0:
+        return None
+    return {"part": part, "scale": 0, "load": "build", "exit": code, "failure": failure_lines(code, text)}
 
 
 def part_daemon(args, scale: float, load: str, out: Path) -> dict:
@@ -216,10 +297,9 @@ def part_daemon(args, scale: float, load: str, out: Path) -> dict:
     env.update({"ACPMUX_GOD_SHAPES": "small,god", "ACPMUX_GOD_SCALE": str(min(scale, 1.0)),
                 "ACPMUX_GOD_CHURN_SECS": str(args.churn), "ACPMUX_GOD_FLAP_SECS": str(args.flap),
                 "ACPMUX_GOD_STREAMS": str(args.streams)})
-    features = ["--features", "dhat-heap"] if args.heap else []
     if args.heap:
         env["ACPMUX_GOD_DHAT"] = "1"
-    cmd = ["cargo", "test", "-p", "acpmux", "--release", *features, "--test", "god_daemon", "--", "--ignored", "--nocapture"]
+    cmd = [*cargo_test(args, "daemon"), "--", "--ignored", "--nocapture"]
     perf = start_perf_watch(args, out) if args.profile else None
     code, text = run_logged(cmd, env, TUI, out / "daemon.log", args.timeout)
     if perf:
@@ -238,7 +318,7 @@ def part_chat(args, scale: float, load: str, out: Path) -> dict:
         return {"part": "chat", "scale": scale, "load": load, "exit": 0, "skipped": why}
     env = cargo_env(args)
     env["ACPMUX_STRESS_GOD_MB"] = str(max(8, int(1024 * scale)))
-    cmd = ["cargo", "test", "-p", "acpmux", "--release", "--lib", "stress::god_chat", "--", "--ignored", "--nocapture"]
+    cmd = [*cargo_test(args, "chat"), "--", "--ignored", "--nocapture"]
     code, text = run_logged(cmd, env, TUI, out / "chat.log", args.timeout)
     rows = [line for line in text.splitlines() if line.startswith("STRESS")]
     return {"part": "chat", "scale": scale, "load": load, "exit": code, "stress": rows,
@@ -458,6 +538,7 @@ def main() -> int:
     ap.add_argument("--fixtures", default=os.environ.get("DEGENERATE_LAB_FIXTURES", "/tmp/degenerate-lab-fixtures"))
     ap.add_argument("--target-dir", default=os.environ.get("CARGO_TARGET_DIR"))
     ap.add_argument("--timeout", type=int, default=3600, help="seconds any one run may take")
+    ap.add_argument("--build-timeout", type=int, default=3600, help="seconds a part's test build may take")
     args = ap.parse_intermixed_args()
     # acpmux refuses a state folder under a group- or world-writable one, and tempfile folders take the umask.
     os.umask(0o022)
@@ -489,6 +570,10 @@ def main() -> int:
         for scale in scales:
             results.append(part_fixtures(args, scale, out_root))
     for part in (p for p in parts if p != "fixtures"):
+        if failed := prebuild(args, part, out_root):
+            print_result(failed)
+            results.append(failed)
+            continue
         for scale in (scales if part != "webview" else scales[:1]):
             for load in loads:
                 results.extend(run_part(args, part, scale, load, out_root))

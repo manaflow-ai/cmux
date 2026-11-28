@@ -333,9 +333,12 @@ impl Hub {
         };
         // Only the log's last turn can be open when the scan ends: an earlier turn's records
         // (most of a long log) are folded away at its `turn_result`. Found from the end, on the
-        // heads of the records after that turn's marker.
+        // heads of the records after that turn's marker. Both kinds are in `INDEXED_KINDS`, so
+        // the read takes each segment's kind copy (`scan_back_indexed`): a raw read walked back
+        // through every segment of deltas since the last marker, whole, at each first start
+        // (god chat 1.48x a small one's restart bytes, `stress::god_chat`, cmux#64005).
         let (mut last_turn, mut last_turn_starts) = (0, false);
-        let _ = self.store.scan_back(
+        let _ = self.store.scan_back_indexed(
             &session.id,
             0,
             u64::MAX,

@@ -220,10 +220,12 @@ jobs:
           if-no-files-found: warn
 
       # Marked once every job finished, a panic included: a red run is a finding for the report, and
-      # re-running the whole matrix on each later push that day would not change it.
+      # re-running the whole matrix on each later push that day would not change it. A matrix that
+      # never ran (skipped: before #61489 every push skipped it, a skipped self-edit made its
+      # implicit success() false) leaves the night unmarked, so a later push that day runs it.
       - name: Mark tonight's run done
         id: mark
-        if: github.event_name == 'push' && needs.run.result != 'cancelled'
+        if: github.event_name == 'push' && (needs.run.result == 'success' || needs.run.result == 'failure')
         run: mkdir -p "$RUNNER_TEMP/degenerate-lab-marker" && date -u > "$RUNNER_TEMP/degenerate-lab-marker/at"
 
       - name: Save tonight's marker
@@ -235,6 +237,11 @@ jobs:
 
       - name: Fail on a failed run
         if: steps.merge.outputs.status != '0'
+        env:
+          RUN_RESULT: ${{ needs.run.result }}
         run: |
+          if [ "$RUN_RESULT" = skipped ]; then
+            echo "the lab's matrix was skipped (run=$RUN_RESULT): no job ran, so no result to merge" >&2
+          fi
           echo "a lab run failed; its LAB-FAIL lines are in 'Merge them' above and in its own job" >&2
           exit 1

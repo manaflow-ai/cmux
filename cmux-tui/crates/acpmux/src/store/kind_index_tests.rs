@@ -1183,6 +1183,69 @@ fn an_indexed_read_back_makes_the_copies_a_chat_that_ran_on_lacks() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A log load reads its open segment back for turn results (`Hub::catch_up_locked`), then
+/// scans it strictly for its ownership epoch and transfer authority. A read back that copied the
+/// segment by heads left a copy no strict scan takes, so each of them read the whole open segment
+/// again: a 20 MB chat's restart read 2.7x a 2 MB one's bytes (`stress::god_chat`, CI run
+/// 46117643851). The checked read back makes the copy by every line, and the strict scans
+/// read it, not the segment.
+#[test]
+fn a_checked_read_back_makes_the_copy_a_strict_scan_takes() {
+    if !cfg!(target_os = "linux") {
+        return; // A thread's reads are counted on Linux only.
+    }
+    for checked in [false, true] {
+        let root = root();
+        // One segment, being written: no rotation copied it.
+        let store = LocalStore::new(root.clone(), 64 << 20).unwrap();
+        let mut seq = 0;
+        for _ in 0..40 {
+            for kind in
+                ["turn_result"].into_iter().chain(std::iter::repeat_n("tool_call_update", 200))
+            {
+                seq += 1;
+                store.append("c", &rec(seq, kind)).unwrap();
+            }
+        }
+        store.flush().unwrap();
+        let segments = store.segments("c").unwrap();
+        assert_eq!(segments.len(), 1);
+        let _ = std::fs::remove_dir_all(root.join("c").join(DIR));
+        let open = std::fs::metadata(&segments[0].1).unwrap().len();
+        assert!(open >= 2 * COPY_AFTER, "{open} bytes");
+        let skip = |_: &[u8], kind: &[u8]| kind != b"turn_result";
+        let mut results = 0;
+        let mut visit = |_| {
+            results += 1;
+            results < 8
+        };
+        let before = read_bytes();
+        if checked {
+            store.scan_back_checked("c", 0, u64::MAX, &skip, &mut visit).unwrap();
+        } else {
+            store.scan_back_indexed("c", 0, u64::MAX, &skip, &mut visit).unwrap();
+        }
+        let mut found = 0;
+        for _ in 0..2 {
+            store
+                .scan_kinds_after_strict("c", 0, &["turn_result"], &mut |_| {
+                    found += 1;
+                    true
+                })
+                .unwrap();
+        }
+        let read = read_bytes() - before;
+        assert_eq!(found, 80);
+        eprintln!("checked {checked}: a read back and two strict scans read {read} of {open}");
+        if checked {
+            assert!(read < open + open / 4, "checked: read {read} bytes of a {open}-byte segment");
+        } else {
+            assert!(read > open + open / 2, "by heads: read {read} bytes of a {open}-byte segment");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
 /// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
 fn read_bytes() -> u64 {
     std::fs::read_to_string("/proc/thread-self/io")
