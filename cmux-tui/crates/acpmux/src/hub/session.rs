@@ -431,6 +431,9 @@ pub struct Session {
     pub(super) stop_respawn: AtomicU64,
     /// How many taps `Hub::session_tap` made for it; each tap knows its number.
     pub(super) taps: AtomicU64,
+    /// The number of the last tap that logged a line the agent wrote (a `claude.*` line):
+    /// a sandboxed agent that writes none fails its start (`remote_start_bound.rs`).
+    pub(super) raw_line_tap: AtomicU64,
     /// Taps numbered up to this one belong to an agent a Stop ended (`cancel.rs`): what they
     /// still log is no sign of work (no `heard`, no unstick, no tool state).
     pub(super) muted_taps: AtomicU64,

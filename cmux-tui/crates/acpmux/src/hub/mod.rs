@@ -355,6 +355,7 @@ mod remote_cwd;
 mod remote_floor;
 mod remote_rows;
 pub(crate) mod remote_sandbox;
+mod remote_start_bound;
 mod remote_table;
 #[cfg(test)]
 mod remote_table_bench;
@@ -1487,6 +1488,8 @@ pub struct Hub {
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
     /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
+    /// The remote-chain start bound in ms (`remote_start_bound.rs`); 0: the default.
+    pub(super) remote_start_bound_ms: AtomicU64,
     /// Fault injection for integration tests; never replaces the keeper's pinned bwrap.
     #[cfg(target_os = "linux")]
     pub(super) linux_bwrap_probe: StdMutex<Option<PathBuf>>,
@@ -2011,6 +2014,7 @@ impl Hub {
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
+            remote_start_bound_ms: AtomicU64::new(0),
             #[cfg(target_os = "linux")]
             linux_bwrap_probe: StdMutex::new(None),
             vm_marker_root: StdMutex::new(PathBuf::from("/")),
@@ -2709,6 +2713,7 @@ impl Hub {
             stopped_agent: AtomicU64::new(0),
             stop_respawn: AtomicU64::new(0),
             taps: AtomicU64::new(0),
+            raw_line_tap: AtomicU64::new(0),
             muted_taps: AtomicU64::new(0),
             stop_hold: AtomicU64::new(0),
             turn_hold: AtomicU64::new(0),

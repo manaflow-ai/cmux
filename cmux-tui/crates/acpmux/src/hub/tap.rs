@@ -259,6 +259,10 @@ impl Hub {
                         .1;
                 }
                 (Direction::In, Message::Notification { method, params }) => {
+                    // A line the agent wrote: its start is no silent hang (`remote_start_bound.rs`).
+                    if method.starts_with("claude.") {
+                        tap_session.raw_line_tap.fetch_max(tap_number, Ordering::SeqCst);
+                    }
                     let mut kind = method.clone();
                     let timing = method == RAW_STREAM_EVENT
                         && params.as_ref().is_some_and(|p| times_request(p, &awaiting_first_delta));

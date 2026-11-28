@@ -399,6 +399,10 @@ impl Hub {
         self.harness_sandbox_recovered(session, "respawn");
         self.wake_idle_reaper();
 
+        // A sandboxed Claude Code that writes nothing is stopped, not left hanging.
+        if meta.remote_origin && is_claude {
+            self.watch_remote_start(session, &child, session.taps.load(Ordering::SeqCst));
+        }
         // Start the inbound loop for this session once.
         self.spawn_inbound_loop(session).await;
 
