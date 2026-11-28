@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -618,7 +619,7 @@ class EntryTimeouts(unittest.TestCase):
         return (f"from pathlib import Path\nimport time\nmarker = Path({str(self.marker)!r})\n"
                 "if not marker.exists():\n    marker.write_text('x')\n    time.sleep(30)\n")
 
-    def judge(self, base: dict[str, str], car: dict[str, str], kinds: set[str], python=()) -> dict:
+    def judge(self, base: dict[str, str], car: dict[str, str], kinds: set[str], python=(), deadline=None) -> dict:
         """The verdict for a car that writes CAR over a tree of BASE, running only KINDS."""
         root = repo(self.tmp.name, {"scripts/cmux-next/check-no-godfiles.sh": "exit 0\n", **base})
         base_sha = git(root, "rev-parse", "HEAD")
@@ -628,7 +629,7 @@ class EntryTimeouts(unittest.TestCase):
         head = git(root, "rev-parse", "HEAD")
         the_plan = {"files": sorted(car), "web": [], "native": [], "cargo": {"changed": False}, "swift": [],
                     "unmapped": [], "python": [{"path": path, "lane": "linux-guard", "why": "changed"} for path in python]}
-        return car_guards.run(root, base_sha, head, "linux", the_plan, {}, kinds=kinds)
+        return car_guards.run(root, base_sha, head, "linux", the_plan, {}, kinds=kinds, deadline=deadline)
 
     @staticmethod
     def status(verdict: dict, name: str) -> str:
@@ -688,6 +689,26 @@ class EntryTimeouts(unittest.TestCase):
                              {"tests/test_slow.py": "import sys\nsys.exit(1)\n"}, {"python"},
                              python=["tests/test_slow.py"])
         self.assertEqual((verdict["status"], self.status(verdict, "python:tests/test_slow.py")), ("fail", "fail"))
+
+    def test_a_slow_car_ends_by_its_deadline_naming_what_it_did_not_run(self):
+        """Run 46068974948: cars pr-62654 and pr-58290 hit the train's 1800 s bound and were killed with no verdict.
+        Every entry takes at most the time the car has left; one that cannot start is `unrun`, the car's guard errs
+        (a train warning naming it), and the run ends near its deadline, not at the entries' own limits."""
+        tests = ["tests/test_slow_a.py", "tests/test_slow_b.py"]
+        with mock.patch.dict(car_guards.TIMEOUT, {"python": 100}), \
+                mock.patch.object(car_guards, "RETRY_TIMEOUT", {"guard": 100, "python": 100}, create=True), \
+                mock.patch.object(car_guards, "MIN_SLICE", 0.5):
+            start = time.monotonic()
+            verdict = self.judge({}, {path: self.SLOW for path in tests}, {"python"}, python=tests, deadline=3)
+            took = time.monotonic() - start
+        self.assertLess(took, 15, "the run outlived its deadline")
+        self.assertEqual(verdict["status"], "error")
+        self.assertEqual({self.status(verdict, f"python:{path}") for path in tests}, {"unrun"})
+        self.assertIn("deadline", next(r["tail"] for r in verdict["results"] if r["status"] == "unrun"))
+
+    def test_no_deadline_leaves_the_entry_limits_alone(self):
+        verdict = self.judge({self.PREPUSH: self.slow_once()}, {"README.md": "car\n"}, {"guard"}, deadline=0)
+        self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("pass", "pass"))
 
     def test_a_real_failure_of_an_untouched_guard_still_fails(self):
         verdict = self.judge({self.PREPUSH: "import sys\nsys.exit(1)\n"}, {"README.md": "car\n"}, {"guard"})
