@@ -246,7 +246,8 @@ fn a_kept_ranker_ranks_every_keystroke_like_a_fresh_one() {
     .unwrap();
     let cache = RankCache::default();
     let typed = ["f", "fi", "fix", "fix ", "fix b", "fix bu", "fix build", "fix", "p", "pa", "par"];
-    for (entries, history) in [(&base, None), (&renamed, None), (&base, Some((1_000.0, frecency)))] {
+    for (entries, history) in [(&base, None), (&renamed, None), (&base, Some((1_000.0, frecency)))]
+    {
         for query in typed.iter().chain(["", "codex", "repo3", "zzz"].iter()) {
             assert_eq!(
                 cache.ranked("all", query, entries.clone(), history.clone()),
