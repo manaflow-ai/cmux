@@ -1,0 +1,61 @@
+:where(.kit-pill) {
+  font-family: var(--font-ui);
+}
+
+.kit-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-2);
+  /* A radius of the full height is a capsule at any text size. */
+  border-radius: var(--ds-control-compact);
+  background: var(--ds-color-hover);
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.kit-pill[data-size="sm"] {
+  height: var(--ds-control-icon);
+  padding-inline: var(--ds-space-1);
+  border-radius: var(--ds-control-icon);
+}
+/* xs: the customize scene's badge (apps/scene/scene.css .cmux-app-scene-badge-label), on the
+   grid lengths that follow the interface scale. Its line box is the surrounding text's, as the
+   badge's is; the neutral fill is its own text color at 14%. A capsule unless the host sets
+   --kit-pill-radius on its own class (this default has no specificity, so any class wins). */
+:where(.kit-pill[data-size="xs"]) {
+  --kit-pill-radius: var(--ds-radius-full);
+}
+.kit-pill[data-size="xs"] {
+  height: auto;
+  min-height: var(--grid-icon-box);
+  padding-inline: var(--grid-base);
+  border-radius: var(--kit-pill-radius);
+  font-size: var(--text-detail);
+  line-height: inherit;
+  letter-spacing: inherit;
+}
+.kit-pill[data-size="xs"][data-tone="neutral"] {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.kit-pill[data-tone="accent"] {
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+}
+.kit-pill[data-tone="success"] {
+  background: color-mix(in srgb, var(--ds-color-success) 16%, transparent);
+  color: var(--ds-color-success);
+}
+.kit-pill[data-tone="attention"] {
+  background: color-mix(in srgb, var(--ds-color-attention) 16%, transparent);
+  color: var(--ds-color-attention);
+}
+.kit-pill[data-tone="danger"] {
+  background: color-mix(in srgb, var(--ds-color-danger) 16%, transparent);
+  color: var(--ds-color-danger);
+}

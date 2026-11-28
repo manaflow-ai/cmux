@@ -592,3 +592,28 @@ function tappableAround(host: FakeHost, text: string): string {
   if (!id) throw new Error(`no tappable node around ${text}`)
   return id
 }
+
+describe("Pill, Tooltip and Card", () => {
+  test("are the Instrument kit's typed nodes: a Pill's text, tone and size; a Tooltip on its child; a Card's trigger then its content", () => {
+    const host = new FakeHost(app(`
+      return { render: () => Card(
+        Tooltip("Open the run", Pill(3, "accent", "sm"), { shortcut: "⌘R", side: "top" }),
+        [Text("Last run passed"), null],
+        { side: "inline-end" },
+      ) }`))
+    host.mount("m", "render")
+    const nodes = host.tree("m").nodes
+    const of = (type: string) => host.findNode("m", (n) => n.type === type)!
+    expect(nodes.get(of("Pill"))!.props).toEqual({ text: "3", tone: "accent", size: "sm" })
+    expect(nodes.get(of("Tooltip"))!.props).toEqual({ text: "Open the run", shortcut: "⌘R", side: "top" })
+    expect(nodes.get(of("Card"))!.props).toEqual({ side: "inline-end" })
+    expect(nodes.get(of("Card"))!.children).toEqual([of("Tooltip"), of("Text")])
+    expect(nodes.get(of("Tooltip"))!.children).toEqual([of("Pill")])
+  })
+
+  test("a Pill is neutral by default", () => {
+    const host = new FakeHost(app(`return { render: () => Pill("beta") }`))
+    host.mount("m", "render")
+    expect(host.tree("m").nodes.get(host.findNode("m", (n) => n.type === "Pill")!)!.props).toEqual({ text: "beta", tone: "neutral" })
+  })
+})

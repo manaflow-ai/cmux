@@ -104,3 +104,35 @@ pub(crate) fn option_errors(interface: &str, options: &Value) -> Vec<(String, St
 pub fn interface_files() -> &'static [(&'static str, &'static str)] {
     FILES
 }
+
+/// The node types `interface` lets a scene create (its file's `nodes`), or `None` when it names no
+/// list (every [`crate::scene_nodes::SCENE_NODES`] type) or is unknown.
+pub fn interface_nodes(interface: &str) -> Option<Vec<String>> {
+    let (_, raw) = FILES.iter().find(|(name, _)| *name == interface)?;
+    let file = serde_json::from_str::<Value>(raw).ok()?;
+    let nodes = file.get("nodes")?.as_array()?;
+    Some(nodes.iter().filter_map(Value::as_str).map(str::to_string).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scene_nodes::is_scene_node;
+
+    #[test]
+    fn every_interface_names_only_scene_nodes() {
+        for name in KNOWN_INTERFACES {
+            for node in interface_nodes(name).unwrap_or_default() {
+                assert!(is_scene_node(&node), "{name} lists {node}, which no scene draws");
+            }
+        }
+    }
+
+    #[test]
+    fn a_widget_draws_the_kit_nodes() {
+        let nodes = interface_nodes("cmux.widget/1").unwrap_or_default();
+        for node in crate::scene_nodes::KIT_NODES {
+            assert!(nodes.iter().any(|n| n == node), "cmux.widget/1 lists no {node}");
+        }
+    }
+}

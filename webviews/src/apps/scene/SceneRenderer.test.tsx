@@ -1,9 +1,12 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import sceneType from "../../../../schemas/type-scale/scene-type.json";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { fileURLToPath } from "node:url";
+import { HOVER_INTENT } from "../../ui/hoverIntent";
+import { TooltipProvider } from "../../ui/Tooltip";
+import { sdkKitHover } from "./fixtures/sdkKitHover";
 import { UiProvider } from "../../ui/UiProvider";
 import type { PopupHost } from "../../ui/popupHost";
 import type { NativePopupModel, NativePopupEvent } from "../../ui/nativePopup";
@@ -24,6 +27,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   await act(() => root?.unmount());
   root = undefined;
+  jest.useRealTimers();
   await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -1106,4 +1110,121 @@ test("frame maxWidth infinity takes a row's free width with no Spacer, and fills
   expect(css).toMatch(/\.cmux-app-scene-hstack > \[data-fill-width\] \{\s*flex: 1 1 0;\s*min-width: 0;/);
   expect(css).toMatch(/\.cmux-app-scene-root\) > \[data-fill-width\] \{\s*align-self: stretch;/);
   expect(css).toMatch(/\.cmux-app-scene-zstack > \[data-fill-width\] \{\s*justify-self: stretch;/);
+});
+
+test("Pill, Tooltip and Card draw with the Instrument kit: a kit pill, a kit tooltip on the child, the card's trigger in place", () => {
+  const { container } = render([
+    { op: "create", id: "root", type: "VStack" },
+    { op: "create", id: "card", type: "Card", props: { side: "inline-end" } },
+    { op: "create", id: "tip", type: "Tooltip", props: { text: "Open the run", help: "ignored" } },
+    { op: "create", id: "pill", type: "Pill", props: { text: "3", tone: "success", size: "sm" } },
+    { op: "create", id: "more", type: "Text", props: { text: "Last run passed" } },
+    { op: "children", id: "tip", children: ["pill"] },
+    { op: "children", id: "card", children: ["tip", "more"] },
+    { op: "children", id: "root", children: ["card"] },
+    { op: "root", id: "root" },
+  ]);
+  const pill = container.querySelector('[data-app-node="pill"] .kit-pill')!;
+  expect(pill.textContent).toBe("3");
+  expect(pill.getAttribute("data-tone")).toBe("success");
+  expect(pill.getAttribute("data-size")).toBe("sm");
+  const tip = container.querySelector('[data-app-node="tip"]')!;
+  // The kit's tooltip, not the browser's: no title.
+  expect(tip.getAttribute("title")).toBeNull();
+  // The card's trigger is in place; its content waits for a hover.
+  expect(container.querySelector('[data-app-node="card"] .cmux-app-scene-card-trigger [data-app-node="tip"]')).toBe(
+    tip,
+  );
+  expect(container.querySelector('[data-app-node="more"]')).toBeNull();
+});
+
+test("a Pill with no tone, or one the host refused, is the kit's neutral", () => {
+  const { container } = render([
+    { op: "create", id: "pill", type: "Pill", props: { text: "beta", tone: null } },
+    { op: "root", id: "pill" },
+  ]);
+  const pill = container.querySelector(".kit-pill")!;
+  expect(pill.getAttribute("data-tone")).toBe("neutral");
+  expect(pill.getAttribute("data-size")).toBe("md");
+});
+
+// These exercise the SDK renderer's event wiring, not just the shared hover hook.
+async function hoverEvent(target: Element, type: string, relatedTarget: Element | null = null) {
+  await act(async () => {
+    const send = (element: Element, eventType: string, related: Element | null) => {
+      const event = new dom!.window.MouseEvent(eventType, {
+        bubbles: !eventType.endsWith("enter") && !eventType.endsWith("leave"),
+        relatedTarget: related,
+        clientX: 20,
+        clientY: 20,
+      });
+      Object.defineProperty(event, "pointerType", { value: "mouse" });
+      element.dispatchEvent(event);
+    };
+    // React derives enter from the preceding out when both targets are managed nodes.
+    if (relatedTarget && type.endsWith("over")) send(relatedTarget, type.replace("over", "out"), target);
+    send(target, type, relatedTarget);
+  });
+}
+async function advanceHover(ms: number) {
+  await act(async () => void jest.advanceTimersByTime(ms));
+}
+
+test("SDK Card cancels a short hover, then opens after dwell and keeps its portal through the crossing grace", async () => {
+  const { container } = render(sdkKitHover);
+  jest.useFakeTimers();
+  const trigger = container.querySelector('[data-app-node="sdk-trigger"]')!;
+  const away = container;
+  const content = () => container.querySelector('[role="dialog"] [data-app-node="sdk-detail"]');
+  await hoverEvent(trigger, "pointerover", away);
+  await advanceHover(HOVER_INTENT.cardDwell - 1);
+  expect(content()).toBeNull();
+  await hoverEvent(trigger, "pointerout", away);
+  await advanceHover(HOVER_INTENT.cardDwell + HOVER_INTENT.cardGrace);
+  expect(content()).toBeNull();
+
+  await hoverEvent(trigger, "pointerover", away);
+  await advanceHover(HOVER_INTENT.cardDwell);
+  expect(content()?.textContent).toBe("Last run passed");
+  await hoverEvent(trigger, "pointerout", away);
+  await advanceHover(HOVER_INTENT.cardGrace - 1);
+  expect(content()).not.toBeNull();
+  const action = container.querySelector('[role="dialog"] [data-app-node="sdk-action"]')!;
+  await hoverEvent(action, "pointerover", away);
+  await advanceHover(HOVER_INTENT.cardGrace + 1);
+  expect(content()).not.toBeNull();
+  await hoverEvent(action, "pointerout", away);
+  await advanceHover(HOVER_INTENT.cardGrace + 1);
+  expect(content()).toBeNull();
+});
+
+test("SDK Tooltip opens on its Pill and leaves without dispatching a scene action", async () => {
+  const { container, store, calls } = render(sdkKitHover);
+  await act(async () =>
+    root!.render(
+      <UiProvider container={container}>
+        <TooltipProvider>
+          <SceneRenderer store={store} dispatch={(...args) => calls.push(args)} />
+        </TooltipProvider>
+      </UiProvider>,
+    ),
+  );
+  jest.useFakeTimers();
+  const pill = container.querySelector('[data-app-node="sdk-pill"]')!;
+  const trigger = container.querySelector('[data-app-node="sdk-tip"]')!;
+  await hoverEvent(pill, "pointerover", container);
+  await hoverEvent(pill, "mouseover", container);
+  // Base UI uses a native enter listener and starts its rest timer on mouse movement.
+  await hoverEvent(trigger, "mouseenter", container);
+  await hoverEvent(pill, "mousemove");
+  await advanceHover(HOVER_INTENT.tooltipDelay + 1);
+  expect(container.querySelector('[role="tooltip"]')?.textContent).toBe("Open the latest run");
+  expect(pill.querySelector(".kit-pill")?.getAttribute("data-tone")).toBe("success");
+  await hoverEvent(pill, "pointerout", container);
+  await hoverEvent(pill, "mouseout", container);
+  await hoverEvent(trigger, "mouseleave", container);
+  await hoverEvent(container, "mousemove");
+  await advanceHover(HOVER_INTENT.tooltipWarm + 1);
+  expect(container.querySelector('[role="tooltip"]')).toBeNull();
+  expect(calls).toEqual([]);
 });
