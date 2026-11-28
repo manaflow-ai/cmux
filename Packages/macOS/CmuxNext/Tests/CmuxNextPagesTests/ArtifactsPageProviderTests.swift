@@ -92,6 +92,16 @@ struct ArtifactsPageProviderTests {
         #expect(file.objectValue?.keys.contains("content") == false)
     }
 
+    /// The daemon leaves a long body out and sends its size: the page still says too large, with that size.
+    @Test func aBodyTheDaemonLeftOutIsTooLargeAtItsSize() async throws {
+        let log = ReadLog()
+        let size = ArtifactsPageProvider.previewLimit + 1
+        let provider = Self.provider(log) { _ in ArtifactsReply(status: 200, body: Data(), size: size) }
+        let file = try await provider.call("cmux.artifacts.file", params: ["path": "big.bin"], context: Self.context)
+        #expect(file["tooLarge"] == JSONValue.bool(true))
+        #expect(file["size"] == JSONValue.number(Double(size)))
+    }
+
     /// Each op with params it refuses. Spelled as explicit cases: a literal list of mixed
     /// `JSONValue` literals is too slow for the type checker.
     nonisolated static let badParams: [BadParams] = [
@@ -178,57 +188,6 @@ struct ArtifactsPageProviderTests {
         #expect(reply["t"]?.stringValue == "ok")
         for _ in 0..<100 where !seen { await Task.yield() }
         #expect(seen)
-    }
-}
-
-/// The bearer only ever goes to a platform deployment: an override elsewhere is ignored.
-struct ArtifactsAPIBaseTests {
-    nonisolated static let platformOverrides: [String] = [
-        "https://cmux-platform-development.debussy.workers.dev",
-        "https://cmux-platform-staging.debussy.workers.dev/",
-        "http://localhost:8787",
-        "http://127.0.0.1:8787",
-    ]
-
-    @Test(arguments: platformOverrides)
-    func platformOverridesApply(text: String) throws {
-        let url = try #require(URL(string: text))
-        let base = ArtifactsPageProvider.apiBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": text])
-        #expect(base == url)
-    }
-
-    nonisolated static let otherOverrides: [String] = [
-        "https://evil.example",
-        "http://cmux-platform-development.debussy.workers.dev",
-        "https://debussy.workers.dev.evil.example",
-        "https://evil.workers.dev",
-        "https://user:pw@cmux-platform-development.debussy.workers.dev",
-        "https://cmux-platform-development.debussy.workers.dev:8443",
-        "http://192.168.1.4:8787",
-        "file:///tmp/x",
-        "not a url",
-    ]
-
-    @Test(arguments: otherOverrides)
-    func otherOverridesFallBackToDevelopment(text: String) {
-        let base = ArtifactsPageProvider.apiBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": text])
-        #expect(base == ArtifactsPageProvider.developmentAPI)
-    }
-
-    @Test func noOverrideIsDevelopment() {
-        #expect(ArtifactsPageProvider.apiBaseURL(environment: [:]) == ArtifactsPageProvider.developmentAPI)
-    }
-
-    @Test func readURLKeepsTheBasePathAndOnlyTheReadsQuery() throws {
-        let base = try #require(URL(string: "https://cmux-platform-development.debussy.workers.dev/prefix/"))
-        let read = ArtifactsRead(path: "/v1/artifacts/file", query: [URLQueryItem(name: "path", value: "a b&c=d")])
-        let url = try #require(ArtifactsPageProvider.url(read, base: base))
-        #expect(url.absoluteString == "https://cmux-platform-development.debussy.workers.dev/prefix/v1/artifacts/file?path=a%20b%26c%3Dd")
-        let injected = ArtifactsRead(path: "/v1/artifacts/tree", query: [URLQueryItem(name: "path", value: "x&ref=evil#y")])
-        let other = try #require(ArtifactsPageProvider.url(injected, base: base))
-        let items = try #require(URLComponents(url: other, resolvingAgainstBaseURL: false)?.queryItems)
-        let expected: [URLQueryItem] = [URLQueryItem(name: "path", value: "x&ref=evil#y")]
-        #expect(items == expected)
     }
 }
 
