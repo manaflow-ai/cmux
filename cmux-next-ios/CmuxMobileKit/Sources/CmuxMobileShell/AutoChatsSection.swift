@@ -208,6 +208,8 @@ private struct AutoNewChatScreen: View {
     @State private var messageID = UUID().uuidString
     @State private var sending = false
     @State private var failed = false
+    /// The start was refused for want of GitHub access to the repository.
+    @State private var gitHubNeed: GitHubSignInNeed?
 
     private var chosen: AutoChatRepo? { repo ?? model.repos.first }
 
@@ -223,6 +225,17 @@ private struct AutoNewChatScreen: View {
                     Text(verbatim: AutoChatWords.needsMachine)
                     Button(AutoChatWords.newMachine, action: makeMachine)
                         .accessibilityIdentifier("autoChats.newMachine")
+                }
+            }
+            if let need = gitHubNeed {
+                Section {
+                    // Back from GitHub, the same start runs again (the same message id: one chat).
+                    GitHubSignInCard(need: need) {
+                        gitHubNeed = nil
+                        start()
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
                 }
             }
             if model.repos.isEmpty {
@@ -275,6 +288,8 @@ private struct AutoNewChatScreen: View {
                 started(row)
             case .noMachine:
                 break
+            case let .needsGitHub(need):
+                gitHubNeed = need
             case .failed:
                 failed = true
             }

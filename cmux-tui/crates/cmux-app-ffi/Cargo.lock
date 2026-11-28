@@ -242,10 +242,12 @@ name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
  "cmux-unix-socket",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
