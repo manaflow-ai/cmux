@@ -972,7 +972,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
           FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-          RUNNER_VARIABLE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
+          # vars.CI_IOS_FAST_RUNNER (unset: off) names the hosted Mac for the fast verdict alone. Its floor is the build:
+          # run 46185444100 built kit and app at once in 314 s on blacksmith-6vcpu-macos-26 from a seeded DerivedData,
+          # both builds sharing 6 cores. blacksmith-12vcpu-macos-26 has the lane's Xcode and workspace path, so the same
+          # seed restores there. A label other than the 6vcpu default skips the owned-pool pick (ios_runner_pool.py).
+          RUNNER_VARIABLE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_IOS_FAST_RUNNER || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
