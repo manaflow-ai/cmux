@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "280c11fb74e120806478326ab815ead33ba9f1da8a96d7fa2bc0b69324457231";
+inline constexpr std::string_view kProtocolIrSha256 = "d629340e0168964f829bfb280c6e127c315efebeb6818a8a7296c99539471e8e";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -1674,6 +1674,7 @@ enum class ClientTransport {
 
 struct ClientInfo {
     std::vector<Id> attached{};
+    std::optional<std::vector<std::string>> capabilities{};
     std::uint64_t client{};
     std::uint64_t connected_seconds{};
     std::optional<std::string> kind{};
