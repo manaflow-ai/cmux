@@ -260,11 +260,111 @@ struct AgentIncomingCard: View {
         .padding(.vertical, 8)
     }
 
-    /// The message's first line of text, its Markdown marks left out.
-    static func firstLine(_ text: String) -> String {
-        let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        return line.replacingOccurrences(of: #"^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+)"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"[*_`]"#, with: "", options: .regularExpression)
+    /// The message's first line of text as the open message draws it: read with the transcript's own
+    /// Markdown parser, so a fence, a rule and display math are skipped, a table shows its header
+    /// cells, a list or task its first item, and inline marks (emphasis, code, strike, links) go. A
+    /// closed message never previews as `swift`, `| a | b |`, `[ ] todo` or `[docs](https://…)`.
+    nonisolated static func firstLine(_ text: String) -> String { firstLine(text, depth: 0) }
+
+    /// How many quotes and list items deep a preview reads the Markdown inside by parsing it again.
+    /// A message can nest without end (3,000 `>`), and each level was a parse and a stack frame,
+    /// which overflowed a phone's stack. Past it, every line's leading quote, bullet, number and
+    /// task marks are dropped at once, and what is left is read as Markdown one last time (so a
+    /// heading or fence at the bottom still loses its marks).
+    private nonisolated static let nestingLimit = 4
+
+    private nonisolated static func firstLine(_ text: String, depth: Int, flattened: Bool = false) -> String {
+        if depth >= nestingLimit, !flattened {
+            return firstLine(withoutNesting(text), depth: depth, flattened: true)
+        }
+        var math: String?
+        for block in MarkdownDocument(parsing: text).blocks {
+            let lines: [String]
+            switch block.kind {
+            case .heading(_, let text):
+                // A closed heading's trailing marks (`## Status ##`) are syntax too.
+                let open = text.replacingOccurrences(of: #"\s+#+\s*$"#, with: "", options: .regularExpression)
+                lines = plainInline(open).split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            case .paragraph(let text):
+                // The block's marks are read whole (bold or a link may span a line break), then
+                // its first line is taken.
+                lines = plainInline(text).split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            case .quote(let text):
+                // A quote holds Markdown of its own (a fence, a heading): its first line, read so.
+                lines = [flattened ? unnestedFirstLine(text) : firstLine(text, depth: depth + 1)]
+            case .list(let list):
+                // Only the first item with text is shown, so the rest are not read.
+                for item in list.items {
+                    let line = flattened ? unnestedFirstLine(item.text) : itemFirstLine(item.text, depth: depth + 1)
+                    if !line.isEmpty { return line }
+                }
+                continue
+            case .table(let table):
+                lines = [table.header.map { plainInline($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " · ")]
+            case .code(_, let code, _):
+                // Code is shown as written: its characters are the text, not syntax.
+                lines = code.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            case .math(let tex):
+                // A formula's TeX is a last resort, for a message that is only math.
+                if math == nil { math = tex.trimmingCharacters(in: .whitespacesAndNewlines) }
+                continue
+            case .rule:
+                continue
+            }
+            if let line = lines.first(where: { !$0.isEmpty }) { return line }
+        }
+        return math ?? ""
+    }
+
+    /// A list item's first line, read as the Markdown it holds (a heading, a fence). The parser joins
+    /// an item's indented lines with spaces, so a fence under the item's text (`Install:` then
+    /// ```` ```bash ````) is cut off, and a fence the item opens with keeps only its code.
+    nonisolated private static func itemFirstLine(_ text: String, depth: Int) -> String {
+        var item = text
+        if let fence = item.range(of: #"\s(?:```|~~~)"#, options: .regularExpression) {
+            item = String(item[..<fence.lowerBound])
+        }
+        if let range = item.range(of: #"^(?:```|~~~)\S*\s*"#, options: .regularExpression) {
+            return item[range.upperBound...].trimmingCharacters(in: .whitespaces)
+        }
+        return firstLine(item, depth: depth)
+    }
+
+    /// Every line of `text` without its leading quote, bullet, number and task marks.
+    nonisolated private static func withoutNesting(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.replacingOccurrences(of: nestingMarks, with: "", options: .regularExpression) }
+            .joined(separator: "\n")
+    }
+
+    private nonisolated static let nestingMarks = #"^(?:[ \t]*(?:>|[-*+](?=\s)|\d{1,9}[.)](?=\s)|\[[ xX]\](?=\s)))+[ \t]*"#
+
+    /// Nesting that is still there after ``withoutNesting(_:)`` (a quote inside a list item's
+    /// joined text): its first line with text, marks dropped, read for its inline marks only.
+    nonisolated private static func unnestedFirstLine(_ text: String) -> String {
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.replacingOccurrences(of: nestingMarks, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"^#{1,6}\s+|\s+#+\s*$"#, with: "", options: .regularExpression)
+            let plain = plainInline(line).trimmingCharacters(in: .whitespaces)
+            if !plain.isEmpty { return plain }
+        }
+        return ""
+    }
+
+    /// Text's inline Markdown (emphasis, code, strike, links, `$math$`) as the plain characters it
+    /// draws, its line breaks kept; a line of marks alone (`**`) is nothing.
+    nonisolated private static func plainInline(_ text: String) -> String {
+        // Inline math draws its formula: the TeX without its `$` (a price, `$5 and $6`, is not math).
+        let unmathed = text.replacingOccurrences(
+            of: #"(?<![\\$\w])\$([^\s$](?:[^$\n]*[^\s$])?)\$(?![\w$])"#, with: "$1", options: .regularExpression)
+        let parsed = try? AttributedString(
+            markdown: unmathed,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)
+        )
+        let plain = parsed.map { String($0.characters) } ?? unmathed
+        return plain.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in line.allSatisfy { "*_~`# ".contains($0) } ? "" : String(line) }
+            .joined(separator: "\n")
     }
 }
 
