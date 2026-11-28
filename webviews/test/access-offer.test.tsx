@@ -6,10 +6,14 @@
 // API Key… waits for key plumbing (no placement makes a saved key usable yet), so no card offers it.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { failureCopy, failureKind, failureRecovery } from "../src/agent-session/acpmux/failureCopy";
-import { ACCESS_ACTIONS } from "../src/agent-session/acpmux/accessOffer";
-import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { failureCopy, failureKind, failureRecovery } = await importWithDom(
+  () => import("../src/agent-session/acpmux/failureCopy"),
+);
+const { ACCESS_ACTIONS } = await importWithDom(() => import("../src/agent-session/acpmux/accessOffer"));
+const { translatorFor } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
 
 const t = translatorFor("en");
 const router = { name: "cmux model router", harness: "cmux" };

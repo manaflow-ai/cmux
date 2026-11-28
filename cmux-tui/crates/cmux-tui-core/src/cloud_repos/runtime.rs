@@ -76,7 +76,7 @@ impl<'a> Runtime<'a> {
                 .bound_socket_path
                 .get()
                 .cloned()
-                .unwrap_or_else(|| crate::server::default_socket_path(&mux.session)),
+                .unwrap_or_else(|| crate::socket_path::default_socket_path(&mux.session)),
             agent_socket: PathBuf::from(AGENT_SOCKET),
         }
     }

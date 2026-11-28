@@ -93,6 +93,10 @@ fn check_catalog(vm: &mut AppVm, exports: &[String]) -> Result<(), String> {
 /// checks the catalog's schema and path, but reading it here keeps this check
 /// independent from the daemon and gives headless mode the same source of
 /// truth as the command runtime.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn catalog_exports(pkg: &dev::Package) -> Result<Vec<String>, String> {
     let Some(path) = pkg.manifest.pointer("/catalog").and_then(Value::as_str) else {
         return Ok(Vec::new());
@@ -110,6 +114,10 @@ fn catalog_exports(pkg: &dev::Package) -> Result<Vec<String>, String> {
 }
 
 /// One headless reload: validate, build, validate again, then load and render the probe.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub(super) fn once(options: &DevOptions) -> Outcome {
     let builds =
         dev::build_will_run(&options.dir, options.build.as_deref(), options.bun.as_deref());
