@@ -1079,6 +1079,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/wait/park",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/wait/unpark",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bg/rearm",
       "params": true,
       "result": true
@@ -2191,6 +2203,18 @@
     {
       "kind": "request",
       "name": "_acpmux/chat_transcript_find",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_export",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_import",
       "params": true,
       "result": true
     },

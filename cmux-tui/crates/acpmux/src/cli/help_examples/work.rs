@@ -644,6 +644,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "chats export",
+        &[
+            ("Export every chat on this device as JSON", "acpmux chats export --all -o chats.json"),
+            (
+                "Export one chat as Markdown",
+                "acpmux chats export codex:019a2b3c --format markdown -o chat.md",
+            ),
+        ],
+    ),
+    (
+        "chats import",
+        &[("Bring back the chats in an exported bundle", "acpmux chats import chats.json")],
+    ),
+    (
         "chats open",
         &[
             ("Open a chat again", "acpmux chats open claude-code:5f0c2a9e"),

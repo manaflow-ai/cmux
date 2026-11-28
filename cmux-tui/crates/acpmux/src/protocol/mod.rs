@@ -544,6 +544,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_transcript", Request),
         untyped(method::MUX_CHAT_TRANSCRIPT_PAGE, Request),
         untyped(method::MUX_CHAT_TRANSCRIPT_FIND, Request),
+        untyped("_acpmux/chat_export", Request),
+        untyped("_acpmux/chat_import", Request),
         untyped("_acpmux/chats_search", Request),
         untyped("_acpmux/chats_warm", Request),
         untyped("_acpmux/chat_fork", Request),

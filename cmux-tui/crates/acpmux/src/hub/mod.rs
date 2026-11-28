@@ -187,6 +187,7 @@ pub(crate) mod inbox_subscription;
 pub mod journal_restore;
 #[cfg(test)]
 mod journal_restore_tests;
+pub(crate) mod chat_export;
 pub(crate) mod key_route;
 mod key_store;
 pub(crate) mod session_lifecycle;

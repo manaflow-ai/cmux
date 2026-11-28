@@ -9301,7 +9301,19 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/chat_export": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/chat_fork": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/chat_import": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -30141,6 +30153,18 @@
         "nullable": true
       }
     },
+    "request:_acpmux/wait/park": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/wait/unpark": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/wake": {
       "/*untyped*": {
         "ty": "json",
@@ -35573,7 +35597,19 @@
         "nullable": true
       }
     },
+    "response:_acpmux/chat_export": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/chat_fork": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/chat_import": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -41253,6 +41289,18 @@
       }
     },
     "response:_acpmux/wait": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/wait/park": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/wait/unpark": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
