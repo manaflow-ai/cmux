@@ -169,6 +169,16 @@ impl Failure {
     fn usage(message: impl Into<String>) -> Self {
         Self { code: "usage.invalid", message: message.into(), exit: 2 }
     }
+
+    /// An "isn't available on this server" failure names the server it asked: the platform origin
+    /// comes from --platform or CMUX_PLATFORM_ORIGIN as well as the default, and a 404 from staging
+    /// (joined machines off there by design) read as production's.
+    fn naming_server(mut self, origin: &str) -> Self {
+        if self.code.ends_with(".unavailable") && self.message.contains(" on this server") {
+            self.message = self.message.replacen(" on this server", &format!(" on {origin}"), 1);
+        }
+        self
+    }
 }
 
 /// `Some(exit code)` when `args` is a verb this module runs.
@@ -193,14 +203,15 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(error) => return Some(fail(Failure::usage(error.0))),
     };
     let env = |key: &str| std::env::var(key).ok();
-    let (credential, team, app_origin) = match session::sign_in(&command, &env, args) {
+    let (credential, team, app_platform) = match session::sign_in(&command, &env, args) {
         Ok(signed_in) => signed_in,
         Err(Ok(code)) => return Some(code),
         Err(Err(failure)) => return Some(fail(failure)),
     };
-    // An explicit `--platform` wins; else the API the app's token came from; else the usual
-    // variables and production.
-    let flag = command.auth.platform.as_deref().or(app_origin.as_deref());
+    // An explicit `--platform` wins; else the platform of the API the app's token came from
+    // (`session::platform_of_api`, never that API itself: it 404s every machine route); else the
+    // usual variables and production.
+    let flag = command.auth.platform.as_deref().or(app_platform.as_deref());
     let origin = match platform_origin(flag, &env) {
         Ok(origin) => origin,
         Err(message) => return Some(fail(Failure::usage(message))),
@@ -803,6 +814,8 @@ const KNOWN_CODES: &[&str] = &[
     "vault.tailnet_node_missing",
     "vault.tailnet_node_conflict",
     "vault.tailnet_node_open_failed",
+    "vault.tailnet_holder_conflict",
+    "vault.invalid_holder",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",
@@ -876,6 +889,19 @@ pub(super) struct Hooks<'a> {
 }
 
 pub(super) fn run(
+    command: &Command,
+    platform: &Platform,
+    output: OutputMode,
+    options: RunOptions,
+    out: &mut dyn Write,
+    hooks: &mut Hooks<'_>,
+    interrupt: impl Future<Output = ()>,
+) -> Result<i32, Failure> {
+    run_verb(command, platform, output, options, out, hooks, interrupt)
+        .map_err(|failure| failure.naming_server(&platform.origin))
+}
+
+fn run_verb(
     command: &Command,
     platform: &Platform,
     output: OutputMode,

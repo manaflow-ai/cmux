@@ -700,14 +700,8 @@ class GitHub(_evidence.GitHub):
             return test_reds.plain(kept.replace("\ufeff", ""))
         try:
             return test_reds.plain(self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", ""))
-        except Refused as error:
-            said = str(error)
-            # main_fix_evidence names the read before gh's stderr (`...failed: gh api ROUTE: unknown flag...`, from
-            # its read_name); the refusal is gh's stderr after that name, as escape_flag_unknown reads it.
-            named = f"{REQUEST_FAILED}{_evidence.read_name(['api', ESCAPE_FLAG, route])}: " \
-                if hasattr(_evidence, "read_name") else REQUEST_FAILED
-            stderr = said[len(named):] if said.startswith(named) else said[len(REQUEST_FAILED):]
-            if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(stderr)):
+        except _evidence.RequestFailed as error:
+            if not escape_flag_unknown(error.stderr):
                 raise
         return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
@@ -1295,6 +1289,7 @@ BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
 BASE_CHECK_FOR = {
     ("feat-cmux-next", "pr-router.yml", "pr pipeline / linux"): ("cmux-next-base-linux.yml", "base linux"),
     ("feat-cmux-next", "pr-router.yml", "pr pipeline / web-browser"): ("cmux-next-base-linux.yml", "base web-browser"),
+    ("feat-cmux-next", "pr-router.yml", "pr web pipeline / web-browser"): ("cmux-next-base-linux.yml", "base web-browser"),
 }
 # The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
 # which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
@@ -1335,6 +1330,35 @@ STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || github.base_ref
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
+# A step that finds its machine unfit says so in a live annotation tagged `[cmux-ci machine: KIND]` (select-ci-xcode.sh's
+# xcode-pin-missing, apt-ensure.sh's apt-provision): the host lacks what the job pins, so the red is the machine's,
+# never the PR's. cmux#62929's 'cmux-next Release compile (Xcode 26)' (run 46070277122, 2026-11-27) went to
+# aws-m4pro-7-glaeda-6, which has Xcode 26.3 and 26.6 but not the pinned 27.2; its log did not map one to one onto its
+# steps, so it was refused own_red ("does not map one to one") and the land stopped. Read before any step mapping, only
+# on a `##[error]` line (the runner's echo of a script shows `::error::`, never `##[error]`), and refused in
+# merge_hold's setup words, which glaeda-gh reruns once per (head, run). BASE_RED_EXCUSE_MACHINE_TAG=0 turns it off.
+MACHINE_TAG = "[cmux-ci machine: "
+MACHINE_KIND = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\]")
+MACHINE_TAG_ENV = "BASE_RED_EXCUSE_MACHINE_TAG"
+
+
+def machine_fault(log: str | None) -> tuple[str, str] | None:
+    """(KIND, its line) of the first `##[error]` line of LOG tagged `[cmux-ci machine: KIND]` (MACHINE_TAG), else None;
+    None too when MACHINE_TAG_ENV is "0". Linear in LOG: each tag is found once, its line read once."""
+    if not log or os.environ.get(MACHINE_TAG_ENV, "1").strip() == "0":
+        return None
+    at = log.find(MACHINE_TAG)
+    while at >= 0:
+        start = log.rfind("\n", 0, at) + 1
+        end = log.find("\n", at)
+        end = len(log) if end < 0 else end
+        error = log.find("##[error]", start, at)
+        kind = MACHINE_KIND.match(log, at + len(MACHINE_TAG), end)
+        if error >= 0 and kind is not None:
+            return kind[0][:-1], log[error + len("##[error]"):end].strip()
+        at = log.find(MACHINE_TAG, end)
+    return None
+
 VERDICTS = frozenset({"success", "failure"})
 # How far back the base lookup reads. A feat-cmux-next push skips swift-test, so its base verdict comes
 # from the tip Swift suite (main's cmux-next-tip-swift-suite-dispatch.yml, about one run an hour), and
@@ -4464,6 +4488,13 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
     state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
     if state == "pending":
         raise Refused(f"'{name}': its status is still pending on {sha}")
+    if name == FAST_GATES_STATUS and state == "success" and base:
+        # 2026-11-27, cmux#62419: the caller's list of reds came from a rollup read before a coordinator dispatched
+        # the gates again (a new status does not move the PR's updatedAt, so that read looked current). The newest
+        # status, read here, is green at this exact head: no red is left to excuse. The dispatched run's head_sha is
+        # the feat-cmux-next tip, never the PR head, so the linked-run comparison below would refuse it wrongly.
+        return (f"excused '{name}': its newest status on {sha} is success "
+                f"({status.get('description') or 'no description'}, {status.get('target_url') or 'no run'})")
     if name == FAST_GATES_STATUS and state in ("failure", "error"):
         description = status.get("description") or ""
         tested = re.search(r"\bbase ([0-9a-f]{40})\b", description)
@@ -6249,8 +6280,12 @@ GUARD_WORKFLOWS = {
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
+        "app-store-shelf-pr": _PRODUCT,
         "ios-placeholder-bounds": "reads the iOS app's Swift sources and placeholders.json: a red is the change's "
                                   "own unbound placeholder, never a guard's",
+        "spec-checks": "checks cmux-tui's spec and bindings against the server and client sources; a red the base "
+                       "shares is already only a warning in the job (spec_checks.py run --base), so a red is the "
+                       "change's own",
         "pr-red-checks": _PUBLISH,
         "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
         "security-holes": "judges the workflow holes and secrets the change's own diff adds against the base's "
@@ -6380,10 +6415,12 @@ PACKAGE_JOBS = {
                   # cmux-mobile-link-ffi depends on cmux-terminal-projection (#42219)
                   "cmux-tui/crates/cmux-terminal-projection/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
+                  # The mobile dependency graph reaches the hop relay (#54363) and vault sealing (#56920).
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
-                  # cmux-window-rules' tab group tests include_str! the shared vectors (#57843)
-                  "schemas/tab-group-rules/",
+                  # cmux-window-rules tests include both sets of shared vectors (#57843, #57997).
+                  "schemas/tab-group-rules/", "schemas/tab-layout-rules/",
                   # a crate the kit's manifests reach since #58214 (cmux-vnc's vnc_* JSON ops)
                   "cmux-tui/crates/cmux-vnc/",
                   # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
@@ -6427,7 +6464,10 @@ PACKAGE_JOBS = {
                   # cmux-mobile-link-ffi reaches cmux-local-url, cmux-mobile-host reaches cmux-phone-page; the
                   # window rules' tab layout tests and cmux-region-pick's tests include_str! these two (2026-11-27)
                   "cmux-tui/crates/cmux-local-url/", "cmux-tui/crates/cmux-phone-page/",
-                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts")
+                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts",
+                  # cmux-mobile-link reaches cmux-hop-relay (#54363); cmux-mobile-link-ffi reaches cmux-vault-e2e
+                  # (#56920)
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/")
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
@@ -9899,6 +9939,10 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     names = job_step_names(repo, job, github, run_reads)
     if refused_at_setup(job, head_log):
         raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+    if (fault := machine_fault(head_log)) is not None:
+        kind, said = fault
+        raise Refused(f"'{name}' was refused at setup by its runner (job {job.get('id')}: a machine fault, "
+                      f"[cmux-ci machine: {kind}]: {said[:300]}); it gets re-run, never excused")
     if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
         raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
