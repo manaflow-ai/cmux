@@ -21,8 +21,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WEBVIEWS = ROOT / 'webviews'
 SWIFT = 'Packages/macOS/CmuxNext/Sources'
-# Gallery entries also load preview data from the first-party apps outside webviews.
-OUTSIDE = ('schemas', 'web', 'Packages/Shared', 'design/icons/neko-candidates', 'first-party-apps')
 UI_RULES = 'test/ui-rules.test.ts'
 COVERAGE = 'test/gallery-coverage.test.ts'
 RAW_KEYS = 'export function RawKeys() {\n  return <div onKeyDown={() => undefined} />;\n}\n'
@@ -61,6 +59,36 @@ def tracked_webviews_folders():
     listed = subprocess.run(['git', 'ls-files', '-z', '--', 'webviews/'], cwd=ROOT, check=True,
                             capture_output=True).stdout.decode().split('\0')
     return sorted({parts[1] for parts in (p.split('/') for p in listed) if len(parts) > 2})
+
+
+RELATIVE_IMPORT = re.compile(r"""(?:from|import)\s*\(?\s*["'](\.\.?/[^"']+)["']""")
+
+
+def outside_import_roots():
+    """The repo folders webviews' tracked sources import from outside webviews/ (schemas, web, Packages/Shared,
+    first-party-apps, ...), read from the imports themselves, not a hand-kept list: CalendarWidget.gallery.tsx
+    importing first-party-apps/widget-calendar (#47735) failed every coverage test here while the list lacked it.
+    A root is the import's top folder, or its first two under Packages/ and design/ (Swift sources are copied apart)."""
+    listed = subprocess.run(['git', 'ls-files', '-z', '--', 'webviews/*.ts', 'webviews/*.tsx', 'webviews/*.js',
+                             'webviews/*.mjs'], cwd=ROOT, check=True, capture_output=True).stdout.decode().split('\0')
+    roots = set()
+    for name in filter(None, listed):
+        try:
+            source = (ROOT / name).read_text(errors='ignore')
+        except OSError:
+            continue
+        for spec in RELATIVE_IMPORT.findall(source):
+            target = os.path.normpath(os.path.join(os.path.dirname(name), spec)).split(os.sep)
+            if target[0] in ('webviews', '..', '.') or len(target) < 2:
+                continue
+            root = '/'.join(target[:2] if target[0] in ('Packages', 'design') and len(target) > 2 else target[:1])
+            # SWIFT's page descriptors are copied into the fixture (below), so a root holding them stays real.
+            if (ROOT / root).exists() and not (SWIFT + '/').startswith(root + '/'):
+                roots.add(root)
+    return tuple(sorted(roots))
+
+
+OUTSIDE = outside_import_roots()
 
 
 class Checkout:
