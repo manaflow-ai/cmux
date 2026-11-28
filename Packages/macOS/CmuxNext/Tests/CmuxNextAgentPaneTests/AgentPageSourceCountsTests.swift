@@ -130,6 +130,33 @@ struct AgentPageSourceCountsTests {
         #expect(AgentChatPerfControl.pageSourceReport(nil, reset: false) == .object(["page_source": AgentPageSourceCounts().json]))
     }
 
+    /// `page_source: true` reads the counts and the app's page counts without a tab: it never looks a tab
+    /// up, so a chat whose page is not loaded (or asleep) is no refusal and is not woken.
+    @Test @MainActor func pageSourceReadsWithoutATabAndAddsPageCounts() async throws {
+        let sources = AgentPageSources()
+        sources.record(.cold(.relaunchWake))
+        let pages = AgentChatPerfControl.PageCounts(chat: 4, newTab: 1, frozen: 2, released: 3)
+        let read = try await AgentChatPerfControl.run(
+            ["page_source": true],
+            find: { _ in
+                Issue.record("the page-source read looked a tab up")
+                return .notLoaded
+            },
+            sources: { sources }, pages: { pages })
+        guard case .object(let report) = read, case .object(let counts)? = report["page_source"],
+              case .object(let held)? = report["pages"] else {
+            Issue.record("the read has no page_source or pages object: \(read)")
+            return
+        }
+        #expect(counts["cold"] == .number(1))
+        #expect(held == ["chat": .number(4), "new_tab": .number(1), "frozen": .number(2), "released": .number(3)])
+        #expect(sources.counts.cold == 1, "without reset the read leaves the counts")
+        // An app with no tabs yet answers the zero counts and no pages object.
+        let empty = try await AgentChatPerfControl.run(["page_source": true], find: { _ in .notLoaded })
+        #expect(empty == .object(["page_source": AgentPageSourceCounts().json]))
+        #expect(AgentChatPerfControl.PageCounts(views: 5, newTab: 1, frozen: 0, released: 0).chat == 4, "New Tab pages are not chat pages")
+    }
+
     @Test func resetZeroesTheCounts() {
         var counts = AgentPageSourceCounts()
         counts.record(.kept)

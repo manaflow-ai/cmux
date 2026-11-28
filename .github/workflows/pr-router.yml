@@ -447,7 +447,7 @@ jobs:
   size-budget:
     name: cmux-next size budget
     needs: [route, compile-preflight]
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-size-budget.yml') }}
+    if: ${{ !cancelled() && !failure() && needs.compile-preflight.result == 'success' && (contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-size-budget.yml')) }}
     uses: ./.github/workflows/cmux-next-size-budget.yml
     with:
       web_bundle_key: ${{ needs.compile-preflight.outputs.web_bundle_key }}
@@ -456,6 +456,14 @@ jobs:
     permissions:
       contents: read
       id-token: write
+
+  cmux-next-sidebar-bench:
+    name: cmux-next sidebar bench
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-sidebar-bench.yml') }}
+    uses: ./.github/workflows/cmux-next-sidebar-bench.yml
+    permissions:
+      contents: read
 
   swift-logic-ratchet:
     name: Swift logic ratchet
