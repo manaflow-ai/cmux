@@ -60,6 +60,7 @@ pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
 pub mod ci_log_cache;
+pub mod cited_memory;
 pub mod class;
 pub mod claude_auth;
 mod claude_cloud_auth;
