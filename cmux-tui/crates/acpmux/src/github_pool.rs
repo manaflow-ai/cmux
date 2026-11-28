@@ -276,7 +276,13 @@ impl Budget {
     }
 
     fn pool_ledger(&self, pool: Pool, now_ms: u64) -> PoolLedger {
-        self.ledger(now_ms).into_iter().find(|l| l.pool == pool).expect("every pool has a row")
+        // `ledger` has a row for every pool; the empty row only keeps this panic-free.
+        self.ledger(now_ms).into_iter().find(|l| l.pool == pool).unwrap_or(PoolLedger {
+            pool,
+            limit: None,
+            spent: 0,
+            consumers: Vec::new(),
+        })
     }
 
     /// Whether `caller` may start a read of `class` from `pool` now (`pooled`: it runs with the
