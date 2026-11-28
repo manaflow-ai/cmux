@@ -46,6 +46,17 @@ jobs:
           # The lag is measured in first-parent history; 1500 commits covers more than a day of landings.
           fetch-depth: 1500
           persist-credentials: false
+      # The floor script lives on this branch (main), not in feat-cmux-next's checkout above: run from there it was
+      # "can't open file", the floor never held, and the heal spent the hour into HTTP 403 (as ui-proof-stale-sweep.yml).
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: floor
+          sparse-checkout: |
+            /.gitmodules
+            scripts/ci/job_token_floor.py
+            scripts/ci/app_spend_mark.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
 
       # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this tick sends nothing on it
       # and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
@@ -55,7 +66,7 @@ jobs:
         timeout-minutes: 1
         env:
           JOB_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/job_token_floor.py cmux-tui-channel-heal/heal
+        run: python3 -I floor/scripts/ci/job_token_floor.py cmux-tui-channel-heal/heal
 
       - name: Read the channel and act once
         if: steps.job-floor.outputs.held != 'true'
