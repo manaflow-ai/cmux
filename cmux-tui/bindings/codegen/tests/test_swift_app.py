@@ -705,6 +705,51 @@ class UngatedTests(unittest.TestCase):
                 self.source(binding, capability)
 
 
+class ConstantTests(unittest.TestCase):
+    """Field `constant`: a fixed value always sent (no property), or with `encode: if_true` sent when a Bool is true."""
+
+    def source(self, fields: dict[str, Any], order: list[str] | None = None) -> str:
+        document = layout_document()
+        request = document["commands"]["swap-pane"]["request"]["fields"]
+        request["detached"] = _field({"kind": "scalar", "name": "boolean"}, required=False)
+        request["side"] = _field({"kind": "enum", "values": ["left", "right"]}, required=False, nullable=True)
+        request["count"] = _field({"kind": "scalar", "name": "uint16"}, required=False, nullable=True)
+        bindings = layout_bindings()
+        swap = bindings["families"]["Layout"]["requests"]["swap-pane"]
+        swap["fields"] = {**swap.get("fields", {}), **fields}
+        swap["omit"] = [wire for wire in ("detached", "side", "count") if wire not in fields]
+        if order is not None:
+            swap["order"] = order
+        return rendered(document, bindings)["Layout/SwapPaneRequest.generated.swift"]
+
+    def test_an_always_sent_constant_makes_no_property(self) -> None:
+        source = self.source({"detached": {"constant": True}})
+        self.assertIn("        try container.encode(true, forKey: .detached)\n", source)
+        self.assertIn("        case detached\n", source)
+        self.assertNotIn("var detached", source)
+        self.assertNotIn("detached:", source.split("public init(", 1)[1].split(")", 1)[0])
+
+    def test_an_if_true_constant_is_a_bool_sending_its_value(self) -> None:
+        source = self.source({"side": {"constant": "left", "encode": "if_true", "name": "left"}})
+        self.assertIn("    public var left: Bool\n", source)
+        self.assertIn("left: Bool = false", source)
+        self.assertIn('        if left { try container.encode("left", forKey: .left) }\n', source)
+        self.assertIn('        case left = "side"\n', source)
+
+    def test_a_constant_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases: dict[str, dict[str, Any]] = {
+            "a value the enum lacks": {"side": {"constant": "up"}},
+            "a string for a boolean": {"detached": {"constant": "yes"}},
+            "a negative unsigned": {"count": {"constant": -1}},
+            "a bool for an integer": {"count": {"constant": True}},
+            "a type beside it": {"detached": {"constant": True, "type": "Bool"}},
+            "an encode mode it cannot take": {"detached": {"constant": True, "encode": "if_present"}},
+        }
+        for name, fields in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(fields)
+
+
 class DecimalTests(unittest.TestCase):
     """`encode: decimal`: a UInt64 the wire carries as a decimal string."""
 

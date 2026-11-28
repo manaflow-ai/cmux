@@ -2117,7 +2117,7 @@
       }
     },
     "Tabs": {
-      "$comment": "Hand-written still: set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), create-terminal {detached} (constant fields), terminal-resources (a filter init over private(set) fields), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
+      "$comment": "Hand-written still: set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), terminal-resources (a filter init over private(set) fields), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
       "requests": {
         "close-surface": {
           "name": "CloseTabRequest",
@@ -2453,6 +2453,64 @@
                 "`frontend-browser-tab-keys-v1`: a request with the same key answers",
                 "the tab the first one made (`replayed`), so a retry never makes two. `send(on:)` sets it."
               ]
+            }
+          },
+          "response": "hand-written"
+        },
+        "create-terminal": {
+          "name": "CreateDetachedTerminalRequest",
+          "doc": [
+            "`create-terminal {detached: true}` (`remote-terminal-tabs-v1`): a kept",
+            "terminal with no tab on its own session, whose only view lives in another",
+            "session's layout (\"Open Terminal on Machine Here\")."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "ungated": "a daemon that predates workspace-registry-v1 still spawns the terminal.",
+          "mutation": true,
+          "order": [
+            "cwd",
+            "size",
+            "terminal_id",
+            "env",
+            "mutation"
+          ],
+          "omit": [
+            "workspace",
+            "key",
+            "argv",
+            "command",
+            "name",
+            "shell_args",
+            "create_workspace",
+            "workspace_name"
+          ],
+          "init": {
+            "params": {
+              "size": {
+                "type": "CellSize?",
+                "default": "nil"
+              }
+            },
+            "set": {
+              "cols": "size?.cols",
+              "rows": "size?.rows"
+            }
+          },
+          "fields": {
+            "cols": {
+              "type": "Int"
+            },
+            "rows": {
+              "type": "Int"
+            },
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "detached": {
+              "constant": true
+            },
+            "keep": {
+              "constant": true
             }
           },
           "response": "hand-written"
@@ -3776,7 +3834,7 @@
       }
     },
     "Creation": {
-      "$comment": "Hand-written still: SpawnOptions (the spreads type these requests send flat; DaemonConnection fills and drops its fields), new-pane-right (the schema gates it on viewport-splits-v1, which the app does not check before sending), create-terminal's detached form (constant fields), NewTerminalWorkspace, SurfaceCreated, CreateTerminalResult, and the CreatingRequests and ShellIntegrationArguments conformances.",
+      "$comment": "Hand-written still: SpawnOptions (the spreads type these requests send flat; DaemonConnection fills and drops its fields), NewTerminalWorkspace, SurfaceCreated, CreateTerminalResult, CreateDetachedTerminalRequest.Response, and the CreatingRequests and ShellIntegrationArguments conformances.",
       "requests": {
         "split": {
           "name": "SplitRequest",
@@ -3939,6 +3997,44 @@
             }
           },
           "response": "CreateTerminalResult"
+        },
+        "new-pane-right": {
+          "name": "NewColumnRequest",
+          "doc": [
+            "Adds a new scrolling column to the right (`viewport-splits-v1`)."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "ungated": "a daemon without it answers an unknown command, as it always did.",
+          "spread": {
+            "options": "SpawnOptions"
+          },
+          "order": [
+            "pane",
+            "width",
+            "side",
+            "options"
+          ],
+          "omit": [
+            "kind",
+            "url"
+          ],
+          "fields": {
+            "width": {
+              "doc": [
+                "Fraction of the viewport, 0.1...1.0. Daemon default 2/3."
+              ]
+            },
+            "side": {
+              "constant": "left",
+              "encode": "if_true",
+              "name": "left",
+              "doc": [
+                "Opens the column before the pane's column (`column-left-v1`, New Column Left) instead of",
+                "after it, so older daemons see the same request when false."
+              ]
+            }
+          },
+          "response": "SurfaceCreated"
         }
       }
     }
