@@ -144,7 +144,9 @@ class NightlyGateTest(unittest.TestCase):
                             ("rust-notices", ["scripts/cmux-next/generate-third-party-notices.sh"])):
             with self.subTest(name):
                 self.assertTrue(steps[name].nightly)
-                self.assertEqual(ci_steps.nightly_gate_steps(ci_steps.load(), paths), [name])
+                # next-state-roots (a land_gate step) also scans scripts/cmux-next/*.sh for Classic ids.
+                self.assertEqual([n for n in ci_steps.nightly_gate_steps(ci_steps.load(), paths)
+                                  if n != "next-state-roots"], [name])
 
     def test_a_landing_head_runs_only_the_nightly_steps_it_routes(self) -> None:
         start, why, (jobs, only) = self.landing(["cmux-tui/Cargo.lock", "web/app/page.tsx"])
@@ -155,8 +157,8 @@ class NightlyGateTest(unittest.TestCase):
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
         self.assertEqual(only, ["web-typecheck", "rust-notices"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
-        self.assertIn("nightly gate: runs only rust-notices", why["pr-pipeline.yml"])
-        self.assertEqual((jobs, only), (["linux"], ["rust-notices"]))
+        self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
+        self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "rust-notices"]))
 
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
         start, _, (jobs, only) = self.landing(["web/app/page.css"])
