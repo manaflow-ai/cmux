@@ -1841,19 +1841,19 @@ mod tests {
                 }
             }
         });
-        // A burst of full-width redraws: diffs well above 600 bytes, many datagrams each.
-        for i in 0..1_000 {
-            let line = format!(
-                "\x1b[{};1H{}",
-                i % 48 + 1,
-                char::from(b'a' + (i % 26) as u8).to_string().repeat(160)
-            );
-            if output.send(line.into_bytes()).await.is_err() {
+        // A burst of 1,000 whole-screen redraws of noise (nothing for a diff or a run length to
+        // shrink): every diff far above 600 bytes, many datagrams each.
+        let mut seed = 0x2545_f491_u32;
+        for _ in 0..1_000 {
+            let mut screen = b"\x1b[H".to_vec();
+            for _ in 0..48 * 160 {
+                seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                screen.push(b'!' + (seed >> 16) as u8 % 94);
+            }
+            if output.send(screen).await.is_err() {
                 break;
             }
-            if i % 50 == 0 {
-                tokio::task::yield_now().await;
-            }
+            tokio::time::sleep(Duration::from_micros(200)).await;
         }
         drop(output);
         let result = host.await.unwrap();
