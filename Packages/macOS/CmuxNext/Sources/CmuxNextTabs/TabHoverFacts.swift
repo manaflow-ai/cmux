@@ -30,6 +30,10 @@ public struct TabHoverFacts: Hashable, Sendable {
     /// The name an agent chat's session had before its current one (acpmux `formerNames`' newest): the card's
     /// title reads "Mango — fka claude-sr2-coord" (Leo: "BUT WHO IS MANGO?"). Nil for a tab the person named.
     public var formerName: String?
+    /// An agent chat's latest words, readable on its card instead of a thumbnail of its page (Leo 2026-11-27, the
+    /// tab card with a chat thumbnail too small to read: "this hover preview is a bit shit"): the running turn's
+    /// prompt while it works, else the chat's last message. Nil for other tabs and a chat with neither.
+    public var latest: String?
 
     public init(kind: Kind = .other, activity: Activity? = nil, since: Date? = nil, model: String? = nil,
                 branch: String? = nil, lastOutput: Date? = nil) {
