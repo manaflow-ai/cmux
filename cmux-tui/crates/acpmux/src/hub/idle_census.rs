@@ -125,6 +125,13 @@ impl Hub {
         };
         let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
         let given = child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        // Codex's answer this start used, with its digest (none while off or unsure).
+        let codex = session
+            .codex_answer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get()
+            .and_then(|asked| asked.record.clone());
         let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         meta.idle_launch = stored;
         // The session's namespace, recorded once at its first start (`session_manifest.rs`).
@@ -139,6 +146,8 @@ impl Hub {
         if manifest.is_some() {
             meta.manifest = manifest;
         }
+        let cwd = meta.cwd.clone();
+        crate::session_manifest::keep_codex(on, &mut meta.manifest, &cwd, codex);
     }
 
     /// An adopted host's servers, from its session's meta when they were kept for this
