@@ -406,12 +406,17 @@ pub(super) fn search_client() -> Result<reqwest::Client, String> {
 }
 
 async fn search(query: Option<&str>) -> Result<Value, String> {
-    let client = search_client()?;
-    let mut request = client.get(search_url(query)).header("Accept", "application/vnd.github+json");
     // A token raises GitHub's search limit (10 a minute without one); never required.
     let token = ["GH_TOKEN", "GITHUB_TOKEN"]
         .iter()
         .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()));
+    search_as(query, token.as_deref()).await
+}
+
+/// The search request, with the person's GitHub token when they have one.
+async fn search_as(query: Option<&str>, token: Option<&str>) -> Result<Value, String> {
+    let client = search_client()?;
+    let mut request = client.get(search_url(query)).header("Accept", "application/vnd.github+json");
     if let Some(token) = token {
         request = request.bearer_auth(token);
     }
@@ -478,3 +483,7 @@ pub(super) fn search_table(rows: &[Value]) -> String {
     }
     out
 }
+
+#[cfg(test)]
+#[path = "share_seeded_tests.rs"]
+mod seeded_tests;

@@ -502,3 +502,7 @@ pub(super) fn fetch(url: &str, etag: Option<&str>) -> Fetched {
 #[cfg(test)]
 #[path = "web_pieces_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "web_pieces_seeded_tests.rs"]
+mod seeded_tests;
