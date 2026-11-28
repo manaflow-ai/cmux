@@ -74,15 +74,27 @@ fn dev_build_own_settings_defaults_are_what_get_reports() {
 
 #[test]
 fn dev_build_own_settings_defaults_leave_other_builds_and_bad_values_alone() {
-    // NIGHTLY and stable pass nothing: the schema's default.
+    // NIGHTLY and stable pass nothing: the schema's default (phone access is on by default since
+    // #48532, so the test reads the schema's value rather than naming one).
     let shared = state(schema(&BTreeMap::new()), "{}");
     let row = shared.get(&Target::Key(MOBILE.into())).row.expect("the row");
-    assert_eq!(row.value, Some(json!(false)));
+    let schema_default = row.default.clone();
+    assert!(schema_default.is_some(), "the row has a default");
+    assert_eq!(row.value, schema_default);
     // A value the row refuses and a key no row has are ignored.
     let odd =
         build_defaults_from(Some(r#"{"mobile.allowIPhoneConnections":"yes","no.such.key":1}"#));
     let state = state(schema(&odd), "{}");
     let row = state.get(&Target::Key(MOBILE.into())).row.expect("the row");
-    assert_eq!(row.value, Some(json!(false)));
-    assert_eq!(row.default, Some(json!(false)));
+    assert_eq!(row.value, schema_default);
+    assert_eq!(row.default, schema_default);
+}
+
+#[test]
+fn a_build_default_cannot_opt_the_user_into_personal_github_login() {
+    let key = "cloud.useMyGitHubLogin";
+    let defaults = BTreeMap::from([(key.to_owned(), json!(true))]);
+    let schema = schema(&defaults);
+    assert_eq!(schema.row(key).expect("the login row").default, Some(json!(false)));
+    assert!(!schema.build_defaults().contains_key(key));
 }

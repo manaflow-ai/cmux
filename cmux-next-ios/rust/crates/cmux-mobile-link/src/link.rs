@@ -224,6 +224,29 @@ pub const SUSPECT_PROBE: Duration = Duration::from_secs(1);
 /// data is outstanding: a one-way stream with a live peer costs one ping
 /// round trip per this long, an idle link none.
 pub const OUTSTANDING_PROBE: Duration = Duration::from_secs(2);
+/// While data is outstanding, both detection waits scale with the link's
+/// smoothed round trip: [`BUSY_RTT_FACTOR`] round trips, at least the
+/// floor below and at most the fixed wait ([`OUTSTANDING_PROBE`], the
+/// link's `suspect_after`). On a phone link (lte, wifi to cell, 5G
+/// falling back to LTE) a busy link is then suspect in about 1.5 s instead
+/// of 5 s; a slow one (satellite, 2G) keeps the fixed waits. Without a
+/// round trip yet, the fixed waits. Idle pings keep `suspect_after`.
+pub const BUSY_RTT_FACTOR: u32 = 4;
+/// The shortest wait before unanswered data gets its ping.
+pub const BUSY_OUTSTANDING_FLOOR: Duration = Duration::from_millis(500);
+/// The shortest wait for that ping, with data outstanding, before the link
+/// is suspect: two of a lossy link's 500 ms datagram ping resends
+/// ([`DATAGRAM_PING_RESEND`]) and a TCP retransmit of an in-stream ping.
+pub const BUSY_SUSPECT_FLOOR: Duration = Duration::from_millis(1000);
+
+/// The detection waits while data is outstanding ([`BUSY_RTT_FACTOR`]):
+/// before the ping, and from the ping to suspect.
+fn busy_waits(srtt: Option<Duration>, suspect_after: Duration) -> (Duration, Duration) {
+    let Some(srtt) = srtt else { return (OUTSTANDING_PROBE, suspect_after) };
+    let scaled = srtt.saturating_mul(BUSY_RTT_FACTOR);
+    let bound = |floor: Duration, cap: Duration| scaled.max(floor.min(cap)).min(cap);
+    (bound(BUSY_OUTSTANDING_FLOOR, OUTSTANDING_PROBE), bound(BUSY_SUSPECT_FLOOR, suspect_after))
+}
 
 /// The lane both sides list when their pings and pongs can travel as
 /// datagrams beside the link's stream ([`LivenessDatagrams`]). A peer that
@@ -2717,7 +2740,8 @@ struct Unanswered {
 
 /// Detection, apart from teardown (the keepalive's [`KEEPALIVE_TIMEOUT`]):
 /// data with nothing received for [`OUTSTANDING_PROBE`] gets a ping; a ping
-/// with nothing received for `after` makes the link suspect; a suspect link
+/// with nothing received for `after` makes the link suspect (both waits
+/// shorter on a fast link while data is outstanding: [`BUSY_RTT_FACTOR`]); a suspect link
 /// pings every [`SUSPECT_PROBE`] until anything arrives. Every ping counts
 /// (the keepalive's, the app's probes, these), so an idle link is suspect
 /// `after` past whichever ping comes first, and an idle healthy link sends
@@ -2744,6 +2768,10 @@ async fn watch_liveness(link: Link, after: Duration) {
         }
         let now = Instant::now();
         let unanswered = inner.unanswered();
+        let srtt = *inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
+        let (outstanding_wait, busy_after) = busy_waits(srtt, after);
+        // A ping with data outstanding waits `busy_after`; an idle one, `after`.
+        let ping_after = if unanswered.traffic.is_some() { busy_after } else { after };
         let next = if inner.suspect_flag.load(Ordering::Relaxed) {
             let due = last_probe.map_or(now, |at| at + SUSPECT_PROBE);
             if now >= due {
@@ -2754,7 +2782,7 @@ async fn watch_liveness(link: Link, after: Duration) {
                 Some(due)
             }
         } else if let Some(ping) = unanswered.ping {
-            if now >= ping + after {
+            if now >= ping + ping_after {
                 inner.raise_suspect(ping);
                 if inner.suspect_flag.load(Ordering::Relaxed) {
                     probe(&link);
@@ -2762,14 +2790,14 @@ async fn watch_liveness(link: Link, after: Duration) {
                 }
                 continue;
             }
-            Some(ping + after)
+            Some(ping + ping_after)
         } else if let Some(traffic) = unanswered.traffic {
-            if now >= traffic + OUTSTANDING_PROBE {
+            if now >= traffic + outstanding_wait {
                 // Its ping wakes this loop (`unanswered_changed`) once out.
                 probe(&link);
-                Some(now + after)
+                Some(now + busy_after)
             } else {
-                Some(traffic + OUTSTANDING_PROBE)
+                Some(traffic + outstanding_wait)
             }
         } else {
             None
@@ -3495,7 +3523,13 @@ impl ChannelSender {
         data: Bytes,
         mark: Option<crate::frame::FlushMark>,
     ) -> Result<(), LinkError> {
-        self.send_numbered(data, mark).await.map(|_| ())
+        self.send_numbered(data, mark, None).await.map(|_| ())
+    }
+
+    /// Report a chunk only after this particular write acquired room in the transport queue.
+    /// Other writers on the same channel never contribute to this count.
+    pub async fn send_observed(&self, data: Bytes, accepted: &AtomicU64) -> Result<(), LinkError> {
+        self.send_numbered(data, None, Some(accepted)).await.map(|_| ())
     }
 
     /// Whether this is a screen channel ([`Delivery::Screen`], agreed with
@@ -3531,13 +3565,14 @@ impl ChannelSender {
             return Ok(0);
         }
         let message = crate::classes::screen_wire(base.unwrap_or(crate::classes::NO_BASE), payload);
-        Ok(self.send_numbered(message, None).await?.unwrap_or(0))
+        Ok(self.send_numbered(message, None, None).await?.unwrap_or(0))
     }
 
     async fn send_numbered(
         &self,
         data: Bytes,
         mark: Option<crate::frame::FlushMark>,
+        accepted: Option<&AtomicU64>,
     ) -> Result<Option<u64>, LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
@@ -3599,6 +3634,9 @@ impl ChannelSender {
                 .await
             {
                 Pushed::Queued => {
+                    if let Some(accepted) = accepted {
+                        accepted.fetch_add(size as u64, Ordering::Relaxed);
+                    }
                     self.sent.fetch_add(size as u64, Ordering::Relaxed);
                     if let Some(meter) = &self.meter {
                         meter.add_sent(size);
@@ -3765,6 +3803,20 @@ mod tests {
         assert_eq!(resume_hedge_after(Some(ms(70))), ms(310));
         assert_eq!(resume_hedge_after(Some(ms(300))), ms(1000));
         assert_eq!(resume_hedge_after(Some(Duration::from_secs(2))), RESUME_HEDGE_CAP);
+    }
+
+    #[test]
+    fn busy_waits_scale_with_the_round_trip_within_the_fixed_waits() {
+        let ms = Duration::from_millis;
+        let after = SUSPECT_AFTER;
+        assert_eq!(busy_waits(None, after), (OUTSTANDING_PROBE, after), "no pong yet: fixed waits");
+        assert_eq!(busy_waits(Some(ms(20)), after), (ms(500), ms(1000)), "wifi: the floors");
+        assert_eq!(busy_waits(Some(ms(70)), after), (ms(500), ms(1000)), "lte: the floors");
+        assert_eq!(busy_waits(Some(ms(400)), after), (ms(1600), ms(1600)), "a slow cell link");
+        assert_eq!(busy_waits(Some(ms(650)), after), (OUTSTANDING_PROBE, ms(2600)), "satellite");
+        assert_eq!(busy_waits(Some(Duration::from_secs(2)), after), (OUTSTANDING_PROBE, after), "2g: caps");
+        // A suspect_after below the floor caps it, without panicking.
+        assert_eq!(busy_waits(Some(ms(10)), ms(300)), (ms(500), ms(300)));
     }
 
     fn pair() -> (Link, Link) {
@@ -4210,15 +4262,20 @@ mod tests {
         let channel = phone.open("daemon", serde_json::json!({})).await.unwrap();
         let sender = Arc::new(channel.sender);
         let total = CHANNEL_QUEUE_BYTES * 8;
+        let accepted = Arc::new(AtomicU64::new(0));
+        sender.send(Bytes::from_static(b"other")).await.unwrap();
+        assert_eq!(accepted.load(Ordering::Relaxed), 0);
         let sending = tokio::spawn({
             let sender = Arc::clone(&sender);
-            async move { sender.send(Bytes::from(vec![0u8; total])).await }
+            let accepted = Arc::clone(&accepted);
+            async move { sender.send_observed(Bytes::from(vec![0u8; total]), &accepted).await }
         });
         tokio::time::sleep(Duration::from_millis(200)).await;
         let stuck = sender.sent_bytes();
         assert!(stuck > 0 && stuck < total as u64, "part of the write got in: {stuck}");
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(sender.sent_bytes(), stuck, "a stalled link makes no progress");
+        assert_eq!(accepted.load(Ordering::Relaxed), stuck - 5, "only the observed write");
         sender.close("cancelled", "").await;
         let _ = sending.await;
 

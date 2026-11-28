@@ -1089,7 +1089,9 @@ async fn a_stale_move_is_ended_now_on_asking_and_a_live_one_is_not() {
 /// A daemon taken over mid-copy (`acpmux daemon run --take-over`, 2026-11-22: the move died on
 /// `transfer_read` and its abort died the same way) leaves the move whole: the new daemon still
 /// holds the chat frozen in it, the copy goes on from the offset it reached against the new one,
-/// and the move commits with every prompt once on the target.
+/// and the move commits with every prompt once on the target. #58512 restored this after #54328
+/// ended every move not read to its end: the restart pass ends only a move nobody read a page of
+/// (`transfer_watch.rs` `was_paged`, `a_restarted_source_gives_back_a_move_that_was_never_read`).
 #[tokio::test]
 async fn a_move_whose_source_daemon_is_taken_over_mid_copy_goes_on_from_its_offset() {
     let dir = std::env::temp_dir().join(format!("acpmux-takeover-{}", uuid::Uuid::now_v7()));

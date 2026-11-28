@@ -30,6 +30,8 @@ pub struct HarnessFailures {
 pub struct HarnessSandbox {
     pub first_at: Option<u64>,
     pub failing: bool,
+    pub error: Option<String>,
+    pub remote: bool,
 }
 
 impl HarnessSandbox {
@@ -47,13 +49,90 @@ impl HarnessSandbox {
             Self::FAILED => {
                 self.first_at = self.first_at.or(first).or(Some(at));
                 self.failing = true;
+                self.error = msg.get("error").and_then(Value::as_str).map(redact);
+                self.remote = msg.get("remote").and_then(Value::as_bool).unwrap_or(false);
             }
             Self::RECOVERED => {
                 self.first_at = self.first_at.or(first);
                 self.failing = false;
+                self.error = None;
+                self.remote = false;
             }
             _ => {}
         }
+    }
+}
+
+/// An agent's explicit blocked result, not an incidental mention of a blocker.
+/// Keep this separate from process/turn failure: the harness may have ended normally.
+pub fn blocked_reply(reply: &str) -> Option<&str> {
+    let mut lines = reply.lines().map(str::trim).filter(|line| !line.is_empty());
+    let line = lines.next()?.trim_matches(['#', '*', ' ']);
+    if matches!(line, "BLOCKED" | "Blocked") {
+        return Some(lines.next().unwrap_or(line));
+    }
+    let tail = line.strip_prefix("BLOCKED:").or_else(|| line.strip_prefix("Blocked:"))?;
+    Some(tail.trim_start_matches(['*', ' ']))
+}
+
+pub fn sandbox_failed(summary: &Value) -> bool {
+    summary["harnessSandboxFailing"] == true
+}
+
+pub fn blocked(summary: &Value) -> bool {
+    summary["preview"].as_str().and_then(blocked_reply).is_some()
+}
+
+pub fn failure_error(summary: &Value) -> Value {
+    if sandbox_failed(summary) {
+        summary["harnessSandboxError"].clone()
+    } else {
+        summary["lastTurn"]["errorText"]
+            .as_str()
+            .or_else(|| summary["preview"].as_str().and_then(blocked_reply))
+            .map_or(Value::Null, |error| Value::String(error.to_owned()))
+    }
+}
+
+#[cfg(test)]
+mod blocked_reply_tests {
+    use super::{blocked_reply, failure_error, sandbox_failed};
+    use serde_json::json;
+
+    #[test]
+    fn only_an_explicit_blocked_result_changes_the_row() {
+        assert_eq!(blocked_reply("**BLOCKED:** cannot create .git"), Some("cannot create .git"));
+        assert_eq!(blocked_reply("## BLOCKED\n\ncannot create .git"), Some("cannot create .git"));
+        assert_eq!(blocked_reply("**BLOCKED**"), Some("BLOCKED"));
+        assert_eq!(
+            blocked_reply("Blocked: broker unavailable\nNext step: retry"),
+            Some("broker unavailable")
+        );
+        let mut row = serde_json::json!({"status": "idle", "preview": "BLOCKED: cannot write .git", "lastTurn": {"status": "completed"}});
+        assert_eq!(crate::hub::views::status_indicator(&row), Some("failed"));
+        assert_eq!(crate::hub::views::lane(&row)["error"], "cannot write .git");
+        row["status"] = serde_json::json!("running");
+        assert_eq!(crate::hub::views::status_indicator(&row), Some("working"));
+        for reply in [
+            "Fixed the blocked request",
+            "Not blocked: ready",
+            "> BLOCKED: quoted log",
+            "Tests pass\nBLOCKED: quoted fixture",
+        ] {
+            assert_eq!(blocked_reply(reply), None, "{reply}");
+        }
+    }
+
+    #[test]
+    fn failure_projection_preserves_sandbox_reason_and_blocked_reply() {
+        let sandbox =
+            json!({"harnessSandboxFailing": true, "harnessSandboxError": "bwrap unavailable"});
+        assert!(sandbox_failed(&sandbox));
+        assert_eq!(failure_error(&sandbox), json!("bwrap unavailable"));
+
+        let blocked = json!({"preview": "BLOCKED: cannot create .git", "lastTurn": {}});
+        assert!(!sandbox_failed(&blocked));
+        assert_eq!(failure_error(&blocked), json!("cannot create .git"));
     }
 }
 

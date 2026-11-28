@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import queue
 import os
 import subprocess
 import sys
@@ -39,13 +40,51 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(p["web"])
         self.assertEqual(p["needs_build"], [])
 
-    def test_the_design_system_shoots_every_scene(self):
+    def test_the_design_system_shoots_every_leaf_scene(self):
+        # Every leaf scene, never a heavy host: a design change must not wait on the app library's build.
         self.assertEqual(w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/X.swift"])["swift"],
-                         list(w.ALL_SWIFT_SCENES))
+                         list(w.SHELL_SCENES))
+
+    def test_a_heavy_module_shoots_its_own_hosts_scene(self):
+        p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportPlayground.swift"])
+        self.assertEqual(p["swift"], ["chief-teleport"])
+        self.assertEqual(p["needs_build"], [])
+        self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiHomeHost/UiHomeHostMain.swift"])["swift"],
+                         ["chief-teleport"])
+        app = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"
+        self.assertEqual(w.plan([app])["needs_build"], [app])
+        self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiShellShootKit/UiShellShootKit.swift"])["swift"],
+                         list(w.SHELL_SCENES))
+
+    def test_the_settings_window_and_cloud_ui_shoot_their_own_hosts(self):
+        settings = "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/CustomizationsMenu.swift"
+        cloud = "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudMoveStrings.swift"
+        self.assertEqual(w.plan([settings])["swift"], ["density-overlay"])
+        self.assertEqual(w.plan([cloud])["swift"], ["env-secrets"])
+        self.assertEqual(w.HEAVY_SCENES["density-overlay"], "cmux-ui-settings")
+        self.assertEqual(w.HEAVY_SCENES["env-secrets"], "cmux-ui-cloud")
+        self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiCloudHost/UiCloudHostMain.swift"])["swift"],
+                         ["env-secrets"])
+
+    def test_the_screen_map_names_each_unmapped_file(self):
+        app = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"
+        got = w.screen_map([app, "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/X.swift", "webviews/src/a.ts",
+                            "README.md"])
+        self.assertEqual(got, {app: "needs_build", "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/X.swift": ["tabs"],
+                               "webviews/src/a.ts": "web"})
+
+    def test_every_heavy_scene_has_a_host_and_a_module(self):
+        drawn = {s for scenes in w.SWIFT_SCENES.values() for s in scenes}
+        self.assertEqual(set(w.HEAVY_SCENES) - drawn, set())
+        manifest = (ROOT / w.SHELL_PACKAGE / "Package.swift").read_text()
+        for product in set(w.HEAVY_SCENES.values()) | {w.SHELL_PRODUCT}:
+            self.assertIn(f'"{product}"', manifest)
+        for target in w.HEAVY_HOST_SOURCES:
+            self.assertTrue((ROOT / w.SHELL_PACKAGE / "Sources" / target).is_dir(), target)
 
     def test_swift_outside_the_shell_needs_a_build(self):
-        p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"])
-        self.assertEqual(p["needs_build"], ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"])
+        f = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneActAsMeCard.swift"
+        self.assertEqual(w.plan([f])["needs_build"], [f])
         self.assertEqual(w.plan(["Packages/macOS/CmuxNext/Package.swift"])["needs_build"],
                          ["Packages/macOS/CmuxNext/Package.swift"])
 
@@ -140,6 +179,46 @@ class FakeWorker(w.Worker):
         return {s: f"{s}.png" for s in scenes}
 
 
+class HeavyHostTests(unittest.TestCase):
+    def test_scenes_shoot_by_their_host_and_only_heavy_hosts_build_here(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            built, shot = [], []
+            worker.build_shell = lambda cold=False, product=w.SHELL_PRODUCT: built.append(product)
+
+            def shoot_product(product, scenes, out):
+                shot.append((product, scenes))
+                out.mkdir(parents=True)
+                for s in scenes:
+                    (out / f"{s}.png").write_bytes(b"png")
+                return {s: f"{s}.png" for s in scenes}
+            worker.shoot_product = shoot_product
+            out = Path(tmp) / "out"
+            got = worker.shoot_shell(["tabs", "chief-teleport"], out)
+            self.assertEqual(got, {"tabs": "tabs.png", "chief-teleport": "chief-teleport.png"})
+            self.assertEqual(sorted(p.name for p in out.iterdir()), sorted(got.values()))
+            self.assertEqual(built, ["cmux-ui-home"])  # the leaf shell is the caller's build
+            self.assertEqual(shot, [("cmux-ui-layer", ["tabs"]), ("cmux-ui-home", ["chief-teleport"])])
+
+    def test_a_failed_heavy_host_keeps_the_other_scenes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+
+            def build(cold=False, product=w.SHELL_PRODUCT):
+                raise w.LookError(f"{product} failed")
+            worker.build_shell = build
+
+            def shoot_product(product, scenes, out):
+                out.mkdir(parents=True)
+                for s in scenes:
+                    (out / f"{s}.png").write_bytes(b"png")
+                return {s: f"{s}.png" for s in scenes}
+            worker.shoot_product = shoot_product
+            self.assertEqual(worker.shoot_shell(["tabs", "chief-teleport"], Path(tmp) / "o"), {"tabs": "tabs.png"})
+            with self.assertRaisesRegex(w.LookError, "cmux-ui-home failed"):
+                worker.shoot_shell(["chief-teleport"], Path(tmp) / "o2")
+
+
 class LookTests(unittest.TestCase):
     def test_a_swift_look_posts_and_caches_the_before_by_commit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,7 +256,7 @@ class LookTests(unittest.TestCase):
     def test_a_needs_build_change_says_so_and_builds_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
-            receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
+            receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]))
             self.assertIn("needs an app build", receipt["error"])
             self.assertEqual(worker.shot, [])
 
@@ -207,6 +286,202 @@ class LookTests(unittest.TestCase):
             self.assertEqual(worker.shot, [])
             self.assertIn("shoots web scenes only", receipt["error"])
 
+
+class WarmBeforeTests(unittest.TestCase):
+    """shadow-leo: "keep warm per-screen baselines refreshed on merge, re-render only mapped screens"."""
+
+    def test_a_warmed_base_makes_the_look_shoot_the_head_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = True
+            done = worker.warm_base(BASE, lambda: False)
+            self.assertEqual(done["shot"], list(w.ALL_SWIFT_SCENES))
+            worker.shot.clear()
+            receipt = worker.look(request())
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual(worker.shot, [HEAD])
+            self.assertEqual(receipt["before_cached"], {"swift": True})
+            self.assertIn("before_s", receipt)
+            [row] = json.loads(worker.receipts_path.read_text())["receipts"]
+            self.assertEqual(row["before_cached"], {"swift": True})
+
+    def test_an_unwarmed_base_is_shot_by_the_look(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            receipt = worker.look(request())
+            self.assertEqual(worker.shot, [BASE, HEAD])
+            self.assertEqual(receipt["before_cached"], {"swift": False})
+            self.assertGreaterEqual(receipt["before_s"], 0)
+
+    def test_the_last_eight_warmed_tips_stay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = True
+            tips = [f"{i:x}" * 40 for i in range(9)]
+            for tip in tips:
+                worker.warm_base(tip, lambda: False)
+            self.assertEqual(worker.warm_tips(), tips[::-1][:w.BASE_TIPS_KEPT])
+            shots = Path(tmp) / "shots" / "swift"
+            self.assertFalse((shots / tips[0]).exists())
+            self.assertTrue((shots / tips[1]).exists())
+            self.assertEqual(len([d for d in shots.iterdir() if d.is_dir()]), 8)
+
+    def test_a_queued_push_stops_the_warm_between_scenes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = True
+            jobs = queue.Queue()
+            real = worker.swift_side
+
+            def side(sha, scenes, branch=None):
+                out = real(sha, scenes, branch)
+                jobs.put((request(), 0.0))  # a push lands while the first scene shoots
+                return out
+            worker.swift_side = side
+            done = worker.warm_base(BASE, lambda: jobs.unfinished_tasks > 0)
+            self.assertTrue(done["stopped"])
+            self.assertEqual(done["shot"], [w.ALL_SWIFT_SCENES[0]])
+            self.assertEqual(worker.warm_tips(), [])  # unfinished: the next poll goes on
+            jobs.get()
+            jobs.task_done()
+            worker.swift_side = real
+            done = worker.warm_base(BASE, lambda: jobs.unfinished_tasks > 0)
+            self.assertEqual(done["shot"], list(w.ALL_SWIFT_SCENES[1:]))
+            self.assertEqual(worker.warm_tips(), [BASE])
+
+
+class SwiftPeerTests(unittest.TestCase):
+    """serve --no-swift --swift-peer URL: a web worker on a broker VM hands its Swift scenes to a display Mac's serve
+    (POST /shoot), so the Mac needs no broker and a Swift push is not a miss."""
+
+    def serve_mac(self, tmp: Path):
+        mac = FakeWorker(tmp / "mac")
+        server = w.http.server.ThreadingHTTPServer(("127.0.0.1", 0), w.make_handler(mac, w.queue.Queue()))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return mac, f"http://127.0.0.1:{server.server_address[1]}"
+
+    def test_a_web_worker_posts_a_swift_look_its_peer_shot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mac, url = self.serve_mac(Path(tmp))
+            web = FakeWorker(Path(tmp) / "web")
+            web.swift_on, web.swift_peer = False, url
+            receipt = web.look(request())
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual(mac.shot, [BASE, HEAD])
+            [scene] = receipt["scenes"]
+            self.assertEqual(scene["scene"], "tabs")
+            self.assertTrue(scene["changed"])
+            # The web worker caches the peer's shots by commit like its own: a second look asks the Mac nothing.
+            mac.shot.clear()
+            web.look(request())
+            self.assertEqual(mac.shot, [])
+
+    def test_a_web_worker_with_a_peer_takes_swift_only_requests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on, worker.swift_peer = False, "http://127.0.0.1:9"
+            jobs = w.queue.Queue()
+            answer = {"seq": 42, "requests": [dict(request(), seq=42)]}
+            self.assertEqual(w.follow_once(worker, jobs, 41, lambda tool, args, timeout: answer), 42)
+            self.assertFalse(jobs.empty())
+
+    def test_a_peer_that_does_not_answer_is_named_in_the_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web = FakeWorker(Path(tmp))
+            web.swift_on, web.swift_peer = False, "http://127.0.0.1:9"
+            receipt = web.look(request())
+            self.assertIsNone(receipt["posted_at"])
+            self.assertIn("the Swift peer http://127.0.0.1:9 did not answer", receipt["error"])
+
+    def test_the_mac_refuses_a_bad_ask_and_a_web_only_mac_says_so(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mac = FakeWorker(Path(tmp))
+            for ask, why in (({"sha": "x", "scenes": ["tabs"]}, "40 hex"),
+                             ({"sha": HEAD, "scenes": ["../etc"]}, "scenes must be"),
+                             ({"sha": HEAD, "scenes": ["tabs"], "branch": "a b"}, "plain branch")):
+                with self.assertRaisesRegex(w.LookError, why):
+                    mac.peer_answer(ask)
+            mac.swift_on = False
+            with self.assertRaisesRegex(w.LookError, "web scenes only"):
+                mac.peer_answer({"sha": HEAD, "scenes": ["tabs"]})
+            self.assertEqual(mac.shot, [])
+
+
+
+class SwiftPullTests(unittest.TestCase):
+    """serve --no-swift --swift-pull: the ACL lets a lane VM reach a fleet Mac only on SSH, so the Mac's `pull`
+    takes the web worker's Swift asks over its own outbound connection (GET /swift/next, POST /swift/result/ID)."""
+
+    def serve_web(self, tmp: Path):
+        web = FakeWorker(tmp / "web")
+        web.swift_on, web.swift_peer = False, w.PULL
+        server = w.http.server.ThreadingHTTPServer(("127.0.0.1", 0), w.make_handler(web, w.queue.Queue()))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return web, f"http://127.0.0.1:{server.server_address[1]}"
+
+    def test_a_pulling_mac_shoots_the_web_workers_swift_look(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web, url = self.serve_web(Path(tmp))
+            mac = FakeWorker(Path(tmp) / "mac")
+            stop = threading.Event()
+            self.addCleanup(stop.set)
+            threading.Thread(target=w.pull_from, args=(mac, url, stop), daemon=True).start()
+            deadline = time.monotonic() + 10
+            while not web.pulls.polled_at and time.monotonic() < deadline:
+                time.sleep(0.02)
+            receipt = web.look(request())
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual(sorted(mac.shot), sorted([BASE, HEAD]))
+            [scene] = receipt["scenes"]
+            self.assertEqual(scene["scene"], "tabs")
+            self.assertTrue(scene["changed"])
+            self.assertEqual(web.pulls.answers, {})
+            self.assertEqual(web.pulls.waiting, [])
+
+    def test_no_pulling_mac_fails_at_once_and_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web = FakeWorker(Path(tmp))
+            web.swift_on, web.swift_peer = False, w.PULL
+            started = time.monotonic()
+            receipt = web.look(request())
+            self.assertLess(time.monotonic() - started, 5)
+            self.assertIsNone(receipt["posted_at"])
+            self.assertIn("no display Mac has pulled a Swift job", receipt["error"])
+
+    def test_a_result_is_taken_only_for_a_job_still_waiting(self):
+        pulls = w.SwiftPulls()
+        self.assertFalse(pulls.answer("0" * 32, {"shots": {}}))
+        pulls.polled_at = time.monotonic()
+        got = {}
+        t = threading.Thread(target=lambda: got.update(pulls.ask({"sha": HEAD, "scenes": ["tabs"]}, timeout=5)))
+        t.start()
+        job = pulls.next(timeout=5)
+        self.assertEqual(job["sha"], HEAD)
+        self.assertTrue(pulls.answer(job["id"], {"sha": HEAD, "shots": {"tabs": "eA=="}}))
+        t.join(5)
+        self.assertEqual(got["shots"], {"tabs": "eA=="})
+        self.assertFalse(pulls.answer(job["id"], {"shots": {}}))  # answered once; its ask is gone
+        self.assertIsNone(pulls.next(timeout=0.05))
+
+    def test_a_mac_that_takes_a_job_and_never_answers_times_out(self):
+        pulls = w.SwiftPulls()
+        pulls.polled_at = time.monotonic()
+        threading.Thread(target=lambda: pulls.next(timeout=5), daemon=True).start()
+        with self.assertRaisesRegex(w.LookError, "did not answer in 0 s"):
+            pulls.ask({"sha": HEAD, "scenes": ["tabs"]}, timeout=0.3)
+        self.assertEqual(pulls.answers, {})
+
+    def test_a_serve_without_pull_has_no_job_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web, url = self.serve_web(Path(tmp))
+            web.swift_peer = ""
+            with self.assertRaises(w.urllib.error.HTTPError) as err:
+                w.urllib.request.urlopen(url + "/swift/next", timeout=5)
+            self.assertEqual(err.exception.code, 404)
 
 class FollowTests(unittest.TestCase):
     """serve --follow: the broker's push trigger (lane-gh call ui_preview_requests) feeds the jobs queue."""
@@ -263,7 +538,121 @@ class FollowTests(unittest.TestCase):
             with self.assertRaises(w.LookError):
                 w.lane_gh_call("state_put", {"name": "now-census"}, 5, repo="manaflow-ai/cmuxterm-hq")
         self.assertEqual(ran[0][:3], ["lane-gh", "call", "ui_preview_requests"])
-        self.assertEqual(ran[1][3], "manaflow-ai/cmuxterm-hq")
+        self.assertEqual(ran[1][3:], ["manaflow-ai/cmuxterm-hq", "-"])
+
+    def test_a_state_put_that_wrote_its_commit_201_is_a_success(self):
+        # 2026-11-27: state_put answers 201 with the commit it wrote; read as a refusal, every census publish that
+        # landed logged "publish exited 1".
+        from unittest import mock
+        body = {"ok": True, "status": 201, "data": {"name": "now-census", "changed": True, "commit": "fcf0949"}}
+        with mock.patch.object(w.subprocess, "run",
+                               lambda argv, **kw: mock.Mock(returncode=0, stdout=json.dumps(body), stderr="")):
+            self.assertEqual(w.lane_gh_call("state_put", {"name": "now-census"}, 5, repo="manaflow-ai/cmuxterm-hq"),
+                             body["data"])
+
+    def test_a_host_taking_the_lease_over_posts_nothing_its_predecessor_had(self):
+        # Host A led and posted 7614..7616; host B, last leading at 7613, takes the lease over and resumes there.
+        with tempfile.TemporaryDirectory() as tmp:
+            b = FakeWorker(Path(tmp))
+            b.host = "preview-b"
+            ago = lambda s: (b.started_at - w.dt.timedelta(seconds=s)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+            web = ["webviews/src/a.tsx"]
+            posted = [dict(request(head_sha=f"{n:040x}", ui_files=web, pushed_at=ago(7620 - n + 900)), seq=n)
+                      for n in (7614, 7615, 7616)]
+            in_flight = dict(request(head_sha=f"{7617:040x}", ui_files=web, pushed_at=ago(30)), seq=7617)
+            jobs = w.queue.Queue()
+            a_doc = {"schema": w.SCHEMA_RECEIPT, "host": "preview-a",
+                     "receipts": [dict(repo=r["repo"], head_sha=r["head_sha"], pushed_at=r["pushed_at"],
+                                       posted_at=w.utc_now()) for r in posted]}
+            calls, call = self.census({"seq": 7617, "requests": [*posted, in_flight]}, {"preview-a.json": a_doc})
+            lines, real = [], w.log
+            w.log = lines.append
+            try:
+                self.assertEqual(w.follow_once(b, jobs, 7613, call), 7617)
+            finally:
+                w.log = real
+            req, _ = jobs.get_nowait()
+            self.assertEqual(req["head_sha"], f"{7617:040x}")  # pushed as A stopped: may never have been posted
+            self.assertTrue(jobs.empty())
+            self.assertFalse(b.receipts_path.exists())  # A's receipts stand: B writes none for A's pushes
+            self.assertEqual(sum("its predecessor's, not posted again" in x for x in lines), 3, lines)
+            self.assertEqual(sum(c[0] == "get" for c in calls), 2)  # one listing, one blob: once per takeover
+
+    def census(self, answer, files):
+        """A broker answering ui_preview_requests with ANSWER and `get` with the census folder holding FILES."""
+        import base64
+        calls, blobs = [], {}
+        listing = []
+        for name, doc in files.items():
+            text = json.dumps(doc)
+            sha = f"{len(blobs):040x}"
+            blobs[sha] = base64.b64encode(text.encode()).decode()
+            listing.append({"name": name, "sha": sha, "size": len(text)})
+        listing.append({"name": "trigger-host.json", "sha": "f" * 40, "size": w.PUBLISH_MAX + 1})
+
+        def call(tool, args, timeout, repo=None, whole=False):
+            calls.append((tool, args))
+            if tool == "get" and args["path"] == "contents/ui-preview":
+                return listing
+            if tool == "get":
+                return {"content": blobs[args["path"].rsplit("/", 1)[1]], "encoding": "base64"}
+            return answer
+
+        return calls, call
+
+    def test_a_host_taking_the_lease_over_posts_what_its_predecessor_never_answered(self):
+        # 2026-11-27 03:48-04:19Z: A was restarted mid-backlog, so B took over requests A never posted; the time
+        # cutoff alone dropped them all as "its predecessor's". Only the ones a poster answered are skipped now.
+        with tempfile.TemporaryDirectory() as tmp:
+            b = FakeWorker(Path(tmp))
+            b.host = "preview-b"
+            ago = lambda s: (b.started_at - w.dt.timedelta(seconds=s)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+            web = ["webviews/src/a.tsx"]
+            reqs = [dict(request(head_sha=f"{n:040x}", ui_files=web, pushed_at=ago(600)), seq=n)
+                    for n in (7710, 7711, 7712, 7713)]
+            a_doc = {"schema": w.SCHEMA_RECEIPT, "host": "preview-a", "receipts": [
+                dict(repo=reqs[0]["repo"], head_sha=reqs[0]["head_sha"], posted_at=w.utc_now()),
+                dict(repo=reqs[1]["repo"], head_sha=reqs[1]["head_sha"], posted_at=None, error="no scene"),
+                dict(repo=reqs[2]["repo"], head_sha=reqs[2]["head_sha"], posted_at=None)]}  # started, never ended
+            jobs = w.queue.Queue()
+            _, call = self.census({"seq": 7713, "requests": reqs}, {"preview-a.json": a_doc})
+            self.assertEqual(w.follow_once(b, jobs, 7709, call), 7713)
+            taken = []
+            while not jobs.empty():
+                taken.append(jobs.get_nowait()[0]["head_sha"])
+            self.assertEqual(taken, [f"{7712:040x}", f"{7713:040x}"])
+
+    def test_an_unreadable_census_falls_back_to_the_time_cutoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            b = FakeWorker(Path(tmp))
+            ago = lambda s: (b.started_at - w.dt.timedelta(seconds=s)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+            old = dict(request(ui_files=["webviews/src/a.tsx"], pushed_at=ago(600)), seq=7710)
+
+            def call(tool, args, timeout, repo=None, whole=False):
+                if tool == "get":
+                    raise w.LookError("lane-gh call get exited 1: refused")
+                return {"seq": 7710, "requests": [old]}
+
+            jobs = w.queue.Queue()
+            self.assertEqual(w.follow_once(b, jobs, 7709, call), 7710)
+            self.assertTrue(jobs.empty())
+
+    def test_state_put_carries_its_json_on_stdin_not_argv(self):
+        # 2026-11-27: a 768 KiB census copy in one argv string failed E2BIG (128 KiB per string on Linux).
+        from unittest import mock
+        ran = []
+
+        def fake(argv, **kw):
+            ran.append((argv, kw.get("input")))
+            return mock.Mock(returncode=0, stdout=json.dumps({"status": 200, "data": {}}), stderr="")
+
+        big = {"name": "now-census", "files": {"ui-preview/h.json": "x" * (700 << 10)}}
+        with mock.patch.object(w.subprocess, "run", fake):
+            w.lane_gh_call("state_put", big, 5, repo="manaflow-ai/cmuxterm-hq")
+        argv, stdin = ran[0]
+        self.assertEqual(argv, ["lane-gh", "call", "state_put", "manaflow-ai/cmuxterm-hq", "-"])
+        self.assertEqual(json.loads(stdin), big)
+        self.assertLess(max(map(len, argv)), 128 << 10)
 
     def test_a_reset_broker_queue_restarts_at_its_newest(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -334,7 +723,7 @@ class SpeedTests(unittest.TestCase):
             worker = FakeWorker(Path(tmp))
             jobs = w.queue.Queue()
             web = dict(request(ui_files=["webviews/src/a.tsx"]), seq=42)
-            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]),
+            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]),
                        seq=43)
             tests_only = dict(request(head_sha="e" * 40, ui_files=["Packages/macOS/CmuxNext/Tests/T.swift"]), seq=44)
             _, call = FollowTests().broker({"seq": 44, "requests": [web, app, tests_only]})
@@ -352,7 +741,7 @@ class SpeedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
             receipt = worker.look(request(ui_files=["webviews/src/a.tsx",
-                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
+                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/A.swift"]))
             self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
             self.assertEqual([s["scene"] for s in receipt["scenes"]], ["entry.a"])
             self.assertIn("needs an app build", receipt["error"])
@@ -684,6 +1073,188 @@ class ColdSideTests(unittest.TestCase):
             self.assertEqual(w.prune_transforms(folder, cap_mb=1), 5)  # down to 3/4 MB: the 5 oldest go
             self.assertEqual(sorted(p.name for p in folder.rglob("*.json")), ["5.json", "6.json", "7.json"])
             self.assertEqual(w.prune_transforms(Path(tmp) / "absent"), 0)
+
+
+LOOK = "http://100.64.0.1:8765/looks/" + "f" * 32 + "/"
+
+
+class PublishTests(unittest.TestCase):
+    """The census copy goes through the broker's state_put, which refuses a file over 1 MiB: the local file passed it
+    on 2026-11-26 (1.4 MB) and NOW read a copy 12 h old, 3 covered of 2203 pushes."""
+
+    def receipt(self, n: int, pushed: "w.dt.datetime") -> dict:
+        at = pushed.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {"repo": "manaflow-ai/cmux", "head_sha": f"{n:040x}", "base_sha": BASE, "branch": f"lane/x{n}",
+                "pushed_at": at, "ui_files": ["webviews/src/a.tsx"], "recipient": "lane-x", "posted_at": at,
+                "scenes": [{"scene": "agent-pane.x", "kind": "web", "before": f"{LOOK}before/web-agent-pane.x.png",
+                            "after": f"{LOOK}after/web-agent-pane.x.png", "changed": True,
+                            "before_path": "/tmp/b.png"}],
+                "plan": {"web": True, "needs_build": [], "swift": [], "nothing": []}, "look": "f" * 32,
+                "web_entries": [f"agent-pane.e{i}" for i in range(20)], "stages": {"fetch": 1.0, "web_after": 9.0},
+                "error": "x" * 2000}
+
+    def test_a_full_receipts_file_publishes_under_the_cap_newest_kept(self):
+        now = w.dt.datetime(2026, 11, 26, 23, 30, tzinfo=w.dt.timezone.utc)
+        rows = [self.receipt(n, now - w.dt.timedelta(minutes=2 * (3000 - n))) for n in range(3000)]  # 100 h of pushes
+        doc = {"schema": "ui-preview/v1", "host": "h", "at": "2026-11-26T23:30:00Z", "receipts": rows}
+        self.assertGreater(len(json.dumps(doc, indent=1)), 4 << 20)
+        text = w.publish_doc(doc, now)
+        self.assertLessEqual(len(text.encode()), w.PUBLISH_MAX)
+        out = json.loads(text)
+        self.assertEqual(out["schema"], "ui-preview/v1")
+        got = out["receipts"]
+        self.assertEqual(got[-1]["head_sha"], f"{2999:040x}", "the newest receipt is kept")
+        oldest = min(w.parse_ts(r["pushed_at"]) for r in got)
+        self.assertGreaterEqual(oldest, now - w.dt.timedelta(hours=w.PUBLISH_WINDOW_H))
+        self.assertEqual(len(got), 25 * 30, "every receipt in the window fits once its look detail is left out")
+        self.assertLess(len(text.encode()) / len(got), 700, "a busy host's day (about 1000 pushes) fits under the cap")
+        row = got[-1]
+        # What NOW's covered_seconds reads stays; the look's detail does not.
+        for key in ("repo", "head_sha", "pushed_at", "ui_files", "recipient", "posted_at"):
+            self.assertIn(key, row)
+        self.assertEqual(row["look_base"], LOOK)
+        self.assertEqual(row["scenes"], [{"scene": "agent-pane.x", "kind": "web",
+                                          "before": "before/web-agent-pane.x.png",
+                                          "after": "after/web-agent-pane.x.png"}])
+        for key in ("stages", "plan", "web_entries", "look", "base_sha"):
+            self.assertNotIn(key, row)
+        self.assertLessEqual(len(row["error"]), 200)
+        wide = dict(rows[-1], ui_files=[f"webviews/src/f{i}.tsx" for i in range(900)])
+        one = json.loads(w.publish_doc(dict(doc, receipts=[wide]), now))["receipts"][0]
+        self.assertEqual((len(one["ui_files"]), one["ui_files_n"]), (w.PUBLISH_FILES, 900))
+        small = w.publish_doc(doc, now, limit=50_000)
+        self.assertLessEqual(len(small.encode()), 50_000)
+        self.assertEqual(json.loads(small)["receipts"][-1]["head_sha"], f"{2999:040x}")
+        with self.assertRaises(ValueError):
+            w.publish_doc({"schema": "other"}, now)
+
+    def test_a_refused_publish_is_logged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            refuse = Path(tmp) / "refuse.py"
+            refuse.write_text("import sys\nsys.exit('refused: over STATE_MAX')\n")
+            worker.publish_template = f"{sys.executable} {refuse} {{file}} {{host}}"
+            lines = []
+            real = w.log
+            w.log = lines.append
+            try:
+                w.Worker.publish_now(worker)
+            finally:
+                w.log = real
+            self.assertTrue(any("publish exited 1" in x and "STATE_MAX" in x for x in lines), lines)
+
+
+class SendTests(unittest.TestCase):
+    """A post names the pushing session HOST/NAME: a bare NAME's fleet lookup refuses while any machine is unread."""
+
+    def test_a_bare_recipient_goes_to_its_host_first(self):
+        self.assertEqual(w.send_targets(request(recipient="lane-x", recipient_host="fs-agent-lane-1")),
+                         ["fs-agent-lane-1/lane-x", "lane-x"])
+        self.assertEqual(w.send_targets(request()), ["gcp-agent-lane-12/lane-x"])
+        self.assertEqual(w.send_targets(request(recipient="lane-x", recipient_host=None)), ["lane-x"])
+
+    def fake_send(self, tmp: str, refuse: set) -> str:
+        script = Path(tmp) / "send.sh"
+        log = Path(tmp) / "sent.log"
+        script.write_text("#!/bin/sh\ncat >/dev/null\necho \"$1\" >> %s\n" % log
+                          + "".join(f'[ "$1" = "{r}" ] && {{ echo "lane-gh send: a report reads faster with its '
+                                    f'state: add --state" >&2; echo "lane-gh: send: no session named \'{r}\'" >&2;'
+                                    f' exit 1; }}\n' for r in refuse) + "exit 0\n")
+        script.chmod(0o755)
+        return f"{script} {{recipient}}"
+
+    def test_a_moved_session_falls_back_to_the_bare_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, self.fake_send(tmp, {"h1/lane-x"}), None, host="t")
+            w.SEND_RETRY_S, keep = 0, w.SEND_RETRY_S
+            try:
+                self.assertEqual(worker.send(["h1/lane-x", "lane-x"], "hi\n"), "lane-x")
+            finally:
+                w.SEND_RETRY_S = keep
+            self.assertEqual((Path(tmp) / "sent.log").read_text().split(), ["h1/lane-x", "lane-x"])
+
+    def test_a_refusal_names_the_refusal_not_the_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, self.fake_send(tmp, {"lane-x"}), None, host="t")
+            with self.assertRaises(w.LookError) as caught:
+                worker.send(["lane-x"], "hi\n")
+            self.assertIn("no session named 'lane-x'", str(caught.exception))
+            self.assertNotIn("reads faster", str(caught.exception))
+
+
+class ErrorNoteTests(unittest.TestCase):
+    """A push whose own code stops touched.ts gets a note saying why, not silence; posted_at stays null."""
+
+    def worker(self, tmp: str, why: str) -> FakeWorker:
+        worker = FakeWorker(Path(tmp))
+
+        def scenes(files):
+            raise w.LookError(why)
+
+        def gallery_for(sha, avoid=()):
+            g = worker.web
+            g.install = lambda: False
+            g.scenes = scenes
+            return g
+
+        worker.gallery_for = gallery_for
+        return worker
+
+    def test_a_pushers_load_error_is_posted_to_the_pusher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = self.worker(tmp, "touched.ts exited 1: SyntaxError: 'x' has already been declared")
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertIsNone(receipt["posted_at"])
+            self.assertIsNotNone(receipt["error_posted_at"])
+            [sent] = list((Path(tmp) / "outbox").iterdir())
+            self.assertIn("already been declared", sent.read_text())
+            [row] = json.loads(worker.receipts_path.read_text())["receipts"]
+            self.assertIsNotNone(row["error_posted_at"])
+
+    def test_a_workers_own_failure_is_not_posted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = self.worker(tmp, "gallery:dev did not answer in 90 s")
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertNotIn("error_posted_at", receipt)
+            self.assertFalse((Path(tmp) / "outbox").exists())
+
+
+class StringsTests(unittest.TestCase):
+    """generated/strings.json is gitignored postinstall output: a new catalog on an unchanged lockfile regenerates it."""
+
+    def test_a_changed_catalog_reruns_gen_strings_without_bun_install(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp) / "tree"
+            (tree / "webviews" / "node_modules").mkdir(parents=True)
+            (tree / "webviews" / "src" / "a").mkdir(parents=True)
+            (tree / "bun.lock").write_text("lock\n")
+            (tree / "webviews" / "src" / "a" / "Localizable.xcstrings").write_text("{}\n")
+            for argv in (["init", "-q"], ["add", "-A"], ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "a"]):
+                subprocess.run(["git", "-C", str(tree), *argv], check=True)
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            worker.bun = lambda: "bun"
+            g = w.Gallery(worker, tree, 0, "web")
+            calls, real = [], w.run
+
+            def fake_run(argv, *a, **k):
+                if argv[0] == "git":
+                    return real(argv, *a, **k)
+                calls.append(argv[1])
+                return ""
+
+            w.run = fake_run
+            try:
+                self.assertTrue(g.install())  # first: bun install (its postinstall writes the tables)
+                self.assertFalse(g.install())  # nothing changed: nothing runs
+                (tree / "webviews" / "src" / "b").mkdir()
+                (tree / "webviews" / "src" / "b" / "Localizable.xcstrings").write_text("{}\n")
+                subprocess.run(["git", "-C", str(tree), "add", "-A"], check=True)
+                subprocess.run(["git", "-C", str(tree), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "b"],
+                               check=True)
+                self.assertFalse(g.install())  # a new catalog, same lockfile: gen-strings only
+            finally:
+                w.run = real
+            self.assertEqual(calls, ["install", w.STRINGS_GENERATOR])
 
 
 if __name__ == "__main__":

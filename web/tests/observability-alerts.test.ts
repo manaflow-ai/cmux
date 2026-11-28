@@ -17,6 +17,8 @@ function fakeAlertDb(): ReturnType<typeof cloudDb> {
   return {
     select: () => ({
       from: () => ({
+        // recentHungEvidence reads the newest health snapshot without a where.
+        orderBy: () => ({ limit: async () => [] }),
         where: () => {
           queryNumber += 1;
           const rows = queryNumber === 1

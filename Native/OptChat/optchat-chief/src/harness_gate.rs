@@ -178,6 +178,42 @@ fn admitted(requested: &str, a: cmux_chief::policy::harness::Admission) -> Admit
     }
 }
 
+/// Whether `reason` says the agent is not installed on this Mac (acpmux has no harness for it):
+/// the Set Up card's case, which it already shows with an Install button.
+pub fn harness_missing(reason: &str) -> bool {
+    let lower = reason.to_ascii_lowercase();
+    lower.contains("has no harness named") || lower.contains("acpmux has none")
+}
+
+/// The harness a ``harness_missing`` `reason` says acpmux lacks: the route that asked for one
+/// (`claude asks for one running `claude`; acpmux has none`), else the name after `has no harness
+/// named`. None for any other reason.
+pub fn missing_harness(reason: &str) -> Option<&str> {
+    if !harness_missing(reason) {
+        return None;
+    }
+    fn name(s: &str) -> Option<&str> {
+        let end = s
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+            .unwrap_or(s.len());
+        Some(&s[..end]).filter(|w| !w.is_empty())
+    }
+    if let Some((before, _)) = reason.split_once(" asks for one running ") {
+        return before.rsplit(char::is_whitespace).next().and_then(name);
+    }
+    reason
+        .split_once("has no harness named ")
+        .and_then(|(_, after)| name(after))
+}
+
+/// Whether `reason` says the harness the Chief's turns run on (`turn_harness`) is missing: the Set
+/// Up card's case, which shows it with an Install button, and the turn's own refusal says so. A
+/// compactor or line that needs another, missing agent (a Codex Chief that compacts on Claude Code)
+/// is no card's to show, so its memory notice stays (review of the first-run fixes).
+pub fn turn_agent_missing(reason: &str, turn_harness: &str) -> bool {
+    missing_harness(reason) == Some(turn_harness)
+}
+
 /// The text the Chief gives for a refused turn: plain sentences a person can act on, never the
 /// parts it is built from (first-run findings row 1: a fresh Mac's first reply named acpmux,
 /// claude-stdio, the CodeRouter CLI and `sr claude proxy`). `reason` stays in the host log and the
@@ -194,7 +230,7 @@ pub fn refusal(reason: &str) -> String {
     } else {
         None
     };
-    let missing = lower.contains("has no harness named") || lower.contains("acpmux has none");
+    let missing = harness_missing(reason);
     let (what, fix) = match (agent, missing) {
         (Some(agent), true) => (
             format!("Chief answers through {agent}, which is not on this Mac yet."),
@@ -336,7 +372,7 @@ pub fn plan(answer: &Value, requested: &str) -> Plan {
 
 #[cfg(test)]
 mod refusal_text_tests {
-    use super::refusal;
+    use super::{missing_harness, refusal, turn_agent_missing};
 
     /// Words a person must never see in Chief's reply: the parts it is built from.
     const INTERNAL: [&str; 9] = [
@@ -370,6 +406,26 @@ mod refusal_text_tests {
         assert!(shown.contains("Claude Code"), "{shown}");
         assert!(shown.contains("Install"), "{shown}");
         assert!(shown.contains("Set Up"), "{shown}");
+    }
+
+    /// The missing harness a reason names: the route that asked, else the name acpmux lacks; the
+    /// memory notice is quiet only when it is the turns' own (review of the first-run fixes).
+    #[test]
+    fn a_missing_harness_is_named_and_matched_against_the_turns() {
+        let route = "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux has no harness named claude";
+        assert_eq!(missing_harness(route), Some("claude"));
+        assert_eq!(
+            missing_harness("acpmux has no harness named codex"),
+            Some("codex")
+        );
+        assert_eq!(
+            missing_harness("and claude-sr asks for one running sr; acpmux has none: x"),
+            Some("claude-sr")
+        );
+        assert_eq!(missing_harness("acpmux's claude-cr is unavailable"), None);
+        assert!(turn_agent_missing(route, "claude"));
+        assert!(!turn_agent_missing(route, "codex"));
+        assert!(!turn_agent_missing(route, "claude-sr"));
     }
 
     /// Every other refusal is plain too: an unavailable route, a Codex Chief with no Codex, a

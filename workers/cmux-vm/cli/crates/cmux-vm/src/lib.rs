@@ -395,7 +395,8 @@ struct ExecArgs {
     /// The values of `env_names`, read from the environment before the request (not a flag)
     #[arg(skip)]
     env_values: Vec<(String, String)>,
-    /// The command; several words are joined with spaces (put them after `--`)
+    /// The command (put it after `--`): one word is a shell line as written; several keep their
+    /// argv, each shell-quoted, so `-- sh -c 'cat > f'` runs as typed
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     command: Vec<String>,
 }
@@ -979,7 +980,7 @@ async fn dispatch(
             }))?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
-            let vm = fetch_body(client.vms_create_vm(Some(&key), None, &body))
+            let vm = fetch_body(client.vms_create_vm(Some(&key), None, None, None, &body))
                 .await
                 .map_err(|e| e.with_idempotency_hint(&key_text))?;
             if args.image.is_some() || args.public_egress || !args.egress_allow.is_empty() {
@@ -1132,7 +1133,7 @@ async fn dispatch(
             out.vm_list(&page)
         }
         Command::Start(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_start_vm(&vm_id, None))
+            let vm = fetch_body(client.vms_start_vm(&vm_id, None, None))
                 .await
                 .map_err(|e| e.for_vm(&vm_id, "start"))?;
             out.vm(&vm)
@@ -1164,13 +1165,13 @@ async fn dispatch(
             out.identity(&body)
         }
         Command::Stop(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_stop_vm(&vm_id, None))
+            let vm = fetch_body(client.vms_stop_vm(&vm_id, None, None))
                 .await
                 .map_err(|e| e.for_vm(&vm_id, "stop"))?;
             out.vm(&vm)
         }
         Command::Pause(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_pause_vm(&vm_id, None))
+            let vm = fetch_body(client.vms_pause_vm(&vm_id, None, None))
                 .await
                 .map_err(|e| e.for_vm(&vm_id, "pause"))?;
             out.vm(&vm)
@@ -1205,7 +1206,7 @@ async fn dispatch(
                 .map(|(name, value)| (name, Value::String(value)))
                 .collect();
             let body: types::ExecRequest = request_body(json!({
-                "command": args.command.join(" "),
+                "command": run::command_line(&args.command),
                 "timeoutMs": args.timeout_ms,
                 "env": (!env.is_empty()).then_some(env),
             }))?;
@@ -1215,7 +1216,7 @@ async fn dispatch(
             out.exec(&result)
         }
         Command::Resume(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_resume_vm(&vm_id, None))
+            let vm = fetch_body(client.vms_resume_vm(&vm_id, None, None))
                 .await
                 .map_err(|e| e.for_vm(&vm_id, "resume"))?;
             out.vm(&vm)

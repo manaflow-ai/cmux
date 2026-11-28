@@ -49,6 +49,10 @@ import Testing
         func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) { turnEnded = handler }
         func placeIdentity() -> CloudPlaceIdentity? { identity }
         func placeIdentityChangedReason() -> String { "account changed" }
+        /// No daemon in this test: Auto reads only its own signals.
+        func placeVerdict() async -> Data? { nil }
+        var shadow: [String] = []
+        func placeShadow(_ line: String) { shadow.append(line) }
     }
 
     private static func local(_ session: String) -> CloudPlaceChat {
@@ -149,6 +153,21 @@ import Testing
 
     /// A mode picked while the chat moves is refused and leaves the mode alone: Local picked while a local chat moves to
     /// Cloud never reads `mode: local, at: cloud` once the move lands (review of #52230 at 37033a59, F1).
+    /// Leo, 2026-11-27: "remember we need to be able to toggle a chat on and off of autocloud" and "we're not
+    /// putting autocloud as THE DEFAULT OPTION FOR EVERY SINGLE CHAT. IT JUST SIMPLY MUST BE AN OPTION."
+    @Test func offeredModesReachTheHeaderAndChangeNoDefault() throws {
+        let place = flows(Recorder())
+        let read = { (modes: [String]?) in
+            try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, modes: modes)
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        }
+        let offered = try read(["local", "auto"])
+        #expect(offered["modes"] as? [String] == ["local", "auto"])
+        // A chat nobody picked for stays Local: offering AutoCloud does not turn it on.
+        #expect(offered["mode"] as? String == "local")
+        #expect(try read(nil)["modes"] == nil)
+    }
+
     @Test func aModePickedMidMoveIsRefusedAndKeepsTheMode() {
         let recorder = Recorder(), host = Host()
         let place = flows(recorder)
@@ -207,6 +226,23 @@ import Testing
         for _ in 0..<50 { await Task.yield() }
         #expect(place.state(of: "t") == "failed")
         #expect(move(place, "t") != nil)
+    }
+
+    /// `cloud.place.get` reads the move's view after its card settled (the header's `move` went), and nothing for a chat
+    /// that never moved: the probe reads a landed move's step times.
+    @Test func aSettledMoveKeepsItsViewForTheProbe() async {
+        let recorder = Recorder()
+        let place = flows(recorder, liveLinger: .zero)
+        #expect(place.moveView(of: "s") == nil)
+        place.begin(session: "s", toCloud: true, trigger: .person, from: "Mac", to: "", cargo: .init())
+        place.step("s", "commit")
+        place.live("s")
+        place.finished("s")
+        for _ in 0..<1000 where move(place, "s") != nil { await Task.yield() }
+        #expect(move(place, "s") == nil)
+        let view = place.moveView(of: "s") as? [String: Any]
+        #expect(view?["state"] as? String == "live")
+        #expect(place.moveView(of: "other") == nil)
     }
 
     @Test func modesPersist() {

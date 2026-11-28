@@ -56,7 +56,10 @@ impl PairingError {
 impl fmt::Display for PairingError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::RateLimited => "too many pairing requests; try again later",
+            // retry-prompt-ok: a rate limit the person must wait out (5 a minute per address).
+            Self::RateLimited => {
+                "too many pairing requests from this address (5 a minute); try again in a minute"
+            }
             Self::AlreadyPending => "a pairing request from this address is already pending",
             Self::Busy => "too many pairing requests are pending",
             Self::RandomnessUnavailable => "secure randomness is unavailable",

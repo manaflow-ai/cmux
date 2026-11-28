@@ -245,6 +245,27 @@ pub(crate) const P_WAKE_OTHER: f64 = 0.65;
 /// A chat whose lanes or sub-sessions are at work: their reports wake it.
 pub(crate) const P_WAKE_DELEGATING: f64 = 0.9;
 
+/// The share of a wake that misses the cache, by tier: the saving is only on a cold wake, and a
+/// wake inside the cache's lifetime reads the uncompacted context warm, so a compaction then is
+/// all cost (its summary, then the compacted context written again). [`p_wake`] was measured
+/// over 55+ min idle stretches, but the reaper's early compaction
+/// ([`Hub::cache_compact_before_reap`]) fires at about 2 min idle. gcp-agent-lane-2, the 24 h to
+/// 2026-11-28 10:00Z (stretches of 20K+ context idle 2 min or more that ended in a wake): on a
+/// 1-hour cache 376 of 424 wakes came inside the hour and read 74% of their context warm, so a
+/// wake missed (48 x 0.85 + 376 x 0.26) / 424 = 0.33 of it; on a 5-minute cache 840 of 1,156
+/// came after the expiry (read share 0.23) and 316 inside it (0.92), so 0.58. Priced against no
+/// compaction over the same day, the 157 warm `/compact`s on 1-hour caches lost $13 (130 woke
+/// inside the hour) and the 245 on 5-minute caches saved $3; with these shares the rule skips
+/// 144 and 212 of them, and the kept ones are the ones that paid.
+pub(crate) const P_MISS_LONG: f64 = 0.33;
+/// The same for a 5-minute cache.
+pub(crate) const P_MISS_SHORT: f64 = 0.58;
+
+/// The share of a wake that misses a 1-hour (`long`) or 5-minute cache: [`P_MISS_LONG`].
+pub(crate) fn p_miss(long: bool) -> f64 {
+    if long { P_MISS_LONG } else { P_MISS_SHORT }
+}
+
 /// A model's prices as multiples of its input price: the cache write of the TTL the chat's cache
 /// uses, the cache read and the output (leo-workspace `machines/costs-watch.json` `token_rates`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -297,7 +318,7 @@ pub(crate) fn p_wake(coming: bool, delegating: bool, coordinator: bool) -> f64 {
 /// The context (tokens) under which a chat at `used` (tokens, window) no longer trips
 /// `threshold`: what surgery must reach to stand in for `/compact`.
 pub(crate) fn compact_line((_, size): (u64, u64), threshold: Threshold) -> u64 {
-    let share = (size > 0).then(|| (threshold.share * size as f64) as u64);
+    let share = (size > 0).then_some((threshold.share * size as f64) as u64);
     share.map_or(threshold.tokens, |share| share.min(threshold.tokens))
 }
 
@@ -479,7 +500,8 @@ impl Hub {
             let Some(left) = expires_ms.checked_sub(now_ms()).filter(|left| *left > 0) else {
                 return;
             };
-            let p = self.cache_compact_p_wake(session);
+            // P(cold wake): a wake that reads the cache warm saves nothing ([`p_miss`]).
+            let p = self.cache_compact_p_wake(session) * p_miss(long);
             // `long`: a 1-hour cache (its write 2x input), else a 5-minute one (1.25x).
             let model = session.applied.lock().unwrap_or_else(|e| e.into_inner()).model.clone();
             if !pays(used.0, p, Prices::of(model.as_deref(), long)) {

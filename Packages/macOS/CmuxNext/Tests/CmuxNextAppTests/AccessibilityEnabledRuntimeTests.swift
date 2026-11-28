@@ -12,8 +12,9 @@ import Testing
 ///
 /// Every custom NSAccessibilityElement in cmux's image (CmuxNext and the MessagesLab packages,
 /// all linked into this bundle) that implements an action must implement `isAccessibilityEnabled()`
-/// too. Views are out of scope: NSView and NSControl answer AXEnabled themselves
-/// (``pressableViewAnswersAXEnabled`` pins it).
+/// too. Views are out of scope for this element-only class walk: they can use AppKit's stored
+/// accessibility enabled state instead of an override (``pressableViewHonorsExplicitEnabledState``).
+/// Having a press action alone does not make an NSView enabled.
 @MainActor @Suite
 struct AccessibilityEnabledRuntimeTests {
     /// The NSAccessibility methods that give an element an action a client can perform.
@@ -88,21 +89,23 @@ struct AccessibilityEnabledRuntimeTests {
         #expect(!Self.isCustomElement(NSView.self))
     }
 
-    /// The premise that keeps views out of the walk: AppKit answers AXEnabled for an NSView that
-    /// takes a press, so only NSAccessibilityElement subclasses need the override. If this fails,
-    /// views need the same walk.
-    @Test func pressableViewAnswersAXEnabled() {
+    /// A custom view can supply its enabled state with AppKit's setter. A button role and press
+    /// action alone do not imply true, and a disabled view must continue to answer false.
+    @Test func pressableViewHonorsExplicitEnabledState() {
         let view = PressableViewFixture(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
         view.setAccessibilityElement(true)
         view.setAccessibilityRole(.button)
         view.setAccessibilityLabel("Fixture")
-        #expect(Self.attributeNames(of: view).contains(NSAccessibility.Attribute.enabled.rawValue))
+        view.setAccessibilityEnabled(true)
+        #expect(view.isAccessibilityEnabled())
+        view.setAccessibilityEnabled(false)
+        #expect(!view.isAccessibilityEnabled())
         let element = PressWithEnabledFixture()
         element.setAccessibilityRole(.button)
-        #expect(Self.attributeNames(of: element).contains(NSAccessibility.Attribute.enabled.rawValue))
+        #expect(element.isAccessibilityEnabled())
     }
 
-    /// A class whose AppKit ancestor is NSAccessibilityElement (not a view, which answers AXEnabled).
+    /// A class whose AppKit ancestor is NSAccessibilityElement (the class walk's scope).
     static func isCustomElement(_ cls: AnyClass) -> Bool {
         var next: AnyClass? = class_getSuperclass(cls)
         while let current = next {
@@ -136,29 +139,22 @@ struct AccessibilityEnabledRuntimeTests {
         }
         return selectors
     }
-
-    /// What an AX client reads as the element's attribute names (AXUIElementCopyAttributeNames).
-    private static func attributeNames(of object: NSObject) -> [String] {
-        let selector = NSSelectorFromString("accessibilityAttributeNames")
-        guard object.responds(to: selector), let value = object.perform(selector)?.takeUnretainedValue() else { return [] }
-        return (value as? [String]) ?? []
-    }
 }
 
-private class PressWithoutEnabledFixture: NSAccessibilityElement {
+private nonisolated class PressWithoutEnabledFixture: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool { true }
 }
 
-private final class InheritedPressFixture: PressWithoutEnabledFixture {}
+private nonisolated final class InheritedPressFixture: PressWithoutEnabledFixture {}
 
-private class PressWithEnabledFixture: NSAccessibilityElement {
+private nonisolated class PressWithEnabledFixture: NSAccessibilityElement {
     override func isAccessibilityEnabled() -> Bool { true }
     override func accessibilityPerformPress() -> Bool { true }
 }
 
-private final class InheritedEnabledFixture: PressWithEnabledFixture {}
+private nonisolated final class InheritedEnabledFixture: PressWithEnabledFixture {}
 
-private final class StaticTextFixture: NSAccessibilityElement {
+private nonisolated final class StaticTextFixture: NSAccessibilityElement {
     override func accessibilityLabel() -> String? { "text" }
 }
 

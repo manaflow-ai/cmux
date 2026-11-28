@@ -13,7 +13,7 @@ public nonisolated struct SitePermissionSnapshot: Codable, Hashable, Sendable {
 
 /// Where a profile's decisions live. Implementations do their IO off the
 /// main actor (architecture.md 5a).
-public protocol SitePermissionPersistence: Sendable {
+public nonisolated protocol SitePermissionPersistence: Sendable {
     func load() async -> SitePermissionSnapshot
     func save(_ snapshot: SitePermissionSnapshot) async
 }

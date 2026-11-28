@@ -47,19 +47,31 @@
     },
     "app.storage.delete": {
       "scope": "storage:local",
-      "class": "mutation"
+      "class": "mutation",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.get": {
       "scope": "storage:local",
-      "class": "read"
+      "class": "read",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.keys": {
       "scope": "storage:local",
-      "class": "read"
+      "class": "read",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.set": {
       "scope": "storage:local",
-      "class": "mutation"
+      "class": "mutation",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.view.state": {
       "scope": "none",
@@ -2218,6 +2230,7 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
+    "cloud.artifacts.read",
     "cloud.billing.checkout",
     "cloud.environment.boot",
     "cloud.environment.build",
@@ -2250,6 +2263,8 @@
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
     "cloud.owner.op",
+    "cloud.owner.slack",
+    "cloud.owner.slack_awake",
     "cloud.owner.turn_checkpoint",
     "cloud.owner.turn_rewind",
     "cloud.owner.turns",
@@ -2266,6 +2281,7 @@
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
     "cloud.surge.create",
+    "cloud.vm.agent_key_create",
     "cloud.vm.domains",
     "cloud.vm.firewall_create",
     "cloud.vm.firewall_delete",

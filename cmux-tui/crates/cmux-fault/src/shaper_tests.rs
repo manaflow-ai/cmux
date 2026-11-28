@@ -1,4 +1,4 @@
-use super::{Disruption, Link, LinkProfile, ProfileFile, SEGMENT, Shaper};
+use super::{Disruption, Link, LinkProfile, PROFILES_JSON, ProfileFile, SEGMENT, Shaper};
 use crate::rng::Rng;
 use crate::trace::Trace;
 use std::time::Duration;
@@ -52,6 +52,14 @@ fn every_profile_parses_and_names_its_source() {
         "relay-30",
         "relay-80",
         "internet-down-lan-up",
+        "blackout-2s",
+        "blackout-5s",
+        "blackout-8s",
+        "blackout-10s",
+        "blackout-60s",
+        "nat-rebind",
+        "wifi-to-cell",
+        "cell-after-wifi",
     ] {
         let profile = file.get(name).unwrap_or_else(|| panic!("no profile {name}"));
         assert!(!profile.source.is_empty(), "{name} cites no source");
@@ -318,8 +326,41 @@ async fn an_address_change_silences_live_connections_and_stalls_new_ones() {
     // Dialed inside the stall: its first round trip lands only after the stall ends.
     let mut new = TcpStream::connect(shaper.addr()).await.unwrap();
     round_trip(&mut new, 10).await;
-    let now = tokio::time::Instant::now();
+    let now = Instant::now();
     assert!(now >= flows, "answered {:?} before the stall ended", flows - now);
+}
+
+/// Wi-Fi to cellular: the Wi-Fi connection goes silent for good, and a new one takes the
+/// cellular link's round trip (42 ms; loss only adds), not Wi-Fi's (2 ms). A NAT rebinding
+/// keeps its own link.
+#[tokio::test]
+async fn wifi_to_cell_silences_the_old_path_and_steps_to_the_cell_link() {
+    let profile = ProfileFile::builtin().get("wifi-to-cell").unwrap().clone();
+    assert_eq!(profile.then(), Some("cell-after-wifi"));
+    let shaper = Shaper::start(echo_server().await, profile, 1, &Trace::new()).await.unwrap();
+    let mut old = TcpStream::connect(shaper.addr()).await.unwrap();
+    assert!(round_trip(&mut old, 10).await < Duration::from_millis(30));
+    shaper.disrupt().unwrap();
+    assert_eq!(shaper.profile().name, "cell-after-wifi");
+    old.write_all(b"ping").await.unwrap();
+    let mut answer = [0_u8; 4];
+    let silent =
+        tokio::time::timeout(Duration::from_millis(300), old.read_exact(&mut answer)).await;
+    assert!(silent.is_err(), "the Wi-Fi connection answered");
+    let mut new = TcpStream::connect(shaper.addr()).await.unwrap();
+    let took = round_trip(&mut new, 10).await;
+    assert!(took >= Duration::from_millis(42), "{took:?}");
+
+    let nat = ProfileFile::builtin().get("nat-rebind").unwrap().clone();
+    let shaper = Shaper::start(echo_server().await, nat, 1, &Trace::new()).await.unwrap();
+    shaper.disrupt().unwrap();
+    assert_eq!(shaper.profile().name, "nat-rebind");
+}
+
+#[test]
+fn a_then_that_names_no_profile_does_not_parse() {
+    let text = PROFILES_JSON.replacen("\"then\": \"cell-after-wifi\"", "\"then\": \"nowhere\"", 1);
+    assert!(ProfileFile::parse(&text).unwrap_err().contains("nowhere"));
 }
 
 #[tokio::test]
@@ -342,7 +383,7 @@ async fn internet_down_kills_the_internet_path_and_leaves_the_lan() {
     round_trip(&mut internet, 10).await;
 
     let back = shaper.disrupt().unwrap();
-    assert!(back <= tokio::time::Instant::now(), "the LAN link never drops");
+    assert!(back <= Instant::now(), "the LAN link never drops");
     // The live internet connection goes silent.
     internet.write_all(b"ping").await.unwrap();
     let mut answer = [0_u8; 4];

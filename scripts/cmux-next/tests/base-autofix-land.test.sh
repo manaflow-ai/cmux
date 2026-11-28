@@ -33,6 +33,15 @@ set -euo pipefail
 repo="$1"
 echo "${TOKEN-unset}" >> "$FAKE_TOKENS"
 [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 ]] && echo again >> "$FAKE_AGAIN"
+if [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 && -n "${FAKE_SLOW:-}" ]]; then sleep "$FAKE_SLOW"; fi
+if [[ -n "${FAKE_DAEMON_FIX:-}" ]]; then
+  if [[ "${FAKE_OTHER_REPAIR:-}" == yes ]]; then
+    mkdir -p "$repo/cmux-tui/bindings/rust/src/generated"
+    echo bindings-for-tip > "$repo/cmux-tui/bindings/rust/src/generated/api.rs"
+    echo 'fixed: refreshed bindings'
+  fi
+  exec bash "$FAKE_DAEMON_FIX" --no-fmt --sdk "$repo"
+fi
 graph="Packages/macOS/CmuxNext/ci-target-graph.json"
 cap_source="Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
 cap="plans/cmux-next/daemon-capabilities.json"
@@ -141,6 +150,31 @@ run FAKE_MOVE=always CMUX_BASE_AUTOFIX_ROUNDS=3 > "$tmp/out" 2>&1 \
 [[ "$(wc -l < "$tmp/again" | tr -d ' ')" == 2 ]] || fail "the repair was made again $(wc -l < "$tmp/again" | tr -d ' ') times, not 2 (3 rounds)"
 [[ "$(remote_show "$graph")" == "graph old" ]] || fail "a graph made for an older manifest landed: $(remote_show "$graph")"
 grep -q "::warning.*next run" "$tmp/out" || fail "the run does not say the next run repairs it: $(cat "$tmp/out")"
+
+# 4b. Too little of the job's time is left for a round on the moved tip: no round starts, the graph
+#     made for an older manifest stays off the branch, and the run passes with a warning (the move
+#     started a run that repairs it). Before, the round ran into the job's 65-minute cancel and the
+#     run went red (45994733335, 2026-11-27).
+setup
+first_repair
+lane_commit "lane edits the manifest" "$manifest" "manifest v2"
+run CMUX_BASE_AUTOFIX_AGAIN_DEADLINE="$(( $(date +%s) + 60 ))" > "$tmp/out" 2>&1 \
+  || fail "a round with no time left failed the run: $(cat "$tmp/out")"
+[[ ! -s "$tmp/again" ]] || fail "a round started with too little time left"
+[[ "$(remote_show "$graph")" == "graph old" ]] || fail "a graph made for an older manifest landed: $(remote_show "$graph")"
+grep -q "::warning.*time left" "$tmp/out" || fail "the run does not say it left the round to the next run: $(cat "$tmp/out")"
+
+# 4c. The round's repair is still running at the deadline: it is stopped, nothing lands for the
+#     tip, and the run passes with a warning.
+setup
+first_repair
+lane_commit "lane edits the manifest" "$manifest" "manifest v2"
+started="$(date +%s)"
+run FAKE_SLOW=60 CMUX_BASE_AUTOFIX_AGAIN_MIN_S=1 CMUX_BASE_AUTOFIX_AGAIN_DEADLINE="$(( started + 3 ))" > "$tmp/out" 2>&1 \
+  || fail "a round cut off at the deadline failed the run: $(cat "$tmp/out")"
+(( $(date +%s) - started < 40 )) || fail "the round ran past its deadline"
+[[ "$(remote_show "$graph")" == "graph old" ]] || fail "a cut-off round landed a graph: $(remote_show "$graph")"
+grep -q "::warning.*still running at this job's deadline" "$tmp/out" || fail "the run does not say the round was cut off: $(cat "$tmp/out")"
 
 # 5. Someone else already put the tip's own graph on the branch: the push holds this run's copy
 #    (a newer commit wrote it), the repair on the tip changes nothing, and the run passes.
@@ -350,4 +384,62 @@ run > "$tmp/out" 2>&1 || fail "a repair of the FFI bindings failed: $(cat "$tmp/
 [[ "$(remote_show "$ffi")" == "bindings for the crate" ]] || fail "the FFI bindings did not land on the branch: $(cat "$tmp/out")"
 git -C "$tmp/remote.git" rev-parse --verify -q refs/heads/base-autofix-sources >/dev/null && fail "the FFI bindings went to a proposal"
 
+# A held daemon repair must use the newer tip's baseline, and refusal is not a clean no-op.
+surface=cmux-tui/spec/api-compat.surface.json
+mkdir -p "$tmp/abi-bin"
+cat > "$tmp/abi-bin/cargo" <<'CARGO'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == 'run --locked -p cmux-api-compat --bin api-compat-check -- --write' ]]
+cat spec/api-compat.surface.json >> "$ABI_BASELINES"
+case "${ABI_RESULT:-write}" in
+  clean) exit 0 ;;
+  refuse)
+    echo invalid-partial-write > spec/api-compat.surface.json
+    echo 'api-compat-check: breaking protocol change without a compat rule' >&2
+    exit 1 ;;
+  *) printf 'surface for %s\n' "$(cat spec/sdk-schema.json)" > spec/api-compat.surface.json ;;
+esac
+CARGO
+chmod +x "$tmp/abi-bin/cargo"
+setup_daemon() {
+  setup
+  lane_commit "daemon schema and baseline" cmux-tui/spec/sdk-schema.json v1 "$surface" baseline-v1 \
+    cmux-tui/spec/api-compat.json rules-v1 cmux-tui/spec/api-compat-fixtures.json fixtures-v1 \
+    cmux-tui/crates/cmux-api-compat/Cargo.toml '[package]'
+  (cd "$tmp/bot" && git fetch -q origin feat && git reset -q --hard FETCH_HEAD)
+  base="$(git -C "$tmp/bot" rev-parse HEAD)"
+  (cd "$tmp/bot" && echo stale-candidate > "$surface" && git commit -q -am 'chore(next): base autofix')
+  : > "$tmp/abi-baselines"
+}
+run_daemon() {
+  run PATH="$tmp/abi-bin:$PATH" ABI_BASELINES="$tmp/abi-baselines" \
+    FAKE_DAEMON_FIX="$here/../base-autofix.sh" "$@"
+}
+for input in cmux-tui/spec/sdk-schema.json cmux-tui/spec/api-compat.json \
+  cmux-tui/spec/api-compat-fixtures.json cmux-tui/crates/cmux-api-compat/src/coverage.rs "$surface"; do
+  setup_daemon
+  lane_commit "newer daemon input" "$input" v2
+  expected=baseline-v1
+  [[ "$input" == "$surface" ]] && expected=v2
+  run_daemon > "$tmp/out" 2>&1 || fail "daemon input move was not repaired: $(cat "$tmp/out")"
+  [[ "$(cat "$tmp/abi-baselines")" == "$expected" ]] || fail "writer did not compare the newer tip baseline for $input"
+  [[ "$(remote_show "$surface")" != stale-candidate ]] || fail "older daemon candidate landed"
+done
+setup_daemon
+lane_commit "another lane refreshed the baseline" "$surface" current-baseline
+moved="$(remote_tip)"
+run_daemon ABI_RESULT=clean > "$tmp/out" 2>&1 || fail "current daemon baseline must be a clean no-op"
+[[ "$(remote_tip)" == "$moved" ]] || fail "current baseline unexpectedly produced a commit"
+for other_repair in no yes; do
+  setup_daemon
+  lane_commit "breaking daemon schema" cmux-tui/spec/sdk-schema.json incompatible "$surface" newer-baseline
+  if run_daemon ABI_RESULT=refuse FAKE_OTHER_REPAIR="$other_repair" > "$tmp/out" 2>&1; then fail "refused daemon refresh passed: $(cat "$tmp/out")"; fi
+  [[ "$(remote_show "$surface")" == newer-baseline ]] || fail "refusal lost the newer baseline"
+  if grep -q 'needs none of it again' "$tmp/out"; then fail "refused ABI repair was reported as clean"; fi
+  grep -q 'left: cmux-tui/spec/api-compat.surface.json' "$tmp/out" || fail "refused surface not reported"
+  if [[ "$other_repair" == yes ]]; then
+    [[ "$(remote_show cmux-tui/bindings/rust/src/generated/api.rs)" == bindings-for-tip ]] || fail "refusal stopped an independent repair"
+  fi
+done
 echo "PASS: base autofix makes a held repair again on the moved tip and lands it, a bounded number of times, without the push token"

@@ -26,6 +26,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let directory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (nil in mock mode).
     let sizing: (any TerminalSizingService)?
+    /// The Macs that install a pull request's cmux Dev on this phone (Developer; nil in mock mode).
+    let tryPullRequests: (any TryPullRequestService)?
     @Binding var path: [SettingsRoute]
     let scrollRequest: String?
     /// Starts a live Chief call (Settings → Chief Calls' Call Chief); nil where calls can't start.
@@ -58,7 +60,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         }
     }
 
-    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, screenSharing: ScreenSharingService? = nil, cloudPages: SettingsCloudPages? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, tryPullRequests: (any TryPullRequestService)? = nil, callChief: (() -> Void)? = nil, screenSharing: ScreenSharingService? = nil, cloudPages: SettingsCloudPages? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
         _deviceList = State(initialValue: SettingsDeviceList(cache: auth.apiBaseURL == nil ? nil : auth.lastKnownList(screen: "devices")))
         self.scrollRequest = scrollRequest
         self.callChief = callChief
@@ -66,6 +68,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         self.cloudPages = cloudPages
         self.directory = directory
         self.sizing = sizing
+        self.tryPullRequests = tryPullRequests
         self.auth = auth
         self.store = store
         self.settings = settings
@@ -121,6 +124,12 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                             SettingsLabel("Automations", symbol: "clock.badge.checkmark")
                         }
                         .accessibilityIdentifier("settings.automations")
+                        if cloudPages.vault != nil {
+                            NavigationLink(value: SettingsRoute.vault) {
+                                SettingsLabel("Vault", symbol: "lock.shield")
+                            }
+                            .accessibilityIdentifier("settings.vault")
+                        }
                         cloudPages.connectGitHub()
                         // AutoCloud (the Mac's `cloud.autoCloud`), this phone's own choice.
                         Toggle(isOn: $settings.cloudAutoMode) {
@@ -349,8 +358,12 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             cloudPages?.machines()
         case .automations:
             cloudPages?.automations()
+        case .vault:
+            cloudPages?.vault?()
         case .longPressMenus:
             LongPressMenusPage()
+        case .tryPullRequest: TryPullRequestMacsPage(store: store)
+        case .tryPullRequestMac(let macID): TryPullRequestPage(macID: macID, store: store, service: tryPullRequests)
         }
     }
 
@@ -385,6 +398,11 @@ public enum SettingsRoute: Hashable, Sendable {
     case automations
     /// Long-Press Menus: the menu items the person hid.
     case longPressMenus
+    /// Developer → Try a Pull Request (cmux Dev): the Macs that install one, and one Mac's list.
+    case tryPullRequest
+    case tryPullRequestMac(String)
+    /// Cloud → Vault (the end-to-end encrypted secrets vault).
+    case vault
 
     /// The route named by its case name (DEBUG launch arguments). The old
     /// name "pairedMacs" opens Devices.
@@ -395,7 +413,7 @@ public enum SettingsRoute: Hashable, Sendable {
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .browser, .notifications,
                                     .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .cloudMachines, .automations,
-                                    .longPressMenus]
+                                    .longPressMenus, .tryPullRequest, .vault]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }
@@ -661,6 +679,10 @@ private struct DeveloperSection: View {
         let mock = DeveloperOptions.mockSwitch(stored: mockData)
         Section {
             TransportDetails(store: store)
+            NavigationLink(value: SettingsRoute.tryPullRequest) {
+                SettingsLabel("Try a Pull Request", symbol: "arrow.triangle.pull")
+            }
+            .accessibilityIdentifier("settings.developer.tryPullRequest")
             Toggle(isOn: Binding(get: { mock.on }, set: { mockData = $0 })) {
                 SettingsLabel("Mock (layout only)", symbol: "theatermasks")
             }

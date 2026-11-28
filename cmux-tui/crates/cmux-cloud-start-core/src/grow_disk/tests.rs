@@ -24,7 +24,7 @@ fn unknown_sizes_do_not_grow() {
 
 #[test]
 fn past_every_plan() {
-    assert_eq!(start(&sizes(257 * GIB, 300 * GIB)), Next::PastPlan { size: "xxl".into() });
+    assert_eq!(start(&sizes(257 * GIB, 300 * GIB)), Next::PastPlan { size: "2xl".into() });
 }
 
 #[test]

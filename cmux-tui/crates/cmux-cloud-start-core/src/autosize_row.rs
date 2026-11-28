@@ -20,6 +20,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod feed;
+
 use crate::computer_status::{Reason, Shape, Why};
 
 /// The wire version this build draws (`AUTOSIZE_EVENT_VERSION`).
@@ -178,7 +180,7 @@ impl Row {
     pub fn why(&self) -> Option<Why> {
         let grew_for_memory =
             self.kind == Kind::Grow && matches!(self.cause, Cause::Memory | Cause::Oom);
-        grew_for_memory.then(|| Why {
+        grew_for_memory.then_some(Why {
             at_ms: self.at_ms,
             reason: Reason::GrewForMemory,
             command: None,

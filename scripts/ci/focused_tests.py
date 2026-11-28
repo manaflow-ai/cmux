@@ -37,9 +37,12 @@ Nothing here is a hand list that rots: the map is derived from the tree at the h
           name plans/cmux-next/action-surfaces.json) and is a doc only when no test names it.
   caps    At most 60 webviews files (nearest by import distance) and 8 Swift test targets per
           car; more, or a CmuxNext route that selects everything, is deferred to the candidate.
-  cargo   The cmux-tui files the change touches. The crates come from cargo_affected.py
-          (owners plus reverse dependencies, from cargo metadata), which the runner calls where
-          cargo is installed; this map does not repeat it.
+  cargo   The cmux-tui files the change touches, and a file outside cmux-tui/ that a crate's
+          source names with a "../" path (include_str!, CARGO_MANIFEST_DIR fixtures: cmux-config's
+          tests read examples/looks/, schemas/ and Swift sources such as BackdropShader.swift;
+          cargo_affected.outside_reads). The crates come from cargo_affected.py (owners plus
+          reverse dependencies, from cargo metadata), which the runner calls where cargo is
+          installed; this map does not repeat it.
   python  A changed tests/test_*.py runs itself. Any other file selects the tests/test_*.py
           that name its repo path, or, for a script or workflow with a distinctive basename,
           that basename (`fast-tier.py`, `cmux-next.yml`). The lane comes from
@@ -306,6 +309,14 @@ def is_doc(path: str) -> bool:
     return path.endswith(".md") or path.startswith("plans/") or path.startswith("docs/")
 
 
+def cargo_outside_reads(root: Path) -> dict[str, set[str]]:
+    """Paths outside cmux-tui/ that a crate's source reads ("../" literals): path -> crates."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cargo_affected  # noqa: E402
+
+    return cargo_affected.outside_reads(root) if (root / cargo_affected.WORKSPACE).is_dir() else {}
+
+
 def cmux_next_tests(root: Path, files: list[str]) -> tuple[list[str] | None, set[str]]:
     """(test targets or None for all, the files the graph owns) from cmux_next_route.py."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -338,6 +349,7 @@ def plan(root: Path, files: list[str]) -> dict:
     python: dict[str, str] = {}
     swift: dict[tuple[str, str], str] = {}
     cargo: list[str] = []
+    outside = None  # cargo_outside_reads(root), read on the first path outside cmux-tui/
     web: dict[str, str] = {}
     native: dict[str, str] = {}
     docs: list[str] = []
@@ -400,6 +412,12 @@ def plan(root: Path, files: list[str]) -> dict:
         if path.startswith("cmux-tui/"):
             cargo.append(path)
             hit = True
+        else:
+            if outside is None:
+                outside = cargo_outside_reads(root)
+            if any(path == ref or path.startswith(ref + "/") for ref in outside):
+                cargo.append(path)
+                hit = True
         name = distinctive(path)
         for test, text in corpus.items():
             if test != path and (path in text or (name and name in text)):

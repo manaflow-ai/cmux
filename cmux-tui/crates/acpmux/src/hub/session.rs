@@ -62,13 +62,13 @@ pub struct Session {
     pub(super) child: Mutex<Option<Arc<ChildAgent>>>,
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
-    pub(super) spawn_lock: Mutex<()>,
+    pub(super) spawn_lock: Arc<Mutex<()>>,
     pub(super) fork_lock: Mutex<()>,
     /// Serializes close/purge with transfer retirement before an ID can be reused.
     pub(super) close_lock: Mutex<()>,
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
     /// change); the idle pass takes it exclusively while it lists and ends the harness.
-    pub(super) harness_use: tokio::sync::RwLock<()>,
+    pub(super) harness_use: Arc<tokio::sync::RwLock<()>>,
     /// The hub clock's time of the last log of why the idle harness stays up (`idle_census.rs`).
     pub(super) idle_refusal_logged: AtomicU64,
     pub(super) seq: AtomicU64,
@@ -318,6 +318,10 @@ pub struct Session {
     /// period instead of the idle one; its next prompt starts it on what is installed then.
     /// Cleared with `profile_respawn`, when its agent ends or starts.
     pub(super) respawn_when_quiet: AtomicBool,
+    /// Whether a retry must wait for the replacement environment before sending. Stale binary
+    /// and profile refreshes are opportunistic; credential, route and proxy changes are required
+    /// so a continuation must not reuse the old child for them.
+    pub(super) respawn_required: AtomicBool,
     /// The chat's inbound channel, made at its first use ([`Session::inbound_channel`]): a chat
     /// loaded from the store that no agent ever started holds none (goals/infinite-items-flat).
     pub(super) inbound: std::sync::OnceLock<InboundChannel>,
@@ -347,6 +351,9 @@ pub struct Session {
     /// Set on a freshly forked Claude session: the parent's agent session id
     /// to pass as `--resume <id> --fork-session` on first spawn.
     pub(super) fork_from: StdMutex<Option<String>>,
+    /// Set on a fresh OpenCode fork: the parent's agent session its own agent forks at its
+    /// first start, in place of a load (`fork_own_process.rs`).
+    pub(super) agent_fork: StdMutex<Option<super::fork_own_process::AgentFork>>,
     /// The model and the effort acpmux last set on this session (its own
     /// start values or a client's set), so a repeated set is no new pick
     /// (`start_defaults.rs`).
@@ -428,6 +435,9 @@ pub struct Session {
     pub(super) stop_respawn: AtomicU64,
     /// How many taps `Hub::session_tap` made for it; each tap knows its number.
     pub(super) taps: AtomicU64,
+    /// The number of the last tap that logged a line the agent wrote (a `claude.*` line):
+    /// a sandboxed agent that writes none fails its start (`remote_start_bound.rs`).
+    pub(super) raw_line_tap: AtomicU64,
     /// Taps numbered up to this one belong to an agent a Stop ended (`cancel.rs`): what they
     /// still log is no sign of work (no `heard`, no unstick, no tool state).
     pub(super) muted_taps: AtomicU64,
@@ -515,6 +525,12 @@ pub struct Session {
     /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
     /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
+    /// `heard` when the running turn's prompt was written (`stalled_turn.rs`
+    /// `watch_stalled_turn`): equal to it while the model has not answered that prompt. codex-acp
+    /// takes a steer then as a new prompt that cancels the running one (`inbox_admit.rs`).
+    pub(super) prompt_heard: AtomicU64,
+    /// A stop-condition chat's open goal left idle (`goal_watch.rs`).
+    pub(super) goal_watch: StdMutex<super::goal_watch::GoalWatch>,
     /// The hub clock's time (`Hub::clock_now`, ns) of the running turn's last sign of its model,
     /// or of its prompt going out if none since; an adopted turn's comes from its log, so it may
     /// be before this daemon started (negative). A turn that hears nothing for `stalledTurnEndMs`
@@ -581,6 +597,9 @@ pub struct Session {
     /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
     /// long it took.
     pub(super) hibernated_at: AtomicU64,
+    /// Its recent gaps between turns, which `adaptive-v1` picks its idle period from
+    /// (`residency.rs`).
+    pub(super) idle_rhythm: StdMutex<super::residency::Rhythm>,
     /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
     /// else a request that needs the agent.
     pub(super) wake_cause: StdMutex<Option<&'static str>>,
@@ -671,6 +690,17 @@ impl<T: Default> std::ops::Deref for OnFirstUse<T> {
 }
 
 impl Session {
+    /// The pid whose process tree is this chat's agent (`_acpmux/session_resources`): its host's,
+    /// which runs the harness and what it starts, or the agent this daemon runs as its own child.
+    /// `Some(None)`: no agent runs (a new or hibernated chat); `None`: a start or stop held the
+    /// slot past `wait`.
+    pub(crate) async fn agent_root_pid(&self, wait: std::time::Duration) -> Option<Option<u32>> {
+        let slot = tokio::time::timeout(wait, self.child.lock()).await.ok()?;
+        let child = (*slot).clone();
+        drop(slot);
+        Some(child.and_then(|c| c.host_record().map(|r| r.host_pid).or(c.pid)))
+    }
+
     /// The chat's inbound channel, made now when this is its first use.
     pub(super) fn inbound_channel(&self) -> &InboundChannel {
         self.inbound.get_or_init(|| {
@@ -774,6 +804,12 @@ impl Session {
 
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
+    }
+    /// Edits the metadata in place, as a test outside the crate sets up a saved state (an
+    /// integration test sees no `pub(super)` field). No row change is told.
+    #[doc(hidden)]
+    pub fn edit_meta_for_test(&self, edit: impl FnOnce(&mut SessionMeta)) {
+        edit(&mut self.meta.lock().unwrap_or_else(|e| e.into_inner()));
     }
     /// Leaves this chat marked as on its capacity fallback, as a past switch did
     /// (`hub/auto_resume/capacity_failover.rs`). For tests outside the crate, which cannot

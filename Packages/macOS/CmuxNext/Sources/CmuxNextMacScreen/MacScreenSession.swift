@@ -127,6 +127,9 @@ public final class MacScreenSession {
     /// own-device rule, decided where the pane is made (`RemoteClipboardPolicy`). The host still
     /// lists the cap only when its person turned clipboard sync on.
     @ObservationIgnored public var offersClipboard = false
+    /// Where each ended transport's session report goes (first frame, present p50/p95; the app's
+    /// crash reporting); set where the pane is made, the default drops it.
+    @ObservationIgnored public var sessionReports = RemoteRdSessionReports()
     /// Whether this session's hello offers cap `video.sharp_text` (Settings > Customize "Sharper Text
     /// from Linux Machines", `remoteDesktop.sharpLinuxText`): a Linux OpenH264 host codes it in screen
     /// usage. Other hosts do not list the cap, so it changes nothing there.
@@ -373,6 +376,7 @@ public final class MacScreenSession {
             socketPath = path
             logger.info("cmux rd: link started toward the host")
             process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
+                                turnStream: servers.turnStream,
                                 candidates: answer.candidates, socket: path, relayOnly: relayOnly))
             for candidate in laterCandidates ?? [] { process.send(["candidate": candidate]) }
             laterCandidates = nil
@@ -390,12 +394,14 @@ public final class MacScreenSession {
         // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
         // `clock` and `ledger`: every frame's stage times, on the host's clock.
         // `video.sharp_text`: the person asked a Linux host for screen usage (`offersSharpText`).
+        // `video.ltr`: the decode pipeline acknowledges each decoded frame (`noteDecoded(frame:)`),
+        // so a host started with `--ltr 1` recovers a loss without a keyframe; others ignore it.
         let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
                                   caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap,
-                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap]
+                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap, RemoteRdHello.ltrCap]
                                       + (offersSharpText ? [RemoteRdHello.sharpTextCap] : []))
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
-                                                      control: true, clipboard: offersClipboard) else {
+                                                      control: true, clipboard: offersClipboard, reports: sessionReports) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
             return
         }
@@ -574,6 +580,25 @@ public final class MacScreenSession {
         if stats.framesDropped != dropped { stats.framesDropped = dropped }
     }
 
+    /// A recorded stream played into this session's pane (`mac_screen.replay`): connected with no
+    /// peer, so its frames count in `mac_screen.state` as a live stream's do (goal
+    /// screen-share-viewer-present). `endReplay()` when the file has played.
+    func beginReplay(width: Int, height: Int) {
+        stats = LiveStats()
+        frameSize = .zero
+        streamSize = CGSize(width: width, height: height)
+        frameCounter = nil
+        timings.connectStarted(at: Date(), .now)
+        streamPath = "Replay"
+        transportCarrier = "replay"
+        phase = .connected
+    }
+
+    func endReplay() {
+        transportCarrier = nil
+        if case .connected = phase { phase = .ended }
+    }
+
     public func setStreamFrameSize(_ size: CGSize) {
         if size.width >= 1, size != frameSize { frameSize = size }
     }
@@ -610,6 +635,8 @@ public final class MacScreenSession {
         var peerKey: String
         var stun: [String]
         var turn: [MacScreenRdServers.Turn]
+        /// TCP and TLS relays, after the UDP ones, for a network that blocks UDP.
+        var turnStream: [MacScreenRdServers.Turn]
         var candidates: [String]
         var socket: String
         var relayOnly: Bool
@@ -617,6 +644,7 @@ public final class MacScreenSession {
         enum CodingKeys: String, CodingKey {
             case session, stun, turn, candidates, socket
             case peerKey = "peer_key"
+            case turnStream = "turn_stream"
             case relayOnly = "relay_only"
         }
     }

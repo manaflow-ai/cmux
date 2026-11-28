@@ -75,6 +75,20 @@ scripts/bench/cmux-bench projection-scale --host anywhere --arg kind=projection 
 scripts/bench/cmux-bench compare <before run> <after run> --markdown
 ```
 
+## Hill climb (the transport knobs)
+
+```sh
+scripts/measure/projection-scale/hillclimb.py TREE --profile store-v6-1-low --steps rg,gitstatus --out climb
+```
+
+`hillclimb.py` turns the knobs cmux-projection reads from the environment (`src/tune.rs`): the packed
+answers' zstd level (`CMUX_PROJECTION_ZSTD_LEVEL`, `0` = raw) and the read-ahead caps
+(`CMUX_PROJECTION_READAHEAD_FILES`, `CMUX_PROJECTION_READAHEAD_BYTES`). It starts at the shipped defaults,
+tries each knob's next value up and down, keeps a move only when the cold steps' summed seconds on the
+throttled link drop by more than 3%, and stops when a round moves nothing. `OUT/climb.jsonl` has every try,
+`OUT/best.json` the winner and its gain over the defaults. Unset, the knobs keep the defaults; a winner
+becomes a default in its own PR with the climb's numbers. Tests: `scripts/measure/tests/projection-hillclimb.test.py`.
+
 ## What it does not do
 
 - The big trees (cmux, linux, the 1 M file synthetic) are not run here: give it the tree. RFD 0065's numbers
