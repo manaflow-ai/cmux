@@ -126,4 +126,29 @@ import Testing
         #expect(!card.local.retry)
         #expect(HomeTurnFailureRowProvider.titles(card).map(\.1) == ["Copy error", "Details"])
     }
+
+    /// First-run findings N5 (2026-11-27): Claude Code installed but not signed in, Chief's card said "The Chief's agent
+    /// is signed out." with Retry, Copy error and Details: no way to sign in from it. A signed-out card leads with
+    /// Sign In when the host wires one, and Sign In runs it; other failures never offer it.
+    @Test func aSignedOutCardLeadsWithSignIn() async throws {
+        let rig = try await HomeChatRig(history: 1)
+        defer { rig.stop() }
+        var signIns = 0
+        rig.view.onChiefSignIn = { signIns += 1 }
+        let key = IdempotencyKey("turn-failure-\(UUID().uuidString)")
+        #expect(await rig.post("(turn failed on claude: Claude is not signed in here. Run `claude auth login` in a terminal)", key: key))
+        rig.view.projection.refresh()
+        rig.frame()
+        let (card, ref) = try #require(payload(try shown(key, in: rig)))
+        #expect(card.local.signIn)
+        #expect(HomeTurnFailureRowProvider.titles(card).map(\.1) == ["Sign In", "Copy error", "Details"])
+        rig.view.projection.turnFailureAction(ref, .signIn)
+        #expect(signIns == 1)
+
+        let other = IdempotencyKey("turn-failure-\(UUID().uuidString)")
+        #expect(await rig.post("(turn failed on claude: fetch failed)", key: other))
+        rig.view.projection.refresh()
+        rig.frame()
+        #expect(try #require(payload(try shown(other, in: rig))).0.local.signIn == false, "only a signed-out card offers Sign In")
+    }
 }
