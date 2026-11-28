@@ -8569,21 +8569,6 @@ class RiskEvidenceQuotaJobRed(unittest.TestCase):
             with self.subTest(lines=lines):
                 self.assertNotIsInstance(self.judge(lines), excuse.JobRateLimited)
 
-    def test_reset_past_the_wait_is_still_the_quota_verdict(self):
-        """cmux#64468 run 46145858015 and #64465 run 46145944548: risk-tier.yml's own warning for a reset past
-        RATE_LIMIT_WAIT_S ended the step, and the classifier refused the quota red as a real failure."""
-        past = ("##[warning]risk evidence: ungraded, the soonest budget reset (12:51:43Z) is past the 420s wait; "
-                "rerun after it")
-        fallback = "##[warning]the glaeda-route App's read failed; grading on GITHUB_TOKEN"
-        for lines in ([self.marker(), past],
-                      [self.marker(endpoint="repos/o/r/issues/7/comments"), fallback, self.marker(), past]):
-            with self.subTest(lines=lines):
-                self.assertIsInstance(self.judge(lines), excuse.JobRateLimited)
-        for wrong in ("##[warning]risk evidence: ungraded, the soonest budget reset (soon) is past the 420s wait; "
-                      "rerun after it", past + " and also a real failure"):
-            with self.subTest(wrong=wrong):
-                self.assertNotIsInstance(self.judge([self.marker(), wrong]), excuse.JobRateLimited)
-
     def test_actual_producer_stdout_is_consumed(self):
         import risk_tier
         import argparse
@@ -8723,6 +8708,31 @@ class RiskEvidenceQuotaMarker(unittest.TestCase):
                                        marker429,
                                        "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
         self.assertIsNone(self.case(self.MARKER, "##[warning]an unrelated warning"))
+
+    def test_reset_past_the_wait_is_still_the_quota_verdict(self):
+        """cmux#64468 run 46145858015 and #64465 run 46145944548: risk-tier.yml's own warning for a reset past
+        RATE_LIMIT_WAIT_S ended the grade step, and the classifier refused the quota red as a real failure."""
+        past = ("##[warning]risk evidence: ungraded, the soonest budget reset (12:51:43Z) is past the 420s wait; "
+                "rerun after it")
+        comments = self.MARKER.replace("pulls/7/files?per_page=100", "issues/7/comments?per_page=100")
+        captured = (
+            "gh api 'repos/o/r/issues/7/comments?per_page=100&page=1' exited 1 (GitHub API quota: structured "
+            "refusal; endpoint repos/o/r/issues/7/comments?per_page=100&page=1, HTTP 403)",
+            comments, "## Risk tier: ungraded", "",
+            "GitHub's API budget refused `repos/o/r/issues/7/comments?per_page=100&page=1` with HTTP 403; the reset "
+            "boundary is in the machine-readable marker below.",
+            "That is not a verdict on this pull request. The next push, edit or label regrades it, or rerun this job.",
+            "", "Policy: docs/ci/risk-tiers.md",
+            "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)",
+            "##[warning]the glaeda-route App's read failed; grading on GITHUB_TOKEN",
+            self.MARKER, "## Risk tier: ungraded",
+            "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)",
+            past, "##[error]Process completed with exit code 1.")
+        self.assertIn("HTTP 403", self.case(*captured) or "")
+        self.assertIn("HTTP 403", self.case(self.MARKER, past) or "")
+        for wrong in (past.replace("(12:51:43Z)", "(soon)"), past + " and a real failure"):
+            with self.subTest(wrong=wrong):
+                self.assertIsNone(self.case(self.MARKER, wrong))
 
     def test_any_malformed_marker_rejects_even_beside_a_valid_one(self):
         for payload in ('[]', 'null', '{bad}', '{"graded":false}',
