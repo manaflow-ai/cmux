@@ -1236,6 +1236,7 @@ fn two_cloud_chats_share_one_machine() {
         {"id": "vm-paused", "title": "cloud-chats-2", "created_by": ME, "status": "paused"},
         {"id": "vm-mate", "title": "cloud-chats-3", "created_by": TEAMMATE, "status": "running", "connected": true},
         {"id": "vm-fleet", "title": "fs-lane-1", "created_by": ME, "status": "running", "connected": true},
+        {"id": "vm-kept", "title": "probe-link-connect", "created_by": ME, "status": "running", "connected": true},
         {"id": "vm-failed", "title": "cloud-chats-4", "created_by": ME, "status": "failed", "connected": true},
         {"id": "vm-open", "title": "auto-demo", "created_by": ME, "status": "running"},
     ]);
@@ -1243,6 +1244,7 @@ fn two_cloud_chats_share_one_machine() {
     let none_mine = json!([
         {"id": "vm-mate", "title": "cloud-chats", "created_by": TEAMMATE, "status": "running", "connected": true},
         {"id": "vm-fleet", "title": "fs-lane-1", "created_by": ME, "status": "running", "connected": true},
+        {"id": "vm-kept", "title": "probe-link-connect", "created_by": ME, "status": "paused"},
     ]);
     let fresh = plan(&path, &request(&key(), &none_mine, true));
     assert_eq!(fresh["machine"], Value::Null, "{fresh}");

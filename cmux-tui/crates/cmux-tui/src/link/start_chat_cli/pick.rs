@@ -51,11 +51,14 @@ impl Candidate {
             && (self.is_open() || matches!(self.status.as_str(), "paused" | "pausing"))
     }
 
-    /// A machine fleet tooling made (lane pool, peers, probes), by name: never a chat's.
+    /// A machine fleet tooling made (lane pool, peers, probes), by name: never a chat's. `probe-`:
+    /// the synthetic probes' kept machines (probe-link-connect, paused between its runs and at times
+    /// stuck starting) share the probe account with the GUI rows, whose first Cloud chat took it and
+    /// answered "probe-link-connect didn't connect" (production run 46120614401, 2026-11-28).
     fn is_fleet(&self) -> bool {
         std::iter::once(self.title.as_str()).chain(self.slug.as_deref()).any(|name| {
             let name = name.trim().to_lowercase();
-            ["fs-", "sr2-", "lane-vm-"].iter().any(|prefix| name.starts_with(prefix))
+            ["fs-", "sr2-", "lane-vm-", "probe-"].iter().any(|prefix| name.starts_with(prefix))
         })
     }
 }
