@@ -1440,17 +1440,6 @@ function shapedTurn(
   const opener = rows[end];
   const endedByPerson = !live && !last && opener?.kind === "user" && !opener.incoming && !opener.received;
   const cached = live ? undefined : shapedTurns.get(user);
-  {
-    const g = ((globalThis as any).__rmbMiss ??= {}) as Record<string, number>;
-    const why = live ? "live" : !cached ? (shapedTurns.has(user) ? "undef" : "nouser") :
-      cached.open !== open ? "open" : cached.background !== background ? "background" :
-      cached.messageRuns !== messageRuns ? "messageRuns" : cached.backgroundRuns !== backgroundRuns ? "backgroundRuns" :
-      cached.last !== last ? "last" : cached.retryTarget !== retryTarget ? "retry" : cached.clockOffset !== clockOffset ? "clock" :
-      cached.dated !== dated ? "dated" : cached.endedByPerson !== endedByPerson ? "endedByPerson" :
-      cached.source.length !== source.length ? "len" : cached.source.some((r, i) => r !== source[i]) ? "rowobj" : "hit-or-arm";
-    g[why] = (g[why] ?? 0) + 1;
-    if (why === "rowobj") { const i = cached!.source.findIndex((r, i) => r !== source[i]); const a = cached!.source[i]!, b = source[i]!; const k = a.id === b.id ? `rowobj:${b.kind}:sameid:v${a.version === b.version ? "=" : "!"}` : `rowobj:${b.kind}:otherid`; g[k] = (g[k] ?? 0) + 1; }
-  }
   if (
     cached &&
     cached.open === open &&
@@ -2372,7 +2361,7 @@ function shapeTurn(
   clockOffset = 0,
   agentFamily?: string,
   trayAgents = 0,
-  endedBackground: ReadonlySet<string> = new Set(),
+  endedBackground: IdSet = new Set(),
   turnStartedAtMs?: number,
   // The turn's conclusion is knowable before `turn_result`: its final answer is marked and the
   // summary is the provisional one below. The rows that only an ended turn draws are drawn now, in
@@ -3086,7 +3075,7 @@ const tailWorkedBackground = (id: string) => {
 function foldTailTurns(
   rows: readonly AcpmuxRow[],
   expanded: Folds,
-  endedBackground: ReadonlySet<string>,
+  endedBackground: IdSet,
   clockOffset: number,
   agentFamily: string | undefined,
 ): AcpmuxRow[] {
@@ -3097,8 +3086,11 @@ function foldTailTurns(
   // started, done later) is a stretch of its own, and draws as it came under that fold, never a second
   // "Worked for" of the same id.
   const folded = new Set<string>();
+  const arms = tailArms(agentFamily);
   const flush = (to: number) => {
-    out.push(...foldTailTurn(rows.slice(from, to), expanded, endedBackground, clockOffset, agentFamily, folded));
+    out.push(
+      ...foldTailTurnOnce(rows.slice(from, to), expanded, endedBackground, clockOffset, agentFamily, folded, arms),
+    );
     from = to;
   };
   // The background turn the stretch from `from` belongs to, once a row names it.
@@ -3120,13 +3112,153 @@ function foldTailTurns(
   return out;
 }
 
+/// A set read only through `has` and `size` (`Folds`, a turn's ended background ids).
+type IdSet = Pick<ReadonlySet<string>, "has" | "size">;
+
+/// What a stretch of an ended turn's tail was shaped from (`foldTailTurnOnce`): its rows, the reads it
+/// made of the open folds, the ended background ids and the ids folded before it, and what it added.
+type ShapedStretch = {
+  stretch: AcpmuxRow[];
+  arms: string;
+  clockOffset: number;
+  agentFamily: string | undefined;
+  expandedSize: number;
+  expandedReads: Map<string, boolean>;
+  endedSize: number;
+  endedReads: Map<string, boolean>;
+  foldedReads: Map<string, boolean>;
+  added: string[];
+  rows: AcpmuxRow[];
+};
+const shapedStretches = new RowMemo<AcpmuxRow, ShapedStretch>();
+let stretchMemoOff = false;
+
+/// `run` with every stretch shaped anew (`foldTailTurnOnce`), for a test to compare kept shapes with.
+export function withoutStretchMemo<T>(run: () => T): T {
+  stretchMemoOff = true;
+  try {
+    return run();
+  } finally {
+    stretchMemoOff = false;
+  }
+}
+
+/// Every experiment arm and switch a stretch's shape reads, as one key: a changed arm shapes it again.
+const tailArms = (agentFamily: string | undefined): string =>
+  [
+    JSON.stringify(turnFoldStyle(agentFamily)),
+    experimentArm(bareWorkedTurns),
+    experimentArm(finishedTaskLook),
+    experimentArm(liveTurnClock),
+    experimentArm(liveTurnWork),
+    experimentArm(oneRowPerCall),
+    experimentArm(turnEndActions),
+    experimentArm(turnFoldReplies),
+    experimentArm(turnFoldSteered),
+    experimentArm(waitingMessagesOrder),
+    experimentArm(workedForMessages),
+    experimentArm(workedLine),
+    compactShortTurnsOn(),
+  ].join("|");
+
+/// The same rows, object for object.
+const sameRows = (a: readonly AcpmuxRow[], b: readonly AcpmuxRow[]) =>
+  a.length === b.length && a.every((row, at) => row === b[at]);
+
+const readsHold = (reads: Map<string, boolean>, set: Pick<ReadonlySet<string>, "has">) => {
+  for (const [id, had] of reads) if (set.has(id) !== had) return false;
+  return true;
+};
+
+/// `foldTailTurn`, shaped once while its stretch and everything its shape read stay the same. An ended
+/// turn's tail grows a stretch at a time (a background turn the agent ran on its own, each up to its
+/// summary), and a row coming into the last one shaped every ended one before it again: a coordinator
+/// woken by background work all day reshaped each of those turns on every streamed record (renderer
+/// main thread, 2026-11-28: 0.34 s/60 s of turnRowsShownFrom in foldTailTurn alone). The shape is a
+/// pure function of the stretch's rows, the fold ids it reads, the ended ids it reads, the ids folded
+/// before it and the arms, so each read is kept and checked: a stretch whose reads still hold draws
+/// the rows it drew, and adds to `folded` what it added.
+function foldTailTurnOnce(
+  stretch: AcpmuxRow[],
+  expanded: Folds,
+  endedBackground: IdSet,
+  clockOffset: number,
+  agentFamily: string | undefined,
+  folded: Set<string>,
+  arms: string,
+): AcpmuxRow[] {
+  const key = stretch[0];
+  if (!key) return [];
+  if (stretchMemoOff) return foldTailTurn(stretch, expanded, endedBackground, clockOffset, agentFamily, folded);
+  const cached = shapedStretches.get(key);
+  if (
+    cached &&
+    cached.arms === arms &&
+    cached.clockOffset === clockOffset &&
+    cached.agentFamily === agentFamily &&
+    cached.expandedSize === expanded.size &&
+    cached.endedSize === endedBackground.size &&
+    sameRows(cached.stretch, stretch) &&
+    readsHold(cached.foldedReads, folded) &&
+    readsHold(cached.expandedReads, expanded) &&
+    readsHold(cached.endedReads, endedBackground)
+  ) {
+    for (const id of cached.added) folded.add(id);
+    return cached.rows;
+  }
+  const expandedReads = new Map<string, boolean>();
+  const endedReads = new Map<string, boolean>();
+  const foldedReads = new Map<string, boolean>();
+  const added: string[] = [];
+  const reading = (set: IdSet, reads: Map<string, boolean>): IdSet => ({
+    has: (id) => {
+      const had = set.has(id);
+      reads.set(id, had);
+      return had;
+    },
+    size: set.size,
+  });
+  const rows = foldTailTurn(
+    stretch,
+    reading(expanded, expandedReads),
+    reading(endedBackground, endedReads),
+    clockOffset,
+    agentFamily,
+    {
+      has: (id) => {
+        const had = folded.has(id);
+        foldedReads.set(id, had);
+        return had;
+      },
+      add: (id) => {
+        added.push(id);
+        folded.add(id);
+      },
+    },
+  );
+  shapedStretches.set(key, {
+    stretch,
+    arms,
+    clockOffset,
+    agentFamily,
+    expandedSize: expanded.size,
+    expandedReads,
+    endedSize: endedBackground.size,
+    endedReads,
+    foldedReads,
+    added,
+    rows,
+  });
+  return rows;
+}
+
 function foldTailTurn(
   stretch: AcpmuxRow[],
   expanded: Folds,
-  endedBackground: ReadonlySet<string>,
+  endedBackground: IdSet,
   clockOffset: number,
   agentFamily: string | undefined,
-  folded: Set<string> = new Set(),
+  folded: { has(id: string): boolean; add(id: string): unknown } = new Set(),
 ): AcpmuxRow[] {
   const lineAt = stretch.findIndex((row) => row.kind === BACKGROUND_TURN && row.background !== undefined);
   const line = lineAt >= 0 ? stretch[lineAt] : undefined;
@@ -3220,7 +3352,7 @@ function foldTailTurn(
 function harnessStartedTail(
   stretch: AcpmuxRow[],
   expanded: Folds,
-  endedBackground: ReadonlySet<string>,
+  endedBackground: IdSet,
   clockOffset: number,
   agentFamily: string | undefined,
 ): AcpmuxRow[] {
@@ -3274,7 +3406,7 @@ function endedTail(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
 /// `shapeTurn` gives the prompt's own summary: the footer under a turn that said anything is a 32 row
 /// of its own, never an empty one laid over the gap (transcriptGrid.ts MARK_FOOTER_ROW). A summary
 /// after a turn that said nothing stays as it came.
-function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>, seq?: number): AcpmuxRow[] {
+function withTailAnswers(tail: AcpmuxRow[], endedBackground: IdSet, seq?: number): AcpmuxRow[] {
   let from = 0;
   let out: AcpmuxRow[] | undefined;
   for (let at = 0; at < tail.length; at += 1) {
@@ -3283,9 +3415,19 @@ function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>
     const body = tail.slice(from, at);
     from = at + 1;
     if (row.text) continue;
+    // The same summary over the same rows is the same footer, object for object, so the stretch it ends
+    // keeps its shape (`foldTailTurnOnce`).
+    const kept = tailAnswers.get(row);
+    if (kept && sameRows(kept.body, body)) {
+      if (kept.row) (out ??= [...tail])[at] = kept.row;
+      continue;
+    }
     const answer = body[answerAt(body)];
     const parts = turnCopyParts(body);
-    if (!answer && !parts) continue;
+    if (!answer && !parts) {
+      tailAnswers.set(row, { body, row: undefined });
+      continue;
+    }
     out ??= [...tail];
     // The memoized footer redraws when its turn's rows do.
     const key = body.reduce((sum, each) => (sum * 31 + each.version) % VERSION_SPAN, body.length);
@@ -3296,10 +3438,18 @@ function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>
       ...withWork(body),
       version: row.version * VERSION_SPAN + key,
     };
+    tailAnswers.set(row, { body, row: out[at] });
   }
   return backgroundFooters(out ?? tail, endedBackground, seq);
 }
 const NO_ENDED_BACKGROUND: ReadonlySet<string> = new Set();
+/// Each tail summary's footer (`withTailAnswers`), by the summary, with the rows it ends.
+const tailAnswers = new RowMemo<AcpmuxRow, { body: AcpmuxRow[]; row: AcpmuxRow | undefined }>();
+/// Each footer `backgroundFooters` added, by the row it follows, with what it was made from.
+const backgroundEnds = new RowMemo<
+  AcpmuxRow,
+  { rows: AcpmuxRow[]; through: number | undefined; callsAlone: boolean; footer: AcpmuxRow | undefined }
+>();
 
 /// A finished stretch's timed work, for its footer's Timeline (waterfallSpans.ts), when it has any.
 function withWork(rows: readonly AcpmuxRow[]): Pick<AcpmuxRow, "turnWork"> {
@@ -3336,7 +3486,7 @@ function endedBackgroundTurns(rows: readonly AcpmuxRow[]): ReadonlySet<string> {
 /// above did (Leo, 2026-11-21: "there's no buttons at the bottom even thuogh you have visibly stopped
 /// doing things"). Its row has no text, so Read aloud reads nothing it did not draw.
 /// turnEndActions.experiment.ts holds the arms: every such turn (default), only the chat's last, none.
-function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>, seq?: number): AcpmuxRow[] {
+function backgroundFooters(tail: AcpmuxRow[], endedBackground: IdSet, seq?: number): AcpmuxRow[] {
   if (endedBackground.size === 0) return tail;
   const bodies = new Map<string, { rows: AcpmuxRow[]; last: number }>();
   tail.forEach((row, at) => {
@@ -3364,8 +3514,17 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<strin
     const answer = body.rows[answerAt(body.rows)];
     if (answer?.streaming) return;
     const callsAlone = !answer && (callsArm === "every" || (callsArm === "last" && body === lastBody));
+    // The same rows end the same way, object for object, so the stretch keeps its shape (`foldTailTurnOnce`).
+    const kept = backgroundEnds.get(row);
+    if (kept && kept.through === through && kept.callsAlone === callsAlone && sameRows(kept.rows, body.rows)) {
+      if (kept.footer) out.push(kept.footer);
+      return;
+    }
     const parts = answer ? turnCopyParts(body.rows) : callsAlone ? turnCallParts(body.rows) : undefined;
-    if (!parts) return;
+    if (!parts) {
+      backgroundEnds.set(row, { rows: body.rows, through, callsAlone, footer: undefined });
+      return;
+    }
     out.push({
       id: `${BACKGROUND_END}-${id}`,
       kind: "turnSummary",

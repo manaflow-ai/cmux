@@ -389,7 +389,6 @@ async function run(): Promise<Reading> {
       }
     }
     const pageEnd = await page.evaluate(() => performance.now());
-    fs.writeFileSync("/home/cmux/.cache/rmb-turnrows/miss-counts.json", JSON.stringify(await page.evaluate(() => (globalThis as any).__rmbMiss ?? null)));
     clearInterval(timer);
     // The tally's last flush (at most FLUSH_MS after the window's last frames) still counts.
     await page.waitForTimeout(FLUSH_WAIT_MS);
