@@ -204,13 +204,19 @@ jobs:
           set -uo pipefail
           label=""
           if [ "$GITHUB_RUN_ATTEMPT" = 1 ] && [ "$POOL_OWNED" = 1 ] && [ -n "$SIDE_LANE" ] && [ "$TRUSTED_REF" = true ]; then
-            label="$(python3 scripts/ci/e2e_runner_pool.py \
-              --requested auto \
-              --order "$POOL_ORDER" \
-              --max-queued "$POOL_MAX_QUEUED" \
-              --owned "$POOL_OWNED" \
-              --owned-slots "$OWNED_SLOTS" \
-              --pr-xcode-app "$PR_XCODE_APP")" || label=""
+            # DO NOT MERGE (proof arm only, cmux#63849): wait up to 40 minutes for an owned Mac.
+            for try in $(seq 1 40); do
+              label="$(python3 scripts/ci/e2e_runner_pool.py \
+                --requested auto \
+                --order "$POOL_ORDER" \
+                --max-queued "$POOL_MAX_QUEUED" \
+                --owned "$POOL_OWNED" \
+                --owned-slots "$OWNED_SLOTS" \
+                --pr-xcode-app "$PR_XCODE_APP")" || label=""
+              case "$label" in glaeda-*) break ;; esac
+              echo "try $try: picker said '${label:-nothing}'; asking again in 60 s"
+              sleep 60
+            done
           fi
           case "$label" in
             glaeda-*)
