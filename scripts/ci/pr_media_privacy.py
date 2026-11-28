@@ -80,6 +80,8 @@ PR_FOLDER = re.compile(r"[1-9][0-9]{0,6}")
 MEDIA_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".mov"})
 TEXT_SUFFIXES = frozenset({".html", ".json", ".md", ".txt"})
 FRAME_SEPARATOR = re.compile(r"@@frame (\d+)\s*$")
+# A refusal line pr_media_ocr_tesseract.py or pr_media_ocr.swift prints: a file name, a step, an error class.
+OCR_TOOL_LINE = re.compile(r"^pr-media-ocr: [\w ./@:()-]{1,200}$")
 PUSH_ATTEMPTS = 3
 AUTHOR_BATCH = 50
 
@@ -346,8 +348,17 @@ def ocr_lines(ocr: str, repo: Path, commit: str, path: str) -> list[str]:
 
 def ocr_file(ocr: str, local: Path) -> list[str]:
     """The text Vision reads in one local image or video, frame markers dropped."""
-    done = subprocess.run([ocr, str(local)], capture_output=True, text=True, timeout=600)
+    # A nightly reel is up to 13+ clips of 60 s read at one frame a second in two modes on a 2-vCPU runner; its
+    # read ran past the old fixed 600 s and the gate held it as unreadable (Finish run 46116773791, 2026-11-28:
+    # publish-nightly-reel, "nightly-next/4611085251001/reel.mp4 could not be read").
+    done = subprocess.run([ocr, str(local)], capture_output=True, text=True,
+                          timeout=float(os.environ.get("PR_MEDIA_PRIVACY_OCR_TIMEOUT_SECONDS", "2400")))
     if done.returncode != 0:
+        # The tool's own refusals (`pr-media-ocr: could not read reel.mp4 (TimeoutExpired)`) name a file and an
+        # error class, never recognized text: forward those so a held file says why. Anything else stays unprinted.
+        for line in done.stderr.splitlines():
+            if OCR_TOOL_LINE.match(line):
+                print(f"pr-media privacy: {line}", file=sys.stderr, flush=True)
         raise RuntimeError(f"OCR exited {done.returncode}")
     return [line for line in done.stdout.splitlines() if not FRAME_SEPARATOR.match(line)]
 
@@ -493,7 +504,9 @@ def check_files(items: Iterable[tuple[str, Path]], patterns: list[tuple[str, re.
             else:
                 report["skipped"].append(remote)
                 continue
-        except Exception:  # noqa: BLE001 - a file that cannot be read is held like a hit
+        except Exception as error:  # noqa: BLE001 - a file that cannot be read is held like a hit
+            # The class only, never its text: the log must say a timeout from a crashed tool without a matched name.
+            print(f"pr-media privacy: {remote}: read failed ({type(error).__name__})", file=sys.stderr, flush=True)
             hits[remote] = ["unreadable"]
             continue
         kinds = sorted({hit["kind"] for hit in findings(lines, patterns)})

@@ -1,0 +1,15 @@
+[package]
+name = "cmux-phone-speed"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Keep this fast detector independent of the app and Ghostty build dependencies.
+[workspace]
+
+[dependencies]
+crabgrind = "=0.6.0"
+cmux-terminal-projection = { path = "../../../cmux-tui/crates/cmux-terminal-projection" }
+
+[profile.release]
+debug = 1

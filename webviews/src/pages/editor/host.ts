@@ -51,10 +51,6 @@ export const EDITOR_EDITED_OP = "cmux.editor.edited";
 export const EDITOR_CHANGES = "cmux.editor.changes";
 export const EDITOR_LOOK = "cmux.editor.look";
 export const EDITOR_CONFLICT = "cmux.editor.conflict";
-export const EDITOR_READ_ONLY = "cmux.editor.read_only";
-export const EDITOR_NOT_FOUND = "cmux.editor.not_found";
-export const EDITOR_NOT_FILE = "cmux.editor.not_file";
-export const EDITOR_TOO_LARGE = "cmux.editor.too_large";
 /** The file's machine cannot answer (#25581, a Cloud workspace's file): `message` is the host's reason. */
 export const EDITOR_UNAVAILABLE = "cmux.editor.unavailable";
 

@@ -28,15 +28,29 @@ import Testing
         if case .promptNotSent = event { true } else { false }
     }
 
-    /// The prompt, then a cancel (which has nothing to act on and says so in both versions):
-    /// the first event the chat gets is the cancel's, not the prompt coming back.
+    /// The first event the chat gets within `wait`, or nil when none comes. A send before the
+    /// chat loads says nothing at all (#57933), so waiting on the stream alone never ends; a
+    /// bounce is emitted as the send runs, so a short wait sees one.
+    private static func firstEvent(_ events: AsyncStream<AgentSessionEvent>, within wait: Duration = .milliseconds(300)) async -> AgentSessionEvent? {
+        await withTaskGroup(of: AgentSessionEvent?.self) { group in
+            group.addTask { var iterator = events.makeAsyncIterator(); return await iterator.next() }
+            group.addTask { try? await Task.sleep(for: wait); return nil }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    /// The prompt, then a cancel (which has nothing to act on, and says nothing): the prompt is
+    /// held, and nothing comes back to the chat.
     @Test func aSendBeforeTheChatLoadsDoesNotBounce() async throws {
         let source = pending()
-        var events = source.events().makeAsyncIterator()
+        let events = source.events()
         source.send(prompt("hello", id: "p1"))
         source.send(.cancel)
-        let first = await events.next()
-        #expect(first.map(Self.isNotSent) == false, "the draft came back at once: \(String(describing: first))")
+        let first = await Self.firstEvent(events)
+        #expect(first.map(Self.isNotSent) != true, "the draft came back at once: \(String(describing: first))")
+        #expect(source.held.map(\.intent) == [prompt("hello", id: "p1")])
     }
 
     /// A held prompt that waits past the window comes back to the composer with why, as
@@ -63,7 +77,7 @@ import Testing
     @Test func theNextSourceGetsTheHeldPromptsInOrder() async throws {
         let source = pending()
         source.holdWindow = .seconds(3600)
-        var events = source.events().makeAsyncIterator()
+        let events = source.events()
         source.send(prompt("one", id: "p1"))
         source.send(prompt("two", id: "p2"))
         let sentAt = try #require(source.held.first?.at)
@@ -72,8 +86,8 @@ import Testing
         #expect(taken.first?.at == sentAt)
         source.expire(sentAt: sentAt)
         source.send(.cancel)
-        let first = await events.next()
-        #expect(first.map(Self.isNotSent) == false, "a handed-over prompt came back: \(String(describing: first))")
+        let first = await Self.firstEvent(events)
+        #expect(first.map(Self.isNotSent) != true, "a handed-over prompt came back: \(String(describing: first))")
 
         // A loading source that takes them over keeps their age (one window in all).
         let next = pending()

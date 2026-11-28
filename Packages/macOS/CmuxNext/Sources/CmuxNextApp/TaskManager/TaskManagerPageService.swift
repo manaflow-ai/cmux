@@ -5,7 +5,7 @@ import CmuxNextResources
 import CmuxNextTaskManagerPage
 import Darwin
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     static let taskManager = InternalPageID(rawValue: "task-manager")
 }
 

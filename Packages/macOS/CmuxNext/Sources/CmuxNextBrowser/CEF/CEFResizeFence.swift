@@ -109,6 +109,7 @@ final class CEFResizeFences {
     @discardableResult
     func join(window: NSWindow, layer: CALayer, timeoutMs: Int32, refreshMs: Double, ask: @escaping Join) -> Bool {
         let key = ObjectIdentifier(window)
+        let asked = CEFTrackerStats.now()
         let fence: CEFResizeFence
         // A fence whose right its deadline already dropped (off the main thread) takes no page.
         if let open = current[key], open.right.isHeld {
@@ -146,6 +147,7 @@ final class CEFResizeFences {
         let (step, opened) = (fence.step, fence.opened)
         let done: @MainActor (Bool) -> Void = { [weak fence] presented in
             if presented { CEFHostView.trackerStats.resizeFencePresented += 1 } else { CEFHostView.trackerStats.resizeFenceMissed += 1 }
+            CEFHostView.trackerStats.resizeFenceReplied(after: CEFTrackerStats.now() - asked)
             let outcome = presented ? " presented=1" : " presented=0"
             guard let fence else {
                 // The fence went before this page reported (its deadline, then its bookkeeping): the step log still

@@ -3,19 +3,19 @@
 // people would think \"wow this is awesome\"". Approve plan is now a split button: the filled half
 // approves here with ⌘↩ as before, and its chevron offers Build here, Build in a new worktree and
 // Build on two agents and compare (`_acpmux/plan/build`).
-import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
+import { afterAll, beforeAll, expect, test, afterEach, jest } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
-import { PermissionCard } from "../src/agent-session/acpmux/PermissionCard";
-import {
-  compareHarnesses,
-  harnessName,
-  planBuildTarget,
-  type PlanBuildElsewhere,
-} from "../src/agent-session/acpmux/permissions/planBuild";
+import type { PlanBuildElsewhere } from "../src/agent-session/acpmux/permissions/planBuild";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { PermissionCard } = await importWithDom(() => import("../src/agent-session/acpmux/PermissionCard"));
+const { compareHarnesses, harnessName, planBuildTarget } = await importWithDom(
+  () => import("../src/agent-session/acpmux/permissions/planBuild"),
+);
 
 const plan: AcpmuxPermission = {
   permissionId: "p1",

@@ -141,8 +141,8 @@ fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut at = 0;
-    while at < bytes.len() {
-        if bytes[at] == b'%'
+    while let Some(&current) = bytes.get(at) {
+        if current == b'%'
             && let Some(byte) =
                 text.get(at + 1..at + 3).and_then(|hex| u8::from_str_radix(hex, 16).ok())
         {
@@ -150,7 +150,7 @@ fn percent_decode(text: &str) -> String {
             at += 3;
             continue;
         }
-        out.push(bytes[at]);
+        out.push(current);
         at += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
