@@ -45,6 +45,16 @@ export const ChatAccountsContext = createContext<ChatAccounts | undefined>(undef
 
 export const useChatAccounts = () => useContext(ChatAccountsContext);
 
+/// A chat's reported sign-in (`authSource`, `session_status.rs`) as an account's name: its kind,
+/// without where it came from ("SR2 token (sr2 claude)" → "SR2 token"). Undefined for none.
+export function signInName(source: string | undefined): string | undefined {
+  const text = source?.trim();
+  // acpmux found none it could read (a keychain on Linux, a launcher it does not know): no name, not
+  // "No sign-in found" on a chat that works.
+  if (!text || /^no sign-in/i.test(text)) return undefined;
+  return text.replace(/\s*\(.*\)\s*$/, "") || text;
+}
+
 /// A `_acpmux/route/list` reply as the chat's accounts. A route that says it does not serve the
 /// chat's family is left out; an older acpmux names no `serves`, and then every route is listed.
 export function readChatAccounts(reply: unknown): ChatAccountList {

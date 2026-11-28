@@ -371,3 +371,44 @@ fn only_a_permission_or_a_question_to_the_person_needs_the_person() {
     // The owner's name inside another word is not the person.
     assert!(!needs_person("question", "is cleopatra.rs yours?", "leo"));
 }
+
+/// RFD 0158 §16: a message is decided only when most votes agree on its category and owner.
+#[test]
+fn consensus_keeps_only_what_most_votes_agree_on() {
+    let b = batch_of(vec![
+        held("p1", "t1", "fyi", "build green"),
+        held("p2", "t2", "fyi", "lint passed"),
+        held("p3", "t3", "fyi", "done with x"),
+        held("p4", "t4", "fyi", "maybe"),
+    ]);
+    let o = owners(&[("t3", "lane-x")]);
+    let votes: Vec<Vec<Option<Decision>>> = [
+        "1 noise\n2 handled\n3 owner\n4 this",
+        "1 noise\n2 this\n3 owner\n4 noise",
+        "1 this\n2 noise\n3 owner",
+    ]
+    .iter()
+    .map(|a| decide(&b, Some(a), &o))
+    .collect();
+    let kept = majority(&votes);
+    let cats: Vec<Option<Category>> = kept.iter().map(|d| d.as_ref().map(|d| d.category)).collect();
+    assert_eq!(cats, vec![Some(Category::Noise), None, Some(Category::NeedsItsOwner), None]);
+    assert_eq!(kept[2].as_ref().unwrap().owner.as_deref(), Some("lane-x"));
+    assert_eq!(split_count(&votes, &kept), 2);
+    // One vote is the plain single call; no votes decide nothing.
+    assert_eq!(majority(&votes[..1]), votes[0]);
+    assert!(majority(&[]).is_empty());
+}
+
+#[test]
+fn consensus_passes_rule_decisions_and_holds_on_a_failed_majority() {
+    let b = batch_of(vec![
+        held("p1", "t1", "block", "blocked on review"),
+        held("p2", "t2", "fyi", "ok"),
+    ]);
+    let o = Owners::default();
+    let votes = vec![decide(&b, None, &o), decide(&b, None, &o), decide(&b, Some("2 noise"), &o)];
+    let kept = majority(&votes);
+    assert_eq!(kept[0], votes[0][0], "a rule's decision is the same in every vote");
+    assert_eq!(kept[1], None, "one answer of three decides nothing");
+}

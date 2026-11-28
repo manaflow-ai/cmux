@@ -153,17 +153,28 @@ struct AgentPaneAttachExternalTests {
         #expect(try Data(contentsOf: saved) == Data([3]))
     }
 
-    /// A push that waits for the page's client runs once, when the page says its client is ready, and
-    /// not when it says it is not.
-    @Test func aPushForAPageStillLoadingWaitsForItsClient() async {
+    /// The push for held files waits for the page's client, and goes again each time the client is
+    /// ready while the files are still held: a command sent to a page whose connection then restarts
+    /// is lost, and the opened image waited for the next file sent (screenshot-into-chat probe, open
+    /// door). Once the page takes them, a later reconnect sends nothing.
+    @Test func heldFilesAreSentAgainOnEachReadyClientUntilTaken() async {
         let model = Self.model()
         var ran = 0
-        model.whenClientReady = { ran += 1 }
+        model.sendHeldExternal = { ran += 1 }
+        _ = await Self.ask(model, "pane.clientReady", ["ready": true])
+        #expect(ran == 0)
+        model.droppedPaths.hold(external: [URL(fileURLWithPath: "/tmp/a.png")], claimed: nil)
         _ = await Self.ask(model, "pane.clientReady", ["ready": false])
         #expect(ran == 0)
         _ = await Self.ask(model, "pane.clientReady", ["ready": true])
+        #expect(ran == 1)
+        _ = await Self.ask(model, "pane.clientReady", ["ready": false])
         _ = await Self.ask(model, "pane.clientReady", ["ready": true])
-        #expect(ran == 1 && model.whenClientReady == nil)
+        #expect(ran == 2)
+        _ = await Self.ask(model, "chat.attach.external")
+        #expect(!model.droppedPaths.holdsExternal)
+        _ = await Self.ask(model, "pane.clientReady", ["ready": true])
+        #expect(ran == 2)
     }
 
     /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there

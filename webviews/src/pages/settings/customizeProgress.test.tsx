@@ -34,9 +34,11 @@ test("General opens on the checklist, on by default, at 0 of 15 on a fresh insta
   await open();
   expect(card()).not.toBeNull();
   expect(count()).toBe("0 of 15 done");
-  // The first card on General, ahead of Text Size.
-  const cards = [...page!.container.querySelectorAll<HTMLElement>("[data-card]")].map((el) => el.dataset.card);
-  expect(cards[0]).toBe("customizeProgress");
+  // On General after its own rows, not first (Leo 2026-11-27: "why do we have so many up top?").
+  const section = page!.container.querySelector<HTMLElement>(".section[data-section='general']")!;
+  const cards = [...section.querySelectorAll<HTMLElement>("[data-card]")].map((el) => el.dataset.card);
+  expect(cards[0]).toBe("textSize");
+  expect(cards.at(-1)).toBe("customizeProgress");
   // The next five steps left, the rest behind Show All.
   expect(card()!.querySelectorAll("[data-step]").length).toBe(5);
 });
