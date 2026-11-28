@@ -1,8 +1,8 @@
 // Every request the agent pane page sends, against the app relay's params rule.
 //
-// The macOS app relays the page's frames through a params rule (AcpmuxPaneMethods+Params.swift
-// `knownParams`, methods in AcpmuxPaneMethods.swift `requests`); the Rust host holds the same
-// tables as data (cmux-agent-pane-policy policy.json). A key the rule does not name is refused as
+// The macOS app relays the page's frames through a params rule (`knownParams`, methods in
+// `requests`); since cmux#58248 the Swift tables are generated at build time from the one copy,
+// cmux-agent-pane-policy policy.json, which the Rust host reads too. A key the rule does not name is refused as
 // `transport.intent_invalid`. cmux#46563 added `_meta.acpmux.peerRowBatches` to the page's
 // `initialize` and not to the rule: the app refused every handshake (737 refusals in one nightly,
 // every chat a skeleton) until cmux#49148. The Rust twin of this check (cmux-agent-pane-policy
@@ -13,7 +13,7 @@
 // names a relay method (`this.request(M, P)`, `this.typed(M, P)`, `typedRequest(send, M, P)`,
 // `this.send(M, P)`), the type of P gives its top-level keys, its `_meta` keys and its
 // `_meta.acpmux` keys, through helpers, spreads and conditionals alike. Each must be one the
-// Swift rule and policy.json both take, and the two tables must be one table.
+// policy.json takes (the generated Swift tables and the Rust host read only that file).
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -21,71 +21,16 @@ import ts from "typescript";
 
 const root = join(import.meta.dir, "../..");
 const pane = join(root, "webviews/src/agent-session/acpmux");
-const swiftDir = join(root, "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane");
 const policyPath = join(root, "cmux-tui/crates/cmux-agent-pane-policy/policy.json");
-
-type Known = { params: Set<string>; acpmux: Set<string> };
-
-/// The Swift text from `start` to the first line that is exactly `end`, `//` comments dropped.
-function swiftBlock(file: string, start: string, end: string): string {
-  const text = readFileSync(join(swiftDir, file), "utf8");
-  const at = text.indexOf(start);
-  if (at < 0) throw new Error(`${file}: ${start} not found`);
-  const body = text.slice(at + start.length);
-  const stop = body.indexOf(end);
-  if (stop < 0) throw new Error(`${file}: end of ${start} not found`);
-  return body
-    .slice(0, stop)
-    .split("\n")
-    .map((line) => line.split("//")[0])
-    .join("\n");
-}
-
-const strings = (text: string) => [...text.matchAll(/"([^"]*)"/g)].map((match) => match[1]);
-
-function swiftKnownParams(): Map<string, Known> {
-  const table = swiftBlock(
-    "AcpmuxPaneMethods+Params.swift",
-    "static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [",
-    "\n    ]",
-  );
-  const known = new Map<string, Known>();
-  // One entry per line: `"method": (["param", ...], ["acpmux key", ...]),`.
-  for (const line of table.split("\n").map((l) => l.trim())) {
-    if (!line.startsWith('"')) continue;
-    const method = line.slice(1, line.indexOf('"', 1));
-    const rest = line.slice(method.length + 2);
-    const split = rest.indexOf("], [");
-    if (split < 0) throw new Error(`knownParams entry: ${line}`);
-    known.set(method, { params: new Set(strings(rest.slice(0, split))), acpmux: new Set(strings(rest.slice(split))) });
-  }
-  return known;
-}
-
-function swiftRequests(): Set<string> {
-  return new Set(
-    strings(swiftBlock("AcpmuxPaneMethods.swift", "public static let requests: Set<String> = [", "\n    ]")),
-  );
-}
-
-const swiftInitialize = (() => {
-  const text = readFileSync(join(swiftDir, "AcpmuxPaneMethods.swift"), "utf8");
-  const match = text.match(/static let initialize\s*=\s*"([^"]+)"/);
-  return match?.[1] ?? "initialize";
-})();
-
-const gestureTicketKey = (() => {
-  const text = readFileSync(join(swiftDir, "AcpmuxPaneMethods.swift"), "utf8");
-  const match = text.match(/static let gestureTicketKey\s*=\s*"([^"]+)"/);
-  if (!match) throw new Error("AcpmuxPaneMethods.gestureTicketKey not found");
-  return match[1];
-})();
 
 const policy = JSON.parse(readFileSync(policyPath, "utf8")) as {
   initialize: string;
+  gesture_ticket_key: string;
+  setting_methods: string[];
   requests: string[];
   known_params: Record<string, { params: string[]; acpmux: string[] }>;
 };
+const gestureTicketKey = policy.gesture_ticket_key;
 const policyKnown = new Map(
   Object.entries(policy.known_params).map(([method, k]) => [
     method,
@@ -96,10 +41,43 @@ const policyKnown = new Map(
 /// What the page sends through the relay that the relay is known to refuse, each with why it stays.
 /// Nothing else may be here: a new entry is a decision about the relay, not a way to make this pass.
 const KNOWN_REFUSED: Record<string, string> = {
-  // Sent by the page, refused by both relay tables today; whether the pane relay serves them is the
-  // relay owners' call (inbox_threads reads a session's inbox; acpmux refuses it to agents).
+  // Sent by the page, refused by the relay table today; whether the pane relay serves it is the
+  // relay owners' call.
   "_acpmux/browser_workspaces": "browser device workspace list; not in the relay tables yet",
-  "_acpmux/inbox_threads": "a session's inbox threads; not in the relay tables yet",
+  // schemas/agent-pane/methods.json `refused_today`: each a live bug, listed with its call site there.
+  ...(
+    JSON.parse(readFileSync(join(root, "schemas/agent-pane/methods.json"), "utf8")) as {
+      refused_today: Record<string, string>;
+    }
+  ).refused_today,
+};
+
+/// The `_meta` keys a site sends that the policy refuses, the rule of params.rs `known_params_problem`:
+/// - a permission answer, a plan build and a fix-from-link hold the gesture ticket and nothing else;
+/// - a setting method (policy.json `setting_methods`) that carries the ticket carries nothing else;
+/// - every other request may carry `acpmux` and a W3C `traceparent` (#55505), and only
+///   `session/prompt` may carry the ticket beside them (a prompt held for the folder trust answer).
+/// The site's keys are every arm's together: a ticket in one arm and `acpmux` in another of a setting
+/// method reads as refused, so such a sender needs its own closed type per arm.
+const TICKET_ONLY = new Set(["_acpmux/permission_respond", "_acpmux/plan/build", "chat.fix_from_link"]);
+const SETTING_METHODS = new Set(policy.setting_methods);
+function metaKeysRefused(method: string, keys: Set<string>): string[] {
+  const ticket = keys.has(gestureTicketKey);
+  const others = [...keys].filter((k) => k !== gestureTicketKey);
+  if (TICKET_ONLY.has(method)) return others;
+  if (SETTING_METHODS.has(method) && ticket) return others;
+  const refused = others.filter((k) => k !== "acpmux" && k !== "traceparent");
+  if (ticket && method !== "session/prompt") refused.push(gestureTicketKey);
+  return refused;
+}
+/// Page sends whose `_meta` the policy's rule refuses today, each a live mismatch: `method key`.
+/// The relay's P0 strip (params.rs `stripping_unknown_params`) drops the key before that rule, so
+/// the frame passes without it.
+const META_DROPPED_TODAY: Record<string, string> = {
+  // direct.ts `customizeRun` asks the host for the click's ticket, but the strip drops it from
+  // every method but the ticket-only ones, a setting and session/prompt: the call is admitted on
+  // the host's click (policy.json `click_only`), never on the ticket.
+  "_acpmux/customize_run cmuxGesture": "the relay drops the Try it on / Keep / Revert ticket",
 };
 
 /// Sites whose params type the checker cannot read (`method what`), each with why it is allowed for
@@ -122,6 +100,29 @@ const OPAQUE_OK = new Map<string, string>(
 
 /// Methods the page names that go to the native host in mock mode only, never through the relay.
 const NOT_RELAYED = new Set(["file.search"]);
+// `_meta.acpmux` keys the page sends only on its own socket, never through the app's relay:
+// `compression` goes out only when `frameCompression` holds, an `acpmux-websocket` transport to a
+// machine across a network (cmux#50153); the app's relay is the `acpmux-bridge` transport, for which
+// `frameCompression` is false (agent-pane-frame-compression.test.ts). The exception holds only at a
+// site whose params are `initializeParams({ compression: frameCompression(...) })`: another sender
+// of `compression`, or one that sets it any other way, is checked like any key.
+const SOCKET_ONLY_ACPMUX: Record<string, Set<string>> = { initialize: new Set(["compression"]) };
+/// Whether `arg` is `initializeParams({ compression: frameCompression(...) })`.
+function compressionGated(arg: ts.Node | undefined): boolean {
+  if (!arg || !ts.isCallExpression(arg) || !ts.isIdentifier(arg.expression)) return false;
+  if (arg.expression.text !== "initializeParams") return false;
+  const options = arg.arguments[0];
+  if (!options || !ts.isObjectLiteralExpression(options)) return false;
+  return options.properties.some(
+    (p) =>
+      ts.isPropertyAssignment(p) &&
+      ts.isIdentifier(p.name) &&
+      p.name.text === "compression" &&
+      ts.isCallExpression(p.initializer) &&
+      ts.isIdentifier(p.initializer.expression) &&
+      p.initializer.expression.text === "frameCompression",
+  );
+}
 
 function sources(dir: string): string[] {
   const out: string[] = [];
@@ -135,7 +136,15 @@ function sources(dir: string): string[] {
   return out;
 }
 
-type Site = { file: string; line: number; method: string; params: Set<string>; meta: Set<string>; acpmux: Set<string> };
+type Site = {
+  file: string;
+  line: number;
+  method: string;
+  params: Set<string>;
+  meta: Set<string>;
+  acpmux: Set<string>;
+  socketOnly: boolean;
+};
 type Opaque = { file: string; line: number; method: string; what: string };
 
 /// A relay method name: what the relay's tables name, or the protocol's own name shapes.
@@ -157,7 +166,7 @@ function scan(): { sites: Site[]; opaque: Opaque[] } {
   const files = sources(pane);
   const program = ts.createProgram(files, { ...config.options, noEmit: true, types: [] });
   const checker = program.getTypeChecker();
-  const relay = new Set([...swiftRequests(), ...policy.requests]);
+  const relay = new Set(policy.requests);
   const sites: Site[] = [];
   const opaque: Opaque[] = [];
 
@@ -223,7 +232,15 @@ function scan(): { sites: Site[]; opaque: Opaque[] } {
         for (const method of methods?.filter((m) => relayMethod(m, relay)) ?? []) {
           const line = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
           const paramsArg = node.arguments[methodAt + 1];
-          const site: Site = { file: rel, line, method, params: new Set(), meta: new Set(), acpmux: new Set() };
+          const site: Site = {
+            file: rel,
+            line,
+            method,
+            params: new Set(),
+            meta: new Set(),
+            acpmux: new Set(),
+            socketOnly: compressionGated(paramsArg),
+          };
           const push = (what: string) => opaque.push({ file: rel, line, method, what });
           if (paramsArg) {
             const type = checker.getTypeAtLocation(paramsArg);
@@ -246,33 +263,8 @@ function scan(): { sites: Site[]; opaque: Opaque[] } {
 }
 
 const scanned = scan();
-const swiftKnown = swiftKnownParams();
-const swiftMethods = swiftRequests();
 
 const setText = (s: Set<string>) => [...s].sort().join(",");
-
-test("the Swift relay rule and policy.json are one table", () => {
-  const diffs: string[] = [];
-  for (const method of new Set([...swiftKnown.keys(), ...policyKnown.keys()])) {
-    const a = swiftKnown.get(method);
-    const b = policyKnown.get(method);
-    if (!a || !b) {
-      diffs.push(`${method}: only in ${a ? "AcpmuxPaneMethods+Params.swift knownParams" : "policy.json known_params"}`);
-      continue;
-    }
-    if (setText(a.params) !== setText(b.params))
-      diffs.push(`${method} params: swift [${setText(a.params)}] policy [${setText(b.params)}]`);
-    if (setText(a.acpmux) !== setText(b.acpmux))
-      diffs.push(`${method} _meta.acpmux: swift [${setText(a.acpmux)}] policy [${setText(b.acpmux)}]`);
-  }
-  for (const method of swiftMethods)
-    if (!policy.requests.includes(method)) diffs.push(`${method}: request only in Swift`);
-  for (const method of policy.requests)
-    if (!swiftMethods.has(method)) diffs.push(`${method}: request only in policy.json`);
-  if (policy.initialize !== swiftInitialize)
-    diffs.push(`initialize: swift ${swiftInitialize} policy ${policy.initialize}`);
-  expect(diffs).toEqual([]);
-});
 
 test("the scan reaches the page's requests", () => {
   // Fewer means the senders were renamed and this check went blind: teach `scan` the new name.
@@ -294,10 +286,7 @@ test("every key the page sends a relay method is one the relay takes", () => {
   for (const site of scanned.sites) {
     if (NOT_RELAYED.has(site.method) || KNOWN_REFUSED[site.method]) continue;
     const at = `${site.file}:${site.line} ${site.method}`;
-    for (const [table, methods, known] of [
-      ["AcpmuxPaneMethods (Swift)", swiftMethods, swiftKnown],
-      ["policy.json", new Set(policy.requests), policyKnown],
-    ] as const) {
+    for (const [table, methods, known] of [["policy.json", new Set(policy.requests), policyKnown]] as const) {
       if (site.method !== policy.initialize && !methods.has(site.method)) {
         refused.push(`${at}: method not in ${table} requests`);
         continue;
@@ -308,12 +297,12 @@ test("every key the page sends a relay method is one the relay takes", () => {
         continue;
       }
       for (const key of site.params) if (!rule.params.has(key)) refused.push(`${at}: param "${key}" not in ${table}`);
-      for (const key of site.meta) {
-        const ticket = key === gestureTicketKey;
-        if (key !== "acpmux" && !ticket) refused.push(`${at}: _meta key "${key}" not taken by ${table}`);
-      }
+      for (const key of metaKeysRefused(site.method, site.meta))
+        if (!META_DROPPED_TODAY[`${site.method} ${key}`])
+          refused.push(`${at}: _meta key "${key}" not taken by ${table}`);
       for (const key of site.acpmux)
-        if (!rule.acpmux.has(key)) refused.push(`${at}: _meta.acpmux key "${key}" not in ${table}`);
+        if (!rule.acpmux.has(key) && !(site.socketOnly && SOCKET_ONLY_ACPMUX[site.method]?.has(key)))
+          refused.push(`${at}: _meta.acpmux key "${key}" not in ${table}`);
     }
   }
   expect(refused).toEqual([]);
@@ -331,6 +320,14 @@ test("every params the page sends a relay method has keys the checker can read",
 test("the known refusals are still sent and still refused", () => {
   for (const method of Object.keys(KNOWN_REFUSED)) {
     expect(scanned.sites.some((s) => s.method === method)).toBe(true);
-    expect(swiftMethods.has(method)).toBe(false);
+    expect(policy.requests.includes(method)).toBe(false);
+  }
+  // A dropped `_meta` key that the page stops sending, or the policy starts taking: drop its line.
+  for (const entry of Object.keys(META_DROPPED_TODAY)) {
+    const [method, key] = entry.split(" ");
+    const sites = scanned.sites.filter((s) => s.method === method && s.meta.has(key));
+    expect(sites.length > 0 ? entry : `${entry}: no longer sent`).toBe(entry);
+    const stillRefused = sites.some((s) => metaKeysRefused(s.method, s.meta).includes(key));
+    expect(stillRefused ? entry : `${entry}: now taken`).toBe(entry);
   }
 });

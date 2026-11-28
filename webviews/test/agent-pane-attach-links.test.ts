@@ -176,7 +176,9 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
     const page = await context.newPage();
     await open(page);
     await attach(page).click();
-    const composer = page.locator(".acpmux-composer");
+    // The strip shows the picks (the default attachment view since cmux#55723); the prompt keeps its
+    // inline links hidden, so the composer holds each name twice.
+    const composer = page.locator(".acpmux-composer .acpmux-attachments");
     await composer.getByText("drafts/").waitFor({ timeout: 5_000 });
     await composer.getByText("release notes.md").waitFor({ timeout: 5_000 });
     await page.locator(".acpmux-composer-prompt").click();
@@ -201,7 +203,9 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
     const page = await context.newPage();
     await open(page);
     await attach(page).click();
-    const composer = page.locator(".acpmux-composer");
+    // The strip shows the picks (the default attachment view since cmux#55723); the prompt keeps its
+    // inline links hidden, so the composer holds each name twice.
+    const composer = page.locator(".acpmux-composer .acpmux-attachments");
     await composer.getByText("release notes.md").waitFor({ timeout: 5_000 });
     await page.locator(".acpmux-composer-prompt").click();
     await page.keyboard.type("/plan compare these");

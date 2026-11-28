@@ -30,6 +30,17 @@ fn read(dir: &Path, file: &str) -> String {
     std::fs::read_to_string(dir.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"))
 }
 
+/// The page's sends the relay refuses today, each an attributed regression
+/// (schemas/agent-pane/methods.json `refused_today`, shared with the page's
+/// relay-params contract test).
+fn refused_today() -> BTreeSet<String> {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../schemas/agent-pane/methods.json");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let json: serde_json::Value = serde_json::from_str(&text).expect("methods.json");
+    json["refused_today"].as_object().expect("refused_today").keys().cloned().collect()
+}
+
 /// direct.ts's own files: direct.ts, then each `direct/*.ts` (not tests), by
 /// name. cmux#50833 split helpers such as `isTrustRefusal` and
 /// `newSessionParams` out of direct.ts into `direct/`, which direct.ts
@@ -147,7 +158,30 @@ fn the_allowlist_is_what_the_page_sends() {
         "the page now sends _acpmux/move_targets: drop this line"
     );
     sent.insert("_acpmux/move_targets".to_owned());
-    assert_eq!(sent, p.requests, "requests the page sends vs policy.json requests");
+    // The action trace's status read and span upload (actionTrace.ts), a turn's frames
+    // (liveFrames/turnFrames.ts `TURN_FRAMES_METHOD`, sent through direct.ts) and the request
+    // checks direct.ts writes itself (`const method = "..."`, then its own frame).
+    sent.extend(quoted_after(&read(&dir, "actionTrace.ts"), "this.request("));
+    sent.insert(constant(&read(&dir, "liveFrames/turnFrames.ts"), "TURN_FRAMES_METHOD"));
+    sent.extend(quoted_after(&direct, "const method ="));
+    // Carried memory: the relay still takes `_acpmux/agent_home` and its resolve (policy.json
+    // purposes) though the pane no longer draws it, since Session Info's section was removed.
+    for method in ["_acpmux/agent_home", "_acpmux/agent_home_resolve"] {
+        assert!(!sent.contains(method), "the page sends {method} again: drop this line");
+        sent.insert(method.to_owned());
+    }
+    for method in refused_today() {
+        assert!(
+            sent.remove(&method),
+            "the page no longer sends {method}: drop it from refused_today"
+        );
+    }
+    let unlisted: Vec<_> = sent.difference(&p.requests).collect();
+    let unsent: Vec<_> = p.requests.difference(&sent).collect();
+    assert!(
+        unlisted.is_empty() && unsent.is_empty(),
+        "sent, not in policy.json requests: {unlisted:?}; in requests, not sent: {unsent:?}"
+    );
     // A frame the page writes itself: `jsonrpc: "2.0",` then its `method:`.
     let notifications: BTreeSet<String> = direct
         .split(r#"jsonrpc: "2.0","#)
@@ -301,13 +335,16 @@ fn the_page_sends_only_allowed_acpmux_meta() {
     let allowed = &policy().known_params["session/prompt"].acpmux;
     let extra: Vec<_> = prompt.difference(allowed).collect();
     assert!(extra.is_empty(), "session/prompt _meta.acpmux keys the hosts refuse: {extra:?}");
-    let start =
-        direct.find("export function newSessionParams(").expect("newSessionParams in direct.ts");
-    let body = &direct[start..];
+    // newSessionParams moved to direct/hostConfig.ts with the host config's other builders.
+    let host = read(&dir, "direct/hostConfig.ts");
+    let start = host
+        .find("export function newSessionParams(")
+        .expect("newSessionParams in direct/hostConfig.ts");
+    let body = &host[start..];
     let body = &body[..body.find("\n}").unwrap()];
     let mut new = BTreeSet::new();
     for (at, _) in body.match_indices("acpmux: {") {
-        new.extend(literal_keys(&dir, &direct, braced(body, at + "acpmux: ".len())));
+        new.extend(literal_keys(&dir, &host, braced(body, at + "acpmux: ".len())));
     }
     assert_eq!(new, policy().known_params["session/new"].acpmux, "session/new _meta.acpmux keys");
 }
@@ -325,6 +362,7 @@ fn the_page_sends_only_known_params() {
     let dir = pane();
     let direct = read_direct(&dir);
     let known = &policy().known_params;
+    let refused_today = refused_today();
     let mut refused = Vec::new();
     let mut checked = 0;
     for file in direct_files(&dir).into_iter().chain(["sessionPages.ts".to_owned()]) {
@@ -356,7 +394,10 @@ fn the_page_sends_only_known_params() {
                 let method = method.as_str();
                 let Some(args) = args.trim_start().strip_prefix(',') else { continue };
                 // `file.search` goes to the socket only in mock mode (the allowlist test above).
-                if method == "file.search" || !args.trim_start().starts_with('{') {
+                if method == "file.search"
+                    || refused_today.contains(method)
+                    || !args.trim_start().starts_with('{')
+                {
                     continue;
                 }
                 let open = text.len() - args.trim_start().len();

@@ -164,7 +164,9 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
 
     // `git status --short`, `grep -n '^version' Cargo.toml` and `sed -n 1,8p CHANGELOG.md`, each as
     // what it did (commandActions.ts).
-    const lines = await page.locator(".cv-command__text").allTextContents();
+    // What shows: a read's full path is its hover card's, kept in a hidden description beside it
+    // (FactsHoverCard.tsx, a1e7752d4c3), which textContent would read too.
+    const lines = (await page.locator(".cv-command__text").allInnerTexts()).map((line) => line.trim());
     expect(lines).toEqual(["Checked git status", "Searched for “^version”", "Read CHANGELOG.md"]);
     // The answer stays outside the fold, after the work.
     await page.getByText(ANSWER).waitFor();
