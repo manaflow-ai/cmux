@@ -108,6 +108,28 @@ final class TerminalSurfaceView: UIView {
         accessibilityTraits = .allowsDirectInteraction
     }
 
+    /// The surface spans the whole scroll document (scrollback plus a held host grid),
+    /// so its own frame runs far above the screen: a 2416 pt surface read back at
+    /// y = -1624 on a 874 pt phone. VoiceOver then aims its activation point at the
+    /// frame's centre, off screen, and frame-filtered walks drop the element. The
+    /// element is the part a person can see: the bounds clipped by every clipping
+    /// ancestor and the window.
+    override var accessibilityFrame: CGRect {
+        get {
+            guard let window else { return super.accessibilityFrame }
+            var visible = bounds
+            var ancestor = superview
+            while let clip = ancestor {
+                if clip.clipsToBounds { visible = visible.intersection(clip.convert(clip.bounds, to: self)) }
+                ancestor = clip.superview
+            }
+            visible = visible.intersection(convert(window.bounds, from: window))
+            guard !visible.isNull, !visible.isEmpty else { return super.accessibilityFrame }
+            return UIAccessibility.convertToScreenCoordinates(visible, in: self)
+        }
+        set { super.accessibilityFrame = newValue }
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 

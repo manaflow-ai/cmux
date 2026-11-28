@@ -45,7 +45,12 @@ final class ReviewDemoUITests: XCTestCase {
             XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Connecting'")).firstMatch.exists,
                            "the demo terminal is not waiting for a Mac\n\(app.debugDescription)")
             attach(app, "\(look)-02-terminal")
+            assertSurfaceOnScreen(app, "the terminal opens on its composer")
             field.tap()
+            // The keyboard is up with the composer focused: the state the phone-to-NIGHTLY walk read
+            // with no 'Terminal' element shown (cmuxterm-hq paired-probes run 46135913959).
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "the keyboard comes up\n\(app.debugDescription)")
+            assertSurfaceOnScreen(app, "the composer is focused")
             field.typeText("git status")
             let send = app.buttons["terminal.composer.send"]
             XCTAssertTrue(send.waitForExistence(timeout: 5), "the composer's send button\n\(app.debugDescription)")
@@ -75,6 +80,20 @@ final class ReviewDemoUITests: XCTestCase {
             XCTAssertTrue(waitFor(seconds: 6), "the page loads")
             attach(app, "\(look)-05-browser")
         }
+    }
+
+    /// The terminal's own surface (TerminalSurfaceView, labelled "Terminal") stays in the
+    /// accessibility tree and on screen, so VoiceOver and the fleet's phone walks reach it.
+    @MainActor
+    private func assertSurfaceOnScreen(_ app: XCUIApplication, _ when: String) {
+        let surface = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Terminal'"))
+            .matching(NSPredicate(format: "elementType != %d", XCUIElement.ElementType.button.rawValue)).firstMatch
+        XCTAssertTrue(surface.waitForExistence(timeout: 5), "\(when): the Terminal surface is in the tree\n\(app.debugDescription)")
+        let window = app.windows.firstMatch.frame
+        let frame = surface.frame
+        print("SURFACE-FRAME \(when): \(frame) window \(window)")
+        XCTAssertTrue(frame.width > 0 && frame.height > 0 && frame.minY >= 0 && frame.intersects(window),
+                      "\(when): the Terminal surface is on screen, frame \(frame)\n\(app.debugDescription)")
     }
 
     /// A bounded settle for a screenshot (the shell and the page have no
