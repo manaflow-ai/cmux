@@ -4,7 +4,7 @@ import Testing
 
 /// The exact request lines of the terminal-spawning layout requests (`split`, `new-pane`,
 /// `new-pane-right`, `new-tab`): their own fields plus `SpawnOptions` encoded flat. These bytes
-/// are the contract the generated types (swift_app `spread` and `constant`) keep with the
+/// are the contract the generated types (swift_app `flatten` and `constant`) keep with the
 /// hand-written ones they replaced.
 struct SpawnRequestWireTests {
     private func line(_ request: some DaemonRequest) throws -> String {

@@ -1,7 +1,6 @@
 import Foundation
 
-/// Fields shared by new-tab / split / new-pane / new-pane-right / new-row: the generated requests
-/// send it flat (swift_app `spread`, bindings.json `spreads`).
+/// Fields shared by new-tab / split / new-pane / new-pane-right.
 ///
 /// `cwd` and `env` (`terminal-env-v1`) reach `new-tab` and `split`; with
 /// `terminal-placement-env-v1` also `new-pane` and `new-pane-right`, which
@@ -89,23 +88,5 @@ public struct SpawnOptions: Sendable, Hashable {
         try c.encodeIfPresent(splitID, forKey: .splitID)
         try c.encodeIfPresent(tabID, forKey: .tabID)
         try c.encodeIfPresent(around, forKey: .around)
-    }
-}
-
-public struct NewScreenRequest: TerminalSpawningRequest {
-    public typealias Response = SurfaceCreated
-    public static let command = "new-screen"
-    public var workspace: WorkspaceHandle?
-    public var size: CellSize?
-    public init(workspace: WorkspaceHandle?, size: CellSize? = nil) {
-        self.workspace = workspace
-        self.size = size
-    }
-    enum CodingKeys: String, CodingKey { case workspace, cols, rows }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(workspace, forKey: .workspace)
-        try c.encodeIfPresent(size?.cols, forKey: .cols)
-        try c.encodeIfPresent(size?.rows, forKey: .rows)
     }
 }
