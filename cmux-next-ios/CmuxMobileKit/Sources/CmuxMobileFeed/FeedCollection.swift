@@ -14,7 +14,7 @@ import UIKit
 @MainActor
 @Observable
 final class FeedListControl {
-    /// The list shows its top (within 60 pt).
+    /// The list shows its true top (within half a point, FEED-15).
     var atTop = true
     /// Events that arrived above the reader while they read below the top (the "N new" pill).
     var newAbove = 0
@@ -173,6 +173,17 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     private var heldCounted = 0
     /// A header re-measure that came while the list moved off the top: done at rest.
     private var headerHeld = false
+    /// Web bodies measured while the list moved off the top, by row: their rows resize at rest. A row
+    /// resized mid-motion kept the reader's row with an offset the gesture or the deceleration undid
+    /// (a web body that started rendering at rest reports its height during the next fling).
+    private var webHeightsHeld: [String: CGFloat] = [:]
+    /// When UIKit last moved the offset itself (a drag, a deceleration, a bounce): not the list's own
+    /// restore. A list that moved this recently is not at rest, whatever its flags say.
+    private var lastMotion: CFTimeInterval = 0
+    /// The list sets the offset itself (`restore`): that is no motion.
+    private var restoringOffset = false
+    /// How long UIKit must have left the offset alone before what waited applies (three frames).
+    static let restQuiet: CFTimeInterval = 0.05
     /// Layouts computed off the main thread, one batch at a time.
     private let queue = DispatchQueue(label: "dev.cmux.mobile.feed-layout", qos: .userInitiated)
     private var batchInFlight = false
@@ -338,6 +349,7 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
             headerContent = content
             if let view = collectionView, holdsForScroll(view) {
                 headerHeld = true
+                watchForRest()
             } else {
                 measureHeader()
             }
@@ -379,11 +391,16 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
 
     func setStack(head: String, expanded: Bool) {
         guard stackHeads.contains(head), control.expandedStacks.contains(head) != expanded else { return }
+        // Rows that waited for rest show first, with the reader's row kept: the toggle's own commit
+        // animates and keeps no anchor, so rows it carried in above would move the list (SH-11).
+        if heldUntilRest, let view = collectionView, !isMoving(view) { releaseHeld() }
         if expanded { control.expandedStacks.insert(head) } else { control.expandedStacks.remove(head) }
         stack()
         animatesNextCommit = true
         applyScheduled = true
         applyPending()
+        // Held for rest: it applies with the rest, its rows kept in place, not animated.
+        if heldUntilRest { animatesNextCommit = false }
     }
 
     private func measureHeader() {
@@ -458,6 +475,8 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
             watchForRest()
             return
         }
+        // At the very top (or in a jump to it) what waited shows now, at the top, as any arrival there.
+        if heldUntilRest { dropHold() }
         // A pending question's card shows its saved draft (a relaunch keeps a partly answered question
         // where the person left it); a question answered or cancelled keeps no card state or draft.
         for item in next {
@@ -1248,11 +1267,13 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         let y = min(max(frame.minY - anchor.delta, minY), maxY)
         if abs(y - collectionView.contentOffset.y) > 0.25 {
             trace("restore \(Int(collectionView.contentOffset.y))->\(Int(y)) top=\(control.atTop)")
+            restoringOffset = true
             #if DEBUG
             FeedShiftProbe.shared.correcting { collectionView.contentOffset.y = y }
             #else
             collectionView.contentOffset.y = y
             #endif
+            restoringOffset = false
         }
     }
 
@@ -1293,7 +1314,7 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         // it until then and keeps it when a touch stops the jump on the way.
     }
 
-    /// Whether the list shows its top (within 60 pt), read from the live offset and published to
+    /// Whether the list shows its true top (within half a point), read from the live offset and published to
     /// the screen. Read where it decides something, never from the last scroll callback: a jump's
     /// landing can reach the top with no `scrollViewDidScroll` at the final offset, and a stale
     /// "not at top" made every new event keep the reader's row in place, pushing the list back down
@@ -1424,6 +1445,7 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         #if DEBUG
         FeedShiftProbe.shared.scrolled(scrollView)
         #endif
+        if !restoringOffset { lastMotion = CACurrentMediaTime() }
         // Back at the top: what scrolling brought back from disk goes back there.
         if syncAtTop(), !scrollView.isTracking { store.restoreWindow() }
         #if DEBUG
@@ -1457,12 +1479,22 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scrollEnded(); releaseHeld() }
 
-    /// While the person drags or the list decelerates away from the top, changes wait (FEED-15).
-    /// Not during a jump to the top (it keeps no anchor) and not before the first snapshot.
+    /// While the list moves away from the top, changes wait (FEED-15): a finger is on it, a drag or a
+    /// deceleration runs, or UIKit moved the offset within `restQuiet`. Once rows wait, every change
+    /// waits with them until the list is at rest (`releaseHeld`): one apply then, never one in the
+    /// middle of a motion that a flag read as over (green-43: Fling feed-live moved the rows 47-60 pt
+    /// against a deceleration). Not during a jump to the top (it keeps no anchor), not at the very
+    /// top (new rows show there) and not before the first snapshot.
     private func holdsForScroll(_ view: UITableView) -> Bool {
-        guard !releasing, view.isTracking || view.isDecelerating, !jumpingToTop,
-              dataSource?.snapshot().numberOfSections ?? 0 > 0 else { return false }
+        guard !releasing, !jumpingToTop, dataSource?.snapshot().numberOfSections ?? 0 > 0 else { return false }
+        guard heldUntilRest || headerHeld || isMoving(view) else { return false }
         return !syncAtTop()
+    }
+
+    /// UIKit moves the offset, or did a moment ago: a finger down (resting or creeping), a drag, a
+    /// deceleration (its tail too, where the list looks still), a bounce.
+    private func isMoving(_ view: UIScrollView) -> Bool {
+        view.isTracking || view.isDecelerating || CACurrentMediaTime() - lastMotion < Self.restQuiet
     }
 
     /// The pill counts the held rows that are new (never shown, not a fold line) while they wait.
@@ -1477,8 +1509,10 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     }
 
     /// A held apply's backstop: a tap that stops a deceleration can end it with neither
-    /// `scrollViewDidEndDecelerating` nor `didEndDragging`. Checked every 0.1 s while rows wait; it
-    /// releases only once the list is neither tracked nor decelerating (the end callbacks come first).
+    /// `scrollViewDidEndDecelerating` nor `didEndDragging`, and a finger that rested and lifted never
+    /// dragged. Checked every 0.1 s while rows wait; it releases only once the list is at rest: no
+    /// finger, no drag or deceleration, and the offset left alone for `restQuiet` (the end callbacks
+    /// come first).
     private var restTimer: Timer?
     private func watchForRest() {
         guard restTimer == nil else { return }
@@ -1486,7 +1520,7 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, let view = self.collectionView else { return }
-                guard !view.isTracking, !view.isDecelerating, !self.jumpingToTop else { return }
+                guard !self.isMoving(view), !self.jumpingToTop else { return }
                 self.trace("released by the rest check")
                 self.releaseHeld()
             }
@@ -1506,15 +1540,26 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
             measureHeader()
             releasing = false
         }
+        if !webHeightsHeld.isEmpty {
+            let held = webHeightsHeld
+            webHeightsHeld = [:]
+            for (id, height) in held where items[id] != nil { states[id, default: FeedRowState()].webHeight = Double(height) }
+            refreshRows(Array(held.keys), animated: false)
+        }
         guard heldUntilRest else { return }
-        heldUntilRest = false
         trace("released at rest")
-        control.newAbove = max(0, control.newAbove - heldCounted)
-        heldCounted = 0
+        dropHold()
         releasing = true
         applyScheduled = true
         applyPending()
         releasing = false
+    }
+
+    /// The held rows leave the pill's count (the apply that shows them counts the ones above the reader).
+    private func dropHold() {
+        heldUntilRest = false
+        control.newAbove = max(0, control.newAbove - heldCounted)
+        heldCounted = 0
     }
 
     private func scrollEnded() {
@@ -1764,6 +1809,12 @@ final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSo
     func rowWebHeight(_ id: String, _ height: CGFloat) {
         guard let current = states[id]?.webHeight.map({ CGFloat($0) }) ?? Optional(layout(for: id).map { $0.body.fullHeight } ?? 0),
               abs(current - height) > 0.5 else { return }
+        if let view = collectionView, holdsForScroll(view) {
+            webHeightsHeld[id] = height
+            watchForRest()
+            return
+        }
+        webHeightsHeld[id] = nil
         mutateState(id, animated: false) { $0.webHeight = Double(height) }
     }
 
