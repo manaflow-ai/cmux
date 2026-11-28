@@ -14,6 +14,13 @@ shift 2
 root=$(git rev-parse --show-toplevel)
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/acpmux-zthreads.XXXXXX")
 out=${FAST_CHECKS_OUT:-$work/out}
+# The worktree and its target go on any exit; the summary stays when it was written inside $work.
+cleanup() {
+  git -C "$root" worktree remove --force "$work/wt" 2>/dev/null
+  rm -rf "$work/target"
+  [[ -z ${FAST_CHECKS_OUT:-} ]] || rm -rf "$work"
+}
+trap cleanup EXIT
 mkdir -p "$out"
 jobs=${J:-16}
 
@@ -50,4 +57,3 @@ for n in "$@"; do
   sha=$( [[ -n $rlib ]] && sha256sum "$rlib" | cut -c1-16 || echo none)
   printf '%-8s %8s %8s %8s %8s  %s\n' "$n" "$bw" "$hw" "$hrss" "$brc/$hrc" "$sha" | tee -a "$out/summary.txt"
 done
-git -C "$root" worktree remove --force "$work/wt"
