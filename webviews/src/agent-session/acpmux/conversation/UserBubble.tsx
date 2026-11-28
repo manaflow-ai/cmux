@@ -467,7 +467,9 @@ export const SentImage = memo(function SentImage({
   const { width, height } = sentImageSize(shown);
   // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
   // (conversation.css), never past the bubble's edge.
-  const shape = { width, aspectRatio: `${width} / ${height}` };
+  // `height: auto` in the style itself: the <img>'s `height` attribute (its natural height) must
+  // never set its height beside this width, or it draws stretched (https://github.com/manaflow-ai/cmux/issues/59858).
+  const shape = { width, height: "auto", aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
   const broken = shown.status === "failed" || (shown.src !== undefined && failed === shown.src);
   if (broken && fallback !== null) return <>{fallback}</>;

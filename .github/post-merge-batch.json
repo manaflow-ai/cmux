@@ -317,7 +317,10 @@
         "cmux-tui/crates/cmux-vnc/**",
         "cmux-tui/crates/cmux-window-rules/**",
         "cmux-tui/vendor/crossterm/**",
-        "cmux-tui/vendor/terminput-crossterm/**"
+        "cmux-tui/vendor/terminput-crossterm/**",
+        "cmux-tui/crates/cmux-local-url/**",
+        "cmux-tui/crates/cmux-proxy/**",
+        "scripts/ci/ios-sim-linux-test.sh"
       ],
       "jobs": {"ios": "ios"}
     },
@@ -671,6 +674,18 @@
         "acpmux-protocol-ir": "acpmux protocol IR is current",
         "remote-web-wasm": "cmux remote web wasm"
       }
+    },
+    "ghosttykit-release-check": {
+      "workflow": "ghosttykit-release-check.yml",
+      "paths": [
+        "ghostty",
+        "scripts/download-prebuilt-ghosttykit.sh",
+        "scripts/validate-xcframework-archive.py",
+        "scripts/ghosttykit-checksums.txt",
+        "tests/test_ci_ghosttykit_release_check.sh",
+        ".github/workflows/ghosttykit-release-check.yml"
+      ],
+      "jobs": {"verify": "GhosttyKit release check"}
     }
   }
 }
