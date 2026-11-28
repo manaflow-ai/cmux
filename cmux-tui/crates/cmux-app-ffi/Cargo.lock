@@ -305,6 +305,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-workspace-creation"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-background-ready"
 version = "0.1.0"
 
@@ -620,6 +628,7 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-app-workspace-creation",
  "cmux-bookmarks-core",
  "cmux-browser-rules",
  "cmux-cloud-config",

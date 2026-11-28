@@ -1437,6 +1437,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-workspace-creation"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-apps"
 version = "0.1.0"
 dependencies = [
