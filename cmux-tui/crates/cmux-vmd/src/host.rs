@@ -240,6 +240,26 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
+/// How long [`sync_clock`] waits for the guest agent.
+const CLOCK_SYNC_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Steps a just-resumed guest's clock to the host's over its agent ([`vsock::set_clock`]).
+/// kvmclock stops while a VM is paused or saved, so without this a restored guest reads the
+/// time it was snapshotted at until something sets it, and cmux-host (which re-reads its
+/// identity on the clock-set wake that step fires) waits that long to bind. Best effort: an
+/// older agent without the op, or one that does not answer in time, leaves the machine running
+/// and is reported in the timings as `{"error": ..}`; `{"stepped_ms": ..}` otherwise.
+async fn sync_clock(vsock_uds: &Path) -> serde_json::Value {
+    let t = Instant::now();
+    match vsock::set_clock(vsock_uds, CLOCK_SYNC_TIMEOUT).await {
+        Ok(stepped_ns) => json!({"stepped_ms": stepped_ns / 1_000_000, "sync_ms": ms(t)}),
+        Err(e) => {
+            eprintln!("cmux-vmd: guest clock not set after resume: {e:#}");
+            json!({"error": format!("{e:#}")})
+        }
+    }
+}
+
 fn ms(since: Instant) -> f64 {
     (since.elapsed().as_secs_f64() * 10_000.0).round() / 10.0
 }
@@ -685,7 +705,8 @@ impl Host {
         .await?;
         let resume_ms = ms(t);
         self.set_state(id, RunState::Running).await?;
-        Ok(json!({"resume_ms": resume_ms}))
+        let clock = sync_clock(&self.machine_dir(id).join("v.sock")).await;
+        Ok(json!({"resume_ms": resume_ms, "clock": clock}))
     }
 
     /// Full snapshot: pause, write vmstate and memory, copy the disk while still paused (so it
@@ -715,9 +736,13 @@ impl Host {
             Ok::<_, VmdError>((snapshot_ms, ms(t)))
         }
         .await;
-        if m.state == RunState::Running {
+        let clock = if m.state == RunState::Running {
             fc::call(&api, "PATCH", "/vm", Some(&json!({"state": "Resumed"}))).await?;
-        }
+            // The pause spanned the memory write and the disk copy.
+            sync_clock(&mdir.join("v.sock")).await
+        } else {
+            serde_json::Value::Null
+        };
         let (snapshot_ms, disk_ms) = match result {
             Ok(r) => r,
             Err(e) => {
@@ -738,7 +763,7 @@ impl Host {
         self.lock_state().snapshots.insert(sid, meta.clone());
         Ok((
             meta,
-            json!({"pause_ms": pause_ms, "snapshot_ms": snapshot_ms, "disk_ms": disk_ms, "total_ms": ms(t)}),
+            json!({"pause_ms": pause_ms, "snapshot_ms": snapshot_ms, "disk_ms": disk_ms, "total_ms": ms(t), "clock": clock}),
         ))
     }
 
@@ -809,6 +834,8 @@ impl Host {
             self.abandon(&dir, &slot, Some(pid)).await;
             return Err(e.context("forked guest agent never answered").into());
         }
+        // The snapshot's clock is the bake's: step it to now before cmux-host looks again.
+        let clock = sync_clock(&dir.join("v.sock")).await;
         let name = if req.name.is_empty() { id.clone() } else { req.name.clone() };
         let mut labels = req.labels;
         labels.entry("cmux.vmd/forked-from".into()).or_insert_with(|| sid.to_owned());
@@ -830,7 +857,7 @@ impl Host {
         self.lock_state().machines.insert(id, meta.clone());
         Ok((
             meta,
-            json!({"net_ms": net_ms, "disk_ms": disk_ms, "restore_ms": restore_ms, "ready_ms": ready_ms, "total_ms": ms(t_all)}),
+            json!({"net_ms": net_ms, "disk_ms": disk_ms, "restore_ms": restore_ms, "ready_ms": ready_ms, "total_ms": ms(t_all), "clock": clock}),
         ))
     }
 

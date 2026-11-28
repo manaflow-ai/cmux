@@ -399,6 +399,28 @@ class LookFailedTest(unittest.TestCase):
         self.assertLessEqual(len(u.look_failed("x " * 200, 1)[1]), 140)
         self.assertIn("no reason given", u.look_failed("", 1)[1])
 
+    def test_a_look_that_could_not_run_keeps_a_declared_none(self) -> None:
+        # cmux#39287 (2026-11-28): "Visual: none (...)" in the body, a stale look cancelled after 3 h, gate red.
+        state, desc = u.look_failed_unless_declared("x\nVisual: none (deletes dead modules)\n", self.CANCELLED, 39287)
+        self.assertEqual(state, "success")
+        self.assertTrue(desc.startswith("Declared no visual change: deletes dead modules"))
+        self.assertEqual(u.look_failed_unless_declared("no line", self.CANCELLED, 1)[0], "failure")
+        self.assertEqual(u.look_failed_unless_declared(None, self.CANCELLED, 1)[0], "failure")
+
+    def test_look_failed_reads_the_body_through_its_tokens(self) -> None:
+        calls = []
+
+        def api(path, token, *a, **k):
+            calls.append((path, token))
+            if token == "spent":
+                raise RuntimeError("403")
+            return {"body": "Visual: none (copy only)"}
+        with mock.patch.object(u, "api", side_effect=api):
+            self.assertEqual(u.pr_body("o/r", 7, ["spent", "ok"]), "Visual: none (copy only)")
+        self.assertEqual(calls[-1], ("repos/o/r/pulls/7", "ok"))
+        with mock.patch.object(u, "api", side_effect=RuntimeError("down")):
+            self.assertIsNone(u.pr_body("o/r", 7, ["a"]))
+
     def test_look_reason_from_step_outputs(self) -> None:
         self.assertEqual(u.look_reason({"TAR": "false", "REASON": self.CANCELLED}), self.CANCELLED)
         self.assertEqual(u.look_reason({"TAR": "false"}), "the fleet sent no result")
@@ -502,6 +524,36 @@ class LookFailedTest(unittest.TestCase):
         self.assertEqual([p[3] for p in posts], [f"{8:040d}"])
         self.assertEqual([(s["pr"], "rerun" in s) for s in out], [(62379, True), (8, False)])
 
+    def test_sweep_regates_a_look_failure_answered_by_a_later_record(self) -> None:
+        # cmux#63752: the sweep's failure at 11:25Z, a passing record at 11:37Z, and no gate rerun after it.
+        now = u.dt.datetime(2026, 11, 28, 12, 0, tzinfo=u.dt.timezone.utc)
+        failed = u.look_failed("no look result within 6 h of the pending post", 63752)[1]
+        prs = [self.node(63752, "FAILURE", "2026-11-28T11:25:56Z", failed),  # record after: re-gate
+               self.node(7, "FAILURE", "2026-11-28T11:00:00Z", failed),      # record before: the gate read it
+               self.node(8, "FAILURE", "2026-11-28T11:00:00Z", "UI proof at this head failed: x"),  # not a look's
+               self.node(9, "FAILURE", "2026-11-28T11:00:00Z", failed)]      # no record: stands
+        records = {63752: "2026-11-28T11:37:05Z", 7: "2026-11-28T10:00:00Z", 8: "2026-11-28T11:30:00Z", 9: ""}
+        posts, reruns = [], []
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                          answered=lambda pr, sha: records[pr],
+                          rerun=lambda sha, after="": reruns.append((sha, after)) or "reran")
+        self.assertEqual(reruns, [(f"{63752:040d}", "2026-11-28T11:37:05Z")])
+        self.assertEqual(posts, [])
+        self.assertEqual([s["pr"] for s in out], [63752])
+
+    def test_rerun_gate_rest_skips_a_gate_that_already_read_the_record(self) -> None:
+        def api(path, token, *a):
+            if "workflows/pr-router.yml/runs" in path:
+                return {"workflow_runs": [{"id": 1}]}
+            if path.endswith("/jobs?per_page=100"):
+                return {"jobs": [{"id": 5, "name": u.GATE_JOB, "status": "completed", "conclusion": "failure",
+                                  "completed_at": "2026-11-28T11:40:00Z"}]}
+            self.fail(f"no rerun expected: {path}")
+        with mock.patch.object(u, "api", side_effect=api), \
+                mock.patch.object(u.proof_record, "with_tokens", side_effect=lambda f, tokens: f(tokens[0])):
+            self.assertIn("already read", u.rerun_gate_rest("r/r", "s", ["t"], "2026-11-28T11:37:05Z"))
+
     def test_sweep_reads_the_newest_prs_first(self) -> None:
         self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", u.SWEEP_QUERY)
 
@@ -509,7 +561,7 @@ class LookFailedTest(unittest.TestCase):
         sha = "a" * 40
         good = {"html_url": "u1", "created_at": "2026-11-27T22:16:00Z", "body": "r"}
         with mock.patch.object(proof_record, "pr_comments", return_value=[good]), \
-                mock.patch.object(proof_record, "find", side_effect=lambda c, suite, h, b: (
+                mock.patch.object(proof_record, "find", side_effect=lambda c, suite, h, b, can_write=None: (
                     {"_comment": "u1"} if suite == "web-flows" and h == sha else None)):
             self.assertEqual(u.record_at("r/r", 1, sha, "t", []), "2026-11-27T22:16:00Z")
             self.assertEqual(u.record_at("r/r", 1, "b" * 40, "t", []), "")
