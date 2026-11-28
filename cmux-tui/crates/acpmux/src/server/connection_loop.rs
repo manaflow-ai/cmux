@@ -78,6 +78,7 @@ pub(super) async fn serve_connection_from(
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
         client_features: Default::default(),
+        abi_down: Default::default(),
         chunk_deltas: Default::default(),
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),

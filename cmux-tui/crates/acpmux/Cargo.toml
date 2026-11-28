@@ -96,6 +96,9 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 security-framework = "3"
 
 [dependencies]
+# The wire ABI's compat rules: the gate's test checks them (`protocol::tests::protocol_abi_breaks_have_rules`)
+# and `abi_compat.rs` writes an older peer's messages down by them (RFD hq 0178).
+cmux-api-compat = { workspace = true }
 # What an upstream error says (529, 503, retry-after), shared with OptChat's Chief.
 cmux-upstream-error = { path = "../cmux-upstream-error" }
 cmux-transport-rewrite.workspace = true
@@ -332,8 +335,6 @@ cmux-auto-session = { workspace = true, features = ["test-support"] }
 # The simulated crash file system, for the journal store's crash tests.
 cmux-journal = { workspace = true, features = ["sim"] }
 rcgen = "0.14"
-# The protocol IR's compat gate (`protocol::tests::protocol_abi_breaks_have_rules`, RFD hq 0178).
-cmux-api-compat = { workspace = true }
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
