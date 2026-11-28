@@ -171,7 +171,12 @@ GALLERIES = 2
 # prewarm shoots up to PREWARM_ENTRIES of the entries looks shot most in KEEP_H at each new feat-cmux-next tip, one
 # entry at a time and only while no look runs, on a gallery no look holds.
 CONTENT_CACHE_MB = 4096
-CONTENT_SCHEMA = "ui-preview-content/1"  # in every key: a change to what a shot depends on starts a new cache
+CONTENT_SCHEMA = "ui-preview-content/2"  # in every key: a change to what a shot depends on starts a new cache
+# The web shot cache's folder under shots/. A change to how a web shot is taken names a new one, so a before cached
+# under the old way is never paired with an after taken the new way. web-settled: shots wait for every finite
+# animation to end (ui-preview-settle.mjs); shots/web held frames caught mid-fade at a fixed 300 ms.
+WEB_SHOTS = "web-settled"
+OLD_WEB_SHOTS = ("web",)
 PREWARM_ENTRIES = 8
 KEEP_H = 36
 # The published census copy (ui-preview/HOST.json on now-census) goes through the broker's state_put, which refuses a
@@ -195,6 +200,11 @@ SHOOT_SECONDS = 180
 PEER_SECONDS = 10 * 60
 PULL_POLL_S = 25  # GET /swift/next holds this long for a job before answering 204
 PULL_STALE_S = 90  # no Mac asked for a job this long: a Swift ask fails at once instead of waiting PEER_SECONDS
+# A web+Swift push posts its web pictures once they are shot and the Swift side has had this long more; the Swift
+# scenes follow in a second note when they land. Before, the Swift side ran first and the web post waited on it:
+# 11-28 15:29Z/15:40Z the pulling Mac did not answer in PEER_SECONDS, and two pushes whose web shots were ready
+# in under 60 s posted at 710 s and 818 s (the 6 h p95).
+SWIFT_GRACE_S = 20
 PULL = "pull"  # worker.swift_peer under --swift-pull: a pulling Mac shoots the Swift scenes
 REACH_SECONDS = PEER_SECONDS + 120  # --swift-reach: the reach's connect and lease on top of the peer's own bound
 
@@ -410,6 +420,34 @@ def run(argv: list[str], cwd: Path | None = None, timeout: float = 120, env: dic
 
 def git(repo: Path, *args: str, timeout: float = 120) -> str:
     return run(["git", "-C", str(repo), *args], timeout=timeout, what=f"git {args[0]}").strip()
+
+
+class SwiftRun:
+    """One look's Swift sides (before, then after) on a thread of their own, so the web side shoots meanwhile and
+    a slow or silent Mac does not hold the web post. pairs and error are set before done."""
+
+    def __init__(self, worker, req: dict, scenes: list[str], stages: "Stages") -> None:
+        self.pairs: list = []
+        self.error: str | None = None
+        self.done = threading.Event()
+        self.thread = threading.Thread(target=self._run, args=(worker, req, scenes, stages), daemon=True,
+                                       name=f"swift-{req['head_sha'][:8]}")
+        self.thread.start()
+
+    def _run(self, worker, req, scenes, stages) -> None:
+        try:
+            with worker.swift_lock:
+                with stages("swift_before"):
+                    before = worker.swift_side(req["base_sha"], scenes)
+                with stages("swift_after"):
+                    after = worker.swift_side(req["head_sha"], scenes, req.get("branch"))
+            self.pairs = [("swift", s, before.get(s), after.get(s)) for s in scenes]
+        except LookError as err:
+            self.error = str(err)
+        except Exception as err:  # a bug here must not leave the look waiting on done forever
+            self.error = f"{type(err).__name__}: {err}"
+        finally:
+            self.done.set()
 
 
 class Stages:
@@ -847,6 +885,7 @@ class Worker:
         self.fetch_locks: dict[str, threading.Lock] = {}
         self.fetch_locks_lock = threading.Lock()
         self.receipt_lock = threading.Lock()
+        self.follow_ups: list[threading.Thread] = []  # late Swift posts (tests join them)
         self.swift_on = True  # serve --no-swift: a web-only worker
         self.swift_peer = ""  # serve --swift-peer: the display Mac that shoots this worker's Swift scenes;
         # PULL under --swift-pull: a display Mac's `pull` takes them from self.pulls
@@ -1223,6 +1262,16 @@ class Worker:
         return {"sha": ask["sha"], "shots": {s: base64.b64encode(Path(f).read_bytes()).decode()
                                              for s, f in shots.items()}}
 
+    def shot_dir(self, kind: str, sha: str) -> Path:
+        """SHA's shot cache for KIND (swift, web): web shots live under WEB_SHOTS, so a change to how they are taken
+        starts a new cache instead of pairing an old before with a new after."""
+        return self.state / "shots" / (WEB_SHOTS if kind == "web" else kind) / sha
+
+    def drop_old_web_shots(self) -> None:
+        """The web shot folders an older shooter wrote (OLD_WEB_SHOTS): never read again, so gone."""
+        for name in OLD_WEB_SHOTS:
+            shutil.rmtree(self.state / "shots" / name, ignore_errors=True)
+
     @staticmethod
     def _cached(cache: Path) -> dict:
         try:
@@ -1358,7 +1407,7 @@ class Worker:
 
     def content_hits(self, sha: str, entries: list[str], keys: dict) -> dict:
         """ENTRIES the content cache holds under KEYS, put into SHA's shot cache: {entry: png}."""
-        cache = self.state / "shots" / "web" / sha
+        cache = self.shot_dir("web", sha)
         found = {e: self.content_file(keys[e]) for e in entries if keys.get(e) and self.content_file(keys[e]).is_file()}
         if not found:
             return {}
@@ -1389,7 +1438,7 @@ class Worker:
 
     def cached_side(self, sha: str, entries: list[str], keys: dict | None = None) -> dict:
         """SHA's shots of ENTRIES this worker holds without shooting: its shot cache, then the content cache."""
-        cache = self.state / "shots" / "web" / sha
+        cache = self.shot_dir("web", sha)
         have = {s: cache / f for s, f in self._cached(cache).items() if s in entries and (cache / f).is_file()}
         missing = [e for e in entries if e not in have]
         if missing and keys:
@@ -1400,7 +1449,7 @@ class Worker:
                  keys: dict | None = None) -> dict:
         """SHA's shots of ENTRIES: what the shot cache or the content cache (KEYS, Worker.content_keys) holds, the rest
         shot on GALLERY (else gallery_for) and stored in both."""
-        cache = self.state / "shots" / "web" / sha
+        cache = self.shot_dir("web", sha)
         have = self.cached_side(sha, entries, keys)
         want = [e for e in entries if e not in have]
         if want:
@@ -1639,7 +1688,7 @@ class Worker:
             kept, gone = tips[:BASE_TIPS_KEPT], tips[BASE_TIPS_KEPT:]
             for old in gone:
                 for kind in ("swift", "web"):
-                    shutil.rmtree(self.state / "shots" / kind / old, ignore_errors=True)
+                    shutil.rmtree(self.shot_dir(kind, old), ignore_errors=True)
             tmp = self.warm_tips_path.with_suffix(".tmp")
             tmp.write_text(json.dumps(kept))
             os.replace(tmp, self.warm_tips_path)
@@ -1648,7 +1697,7 @@ class Worker:
     def is_cached(self, kind: str, sha: str, scenes) -> bool:
         """Every one of SCENES' KIND shots at SHA is in the shot cache (a look's side that shoots nothing)."""
         scenes = list(scenes)
-        return bool(scenes) and set(scenes) <= set(self._cached(self.state / "shots" / kind / sha))
+        return bool(scenes) and set(scenes) <= set(self._cached(self.shot_dir(kind, sha)))
 
     def swift_scenes_here(self) -> tuple[str, ...]:
         return ALL_SWIFT_SCENES if (self.swift_on or self.swift_peer) else ()
@@ -1778,17 +1827,10 @@ class Worker:
         elif planned["swift"] and not self.swift_on and not self.swift_peer:
             errors.append(f"swift: {', '.join(planned['swift'])} not shot: this worker ({self.host}) shoots web "
                           "scenes only")
-        elif planned["swift"]:
+        swift_run = None
+        if not planned["needs_build"] and planned["swift"] and (self.swift_on or self.swift_peer):
             receipt.setdefault("before_cached", {})["swift"] = self.is_cached("swift", base, planned["swift"])
-            try:
-                with self.swift_lock:
-                    with stages("swift_before"):
-                        before = self.swift_side(base, planned["swift"])
-                    with stages("swift_after"):
-                        after = self.swift_side(head, planned["swift"], req.get("branch"))
-                pairs += [("swift", s, before.get(s), after.get(s)) for s in planned["swift"]]
-            except LookError as err:
-                errors.append(f"swift: {err}")
+            swift_run = SwiftRun(self, req, planned["swift"], stages)
         if planned["web"]:
             try:
                 began = time.monotonic()
@@ -1819,28 +1861,21 @@ class Worker:
                     errors.append("web: touched.ts names no gallery entry for these files")
             except LookError as err:
                 errors.append(f"web: {err}")
+        late = None
+        if swift_run is not None:
+            web_shot = any(b is not None and a is not None and b.is_file() and a.is_file() for _, _, b, a in pairs)
+            with stages("swift_wait"):
+                swift_run.done.wait(SWIFT_GRACE_S if web_shot else None)
+            if swift_run.done.is_set():
+                pairs = swift_run.pairs + pairs
+                if swift_run.error:
+                    errors.insert(0, f"swift: {swift_run.error}")
+            else:
+                late = swift_run
+                receipt["swift_late"] = list(planned["swift"])
+        token = secrets.token_hex(16)
         with stages("publish"):
-            token = secrets.token_hex(16)
-            look_dir = self.state / "looks" / token
-            scenes = []
-            for kind, scene, before, after in pairs:
-                row = {"scene": scene, "kind": kind}
-                for side, src in (("before", before), ("after", after)):
-                    if src is not None and src.is_file():
-                        dest = look_dir / side / f"{kind}-{scene}.png"
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copyfile(src, dest)
-                        row[side] = self.url(token, side, dest.name)
-                        row[f"{side}_path"] = str(dest)
-                        if src.name.startswith(ABSENT_PREFIX):
-                            row[f"{side}_absent"] = True  # the entry is not in this side's commit (a new entry)
-                if before is not None and after is not None and before.is_file() and after.is_file():
-                    row["changed"] = before.read_bytes() != after.read_bytes()
-                    if row["changed"]:
-                        diff = pixel_diff(before, after)
-                        if diff:
-                            row["diff"] = diff
-                scenes.append(row)
+            scenes = self.scene_rows(token, pairs)
             self.publish_media(req, scenes, receipt)
         receipt["scenes"] = scenes
         receipt["look"] = token
@@ -1853,6 +1888,68 @@ class Worker:
         with stages("send"):
             receipt["sent_to"] = self.send(send_targets(req), self.message(req, scenes, receipt))
         receipt["posted_at"] = utc_now()
+        if late is not None:
+            follow = threading.Thread(target=self.swift_follow_up, args=(req, receipt, late, token), daemon=True,
+                                      name=f"swift-post-{head[:8]}")
+            self.follow_ups.append(follow)
+            follow.start()
+
+    def swift_follow_up(self, req: dict, receipt: dict, run: SwiftRun, token: str) -> None:
+        """The Swift scenes of a look whose web pictures posted without them: once the Swift side ends, its pictures
+        (or why it shot none) go to the same recipient in a second note, and the receipt gains them."""
+        run.done.wait()
+        head = req["head_sha"][:12]
+        try:
+            rows = []
+            if run.pairs:
+                rows = self.scene_rows(token, run.pairs)
+                self.publish_media(req, rows, receipt)
+            shot = [r for r in rows if r.get("before") and r.get("after")]
+            if shot:
+                text = self.message(req, shot, {**receipt, "error": f"swift: {run.error}" if run.error else None})
+                text = text.replace(f"UI preview of your push {head}", f"UI preview (Swift scenes) of your push {head}", 1)
+            else:
+                text = (f"UI preview of your push {head} ({req.get('branch') or 'no branch'}): the Swift scenes "
+                        f"{', '.join(receipt.get('swift_late') or [])} were not shot: {run.error or 'no scene was shot'}\n")
+            sent = self.send(send_targets(req), text)
+            with self.receipt_lock:
+                receipt["scenes"] = rows + list(receipt.get("scenes") or [])
+                if shot:
+                    receipt["swift_posted_at"] = utc_now()
+                if run.error:
+                    receipt["error"] = "; ".join(x for x in (f"swift: {run.error}", receipt.get("error")) if x)[:500]
+                receipt["swift_sent_to"] = sent
+        except LookError as err:
+            with self.receipt_lock:
+                receipt["error"] = "; ".join(x for x in (receipt.get("error"), f"swift follow-up: {err}") if x)[:500]
+        except Exception as err:
+            log(f"{head}: swift follow-up: {type(err).__name__}: {err}")
+        self.write_receipt(receipt)
+
+    def scene_rows(self, token: str, pairs) -> list[dict]:
+        """Each (kind, scene, before, after) as a posted row: both sides copied under looks/TOKEN, URLs, changed,
+        and the pixel diff."""
+        look_dir = self.state / "looks" / token
+        scenes = []
+        for kind, scene, before, after in pairs:
+            row = {"scene": scene, "kind": kind}
+            for side, src in (("before", before), ("after", after)):
+                if src is not None and src.is_file():
+                    dest = look_dir / side / f"{kind}-{scene}.png"
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(src, dest)
+                    row[side] = self.url(token, side, dest.name)
+                    row[f"{side}_path"] = str(dest)
+                    if src.name.startswith(ABSENT_PREFIX):
+                        row[f"{side}_absent"] = True  # the entry is not in this side's commit (a new entry)
+            if before is not None and after is not None and before.is_file() and after.is_file():
+                row["changed"] = before.read_bytes() != after.read_bytes()
+                if row["changed"]:
+                    diff = pixel_diff(before, after)
+                    if diff:
+                        row["diff"] = diff
+            scenes.append(row)
+        return scenes
 
     def post_error(self, req: dict, receipt: dict) -> None:
         """Tells the pusher why its push has no pictures, when the why is in its own code (touched.ts could not
@@ -1941,6 +2038,9 @@ class Worker:
                 lines.append(f"  diff: {diff_text(s['diff'])}")
         if receipt.get("error"):
             lines.append(f"Partly: {receipt['error']}")
+        if receipt.get("swift_late") and not receipt.get("swift_sent_to") and all(s["kind"] != "swift" for s in scenes):
+            lines.append(f"The Swift scenes ({', '.join(receipt['swift_late'])}) are still shooting: they follow in "
+                         "a second note.")
         public = any(s.get("before_public") or s.get("after_public") for s in scenes)
         if public:
             lines.append(f"Read one: d=$(mktemp -d) && curl -sL -o \"$d/ui-preview-{head}.png\" URL, then open it "
@@ -2198,6 +2298,11 @@ FOLLOW_RETRY_S = 10  # after a failed call
 # ttl_s 60 and probe_s 10 (leo-workspace machines/role-leases.json ui-preview-web), role_lease's STOP_S 15 and
 # RESTART_S 5.
 TAKEOVER_S = 90
+# A replayed request no worker answered is taken late only this soon after its push; an older one gets an error
+# receipt instead of a look. 2026-11-28 ~15:06Z gcp-agent-lane-2 took the role over with its follow-seq from its
+# last term (27T18Z); the 27T18-19Z pushes had no receipt anywhere, so it looked at each and posted them 68,000 to
+# 72,000 s after their push: messages about pushes their lanes had long moved past, and the census's p95 with them.
+REPLAY_MAX_S = 60 * 60
 # Where every worker's census copy is (answered_keys reads the predecessor's answers from it).
 CENSUS_REPO, CENSUS_REF, CENSUS_FOLDER = "manaflow-ai/cmuxterm-hq", "reconciler-state/now-census", "ui-preview"
 
@@ -2351,6 +2456,11 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
                 log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
                     f"took the role: its predecessor's, not posted again")
                 continue
+            age = (dt.datetime.now(dt.timezone.utc) - parse_ts(req["pushed_at"])).total_seconds()
+            if age > REPLAY_MAX_S:
+                worker.refuse(req, f"pushed {int(age)} s before this worker took it over and no worker answered it: "
+                                   f"past REPLAY_MAX_S ({REPLAY_MAX_S} s), not posted this late")
+                continue
             log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
                 f"took the role, and no worker answered it: taken late")
         planned = plan(req["ui_files"])
@@ -2384,6 +2494,7 @@ def follow(worker: "Worker", jobs: "queue.Queue", call=lane_gh_call) -> None:
 
 def command_serve(args) -> int:
     worker = Worker(Path(args.state), args.public, args.send, args.publish_receipts)
+    worker.drop_old_web_shots()
     worker.swift_on = not args.no_swift
     worker.swift_peer = PULL if args.swift_pull else (args.swift_peer or "")
     worker.swift_reach = (args.swift_reach or "") if args.swift_pull else ""
