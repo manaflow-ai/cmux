@@ -80,8 +80,12 @@ final class OnboardingPageProvider: PageProvider {
         }
         let importer = model.importer
         switch op {
-        case "cmux.onboarding.next": model.next()
-        case "cmux.onboarding.skip": model.skipStep()
+        case "cmux.onboarding.next":
+            noteWalkScreen(params)
+            model.next()
+        case "cmux.onboarding.skip":
+            noteWalkScreen(params)
+            model.skipStep()
         case "cmux.onboarding.back": model.goBack()
         case "cmux.onboarding.agents.signIn": model.agents.signIn(try Self.string(params, "id"))
         case "cmux.onboarding.agents.install": model.agents.install(try Self.string(params, "id"))
@@ -163,6 +167,12 @@ final class OnboardingPageProvider: PageProvider {
         let id = try Self.string(params, "id")
         guard let profile = model.importer.profiles.first(where: { $0.id == id }) else { throw PageError.invalidParams("unknown profile") }
         return profile
+    }
+
+    /// Make cmux Yours' page sends the walk's screen index with Continue and Skip, for the walk's record.
+    private func noteWalkScreen(_ params: JSONValue) {
+        guard model.step == .makeItYours, let screen = params["screen"]?.intValue, screen >= 0 else { return }
+        model.walkScreen = screen
     }
 
     private static func string(_ params: JSONValue, _ key: String) throws -> String {

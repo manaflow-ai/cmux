@@ -69,7 +69,7 @@ describe("intro walk: screens", () => {
     expect(root.querySelectorAll('input[name="workStyle"]').length).toBe(2);
     expect(root.querySelectorAll('input[name="density"]').length).toBe(5);
     await act(async () => key("Enter"));
-    expect(calls).toEqual([{ op: OPS.next, params: {} }]);
+    expect(calls).toEqual([{ op: OPS.next, params: { screen: 0 } }]);
     await done();
   });
 
@@ -86,7 +86,7 @@ describe("intro walk: screens", () => {
     expect(title()).toBe(strings.t("onboarding.makeItYours.tune.title"));
     expect(calls).toEqual([]);
     await act(async () => key("Enter"));
-    expect(calls).toEqual([{ op: OPS.next, params: {} }]);
+    expect(calls).toEqual([{ op: OPS.next, params: { screen: 3 } }]);
     await done();
   });
 
@@ -96,7 +96,7 @@ describe("intro walk: screens", () => {
     expect(root.querySelector(".onb-title")?.textContent).toBe(strings.t("onboarding.makeItYours.work.label"));
     expect(calls).toEqual([]);
     await act(async () => key("Escape"));
-    expect(calls).toEqual([{ op: OPS.skip, params: {} }]);
+    expect(calls).toEqual([{ op: OPS.skip, params: { screen: 1 } }]);
     await done();
   });
 
