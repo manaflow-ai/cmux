@@ -114,6 +114,160 @@ pub fn chat_place(facts: &ToChat) -> ChatPlace {
     }
 }
 
+/// The most screen rows a swap reads: the cost stays flat however long the session.
+pub const READ_ROWS: usize = 20_000;
+
+/// Going to the terminal, once the chat named its turn: what the app reads of the hidden
+/// terminal's screen.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TerminalReadFacts {
+    /// The chat's turn (`ToTerminal::at`); None while it follows its latest message.
+    pub at: Option<usize>,
+    /// The screen's rows, its history included.
+    pub total: usize,
+    /// The most rows to read ([`READ_ROWS`] when not sent).
+    #[serde(default = "read_rows")]
+    pub rows: usize,
+}
+
+/// What the app reads of the terminal before it shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "read")]
+pub enum TerminalRead {
+    /// Nothing: the chat follows its latest message, so the terminal goes to its newest rows.
+    Latest,
+    /// The newest rows from `base` on: all of a short screen (`base` 0, read through the
+    /// viewport), else with the viewport moved to `base` and read from its top.
+    Screen { base: usize, from_viewport_top: bool },
+}
+
+/// Ghostty addresses no window of a long history but from or through the viewport, so the
+/// hidden terminal's viewport moves to the top of its newest `rows` to read them.
+pub fn terminal_read(facts: &TerminalReadFacts) -> TerminalRead {
+    if facts.at.is_none() {
+        return TerminalRead::Latest;
+    }
+    let base = facts.total.saturating_sub(facts.rows);
+    TerminalRead::Screen { base, from_viewport_top: base > 0 }
+}
+
+/// Going to the terminal, its screen read: the place facts and where the viewport was.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ToTerminalScroll {
+    #[serde(flatten)]
+    pub place: ToTerminal,
+    /// The viewport's top row before the read moved it.
+    pub top: usize,
+    /// The viewport showed the newest rows before the read moved it.
+    pub at_bottom: bool,
+}
+
+/// How the terminal scrolls before it shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "scroll")]
+pub enum TerminalScroll {
+    /// To its newest rows.
+    Latest,
+    /// Screen row `row` at the top of the viewport.
+    Row { row: usize },
+    /// Not at all: the read never moved it.
+    Keep,
+}
+
+/// The terminal's scroll for the chat's turn; nothing to land on puts it back where it was
+/// (the read moved it only when `base` is above 0).
+pub fn terminal_scroll(facts: &ToTerminalScroll) -> TerminalScroll {
+    match terminal_place(&facts.place) {
+        TerminalPlace::Row { row } => TerminalScroll::Row { row },
+        TerminalPlace::Latest => TerminalScroll::Latest,
+        TerminalPlace::Stay if facts.place.base == 0 => TerminalScroll::Keep,
+        TerminalPlace::Stay if facts.at_bottom => TerminalScroll::Latest,
+        TerminalPlace::Stay => TerminalScroll::Row { row: facts.top },
+    }
+}
+
+/// Going to the chat, the terminal still showing: its viewport and whether the chat is at its
+/// latest message.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChatReadFacts {
+    pub top: usize,
+    /// The viewport's rows.
+    pub visible: usize,
+    pub total: usize,
+    pub at_bottom: bool,
+    pub at_latest: bool,
+    /// The most rows to read ([`READ_ROWS`] when not sent).
+    #[serde(default = "read_rows")]
+    pub rows: usize,
+}
+
+/// What the app does first going to the chat.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "read")]
+pub enum ChatRead {
+    /// Nothing to read: the terminal shows its newest rows, so the chat goes to its latest
+    /// message (`show` false: it is there already).
+    Latest { show: bool },
+    /// Read the chat's prompts, then the terminal's rows from `base` on: through the viewport
+    /// when what is above it fits (`base` 0), else from the viewport's top.
+    Screen { base: usize, from_viewport_top: bool, through_viewport_bottom: bool },
+    /// Neither fits: the chat stays.
+    Stay,
+}
+
+pub fn chat_read(facts: &ChatReadFacts) -> ChatRead {
+    if facts.at_bottom {
+        return ChatRead::Latest { show: !facts.at_latest };
+    }
+    let cap = facts.rows;
+    let from_top = facts.top.saturating_add(facts.visible) > cap;
+    if from_top && facts.total.saturating_sub(facts.top) > cap {
+        return ChatRead::Stay;
+    }
+    ChatRead::Screen {
+        base: if from_top { facts.top } else { 0 },
+        from_viewport_top: from_top,
+        through_viewport_bottom: !from_top,
+    }
+}
+
+/// Going to the chat, the terminal's rows read: the place facts and the chat's turn now.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ToChatShow {
+    #[serde(flatten)]
+    pub place: ToChat,
+    /// The prompt whose turn the chat shows; None at its latest message.
+    pub at: Option<usize>,
+}
+
+/// What the chat shows before it shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "show")]
+pub enum ChatShow {
+    /// Its latest message.
+    Latest,
+    /// Prompt `index`'s turn.
+    Turn { index: usize },
+    /// Nothing moves: it is there already, or nothing matched.
+    Stay,
+}
+
+pub fn chat_show(facts: &ToChatShow) -> ChatShow {
+    match chat_place(&facts.place) {
+        ChatPlace::Latest if facts.at.is_some() => ChatShow::Latest,
+        ChatPlace::Turn { index } if Some(index) != facts.at => ChatShow::Turn { index },
+        _ => ChatShow::Stay,
+    }
+}
+
+fn read_rows() -> usize {
+    READ_ROWS
+}
+
 /// Each prompt's row on `screen`, or None where the screen lacks it (scrolled out of its history,
 /// or not drawn). Prompts the harness marked (`> hi`) win over a reply line that happens to start
 /// with a prompt's words, unless the harness marks none of them.

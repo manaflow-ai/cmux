@@ -6,6 +6,7 @@
 // chevron that opens Auto ⌥⌘1, Cloud only ⌥⌘2 and Machine… ⌥⌘3; with it off, the menu is unchanged.
 import { useEffect, useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
+import { declareMove } from "../../layout/motionContract";
 import { AutoIcon } from "./AutoWhere";
 import { EnvironmentIcon, EnvironmentPicker } from "./EnvironmentPicker";
 import { LocationFace } from "./ComposerContext";
@@ -29,11 +30,15 @@ function Picker({ open, picked, gate }: Props) {
     const timers: number[] = [];
     timers.push(
       window.setTimeout(() => {
+        declareMove({ event: "menu", scope: "all", by: "gallery press" }, { ms: 500 });
         box.current?.querySelector<HTMLButtonElement>(".acpmux-location-button")?.click();
         if (open !== "places") return;
         timers.push(
           window.setTimeout(() => {
             const row = document.querySelector<HTMLElement>('.acpmux-env-popover [data-action="autoPlaces"]');
+            // A person's press declares the menu's change (layout/motionAudit.ts onPress); this click
+            // stands in for that press, so it declares the same: the open list re-lays out in place.
+            declareMove({ event: "menu", scope: "all", by: "gallery press" }, { ms: 500 });
             (row?.closest<HTMLElement>('[role="option"]') ?? row)?.click();
           }, 60),
         );

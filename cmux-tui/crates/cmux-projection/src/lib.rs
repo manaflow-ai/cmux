@@ -11,6 +11,7 @@
 //! listing and writes no files.
 
 pub mod away;
+pub mod cdc;
 pub mod chat_ns;
 pub mod git;
 #[cfg(unix)]
@@ -19,6 +20,7 @@ pub mod git_swap;
 pub mod hold;
 pub mod layer;
 pub mod link;
+pub mod listing_patch;
 pub mod lower;
 pub mod manifest;
 #[cfg(unix)]
@@ -28,6 +30,8 @@ pub mod overlay;
 pub mod peers;
 #[cfg(unix)]
 pub mod reap;
+#[cfg(unix)]
+pub mod repo_archive;
 pub mod revision;
 pub mod s3;
 #[cfg(unix)]
@@ -37,6 +41,7 @@ pub mod sparse;
 #[cfg(unix)]
 pub mod state;
 pub mod store_fetch;
+pub mod tune;
 pub mod upload;
 #[cfg(unix)]
 pub mod upper;
@@ -45,6 +50,9 @@ pub mod wire;
 
 #[cfg(target_os = "linux")]
 pub mod mount;
+
+#[cfg(test)]
+mod test_mac;
 
 /// Why a fetch of a file's bytes from the Mac failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,12 +80,29 @@ impl FetchError {
     }
 }
 
+/// What a fetch answered: the bytes of the file the manifest listed, or the file re-listed after
+/// it changed (RFD 0007, hard case 7): its stat now and bytes of it as it is now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fetched {
+    Same(Vec<u8>),
+    Restated(wire::Restat, Vec<u8>),
+}
+
 /// Where a projection's file bytes come from.
 pub trait Fetch: Send + Sync {
     /// `len` bytes of file `entry` at `offset` (fewer at its end).
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError>;
     /// The whole of each file in `entries`, in that order.
     fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>>;
+    /// [`Fetch::read`], also answering a file that changed since the manifest with its new stat
+    /// and bytes. A source whose files never change answers [`Fetched::Same`].
+    fn read_fresh(&self, entry: u32, offset: u64, len: u32) -> Result<Fetched, FetchError> {
+        self.read(entry, offset, len).map(Fetched::Same)
+    }
+    /// [`Fetch::batch`], with [`Fetch::read_fresh`]'s answers.
+    fn batch_fresh(&self, entries: &[u32]) -> Vec<Result<Fetched, FetchError>> {
+        self.batch(entries).into_iter().map(|answer| answer.map(Fetched::Same)).collect()
+    }
     /// Whether the overlay keeps what this source answers in its cache folder, and reads a
     /// folder's other small files ahead. A source already on the machine's disk, such as a git
     /// object store, says no: a second copy would only cost disk.

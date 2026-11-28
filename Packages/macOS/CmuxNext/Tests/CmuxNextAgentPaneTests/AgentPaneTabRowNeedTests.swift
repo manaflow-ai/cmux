@@ -75,6 +75,20 @@ struct AgentPaneTabRowReloadTests {
         #expect(relaunched.sharedWidth(zoom: 1) == nil)
     }
 
+    /// A first launch (nothing kept) starts under the strip too, from the shipped width, until the page reports.
+    @Test func aFirstLaunchRowStartsFromTheShippedWidth() throws {
+        let suite = "AgentPaneTabRowFirst-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = AgentPaneTabRow(defaults: defaults, firstLaunchWidth: 128)
+        #expect(first.sharedWidth(zoom: 1) == 128)
+        #expect(first.sharedNeed(zoom: 1) == 128)
+        first.report(width: 150)
+        #expect(first.sharedWidth(zoom: 1) == 150)
+        // The report is kept: the next launch starts from it, not from the shipped width.
+        #expect(AgentPaneTabRow(defaults: defaults, firstLaunchWidth: 128).sharedWidth(zoom: 1) == 150)
+    }
+
     @Test func toolsThatLeaveGiveTheRowBack() {
         let row = AgentPaneTabRow()
         row.report(width: 180)

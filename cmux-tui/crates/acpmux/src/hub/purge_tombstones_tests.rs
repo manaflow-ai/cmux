@@ -56,15 +56,17 @@ fn tombstones(hub: &Hub, peer: &str) -> Vec<String> {
 /// notice before the reply: the list that comes after the purge does not put `x` back.
 #[test]
 fn a_list_read_before_a_purge_does_not_bring_the_purged_session_back() {
-    let hub = hub();
-    let generation = register(&hub, "builder");
-    hub.apply_peer_notice("builder", generation, list(&["x", "y"]));
-    // The link drops; the next one's purge of `x` comes before its list.
-    hub.apply_peer_notice("builder", generation, PeerNotice::Disconnected("reset".into()));
-    hub.apply_peer_notice("builder", generation, changed("x", "purged"));
-    assert_eq!(rows(&hub, "builder"), ["y"]);
-    hub.apply_peer_notice("builder", generation, list(&["x", "y"]));
-    assert_eq!(rows(&hub, "builder"), ["y"], "the older list put the purged session back");
+    for end in [PeerNotice::Disconnected("reset".into()), PeerNotice::Idle] {
+        let hub = hub();
+        let generation = register(&hub, "builder");
+        hub.apply_peer_notice("builder", generation, list(&["x", "y"]));
+        // The link ends; the next one's purge of `x` comes before its list.
+        hub.apply_peer_notice("builder", generation, end);
+        hub.apply_peer_notice("builder", generation, changed("x", "purged"));
+        assert_eq!(rows(&hub, "builder"), ["y"]);
+        hub.apply_peer_notice("builder", generation, list(&["x", "y"]));
+        assert_eq!(rows(&hub, "builder"), ["y"], "the older list put the purged session back");
+    }
     // On a first link too, with no row of `x` before its purge.
     let hub = self::hub();
     let generation = register(&hub, "builder");

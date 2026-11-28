@@ -4,16 +4,16 @@
 // The live-tools cases test the `runs` arm of live-turn-work, not the shipped `line` arm: the row over
 // the live line is a finished call of a turn that still runs, which only `runs` draws
 // (support/liveTurnRuns.ts). The other cases take the shipped arms.
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import {
-  TRANSCRIPT_LIVE_LINE_BOX,
   TRANSCRIPT_LIVE_STEP_GAP,
   TRANSCRIPT_LIVE_STEP_HEIGHT,
   TRANSCRIPT_LINE_ROW,
-  TRANSCRIPT_LINE_WORDS,
+  TRANSCRIPT_LIVE_LINE_BOX,
 } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
@@ -269,14 +269,16 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
               // 4 under its one-line row (TRANSCRIPT_LINE_ROW: its 22 line of words and the row air), 8 over the next row, and no stack gap after it (Codex parity,
               // Lucas, 2026-11-07; conversation.css `.cv-worked.has-divider.is-toggle`, model.ts
               // WORKED_GAP_PT, transcriptGrid.ts MARK_WORKED).
-              expect(measured.headerHeight).toBeCloseTo(TRANSCRIPT_LINE_ROW + 4, 1);
+              expect(measured.headerHeight).toBeCloseTo(TRANSCRIPT_LINE_ROW + ROW_METRIC.ruleAbove, 1);
               if (variant === "codex-closed") {
-                expect(measured.replyGap).toBeCloseTo(8, 1);
-                // Its words sit centred in the row, so half the row air falls under them.
+                expect(measured.replyGap).toBeCloseTo(ROW_METRIC.ruleBelow, 1);
                 expect(
-                  Math.abs(measured.replyCenterGap - (34.375 + (TRANSCRIPT_LINE_ROW - TRANSCRIPT_LINE_WORDS) / 2)),
+                  Math.abs(
+                    measured.replyCenterGap -
+                      (TRANSCRIPT_LINE_ROW / 2 + ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow + 11.375),
+                  ),
                 ).toBeLessThan(1);
-              } else expect(measured.nextGap).toBeCloseTo(8, 1);
+              } else expect(measured.nextGap).toBeCloseTo(ROW_METRIC.ruleBelow, 1);
             }
           }
           if (process.env.FAST_CHECKS_OUT) {

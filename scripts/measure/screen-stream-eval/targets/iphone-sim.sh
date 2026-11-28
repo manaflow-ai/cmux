@@ -55,10 +55,7 @@ build_app() {
   local xg="$EVAL_STATE/xcodegen" version=2.46.0 sha=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
   rm -rf "$xg"
   mkdir -p "$xg"
-  curl -fsSL --retry 3 --retry-delay 2 -o "$xg/xcodegen.zip" \
-    "https://github.com/yonaskolb/XcodeGen/releases/download/$version/xcodegen.zip"
-  [[ "$(shasum -a 256 "$xg/xcodegen.zip" | awk '{ print $1 }')" == "$sha" ]] || { echo "iphone-sim: xcodegen checksum mismatch" >&2; return 1; }
-  unzip -q "$xg/xcodegen.zip" -d "$xg"
+  bash "$EVAL_ROOT/scripts/ci/fetch-xcodegen.sh" "$version" "$sha" "$xg" >/dev/null || return 1
   (cd "$ios" && "$xg/xcodegen/bin/xcodegen" generate -q)
   # Demo: optimized like Release, with DEBUG (the link viewer and the probe exist only there).
   # $(inherited) is xcodebuild's, not the shell's.
@@ -222,6 +219,10 @@ json.dump({
 }, open(sys.argv[2], "w"))
 EOF
     ;;
+  # For iphone-link (same app and simulator, the rd/1 link viewer): the booted, installed iPhone's
+  # udid, and the marker's fractions.
+  ensure-sim) ensure_sim ;;
+  fractions) fractions ;;
   window-view | window-report) echo "iphone-sim: latency only (caps: latency-only)" >&2; exit 2 ;;
   *) echo "iphone-sim.sh: unknown verb $verb" >&2; exit 2 ;;
 esac

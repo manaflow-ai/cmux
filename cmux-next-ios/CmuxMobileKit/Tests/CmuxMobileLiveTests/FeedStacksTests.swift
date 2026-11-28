@@ -1,3 +1,4 @@
+#if os(iOS)
 @testable import CmuxMobileFeed
 import CmuxMobileAgentChat
 import Foundation
@@ -115,3 +116,4 @@ import Testing
         #expect(stacks.folds == [FeedStacks.foldID(head: "f-run-4"): FeedFold(count: 3, expanded: false)])
     }
 }
+#endif

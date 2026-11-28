@@ -15,7 +15,17 @@ export interface UsageState {
   readonly owner: string | null
   /** The team's own monthly cap (USD); null = the deployment ceiling. */
   readonly team_cap_usd: number | null
+  /**
+   * Present once set by `usage.cap.set {overage_usd}` (RFD 0080): the team cap is the pool plus this, null = overage off
+   * (team-cap.ts teamCapState); `team_cap_usd` is then null. Absent: `team_cap_usd` alone, as before.
+   */
+  readonly overage_usd?: number | null
 }
+
+/** The admin's ask for the team spending cap (team-cap.ts teamCapState): a total, null for the default, or past the pool. */
+export type AdminCap = number | null | { readonly overage_usd: number | null }
+
+export const adminCapOf = (state: UsageState): AdminCap => (state.overage_usd !== undefined ? { overage_usd: state.overage_usd } : state.team_cap_usd)
 
 /**
  * Cost estimate per unit in USD, used for the hard cap (A18: prices to customers
@@ -118,7 +128,13 @@ export const usageDomain: Domain<UsageState> = {
         if (!d.ok) return d
         const notAdmin = requirePersonalTeamAdmin(ctx.principal, personalTeamIdFor)
         if (notAdmin) return { ok: false, ...notAdmin }
-        const next: UsageState = { owner: state.owner ?? ctx.principal.team ?? null, team_cap_usd: d.value.cap_usd }
+        const hasCap = d.value.cap_usd !== undefined
+        const hasOverage = d.value.overage_usd !== undefined
+        if (hasCap === hasOverage) return reject("validation.invalid", "set exactly one of cap_usd and overage_usd")
+        const owner = state.owner ?? ctx.principal.team ?? null
+        const next: UsageState = hasOverage
+          ? { owner, team_cap_usd: null, overage_usd: d.value.overage_usd ?? null }
+          : { owner, team_cap_usd: d.value.cap_usd ?? null }
         if (canonicalJson(next) === canonicalJson(state)) return { ok: true, state, value: next, changed: false }
         return { ok: true, state: next, value: next }
       }

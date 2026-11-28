@@ -7,6 +7,7 @@
 // (model.ts ListingStyle): a carousel with the facts in a column on its right (the default), a
 // stacked page, or one compact column.
 import type { Strings } from "../shared/i18n";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import { GrantsPanel } from "./GrantsPanel";
 import {
   DetailSection,
@@ -49,6 +50,15 @@ export function AppDetailView({
 }) {
   const { t } = strings;
   const detail = snap.detail?.id === snap.selection ? snap.detail : undefined;
+  // A listing read that failed is read again on its own and keeps the loading state; only one that
+  // lasts the deadline adds one quiet line, with no Reload. A failed catalog is the page's own retry
+  // (AppsPage), which loads this listing when it lands.
+  const own = !detail && snap.catalogStatus !== "error";
+  const { stillTrying } = useAutoRetry(
+    own && snap.detailStatus === "error" ? (snap.detailError ?? true) : undefined,
+    () => void store.retryDetail(),
+    { busy: own && snap.detailStatus === "loading" },
+  );
   const back = showsBack && (
     <button type="button" className="apps-back" onClick={() => void store.select(undefined)}>
       ‹ {t("store.tab.discover")}
@@ -61,7 +71,7 @@ export function AppDetailView({
   );
   if (!detail) {
     const state = snap.detailStatus;
-    if (state === "loading") {
+    if (state === "loading" || state === "error") {
       return (
         <div className="apps-detail apps-detail-state" data-detail-state="loading">
           <div className="apps-detail-body">
@@ -70,13 +80,13 @@ export function AppDetailView({
               <span className="apps-state-mark" aria-hidden="true">
                 …
               </span>
-              <strong>{t("store.detail.loading")}</strong>
+              <strong>{t(stillTrying ? "store.detail.stillLoading" : "store.detail.loading")}</strong>
             </output>
           </div>
         </div>
       );
     }
-    if (state === "not-found" || state === "error") {
+    if (state === "not-found") {
       return (
         <div className="apps-detail apps-detail-state" data-detail-state={state}>
           <div className="apps-detail-body">
@@ -85,13 +95,7 @@ export function AppDetailView({
               <span className="apps-state-mark" aria-hidden="true">
                 !
               </span>
-              <strong>{state === "not-found" ? t("store.detail.notFound") : t("store.error.load")}</strong>
-              {snap.detailError && <span className="selectable">{snap.detailError}</span>}
-              <span className="apps-detail-state-actions">
-                <button type="button" className="apps-button" onClick={() => void store.retryDetail()}>
-                  {t("store.action.reload")}
-                </button>
-              </span>
+              <strong>{t("store.detail.notFound")}</strong>
             </output>
           </div>
         </div>

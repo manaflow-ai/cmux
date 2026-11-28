@@ -18,6 +18,8 @@
     "src/kit/closed",
     "src/kit/presets",
     "src/agent-session/acpmux/session-info/native",
+    "src/slots/receiveTransition",
+    "src/slots/toastEnter",
     "test/closed-kit"
   ]
 }

@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import re
+import subprocess
 import sys
 import unittest
 
@@ -108,6 +109,18 @@ class Tests(unittest.TestCase):
         self.assertIsNone(ff.build_commit(api, REPO, BAD))
         api.run_repo, api.run_extra = REPO, {"event": "pull_request"}
         self.assertIsNone(ff.build_commit(api, REPO, BAD))
+
+    def test_only_a_404_means_no_run_other_failures_name_themselves(self):
+        # 11-24 train run 45339117563: a failed read was reported as "good build
+        # has no nightly-next run, so no base" for a build whose run exists.
+        def missing(path, **_):
+            raise subprocess.CalledProcessError(1, ["gh"], stderr="gh: Not Found (HTTP 404)")
+        self.assertIsNone(ff.build_commit(missing, REPO, BAD))
+
+        def refused(path, **_):
+            raise subprocess.CalledProcessError(1, ["gh"], stderr="gh: API rate limit exceeded (HTTP 403)")
+        with self.assertRaisesRegex(ValueError, r"rate limit exceeded"):
+            ff.build_commit(refused, REPO, BAD)
 
     def test_dispatches_the_train_with_the_newest_car_quarantined(self):
         api = FakeApi(train_commit=True)

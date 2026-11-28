@@ -9,6 +9,10 @@
 //!   footer. Codex has no config for its attribution (codex 0.171: the trailer follows the
 //!   ChatGPT workspace's policy), so the setting applies to Claude Code only.
 //!
+//! - `agents.harnessMagic.outputCaps.enabled` (off unless `true`; RFD 0147,
+//!   `harness_limits::OUTPUT_CAPS_SETTING`): Claude Code's `bashOutputMaxChars` at
+//!   `harness_limits::OUTPUT_CAPS_BASH_CHARS`, unless Claude Code's own user settings name it.
+//!
 //! Each setting's default, `agent`, passes nothing: the agent's own settings decide, as before.
 //! A chosen value reaches Claude Code in its launch's one `--settings` (Claude Code honors only
 //! the last one, so it is merged into the launch's own, `claude_cloud_auth::flag_settings`) and
@@ -42,6 +46,8 @@ pub struct LaunchChoices {
     pub personality: Option<String>,
     /// Whether Claude Code's attribution is stripped.
     pub strip_attribution: bool,
+    /// Claude Code's `bashOutputMaxChars` (RFD 0147's output caps), or None for its own.
+    pub bash_output_max_chars: Option<u64>,
 }
 
 impl LaunchChoices {
@@ -56,19 +62,24 @@ impl LaunchChoices {
             personality: chosen(PERSONALITY_SETTING)
                 .filter(|p| CODEX_PERSONALITIES.contains(&p.as_str())),
             strip_attribution: chosen(ATTRIBUTION_SETTING).as_deref() == Some("strip"),
+            bash_output_max_chars: None,
         }
     }
 
     /// The choices as the settings file holds them now. No file, or one that does not parse,
     /// chooses nothing.
     pub fn current() -> Self {
-        match crate::user_settings::read() {
+        let mut choices = match crate::user_settings::read() {
             crate::user_settings::Settings::Parsed(doc) => Self::parse(|key| {
                 crate::user_settings::value(&doc, key).and_then(|v| v.as_str().map(str::to_owned))
             }),
             crate::user_settings::Settings::Missing
             | crate::user_settings::Settings::Unreadable(_) => Self::default(),
+        };
+        if crate::harness_limits::output_caps() {
+            choices.bash_output_max_chars = output_caps_bash(&claude_user_settings());
         }
+        choices
     }
 
     /// The Claude Code settings these choices add: `outputStyle` and `attribution`.
@@ -80,8 +91,30 @@ impl LaunchChoices {
         if self.strip_attribution {
             settings.insert("attribution".into(), serde_json::json!({"commit": "", "pr": ""}));
         }
+        if let Some(chars) = self.bash_output_max_chars {
+            settings.insert(crate::harness_limits::OUTPUT_CAPS_BASH_SETTING.into(), chars.into());
+        }
         settings
     }
+}
+
+/// The Bash cap the output caps give a launch whose Claude Code user settings are `user`
+/// (`None` when they name their own: a `--settings` value would replace it).
+pub fn output_caps_bash(user: &Option<Value>) -> Option<u64> {
+    let own = user
+        .as_ref()
+        .is_some_and(|u| u.get(crate::harness_limits::OUTPUT_CAPS_BASH_SETTING).is_some());
+    (!own).then_some(crate::harness_limits::OUTPUT_CAPS_BASH_CHARS)
+}
+
+/// Claude Code's user settings (`$CLAUDE_CONFIG_DIR/settings.json`, else
+/// `~/.claude/settings.json`), when they read as JSON.
+fn claude_user_settings() -> Option<Value> {
+    let dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|d| !d.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".claude")))?;
+    serde_json::from_slice(&std::fs::read(dir.join("settings.json")).ok()?).ok()
 }
 
 /// Puts `choices`' Claude Code settings in `argv` (a Claude Code launch, its program first):

@@ -86,6 +86,7 @@ public extension CloudStrings {
 
     /// `cloud deliver-secrets` while another delivery to the same machine runs.
     static var secretsDeliveryRunning: String {
+        // retry-prompt-ok: a CLI secrets delivery (writes secrets to a machine); the caller re-runs it
         String(localized: "cloud.cli.secretsDeliveryRunning",
                defaultValue: "Secrets are already being delivered to this machine. Try again when that delivery finishes.",
                table: "Cloud", bundle: .localizedModule)
@@ -147,6 +148,7 @@ public extension CloudStrings {
 
     /// `cloud deliver-secrets` to an acpmux peer this Mac reaches without ssh (a tailnet link).
     static func secretsNoSSHRoute(_ machine: String) -> String {
+        // retry-prompt-ok: a CLI secrets delivery (writes secrets to a machine) needs Add Machine first
         String(format: String(localized: "cloud.cli.secretsNoSSHRoute",
                               defaultValue: "This Mac reaches %@ without ssh, so its secrets can't be delivered. Add it with Add Machine, then try again.",
                               table: "Cloud", bundle: .localizedModule), machine)

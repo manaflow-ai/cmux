@@ -56,6 +56,10 @@ pub enum Via {
     Hub,
     /// Over a direct connection to the far machine.
     Direct,
+    /// Over iroh on a hole-punched UDP path (`hub_carrier_iroh.rs`).
+    IrohDirect,
+    /// Over iroh through iroh's own relay.
+    IrohRelay,
 }
 
 impl Via {
@@ -63,6 +67,8 @@ impl Via {
         match self {
             Self::Hub => "hub",
             Self::Direct => "direct",
+            Self::IrohDirect => "iroh-direct",
+            Self::IrohRelay => "iroh-relay",
         }
     }
 }
@@ -135,9 +141,12 @@ pub fn private_address(ip: IpAddr) -> bool {
     }
 }
 
-/// The first direct-path address of `addresses`: private, and not this machine's loopback.
+/// The first direct-path address of `addresses`: private, not loopback, and not one of this
+/// machine's own interface addresses (a self-dial would only ever reach our own listener).
 fn first_direct(addresses: impl IntoIterator<Item = SocketAddr>) -> Option<SocketAddr> {
-    addresses.into_iter().find(|a| private_address(a.ip()) && !a.ip().is_loopback())
+    addresses.into_iter().find(|a| {
+        private_address(a.ip()) && !a.ip().is_loopback() && !super::punch::own_address(a.ip())
+    })
 }
 
 /// `name`'s direct address by the resolver's usual lookup (both families), in [`RESOLVE_BOUND`].

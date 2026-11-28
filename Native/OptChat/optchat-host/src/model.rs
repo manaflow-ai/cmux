@@ -237,11 +237,11 @@ const CLAUDE_CODE_TOO_LONG: &str = "prompt is too long";
 /// subrouter's "no non-exhausted claude accounts available ... (retry after
 /// 3596s)"): None when `message` is not a capacity error.
 pub fn capacity_wait(message: &str) -> Option<std::time::Duration> {
-    // The subrouter's own words also count when no status is passed on (the
-    // turn's rule, optchat_chief::turn::capacity_retry_after, reads them too).
-    let exhausted = message.to_ascii_lowercase().contains("no non-exhausted");
-    let capacity = error_class(message).is_some_and(|c| matches!(c.status, 429 | 503 | 529));
-    if !exhausted && !capacity {
+    // The provider's capacity (529, 503, overloaded, the subrouter's "no non-exhausted") or the
+    // route's account limit (429): one reading with acpmux and the Chief turn
+    // (cmux_upstream_error; ask-616b73f6bc).
+    if !cmux_upstream_error::is_capacity(message) && !cmux_upstream_error::is_account_limit(message)
+    {
         return None;
     }
     Some(retry_after_in(message).unwrap_or(CAPACITY_WAIT))
@@ -253,15 +253,5 @@ pub const CAPACITY_WAIT: std::time::Duration = std::time::Duration::from_secs(60
 /// The wait an error text names: "retry after 3596s" (the subrouter) or
 /// "retry-after: 30".
 pub(crate) fn retry_after_in(message: &str) -> Option<std::time::Duration> {
-    let lower = message.to_ascii_lowercase();
-    ["retry after ", "retry-after: ", "retry-after "]
-        .iter()
-        .find_map(|lead| {
-            let at = lower.find(lead)? + lead.len();
-            let digits: String = lower[at..]
-                .chars()
-                .take_while(char::is_ascii_digit)
-                .collect();
-            digits.parse().ok().map(std::time::Duration::from_secs)
-        })
+    cmux_upstream_error::retry_after(message)
 }

@@ -64,16 +64,21 @@ nonisolated enum TerminalOutgoing: Sendable {
 /// in, so input order survives a surface swap.
 nonisolated struct TerminalInputSink: Sendable {
     private let continuation: AsyncStream<TerminalOutgoing>.Continuation
+    /// Every byte sent, the newest kept: Toggle Terminal and Chat's draft carry reads it.
+    let typed: TerminalTypedTail
 
-    init(continuation: AsyncStream<TerminalOutgoing>.Continuation) {
+    init(continuation: AsyncStream<TerminalOutgoing>.Continuation, typed: TerminalTypedTail = TerminalTypedTail()) {
         self.continuation = continuation
+        self.typed = typed
     }
 
     func send(_ data: Data) {
+        typed.record(data)
         continuation.yield(.bytes(data))
     }
 
     func pasteFiles(_ pasteboard: TerminalFilePaste) {
+        typed.forget() // the daemon types the paths: the bytes no longer show the input
         continuation.yield(.filePaste(pasteboard))
     }
 

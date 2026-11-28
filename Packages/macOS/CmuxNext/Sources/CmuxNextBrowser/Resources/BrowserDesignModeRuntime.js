@@ -2575,6 +2575,30 @@
       return true;
     },
 
+    // A kept comment thread put back on its element (the selector it was picked at): an added pick
+    // with `comment` and the thread card `value`, as when it was sent. False when no element has
+    // that selector any more (the page changed), so the app knows the thread has no place here.
+    restoreThread(selector, comment, value) {
+      selector = String(selector || "");
+      let element = null;
+      try { element = document.querySelector(selector); } catch (_) {}
+      if (!element || element === overlayHost || overlayHost?.contains(element)) return false;
+      let reference = selectedReferences.find((candidate) => candidate.baseline?.selector === selector);
+      if (!reference) {
+        const baseline = baselineFor(element);
+        // Another selector now names the element: its card would not be the thread's.
+        if (!baseline || baseline.selector !== selector) return false;
+        reference = { element, baseline, identity: identityFor(element), colorIndex: colorSequence++ };
+        selectedReferences.push(reference);
+      }
+      reference.comment = bounded(String(comment ?? "").trim(), maxCommentCharacters);
+      reference.added = true;
+      api.setThread(selector, value);
+      revision += 1;
+      emit();
+      return true;
+    },
+
     applyStyle(property, value) {
       property = String(property || "").trim().toLowerCase();
       value = bounded(String(value ?? "").trim(), maxStyleValueCharacters);

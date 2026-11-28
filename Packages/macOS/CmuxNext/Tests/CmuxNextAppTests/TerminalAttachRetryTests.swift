@@ -3,12 +3,11 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// Panes that showed "Disconnected: could not attach · Click or type to
-/// reconnect" stayed that way: a visible view gave up after 8 failed
+/// Panes that showed "Disconnected: could not attach" stayed that way: a visible view gave up after 8 failed
 /// re-attaches (about 90 s), and nothing re-attached it while the daemon's
 /// control connection stayed up (a refused attach connection, a busy daemon).
 /// A visible view now keeps re-attaching at the capped backoff until one
-/// attach works; after about 90 s it also offers Retry.
+/// attach works; after about 90 s it says the attach failed, still retrying.
 struct TerminalAttachRetryTests {
     typealias Machine = TerminalAttachMachine<Int>
 
@@ -29,7 +28,7 @@ struct TerminalAttachRetryTests {
         for failure in 1...40 {
             let effects = machine.reduce(.openFailed(attempt: attempt))
             attempt = try #require(opened(effects), "a visible view stopped re-attaching by itself")
-            // Quiet while the backoff is short, then Retry shows (the view still retries).
+            // Quiet while the backoff is short, then the label says the attach failed (the view still retries).
             let offersRetry = failure > Machine.quietReconnects
             #expect(machine.status == .disconnected(.attachFailed, reconnecting: !offersRetry))
         }

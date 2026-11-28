@@ -3,7 +3,7 @@
 //! Leo (2026-11-05): "you should be able to just change your app without going through all this
 //! hoopla", and on how people find it: "it should just be blasted, like, hey, you can edit your
 //! thing and just do this". `start` runs a checkout's webviews dev server and points the running
-//! app at it (`~/.config/cmux/web-dev.json`), so a saved edit to cmux's web UI shows in every
+//! app at it (`~/.config/cmux-next/web-dev.json`), so a saved edit to cmux's web UI shows in every
 //! open page and chat, in WebKit and Chromium, with no build and no relaunch
 //! (docs/cmux-next/hot-reload.md). The work is `scripts/cmux-next/web-overlay.sh` in that
 //! checkout: the dev server comes from its tree, so the script that starts it is the tree's own.

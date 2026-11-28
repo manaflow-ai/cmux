@@ -118,6 +118,15 @@
 //! `agent-transfer-continues-v1` (its acpmux continues the turn where the
 //! chat lands); an older source refuses the move while the turn runs.
 //!
+//! `--tool-wait SECS` (or `CMUX_MOVE_TOOL_WAIT=SECS`; off by default) moves a
+//! running turn without cutting the tool call it runs (a build, a test): on a
+//! source that also lists `agent-transfer-tool-boundary-v1` the begin asks for
+//! `at_tool_boundary`, which acpmux refuses as `transfer.tool_in_flight` while a
+//! call runs, the chat left running and unfrozen meanwhile. This asks again
+//! every 500 ms, up to SECS (phase `tool_wait`), and the turn then moves at the
+//! boundary and continues on the target as if the call were a long one. Past
+//! SECS the begin is sent as without the flag (`--interrupt` stops the turn).
+//!
 //! Output: one JSON line on stdout, `{"ok":true,"session_id":...,
 //! "transfer_id":...,"bytes":N,"pages":N,"resolved":bool,"phases":{...},
 //! "frozen_ms"?:N,"total_ms":N}` (exit 0), or
@@ -166,7 +175,7 @@ use record::{Record, Records};
 const USAGE: &str = "usage: cmux link agent move --from-socket LOCAL_DAEMON_SOCKET \
 --surface SURFACE_ID --to-socket REMOTE_CONNECT_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
 [--ask-first] [--vm-kind KIND [--to-pid PID]] [--login-stdin] [--state-dir DIR] \
-[--history-later TURNS] \
+[--history-later TURNS] [--tool-wait SECS] \
 [--sync push|pull|seed --sync-socket LINK_SOCKET --sync-local LOCAL --sync-remote REMOTE]... \
 [--sync relay --sync-from-socket SOURCE_LINK --sync-socket TARGET_LINK --sync-local SOURCE_FOLDER --sync-remote TARGET_FOLDER [--sync-seed-local LOCAL]]
   --to-socket: the local_socket of `cmux-tui remote connect --headless --json` for the \
@@ -196,6 +205,8 @@ struct Args {
     login_stdin: bool,
     /// `--history-later TURNS` ([`history_later`]); `ACPMUX_MOVE_HISTORY_LATER` when absent.
     history_later: Option<u64>,
+    /// `--tool-wait SECS` (module docs); `CMUX_MOVE_TOOL_WAIT` when absent.
+    tool_wait: Option<Duration>,
 }
 
 /// `--sync push|pull|seed --sync-socket --sync-local --sync-remote` (module docs), or
@@ -286,6 +297,13 @@ impl Failed {
 
     fn bad_answer(error: impl Into<String>) -> Self {
         Self::new("bad_answer", error)
+    }
+
+    fn move_connection(code: &'static str) -> Self {
+        Self::new(
+            code,
+            crate::localization::catalog().cli_connection.cloud_move_connection_unavailable,
+        )
     }
 
     fn state(error: &anyhow::Error) -> Self {
@@ -395,7 +413,11 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     let env = std::env::var("ACPMUX_MOVE_HISTORY_LATER").ok();
     args.history_later = history_later::turns(args.history_later, env.as_deref());
+    let env = std::env::var("CMUX_MOVE_TOOL_WAIT").ok();
+    args.tool_wait = tool_wait(args.tool_wait, env.as_deref());
     let mut clock = Clock::new();
+    // Each daemon's `identify` is read once for the whole move (`machine_gate::Memo`).
+    let _memo = super::machine_gate::Memo::open();
     match move_chat(&args, &mut clock) {
         Ok(moved) => {
             let mut line = json!({"ok": true, "session_id": moved.session_id,
@@ -436,7 +458,7 @@ fn parse(args: &[String]) -> Option<Args> {
     // Each `--sync` group's flags, in any order: a flag its group has already starts the next group.
     let mut groups: Vec<SyncFlags> = Vec::new();
     let (mut interrupt, mut ask_first, mut login_stdin) = (false, false, false);
-    let mut history_later = None;
+    let (mut history_later, mut tool_wait) = (None, None);
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
@@ -448,6 +470,9 @@ fn parse(args: &[String]) -> Option<Args> {
             "--vm-kind" => vm_kind = Some(rest.next()?.clone()),
             "--to-pid" => to_pid = Some(rest.next()?.parse::<u32>().ok()?),
             "--history-later" => history_later = Some(rest.next()?.parse::<u64>().ok()?),
+            "--tool-wait" => {
+                tool_wait = Some(Duration::from_secs(rest.next()?.parse::<u64>().ok()?));
+            }
             "--interrupt" => interrupt = true,
             "--ask-first" => ask_first = true,
             LOGIN_FLAG => login_stdin = true,
@@ -503,7 +528,56 @@ fn parse(args: &[String]) -> Option<Args> {
         syncs,
         login_stdin,
         history_later,
+        tool_wait,
     })
+}
+
+/// `--tool-wait`, else `CMUX_MOVE_TOOL_WAIT` in seconds; 0 or a word is off.
+fn tool_wait(flag: Option<Duration>, env: Option<&str>) -> Option<Duration> {
+    flag.or_else(|| Some(Duration::from_secs(env?.trim().parse().ok()?)))
+        .filter(|wait| !wait.is_zero())
+}
+
+/// How often a tool-boundary begin asks again while a tool call runs (acpmux's `TOOL_POLL`).
+const TOOL_POLL: Duration = Duration::from_millis(500);
+
+/// Whether the source refused a tool-boundary begin only until the running turn reaches a point
+/// it can stop at: a tool call in flight, or a compaction (acpmux `waits_for_turn`).
+fn waits_for_turn(message: &str) -> bool {
+    message.contains("transfer.tool_in_flight")
+        || message.contains("transfer.busy: the chat is compacting")
+}
+
+/// `params` as a begin sends them: before `late`, cut only at a tool boundary.
+fn boundary_params(params: &Value, late: bool) -> Value {
+    let mut sent = params.clone();
+    if !late {
+        sent.set("interrupt", json!(false));
+        sent.set("at_tool_boundary", json!(true));
+    }
+    sent
+}
+
+/// `agent-transfer-begin`, asked again while a tool call runs until `until` ([`waits_for_turn`]);
+/// with no `until` (or past it) the begin is `params` as given. The chat runs unfrozen between
+/// asks, so the freeze starts at each ask and only the last one counts.
+fn begin_at_boundary(
+    source: &mut Daemon,
+    params: &Value,
+    until: Option<Instant>,
+    clock: &mut Clock,
+) -> Result<Value, CallError> {
+    loop {
+        let late = until.is_none_or(|until| Instant::now() >= until);
+        clock.freeze();
+        match source.call("agent-transfer-begin", boundary_params(params, late), BEGIN_TIMEOUT) {
+            Err(CallError::Refused { message, .. }) if !late && waits_for_turn(&message) => {
+                std::thread::sleep(TOOL_POLL);
+                clock.lap("tool_wait");
+            }
+            other => return other,
+        }
+    }
 }
 
 /// One `--sync` group's flags as `parse` reads them.
@@ -550,11 +624,13 @@ impl SyncFlags {
 }
 
 fn move_chat(args: &Args, clock: &mut Clock) -> Result<Moved, Failed> {
-    let records = Records::open(args.state_dir.clone(), &args.from, args.surface).map_err(|e| {
-        match e.downcast_ref::<record::Busy>() {
-            Some(busy) => Failed::new("move_in_progress", busy.to_string()),
-            None => Failed::state(&e),
-        }
+    // The record is filed by the tab's public id: a source daemon restart gives the tab a new
+    // surface slot, and a rerun by that slot must still find this chat's move.
+    let tab = slot_tab(&args.from, args.surface);
+    let records = Records::open(args.state_dir.clone(), &args.from, args.surface, tab.as_deref())
+        .map_err(|e| match e.downcast_ref::<record::Busy>() {
+        Some(busy) => Failed::new("move_in_progress", busy.to_string()),
+        None => Failed::state(&e),
     })?;
     let earlier = records.load().map_err(|e| Failed::state(&e))?;
     clock.lap("state");
@@ -651,8 +727,9 @@ fn fresh(
             return Err(failed);
         }
     }
-    let vm_kind = target_vm_kind(args)
-        .and_then(|kind| login.as_ref().map_or(Ok(()), |_| login_gate(args)).map(|()| kind));
+    let vm_kind = target_vm_kind(args).and_then(|kind| {
+        login.as_ref().map_or(Ok(()), |(login, _)| login_gate(args, login)).map(|()| kind)
+    });
     clock.lap("gate");
     let vm_kind = vm_kind?;
     // A relay makes its bulk copy before the chat freezes, so the frozen pass below sends only
@@ -665,9 +742,11 @@ fn fresh(
     let source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e));
     // A running turn stops for the move only where it goes on afterwards: an older source would
     // stop it for good, so there the move is refused while it runs, as before `--interrupt`.
-    let (continues, keeps_token) =
-        if source.is_ok() { source_serves(&args.from) } else { (false, false) };
+    let (continues, keeps_token, at_boundary) =
+        if source.is_ok() { source_serves(&args.from) } else { (false, false, false) };
     let interrupt = args.interrupt && continues;
+    // Asked for: a running tool call ends before the turn moves (module docs).
+    let tool_wait = args.tool_wait.filter(|_| continues && at_boundary);
     clock.lap("connect");
     let mut source = source?;
     // Recorded before the begin: a run whose begin answer is lost knows the move it began by
@@ -683,6 +762,7 @@ fn fresh(
         Some(tab) => json!({"tab": tab, "interrupt": interrupt}),
         None => json!({"surface": args.surface, "interrupt": interrupt}),
     };
+    params.set("checks_shares", json!(true));
     if args.ask_first {
         params.set("ask_first", json!(true));
     }
@@ -693,14 +773,14 @@ fn fresh(
     if let Some(staged) = &staged {
         staged_params.set("prepare_id", json!(staged.prepare_id));
     }
-    clock.freeze();
-    let mut begun = source.call("agent-transfer-begin", staged_params, BEGIN_TIMEOUT);
+    let until = tool_wait.map(|wait| Instant::now() + wait);
+    let mut begun = begin_at_boundary(&mut source, &staged_params, until, clock);
     // A prefix the source no longer holds as it was: the chat moves whole.
     if staged.is_some()
         && matches!(&begun, Err(CallError::Refused { message, .. })
             if message.contains("transfer.diverged"))
     {
-        begun = source.call("agent-transfer-begin", params.clone(), BEGIN_TIMEOUT);
+        begun = begin_at_boundary(&mut source, &params, until, clock);
     }
     clock.lap("begin");
     if let (Some(pinned), Err(CallError::Refused { details, .. })) = (&pinned, &begun)
@@ -721,12 +801,15 @@ fn fresh(
         give_back(args, records, &mut own)?;
         clock.lap("abort_own");
         let _ = records.save(pinned);
-        begun = source.call("agent-transfer-begin", params, BEGIN_TIMEOUT);
+        begun = begin_at_boundary(&mut source, &params, until, clock);
         clock.lap("begin");
     }
     let begun = match begun {
         Ok(begun) => begun,
         Err(CallError::Refused { code, message, details }) => {
+            if message.contains("transfer.account:") {
+                return Err(Failed::move_connection("connections.move_unsupported"));
+            }
             let Some(moving) = details["transfer_id"].as_str().filter(|id| !id.is_empty()) else {
                 return Err(Failed::new(code, message));
             };
@@ -793,7 +876,7 @@ fn fresh(
     let staged = staged.filter(|_| begun["staged"] == json!(true));
     let stage_id = staged.as_ref().map(|staged| staged.stage_id.as_str());
     let owes_history = staged.is_some() && begun["history_later"] == json!(true);
-    let (mut target, bytes) = match up_to_finish(
+    let (mut target, bytes, consent_guard) = match up_to_finish(
         args,
         &mut source,
         records,
@@ -801,7 +884,12 @@ fn fresh(
         (manifest, stage_id),
         &vm_kind,
         clock,
-    ) {
+    )
+    .and_then(|(target, bytes)| {
+        let consent = login.as_ref().and_then(|(_, consent)| consent.as_ref());
+        let guard = consent.map(MoveConsent::recheck).transpose()?;
+        Ok((target, bytes, guard))
+    }) {
         Ok(copied) => copied,
         Err(failed) => {
             // No finish was sent: the target cannot have the chat.
@@ -820,10 +908,11 @@ fn fresh(
         finish.set("vm_kind", json!(kind));
     }
     // Only the finish carries the login; the record and every phase never do.
-    if let Some(login) = &login {
+    if let Some((login, _)) = &login {
         finish.set("credentials", login.wire());
     }
-    let finished = target.call("agent-transfer-finish", finish, FINISH_TIMEOUT);
+    let finished =
+        target.call_with_send_guard("agent-transfer-finish", finish, FINISH_TIMEOUT, consent_guard);
     clock.lap("finish");
     let (landed, finish_error) = match finished {
         Ok(answer) => {
@@ -1024,17 +1113,20 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
 }
 
 /// What the source daemon's `identify` lists that the move uses: whether its acpmux continues a
-/// turn the move stops, and whether it keeps a begin token. False for what it does not say, or
+/// turn the move stops, whether it keeps a begin token, and whether it cuts a turn at a tool
+/// boundary (`--tool-wait`). False for what it does not say, or
 /// when it does not answer.
-fn source_serves(socket: &std::path::Path) -> (bool, bool) {
+fn source_serves(socket: &std::path::Path) -> (bool, bool, bool) {
     use cmux_tui_core::server::agent_transfer::{
         AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY, AGENT_TRANSFER_CONTINUES_CAPABILITY,
+        AGENT_TRANSFER_TOOL_BOUNDARY_CAPABILITY,
     };
     let identity = super::machine_gate::reach(socket).ok();
     let served = identity.as_ref().and_then(super::machine_gate::served).unwrap_or_default();
     (
         served.contains(&AGENT_TRANSFER_CONTINUES_CAPABILITY),
         served.contains(&AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY),
+        served.contains(&AGENT_TRANSFER_TOOL_BOUNDARY_CAPABILITY),
     )
 }
 
@@ -1045,8 +1137,46 @@ fn new_begin_token() -> Option<String> {
     Some(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-/// `--login-stdin`'s login, read before the chat freezes; none without the flag.
-fn read_login(args: &Args, stdin: &mut dyn std::io::Read) -> Result<Option<Login>, Failed> {
+/// The saved connection the Mac app selected. Only the local daemon sees this check.
+#[derive(serde::Deserialize)]
+struct MoveConsent {
+    socket: PathBuf,
+    id: String,
+    instance: Option<String>,
+}
+
+impl MoveConsent {
+    fn recheck(&self) -> Result<cmux_file_lock::FileLock, Failed> {
+        let failed = || Failed::move_connection("connections.not_cloud");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|_| failed())?;
+        let route = runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                let daemon = acpmux::client::Client::connect_without_caller(&self.socket).await?;
+                daemon.request(acpmux::rpc::method::MUX_ROUTE_SHOW, json!({"id": self.id})).await
+            })
+            .await
+        });
+        let route = route.map_err(|_| failed())?.map_err(|_| failed())?;
+        let path = route["path"].as_str().map(std::path::Path::new).ok_or_else(failed)?;
+        acpmux::routes::lock_cloud_move_connection(path, &self.id, self.instance.as_deref())
+            .map_err(|_| failed())
+    }
+}
+
+/// `--login-stdin`'s login and optional saved connection, read before the chat freezes.
+fn read_login(
+    args: &Args,
+    stdin: &mut dyn std::io::Read,
+) -> Result<Option<(Login, Option<MoveConsent>)>, Failed> {
+    #[derive(serde::Deserialize)]
+    struct Selection {
+        consent: Option<MoveConsent>,
+        connection: Option<String>,
+    }
+
     use std::io::Read as _;
     if !args.login_stdin {
         return Ok(None);
@@ -1054,16 +1184,33 @@ fn read_login(args: &Args, stdin: &mut dyn std::io::Read) -> Result<Option<Login
     let mut bytes = Vec::new();
     let limit = u64::try_from(login::MAX_STDIN_BYTES).unwrap_or(u64::MAX).saturating_add(1);
     let read = stdin.take(limit).read_to_end(&mut bytes);
-    let login = read.map_err(|_| login::Refusal::Unreadable).and_then(|_| login::read(&bytes));
-    login.map(Some).map_err(refused_login)
+    let unreadable = || refused_login(login::Refusal::Unreadable);
+    read.map_err(|_| unreadable())?;
+    let login = login::read(&bytes).map_err(refused_login)?;
+    let selection: Selection = serde_json::from_slice(&bytes).map_err(|_| unreadable())?;
+    if let Some(binding) = &selection.connection
+        && !selection.consent.as_ref().is_some_and(|consent| {
+            consent.instance.is_some()
+                && binding.split_once(':').is_some_and(|(id, _)| id == consent.id)
+        })
+    {
+        return Err(unreadable());
+    }
+    Ok(Some((login, selection.consent)))
 }
 
 /// Whether the target takes the login (module docs): the Cloud API said `owner`, and its daemon
 /// serves `agent-transfer-credentials-v1`.
-fn login_gate(args: &Args) -> Result<(), Failed> {
+fn login_gate(args: &Args, login: &Login) -> Result<(), Failed> {
     let identity = super::machine_gate::reach(&args.to).ok();
     let served = identity.as_ref().and_then(super::machine_gate::served);
-    login::gate(args.vm_kind.as_deref(), served.as_deref()).map_err(refused_login)
+    login::gate(args.vm_kind.as_deref(), served.as_deref()).map_err(refused_login)?;
+    if login.is_bound()
+        && !served.is_some_and(|served| served.contains(&login::WITHDRAWAL_CAPABILITY))
+    {
+        return Err(refused_login(login::Refusal::Outdated));
+    }
+    Ok(())
 }
 
 fn refused_login(refusal: login::Refusal) -> Failed {
@@ -1115,6 +1262,22 @@ fn up_to_finish(
         let mut failed = Failed::new("agent_session.host_unverified", error);
         failed.side = Some("target");
         return Err(failed);
+    }
+    use cmux_tui_core::server::agent_transfer::{
+        AGENT_TRANSFER_SHARES_CAPABILITY, SHARE_MANIFEST_FIELD,
+    };
+    if manifest.get(SHARE_MANIFEST_FIELD).is_some() {
+        let identity = target.call("identify", json!({}), CALL_TIMEOUT).map_err(target_failed)?;
+        if !super::machine_gate::served(&identity)
+            .is_some_and(|capabilities| capabilities.contains(&AGENT_TRANSFER_SHARES_CAPABILITY))
+        {
+            let mut failed = Failed::new(
+                "agent_transfer.shares_unsupported",
+                "update the receiving machine to move a shared chat",
+            );
+            failed.side = Some("target");
+            return Err(failed);
+        }
     }
     let manifest = &taken_by_target(args, manifest, &record.transfer_id);
     let mut params = json!({"manifest": manifest, "cwd": args.cwd});
@@ -1444,6 +1607,13 @@ fn pin_begin(
     };
     records.save(&record).ok()?;
     Some(record)
+}
+
+/// The public id of the tab in `surface` of the source (its `agent-transfer-source` read, which
+/// never attaches the chat); None from a source too old to answer one or that cannot be asked.
+fn slot_tab(from: &std::path::Path, surface: u64) -> Option<String> {
+    let answer = call_source(from, "agent-transfer-source", json!({"surface": surface})).ok()?;
+    answer.get("tab").and_then(Value::as_str).filter(|tab| !tab.is_empty()).map(str::to_owned)
 }
 
 /// Whether the tab still shows the chat `record`'s move took (the source's

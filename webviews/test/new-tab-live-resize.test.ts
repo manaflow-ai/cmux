@@ -31,7 +31,9 @@ type Sample = Record<"dt" | "w" | "h" | "top" | "foot" | "left" | "width" | "fie
   inline: string;
 };
 /// What the init script keeps on the New Tab page's window.
-type Inner = Window & { __ro: number; __shifts: number[]; __loaf: number[] };
+/// `__loaf` holds each long animation frame as [its start on the shared wall clock (timeOrigin +
+/// startTime, since the two documents' clocks start apart), its duration].
+type Inner = Window & { __ro: number; __shifts: number[]; __loaf: [number, number][] };
 
 await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -124,13 +126,14 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
       ({ endpoint, context }) => {
         const w = window as unknown as Record<string, unknown>;
         // Long animation frames in both documents: the host page's frame runs the iframe's too.
-        const loaf: number[] = [];
+        const loaf: [number, number][] = [];
         const shifts: number[] = [];
         Object.assign(w, { __shifts: shifts, __loaf: loaf });
         const types = PerformanceObserver.supportedEntryTypes;
         if (types.includes("long-animation-frame"))
           new PerformanceObserver((list) => {
-            for (const entry of list.getEntries()) loaf.push(entry.duration);
+            for (const entry of list.getEntries())
+              loaf.push([performance.timeOrigin + entry.startTime, entry.duration]);
           }).observe({ type: "long-animation-frame" });
         if (window.top === window) return;
         if (types.includes("layout-shift"))
@@ -193,6 +196,9 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
         let start: number | undefined;
         let last: number | undefined;
         let done = false;
+        // When the warm-up ended: an observer delivers a warm-up frame's entry a task after that frame,
+        // so entries are kept by when the frame started, not when they arrived.
+        let since = Infinity;
         return new Promise<{ samples: Sample[]; shifts: number[]; loaf: number[] }>((resolve) => {
           const frame = (time: number) => {
             // What the last frame laid out and painted, read before this frame dirties it.
@@ -216,11 +222,13 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
             last = time;
             if (samples.length === warmUp) {
               inner.__shifts.length = 0;
-              inner.__loaf.length = 0;
-              outer.__loaf.length = 0;
+              since = performance.timeOrigin + performance.now();
             }
             if (done) {
-              resolve({ samples, shifts: [...inner.__shifts], loaf: [...outer.__loaf, ...inner.__loaf] });
+              const loaf = [...outer.__loaf, ...inner.__loaf]
+                .filter(([at]) => at >= since)
+                .map(([, duration]) => duration);
+              resolve({ samples, shifts: [...inner.__shifts], loaf });
               return;
             }
             start ??= time;

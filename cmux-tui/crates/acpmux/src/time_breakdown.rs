@@ -9,6 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
 
 const MAX_SPANS: usize = 512;
 
@@ -34,6 +35,64 @@ impl Category {
             Self::Think => "think",
             Self::Person => "person",
             Self::Model => "model",
+        }
+    }
+
+    fn of(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|category| category.id() == id)
+    }
+}
+
+/// A span's category as its id (`"read"`), as [`TimeSpan::category`] writes it: a saved fold
+/// (`FILE`) reads the same before and after spans kept it as a [`Category`].
+mod category_id {
+    use super::Category;
+    use serde::{Deserialize, Deserializer, Serializer, de::Error};
+
+    pub(super) fn serialize<S: Serializer>(category: &Category, out: S) -> Result<S::Ok, S::Error> {
+        out.serialize_str(category.id())
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(input: D) -> Result<Category, D::Error> {
+        let id = <std::borrow::Cow<'de, str>>::deserialize(input)?;
+        Category::of(&id).ok_or_else(|| D::Error::custom(format!("unknown category {id}")))
+    }
+}
+
+/// A finished turn's span as the fold keeps it: its category an enum, and its turn's ids shared
+/// with every other span of the turn, not a copy each. A chat keeps up to [`MAX_SPANS`] of them
+/// for as long as it is open; as [`TimeSpan`]s, with three `String`s each, a full window held
+/// 344 bytes a span, 176 KB a chat (`time_breakdown/memory_tests.rs`), now about a third of it.
+/// Saved as a [`TimeSpan`] is written.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct Span {
+    turn_seq: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    turn_id: Option<Arc<str>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prompt_id: Option<Arc<str>>,
+    #[serde(with = "category_id")]
+    category: Category,
+    start_at: u64,
+    end_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    turn_tokens: Option<u64>,
+}
+
+impl Span {
+    fn time_span(&self) -> TimeSpan {
+        TimeSpan {
+            turn_seq: self.turn_seq,
+            turn_id: self.turn_id.as_deref().map(str::to_owned),
+            prompt_id: self.prompt_id.as_deref().map(str::to_owned),
+            category: self.category.id().to_owned(),
+            start_at: self.start_at,
+            end_at: self.end_at,
+            tokens: self.tokens,
+            turn_tokens: self.turn_tokens,
         }
     }
 }
@@ -88,10 +147,10 @@ struct Segment {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TurnState {
     seq: u64,
-    id: Option<String>,
+    id: Option<Arc<str>>,
     /// A turn saved before spans named their prompt has none.
     #[serde(default)]
-    prompt_id: Option<String>,
+    prompt_id: Option<Arc<str>>,
     start_at: u64,
     last_at: u64,
     phase: Category,
@@ -105,7 +164,7 @@ struct TurnState {
 }
 
 impl TurnState {
-    fn new(seq: u64, id: Option<String>, prompt_id: Option<String>, at: u64) -> Self {
+    fn new(seq: u64, id: Option<Arc<str>>, prompt_id: Option<Arc<str>>, at: u64) -> Self {
         Self {
             seq,
             id,
@@ -168,6 +227,9 @@ pub(crate) struct State {
     /// What the last change row that carried the breakdown held ([`Self::row_snapshot`]): the
     /// turns ended by then, and when. None until a row carried it.
     rowed: Option<(u64, u64)>,
+    /// The record whose change row last carried the breakdown: every build of that record's row
+    /// carries it, not only the first ([`Self::row_snapshot`]).
+    rowed_seq: Option<u64>,
     reducer: Reducer,
 }
 
@@ -201,7 +263,10 @@ struct Saved {
 struct Reducer {
     turn: Option<TurnState>,
     totals: BTreeMap<Category, u64>,
-    spans: Vec<TimeSpan>,
+    /// The newest [`MAX_SPANS`] finished spans. The oldest goes before a new one comes, so the
+    /// window never outgrows its bound: a `Vec` pushed past it and then cut kept the capacity it
+    /// doubled to, room for 1,024.
+    spans: VecDeque<Span>,
     total_ms: u64,
     total_tokens: u64,
     ended_turns: u64,
@@ -259,9 +324,18 @@ impl State {
     /// record, six rows a turn, each took 6.5 ms to build and went out ahead of the turn's first
     /// token on the same connection, 50 ms later to a peer's view of the chat than to its own
     /// (`tests/transfer_cli/view_latency.rs`).
-    pub(crate) fn row_snapshot(&mut self, now: u64) -> Option<TimeBreakdown> {
+    ///
+    /// `seq` is the record the row follows. One record's row is built more than once: once per
+    /// cell (with tools, and with tools less the breakdown for a client that draws none), and again
+    /// when the shared copy (`SharedRow`, a weak share) was already let go. Every build of the
+    /// record that owed the breakdown carries it; before, the first build took it, so a phone's
+    /// lean row (or a second watcher's rebuild) left the pane's row without it.
+    pub(crate) fn row_snapshot(&mut self, now: u64, seq: u64) -> Option<TimeBreakdown> {
         if !self.initialized {
             return None;
+        }
+        if self.rowed_seq == Some(seq) {
+            return Some(self.snapshot(now));
         }
         let ended = self.reducer.ended_turns;
         let owed = self.rowed.is_none_or(|(turns, at)| {
@@ -270,6 +344,7 @@ impl State {
         });
         owed.then(|| {
             self.rowed = Some((ended, now));
+            self.rowed_seq = Some(seq);
             self.snapshot(now)
         })
     }
@@ -440,7 +515,7 @@ impl Reducer {
         }
     }
 
-    fn start_turn(&mut self, seq: u64, id: Option<String>, prompt_id: Option<String>, at: u64) {
+    fn start_turn(&mut self, seq: u64, id: Option<Arc<str>>, prompt_id: Option<Arc<str>>, at: u64) {
         if let Some(mut turn) = self.turn.take() {
             turn.advance(at);
             self.finish(turn, None);
@@ -465,11 +540,14 @@ impl Reducer {
         for segment in &turn.segments {
             let ms = segment.end_at.saturating_sub(segment.start_at);
             *by_category.entry(segment.category).or_default() += ms;
-            self.spans.push(TimeSpan {
+            if self.spans.len() >= MAX_SPANS {
+                self.spans.pop_front();
+            }
+            self.spans.push_back(Span {
                 turn_seq: turn.seq,
                 turn_id: turn.id.clone(),
                 prompt_id: turn.prompt_id.clone(),
-                category: segment.category.id().to_owned(),
+                category: segment.category,
                 start_at: segment.start_at,
                 end_at: segment.end_at,
                 tokens: None,
@@ -487,16 +565,12 @@ impl Reducer {
             // The journal reports whole-turn usage. Category attribution stays unknown:
             // elapsed test/permission time is not evidence of tokens spent in that category.
         }
-        if self.spans.len() > MAX_SPANS {
-            let excess = self.spans.len() - MAX_SPANS;
-            self.spans.drain(..excess);
-        }
     }
 
     fn output(&self, include_current: bool) -> TimeBreakdown {
         let mut totals = self.totals.clone();
         let mut total_ms = self.total_ms;
-        let mut spans = self.spans.clone();
+        let mut spans: Vec<TimeSpan> = self.spans.iter().map(Span::time_span).collect();
         if include_current && let Some(mut turn) = self.turn.clone() {
             let at = turn.last_at;
             turn.advance(at);
@@ -510,8 +584,8 @@ impl Reducer {
                 *totals.entry(segment.category).or_default() += ms;
                 spans.push(TimeSpan {
                     turn_seq: turn.seq,
-                    turn_id: turn.id.clone(),
-                    prompt_id: turn.prompt_id.clone(),
+                    turn_id: turn.id.as_deref().map(str::to_owned),
+                    prompt_id: turn.prompt_id.as_deref().map(str::to_owned),
                     category: segment.category.id().to_owned(),
                     start_at: segment.start_at,
                     end_at: segment.end_at,
@@ -554,12 +628,12 @@ fn turn_seq(msg: &Value) -> Option<u64> {
     value(msg, "turnSeq").and_then(Value::as_u64)
 }
 
-fn turn_id(msg: &Value) -> Option<String> {
-    value(msg, "turnId").and_then(Value::as_str).map(str::to_owned)
+fn turn_id(msg: &Value) -> Option<Arc<str>> {
+    value(msg, "turnId").and_then(Value::as_str).map(Arc::from)
 }
 
-fn prompt_id(msg: &Value) -> Option<String> {
-    value(msg, "promptId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned)
+fn prompt_id(msg: &Value) -> Option<Arc<str>> {
+    value(msg, "promptId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(Arc::from)
 }
 
 fn tool_id(msg: &Value) -> Option<String> {
@@ -629,3 +703,6 @@ fn usage(msg: &Value) -> Option<u64> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod memory_tests;

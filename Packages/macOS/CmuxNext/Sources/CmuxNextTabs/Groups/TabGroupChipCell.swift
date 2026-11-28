@@ -196,9 +196,11 @@ final class TabGroupChipCell: ReduceTransparencyFollower {
         nameLayer.frame = CGRect(x: pixel(x), y: textY, width: nameWidth, height: lineHeight)
         nameLayer.opacity = nameWidth > 0 ? 1 : 0
         if content.nameWidth > nameWidth, nameWidth > 0 {
-            let fade = min(m.titleFadeWidth, nameWidth / 2)
+            // The tab title's fade (`TitleFadeGeometry`): never ending on a fragment of a word's first glyph.
+            let fade = TitleFadeGeometry(textWidth: content.nameWidth, span: nameWidth, visibleWidth: nameWidth, leadingPadding: 0,
+                                         trailingPadding: 0, fadeWidth: m.titleFadeWidth, wordStarts: nameLayer.wordStarts)
             nameMask.frame = nameLayer.bounds
-            nameMask.locations = [0, NSNumber(value: Double((nameWidth - fade) / nameWidth)), 1]
+            nameMask.locations = [0, fade.fadeStart, fade.fadeEnd].map { NSNumber(value: Double($0 / nameWidth)) }
             nameLayer.mask = nameMask
         } else {
             nameLayer.mask = nil
