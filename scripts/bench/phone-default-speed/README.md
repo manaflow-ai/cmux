@@ -50,8 +50,12 @@ hardware-speed flow coverage or an end-to-end phone performance claim.
 Import its receipt using `scripts/bench/cmux-bench phone-default-speed --import LOG`.
 The detector is `ghostty-vt`'s `phone_default_speed` example, built in the normal
 dev/test profile (Ghostty itself remains ReleaseFast). PRs restore the existing
-workspace target cache. Its producer currently warms the normal daemon build;
-reuse by this example's feature set and tool environment remains unverified.
+workspace target cache. Its producer seeds this exact detector after its final
+daemon build, then preserves the native output and its `cmux-transport-rewrite`
+build dependency when pruning. The v2 cache namespace distinguishes these
+archives from older saves. Cross-job reuse remains unverified until a separate
+consumer reports `Fresh ghostty-vt-sys` on its first build with unchanged native
+hashes; a successful archive restore alone does not establish that.
 A second build must report `Fresh ghostty-vt-sys`;
 a native rebuild on that warm invocation fails. Initial setup cost is recorded
 separately and must be judged from the managed receipt.

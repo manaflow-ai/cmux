@@ -140,8 +140,8 @@ class TargetSaveTest(unittest.TestCase):
     def test_save_carries_native_output_and_source_manifest_after_pruning(self) -> None:
         """Exercise the production save branches; no compiler, network or archive pack."""
         root = Path(__file__).resolve().parents[1]
-        for size_gib in (1, 15):
-            with self.subTest(size_gib=size_gib), tempfile.TemporaryDirectory() as tmp:
+        for size_gib, seed_exit, metadata_exit in ((1, 0, 0), (15, 0, 0), (15, 23, 0), (15, 0, 24)):
+            with self.subTest(size_gib=size_gib, seed_exit=seed_exit, metadata_exit=metadata_exit), tempfile.TemporaryDirectory() as tmp:
                 repo = Path(tmp) / "producer"
                 for name in ("ci/cmux-tui-test-target.sh", "ci/cargo_target_strip.py",
                              "ci/timeout.sh", "blacksmith-testbox-source-mtimes.py"):
@@ -152,9 +152,25 @@ class TargetSaveTest(unittest.TestCase):
                 native = (".fingerprint/ghostty-vt-sys-77aa/run-build-script-build-script-build",
                           "build/ghostty-vt-sys-77aa/out/lib/libghostty-vt.a",
                           "build/ghostty-vt-sys-55cc/build-script-build",
-                          "deps/libghostty_vt_sys-88dd.rlib")
-                for name in (*native, "deps/libghostty_vt-99ee.rlib", "incremental/cache"):
+                          "deps/libghostty_vt_sys-88dd.rlib",
+                          ".fingerprint/cmux-transport-rewrite-1122/lib-cmux_transport_rewrite",
+                          "deps/libcmux_transport_rewrite-1122.rlib")
+                for name in (*native, "deps/libghostty_vt-99ee.rlib", "incremental/cache",
+                             ".fingerprint/http-1234/lib-http", "deps/libhttp-1234.rlib", "deps/http-5678"):
                     touch(target / "debug" / name)
+                (repo / "ci").mkdir()
+                (repo / "ci/run").write_text(
+                    'import os, sys\nfrom pathlib import Path\n'
+                    'assert sys.argv[1:] == ["run", "--job", "linux", "--only", "phone-default-speed-icount"]\n'
+                    'assert os.environ["CI_STEP_RESULTS"] == "off"\n'
+                    'target = Path(os.environ["CARGO_TARGET_DIR"])\n'
+                    'assert (target / "debug/deps/libghostty_vt-99ee.rlib").is_file(), "seed must precede pruning"\n'
+                    'events = Path(os.environ["TEST_EVENTS"])\n'
+                    'assert events.read_text() == "acpmux\\n", "seed must follow acpmux"\n'
+                    'events.write_text(events.read_text() + "seed\\n")\n'
+                    '(target / "debug/build/ghostty-vt-sys-77aa/out/lib/libghostty-vt.a").write_text("baseline")\n'
+                    'sys.exit(int(os.environ["TEST_SEED_EXIT"]))\n'
+                )
                 same = repo / "cmux-tui/same.rs"
                 changed = repo / "cmux-tui/changed.rs"
                 old = 1_000_000_000 * 10**9
@@ -168,11 +184,16 @@ class TargetSaveTest(unittest.TestCase):
                 commands = Path(tmp) / "bin"
                 commands.mkdir()
                 metadata = {"packages": [{"name": name, "targets": []}
-                                         for name in ("ghostty-vt-sys", "ghostty-vt")]}
+                                         for name in ("ghostty-vt-sys", "ghostty-vt", "cmux-transport-rewrite")]}
+                metadata["packages"].append({"name": "cmux-tailnet-local", "targets": [
+                    {"name": "http", "kind": ["test"]}]})
                 stubs = {
-                    "cargo": "case $1 in\n build) exit 0;;\n metadata) cat <<'JSON'\n"
+                    "cargo": 'case $1 in\n build) printf "acpmux\\n" >> "$TEST_EVENTS"; '
+                    'printf native > "$CARGO_TARGET_DIR/debug/build/ghostty-vt-sys-77aa/out/lib/libghostty-vt.a"; '
+                    'exit 0;;\n metadata) printf "metadata\\n" >> "$TEST_EVENTS"; '
+                    '[ "$TEST_METADATA_EXIT" = 0 ] || exit "$TEST_METADATA_EXIT"; cat <<\'JSON\'\n'
                     + json.dumps(metadata) + "\nJSON\n ;;\n *) exit 90;;\nesac\n",
-                    "curl": "exit 22\n",  # A cache miss, without contacting R2.
+                    "curl": 'printf "%s\\n" "$@" > "$TEST_KEY"\nexit 22\n',  # No R2 request.
                     "git": "printf 'fixture-gitlink\\n'\n",
                     "cc": "printf 'fixture-compiler\\n'\n",
                     "clang": "printf 'fixture-compiler\\n'\n",
@@ -186,18 +207,41 @@ class TargetSaveTest(unittest.TestCase):
                 capture = Path(tmp) / "captured"
                 capture.mkdir()
                 (repo / "scripts/ci/r2-cache.sh").write_text(
-                    '#!/bin/sh\nset -eu\n[ "$1" = save ]\ncp -a "$2/." "$TEST_CAPTURE/"\n'
+                    '#!/bin/sh\nset -eu\n[ "$1" = save ]\nprintf "archive\\n" >> "$TEST_EVENTS"\n'
+                    'cp -a "$2/." "$TEST_CAPTURE/"\n'
                 )
+                events = Path(tmp) / "events"
+                key = Path(tmp) / "key"
                 env = {**os.environ, "PATH": str(commands) + os.pathsep + os.environ["PATH"],
                        "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                        "GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/feat-cmux-next",
                        "CARGO_TARGET_DIR": str(target), "CMUX_TUI_TEST_TARGET_MAX_GIB": "14",
-                       "CMUX_TESTBOX_CPUINFO": str(cpuinfo), "TEST_CAPTURE": str(capture)}
+                       "CMUX_TESTBOX_CPUINFO": str(cpuinfo), "TEST_CAPTURE": str(capture),
+                       "TEST_EVENTS": str(events), "TEST_KEY": str(key), "TEST_SEED_EXIT": str(seed_exit),
+                       "TEST_METADATA_EXIT": str(metadata_exit), "TMPDIR": tmp}
                 result = subprocess.run(["bash", str(repo / "scripts/ci/cmux-tui-test-target.sh"), "save"],
                                         env=env, text=True, capture_output=True, timeout=30)
+                self.assertIn("cmux-next-daemon-tests-cargo-v2-", key.read_text())
+                self.assertEqual(list(Path(tmp).glob("cmux-tui-cache-metadata.*")), [])
+                if seed_exit:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("seed failed; nothing saved", result.stdout)
+                    self.assertEqual(events.read_text(), "acpmux\nseed\n")
+                    self.assertEqual(list(capture.iterdir()), [])
+                    continue
+                if metadata_exit:
+                    self.assertEqual(result.returncode, metadata_exit, result.stdout + result.stderr)
+                    self.assertEqual(events.read_text(), "acpmux\nseed\nmetadata\n")
+                    self.assertEqual(list(capture.iterdir()), [])
+                    continue
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(events.read_text(), "acpmux\nseed\n" + ("metadata\n" if size_gib > 14 else "") + "archive\n")
                 for name in native:
                     self.assertTrue((capture / "debug" / name).is_file(), name)
+                self.assertEqual((capture / "debug/build/ghostty-vt-sys-77aa/out/lib/libghostty-vt.a").read_text(), "baseline")
+                for name in (".fingerprint/http-1234/lib-http", "deps/libhttp-1234.rlib"):
+                    self.assertTrue((capture / "debug" / name).is_file(), name)
+                self.assertEqual((capture / "debug/deps/http-5678").exists(), size_gib <= 14)
                 self.assertEqual((capture / "debug/deps/libghostty_vt-99ee.rlib").exists(), size_gib <= 14)
                 self.assertFalse((capture / "debug/incremental").exists())
                 manifest = capture / ".cmux-testbox-source-mtimes.tsv"

@@ -2468,24 +2468,14 @@ jobs:
           [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
           rm -rf "$home"
 
-      # Seed the exact narrow workspace example the phone PR gate consumes. The
-      # daemon test's package union may have a different native fingerprint.
-      # This invocation pins its CPU/profile/features internally and saves both
-      # fingerprints in the same existing target archive; it never rebaselines.
-      - name: Seed and check default-grid instruction detector
-        if: ${{ !cancelled() && runner.os == 'Linux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' }}
-        timeout-minutes: 44
-        env:
-          CI_STEP_RESULTS: "off"
-        run: python3 ci/run run --job linux --only phone-default-speed-icount
-
       # A feat-cmux-next push only, after a red test too (the compile is still good), before
       # rust-cache's post step prunes the workspace crates: at most one save a 4-hour window.
       - name: Save the cargo build to the CI cache bucket
         if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' }}
         continue-on-error: true
-        # The upload (about 10 min) and, once a window, the acpmux build agent-pane-real-acpmux restores (about 7).
-        timeout-minutes: 26
+        # Original save budget (26 min), plus the exact phone detector seed (44),
+        # which runs after the last plain acpmux build and before pruning/archiving.
+        timeout-minutes: 70
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}

@@ -22,14 +22,15 @@
 # never holds). A pull request restores into its own checkout's cmux-tui/target, which the runner wipes after the job, and
 # nothing it builds is ever read by a later job.
 #
-# Key: cmux-next-daemon-tests-cargo-v1-<build environment>-<4-hour window>. The environment is what cargo's fingerprints
+# Key: cmux-next-daemon-tests-cargo-v2-<build environment>-<4-hour window>. The environment is what cargo's fingerprints
 # do not see (the pinned toolchain file, the host, its C compiler, the ghostty-next gitlink and the Zig pin) and the
 # workspace path (fingerprints hold absolute paths). A save happens at most once a window (r2-cache.sh skips a key the
 # bucket has), and a restore reads the newest save under the environment's prefix. r2_cache_prune.py keeps one day.
 #
 # Disk: a restore needs CMUX_TUI_TEST_TARGET_MIN_FREE_GIB (30) free, else it builds cold. A save drops incremental state
 # first, and a target over CMUX_TUI_TEST_TARGET_MAX_GIB (14) keeps third-party output plus ghostty-vt-sys's expensive
-# native build (scripts/ci/cargo_target_strip.py). Both save branches carry source mtimes for the retained output.
+# native build and its cmux-transport-rewrite build dependency (scripts/ci/cargo_target_strip.py). Both save branches
+# carry source mtimes for the retained output. v2 seeds the exact phone example after the last acpmux build.
 # A restore that fails or is cut removes the half-unpacked target. A target that already holds a workspace build is kept
 # as is; one with third-party output only (a rust-cache restore) gives way to a hit and comes back on a miss.
 #
@@ -77,7 +78,7 @@ environment="$( {
   sha256sum < "$repo/scripts/ci/zig-tarballs.sha256" 2>/dev/null || true
   echo "$repo"
 } | sha256sum | cut -c1-16)"
-prefix="cmux-next-daemon-tests-cargo-v1-$environment-"
+prefix="cmux-next-daemon-tests-cargo-v2-$environment-"
 window="$(date -u +%Y%m%d)h$(( 10#$(date -u +%H) / 4 * 4 ))"
 key="$prefix$window"
 
@@ -193,16 +194,29 @@ save() {
   # 2026-11-26). Building acpmux here too puts its own feature set in the saved target.
   (cd "$repo/cmux-tui" && CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux) \
     || say "cargo build -p acpmux ended with status $?; saving the test build as it is"
+  # The plain acpmux build can replace the phone example's baseline-CPU native
+  # output. Seed its exact profile/features last, and never publish a failed seed.
+  # Disable verdict reuse: this invocation must populate this target, not read a pass.
+  (cd "$repo" && CI_STEP_RESULTS=off bash scripts/ci/timeout.sh 2640 \
+    python3 ci/run run --job linux --only phone-default-speed-icount) || {
+      say "phone default-grid seed failed; nothing saved"
+      return 1
+    }
   find "$target" -mindepth 1 -maxdepth 3 -type d -name incremental -prune -exec rm -rf -- {} +
   rm -f -- "$manifest"
   local size_gib
   size_gib="$(du -sxk "$target" | awk '{ printf "%d", $1 / 1048576 }')"
   if ((size_gib > max_gib)); then
-    say "the target is $size_gib GiB, over $max_gib: saving third-party output plus ghostty-vt-sys"
-    local crates
-    mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path "$repo/cmux-tui/Cargo.toml" \
-      | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
-    python3 -I "$repo/scripts/ci/cargo_target_strip.py" "$target" --workspace-crates "${crates[@]}" --keep ghostty-vt-sys
+    say "the target is $size_gib GiB, over $max_gib: saving third-party output plus ghostty-vt-sys and its build dependency"
+    # Keep library names separate from test/bin names: a test named http must
+    # not delete the third-party http library. Clean up only our metadata file.
+    (
+      metadata="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-cache-metadata.XXXXXX")"
+      trap 'rm -f -- "$metadata"' EXIT
+      cargo metadata --no-deps --format-version 1 --manifest-path "$repo/cmux-tui/Cargo.toml" > "$metadata"
+      python3 -I "$repo/scripts/ci/cargo_target_strip.py" "$target" --cargo-metadata "$metadata" \
+        --keep ghostty-vt-sys cmux-transport-rewrite
+    )
   fi
   # The retained native build needs unchanged source mtimes even after pruning.
   # Recording also carries the CPU identity used by restore's native-output check.
