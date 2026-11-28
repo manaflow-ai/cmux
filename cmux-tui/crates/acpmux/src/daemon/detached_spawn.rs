@@ -177,7 +177,8 @@ pub(super) fn spawn_detached(
     // The readiness pipe's write end and the key socket reach the daemon at fixed numbers
     // ([`READY_FD`], [`PERSON_KEY_FD`]) and no other descriptor does; it starts a session of its
     // own so it outlives the terminal.
-    cmd.inherit_fd(std::os::fd::AsFd::as_fd(&writer), READY_FD).context("hand the readiness pipe")?;
+    cmd.inherit_fd(std::os::fd::AsFd::as_fd(&writer), READY_FD)
+        .context("hand the readiness pipe")?;
     cmd.arg(READY_FD.to_string());
     if let Some((_, theirs)) = &pair {
         cmd.inherit_fd(std::os::fd::AsFd::as_fd(theirs), PERSON_KEY_FD)
