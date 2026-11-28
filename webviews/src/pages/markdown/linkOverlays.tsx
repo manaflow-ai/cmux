@@ -5,6 +5,7 @@
 // completing `#headings` and workspace paths), Apply and Remove. linkEditing.ts decides when the
 // bubble shows and what its actions do (LinkOverlays state); these only render.
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import { Button } from "../../ui/Button";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { AnchoredCard } from "../../ui/Tooltip";
@@ -170,13 +171,13 @@ export function LinkEditView({ bubble }: { bubble: LinkBubbleState }) {
         </div>
         <div className="md-link-form-actions">
           {bubble.inserting ? null : (
-            <button type="button" className="ui-button md-link-remove" onClick={() => bubble.remove()}>
+            <Button bare type="button" className="ui-button md-link-remove" onClick={() => bubble.remove()}>
               {label("remove")}
-            </button>
+            </Button>
           )}
-          <button type="submit" className="ui-button md-link-apply">
+          <Button bare type="submit" className="ui-button md-link-apply">
             {label("apply")}
-          </button>
+          </Button>
         </div>
       </form>
     </Popover>
