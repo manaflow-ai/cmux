@@ -199,6 +199,8 @@ jobs:
     if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 12
+    env:
+      GH_HTTP_DEADLINE_S: "660"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     # head_tier.py reads the previous head's Actions runs (green-head base merge rule) and cmux/land-tier
     # (land carry rule); the post-merge batch's caller grants the same.
     permissions:
@@ -240,8 +242,12 @@ jobs:
           fetch-depth: 2
           filter: blob:none
           sparse-checkout-cone-mode: false
+          # The two .github/post-merge-*.json files feed head_tier.py's post-merge tier rule (#63989): without them it
+          # read no config and planned `full` on every feat-cmux-next head (39 PR runs, ~917 runner-min, 11-28 06:30-10Z).
           sparse-checkout: &changes-sparse |
             /.github/workflows/cmux-tui-spec.yml
+            /.github/post-merge-checks.json
+            /.github/post-merge-batch.json
             /.github/scripts/
             /scripts/ci/*.py
             /scripts/ci/*.json
@@ -1523,6 +1529,8 @@ jobs:
     if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || (needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
+    env:
+      GH_HTTP_DEADLINE_S: "1140"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
