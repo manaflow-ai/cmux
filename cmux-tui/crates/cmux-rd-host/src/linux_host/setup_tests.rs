@@ -143,6 +143,18 @@ fn the_terminal_unit_is_started_on_demand_and_stops_with_the_display() {
 }
 
 #[test]
+fn an_old_session_unit_names_its_parts_and_a_current_one_none() {
+    // What `enable` wrote before the terminal had its own unit.
+    let old = "[Service]\nExecStart=/usr/bin/openbox-session\nExecStartPost=/bin/sh -c 'sleep 1; setsid /usr/bin/xterm -class CmuxDesktop -geometry 160x48+40+40 -e \"$${SHELL:-/bin/bash}\" -l >/dev/null 2>&1 &'\n";
+    assert_eq!(
+        old_session_parts(old),
+        Some((PathBuf::from("/usr/bin/openbox-session"), PathBuf::from("/usr/bin/xterm")))
+    );
+    assert_eq!(old_session_parts(&session_unit(Path::new("/usr/bin/openbox"), 99)), None);
+    assert_eq!(old_session_parts("ExecStart=/usr/bin/openbox\nExecStartPost=/bin/true\n"), None);
+}
+
+#[test]
 fn only_the_session_terminal_reads_as_the_session() {
     assert!(wm_class_is_session(b"xterm\0CmuxDesktop\0"));
     assert!(!wm_class_is_session(b"xterm\0XTerm\0"));

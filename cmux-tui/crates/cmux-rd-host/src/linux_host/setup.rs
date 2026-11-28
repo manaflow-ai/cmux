@@ -347,6 +347,13 @@ pub fn ensure_virtual_display(display: u32) -> Res<String> {
     }
     // The desktop on it (a display started before the session unit existed has none yet).
     let dir = user_unit_dir().ok();
+    // A session unit written by an earlier `enable` still opens its terminal with the session,
+    // over any app: rewrite it to the split units before starting it.
+    if let Some(dir) = dir.as_deref() {
+        if let Err(e) = heal_session_unit(dir, display) {
+            eprintln!("linux-host: the desktop session unit was not rewritten: {e}");
+        }
+    }
     if dir.as_ref().is_some_and(|dir| dir.join(SESSION_UNIT).exists()) {
         if let Err(e) = systemctl(&["start", SESSION_UNIT]) {
             eprintln!("linux-host: the desktop session did not start: {e}");
@@ -360,6 +367,34 @@ pub fn ensure_virtual_display(display: u32) -> Res<String> {
         }
     }
     Ok(format!(":{display}"))
+}
+
+/// The window manager and terminal of a session unit from before [`TERMINAL_UNIT`] (one whose
+/// `ExecStartPost` opens the terminal with the session), else None.
+pub fn old_session_parts(text: &str) -> Option<(PathBuf, PathBuf)> {
+    let post = text.lines().find_map(|l| l.strip_prefix("ExecStartPost="))?;
+    let before_class = post.split(&format!(" -class {SESSION_TERMINAL_CLASS}")).next()?;
+    if before_class.len() == post.len() {
+        return None;
+    }
+    let terminal = before_class.split_whitespace().last()?;
+    let wm = text.lines().find_map(|l| l.strip_prefix("ExecStart="))?.trim();
+    (terminal.starts_with('/') && wm.starts_with('/'))
+        .then(|| (PathBuf::from(wm), PathBuf::from(terminal)))
+}
+
+/// Rewrites an old session unit in `dir` ([`old_session_parts`]) to [`session_unit`] and
+/// [`terminal_unit`]; nothing to do for a current one or none.
+fn heal_session_unit(dir: &Path, display: u32) -> Res<()> {
+    let session = dir.join(SESSION_UNIT);
+    let Some((wm, terminal)) =
+        std::fs::read_to_string(&session).ok().as_deref().and_then(old_session_parts)
+    else {
+        return Ok(());
+    };
+    write_if_changed(&dir.join(TERMINAL_UNIT), &terminal_unit(&terminal, display))?;
+    write_if_changed(&session, &session_unit(&wm, display))?;
+    systemctl(&["daemon-reload"])
 }
 
 /// Stops the virtual display.
