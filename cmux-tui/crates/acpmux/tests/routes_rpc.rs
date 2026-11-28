@@ -181,15 +181,14 @@ notes = "The work account"
         .ok("_acpmux/connections/claude_token.add", json!({"secret": "keychain:fixture-token"}))
         .await;
     let managed = routes.join("claude-token.toml");
-    let before = std::fs::read_to_string(&managed).unwrap();
-    let before = before.lines().next().unwrap();
-    assert!(before.starts_with("# cmux-credential-instance: "));
+    let stored_instance =
+        || acpmux::routes::find(Some(&routes), "claude-token").unwrap().file.credential_instance;
+    let before = stored_instance().expect("the managed route has a persisted credential identity");
     let renamed =
         local.ok("_acpmux/route/edit", json!({"id": "claude-token", "name": "Renamed"})).await;
     assert_eq!(renamed["name"], "Renamed");
     assert_eq!(renamed["secret"], "keychain:fixture-token");
-    let after = std::fs::read_to_string(&managed).unwrap();
-    assert_eq!(Some(before), after.lines().next());
+    assert_eq!(stored_instance().as_deref(), Some(before.as_str()));
     local
         .err("_acpmux/route/edit", json!({"id": "claude-token", "secret": "keychain:different"}))
         .await;
@@ -214,11 +213,10 @@ notes = "The work account"
     local
         .ok("_acpmux/connections/claude_token.add", json!({"secret": "keychain:replacement-token"}))
         .await;
-    let stale_instance = before.strip_prefix("# cmux-credential-instance: ").unwrap();
     let stale = local
         .err(
             "_acpmux/account/set",
-            json!({"id": "claude-token", "name": "Stale name", "instance": stale_instance}),
+            json!({"id": "claude-token", "name": "Stale name", "instance": before}),
         )
         .await;
     assert_eq!(stale["message"], "the connection changed while it was open");
@@ -229,7 +227,7 @@ notes = "The work account"
         .iter()
         .find(|row| row["id"] == "claude-token")
         .unwrap();
-    assert_ne!(replacement["credential_instance"], stale_instance);
+    assert_ne!(replacement["credential_instance"], before);
     assert_eq!(replacement["label"], "Claude Code token");
     let renamed = local.ok("_acpmux/account/set", json!({
         "id": "claude-token", "name": "Current name", "instance": replacement["credential_instance"],
