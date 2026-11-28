@@ -1,0 +1,145 @@
+name: ios fast verdict dispatch
+
+# The supported recovery for a `cmux/ios-fast` pending whose answering run died (the class: a status left pending
+# forever when its publisher crashed). pr-router.yml's route posts the pending and its ios-fast-status job answers
+# it; when that run fails before it answers (cmux#56949: run 45948051474 failed importing gh_http while the base was
+# broken), nothing posts again. A rerun of that run replays its own (broken) workflow file, and a new head or a label
+# cycle changes what is being judged. This runs the same verdict from the current workflow files:
+#
+#     gh workflow run ios-fast-verdict-dispatch.yml -R manaflow-ai/cmux --ref feat-cmux-next -f pr=N -f sha=FULL_HEAD_SHA
+#
+# resolve: the PR is open, same-repo, into feat-cmux-next, at SHA, and GitHub's test merge commit has SHA as its second
+# parent (scripts/ci/ios_fast_dispatch.py). pipeline: pr-pipeline.yml with no table job routed, so only its ios fast
+# verdict runs, checked out at that merge commit (its `ref` input). status: the same post as pr-router.yml's
+# ios-fast-status (tests/test_ci_ios_fast_dispatch.py keeps the two run blocks identical), at SHA. Never a fake
+# result: a verdict that did not finish posts error, as the router does.
+# The push on this file's own path registers the workflow (its jobs skip): GitHub answers 404 for a dispatch-only
+# workflow that is not on the default branch and has never run (tests/test_ci_workflows_registered.py).
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/ios-fast-verdict-dispatch.yml]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: The pull request number
+        required: true
+        type: string
+      sha:
+        description: Its head commit, the full 40-character id the stale pending sits on
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: ios-fast-verdict-dispatch-${{ inputs.pr || github.run_id }}-${{ inputs.sha }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: resolve the merge commit
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      merge: ${{ steps.resolve.outputs.merge }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/ci/ios_fast_dispatch.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Resolve the PR's merge commit at the given head
+        id: resolve
+        env:
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          SHA: ${{ inputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/ios_fast_dispatch.py resolve
+
+  pipeline:
+    name: pr pipeline
+    needs: [resolve]
+    uses: ./.github/workflows/pr-pipeline.yml
+    with:
+      # No table job: linux, web-browser, ios, ios-macos and mac skip; the ios fast verdict always plans.
+      jobs: '["ios-fast-verdict-dispatch"]'
+      ref: ${{ needs.resolve.outputs.merge }}
+    secrets:
+      GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      # The ios fast verdict's plan reads the head's earlier cmux/ios-fast statuses (pr-pipeline.yml).
+      statuses: read
+
+  ios-fast-status:
+    name: ios fast verdict status
+    needs: [resolve, pipeline]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/ci/ios_fast_verdict.py
+            scripts/ci/proof_record.py
+            scripts/ci/ci_steps.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
+            ci/steps.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Post the verdict
+        env:
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PIPELINE: ${{ needs.pipeline.result }}
+          RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
+          VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
+          SUMMARY: ${{ needs.pipeline.outputs.ios_fast_summary }}
+          PROOF: ${{ needs.pipeline.outputs.ios_fast_proof }}
+          PR: ${{ inputs.pr }}
+          GH_TOKEN: ${{ github.token }}
+          NEED_PROOF: ${{ format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
+        run: |
+          if [ "$PIPELINE" = skipped ]; then
+            state=error; desc="No verdict: the pr pipeline did not start on this head (fast gates red, or skipped); rerun it"
+          elif [ "$RUN" = false ]; then
+            # A head that already passed on the same iOS inputs (scripts/ci/ios_fast_verdict.py reuse) says so.
+            state=success; case "$SUMMARY" in Reused*) desc="$SUMMARY" ;; *) desc="The plan builds nothing on this head" ;; esac
+          elif [ "$VERDICT" = success ]; then
+            state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
+          elif [ "$VERDICT" = failure ]; then
+            state=failure; desc="Failed: ${SUMMARY:-the changed iOS targets} (the ios fast verdict job's log)"
+          else
+            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled or skipped); rerun it"
+          fi
+          if [ "$state" = success ] && [ "$RUN" != false ] && [ "$PROOF" != false ] && [ "$NEED_PROOF" = true ]; then
+            # An unread record (gate exits 3) fails this job instead of posting `error` for a passed build: a
+            # passed job cannot be rerun, so that status would stay until a new head.
+            gated=$(python3 -I scripts/ci/proof_record.py gate --suite ios-flows) || { echo "::error::proof record not read; failing so this job can be rerun"; exit 1; }
+            IFS=$'\t' read -r pstate pdesc <<< "$gated"
+            if [ "$pstate" != success ]; then state="${pstate:-error}"; desc="Build passed; ${pdesc}"; fi
+          fi
+          python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"

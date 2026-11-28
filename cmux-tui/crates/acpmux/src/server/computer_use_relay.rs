@@ -43,6 +43,7 @@ use super::conn_auth::ConnAuth;
 use super::{Conn, Origin};
 use crate::computer_use::client::{Caller, Outcome, SocketDaemon};
 use crate::hub::Hub;
+use crate::machine_record::Requester;
 use crate::rpc::{RpcError, method};
 
 /// How long `computer_use_machines` waits for each peer's state.
@@ -88,6 +89,13 @@ pub(super) fn admit(origin: Origin, auth: ConnAuth, device: Option<&DeviceRecord
         }
         _ => Admission::Refused("this connection proved no machine of the person's"),
     }
+}
+
+/// Whose machine a call admitted to run here comes from, for the Control gate: the person's own
+/// acpmux daemon (its peer token, `ConnAuth::peer_daemon`) is their own machine; a paired
+/// client credential may be anyone the person gave it to, so it is not.
+pub(super) fn requester(auth: ConnAuth) -> Requester {
+    if auth.peer_daemon() { Requester::OwnMachine } else { Requester::Other }
 }
 
 /// A device name as the person sees it, without control characters.
@@ -258,7 +266,7 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                     "a call runs on one machine only",
                 ));
             }
-            run_here(call, machine).await
+            run_here(call, machine, requester(conn.auth)).await
         }
     }
 }
@@ -272,18 +280,30 @@ pub(crate) async fn run_from(machine: &str, params: &Value) -> Result<Value, Rpc
     if call.machine.is_some() {
         return Err(refused("computer_use_remote_denied", "a call runs on one machine only"));
     }
-    run_here(call, machine_label(machine)).await
+    // The hub carrier proved a machine of the person's own account.
+    run_here(call, machine_label(machine), Requester::OwnMachine).await
 }
 
 /// Run `call` here for `machine`, which the transport proved is one the person let drive this
 /// daemon. The origin the worker sees is built here, never taken from the request.
-async fn run_here(call: CallParams, machine: String) -> Result<Value, RpcError> {
-    // A machine joined to a team runs another machine's call only with
-    // its person's control consent there.
-    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+async fn run_here(
+    call: CallParams,
+    machine: String,
+    requester: Requester,
+) -> Result<Value, RpcError> {
+    // A joined machine runs the person's own machine's call unless its person turned Control
+    // off here (joining is the consent); anyone else's needs Control granted.
+    if crate::machine_record::require_joined_consent_from("control", requester).is_err() {
         return Err(refused(
             "computer_use_consent_required",
-            "this machine needs its person's control consent before another machine may use it",
+            match requester {
+                Requester::OwnMachine => {
+                    "Control is turned off on this machine; its person turns it on in Settings > Devices or with `acpmux host consent grant --control`"
+                }
+                Requester::Other => {
+                    "this machine needs its person's control consent before another machine may use it"
+                }
+            },
         ));
     }
     let origin = json!({"kind": "remote", "machine": machine, "same_account": true});

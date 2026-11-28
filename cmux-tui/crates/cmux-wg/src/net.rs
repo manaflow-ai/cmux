@@ -1000,6 +1000,8 @@ impl Driver {
                 self.watchdog.on_data_sent(now, &packet);
             }
         }
+        let pacer = &self.pacer;
+        self.stack.set_pacer_held(|local, remote| pacer.held(local, remote));
         if fresh {
             self.schedule.on_activity(now);
         }

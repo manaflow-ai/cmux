@@ -662,6 +662,10 @@ pub fn example_mobileconfig(entries: &[Entry]) -> String {
 }
 
 /// Intune "Preference file": bare keys, no `<plist>` or `<dict>` wrapper.
+#[allow(
+    clippy::string_slice,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub fn intune_preference_file(entries: &[Entry]) -> String {
     let xml = plist_xml(&Plist::Dict(example_keys(entries)));
     let (Some(start), Some(end)) = (xml.find("<dict>\n"), xml.rfind("</dict>\n</plist>")) else {

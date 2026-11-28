@@ -31,7 +31,6 @@ struct ChatComposerField: UIViewRepresentable {
     static var maxLines: Int { ComposerHeightCap.lines }
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.chatFaceHidden) private var faceHidden
 
     func makeUIView(context: Context) -> ChatComposerTextView {
         let view = ChatComposerTextView()
@@ -59,7 +58,6 @@ struct ChatComposerField: UIViewRepresentable {
         view.setContentHuggingPriority(.required, for: .vertical)
         view.text = text
         view.placeholder = placeholder
-        markReadyIfShown()
         return view
     }
 
@@ -69,7 +67,6 @@ struct ChatComposerField: UIViewRepresentable {
 
     private func update(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
-        markReadyIfShown()
         fieldRef?.view = view
         view.stripReserve = stripReserve
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
@@ -102,13 +99,6 @@ struct ChatComposerField: UIViewRepresentable {
                 }
             }
         }
-    }
-
-    /// Launch to chat open: the frame that first shows a composer (LaunchMarks), not one built
-    /// on a terminal's chat face parked out of sight (`chatFaceHidden`); a face swap updates it.
-    private func markReadyIfShown() {
-        guard !faceHidden else { return }
-        ChatReadyMark.take()
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
@@ -160,10 +150,11 @@ struct ChatComposerField: UIViewRepresentable {
     }
 }
 
-/// `chat_composer_ready`: the first frame showing the chat's answer control, the composer or the
-/// permission bar or sudo card that takes its place. A chat whose kept history is in its first frame
-/// (#57970) and waits on the person opens on its permission bar and never builds a composer; marked
-/// at the composer only, that open never took the mark (LaunchTTIUITests' chat flow on `ws-s0`).
+/// `chat_composer_ready`: the first frame showing the chat's answer control: the composer, collapsed
+/// or open, or the permission bar or sudo card that takes its place. Taken on the control as a whole
+/// (``ChatReadyMarkOnShow``), not on the text field: a chat with turns opens on the collapsed capsule,
+/// which builds no field, so a chat waiting on a question (`ws-s0`, a Claude tab) never took the mark
+/// and LaunchTTIUITests' chat flow timed out.
 @MainActor
 enum ChatReadyMark {
     static func take() {

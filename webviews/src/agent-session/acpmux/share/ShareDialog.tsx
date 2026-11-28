@@ -1,6 +1,6 @@
 // The Share dialog (design chat-multiplayer.md 2, "Share dialog"; Leo, 2026-11-07: "like being able
 // to share Google Docs"): add people by email or @handle with a role, the people with access and
-// their roles, General access (Restricted, or Anyone with the link: signed-in people may send, others watch), Copy link and Done.
+// their roles, the accounts asking for access (Approve with a role, or Decline; RFD 0077 D5), General access (Restricted, or Anyone with the link: signed-in people may send, others watch), Copy link and Done.
 // Render only: every step is a prop the control (ShareControl.tsx) runs against the daemon, and
 // the dialog never reads the host itself, so the gallery draws each state from a fixture.
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -11,7 +11,14 @@ import { Select } from "../../../ui/Select";
 import { useT } from "../i18n";
 import { Face } from "../multiplayer/Faces";
 import { Icon } from "../icons/Icon";
-import { isAccount, type GeneralAccess, type SharePerson, type ShareRole, type ShareView } from "./shareState";
+import {
+  isAccount,
+  type GeneralAccess,
+  type ShareAccessRequest,
+  type SharePerson,
+  type ShareRole,
+  type ShareView,
+} from "./shareState";
 import "./share.css";
 
 export interface ShareDialogProps {
@@ -27,6 +34,10 @@ export interface ShareDialogProps {
   onInvite(account: string, role: ShareRole): void;
   onRole(account: string, role: ShareRole): void;
   onRemove(account: string): void;
+  /** Approve an access request: the account gets `role` (the row's picker starts at Can view). */
+  onApprove(account: string, role: ShareRole): void;
+  /** Decline an access request: silent, the account is not told. */
+  onDecline(account: string): void;
   onGeneral(access: GeneralAccess): void;
   onCopy(): void;
   onDone(): void;
@@ -43,6 +54,8 @@ export function ShareDialogBody({
   onInvite,
   onRole,
   onRemove,
+  onApprove,
+  onDecline,
   onGeneral,
   onCopy,
   onDone,
@@ -55,6 +68,10 @@ export function ShareDialogBody({
     { value: "talk", label: t("share.role.talk") },
     { value: "drive", label: t("share.role.drive") },
   ];
+  /** The role each request row's picker shows (absent: Can view, the least). */
+  const [asked, setAsked] = useState<Record<string, ShareRole>>({});
+  const askedRole = (who: string): ShareRole => asked[who] ?? "view";
+  const askedTalk = view.requests.some((request) => askedRole(request.account) === "talk");
   const canInvite = !busy && isAccount(account);
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -99,9 +116,46 @@ export function ShareDialogBody({
       <p className="share-dialog__status" role={status ? "alert" : undefined} data-hint={status ? undefined : ""}>
         {status ??
           notice ??
-          (role === "drive" ? t("share.role.driveDetail") : role === "talk" ? t("share.role.talkHint") : "")}
+          (role === "drive"
+            ? t("share.role.driveDetail")
+            : role === "talk" || askedTalk
+              ? t("share.role.talkHint")
+              : "")}
       </p>
-      <section className="share-dialog__section" aria-label={t("share.peopleWithAccess")}>
+      {/* Accounts asking for access, above the people who have it: a band of at most two rows that
+          scrolls past them, and the people band gives up the same room (share.css), so the dialog
+          keeps one height. No requests: no band. */}
+      {view.requests.length > 0 && (
+        <section
+          className="share-dialog__section share-dialog__requests"
+          aria-label={t("share.requests")}
+          data-rows={Math.min(view.requests.length, 2)}
+        >
+          <h3 className="share-dialog__heading share-dialog__requests-heading">
+            {t("share.requests")}
+            {view.requests.length > 2 && <span className="share-dialog__count">{view.requests.length}</span>}
+          </h3>
+          <ul className="share-dialog__asks">
+            {view.requests.map((request) => (
+              <RequestRow
+                key={request.account}
+                request={request}
+                role={askedRole(request.account)}
+                busy={busy}
+                roles={roles.filter((option) => option.value !== "drive")}
+                onRole={(next) => setAsked((was) => ({ ...was, [request.account]: next }))}
+                onApprove={onApprove}
+                onDecline={onDecline}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+      <section
+        className="share-dialog__section"
+        aria-label={t("share.peopleWithAccess")}
+        data-asks={Math.min(view.requests.length, 2)}
+      >
         <h3 className="share-dialog__heading">{t("share.peopleWithAccess")}</h3>
         <ul className="share-dialog__people">
           <li className="share-dialog__person share-dialog__person--owner">
@@ -207,6 +261,68 @@ function PersonRow({
       >
         <Icon name="action.close" className="share-dialog__remove-mark" />
         <span className="share-dialog__remove-word">{t("share.remove")}</span>
+      </Button>
+    </li>
+  );
+}
+
+function RequestRow({
+  request,
+  role,
+  busy,
+  roles,
+  onRole,
+  onApprove,
+  onDecline,
+}: {
+  request: ShareAccessRequest;
+  role: ShareRole;
+  busy: boolean;
+  roles: { value: string; label: string }[];
+  onRole(role: ShareRole): void;
+  onApprove(account: string, role: ShareRole): void;
+  onDecline(account: string): void;
+}) {
+  const t = useT();
+  const name = request.name.trim();
+  return (
+    <li className="share-dialog__person share-dialog__ask">
+      <Face
+        person={{
+          id: `account:${request.account}`,
+          name: name || request.account,
+          avatar: request.avatarUrl ?? undefined,
+        }}
+        size={28}
+      />
+      <span className="share-dialog__who">
+        <span className="share-dialog__name">{name || request.account}</span>
+        {name && <span className="share-dialog__hint">{request.account}</span>}
+      </span>
+      <Select
+        className="share-dialog__role share-dialog__ask-role"
+        buttonClassName="ui-btn"
+        label={t("share.roleForWho", { account: request.account })}
+        value={role}
+        options={roles}
+        closeOnPick
+        align="end"
+        disabled={busy}
+        onChange={(value) => onRole(value as ShareRole)}
+      />
+      <Button disabled={busy} onClick={() => onApprove(request.account, role)}>
+        {t("share.approve")}
+      </Button>
+      {/* Narrow, the word gives way to an x as Remove's does; the label always names whom. */}
+      <Button
+        className="share-dialog__remove"
+        variant="ghost"
+        disabled={busy}
+        aria-label={t("share.declineWho", { account: request.account })}
+        onClick={() => onDecline(request.account)}
+      >
+        <Icon name="action.close" className="share-dialog__remove-mark" />
+        <span className="share-dialog__remove-word">{t("share.decline")}</span>
       </Button>
     </li>
   );

@@ -1,7 +1,7 @@
 // Who answers a page's permission request (CefPermissionHandler::OnShowPermissionPrompt).
 // Chromium's own bubble anchors to a toolbar cmux never shows, so a request left with Chromium
 // is never answered: the page's promise stays pending for as long as the page lives. The kinds a
-// page waits on (location, camera, microphone, notifications) go to the host's prompt bar instead.
+// page waits on (location, camera, microphone, clipboard, notifications) go to the host's prompt bar instead.
 // No CEF dependency, so the test compiles it alone (scripts/cmux-next/test-permission-prompt-policy-cpp.sh);
 // shim_permissions.mm checks these bit values against CEF's own.
 #ifndef CMUX_SHIM_PERMISSION_PROMPT_POLICY_H_
@@ -14,6 +14,7 @@ namespace cmux_shim {
 // cef_permission_request_types_t bits.
 constexpr uint32_t kPermissionCameraPanTiltZoom = 1u << 1;
 constexpr uint32_t kPermissionCamera = 1u << 2;
+constexpr uint32_t kPermissionClipboard = 1u << 4;
 constexpr uint32_t kPermissionGeolocation = 1u << 8;
 constexpr uint32_t kPermissionMicrophone = 1u << 12;
 constexpr uint32_t kPermissionNotifications = 1u << 15;
@@ -62,9 +63,9 @@ enum class PermissionPromptRoute {
 };
 
 // The route of a request for `requested` (a set of cef_permission_request_types_t bits).
-// A request that groups a host kind or notifications with another kind stays with Chromium.
+// Clipboard and notifications use separate questions. Never grant other bits with either one.
 inline PermissionPromptRoute RoutePermissionPrompt(uint32_t requested) {
-  if (requested == kPermissionNotifications) return PermissionPromptRoute::kHost;
+  if (requested == kPermissionClipboard || requested == kPermissionNotifications) return PermissionPromptRoute::kHost;
   if (requested == 0 || (requested & ~kHostPermissions) != 0) return PermissionPromptRoute::kChromium;
   return PermissionPromptRoute::kHost;
 }
