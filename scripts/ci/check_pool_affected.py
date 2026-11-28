@@ -46,7 +46,7 @@ SELECTION_INPUTS = frozenset({
 WHOLE_BASELINE = Path(__file__).resolve().parent / "check-pool-whole.txt"
 
 
-def commands(lines: list[str]) -> list[tuple[str, str]]:
+def pool_commands(lines: list[str]) -> list[tuple[str, str]]:
     """(group, command) for each command line, in order."""
     group, found = "", []
     for line in lines:
@@ -63,7 +63,7 @@ def commands(lines: list[str]) -> list[tuple[str, str]]:
 def whole(tree: graph.Tree, lines: list[str]) -> list[tuple[str, str]]:
     """(command, why) for each command that reads the whole tree, so runs on every pull request."""
     out = []
-    for _group, command in commands(lines):
+    for _group, command in pool_commands(lines):
         why = graph.step_inputs(tree, command, None, frozenset()).whole
         if why:
             out.append((command, why))
@@ -116,7 +116,7 @@ def main(argv: list[str]) -> int:
         return 0
     if args.verify:
         tree = graph.Tree(Path(args.root))
-        steps = [(command, command, None) for _g, command in commands(lines)
+        steps = [(command, command, None) for _g, command in pool_commands(lines)
                  if (not args.match or any(m in command for m in args.match))
                  and graph.step_inputs(tree, command, None, frozenset()).declared]
         return graph.verify(tree, steps, args.jobs, set())
