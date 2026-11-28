@@ -3848,7 +3848,7 @@ export const JOURNEY_STUB_SCRIPT = {
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
   // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker,
   // and the reserved home chat's read (journeyReadTurnScript).
-  turns: [countingTurnScript(), feltTurnScript(), journeyReadTurnScript()],
+  turns: [countingTurnScript(), feltTurnScript(), journeyReadTurnScript(), journeyTextTurnScript()],
 };
 
 /**
@@ -3872,6 +3872,25 @@ export function journeyReadTurnScript(): { match: string; steps: Array<Record<st
 
 /** The reserved home chat's prompt: the person's words, then the file the stub's turn reads (journeyReadTurnScript). */
 export const journeyReadPrompt = (prompt: string, file: string) => `${prompt} [journey-read ${file}]`;
+
+/**
+ * The reserved home chat's stub turn for Codex: a text reply with no tool call. Codex offers no file-read tool (its
+ * tools are exec_command, write_stdin, view_image and the like), so the Read of journeyReadTurnScript came back
+ * "unsupported call: Read" and the reply repeated an empty result (prod run 46090508199: "The tool printed ."). Its
+ * only way to read a file is a shell call, which policy `ask` holds for the person. The reply still carries the
+ * nonce, so it proves the turn went to the stub; the step "model stub on the machine" proves Codex's shell round trip.
+ */
+export function journeyTextTurnScript(): { match: string; steps: Array<Record<string, unknown>> } {
+  return { match: "\\[journey-text\\]", steps: [{ text: journeyTextReply("{{nonce}}") }] };
+}
+
+/** The reply journeyTextTurnScript plays for `nonce`. */
+export function journeyTextReply(nonce: string): string {
+  return `Stub reply ${nonce}. No tool: Codex reads a file only by shell, which policy ask holds for the person.`;
+}
+
+/** The reserved home chat's prompt for Codex: the person's words, then the marker of journeyTextTurnScript. */
+export const journeyTextPrompt = (prompt: string) => `${prompt} [journey-text]`;
 
 /**
  * The guest command that writes `<cwd>/.journey-<nonce>.txt` holding `<nonce>-tool` in the chat's own folder (`cwd`,
@@ -6894,7 +6913,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // The stub's turn reads a file in the chat's own folder (journeyReadTurnScript): the chat runs under policy
           // `ask`, where a shell call waits for the person.
           let sendText = prompt;
-          if (modelStub || gatewayStub) {
+          // Codex has no file-read tool, and policy ask holds its shell calls: its stub turn is text only.
+          const textTurn = agent === "codex";
+          if ((modelStub || gatewayStub) && textTurn) {
+            sendText = journeyTextPrompt(prompt);
+            J.skip("stub file in the chat's folder", "Codex has no file-read tool; its stub turn is text only (journeyTextTurnScript)");
+          } else if (modelStub || gatewayStub) {
             sendText = await J.step("stub file in the chat's folder", async () => {
               const info = await exec(`${GUEST}"$c" acp session info ${shq(session)} --fields cwd 2>&1`, 45_000);
               const cwd = /^(?:cwd\t)?(\/\S*)$/m.exec(info.stdout)?.[1] ?? "";
@@ -6913,7 +6937,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           });
           await J.step("reply", async () => {
             const last = await awaitReply();
-            if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
+            if ((modelStub || gatewayStub) && textTurn && !last.includes(journeyTextReply(nonce))) {
+              throw new Error(`the reply is not the stub's text turn for ${nonce}: ${last.slice(-200)}; ${await stubBypassFacts()}`);
+            }
+            if ((modelStub || gatewayStub) && !textTurn && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
               throw new Error(`the reply does not carry the stub's read of ${nonce}-tool: ${last.slice(-200)}; ${await stubBypassFacts()}`);
             }
             return { value: last, detail: last.slice(0, 280) };
