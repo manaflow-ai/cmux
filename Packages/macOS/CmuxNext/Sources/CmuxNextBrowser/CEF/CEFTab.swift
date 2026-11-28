@@ -551,12 +551,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         machine.apply(.started(id, url: url))
     }
 
-    /// The placeholder hands its browser to the page that takes it (`CEFPaneHost.adoptPlaceholder`): this tab
-    /// forgets it, so its close never closes that browser.
-    func handBrowserOver() {
-        browserID = nil
-    }
-
     func creationFailed() {
         isCreationPending = false
         loadAwaitsBrowser = false

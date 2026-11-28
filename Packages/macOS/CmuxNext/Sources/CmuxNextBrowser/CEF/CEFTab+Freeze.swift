@@ -31,8 +31,7 @@ extension CEFTab: BrowserFreezing {
     /// `cmux_shim_tab_set_frozen` freezes only pages Chromium already counts hidden, and
     /// `CefBrowserHost::WasHidden` does nothing for a windowed Chrome-style browser. Unfrozen, the
     /// placeholder counted visible and ran rAF at ~98/s at idle (fleet probe 4e065838, macOS 27). It is
-    /// thawed only when a cmux page takes it as its own browser (`CEFPaneHost.adoptPlaceholder`); otherwise a
-    /// take closes it on the next turn (`CEFPaneHost.closeSparePlaceholder`).
+    /// never thawed: a take closes it on the next turn (`CEFPaneHost.closeSparePlaceholder`).
     func freezeNeverShownPage(_ browser: Int32) {
         runtime.postDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"])
     }
