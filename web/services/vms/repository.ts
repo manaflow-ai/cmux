@@ -34,6 +34,7 @@ import {
 import type { ProviderId } from "./drivers";
 import { cloudRemoteAuthMode, type CloudRemoteAuthMode } from "./clientGrant";
 import { allocateVmSlug } from "./vmNaming";
+import { VM_ADDRESS_RELEASE_KEY, type VmAddressRelease, type VmAddressReleaseState } from "./addressRelease";
 import {
   beginSnapshotRequest,
   finishSnapshotRequest,
@@ -199,7 +200,12 @@ const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
 const LIVE_VM_RESOURCE_STATUSES = ["provisioning", "running", "paused"] as const;
 
 export type BeginCreateResult =
-  | { readonly inserted: true; readonly vm: CloudVmRow }
+  | {
+    readonly inserted: true;
+    readonly vm: CloudVmRow;
+    /** Live machines in the cap's scope before this row; fleetAdmission alerts at 80% of the limit. */
+    readonly activeBefore?: number;
+  }
   | { readonly inserted: false; readonly vm: CloudVmRow };
 
 export type BeginBaseCreateResult =
@@ -250,6 +256,29 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly billingTeamId: string | null;
     readonly scope: "user" | "team";
     readonly cidr: string;
+  }) => Effect.Effect<number, VmDatabaseError>;
+  /**
+   * The paused share of `countNetworkAddressHolders`: paused rows in the same
+   * scope whose IPv4 lies inside `cidr`, and the oldest such row's last write
+   * (a paused row's last write is about when it paused). A paused provider VM
+   * keeps its address and the provider has no way to detach it, so this is
+   * the reclaimable share the 80% address alert names (cmuxterm-hq#37377).
+   * Read only when admission alerts. Optional; absent reports nothing.
+   */
+  readonly countPausedNetworkAddressHolders?: (input: {
+    readonly provider: ProviderId;
+    readonly userId: string;
+    readonly billingTeamId: string | null;
+    readonly scope: "user" | "team";
+    readonly cidr: string;
+  }) => Effect.Effect<{ readonly paused: number; readonly oldestPausedWriteAt: number | null }, VmDatabaseError>;
+  /**
+   * Live machines (provisioning, running, paused) on one provider across every
+   * owner. Fleet admission (fleetAdmission.ts) reads it only when a fleet cap
+   * is configured. Optional so older test doubles compile; absent admits.
+   */
+  readonly countLiveProviderVms?: (input: {
+    readonly provider: ProviderId;
   }) => Effect.Effect<number, VmDatabaseError>;
   /**
    * Record a create's explicit wait (services/vms/createWait.ts) on its
@@ -416,6 +445,39 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly id: string;
     readonly patch: Readonly<Record<string, unknown>>;
   }) => Effect.Effect<void, VmDatabaseError>;
+  /**
+   * Paused Freestyle rows that may park (addressRelease.ts): unparked rows
+   * paused since before `pausedBefore`, plus rows left `parking` by an
+   * interrupted run, oldest first.
+   */
+  readonly addressReleaseCandidates?: (input: {
+    readonly pausedBefore: Date;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /**
+   * Write a park record, fenced: the row must still be this provider machine
+   * with `fromStatus`, its record must be in `fromState` (null: none), and,
+   * when given, `updatedAt` must be unchanged since the caller read it.
+   * `releaseAddress` drops `networkIpv4`; `toStatus` "destroyed" retires a
+   * restored row. False when the fence did not match.
+   */
+  readonly writeAddressRelease?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly fromStatus: "paused";
+    readonly fromState: VmAddressReleaseState | null;
+    readonly updatedAt?: Date;
+    readonly release: VmAddressRelease;
+    readonly releaseAddress?: boolean;
+    readonly toStatus?: "destroyed";
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** The provider id a parked-then-restored machine now runs as, or null. */
+  readonly findAddressReleaseSuccessor?: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly providerVmId: string;
+    readonly provider?: ProviderId;
+  }) => Effect.Effect<string | null, VmDatabaseError>;
   /**
    * Store a machine's network policy and/or its reconcile status. Either
    * field may be omitted to leave it unchanged.
@@ -1734,6 +1796,34 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return Number(row?.total ?? 0);
     }),
 
+  countPausedNetworkAddressHolders: (input) =>
+    dbEffect("countPausedNetworkAddressHolders", async () => {
+      const scope = input.scope === "team" && input.billingTeamId
+        ? eq(cloudVms.ownerTeamId, input.billingTeamId)
+        : eq(cloudVms.userId, input.userId);
+      const ipv4 = sql`(${cloudVms.providerMetadata} ->> 'networkIpv4')`;
+      const [row] = await cloudDb()
+        .select({ total: count(), oldest: sql<Date | string | null>`min(${cloudVms.updatedAt})` })
+        .from(cloudVms)
+        .where(and(
+          scope,
+          eq(cloudVms.provider, input.provider),
+          eq(cloudVms.status, "paused"),
+          sql`(${ipv4} ~ '^[0-9]{1,3}([.][0-9]{1,3}){3}$' and ${ipv4}::inet <<= ${input.cidr}::inet)`,
+        ));
+      const oldest = row?.oldest ? new Date(row.oldest).getTime() : null;
+      return { paused: Number(row?.total ?? 0), oldestPausedWriteAt: Number.isFinite(oldest) ? oldest : null };
+    }),
+
+  countLiveProviderVms: (input) =>
+    dbEffect("countLiveProviderVms", async () => {
+      const [row] = await cloudDb()
+        .select({ total: count() })
+        .from(cloudVms)
+        .where(and(eq(cloudVms.provider, input.provider), inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES)));
+      return Number(row?.total ?? 0);
+    }),
+
   recordCreateWait: (input) =>
     dbEffect("recordCreateWait", async () => {
       const db = cloudDb();
@@ -2495,7 +2585,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
             await insertRuntimeForVm(tx, vm);
-            return { inserted: true as const, vm };
+            return { inserted: true as const, vm, activeBefore: activeCount };
           });
         } catch (err) {
           if (idempotencyKey && pgErrorCode(err) === "23505") {
@@ -3690,7 +3780,13 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return await db
         .select()
         .from(cloudVms)
-        .where(and(ne(cloudVms.status, "destroyed"), isNotNull(cloudVms.providerVmId)))
+        .where(and(
+          ne(cloudVms.status, "destroyed"),
+          isNotNull(cloudVms.providerVmId),
+          // A parked machine has no provider machine by design (addressRelease.ts);
+          // reconcile would read that as gone and retire the row.
+          sql`not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_ADDRESS_RELEASE_KEY}::text)`,
+        ))
         .orderBy(asc(cloudVms.updatedAt))
         .limit(input.limit);
     }),
@@ -4532,6 +4628,71 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .where(and(...conditions))
         .limit(1);
       return vm ?? null;
+    }),
+
+  addressReleaseCandidates: (input) =>
+    dbEffect("addressReleaseCandidates", async () => {
+      const release = sql`(${cloudVms.providerMetadata} -> ${VM_ADDRESS_RELEASE_KEY}::text)`;
+      return await cloudDb()
+        .select()
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.status, "paused"),
+          eq(cloudVms.provider, "freestyle"),
+          isNotNull(cloudVms.providerVmId),
+          or(
+            and(sql`${release} is null`, lt(cloudVms.updatedAt, input.pausedBefore)),
+            sql`${release} ->> 'state' = 'parking'`,
+          ),
+        ))
+        .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id))
+        .limit(input.limit);
+    }),
+
+  writeAddressRelease: (input) =>
+    dbEffect("writeAddressRelease", async () => {
+      const release = sql`(${cloudVms.providerMetadata} -> ${VM_ADDRESS_RELEASE_KEY}::text)`;
+      const base = sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)`;
+      const withoutAddress = input.releaseAddress ? sql`(${base} - 'networkIpv4'::text)` : base;
+      const conditions = [
+        eq(cloudVms.id, input.id),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        eq(cloudVms.status, input.fromStatus),
+        input.fromState === null
+          ? sql`${release} is null`
+          : sql`${release} ->> 'state' = ${input.fromState}`,
+      ];
+      // Rows written by now() carry microseconds; a JS Date has milliseconds.
+      if (input.updatedAt) conditions.push(sql`date_trunc('milliseconds', ${cloudVms.updatedAt}) = ${input.updatedAt.toISOString()}::timestamptz`);
+      const rows = await cloudDb()
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`${withoutAddress} || ${JSON.stringify({ [VM_ADDRESS_RELEASE_KEY]: input.release })}::jsonb`,
+          updatedAt: new Date(),
+          ...(input.toStatus === "destroyed" ? { status: "destroyed" as const, destroyedAt: new Date() } : {}),
+        })
+        .where(and(...conditions))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0;
+    }),
+
+  findAddressReleaseSuccessor: (input) =>
+    dbEffect("findAddressReleaseSuccessor", async () => {
+      const release = sql`(${cloudVms.providerMetadata} -> ${VM_ADDRESS_RELEASE_KEY}::text)`;
+      const conditions = [
+        accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        eq(cloudVms.status, "destroyed"),
+        sql`${release} ->> 'state' = 'restored'`,
+      ];
+      if (input.provider) conditions.push(eq(cloudVms.provider, input.provider));
+      const [row] = await cloudDb()
+        .select({ successor: sql<string | null>`${release} ->> 'successorProviderVmId'` })
+        .from(cloudVms)
+        .where(and(...conditions))
+        .orderBy(desc(cloudVms.updatedAt))
+        .limit(1);
+      return row?.successor ?? null;
     }),
 
   markDestroyed: (id, cleanup) =>

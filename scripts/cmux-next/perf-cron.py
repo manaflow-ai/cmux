@@ -351,7 +351,12 @@ PARTS = [
     # (an invalid swap) leaves the part due. A bench build plus 2 series of 20 saves: 45 minutes.
     {"name": "hot-swap", "args": [*MEASURE, "--config=bench", "--suite=graceful-swap"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "graceful-swap",
-     "goal": "hot-swap-fast", "goal_rows": r"hot_swap\.mac\.[a-z_]+\.p95_ms@", "run_seconds": 2700},
+     "goal": "hot-swap-fast", "goal_rows": r"hot_swap\.mac\.[a-z_]+\.p95_ms@", "run_seconds": 2700,
+     # harness: the files behind its goal rows; a fix to them gives the tip in flight's Mac to a newer tip when the
+     # part stored no goal row there (goal_harness_fixed).
+     "harness": ["scripts/measure/graceful-swap-cron.py", "scripts/measure/graceful-swap-fleet.py",
+                 "scripts/measure/graceful-swap-fleet.sh", "scripts/measure/graceful-swap.py",
+                 "webviews/dev-server/hotSwapTiming.ts"]},
     # Goal infinite-tabs-flat: the app with 500 browser tabs, 200 workspaces and 100 chats, all but the front workspace
     # hibernated, over the same app empty (scripts/measure/infinite-tabs-cron.py over bench_infinite_tabs.py;
     # infinite_tabs.mac.*, report-only). NOW's infinite_tabs_memory_vs_empty_mac came only from a person's
@@ -407,6 +412,10 @@ PARTS = [
     # rows: each older page's ask to its drawn frame (target 50 ms p95), loading and blank frames, the anchor's shift
     # and the 100k / 1k ratio (transcript_scroll_up_scale.*.older_page_drawn_scale, target 1.2). Its own part.
     {"name": "web-ui-scroll-up", "where": "linux", "kind": "webui", "needs": "web-ui-scroll-up"},
+    # The god chat's length curve (webviews/bench/god-length-curve.bench.ts, goal god-chat-ratios): the god session
+    # opened at 1k, 10k and 100k turns and one turn streamed live; per-token, per-thought ms and heap at each and the
+    # 100k / 1k ratio (god_length_curve.ratio_max, target 1.2: it has to stay flat). Its own part.
+    {"name": "web-ui-god-curve", "where": "linux", "kind": "webui", "needs": "web-ui-god-curve", "run_seconds": 2700},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*): a 55-minute
     # run cap (run_seconds), not the 30 minutes it timed out against on 2026-11-17 (bench cap 1770 s).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat", "run_seconds": 3300},
@@ -511,6 +520,7 @@ ROW_PARTS = [
     (r"^webui\.sim_ladder\.", "web-ui-ladder"),
     (r"^webui\.sim_fidelity\.", "web-ui-fidelity"),
     (r"^webui\.transcript_scroll_up_scale\.", "web-ui-scroll-up"),
+    (r"^webui\.god_length_curve\.", "web-ui-god-curve"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
     (r"^webui\.orchestrator\.", "web-ui-orchestrator"),
@@ -1379,6 +1389,9 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-pages-memory"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-flat":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-god-curve":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "god-length-curve"],
+                          os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll-up":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"],
                           os.path.join(root, "webviews"), {})}
@@ -1424,11 +1437,13 @@ def linux_bench_runs(root, part="diff-viewer"):
         # all-live: the same 1,000 items with lazy start off (every shell started at once), in a run of its own after
         # the product arm, its rows named infinite_items.all_live.nN.* (--row-arm) beside the product's
         # infinite_items.nN.*: NOW shows what lazy start saves next to what it costs (practices gap c155dd8eab85).
+        # Chat eviction off there too (the bench's default evicts at 5 s): every chat stays resident, so the arm is the
+        # everything-in-memory baseline the product's lazy start and eviction are measured against.
         script = os.path.join(root, INFINITE_ITEMS)
         return {"build": (["bash", script, "build-only"], root or ".", {}),
                 "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {}),
                 "all-live": (["bash", script, "pages=0", "days=1", "--window=5", "counts=1000", "--lazy-start=off",
-                              "--row-arm=all_live"], root or ".", {})}
+                              "--evict-idle-secs=0", "--row-arm=all_live"], root or ".", {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
@@ -1598,6 +1613,78 @@ def build_never_ran(cur):
         build.get("infra_retried") or BUILD_NEVER_RAN_RE.search(str(build.get("why") or "")))
 
 
+# A budgets part whose app never came up: it measured no row and each of its benches exited nonzero within this many
+# seconds (a launch alone takes about 7 s), or logged split-spring's BENCH-LAUNCH line with reason "crashed". Every
+# other Mac part of the same build launches the same app, so a newer tip is as good a retry as for a failed build
+# (build_failed_tip). Tip cdf458ee (2026-11-28): cmux#59517 made debug builds trap at launch (`home rules op
+# chiefs_tab: unknownOp`, fixed by cmux#64336), switch's tab_switch and palette exited 1 in 6.4 s and 7.4 s, and its 19
+# Mac parts left (tabs, which NOW's tabs-keep-speed reads, among them) yielded to a busy host toward ABANDON_WALL_HOURS.
+LAUNCH_DEAD_SECONDS = 15.0
+LAUNCH_DEAD_MARK = "its app crashed at launch"
+BENCH_LAUNCH_CRASHED_RE = re.compile(r'BENCH-LAUNCH .*"reason":\s*"crashed"')
+
+
+def launch_dead_report(report):
+    """Why a part's report says its app never launched (LAUNCH_DEAD_SECONDS), or '' (pure)."""
+    if not isinstance(report, dict):
+        return ""
+    runs, counts = report.get("runs"), report.get("counts")
+    if not (isinstance(runs, dict) and runs and isinstance(counts, dict) and counts.get("measured") == 0):
+        return ""
+    for run in runs.values():
+        if not isinstance(run, dict):
+            return ""
+        crashed = any(BENCH_LAUNCH_CRASHED_RE.search(str(line)) for line in run.get("tail") or [])
+        code, seconds = run.get("exit"), run.get("seconds")
+        quick = (isinstance(code, int) and not isinstance(code, bool) and code != 0
+                 and isinstance(seconds, (int, float)) and seconds <= LAUNCH_DEAD_SECONDS)
+        if not (crashed or quick):
+            return ""
+    return ", ".join(f"{name}: exit {run.get('exit')} in {run.get('seconds')} s" for name, run in runs.items())[:200]
+
+
+def mark_launch_dead(cur, state_dir):
+    """Mark each done Mac part of the measurement whose stored report (parts/NAME.json) is launch-dead
+    (launch_dead_report) with entry['launch_dead']. Returns whether it marked one. Reads the stored reports, so a
+    measurement in flight from before this mark gets it at the next report."""
+    if not (isinstance(cur, dict) and cur.get("kind") == "tip"):
+        return False
+    marked = False
+    for name, entry in (cur.get("parts") or {}).items():
+        if (not isinstance(entry, dict) or entry.get("state") != "done" or is_linux_part(name) or name == "build"
+                or "launch_dead" in entry):
+            continue
+        try:
+            with open(os.path.join(state_dir, "parts", f"{name}.json")) as f:
+                stored = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(stored, dict) or stored.get("measurement") != measurement_id(cur):
+            continue
+        why = launch_dead_report(stored.get("report"))
+        if why:
+            entry["launch_dead"] = why
+            marked = True
+    return marked
+
+
+def launch_dead_tip(cur):
+    """The Mac parts of the tip measurement in flight whose app never launched (mark_launch_dead) (pure)."""
+    if not (isinstance(cur, dict) and cur.get("kind") == "tip" and not cur.get("superseded")):
+        return []
+    return sorted(n for n, p in (cur.get("parts") or {}).items() if isinstance(p, dict) and p.get("launch_dead"))
+
+
+def last_tip_launch_dead(state):
+    """The newest finished tip measurement's app never launched too (finish_measurement's launch_dead, or parts
+    superseded for it) (pure): the base is likely broken, so the tip in flight keeps its parts."""
+    entry = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict) and e.get("kind") == "tip"), None)
+    if not entry:
+        return False
+    why = entry.get("failed_why") if isinstance(entry.get("failed_why"), dict) else {}
+    return bool(entry.get("launch_dead")) or any(str(w).startswith(LAUNCH_DEAD_MARK) for w in why.values())
+
+
 def unread_missing(state, cur):
     """The unread parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
     Empty unless it still has a Mac part to do."""
@@ -1606,7 +1693,40 @@ def unread_missing(state, cur):
     return [p for p in unread_parts(state) if p not in cur.get("parts", {}) and p not in cur.get("parts_todo", [])]
 
 
-def supersede_for_unread(state, t, newest, supported_parts):
+def harness_changed(old, new, paths):
+    """Whether a commit between old and new touched one of paths (git diff --name-only); False when git fails."""
+    try:
+        return bool(git("diff", "--name-only", old, new, "--", *paths))
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
+def goal_harness_fixed(state, cur, newest, changed=None):
+    """The goal parts (PARTS "goal_rows" and "harness") of the tip measurement in flight that ran there, stored none
+    of their goal rows (goal_rows_missing), and whose harness a commit after it up to newest changed: the tip would
+    otherwise keep the Mac for its other Mac parts while the goal's row waits for the next tip, which has the fix.
+    Empty unless it still has a Mac part to do.
+
+    2026-11-28: tip cdf458ee (picked 08:16Z) ran hot-swap at 13:38Z with a harness from before the graceful-swap fleet
+    fixes (cmux#64059, #64111, #64214, #64572, merged by 12:15Z) and stored no hot_swap.mac.*.p95_ms row (composer
+    saves: 0 runs; hidden: 20 never changed); the part read done, 19 Mac parts were still to do, and NOW's goal
+    hot-swap-fast had no value for 4 days."""
+    if not cur or cur.get("kind") != "tip" or not needs_mac(cur) or not newest or newest == cur.get("sha"):
+        return []
+    stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
+    out = []
+    for name, rec in (cur.get("parts") or {}).items():
+        part = PART_BY_NAME.get(name, {})
+        e = stored.get(name)
+        if not (part.get("goal_rows") and part.get("harness") and (rec or {}).get("state") == "done"
+                and isinstance(e, dict) and e.get("sha") == cur["sha"] and goal_rows_missing(state, name, e)):
+            continue
+        if (changed or harness_changed)(cur["sha"], newest, part["harness"]):
+            out.append(name)
+    return out
+
+
+def supersede_for_unread(state, t, newest, supported_parts, changed=None):
     """End the Mac parts still to do of the tip measurement in flight as 'superseded' when a part that never produced a
     reading (unread_missing) runs at newest, the newest measurable commit with a published cmux-tui tree (plan): the
     measurement finishes with the parts that ran, as after no_host_for_tip, and the next tip, which has the part,
@@ -1658,6 +1778,19 @@ def supersede_for_unread(state, t, newest, supported_parts):
             cur.pop("host_asked_since", None)
             end_yield(cur, t)
         return why
+    dead = launch_dead_tip(cur)
+    if dead and newest and newest != cur["sha"] and not last_tip_launch_dead(state):
+        # Its app crashed at launch (LAUNCH_DEAD_SECONDS), so every Mac part left would fail the same way: the newer
+        # tip takes the Mac now, as for a failed build. When the tip before it never launched either, the base is
+        # likely broken and it keeps its parts.
+        why = f"{LAUNCH_DEAD_MARK} ({', '.join(dead)}); {newest[:12]} is newer"
+        cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
+        for name in list(cur["parts_todo"]):
+            cur["parts"][name] = {"state": "superseded", "reason": why}
+        cur["parts_todo"] = []
+        cur.pop("host_asked_since", None)
+        end_yield(cur, t)
+        return why
     if tree_waiting(cur) and newest and newest != cur["sha"]:
         # Its tree may never be published: the tree publisher coalesces a window of pushes into one build of the
         # newest, so a commit picked before that build has no tree of its own, ever. Without this its Mac parts waited
@@ -1673,6 +1806,18 @@ def supersede_for_unread(state, t, newest, supported_parts):
         cur.pop("tree_wait_since", None)
         cur.pop("host_asked_since", None)
         end_yield(cur, t)
+        return why
+    fixed = [p for p in goal_harness_fixed(state, cur, newest, changed) if p in supported_parts(newest)]
+    if fixed:
+        # No hold: the goal's row is what the measurement is for, and it reads nothing until a tip with the fix runs
+        # the part. Once per harness fix: the next tip has it (goal_harness_fixed).
+        why = f"{', '.join(fixed)} stored no goal row with a harness {newest[:12]} fixes"
+        for name in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
+            cur["parts"][name] = {"state": "superseded", "reason": why}
+            cur["parts_todo"].remove(name)
+        cur.pop("host_asked_since", None)
+        end_yield(cur, t)
+        cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
         return why
     missing = unread_missing(state, cur)
     if not missing or not newest:
@@ -2859,6 +3004,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{FLAT_100K_BENCH}")
         elif need == "web-ui-ladder":
             ok = has_path(sha, f"{SIM_LADDER_BENCH}")
+        elif need == "web-ui-god-curve":
+            ok = has_path(sha, f"{GOD_CURVE_BENCH}")
         elif need == "web-ui-scroll-up":
             ok = has_path(sha, f"{SCROLL_UP_SCALE_BENCH}")
         elif need == "web-ui-scroll":
@@ -2974,6 +3121,7 @@ CHAT_PAGES_MEMORY_BENCH = "webviews/bench/chat-pages-memory.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 SIM_LADDER_BENCH = "webviews/bench/sim-ladder.bench.ts"
 SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
+GOD_CURVE_BENCH = "webviews/bench/god-length-curve.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
@@ -3841,6 +3989,9 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     entry["ran_failed"] = [n for n in failed if cur["parts"][n].get("state") == "failed"]
     if any(cur["parts"][n].get("state") == "build_failed" for n in failed):
         entry["build_failed"] = True  # its app did not build (last_tip_build_failed)
+    dead = sorted(n for n, p in cur["parts"].items() if isinstance(p, dict) and p.get("launch_dead"))
+    if dead:
+        entry["launch_dead"] = dead  # its app never launched (last_tip_launch_dead)
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
     base_rows = judging_rows(state, t)
@@ -4309,9 +4460,11 @@ def plan(o):
     newest = None
     gone_by = state.get("current") or {}
     if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)
-                       or (tree_waiting(gone_by) and not tree_ready(gone_by["sha"]))):
+                       or (tree_waiting(gone_by) and not tree_ready(gone_by["sha"]))
+                       or goal_harness_fixed(state, gone_by, tip)):
         # A part that never produced a reading (unread_parts) and that the tip in flight predates, a tip whose app
-        # build failed (build_failed_tip), or one whose Mac parts wait for a tree still unpublished (tree_waiting):
+        # build failed (build_failed_tip), one whose Mac parts wait for a tree still unpublished (tree_waiting), or a
+        # goal part that stored no goal row with a harness the tip fixes (goal_harness_fixed):
         # the newest commit that can run it on the fleet (supersede_for_unread).
         later, _ = first_parent_since(tip, gone_by["sha"], CANDIDATE_DEPTH)
         for i, sha in enumerate(later):
@@ -5261,6 +5414,8 @@ def report(o, t=None):
                     store_part_rows(state, cur, part, entry, report_value, stored_mod, stored_budgets, o.run_url, t)
                 except Exception as error:  # a row that does not parse is the finish's to report; never fail the tick
                     print(f"perf-cron report: part {part}: rows not stored now ({error!r})", file=sys.stderr)
+    if cur and mark_launch_dead(cur, o.dir):
+        changed = True
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
         mod, budgets = load_budgets()

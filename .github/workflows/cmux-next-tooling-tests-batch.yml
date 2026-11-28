@@ -393,6 +393,14 @@ jobs:
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-test-coverage-tests ')) }}
         run: python3 -I tests/test_swift_test_coverage.py
 
+      # A Swift file under CmuxNext/Sources that builds a Cloud HTTP or WebSocket request and is not in
+      # scripts/cmux-next/swift-cloud-http-allow.txt fails, and so does a listed file that no longer builds one:
+      # the Mac app's Cloud calls go through the Rust app server (cmuxterm-hq goals/cloud-client-swift-to-rust.md).
+      - name: No new Swift Cloud networking in CmuxNext (swift-cloud-http.py --check)
+        id: tt-swift-cloud-http
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-cloud-http ')) }}
+        run: python3 -I scripts/cmux-next/swift-cloud-http.py --check
+
       - name: The Swift Cloud networking count's own tests (swift-cloud-http.py)
         id: tt-swift-cloud-http-tests
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-cloud-http-tests ')) }}

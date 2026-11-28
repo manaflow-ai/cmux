@@ -9,7 +9,7 @@ struct StagedPrewarmRun {
     let urgency: StagedUpdatePrewarm.Urgency
     /// The pre-warm's log line once it ended; nil while it runs.
     var line: String?
-    /// The pre-warm's task: cancelling it stops every process it started (``UpdaterService/stopPrewarmForInstall()``).
+    /// The pre-warm's task: cancelling it stops every process it started (``UpdaterService/stopPrewarm(_:)``).
     var task: Task<Void, Never>?
 }
 
@@ -47,6 +47,8 @@ extension UpdaterService {
         guard AppcastSelector.isOlder(identity.build, than: build) else {
             return skipPrewarm(of: build, "staged build \(build) is not newer than running build \(identity.build)")
         }
+        // Another build's pre-warm still running (Sparkle staged a newer build itself): its folder is gone or going.
+        stopPrewarm(": build \(build) is staged instead")
         let urgency = StagedUpdatePrewarm.Urgency()
         prewarmRun = StagedPrewarmRun(build: build, started: ContinuousClock.now, urgency: urgency)
         log.append("launch pre-warm of \(build): started (\(trigger))")
@@ -100,17 +102,32 @@ extension UpdaterService {
     }
 
     /// Stops the staged build's pre-warm if it still runs, before the installer moves the staged copy (cmux#63767).
-    ///
-    /// Sparkle swaps the staged bundle into place and removes its staging folder; a pre-warm process still starting
-    /// from there loads half a bundle and dies in dyld ("Library not loaded: @rpath/Sparkle.framework", SIGABRT), a
-    /// crash report for a process nobody started. Cancelling the pre-warm's task stops each of its processes at once
-    /// (their whole process group, ``AsyncProcess``) and starts no further run. A pre-warm that already ended is left
-    /// as it was. Every install reaches this: ``updaterWillInstallUpdate(build:)`` and
-    /// ``updaterWillRelaunchApplication()``.
+    /// Every install reaches this: ``updaterWillInstallUpdate(build:)`` and ``updaterWillRelaunchApplication()``.
     func stopPrewarmForInstall() {
+        stopPrewarm(" for the install")
+    }
+
+    /// Cancels the staged update's installer (``cancelStaged``), stopping its pre-warm first (cmux#63767): Sparkle's
+    /// cancel removes the staging folder, and Leo's NIGHTLY crashed exactly so, a newer build replacing the staged one
+    /// 1 s after its pre-warm started. Every cancel of a staged update in this app goes through here.
+    /// - Returns: whether an installer was held and is now cancelled.
+    func cancelStagedUpdate() -> Bool {
+        stopPrewarm(": the staged update was cancelled")
+        return cancelStaged()
+    }
+
+    /// Stops the staged build's pre-warm if it still runs, before its files move or go; `why` ends its log line
+    /// (`launch pre-warm of <build>: stopped<why>`, so `" for the install"` or `": the staged update was cancelled"`).
+    ///
+    /// Sparkle swaps the staged bundle into place on an install and removes its staging folder on an install or a
+    /// cancel; a pre-warm process still starting from there loads half a bundle and dies in dyld ("Library not
+    /// loaded: @rpath/Sparkle.framework", SIGABRT), a crash report for a process nobody started. Cancelling the
+    /// pre-warm's task signals each of its processes at once (their whole process group, ``AsyncProcess``), before
+    /// this returns, and starts no further run. A pre-warm that already ended is left as it was.
+    func stopPrewarm(_ why: String) {
         guard let run = prewarmRun, run.line == nil, let task = run.task, !task.isCancelled else { return }
         task.cancel()
-        log.append("launch pre-warm of \(run.build): stopped for the install")
+        log.append("launch pre-warm of \(run.build): stopped\(why)")
     }
 
     /// The pre-warm `run` (its ``StagedPrewarmRun/urgency``) ended with `line`; an install waiting for it goes on.
