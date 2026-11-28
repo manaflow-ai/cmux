@@ -12,8 +12,12 @@ pub(crate) const FILE: &str = "asks.jsonl";
 /// What the writer thread is handed.
 pub(crate) enum Work {
     Line(Box<Line>),
-    /// Rewrite the whole file as these lines (after a purge).
-    Rewrite(Vec<Line>),
+    /// A purge is acknowledged only after its snapshot or tombstone is durable.
+    Purge {
+        sid: String,
+        lines: Vec<Line>,
+        done: tokio::sync::oneshot::Sender<Result<(), String>>,
+    },
     #[cfg(test)]
     Flush(std::sync::mpsc::SyncSender<()>),
 }
@@ -82,37 +86,43 @@ struct Writer {
 }
 
 impl Writer {
-    fn file(&mut self) -> Option<&mut File> {
+    fn file(&mut self) -> anyhow::Result<&mut File> {
         if self.file.is_none() {
-            // Owner-only whatever the umask, and never under a home that was moved or replaced.
-            if let Err(e) = crate::config::private_state_dir(&self.dir) {
-                tracing::warn!("asks: cannot create {}: {e:#}", self.dir.display());
-                return None;
-            }
-            match crate::config::private_state_append(&self.path) {
-                Ok(f) => self.file = Some(f),
-                Err(e) => {
-                    tracing::warn!("asks: cannot open {}: {e:#}", self.path.display());
-                    return None;
-                }
-            }
+            crate::config::private_state_dir(&self.dir)?;
+            self.file = Some(crate::config::private_state_append(&self.path)?);
         }
-        self.file.as_mut()
+        self.file.as_mut().ok_or_else(|| anyhow::anyhow!("Ask ledger append handle unavailable"))
     }
 
-    fn write(&mut self, text: &str) {
-        if text.is_empty() {
-            return;
+    fn write(&mut self, text: &str) -> anyhow::Result<()> {
+        if !text.is_empty() {
+            append(self.file()?, |file| file.write_all(text.as_bytes()))?;
         }
-        let Some(file) = self.file() else { return };
-        if let Err(e) = file.write_all(text.as_bytes()) {
-            tracing::warn!("asks: write failed: {e}");
+        Ok(())
+    }
+
+    fn purge(&mut self, sid: &str, lines: &[Line], text: &mut String) -> anyhow::Result<()> {
+        if self.rewrite(lines) {
+            text.clear();
+            return Ok(());
         }
+        // Retain all queued captures if compaction fails. A synced tombstone is enough to
+        // prevent resurrection on restart; a later successful purge removes the plaintext.
+        text.push_str(&serde_json::to_string(&Line::Purge { sid: sid.to_owned() })?);
+        text.push('\n');
+        self.write(text)?;
+        self.file()?.sync_all()?;
+        crate::home_fs::sync_dir(&self.dir)?;
+        text.clear();
+        Ok(())
     }
 
     /// Replaces the file with `lines` through a temporary file and a rename: a crash leaves the
     /// old file or the new one, never part of either.
     fn rewrite(&mut self, lines: &[Line]) -> bool {
+        // A rename can succeed even when syncing its directory fails: never retain an
+        // append handle to the replaced inode for the fallback.
+        self.file = None;
         let tmp = self.dir.join(format!("{FILE}.tmp"));
         let text: String = lines.iter().filter_map(encode).collect();
         let written = crate::config::private_state_dir(&self.dir)
@@ -123,7 +133,8 @@ impl Writer {
                 file.sync_all()?;
                 Ok(())
             })
-            .and_then(|()| crate::home_fs::rename(&tmp, &self.path).map_err(anyhow::Error::from));
+            .and_then(|()| crate::home_fs::rename(&tmp, &self.path).map_err(anyhow::Error::from))
+            .and_then(|()| crate::home_fs::sync_dir(&self.dir).map_err(anyhow::Error::from));
         match written {
             Ok(()) => {
                 self.file = None;
@@ -138,6 +149,14 @@ impl Writer {
     }
 
     fn run(mut self, rx: Receiver<Work>) {
+        if let Err(e) = self.run_until_error(rx) {
+            // Fail closed: no subsequent record can join a partial suffix, and all pending
+            // and future purge acknowledgments fail. Restart retries full recovery.
+            tracing::error!("asks: writer stopped after disk failure: {e:#}");
+        }
+    }
+
+    fn run_until_error(&mut self, rx: Receiver<Work>) -> anyhow::Result<()> {
         while let Ok(first) = rx.recv() {
             let mut text = String::new();
             let mut work = Some(first);
@@ -148,24 +167,42 @@ impl Writer {
                             text.push_str(&s);
                         }
                     }
-                    Work::Rewrite(lines) => {
-                        // The snapshot replaces queued lines only after it reaches disk.
-                        // On failure, append them, including the purge tombstone, so a
-                        // restart cannot resurrect the deleted chat or lose other captures.
-                        if self.rewrite(&lines) {
-                            text.clear();
-                        }
+                    Work::Purge { sid, lines, done } => {
+                        let result = self.purge(&sid, &lines, &mut text);
+                        let _ = done.send(result.as_ref().map(|()| ()).map_err(|e| {
+                            format!("Ask ledger purge failed; chat was not deleted: {e:#}")
+                        }));
+                        result?;
                     }
                     #[cfg(test)]
                     Work::Flush(done) => {
-                        self.write(&std::mem::take(&mut text));
+                        self.write(&text)?;
+                        text.clear();
                         let _ = done.send(());
                     }
                 }
             }
-            self.write(&text);
+            self.write(&text)?;
         }
+        Ok(())
     }
+}
+
+/// A failed append may have written a prefix. Restore the previous complete boundary and
+/// sync the rollback before returning the error; even a successful rollback stops the writer.
+/// If rollback itself fails, fail-stop leaves recovery to cut the torn tail on restart.
+fn append(
+    file: &mut File,
+    write: impl FnOnce(&mut File) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let before = file.metadata()?.len();
+    if let Err(error) = write(file) {
+        if let Err(rollback) = file.set_len(before).and_then(|()| file.sync_all()) {
+            return Err(std::io::Error::other(format!("{error}; rollback failed: {rollback}")));
+        }
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// The writer thread and the channel that closes when it ends.
@@ -294,11 +331,13 @@ mod tests {
         std::fs::create_dir(&tmp).unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         tx.send(Work::Line(Box::new(Line::Ask(kept.clone())))).unwrap();
-        tx.send(Work::Line(Box::new(Line::Purge { sid: "gone".into() }))).unwrap();
-        tx.send(Work::Rewrite(vec![Line::Ask(kept.clone())])).unwrap();
+        let (done, mut acknowledgment) = tokio::sync::oneshot::channel();
+        tx.send(Work::Purge { sid: "gone".into(), lines: vec![Line::Ask(kept.clone())], done })
+            .unwrap();
         drop(tx);
         // Prequeue the whole batch, so the test never depends on writer scheduling.
         Writer { dir: dir.path().to_owned(), path: path.clone(), file: None }.run(rx);
+        assert_eq!(acknowledgment.try_recv().unwrap(), Ok(()));
 
         let mut restarted = State::default();
         fold(&path, &mut restarted).unwrap();
@@ -314,5 +353,50 @@ mod tests {
         fold(&path, &mut compacted).unwrap();
         assert_eq!(compacted.asks.get(&kept.id), Some(&kept));
         assert!(!compacted.asks.contains_key(&gone.id));
+    }
+
+    #[test]
+    fn a_partial_append_rolls_back_before_another_writer_can_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE);
+        let first = encode(&Line::Ask(ask("first"))).unwrap();
+        std::fs::write(&path, &first).unwrap();
+        let mut file = crate::config::private_state_append(&path).unwrap();
+        let failed = encode(&Line::Ask(ask("failed"))).unwrap();
+        let result = append(&mut file, |file| {
+            file.write_all(&failed.as_bytes()[..failed.len() / 2])?;
+            Err(std::io::Error::other("injected partial append"))
+        });
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), first);
+        drop(file);
+        let mut writer = Writer { dir: dir.path().to_owned(), path: path.clone(), file: None };
+        writer.write(&encode(&Line::Ask(ask("later"))).unwrap()).unwrap();
+        let mut recovered = State::default();
+        fold(&path, &mut recovered).unwrap();
+        assert_eq!(recovered.asks.len(), 2);
+        assert!(recovered.asks.contains_key("ask-first"));
+        assert!(recovered.asks.contains_key("ask-later"));
+        for line in std::fs::read_to_string(path).unwrap().lines() {
+            serde_json::from_str::<Line>(line).unwrap();
+        }
+    }
+
+    #[test]
+    fn failed_rewrite_and_append_reject_purge_and_stop_the_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE);
+        std::fs::create_dir(&path).unwrap();
+        std::fs::create_dir(dir.path().join(format!("{FILE}.tmp"))).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (done, mut acknowledgment) = tokio::sync::oneshot::channel();
+        tx.send(Work::Purge { sid: "gone".into(), lines: vec![], done }).unwrap();
+        let (later, mut later_ack) = tokio::sync::oneshot::channel();
+        tx.send(Work::Purge { sid: "later".into(), lines: vec![], done: later }).unwrap();
+        Writer { dir: dir.path().to_owned(), path: path.clone(), file: None }.run(rx);
+        assert!(acknowledgment.try_recv().unwrap().is_err());
+        assert_eq!(later_ack.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Closed));
+        assert!(tx.send(Work::Line(Box::new(Line::Ask(ask("later"))))).is_err());
+        assert!(path.is_dir());
     }
 }

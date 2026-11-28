@@ -105,10 +105,13 @@ impl Hub {
             None
         };
         // Its approvals audit entries go first (`audit_log.rs`), before anything of the chat is
-        // stopped or marked purged: a purge that fails or times out fails the delete with the
-        // chat as it was, still recording (the writer lifts its own fence again).
+        // stopped or marked purged: an audit purge failure rejects the delete and its writer
+        // lifts the audit capture fence. The Ask ledger retains its fence on failure below.
         if purge {
             self.audit_purge(&session.id).await?;
+            // Ask deletion also needs a durable acknowledgment before the chat is stopped.
+            // A failed/late write leaves its capture fence in place for a retry (`hub/asks`).
+            self.asks.purge(&session.id).await.map_err(RpcError::internal)?;
         }
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
@@ -216,8 +219,6 @@ impl Hub {
             purging.0 = None;
             // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
             self.ledger.purge(&session.id);
-            // Its asks leave the Ask ledger with it (`hub/asks`).
-            self.asks.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
             let replaced = session.replaced.load(Ordering::SeqCst);
             if !self

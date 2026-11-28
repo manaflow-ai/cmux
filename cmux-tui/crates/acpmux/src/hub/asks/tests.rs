@@ -325,12 +325,12 @@ fn a_pr_note_needs_a_github_pull_url_or_a_repo_and_number() {
     );
 }
 
-#[test]
-fn a_purged_chat_takes_its_asks_and_adds_none_after() {
+#[tokio::test]
+async fn a_purged_chat_takes_its_asks_and_adds_none_after() {
     let l = ledger();
     l.record("gone", &rec(1, 10, person("p1", "secret")), || "claude".into());
     l.record("kept", &rec(1, 20, person("p1", "kept")), || "claude".into());
-    l.purge("gone");
+    l.purge("gone").await.unwrap();
     l.record("gone", &rec(2, 30, person("p2", "late")), || "claude".into());
     let rows = asks_of(&l, &all());
     assert_eq!(rows.len(), 1);
@@ -340,8 +340,8 @@ fn a_purged_chat_takes_its_asks_and_adds_none_after() {
     assert_eq!(asks_of(&l, &all()).len(), 2);
 }
 
-#[test]
-fn the_file_keeps_asks_and_links_across_a_restart_and_a_purge_rewrites_it() {
+#[tokio::test]
+async fn the_file_keeps_asks_and_links_across_a_restart_and_a_purge_rewrites_it() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("asks");
     let url = "https://github.com/acme/widgets/pull/4";
@@ -352,7 +352,11 @@ fn the_file_keeps_asks_and_links_across_a_restart_and_a_purge_rewrites_it() {
         l.record("a", &rec(1, 10, person("p1", "kept")), || "claude".into());
         l.note_created(url, vec![ask_id("a", "p1")], 30);
         l.note_settled(url, true, 40);
-        l.purge("b");
+        l.purge("b").await.unwrap();
+        let mut durable = State::default();
+        store::fold(&path.join(store::FILE), &mut durable).unwrap();
+        assert!(!durable.by_session.contains_key("b"), "ack precedes restart safety");
+        assert!(durable.by_session.contains_key("a"));
         l.flush();
         assert!(l.close(std::time::Duration::from_secs(5)));
     }
@@ -467,8 +471,8 @@ fn labs_is_explicitly_opt_in_and_off_creates_no_store() {
     }
 }
 
-#[test]
-fn disabled_ledger_still_purges_previously_captured_chat() {
+#[tokio::test]
+async fn disabled_ledger_still_purges_previously_captured_chat() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("asks");
     let l = AskLedger::open_as(Some(path.clone()), "mac".into());
@@ -476,7 +480,10 @@ fn disabled_ledger_still_purges_previously_captured_chat() {
     assert!(l.close(std::time::Duration::from_secs(2)));
     let off = AskLedger::open_enabled(Some(path.clone()), "mac".into(), false);
     assert!(asks_of(&off, &all()).is_empty());
-    off.purge("chat");
+    off.purge("chat").await.unwrap();
+    let mut durable = State::default();
+    store::fold(&path.join(store::FILE), &mut durable).unwrap();
+    assert!(durable.asks.is_empty(), "off-mode purge is durable before returning");
     assert!(off.close(std::time::Duration::from_secs(2)));
     let again = AskLedger::open_as(Some(path), "mac".into());
     assert!(asks_of(&again, &all()).is_empty());
@@ -706,4 +713,96 @@ fn ask_ledger_duress_reports_bounded_capture_query_and_replay() {
         replay_ms
     );
     assert!(replay.close(std::time::Duration::from_secs(5)));
+}
+
+#[tokio::test]
+async fn failed_recovery_rejects_purge_even_when_the_experiment_is_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(store::FILE);
+    // Deterministic under root too: a directory cannot be read as JSONL.
+    std::fs::create_dir(&path).unwrap();
+    for enabled in [true, false] {
+        let l = AskLedger::open_enabled(Some(dir.path().to_owned()), "mac".into(), enabled);
+        assert!(l.purge("chat").await.unwrap_err().contains("unavailable"));
+        assert!(path.is_dir(), "failed recovery must never replace the unread store");
+        assert!(!l.lock().purged.contains("chat"), "reject before changing memory");
+    }
+}
+
+#[tokio::test]
+async fn a_disk_error_stops_the_writer_and_rejects_later_purges() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(store::FILE);
+    let l = AskLedger::open_as(Some(dir.path().to_owned()), "mac".into());
+    // Recovery succeeded; now make the first append fail. flush orders the failure before
+    // the purge without relying on a sleep or racing the writer.
+    std::fs::create_dir(&path).unwrap();
+    l.record("chat", &rec(1, 10, person("p1", "kept in memory")), || "codex".into());
+    l.flush();
+    assert!(l.purge("chat").await.unwrap_err().contains("stopped"));
+    assert!(path.is_dir());
+    assert!(l.close(std::time::Duration::from_secs(2)));
+}
+
+#[tokio::test]
+async fn a_timed_out_purge_keeps_its_fence_when_the_writer_finishes_late() {
+    let l = ledger();
+    l.record("chat", &rec(1, 10, person("p1", "old ask")), || "codex".into());
+    let (writer, queued) = std::sync::mpsc::channel();
+    *l.writer.lock().unwrap() = Some(writer);
+    assert!(
+        l.purge_within("chat", std::time::Duration::ZERO).await.unwrap_err().contains("timed out")
+    );
+    let store::Work::Purge { sid, lines, done } = queued.try_recv().unwrap() else {
+        panic!("purge")
+    };
+    assert_eq!(sid, "chat");
+    assert!(lines.is_empty());
+    assert!(done.send(Ok(())).is_err(), "timed-out receiver is gone, no unbounded second wait");
+    l.record("chat", &rec(2, 20, person("p2", "late ask")), || "codex".into());
+    assert!(asks_of(&l, &all()).is_empty(), "late completion must not resurrect removed asks");
+    let (retry, ()) = tokio::join!(l.purge("chat"), async {
+        tokio::task::yield_now().await;
+        let store::Work::Purge { done, .. } = queued.try_recv().unwrap() else { panic!("retry") };
+        done.send(Ok(())).unwrap();
+    });
+    retry.unwrap();
+}
+
+#[tokio::test]
+async fn a_fresh_disabled_ledger_purges_without_creating_a_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("never-created");
+    let l = AskLedger::open_enabled(Some(path.clone()), "mac".into(), false);
+    l.purge("chat").await.unwrap();
+    assert!(!path.exists());
+}
+
+#[test]
+fn failed_ask_recovery_rejects_chat_deletion_before_stopping_it() {
+    use crate::store::{MemoryStore, SessionMeta};
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(store::FILE)).unwrap();
+    let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    // Construct outside the runtime so no background task holds the hub Arc.
+    let mut hub = crate::hub::Hub::new(cfg, Box::new(MemoryStore::default()));
+    std::sync::Arc::get_mut(&mut hub).unwrap().asks =
+        AskLedger::open_as(Some(dir.path().to_owned()), "test".into());
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "chat", "name": "asks chat",
+        "harness": "claude-acp", "family": "claude", "cwd": "/tmp", "status": "idle",
+        "createdAt": 1, "updatedAt": 2,
+    }))
+    .unwrap();
+    let chat = hub.insert_test_session(meta);
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let error = runtime.block_on(hub.kill(&chat, true)).unwrap_err();
+    assert!(error.message.contains("Ask ledger unavailable"), "{error:?}");
+    assert!(!chat.purged.load(Ordering::SeqCst));
+    assert!(!chat.purging.load(Ordering::SeqCst));
+    assert!(!chat.closing.load(Ordering::SeqCst));
+    assert!(hub.session_by_id("chat").is_some());
+    assert!(dir.path().join(store::FILE).is_dir());
 }

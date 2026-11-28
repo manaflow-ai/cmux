@@ -42,3 +42,16 @@ and any torn EOF tail was successfully cut. I/O errors preserve the original fil
 no writer may compact an incomplete replay. The detectors are
 `a_read_error_preserves_the_unread_suffix_and_discards_partial_state` and
 `an_unreadable_store_never_starts_a_writer`; the restart test retains torn-tail coverage.
+
+Chat deletion waits up to five seconds for the Ask writer to sync a replacement file
+and its directory, or a fallback purge tombstone. Recovery and write failures reject
+deletion. Memory-only and fresh disabled ledgers need no writer. After a queued purge
+fails or times out, its asks stay hidden and capture stays fenced until retry or a
+new chat explicitly reopens that id: late disk completion cannot resurrect data.
+An append error rolls back to the previous file length and stops the writer; if the
+rollback also fails, restart recovery repairs the tail before accepting more writes.
+The detectors are `failed_ask_recovery_rejects_chat_deletion_before_stopping_it`,
+`failed_recovery_rejects_purge_even_when_the_experiment_is_off`,
+`a_disk_error_stops_the_writer_and_rejects_later_purges`,
+`a_timed_out_purge_keeps_its_fence_when_the_writer_finishes_late`, and
+`a_partial_append_rolls_back_before_another_writer_can_append`.
