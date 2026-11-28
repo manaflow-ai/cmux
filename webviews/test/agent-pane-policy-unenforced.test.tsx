@@ -170,9 +170,9 @@ test("the note names the policy and why, never acpmux's reason", async () => {
       .replace(/\s+/g, " ")
       .trim();
   expect(drawn({ policy: "approve-reads", why: "ownSettings" })).toBe(
-    "OpenCode can't keep this chat's permission policy (Approve reads): its own settings decide what it asks",
+    "OpenCode's own settings decide what it asks, so “Approve reads” has no effect",
   );
   expect(drawn({ policy: "deny-all", why: "noAskingMode" })).toBe(
-    "This chat's agent has no mode that asks before each change, so it can't keep the permission policy (Deny all)",
+    "This agent never asks before a change, so “Deny all” has no effect",
   );
 });

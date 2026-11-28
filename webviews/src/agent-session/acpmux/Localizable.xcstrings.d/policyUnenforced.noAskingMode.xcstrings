@@ -8,127 +8,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا يملك وكيل هذه الدردشة وضعًا يسأل قبل كل تغيير، لذا لا يمكنه الالتزام بسياسة الأذونات ({policy})"
+            "value" : "هذا الوكيل لا يسأل أبدًا قبل أي تغيير، لذا لا أثر لـ «{policy}»"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agent ovog chata nema način rada koji pita prije svake promjene, pa ne može poštovati pravila dozvola ({policy})"
+            "value" : "Ovaj agent nikad ne pita prije promjene, pa „{policy}” nema učinka"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Denne chats agent har ingen tilstand, der spørger før hver ændring, så den kan ikke overholde tilladelsespolitikken ({policy})"
+            "value" : "Denne agent spørger aldrig før en ændring, så “{policy}” har ingen virkning"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Der Agent dieses Chats hat keinen Modus, der vor jeder Änderung fragt, und kann die Berechtigungsrichtlinie ({policy}) daher nicht einhalten"
+            "value" : "Dieser Agent fragt nie vor einer Änderung, daher hat „{policy}“ keine Wirkung"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This chat's agent has no mode that asks before each change, so it can't keep the permission policy ({policy})"
+            "value" : "This agent never asks before a change, so “{policy}” has no effect"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "El agente de este chat no tiene un modo que pregunte antes de cada cambio, así que no puede mantener la política de permisos ({policy})"
+            "value" : "Este agente nunca pregunta antes de un cambio, así que «{policy}» no tiene efecto"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "L’agent de ce chat n’a aucun mode qui demande avant chaque modification : il ne peut donc pas respecter la politique d’autorisations ({policy})"
+            "value" : "Cet agent ne demande jamais avant une modification, donc « {policy} » n’a aucun effet"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "L’agente di questa chat non ha una modalità che chieda prima di ogni modifica, quindi non può rispettare il criterio di autorizzazione ({policy})"
+            "value" : "Questo agente non chiede mai prima di una modifica, quindi «{policy}» non ha effetto"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "このチャットのエージェントには変更のたびに確認するモードがないため、権限ポリシー（{policy}）を守れません"
+            "value" : "このエージェントは変更前に確認しないため、「{policy}」は適用されません"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ភ្នាក់ងាររបស់ការជជែកនេះគ្មានរបៀបដែលសួរមុនរាល់ការផ្លាស់ប្ដូរទេ ដូច្នេះវាមិនអាចរក្សាគោលការណ៍សិទ្ធិ ({policy}) បានទេ"
+            "value" : "ភ្នាក់ងារនេះមិនដែលសួរមុនពេលផ្លាស់ប្តូរទេ ដូច្នេះ “{policy}” គ្មានប្រសិទ្ធភាព"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "이 채팅의 에이전트에는 변경할 때마다 묻는 모드가 없어 권한 정책({policy})을 지킬 수 없음"
+            "value" : "이 에이전트는 변경 전에 묻지 않으므로 “{policy}”는 적용되지 않습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agenten i denne chatten har ingen modus som spør før hver endring, så den kan ikke overholde tillatelsespolicyen ({policy})"
+            "value" : "Denne agenten spør aldri før en endring, så «{policy}» har ingen virkning"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agent tego czatu nie ma trybu, który pyta przed każdą zmianą, więc nie może przestrzegać zasad uprawnień ({policy})"
+            "value" : "Ten agent nigdy nie pyta przed zmianą, więc „{policy}” nie działa"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "O agente deste chat não tem um modo que pergunte antes de cada alteração, então não consegue manter a política de permissões ({policy})"
+            "value" : "Este agente nunca pergunta antes de uma alteração, então “{policy}” não tem efeito"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "У агента этого чата нет режима, который спрашивает перед каждым изменением, поэтому он не может соблюдать политику разрешений ({policy})"
+            "value" : "Этот агент никогда не спрашивает перед изменением, поэтому «{policy}» не действует"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เอเจนต์ของแชทนี้ไม่มีโหมดที่ถามก่อนการเปลี่ยนแปลงแต่ละครั้ง จึงทำตามนโยบายสิทธิ์ ({policy}) ไม่ได้"
+            "value" : "เอเจนต์นี้ไม่เคยถามก่อนเปลี่ยนแปลง ดังนั้น “{policy}” จึงไม่มีผล"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bu sohbetin ajanının her değişiklikten önce soran bir modu yok, bu yüzden izin politikasını ({policy}) uygulayamıyor"
+            "value" : "Bu ajan bir değişiklikten önce asla sormaz, bu yüzden “{policy}” etkisizdir"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Агент цього чату не має режиму, який питає перед кожною зміною, тому не може дотримуватися політики дозволів ({policy})"
+            "value" : "Цей агент ніколи не питає перед зміною, тому «{policy}» не діє"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tác nhân của cuộc trò chuyện này không có chế độ hỏi trước mỗi thay đổi, nên không thể giữ chính sách quyền ({policy})"
+            "value" : "Tác tử này không bao giờ hỏi trước khi thay đổi, nên “{policy}” không có tác dụng"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "此聊天的代理没有在每次更改前询问的模式，因此无法遵守权限策略（{policy}）"
+            "value" : "此代理在更改前从不询问，因此“{policy}”不起作用"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "此聊天的代理沒有在每次變更前詢問的模式，因此無法遵守權限原則（{policy}）"
+            "value" : "此代理程式在變更前從不詢問，因此「{policy}」不起作用"
           }
         }
       }

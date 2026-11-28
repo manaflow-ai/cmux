@@ -8,127 +8,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "حدّث cmux للإرسال من هنا: فهو لا يذكر مصدر هذا الاتصال"
+            "value" : "حدّث cmux على الجهاز الذي يشغّل هذه المحادثة لترسل من هنا"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ažurirajte cmux da biste slali odavde: ne navodi odakle dolazi ova veza"
+            "value" : "Ažurirajte cmux na računaru na kojem radi ovaj chat da biste slali odavde"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Opdater cmux for at sende herfra: den oplyser ikke, hvor denne forbindelse kommer fra"
+            "value" : "Opdater cmux på den maskine, der kører denne chat, for at sende herfra"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aktualisiere cmux, um von hier zu senden: Es nennt nicht, woher diese Verbindung kommt"
+            "value" : "Aktualisiere cmux auf dem Rechner, auf dem dieser Chat läuft, um von hier zu senden"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Update cmux to send from here: it does not say where this connection comes from"
+            "value" : "Update cmux on the machine that runs this chat to send from here"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Actualiza cmux para enviar desde aquí: no indica de dónde viene esta conexión"
+            "value" : "Actualiza cmux en la máquina que ejecuta este chat para enviar desde aquí"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mettez cmux à jour pour envoyer depuis ici : il n’indique pas d’où vient cette connexion"
+            "value" : "Mettez à jour cmux sur la machine qui exécute cette discussion pour envoyer d’ici"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aggiorna cmux per inviare da qui: non indica da dove proviene questa connessione"
+            "value" : "Aggiorna cmux sulla macchina che esegue questa chat per inviare da qui"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ここから送信するには cmux を更新してください：この接続の送信元が示されていません"
+            "value" : "ここから送信するには、このチャットを実行しているマシンの cmux をアップデートしてください"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីផ្ញើពីទីនេះ៖ វាមិនប្រាប់ថាការតភ្ជាប់នេះមកពីណាទេ"
+            "value" : "ធ្វើបច្ចុប្បន្នភាព cmux នៅលើម៉ាស៊ីនដែលកំពុងដំណើរការការជជែកនេះ ដើម្បីផ្ញើពីទីនេះ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "여기에서 보내려면 cmux를 업데이트하세요: 이 연결이 어디에서 오는지 알려 주지 않습니다"
+            "value" : "여기서 보내려면 이 채팅을 실행하는 컴퓨터의 cmux를 업데이트하세요"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Oppdater cmux for å sende herfra: den oppgir ikke hvor denne tilkoblingen kommer fra"
+            "value" : "Oppdater cmux på maskinen som kjører denne chatten for å sende herfra"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Zaktualizuj cmux, aby wysyłać stąd: nie podaje, skąd pochodzi to połączenie"
+            "value" : "Zaktualizuj cmux na komputerze, na którym działa ten czat, aby wysyłać stąd"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Atualize o cmux para enviar daqui: ele não informa de onde vem esta conexão"
+            "value" : "Atualize o cmux na máquina que executa este chat para enviar daqui"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Обновите cmux, чтобы отправлять отсюда: он не сообщает, откуда это подключение"
+            "value" : "Обновите cmux на машине, где работает этот чат, чтобы отправлять отсюда"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "อัปเดต cmux เพื่อส่งจากที่นี่: มันไม่ได้บอกว่าการเชื่อมต่อนี้มาจากที่ใด"
+            "value" : "อัปเดต cmux บนเครื่องที่รันแชทนี้เพื่อส่งจากที่นี่"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Buradan göndermek için cmux’u güncelleyin: bu bağlantının nereden geldiğini belirtmiyor"
+            "value" : "Buradan göndermek için bu sohbeti çalıştıran makinedeki cmux'u güncelleyin"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Оновіть cmux, щоб надсилати звідси: він не повідомляє, звідки це з’єднання"
+            "value" : "Оновіть cmux на машині, де працює цей чат, щоб надсилати звідси"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cập nhật cmux để gửi từ đây: nó không cho biết kết nối này đến từ đâu"
+            "value" : "Cập nhật cmux trên máy đang chạy cuộc trò chuyện này để gửi từ đây"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "请更新 cmux 以从这里发送：它没有说明此连接来自何处"
+            "value" : "请更新运行此聊天的机器上的 cmux，以便从这里发送"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "請更新 cmux 以從這裡傳送：它沒有說明此連線來自何處"
+            "value" : "請更新執行此聊天的機器上的 cmux，以便從這裡傳送"
           }
         }
       }

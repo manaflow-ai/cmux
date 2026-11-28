@@ -8,127 +8,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا يوجد لعنصر خيار موافقة لمرة واحدة. يمكن رفض هذه المجموعة فقط."
+            "value" : "لا يمكن إلا رفض هذا الطلب."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stavka nema opciju jednokratnog odobrenja. Ova grupa se može samo odbiti."
+            "value" : "Ovaj zahtjev se može samo odbiti."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Et element har ingen mulighed for engangsgodkendelse. Denne gruppe kan kun afvises."
+            "value" : "Denne anmodning kan kun afvises."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ein Eintrag hat keine Option für eine einmalige Genehmigung. Diese Gruppe kann nur abgelehnt werden."
+            "value" : "Diese Anfrage kann nur abgelehnt werden."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "An item has no single-use approval option. This group can only be denied."
+            "value" : "This request can only be denied."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Un elemento no tiene opción de aprobación de un solo uso. Este grupo solo se puede denegar."
+            "value" : "Esta solicitud solo se puede rechazar."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Un élément n'a pas d'option d'approbation unique. Ce groupe ne peut qu'être refusé."
+            "value" : "Cette demande ne peut être que refusée."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Un elemento non ha un'opzione di approvazione singola. Questo gruppo può solo essere rifiutato."
+            "value" : "Questa richiesta può solo essere rifiutata."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 回限りの承認ができない項目があります。このグループは拒否のみ可能です。"
+            "state" : "needs_review",
+            "value" : "このリクエストは拒否のみできます。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ធាតុមួយមិនមានជម្រើសអនុម័តតែម្តងទេ។ ក្រុមនេះអាចបដិសេធបានតែប៉ុណ្ណោះ។"
+            "value" : "សំណើនេះអាចត្រូវបានបដិសេធតែប៉ុណ្ណោះ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "일회용 승인 옵션이 없는 항목이 있습니다. 이 그룹은 거부만 할 수 있습니다."
+            "value" : "이 요청은 거부만 할 수 있습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ett element har ikke noe alternativ for engangsgodkjenning. Denne gruppen kan bare avslås."
+            "value" : "Denne forespørselen kan bare avslås."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Jeden z elementów nie ma opcji jednorazowego zatwierdzenia. Tę grupę można tylko odrzucić."
+            "value" : "Tę prośbę można tylko odrzucić."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Um item não tem opção de aprovação única. Este grupo só pode ser negado."
+            "value" : "Esta solicitação só pode ser negada."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "У одного из элементов нет варианта разового одобрения. Эту группу можно только запретить."
+            "value" : "Этот запрос можно только отклонить."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "บางรายการไม่มีตัวเลือกอนุมัติครั้งเดียว กลุ่มนี้ปฏิเสธได้เท่านั้น"
+            "value" : "คำขอนี้ปฏิเสธได้เท่านั้น"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bir öğenin tek kullanımlık onay seçeneği yok. Bu grup yalnızca reddedilebilir."
+            "value" : "Bu istek yalnızca reddedilebilir."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Елемент не має варіанта одноразового схвалення. Цю групу можна лише заборонити."
+            "value" : "Цей запит можна лише відхилити."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Một mục không có tùy chọn duyệt một lần. Nhóm này chỉ có thể bị từ chối."
+            "value" : "Yêu cầu này chỉ có thể bị từ chối."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "某个项目没有单次批准选项。此组只能被拒绝。"
+            "value" : "此请求只能拒绝。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "某個項目沒有單次核准選項。此群組只能被拒絕。"
+            "value" : "此請求只能拒絕。"
           }
         }
       }
