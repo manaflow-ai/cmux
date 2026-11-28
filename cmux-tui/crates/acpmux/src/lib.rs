@@ -150,6 +150,8 @@ pub mod github_session_env;
 pub mod god_fixture;
 pub mod hypervisor;
 pub mod install_share;
+/// Bounded journal reads reduced once into timestamped replay states.
+pub mod journal_replay;
 pub mod key_check;
 pub mod memory_follow;
 pub mod model_router;
