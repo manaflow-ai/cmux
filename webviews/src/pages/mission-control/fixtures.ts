@@ -17,8 +17,8 @@ const TITLES = [
 
 /** A stand-in picture: a dark screen with a few text lines, as a terminal or chat snapshot looks. */
 function thumb(kind: MissionTileKind, seed: number): MissionThumb {
-  const bg = kind === "browser" ? "#f4f4f5" : "#1c1c1f";
-  const ink = kind === "browser" ? "#9a9aa2" : "#5d8c6a";
+  const bg = kind === "browser" ? "#f4f4f5" : "#1c1c1f"; // colour-allow: stand-in screenshot pixels, not UI colour
+  const ink = kind === "browser" ? "#9a9aa2" : "#5d8c6a"; // colour-allow: stand-in screenshot pixels, not UI colour
   const lines = Array.from({ length: 7 }, (_, i) => {
     const width = 60 + ((seed * 37 + i * 53) % 220);
     return `<rect x="16" y="${20 + i * 22}" width="${width}" height="8" rx="2" fill="${ink}"/>`;
