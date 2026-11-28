@@ -560,6 +560,33 @@ async fn a_relayed_send_that_names_no_sender_runs_in_an_idle_chat() {
     relay.stop().await;
 }
 
+/// The offload probe's send as it goes: `acpmux send --no-wait HOST/ID` from a shell steers
+/// (`send_steers`), so the relayed message comes with `mode: Now` to the moved chat, which is
+/// idle. It must run a turn there as the turn-end send does.
+#[tokio::test]
+async fn a_relayed_steer_that_names_no_sender_runs_in_an_idle_chat() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut seed = message("msg-seed", "dep-land", Kind::Prompt);
+    seed.body = "[question]\n\nseed the chat".into();
+    fake.lease(seed);
+    fake.until("the seed's ack", |s| !s.acked("msg-seed").is_empty()).await;
+    let info = settled_turns(&mut local, &session, 1).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(1)), "{info}");
+    let mut bare = message("msg-bare", "dep-land", Kind::Prompt);
+    bare.from.name = None;
+    bare.mode = Mode::Now;
+    bare.body = "offload probe count msg-000001".into();
+    fake.lease(bare);
+    fake.until("the ack", |s| !s.acked("msg-bare").is_empty()).await;
+    let info = settled_turns(&mut local, &session, 2).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(2)), "never ran: {info}");
+    relay.stop().await;
+}
+
 /// A send from no session (a relay on this machine's unix socket) carries its relay record to the
 /// hub, so the receiving machine can name the session it came from; a proven session's send
 /// carries none, whatever it wrote.
