@@ -50,6 +50,12 @@ jobs:
     name: nightly pr build route (advisory)
     needs: [coalesce]
     if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && (vars.CI_NIGHTLY_PR_BUILD || '1') != '0' && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && needs.coalesce.result == 'success' && needs.coalesce.outputs.run != 'false')) }}
+    # A re-run or duplicate push of one tip queues behind the first instead of building it twice. Keyed on the sha and
+    # never cancelled: the window's run is the one that builds, so a newer tip must not cancel it (base-coalesce.yml).
+    # A pull_request call keys on its own run (its caller's group holds it). tests/test_ci_workflow_concurrency.py
+    concurrency:
+      group: ${{ format('nightly-pr-build-route-{0}', github.event_name == 'push' && github.sha || github.run_id) }}
+      cancel-in-progress: false
     runs-on: cmux-linux
     timeout-minutes: 10
     permissions:
