@@ -28,6 +28,7 @@ enum CmuxMain {
     /// startup-order regression test.
     static func runStartup(
         defaults: UserDefaults = .standard,
+        operatingSystemVersion: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion,
         raiseFileDescriptorLimit: () -> Void = {
             FileDescriptorLimitController().raiseSoftLimitIfNeeded()
         },
@@ -44,7 +45,10 @@ enum CmuxMain {
             cmuxApp.main()
         }
     ) {
-        installCrashOnExceptionsPolicy(defaults: defaults)
+        installCrashOnExceptionsPolicy(
+            defaults: defaults,
+            operatingSystemVersion: operatingSystemVersion
+        )
         raiseFileDescriptorLimit()
         writeAppHostReceipt()
 #if DEBUG
@@ -60,14 +64,24 @@ enum CmuxMain {
         launchApp()
     }
 
-    /// Installs the AppKit policy that makes exceptions escaping the run loop fatal.
-    static func installCrashOnExceptionsPolicy(defaults: UserDefaults = .standard) {
+    /// Installs the AppKit policy that makes exceptions escaping the run loop fatal
+    /// where the OS can safely support that policy.
+    static func installCrashOnExceptionsPolicy(
+        defaults: UserDefaults = .standard,
+        operatingSystemVersion: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion
+    ) {
         // AppKit catches exceptions at the run-loop boundary by default. If one
         // unwinds through a Swift concurrency job, that leaves the runtime's
         // thread-local executor tracking pointing at the dead job's stack frame.
         // The next main-actor check then crashes far from the original throw.
         // Registering the default makes AppKit terminate at the throw instead.
+        // macOS 27's AppKit SF Symbol renderer throws a recoverable exception;
+        // leave escalation disabled there so that OS bug cannot terminate cmux.
         // `register(defaults:)` preserves an explicit user or test override.
-        defaults.register(defaults: ["NSApplicationCrashOnExceptions": true])
+        defaults.register(defaults: [
+            "NSApplicationCrashOnExceptions": MacOSExceptionPolicy(
+                operatingSystemVersion: operatingSystemVersion
+            ).shouldEscalateUncaughtExceptions
+        ])
     }
 }
