@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next fast gates: six checks, in fail mode, on a pull request merged with its base.
+"""cmux-next fast gates: cheap checks, in fail mode, on a pull request merged with its base.
 
 .github/workflows/cmux-next-fast-gates.yml runs this for every pull request into feat-cmux-next
 and on dispatch (`pr=N`, against the current tip). It posts `cmux-next/fast-gates` with
@@ -41,6 +41,8 @@ The gates, each the same invocation as its push-time job:
                   that would stop a chat from opening (cmux#46563) and on a new decoder that refuses unknown fields
   entry logs      scripts/ci/entry_logs.py check --base BASE --head MERGE: a frozen append-only log
                   (ENTRY_LOGS) grows only as one new file per entry in its directory, so two PRs never conflict on it
+  huge files      scripts/ci/check_huge_files.py check --base BASE --head MERGE: no Swift or Rust source file in NOW's
+                  code_shape scope newly over 100,000 bytes, and none already over it grows (`list` is the burn-down)
   settings catalog keys  scripts/ci/settings_catalog_keys.py --root MERGE --base-rev BASE: a settings schema text key
                   missing from the catalog fails only when BASE does not already miss it (a base red is a note)
 
@@ -449,7 +451,8 @@ def crash_class_inputs_changed(repo: Path, base: str, merge: str) -> bool:
 
 
 # The gates a pull request's own run leaves to the push tier (the same gates run there as cmux-next-web-lint.yml,
-# cmux-next-crash-class.yml and ci-web.yml; a red there is fixed forward). `--tier full` (a dispatch, the `full-ci`
+# cmux-next-crash-class.yml and ci-web.yml; a red there is fixed forward). A cheap-tier landing head skips ci-web, so
+# the webviews checks run there as ci/steps.toml's webviews-checks, a land_gate step of pr-pipeline.yml (cmux#57668). `--tier full` (a dispatch, the `full-ci`
 # label, or vars.CI_FAST_GATES_PR_TIER=full) runs them on the pull request again. Slowest gate first on 2026-11-24:
 # crash-class rules 70.7 s, against 23.6 s for the prepush gate and 16.7 s for the crash ratchet.
 PR_TIER_DEFERRED = ("web lint", "crash-class rules", "webviews checks")
@@ -461,8 +464,7 @@ TIER_SKIPPED = "the pull request tier leaves it to the push tier (cmux-next-web-
 SKIPPED = {"web lint": "no web path changed",
            "crash-class rules": "no change under Packages, scripts/cmux-next, its own scripts or its workflow",
            "crash ratchet": "no change under Packages, cmux-tui/crates, scripts/cmux-next or its compare script",
-           "webviews checks": "a pull_request event with no catalog or protocol spec change: ci-web runs them "
-                              "for a webviews/ change on this merge"}
+           "webviews checks": "no change under webviews/, to a string catalog or to the protocol spec"}
 
 
 def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
@@ -485,6 +487,8 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         ("protocol skew", [py, "scripts/ci/protocol_skew_check.py", "--base", base, "--head", merge]),
         # Every pull request, git objects only: a frozen append-only log grows only as files in its entry directory.
         ("entry logs", [py, "-I", "scripts/ci/entry_logs.py", "check", "--base", base, "--head", merge]),
+        # Every pull request, git objects only: no Swift or Rust source file newly over 100,000 bytes, none over it grows.
+        ("huge files", [py, "-I", "scripts/ci/check_huge_files.py", "check", "--base", base, "--head", merge]),
         # Every pull request, git objects only: a change adds no outbound site outside the egress gate, compared
         # with its own base, so a red base cannot excuse it (the guard group's egress step is skipped on most pull
         # requests and excuses a step the base fails too; ten sites reached feat-cmux-next that way, 11-24..26).
@@ -638,6 +642,28 @@ def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
     return removed
 
 
+FIXIT_LINT_SECONDS = 300.0
+
+
+def fixit_lint(repo: Path, base: str, merge: str, deadline: float | None) -> None:
+    """A red web lint (a finding, not a stall): its tools' own safe fixes, linted again, as a fixup patch
+    (scripts/ci/oops/fixit_lint.py; off unless the workflow sets FIXIT_COMPILE_HEAD_SHA). Only after every gate has
+    finished, since it edits the checkout and puts it back; never changes this run's result. Leo, 2026-11-22: "hell,
+    maybe even should've been automatic. how are our fixit type things for lint errors and random bullshit?\""""
+    seconds = FIXIT_LINT_SECONDS if deadline is None else min(FIXIT_LINT_SECONDS, deadline - time.monotonic())
+    if seconds < 30:
+        print(f"fixit-lint: {max(seconds, 0):.0f}s of the gates' budget left; not tried", flush=True)
+        return
+    script = Path(__file__).resolve().parent / "oops" / "fixit_lint.py"
+    print("::group::fixit-lint", flush=True)
+    try:
+        subprocess.run([sys.executable, "-I", str(script), "run", "--base", base, "--merge", merge, "--repo", str(repo),
+                        "--seconds", str(int(seconds))], cwd=repo, timeout=seconds + 60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"fixit-lint: {type(exc).__name__}: {exc}", flush=True)
+    print("::endgroup::", flush=True)
+
+
 def ensure_bun_tmpdir(env: dict) -> Path | None:
     """Give every gate a writable BUN_TMPDIR (set in ENV, which the gates inherit); the directory made, or None when
     the caller already set one or none could be made. bun unpacks into a temporary directory and fails `error: EACCES
@@ -713,6 +739,9 @@ def run(args: argparse.Namespace) -> int:
             if code not in (0, None):
                 print(f"::error title=fast gates: {name}::{name} failed on the merge with base {args.base}")
             rows.append((name, outcome, seconds))
+        # Inside the try: its --fix runs bun too, under the BUN_TMPDIR the finally removes.
+        if any(name == "web lint" and outcome.startswith("failed (exit") for name, outcome, _ in rows):
+            fixit_lint(repo, args.base, merge, deadline)
     finally:
         shutil.rmtree(holder, ignore_errors=True)
         if bun_tmp:

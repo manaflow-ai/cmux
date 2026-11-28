@@ -65,6 +65,10 @@ fn trim_whitespaces(text: &str) -> &str {
 }
 
 /// The RFC 3986 scheme of `text`, lowercased.
+#[allow(
+    clippy::string_slice,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn scheme(text: &str) -> Option<String> {
     let colon = text.find(':')?;
     let candidate = &text[..colon];
