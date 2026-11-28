@@ -197,10 +197,13 @@ async fn measure(profile: Profile, before: bool, runs: usize, summary: &mut Vec<
                 // hostd on a network change: the live tunnels roam and the
                 // ICE servers go stale.
                 rig.ice.invalidate();
-                cmux_mobile_link::dial::wireguard::network_changed().await;
+                let t = Instant::now();
+                let roams = cmux_mobile_link::dial::wireguard::network_changed().await;
+                eprintln!("DIAG_NETCHANGE run={run} sessions={} took={:?}", roams.len(), t.elapsed());
             }
         }
         drop(previous.take());
+        let t_dial = Instant::now();
         let sample = dial(&rig).await;
         for (surface, value) in [("mac-answer", sample.mac_ms), ("phone-dial", sample.phone_ms)] {
             println!(
@@ -218,6 +221,12 @@ async fn measure(profile: Profile, before: bool, runs: usize, summary: &mut Vec<
                 })
             );
         }
+        eprintln!(
+            "DIAG_DIAL {} {phase} run={run} mac={:.1} wall={:?}",
+            profile.name(),
+            sample.mac_ms,
+            t_dial.elapsed()
+        );
         mac.push(sample.mac_ms);
         phone.push(sample.phone_ms);
         previous = Some(sample.connected);

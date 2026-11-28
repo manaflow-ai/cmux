@@ -825,7 +825,12 @@ async fn answer_session(
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {
-        Ok(connected) => connected,
+        Ok(connected) => {
+            if std::env::var_os("DIAG_ANSWER").is_some() {
+                eprintln!("DIAG_ANSWER {}", timeline.summary());
+            }
+            connected
+        }
         Err(error) => {
             tracing::warn!(session_id, ?kind, %error, timings = %timeline.summary(), "answer failed");
             return;

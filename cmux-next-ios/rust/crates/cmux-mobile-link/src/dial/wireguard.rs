@@ -3755,6 +3755,7 @@ impl Dialer for WireGuardDialer {
                 .parse()
                 .map_err(|_| DialError::Unexpected("wg-init overlayIP is not IPv4".into()))?;
             let own_ip = if peer_ip == ANSWER_OVERLAY { DIALER_OVERLAY } else { ANSWER_OVERLAY };
+            options.timeline.mark("diag_wg_init_parsed");
             let socket = bind_udp().map_err(transport_error)?;
             let port = socket.local_addr().map_err(transport_error)?.port();
             let trickle = answer_trickles(options, peer_version);
@@ -3807,7 +3808,9 @@ impl Dialer for WireGuardDialer {
                 stun,
                 relay,
             };
+            options.timeline.mark("diag_gathered");
             let tunnel = start_tunnel(signaling, spec, options)?;
+            options.timeline.mark("diag_tunnel_started");
             tunnel.session.follow(events.session);
             let keeper = dormant::Keeper::new(dormant::KeeperSpec {
                 session: Arc::clone(&tunnel.session),
@@ -3823,11 +3826,14 @@ impl Dialer for WireGuardDialer {
             });
             let guard = dormant::Lease::new(&keeper);
             let net = tunnel.session.net()?;
+            options.timeline.mark("diag_net");
             tunnel.session.start_control(&net).await;
+            options.timeline.mark("diag_control");
             if turn_missed {
                 tunnel.session.retry_missing_turn();
             }
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
+            options.timeline.mark("diag_listen");
             // Listed back only once bound. The phone binds its end after this
             // answer, so this side's pings switch over on its first datagram.
             let class_lanes = class_offer().agreed(&lanes);
@@ -3839,6 +3845,7 @@ impl Dialer for WireGuardDialer {
             };
             // The media lane: listed back only once its port is bound, so a
             // phone never expects a lane this side cannot serve.
+            options.timeline.mark("diag_liveness");
             let media = if video_wanted {
                 let impairment = crate::media::wireguard::Impairment {
                     drop_permille: options.video_drop_permille,
@@ -3864,6 +3871,7 @@ impl Dialer for WireGuardDialer {
             } else {
                 None
             };
+            options.timeline.mark("diag_lanes");
             let overlay = super::Overlay { net: Arc::clone(&net), peer_ip: IpAddr::V4(peer_ip) };
             drop(net);
             signaling
