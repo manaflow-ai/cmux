@@ -1510,6 +1510,7 @@ function shapedTurn(
     if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
     shaped = [...date, ...drawnUser, ...sentHeader(user, line, expanded), line];
   } else {
+    const shapeBefore = liveShape; // DEBUG
     const unstacked = shapeTurn(
       user,
       turn,
@@ -1529,6 +1530,8 @@ function shapedTurn(
     // (turnFoldSteered.experiment.ts): they never move when the turn folds.
     const stacked = steeredArm === "stacked" && foldStyle.conclusion;
     const shapedBody = stacked ? stackSteers(unstacked) : unstacked;
+    const notedHere = live && liveShape !== shapeBefore ? liveShape : undefined; // DEBUG
+    const stages: [string, readonly AcpmuxRow[]][] = [["unstacked", unstacked], ["stacked", shapedBody]]; // DEBUG
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
     const messaged = foldMessageRuns(shapedBody, expanded, live);
@@ -1540,9 +1543,11 @@ function shapedTurn(
     // the agent reads it (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move
     // up and under your current running tool call or whatever").
     const runs = foldBackgroundRuns(messaged, expanded);
+    stages.push(["messaged", messaged], ["runs", runs]); // DEBUG
     // The person's steer still on its way draws in its place in the body (`sentHere`); its stretch's
     // footer comes in the frame it is drawn, as for one acpmux recorded.
     const body = sinceAboveWorked(supersededFooters(runs, turn, endedByPerson, user.at, live, stacked));
+    stages.push(["body", body.slice()]); // DEBUG
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -1591,7 +1596,22 @@ function shapedTurn(
     // matches by id, and a row that was only re-grouped no longer reads as one that went and one
     // that arrived. The cut is laid out to move nothing (runParts.ts), and it windows an ended long
     // run as it already windowed a live one.
+    stages.push(["assembled", shaped]); // DEBUG
+    if (live) stages.push(["afterSends", afterSends(shaped, clockOffset)]); // DEBUG
     shaped = cutLongRuns(live ? afterSends(shaped, clockOffset) : shaped);
+    stages.push(["cut", shaped]); // DEBUG
+    if (acpmuxPerf.enabled && notedHere) {
+      // DEBUG: the first stage after the note where a noted row is missing or moved.
+      for (const [name, stage] of stages) {
+        const byId = new Map(stage.map((row) => [row.id, row]));
+        const off = notedHere.shaped.find((row) => row.kind !== "user" && byId.get(row.id)?.version !== row.version);
+        const extra = stage.find((row) => row.kind !== "user" && row.kind !== DATE && !notedHere.shaped.some((n) => n.id === row.id));
+        if (off || extra) {
+          acpmuxPerf.render(`stage:${notedHere.via}:${name}:${off ? `${off.kind}:${byId.has(off.id) ? "moved" : "gone"}` : `extra:${extra!.kind}`}`);
+          break;
+        }
+      }
+    }
     // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
     // composer for the latest completed turn without restoring the permanent runway under every
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
