@@ -80,8 +80,8 @@ extension ThemeCoordinator {
 
     /// Gives `pane` its own background, theme, glass and marker tint, and, while `waitsForTerminal`, its new terminal's ground (m81).
     func applyPaneBackground(_ pane: PaneController, waitsForTerminal: Bool? = nil) {
-        let area = pane.view.contentHost, waits = waitsForTerminal ?? (area.waitingGround != nil)
-        defer { area.waitingGround = waits ? TerminalHostView.ground(theme: resolver.resolve(area.themeScope.effectiveSpec)?.config, in: area) : nil }
+        let area = pane.view.contentHost, waits = waitsForTerminal ?? area.waitsForContent
+        defer { area.waitsForContent = waits; area.waitingGround = waits ? TerminalHostView.ground(theme: resolver.resolve(area.themeScope.effectiveSpec)?.config, in: area) : nil }
         // Its place among its workspace's panes picks its picture of the theme's pane art (`appearance.paneArt.*`).
         let index = pane.workspace?.workspace.screens.flatMap(\.panes).firstIndex { $0.handle == pane.pane.handle } ?? 0
         if index != pane.view.backdropState.artIndex { pane.view.backdropState.artIndex = index; pane.view.paintPaneBackdrop() }

@@ -31,10 +31,11 @@ import Testing
         return (view, layer)
     }
 
-    /// Where the panes of one layout show, in the layout root's coordinates: the content rect of the pane that the dim
-    /// must leave clear, and the middle of each pane that it must cover.
+    /// Where the panes of one layout show, in the layout root's coordinates: the content rect (`hole`) and the whole
+    /// cell (`cell`) of the pane that the dim must leave clear, and the middle of each pane that it must cover. With a
+    /// padding the cell is larger than the content rect by its band. `free`: the dim's hole (the cell; with cards the card).
     struct Places {
-        var clear: (pane: PaneID, hole: CGRect)
+        var clear: (pane: PaneID, hole: CGRect, cell: CGRect, free: CGRect)
         var covered: [(pane: PaneID, middle: CGPoint)]
     }
 
@@ -49,7 +50,8 @@ import Testing
             let frame = root.convert(shown.bounds, from: shown)
             covered.append((other, CGPoint(x: frame.midX, y: frame.midY)))
         }
-        return Places(clear: (pane, root.convert(host.contentRect, from: host)), covered: covered)
+        let content = root.convert(host.contentRect, from: host), cell = root.convert(host.bounds, from: host)
+        return Places(clear: (pane, content, cell, host.wholeCard ? content : cell), covered: covered)
     }
 
     /// What is wrong with where the dim is, against the places where the panes show: it must leave the one pane clear
@@ -57,7 +59,7 @@ import Testing
     static func misses(_ dim: (view: NSView, layer: CALayer), _ places: Places) -> [String] {
         let parts = (dim.layer.sublayers ?? []).map { $0.frame.offsetBy(dx: dim.view.frame.minX, dy: dim.view.frame.minY) }
         var found: [String] = []
-        for part in parts where part.intersects(places.clear.hole.insetBy(dx: 1, dy: 1)) {
+        for part in parts where part.intersects(places.clear.free.insetBy(dx: 1, dy: 1)) {
             found.append("the dim covers \(places.clear.pane) at \(part)")
         }
         for other in places.covered where !parts.contains(where: { $0.contains(other.middle) }) {
@@ -126,10 +128,13 @@ import Testing
         let asks = harness.root.advanceFrame(Self.dt)
         #expect(grid.isShown(by: Commit.shown(screen)), "the first frame after the unzoom does not show every pane at its place")
         let dim = try #require(Self.dim(harness), "the frame that shows the unzoom shows no dim over the other panes")
-        #expect(dim.layer.opacity == 0, "the dim does not fade out: it goes to \(dim.layer.opacity)")
-        // It goes on a fade from its full strength: with no fade on its layer a person sees no dim at all.
+        // It goes on a fade from its full strength to nothing, which holds its end. The layer's own value stays that
+        // strength: a layer that loses its fade shows the dim until the view leaves, never no dim at all.
         let going = try #require(dim.layer.animation(forKey: "opacity") as? CABasicAnimation, "the dim goes with no fade on its layer")
         #expect(((going.fromValue as? Float) ?? 0) > 0.05, "the dim's fade is not from its strength: from \(String(describing: going.fromValue))")
+        #expect((going.fromValue as? Float) == dim.layer.opacity, "the dim layer's own value is \(dim.layer.opacity), not the start of its fade")
+        #expect((going.toValue as? Float) == 0 && going.fillMode == .forwards && !going.isRemovedOnCompletion,
+                "the dim does not fade out to nothing and hold it: to \(String(describing: going.toValue)), fill mode \(going.fillMode.rawValue)")
         #expect(going.duration == fade, "the dim's fade on its layer is over \(going.duration) s, not the pane veil's \(fade) s")
         let places = try Self.places(clear: "p4", over: ["p1", "p2", "p3"], in: harness)
         let off = Self.misses(dim, places)

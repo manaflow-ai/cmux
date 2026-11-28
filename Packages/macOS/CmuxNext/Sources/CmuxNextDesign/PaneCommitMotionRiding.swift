@@ -15,9 +15,10 @@ public extension NSView {
     /// are covered, and a hidden view (a parked tab) shows nothing. An area with another kind on top does not ride,
     /// whatever its container is: what the area shows is what the moving clip would cut.
     ///
-    /// An area that shows no view yet and has the ground of a terminal that comes next
-    /// (``PaneContentAreaView/waitingGround``: a split's new pane in its key's frame) rides: a flat ground has
-    /// nothing to cut, and the terminal's host comes into it at its final size.
+    /// An area that shows no view yet and waits for a terminal that comes next
+    /// (``PaneContentAreaView/waitsForContent``: a split's new pane in its key's frame) rides, with the terminal's
+    /// ground or, over a window that is not opaque, with none: an area with no view has nothing to cut, and the
+    /// terminal's host comes into it at its final size.
     /// O(the area's views), no layout.
     ///
     /// A riding view that shows content drawn in a window of its own (``PaneContentOwnWindow``: itself or a direct
@@ -25,7 +26,7 @@ public extension NSView {
     var paneRidesCommitMotion: Bool {
         guard let area = paneCommitMotionArea else { return self is any PaneCommitMotionRiding && !drawsInOwnWindowNow }
         guard area.bounds.width >= 1, area.bounds.height >= 1 else { return false }
-        guard let top = paneCommitMotionTop else { return area.waitingGround != nil }
+        guard let top = paneCommitMotionTop else { return area.waitsForContent }
         return top is any PaneCommitMotionRiding && !top.drawsInOwnWindowNow
     }
 

@@ -16,7 +16,7 @@ import Testing
 /// off.
 extension PaneCommitMotionTests {
     /// Where an unzoom's spring animation ends, with 0.2 percent of its way left.
-    nonisolated static let unzoom = Act(name: "unzoom", time: 0.203)
+    nonisolated static let unzoom = Act(name: "unzoom", time: 0.108)
 
     /// A pane content that rides and gives its last frame, in a content area of the double's view.
     final class Picture: NSView, PaneCommitMotionRiding, PaneCommitMotionLastFrameGiving {
@@ -34,16 +34,17 @@ extension PaneCommitMotionTests {
         let zoom: Zooming
         let host: PaneHostView
         let picture: Picture
-        /// While p4 had the screen: its host layer's frame, where its picture showed in its host, and its content
-        /// rect in the layout root's coordinates.
+        /// While p4 had the screen: its host layer's frame, where its picture showed in its host, and its cell in
+        /// the layout root's coordinates.
         let whole: CGRect
         let shown: CGRect
         let hole: CGRect
     }
 
-    /// `picture`: p4's content gives its last frame. `moves`: the panes' move is on at the unzoom.
-    static func unzooming(frames: Int, picture gives: Bool = true, moves: Bool = true) throws -> Unzooming {
-        let zoom = try zooming(frames: 0)
+    /// `picture`: p4's content gives its last frame. `moves`: the panes' move is on at the unzoom. `padding`: the
+    /// style has this padding round each pane's content.
+    static func unzooming(frames: Int, picture gives: Bool = true, moves: Bool = true, padding: CGFloat = 0) throws -> Unzooming {
+        let zoom = try zooming(frames: 0, padding: padding)
         var begun = false
         defer { if !begun { zoom.harness.window.closeAfterTest() } }
         let harness = zoom.harness
@@ -62,7 +63,7 @@ extension PaneCommitMotionTests {
         if !moves { harness.root.context.commitMotionOverride = false }
         let whole = try #require(host.layer?.frame)
         let shown = host.convert(content.bounds, from: content)
-        let hole = harness.root.convert(host.contentRect, from: host)
+        let hole = harness.root.convert(host.bounds, from: host)
         harness.model.apply(screens: Zoom.screens())
         harness.root.syncWithModel()
         for _ in 0..<frames { _ = harness.root.advanceFrame(dt) }
@@ -78,10 +79,11 @@ extension PaneCommitMotionTests {
     /// The first frame after the unzoom key has the grid as its model. The pane that had the screen has a move from
     /// the screen's size, above the other panes, which have none. Its last frame shows in its host where it showed,
     /// at its old size, with no animation on it, in each frame of the motion. The motion asked for it one time,
-    /// before the pane's content heard its new size. The dim never covers the pane that closes. The frame that ends
+    /// before the pane's content heard its new size. The dim never covers the pane that closes, nor the band of padding
+    /// round its content (the style of this row has a padding). The frame that ends
     /// the motion has no last frame, in the unzoom's time; then the dim goes and the frames stop.
     @Test func anUnzoomClosesItsPaneOverTheOthersUnderItsLastFrame() throws {
-        let unzoom = try Self.unzooming(frames: 0)
+        let unzoom = try Self.unzooming(frames: 0, padding: 6)
         let zoom = unzoom.zoom, harness = zoom.harness, screen = zoom.screen, host = unzoom.host
         defer { harness.window.closeAfterTest() }
         #expect(Self.lastFrames(on: screen).isEmpty && !Self.inFlight(screen), "the unzoom key's own turn put a last frame or a move on the screen")
@@ -109,12 +111,15 @@ extension PaneCommitMotionTests {
 
         let dim = try #require(Dim.dim(harness), "the frame that shows the unzoom shows no dim over the other panes")
         let parts = (dim.layer.sublayers ?? []).map { Self.move(of: $0) }
-        let hole = Move(start: unzoom.hole, end: harness.root.convert(host.contentRect, from: host))
+        try #require(parts.count == 4 && host.contentRect != host.bounds && !host.wholeCard,
+                     "SETUP: the dim has not 4 parts, or the pane that closes has no band of padding round its content, or its clip is its card")
+        let hole = Move(start: unzoom.hole, end: harness.root.convert(host.bounds, from: host))
         for part in [0, 0.5, 1] as [CGFloat] {
             let clear = hole.rect(at: part).insetBy(dx: 1, dy: 1)
             for piece in parts {
                 let cut = piece.rect(at: part).offsetBy(dx: dim.view.frame.minX, dy: dim.view.frame.minY).intersection(clear)
-                #expect(cut.isNull || cut.width < 0.5 || cut.height < 0.5, "at \(part) of the move the dim covers the pane that closes: \(cut)")
+                #expect(cut.isNull || cut.width < 0.5 || cut.height < 0.5,
+                        "at \(part) of the move the dim is on the pane that closes, or on the band of its padding: \(cut)")
             }
         }
 

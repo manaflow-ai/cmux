@@ -44,6 +44,17 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
     var isLineHidden = false {
         didSet { if isLineHidden != oldValue { applyColors() } }
     }
+    /// An unzoom's move holds the line back to its end (`PaneCommitMotion+Lines`): the line draws nothing, and it
+    /// comes and goes with no animation. The handle still takes the pointer, and a hover or a drag lights its band.
+    var holdsLineBack = false {
+        didSet {
+            guard holdsLineBack != oldValue else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            line.opacity = holdsLineBack ? 0 : 1
+            CATransaction.commit()
+        }
+    }
     var onDrag: ((DragEvent) -> Void)?
     /// The right-click menu of a split's divider (Insert New, Hide or Show Divider); nil: none.
     var contextMenu: (() -> NSMenu?)?

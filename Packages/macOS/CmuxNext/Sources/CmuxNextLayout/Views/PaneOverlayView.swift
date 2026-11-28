@@ -230,6 +230,8 @@ final class PaneOverlayView: NSView {
     /// The inactive dim's resting opacity, and whether it is fading there now (for tests).
     var dimOpacity: Float { dimLayer.opacity }
     var dimFades: Bool { dimLayer.animation(forKey: "opacity") != nil }
+    /// The strength of the inactive dim as it shows: its opacity times the alpha of its fill.
+    var dimStrength: CGFloat { CGFloat(dimLayer.opacity) * (dimLayer.backgroundColor?.alpha ?? 0) }
     /// The color the focus ring strokes with (for tests).
     var ringColor: CGColor? { ring.borderColor }
     /// The border's line width in points and color override (for tests).

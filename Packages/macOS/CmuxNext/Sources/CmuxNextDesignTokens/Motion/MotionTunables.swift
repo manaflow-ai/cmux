@@ -20,8 +20,9 @@ public nonisolated enum MotionTunables {
         // The layout springs (design-tokens.json motion.springs): critically damped, as every
         // spring is, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
-        // 0.30 ended visibly at 354 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
-        .zoom: (SpringParameters(response: 0.2, dampingFraction: 1), "A pane zooming to fill its screen (Cmd-Shift-Enter)."),
+        // The zoom key is pressed again and again: its two motions end (0.2 percent of the way left) under 0.2 s at
+        // each speed. 0.2 ended after 0.27 s, and after 0.34 s at `normal`; 0.095 ends after 0.13 s and 0.19 s.
+        .zoom: (SpringParameters(response: 0.095, dampingFraction: 1), "A pane zooming to fill its screen (Cmd-Shift-Enter)."),
         // 0.24 ended visibly at 283 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
         .exit: (SpringParameters(response: 0.2, dampingFraction: 1), "A window closing: its fade out (a pane close takes the paneClose spring)."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
@@ -62,12 +63,12 @@ public nonisolated enum MotionTunables {
         // 254 ms, over the ceiling (a 0.2 response would end at 236 ms).
         .pinDrag: (SpringParameters(response: 0.215, dampingFraction: 1),
                    "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing."),
-        // An exit ends sooner than its enter (`MotionPair`, MotionCapTests): each of these two takes
-        // 75% of the time of the motion that it undoes. 0.064 ends visibly at 75 ms (`split`, 0.085:
-        // 100 ms) and 0.15 at 177 ms (`zoom`, 0.2: 235 ms). Until 2026-11-16 a close ran on `split`
-        // and an unzoom on `zoom`.
+        // An exit ends sooner than its enter (`MotionPair`, MotionCapTests). A close takes 75% of a split's
+        // time: 0.064 ends visibly at 75 ms (`split`, 0.085: 100 ms). An unzoom takes 84% of a zoom's: 0.08
+        // ends visibly at 94 ms (`zoom`, 0.095: 112 ms); it was 0.15 (177 ms) with the zoom at 0.2. Until
+        // 2026-11-16 a close ran on `split` and an unzoom on `zoom`.
         .paneClose: (SpringParameters(response: 0.064, dampingFraction: 1), "A pane closing: its neighbours growing into its space, sooner than a split."),
-        .unzoom: (SpringParameters(response: 0.15, dampingFraction: 1), "A zoomed pane going back to its place, sooner than the zoom."),
+        .unzoom: (SpringParameters(response: 0.08, dampingFraction: 1), "A zoomed pane going back to its place, sooner than the zoom."),
     ]
 
     /// The spring of a token with no entry in `springDefaults` (every token has one today).

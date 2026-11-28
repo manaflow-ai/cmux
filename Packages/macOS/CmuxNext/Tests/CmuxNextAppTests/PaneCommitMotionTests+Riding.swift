@@ -73,13 +73,16 @@ extension PaneCommitMotionTests {
         #expect(!view.paneRidesCommitMotion, "the area shows no terminal, it waits for none, and the pane rides")
     }
 
-    /// A split's new terminal pane shows only its ground in the frame of its key: its area waits for the terminal.
-    /// It rides. An area that shows nothing and waits for no terminal does not.
+    /// A split's new terminal pane shows no view in the frame of its key: its area waits for the terminal. It rides,
+    /// with a ground or with none. An area that shows nothing and waits for no terminal does not, whatever its ground.
     @Test func aPaneThatWaitsForItsTerminalRides() {
         let (view, area) = Self.content()
         #expect(!view.paneRidesCommitMotion, "an area that shows nothing and waits for no terminal rides")
         area.waitingGround = CGColor(gray: 0.1, alpha: 1)
-        #expect(view.paneRidesCommitMotion, "an area that waits for its terminal does not ride")
+        #expect(!view.paneRidesCommitMotion, "a ground colour alone makes the pane ride: the wait is a fact of its own")
+        area.waitingGround = nil
+        area.waitsForContent = true
+        #expect(view.paneRidesCommitMotion, "an area that waits for its terminal, with no ground, does not ride")
         #expect(!NSView(frame: view.frame).paneRidesCommitMotion, "a view of no known kind rides")
     }
 

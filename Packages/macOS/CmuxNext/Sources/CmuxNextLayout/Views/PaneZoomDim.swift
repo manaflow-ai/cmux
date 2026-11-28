@@ -73,6 +73,9 @@ final class PaneZoomDim {
     /// the canvas's camera changes in the zoom's own turn, and a page's zoom is the page's act.
     func layoutWillChange(on screen: ScreenContentView, to layout: ScreenLayout, zoomed: Bool, structural: Bool, onCanvas: Bool,
                           waitsForFrame: Bool) {
+        let acts = structural || screen.zoomed != zoomed
+        if acts { begins(.arm) }
+        defer { if acts { ends(.arm) } }
         motion.layoutWillChange(on: screen, to: layout, zoomed: zoomed, structural: structural, still: presentsPage || onCanvas || !waitsForFrame)
         let zooming = !screen.zoomed && zoomed
         let unzooming = screen.zoomed && !zoomed
@@ -107,6 +110,10 @@ final class PaneZoomDim {
     /// zoom's move the dim comes over the panes that the zoom covers. In the pass that shows an unzoom, the dim shows
     /// over the others at its full strength, and goes.
     func panesPlaced(on screen: ScreenContentView) {
+        // A pass with no change that waits (a scroll's pass of each frame) reads no trace state here.
+        let acts = motion.waits
+        if acts { ends(.pass); begins(.place) }
+        defer { if acts { ends(.place) } }
         showMarks(on: screen)
         // A zoom's dim still showed when this pass came: a second key came in the zoom's move.
         let zoomDimShowed = phase == .zooming
@@ -126,28 +133,33 @@ final class PaneZoomDim {
         returning = nil
         let fade = self.fade(on: screen)
         guard fade > 0, let view = place(around: pane, on: screen) else { return leave() }
+        // The dim ends with the move of the pane that closes, by the motion's own time: no dim shows over panes that
+        // are at their places. With no move the fade is the pane veil's.
+        let limit = motion.inFlight ? motion.remaining : nil
         // An unzoom in a zoom's move lets that zoom's dim go from the strength it shows: no step up to its full strength.
-        view.fadeOut(continuing: zoomDimShowed)
+        view.fadeOut(continuing: zoomDimShowed, atMost: limit)
         if let before, started?.act == .unzoom {
             // The hole goes with the pane that closes to its place: the dim never covers that pane.
             let spring = PaneCommitMotion.Act.unzoom.spring
             view.moveHole(from: before) { part, origin, size in motion.move(part, spring, origin: origin, size: size) }
         }
         phase = .going
-        remaining = fade
+        remaining = min(fade, limit ?? fade)
         screen.context.requestFrames()
     }
 
-    /// The dim comes with the move of the pane that zooms: over `screen` less that pane's content rect, on the pane
-    /// veil's fade, from nothing or from the strength that a dim that was going shows. Its hole goes with the pane,
-    /// from the pane's content rect before the zoom, on the zoom's spring. The frame that ends the move takes the
+    /// The dim comes with the move of the pane that zooms: over `screen` less that pane's hole (``hole(of:on:)``), on
+    /// the pane veil's fade, from nothing or from the strength that a dim that was going shows. Its hole goes with the
+    /// pane, from the pane's hole before the zoom, on the zoom's spring. The frame that ends the move takes the
     /// dim away (``step(_:)``).
     private func come(with zoom: PaneCommitMotion.Change, on screen: ScreenContentView) {
         let continuing = self.view?.superview != nil
         let before = holeBefore
         holeBefore = nil
         guard let view = place(around: zoom.host.pane, on: screen) else { return leave() }
-        view.fadeIn(continuing: continuing)
+        // The panes that the zoom covers show no veil from this frame (`PaneCommitMotion.keepUnder` hides their
+        // rings): the dim starts at the strength of the strongest veil that one of them had.
+        view.fadeIn(continuing: continuing, over: motion.under.map { $0.host.chrome.dimStrength }.max() ?? 0)
         if let before {
             let spring = PaneCommitMotion.Act.zoom.spring
             view.moveHole(from: before) { part, origin, size in motion.move(part, spring, origin: origin, size: size) }
@@ -173,7 +185,7 @@ final class PaneZoomDim {
         marked = zoomed
     }
 
-    /// The dim's view over `screen` less `pane`'s content rect as the pane shows now, in the layout's overlay plane.
+    /// The dim's view over `screen` less `pane`'s hole as the pane shows now, in the layout's overlay plane.
     private func place(around pane: PaneID, on screen: ScreenContentView) -> PaneZoomDimView? {
         guard let root = screen.superview as? LayoutRootView, let hole = hole(of: pane, on: screen) else { return nil }
         let view = self.view ?? PaneZoomDimView()
@@ -182,10 +194,14 @@ final class PaneZoomDim {
         return view
     }
 
-    /// `pane`'s content rect as the pane shows on `screen` now, in the coordinates of the layout's overlay plane.
+    /// The dim's hole for `pane` as the pane shows on `screen` now, in the coordinates of the layout's overlay plane:
+    /// the hole is the growing pane's cell; in the card style it is its card. Under the band of padding round a
+    /// pane's content is the pane's own ground, or the window's backdrop, and nothing of another pane: the pane does
+    /// not dim there. In a chrome style with a card for each pane (`PaneHostView.wholeCard`) the gap round the card
+    /// can show a pane that the move keeps under: that pane dims there.
     private func hole(of pane: PaneID, on screen: ScreenContentView) -> CGRect? {
         guard let root = screen.superview as? LayoutRootView, let host = screen.context.hosts[pane], host.superview === screen else { return nil }
-        return root.convert(host.contentRect, from: host)
+        return root.convert(host.wholeCard ? host.contentRect : host.bounds, from: host)
     }
 
     /// Ends the dim and the panes' move now: the screen's size changed, the screen goes out of sight, or no motion
