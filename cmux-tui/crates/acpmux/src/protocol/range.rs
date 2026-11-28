@@ -88,12 +88,90 @@ const INVALID_REQUEST: i64 = -32600;
 
 /// The JSON-RPC refusal a daemon answers a hello it shares no ABI with.
 pub fn refusal(ours: AbiRange, theirs: AbiRange) -> crate::rpc::RpcError {
-    let (message, recovery, details) = incompatible(ours, theirs, "this client");
-    crate::rpc::RpcError::new(INVALID_REQUEST, message).with_data(json!({
+    refusal_of(ours, theirs, "this client")
+}
+
+/// [`refusal`], naming the other side `peer` (`the peer daemon`, `the daemon`).
+pub fn refusal_of(ours: AbiRange, theirs: AbiRange, peer: &str) -> crate::rpc::RpcError {
+    let (message, recovery, details) = incompatible(ours, theirs, peer);
+    crate::rpc::RpcError::new(INVALID_REQUEST, message).with_data(typed(recovery, details))
+}
+
+/// The `data` of a `version.incompatible` refusal: its kind, the sentence that says what to do,
+/// and the two ranges with the side to update.
+pub fn typed(recovery: String, details: Value) -> Value {
+    json!({
         "errorKind": crate::recovery::kind::VERSION_INCOMPATIBLE,
         "recovery": recovery,
         "details": details,
-    }))
+    })
+}
+
+/// The check a side that sent a hello makes on the answer (a peer link's `initialize` reply):
+/// an answer that names an ABI range sharing nothing with this build's is refused, typed, as the
+/// far side would refuse the hello. An answer that names no `abi` is a build from before the
+/// field and is served as before.
+pub fn check_reply(reply: &Value, peer: &str) -> Result<(), crate::rpc::RpcError> {
+    if reply.pointer("/_meta/acpmux/abi").is_none() {
+        return Ok(());
+    }
+    let (ours, theirs) = (AbiRange::ours(), AbiRange::of(reply));
+    match ours.common(theirs) {
+        Some(_) => Ok(()),
+        None => Err(refusal_of(ours, theirs, peer)),
+    }
+}
+
+/// A refusal as one line for a link's last error: its message, then, for a typed
+/// `version.incompatible`, the sentence that says which side to update. Any other error is its
+/// message alone.
+pub fn describe(error: &crate::rpc::RpcError) -> String {
+    let data = error.data.as_ref();
+    let kind = data.and_then(|d| d.get("errorKind")).and_then(Value::as_str);
+    match data.and_then(|d| d.get("recovery")).and_then(Value::as_str) {
+        Some(recovery) if kind == Some(crate::recovery::kind::VERSION_INCOMPATIBLE) => {
+            format!(
+                "{} ({}): {recovery}",
+                error.message,
+                crate::recovery::kind::VERSION_INCOMPATIBLE
+            )
+        }
+        _ => error.message.clone(),
+    }
+}
+
+/// The message and typed `data` for an agent host whose protocol range
+/// (`agent_host::{PROTOCOL_MIN, PROTOCOL_MAX}`) shares no revision with this daemon's: the host
+/// answered its hello `Incompatible`.
+///
+/// The agent host's own protocol range (`agent_host::{PROTOCOL_MIN, PROTOCOL_MAX}`): a host that
+/// answered `Incompatible` shares no revision with this daemon. It runs the build that started
+/// it until its agent ends, so no update of the host fixes it: the side to update is this
+/// daemon when the host is newer, and the chat, restarted on this build, when it is older.
+pub fn agent_host_incompatible(
+    ours: (u16, u16),
+    theirs: (u16, u16),
+    host_build: &str,
+) -> (String, Value) {
+    let (ours, theirs) = (
+        AbiRange { min: ours.0.into(), max: ours.1.into() },
+        AbiRange { min: theirs.0.into(), max: theirs.1.into() },
+    );
+    let side = update_side(ours, theirs);
+    let message = format!(
+        "the agent host (build {host_build}) speaks agent-host protocol {}..={}, and this daemon {}..={}: no revision in common",
+        theirs.min, theirs.max, ours.min, ours.max
+    );
+    let recovery = if side == "peer" {
+        "the agent host is older than this daemon serves: restart the chat to start its agent on this build.".to_owned()
+    } else {
+        "the agent host is newer than this daemon speaks: run `acpmux host self-update` here."
+            .to_owned()
+    };
+    let details = json!({"ours": ours.json(), "theirs": theirs.json(), "update": side, "link": "agent-host", "hostBuild": host_build});
+    let mut data = typed(recovery, details);
+    data["message"] = json!(message);
+    (message, data)
 }
 
 #[cfg(test)]

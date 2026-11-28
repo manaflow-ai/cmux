@@ -829,10 +829,16 @@ impl Hub {
                     hold.take();
                     return Ok(());
                 }
-                self.mark_unadoptable(
-                    session,
-                    json!({"hostProtocol": [min, max], "hostBuild": host_build}),
+                // Typed `version.incompatible` (`protocol/range.rs`), so the chat says which side to
+                // update; `hostProtocol` and `hostBuild` stay for readers from before.
+                let (_, mut detail) = crate::protocol::range::agent_host_incompatible(
+                    (agent_host::PROTOCOL_MIN, agent_host::PROTOCOL_MAX),
+                    (min, max),
+                    &host_build,
                 );
+                detail["hostProtocol"] = json!([min, max]);
+                detail["hostBuild"] = json!(host_build);
+                self.mark_unadoptable(session, detail);
                 return Ok(());
             }
         };

@@ -26,9 +26,15 @@ use std::sync::{Mutex, OnceLock};
 /// `omitted`, so a fleet of many builds costs a bounded map.
 const MAX_ROWS: usize = 256;
 
-/// Puts this build's `abi` and `build` into a hello's `_meta.acpmux` map.
+/// Puts this build's `abi`, `abiMin` (the oldest revision it still speaks, `protocol/range.rs`)
+/// and `build` into a hello's `_meta.acpmux` map. Every hello carries the range: the local
+/// client's, and a peer link's to another daemon.
 pub fn stamp(meta: &mut serde_json::Map<String, Value>) {
     meta.insert("abi".to_owned(), json!(crate::protocol::ABI));
+    meta.insert(
+        crate::protocol::range::ABI_MIN_FIELD.to_owned(),
+        json!(crate::protocol::range::ABI_MIN),
+    );
     meta.insert("build".to_owned(), json!(crate::hub::build()));
 }
 

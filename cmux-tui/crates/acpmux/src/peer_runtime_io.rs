@@ -202,7 +202,8 @@ impl Peer {
                 // What this build reads (`server/client_features.rs`): the peer sends a gated
                 // notification only once it is listed.
                 crate::server::client_features::FIELD: crate::server::client_features::own()}}});
-        // The ABI hello (`abi_hello.rs`): this build's revision and build id.
+        // The ABI hello (`abi_hello.rs`): this build's revision, the oldest it still speaks, and
+        // its build id. The far daemon refuses one it shares no revision with, typed.
         if let Some(meta) = hello.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
             crate::abi_hello::stamp(meta);
         }
@@ -467,6 +468,9 @@ impl Peer {
                 init
             })
             .await?;
+            // A far daemon from before the range check answers any hello: this side refuses one
+            // it shares no ABI with, typed, so the link's error names which side to update.
+            crate::protocol::range::check_reply(&init, "the peer daemon")?;
             let v = init
                 .pointer("/_meta/acpmux/version")
                 .and_then(Value::as_str)
@@ -1083,7 +1087,10 @@ impl Peer {
                 ended = &mut handshake, if !handshake_ended => {
                     handshake_ended = true;
                     match ended {
-                        Ok(Err(e)) => break Err(format!("handshake failed: {}", e.message)),
+                        Ok(Err(e)) => break Err(format!(
+                            "handshake failed: {}",
+                            crate::protocol::range::describe(&e)
+                        )),
                         Err(e) => break Err(format!("handshake failed: {e}")),
                         Ok(Ok(())) if !self.link().is_ready() => {
                             // The stale-token path sends its reason before it returns.

@@ -109,6 +109,9 @@ pub mod liveness;
 #[path = "peer_liveness_tests.rs"]
 mod liveness_tests;
 #[cfg(test)]
+#[path = "peer_abi_range_tests.rs"]
+mod peer_abi_range_tests;
+#[cfg(test)]
 #[path = "peer_pipeline_tests.rs"]
 mod pipeline_tests;
 

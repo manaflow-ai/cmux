@@ -1778,7 +1778,18 @@ impl ChildAgent {
         let after = *h.logged.borrow();
         let link: Arc<crate::agent_host::link::Link> = match connect(record, after).await? {
             Connect::Ready(link, _) => Arc::from(link),
-            Connect::Incompatible { .. } => return Err(anyhow!("agent host refused this build")),
+            Connect::Incompatible { min, max, host_build } => {
+                let (message, data) = crate::protocol::range::agent_host_incompatible(
+                    (crate::agent_host::PROTOCOL_MIN, crate::agent_host::PROTOCOL_MAX),
+                    (min, max),
+                    &host_build,
+                );
+                let recovery = data["recovery"].as_str().unwrap_or_default();
+                return Err(anyhow!(
+                    "{message} ({}): {recovery}",
+                    crate::recovery::kind::VERSION_INCOMPATIBLE
+                ));
+            }
         };
         {
             // Under the requests' lock: `fail_pending_if_unheard` sees the link whole or not, and
