@@ -3972,18 +3972,6 @@ body {
     animation-name: cmux-continuous-shimmer-lit-wide;
   }
 }
-/* SHIMMER-SHEDS-UNDER-LOAD: the chat's minimal motion (frameBudget.ts, MINIMAL-MOTION in
-   composerStates.css) holds the sweep too. In WebKit the masked band and its lit copy are not
-   composited: each frame of a pass restyles and repaints the line, and under a streaming 100k-row
-   chat that pushed the typed key's paint p99 past its budget (composer-typing L3 WebKit on a pool
-   host: 47 to 75 ms against 38.67). The band rests hidden, as it does between passes; the words keep
-   their dim tone and the next pass after the chat is back in budget sweeps as before. */
-[data-chat-motion="minimal"] :is(.cv-shimmer__band, .cv-shimmer__lit, .cv-row-shimmer__band, .cv-row-shimmer__lit) {
-  animation: none !important;
-}
-[data-chat-motion="minimal"] :is(.cv-shimmer__band, .cv-row-shimmer__band) {
-  visibility: hidden !important;
-}
 /* A look's band width (agentPane.display.thinking.shimmerBand, px; 0 keeps the band half the line): the
    lit window is that wide on any line, short or long, as Claude's two or three words are. The band layer
    starts one band width before the words and ends where they end, and its mask is the window at the
@@ -9075,6 +9063,24 @@ button.cv-user__file-open:focus-visible {
 article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
 article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
   top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
+}
+/* A person's own message right over another of theirs: the two stick together, the footer gap apart
+   (transcriptGrid.ts), so the upper one's action row has no gap to sit in. It sits beside its bubble
+   instead, bottom-aligned at the bubble's inner edge (flipped when the look puts bubbles on the left), with
+   no layout room, so hovering still moves nothing. */
+@supports (anchor-name: --cv-user-bubble) {
+  .cv-user__bubble {
+    anchor-name: --cv-user-bubble;
+  }
+  article.acpmux-row--before-own-message .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
+  article.acpmux-row--before-own-message .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
+    position-anchor: --cv-user-bubble;
+    top: auto;
+    bottom: anchor(bottom);
+    right: anchor(left);
+    margin: 0 var(--grid-gap-footer) calc((var(--cv-line-height) + 2 * var(--grid-gap-footer) - var(--cv-meta-row)) / 2) 0;
+    position-try-fallbacks: flip-inline;
+  }
 }
 
 

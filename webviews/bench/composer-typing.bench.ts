@@ -308,10 +308,6 @@ async function measure(
   const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
-    // The shipped chat sheds motion under sustained load (frameBudget.ts); its WebDriver opt-out exists so
-    // unrelated suites see stable motion. This bench measures typing under that load, so run what ships,
-    // as send-pop-frames / send-paint-probe / send-motion-pass do.
-    await page.addInitScript(() => Object.assign(window, { cmuxFrameBudget: "on" }));
     if (mode.startsWith("L") || engine === "webkit") {
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
       // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.

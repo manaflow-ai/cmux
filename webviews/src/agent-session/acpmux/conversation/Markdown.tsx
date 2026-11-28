@@ -6,7 +6,17 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode, useLayoutEffect } from "react";
+import {
+  Fragment,
+  memo,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  useLayoutEffect,
+} from "react";
 
 import { CodeBlock } from "./CodeBlock";
 import { InlinePreview } from "./InlinePreview";
@@ -378,8 +388,8 @@ function closedInline(prefix: string): boolean {
 /// a re-render never writes the span's style again. Before, every streamed commit (60 a second under a
 /// stream) wrote each live span a new delay; WebKit re-timed each fade and restyled and repainted the
 /// reply's tail in every frame, and the re-timing ran each fade on by the time since its first frame
-/// again, so it ended early. composer-typing L3 WebKit, pool host: key paint p99 125 to 136 ms with the
-/// fades, 43 to 52 ms with none.
+/// again, so it ended early. composer-typing L3 WebKit, one pool host, three rounds: key paint p99
+/// 77/120/42 ms before, 48/46/42 ms after.
 function FreshSpan({ delay, children }: { delay: number; children: ReactNode }) {
   const [style] = useState<CSSProperties>(() => ({ animationDelay: `${delay}ms` }));
   return (
