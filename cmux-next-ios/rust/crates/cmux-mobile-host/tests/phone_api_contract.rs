@@ -123,22 +123,13 @@ fn swift_app_uses_only_listed_acpmux_methods() {
 
 #[test]
 fn every_served_link_service_is_listed() {
-    let services =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services.rs")).unwrap();
-    let start = services.find("let result = match service.as_str() {").expect("services.rs dispatch");
-    let end = start + services[start..].find("unknown_service").expect("dispatch end");
+    // services.rs dispatches on `HostService`, one arm per variant with no
+    // unguarded wildcard, so the compiler holds every variant served; each one
+    // must then be listed for the phone contract.
+    use cmux_mobile_link::names::HostService;
     let listed: BTreeSet<&str> = LINK_SERVICES.iter().map(|s| s.name).collect();
-    let mut missing = Vec::new();
-    for line in services[start..end].lines() {
-        let arm = line.trim_start();
-        if let Some(rest) = arm.strip_prefix('"')
-            && let Some((name, tail)) = rest.split_once('"')
-            && tail.trim_start().starts_with("=>")
-            && !listed.contains(name)
-        {
-            missing.push(name.to_owned());
-        }
-    }
+    let missing: Vec<&str> =
+        HostService::ALL.iter().map(|s| s.as_str()).filter(|name| !listed.contains(name)).collect();
     assert!(missing.is_empty(), "services.rs serves {missing:?}, which api.rs LINK_SERVICES does not list");
     let mut seen = BTreeSet::new();
     for service in LINK_SERVICES {
