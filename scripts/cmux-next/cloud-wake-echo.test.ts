@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { causeOf, pauseHeld, streakStop, IDLE_STREAK, earlyResume, pauseWithReconciliation, phasesOf, restoreParts, restoreSplit, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
+import { causeOf, invalidTiming, NO_WAKE_CAUSES, runnerNow, pauseHeld, streakStop, IDLE_STREAK, earlyResume, pauseWithReconciliation, phasesOf, restoreParts, restoreSplit, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
 
 const cycle = (i: number, ok: boolean, marks: WakeCycle["marks_ms"]): WakeCycle => ({
   i, ok, error: ok ? "" : "boom", at: "", paused_ms: 1, answered_ms: 1, first_exec_ms: 1, offset_ms: 0, offset_rtt_ms: 1, offset_pre_ms: 0,
@@ -235,4 +235,51 @@ test("no-wake cycles do not count toward the failure streak; a long run of them 
   expect(streakStop([down, nohold, down, early, down], 3)).toBe("3 failed cycles in a row");
   expect(streakStop([down, down, { ok: true, error: "", guest: null }, down], 3)).toBe("");
   expect(streakStop(Array(IDLE_STREAK).fill(nohold), 3)).toBe(`${IDLE_STREAK} cycles in a row measured no wake`);
+});
+
+test("a negative phase inside the offset's error fails the cycle as invalid timing (runs 46179135080, 46183663043)", () => {
+  // Cycle #2's shape: restore -1282 ms passed earlyResume at a wide round trip and was counted ok with a warning.
+  expect(earlyResume(-1282, 3000)).toBe("");
+  const bad = invalidTiming(phasesOf({ resumed: -1282, net_up: -1100, pty_attach: -1000, input: -1000, echo: -950 }).phases);
+  expect(bad).toMatch(/^invalid timing: restore -1282 ms, total -950 ms/);
+  expect(causeOf({ error: bad, guest: null })).toBe("invalid timing (clock)");
+  expect(NO_WAKE_CAUSES.has("invalid timing (clock)")).toBe(true);
+  expect(invalidTiming(phasesOf({ resumed: 1000, net_up: 1500, pty_attach: 1700, input: 1690, echo: 1750 }).phases)).toBe("");
+});
+
+test("runnerNow only moves forward and sits on the epoch", () => {
+  const a = runnerNow();
+  const b = runnerNow();
+  expect(b).toBeGreaterThanOrEqual(a);
+  expect(Math.abs(a - Date.now())).toBeLessThan(60_000);
+});
+
+test("a cycle whose guest marks go negative after the offset fails, and no percentile counts it", async () => {
+  let status = "running";
+  let wokeAt = 0;
+  const phases: WakeCycle["phases"][] = [];
+  const exec = async (cmd: string) => {
+    if (cmd.includes("@@armed_at")) return { code: 0, stdout: `@@probe 1\n@@armed_at ${Math.round(runnerNow())}\n`, stderr: "" };
+    if (cmd.startsWith("date ")) return { code: 0, stdout: `${Math.round(runnerNow())}\n`, stderr: "" };
+    if (cmd.startsWith("cat /tmp/wake-echo/result.")) {
+      // The network came up before the guest ran again: impossible, so the offset (or the guest clock) is wrong.
+      const w = wokeAt;
+      return { code: 0, stdout: JSON.stringify({ resumed_wall: w + 500, net_up_at: w + 300, pty_attach_at: w + 600, input_at: w + 600, echo_at: w + 650 }) + "\n@@done\n", stderr: "" };
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const cycles = await runWakeEcho({
+    exec, guest: "", netHost: "h", netPort: 443, holdMs: 0, log: () => {}, onCycle: (all) => phases.push(all.at(-1)!.phases), failStreak: 3, settleMs: 1_000,
+    status: async () => status,
+    pause: async () => { status = "paused"; return 10; },
+    wake: async () => { wokeAt = runnerNow(); status = "running"; },
+    sleep: async () => {},
+  }, 1);
+  expect(cycles[0]!.ok).toBe(false);
+  expect(cycles[0]!.error).toMatch(/^invalid timing: net_up -\d+ ms/);
+  expect(causeOf(cycles[0]!)).toBe("invalid timing (clock)");
+  const s = summarize(cycles);
+  expect(s.echoed).toBe(0);
+  expect(s.rows.every((r) => r.n === 0 && r.p50 === null)).toBe(true);
+  expect(s.causes).toEqual({ "invalid timing (clock)": 1 });
 });

@@ -138,7 +138,7 @@ import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoStart, execConformanceCargoWait, execConformanceCase, execConformanceOn, execConformanceProbe, JOURNEY_ACPMUX_DIR, JOURNEY_ACPMUX_MAX_BYTES, journeyAcpmuxAssemble, journeyAcpmuxPieces, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
+import { pauseWithReconciliation, runnerNow, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
@@ -6543,11 +6543,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           status: async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
           pause: async () => {
             await resignIfOld();
-            const t0 = Date.now();
+            const t0 = runnerNow();
             const deadlineAt = t0 + 180_000;
             const key = `${tag}-we-pause-${k++}`;
             return pauseWithReconciliation(
-              () => api.raw("POST", "/v1/ops", { op: "cloud.machine.pause", params: { machine: created.id }, idempotency_key: key }, Math.max(1, deadlineAt - Date.now())),
+              () => api.raw("POST", "/v1/ops", { op: "cloud.machine.pause", params: { machine: created.id }, idempotency_key: key }, Math.max(1, deadlineAt - runnerNow())),
               async (timeoutMs) => String((await row(timeoutMs))?.status ?? "unread"),
               t0,
               180_000,
@@ -6555,9 +6555,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           },
           wake: (recordAttempt) => startWithRetry(
             async (key) => {
-              const sent = Date.now();
+              const sent = runnerNow();
               const r = await api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000);
-              const answered = Date.now();
+              const answered = runnerNow();
               const timing = parseServerTiming(r.headers?.get("server-timing"));
               const metrics = Object.fromEntries(Object.entries(timing ?? {}).filter(([name, ms]) =>
                 ["provider", "vmapi", "bind", "pre", "finish", "total"].includes(name) && Number.isFinite(ms)));
