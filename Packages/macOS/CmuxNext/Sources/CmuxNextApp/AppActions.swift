@@ -143,9 +143,7 @@ enum AppActions {
         VoiceRoomHandlers.bind(into: registry, context: context); laps.lap("post_frame.VoiceRoomHandlers"); NowPlayingCardHandlers.bind(into: registry, context: context); laps.lap("post_frame.NowPlayingCardHandlers")
         PictureInPictureHandlers.bind(into: registry, context: context); laps.lap("post_frame.PictureInPictureHandlers"); StatsPageTab.bind(into: registry, context: context); laps.lap("post_frame.StatsPageTab")
         AccountsHandlers.bind(into: registry, context: context); laps.lap("post_frame.AccountsHandlers"); ProfileMenuHandlers.bind(into: registry, context: context); laps.lap("post_frame.ProfileMenuHandlers")
-        // Terminal actions (copy, paste, find, text box, keep, copy mode): every reader is a key, menu, context menu or palette
-        // row the person opens after the frame, and the gate runs this in the frame's commit, before any input is read.
-        TerminalHandlers.bind(into: registry, context: context); laps.lap("post_frame.TerminalHandlers")
+        TerminalHandlers.bind(into: registry, context: context); laps.lap("post_frame.TerminalHandlers") // read only by keys, menus and palette rows opened after the frame; the gate runs this before any input
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
