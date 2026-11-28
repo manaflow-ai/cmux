@@ -946,7 +946,7 @@ def github_context(event_name, ref="refs/heads/main", **variables):
 
 class Wiring(unittest.TestCase):
     def test_only_the_nightly_seeder_writes_the_seed_and_admission_reads_the_same_key(self):
-        seeder = steps("nightly.yml", "refresh-test-compilation-cache")
+        seeder = steps("nightly-compilation-cache.yml", "refresh-test-compilation-cache")
         record_at, _ = named(seeder, "Record DerivedData seed inputs")
         build_at, _ = named(seeder, "Build the app-host test product")
         save_at, save = named(seeder, "Save DerivedData seed")

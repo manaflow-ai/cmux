@@ -6,6 +6,10 @@ name: Nightly compilation cache refresh
 on:
   workflow_call:
     inputs:
+      runs-on:
+        description: The runner nightly.yml picks (its runs-on expression, read by the fleet-runner guard there)
+        required: true
+        type: string
       head_sha:
         required: true
         type: string
@@ -35,8 +39,7 @@ jobs:
       attestations: write
       id-token: write
     # Why: docs/ci/nightly-workflow-notes/2026-11-25-cloud-cache-warmer.md
-    # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ inputs.runs-on }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-compilation-cache-3.md
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 210 || 90 }}
@@ -202,7 +205,7 @@ jobs:
       fail-fast: false
       matrix:
         pool:
-          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+          - ${{ inputs.runs-on }}
     runs-on: ${{ matrix.pool }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 195 || 75 }}

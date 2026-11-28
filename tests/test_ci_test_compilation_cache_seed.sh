@@ -10,6 +10,10 @@ CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 NIGHTLY_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-expanded.XXXXXX")"
 trap 'rm -f "$NIGHTLY_FILE"' EXIT  # the TMP_DIR trap below removes it too
 python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$NIGHTLY_FILE"
+# The seeder runs in nightly-compilation-cache.yml, which nightly.yml's refresh-compilation-caches job calls.
+CACHE_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-cache-expanded.XXXXXX")"
+trap 'rm -f "$NIGHTLY_FILE" "$CACHE_FILE"' EXIT
+python3 "$ROOT_DIR/tests/nightly_workflow_text.py" nightly-compilation-cache.yml > "$CACHE_FILE"
 SCRIPT="$ROOT_DIR/scripts/ci/compile-app-host-test-product.sh"
 
 # Prints one job's body.
@@ -22,10 +26,12 @@ job_body() {
 }
 
 ADMISSION="$(job_body "$CI_FILE" "macos-compile-admission")"
-SEEDER="$(job_body "$NIGHTLY_FILE" "refresh-test-compilation-cache")"
+SEEDER="$(job_body "$CACHE_FILE" "refresh-test-compilation-cache")"
+SEED_CALLER="$(job_body "$NIGHTLY_FILE" "refresh-compilation-caches")"
 
-if [ -z "$ADMISSION" ] || [ -z "$SEEDER" ]; then
-  echo "FAIL: expected ci-macos.yml macos-compile-admission and nightly.yml refresh-test-compilation-cache"
+if [ -z "$ADMISSION" ] || [ -z "$SEEDER" ] || [ -z "$SEED_CALLER" ]; then
+  echo "FAIL: expected ci-macos.yml macos-compile-admission, nightly-compilation-cache.yml refresh-test-compilation-cache"
+  echo "      and nightly.yml refresh-compilation-caches (its caller)"
   exit 1
 fi
 
@@ -85,7 +91,7 @@ echo "PASS: pull requests skip the test compilation cache and keep the fingerpri
 # Nothing reads the Debug compilation cache, so the seeder no longer restores,
 # bounds or saves it. Each run uploaded a multi-GB CAS
 # that no job restored. Its local CAS stays: the build still takes a path.
-if grep -Fq 'xcode-compilation-test-' "$NIGHTLY_FILE" \
+if grep -Fq 'xcode-compilation-test-' "$NIGHTLY_FILE" "$CACHE_FILE" \
   || grep -Eq '^      - name: (Restore|Bound|Save) test compilation cache' <<<"$SEEDER"; then
   echo "FAIL: refresh-test-compilation-cache must not restore, bound or save the test compilation cache;"
   echo "      no job reads it. The DerivedData seed is what admission adopts."
@@ -93,7 +99,7 @@ if grep -Fq 'xcode-compilation-test-' "$NIGHTLY_FILE" \
 fi
 echo "PASS: the seeder writes only the DerivedData seed, not the unread test compilation cache"
 
-if ! grep -Eq "if: github\.event_name == 'schedule'" <<<"$SEEDER"; then
+if ! grep -Eq "if: github\.event_name == 'schedule'" <<<"$SEED_CALLER" || ! grep -Fq 'uses: ./.github/workflows/nightly-compilation-cache.yml' <<<"$SEED_CALLER"; then
   echo "FAIL: refresh-test-compilation-cache must stay on the cache-warming schedule so it does not take a macOS slot per merge"
   exit 1
 fi
@@ -101,7 +107,7 @@ echo "PASS: the seeder runs on the cache-warming schedule"
 
 # Exercise the script against a stub xcodebuild.
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR" "$NIGHTLY_FILE"' EXIT
+trap 'rm -rf "$TMP_DIR" "$NIGHTLY_FILE" "$CACHE_FILE"' EXIT
 mkdir -p "$TMP_DIR/bin" "$TMP_DIR/work"
 cat > "$TMP_DIR/bin/xcodebuild" <<'STUB'
 #!/usr/bin/env bash

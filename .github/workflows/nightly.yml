@@ -1233,8 +1233,7 @@ jobs:
       target_sha: ${{ inputs.probe_target_sha || github.sha }}
       mode: ${{ inputs.probe_mode }}
 
-  # The compilation-cache refreshers live in nightly-compilation-cache.yml (kept under the size budget); the
-  # six-hour schedule and seed_only dispatch still start them from here, after decide, at decide's commit.
+  # The compilation-cache refreshers (nightly-compilation-cache.yml, out of this file for its size budget).
   refresh-compilation-caches:
     permissions:
       contents: write
@@ -1247,6 +1246,8 @@ jobs:
     with:
       head_sha: ${{ needs.decide.outputs.head_sha }}
       cache_backend: ${{ inputs.cache_backend || 'default' }}
+      # The PR Release-build runner, so its cache is reusable; named here, where the fleet-runner guard reads it.
+      runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     secrets:
       CI_CACHE_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
       CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
