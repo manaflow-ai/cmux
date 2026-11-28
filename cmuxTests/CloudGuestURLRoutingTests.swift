@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -107,5 +108,53 @@ struct CloudGuestURLRoutingTests {
         let coordinator = TerminalLinkOpenCoordinator(defaults: defaults, containerResolver: { _, _ in container })
         #expect(!coordinator.open(TerminalLinkOpenRequest(rawValue: "https://example.com", sourceWorkspaceId: UUID(),
                                                         sourcePanelId: UUID(), workingDirectory: nil, focus: false)))
+    }
+
+    @Test func filePreviewAdmissionRequiresOneLiveProjectionInItsOwningWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            defer {
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                appDelegate.tabManager = nil
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let selected = manager.addWorkspace(select: true)
+            let owner = manager.addWorkspace(select: false)
+            let ownerPanel = try #require(owner.focusedPanelId)
+            let catalog = SurfaceCatalog()
+            let machine = SurfaceMachineID.cloud("guest-file-preview-\(UUID())")
+            let links = CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil })
+            let provider = CmuxTuiSurfaceProvider(
+                summary: VMSummary(id: machine.rawValue, provider: "fixture", status: "running", image: "fixture", createdAt: 0, base: nil),
+                links: links,
+                catalog: catalog
+            )
+            let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_preview")
+
+            // An unregistered provider fails closed even if a projection record exists.
+            catalog.record(SurfaceProjection(resource: resource, workspaceID: owner.id, panelID: ownerPanel))
+            #expect(provider.guestURLContext(terminalID: resource.key) == nil)
+
+            catalog.register(provider)
+            let admitted = try #require(provider.guestURLContext(terminalID: resource.key))
+            #expect(admitted.sourceWorkspaceId == owner.id)
+            #expect(admitted.sourcePanelId == ownerPanel)
+            #expect(admitted.sourceWorkspaceId != selected.id)
+
+            let pane = try #require(owner.bonsplitController.focusedPaneId)
+            let duplicatePanel = try #require(owner.newTerminalSurface(inPane: pane, focus: false)).id
+            catalog.record(SurfaceProjection(resource: resource, workspaceID: owner.id, panelID: duplicatePanel))
+            #expect(provider.guestURLContext(terminalID: resource.key) == nil)
+
+            catalog.endProjections(panelID: duplicatePanel, reason: .replaced)
+            provider.suspendForFeatureFlag()
+            #expect(provider.guestURLContext(terminalID: resource.key) == nil)
+            catalog.unregister(machine: machine)
+        }
     }
 }

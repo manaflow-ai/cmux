@@ -11,6 +11,7 @@ mod agent_vocabulary;
 mod attention;
 mod command;
 mod lifecycle;
+mod open;
 mod pane_identify;
 mod pane_move;
 mod raw;
@@ -45,6 +46,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "projection",
     "provider",
     "raw",
+    "open",
 ];
 
 const REMOTE_COMMANDS: &[&str] = &[
@@ -274,6 +276,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             CommandPlan::Identify => pane_identify::run(&global),
             CommandPlan::SkillShow => skill::run(&global),
             CommandPlan::Agent(command) => agent_start::run(&global, &command),
+            CommandPlan::Open(plan) => open::run(global, plan),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -359,7 +362,7 @@ fn parse_command(
 }
 
 /// Commands this CLI answers itself, beside the resource scopes.
-const LOCAL_COMMANDS: &[&str] = &["identify", "skill"];
+const LOCAL_COMMANDS: &[&str] = &["identify", "skill", "open"];
 
 /// `identify` and `skill [show]`, with `--help` as their own help topic;
 /// `None` for every other command.
@@ -393,6 +396,8 @@ fn parse_local_command(
             let message = crate::localization::catalog().pane_cli.skill_arguments;
             return Err(UsageError::new(message.replace("{words}", &rest.join(" "))));
         }
+        "open" if help() => return Ok(Some(ParsedCommand::Help(Some("open".into())))),
+        "open" => CommandPlan::Open(open::parse(rest)?),
         _ => return Ok(None),
     };
     Ok(Some(ParsedCommand::Command { global: global.clone(), plan }))
@@ -630,6 +635,7 @@ fn scope_help_for(
         "raw" => Cow::Borrowed(RAW_HELP),
         "identify" => Cow::Borrowed(catalog.pane_cli.identify_help),
         "skill" => Cow::Borrowed(catalog.pane_cli.skill_help),
+        "open" => Cow::Borrowed(catalog.open.help),
         _ => return Cow::Owned(root_help(catalog)),
     };
     if scope == "server" || !PUBLIC_SCOPES.contains(&scope) {
@@ -690,6 +696,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "  machine       Inspect the local machine
   projection    Read and update frontend projections
   provider      Install private provider authority
   raw           Send an explicit low-level operation
+  open          Request a remote preview of a guest file
 
 Run `cmux <scope> --help` for scope-specific paths, and add --help to an
 action for its options.

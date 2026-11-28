@@ -12,8 +12,10 @@ final class CloudGuestURLService {
     private let executable: URL?
     private let machineID: String
     private let resolve: (String) -> TerminalLinkOpenRequest?
+    private let deliverFilePreview: @MainActor (CloudGuestFilePreviewRequest, TerminalLinkOpenRequest) async -> Bool
     private var process: Process?
     private var reader: Task<Void, Never>?
+    private var deliveries: [UUID: Task<Void, Never>] = [:]
     private var terminals: [String] = []
     private var socketPath: String?
     private var link: CloudMachineLink?
@@ -21,10 +23,16 @@ final class CloudGuestURLService {
     private var admission = CloudMachineNotificationGate()
     private var subscription = CloudGuestURLSubscriptionState()
 
-    init(machineID: String, executable: URL?, resolve: @escaping (String) -> TerminalLinkOpenRequest?) {
+    init(
+        machineID: String,
+        executable: URL?,
+        resolve: @escaping (String) -> TerminalLinkOpenRequest?,
+        deliverFilePreview: @escaping @MainActor (CloudGuestFilePreviewRequest, TerminalLinkOpenRequest) async -> Bool
+    ) {
         self.machineID = machineID
         self.executable = executable
         self.resolve = resolve
+        self.deliverFilePreview = deliverFilePreview
     }
 
     func update(link: CloudMachineLink, socketPath: String, terminals: [String]) {
@@ -64,8 +72,12 @@ final class CloudGuestURLService {
         reader = Task { [weak self] in
             for await line in lines {
                 guard !Task.isCancelled, let self, self.generation == taskGeneration else { return }
-                guard let data = line.data(using: .utf8), let request = CloudGuestURLRequest(data: data) else { continue }
-                await self.deliver(request, link: link, generation: taskGeneration)
+                guard let data = line.data(using: .utf8) else { continue }
+                if let request = CloudGuestURLRequest(data: data) {
+                    self.startDelivery(request, link: link, generation: taskGeneration)
+                } else if let request = CloudGuestFilePreviewRequest(data: data) {
+                    self.startDelivery(request, link: link, generation: taskGeneration)
+                }
             }
             guard let status = await exit.result, let self, self.generation == taskGeneration else { return }
             self.subscription.ended(exitCode: status)
@@ -87,11 +99,33 @@ final class CloudGuestURLService {
         generation = UUID()
         reader?.cancel()
         reader = nil
+        for delivery in deliveries.values { delivery.cancel() }
+        deliveries.removeAll()
         if process?.isRunning == true { process?.terminate() }
         process = nil
         link = nil
         socketPath = nil
         terminals = []
+    }
+
+    private func startDelivery(_ request: CloudGuestURLRequest, link: CloudMachineLink, generation: UUID) {
+        guard deliveries.count < 16 else { return }
+        let id = UUID()
+        deliveries[id] = Task { [weak self] in
+            guard let self else { return }
+            await self.deliver(request, link: link, generation: generation)
+            self.deliveries.removeValue(forKey: id)
+        }
+    }
+
+    private func startDelivery(_ request: CloudGuestFilePreviewRequest, link: CloudMachineLink, generation: UUID) {
+        guard deliveries.count < 16 else { return }
+        let id = UUID()
+        deliveries[id] = Task { [weak self] in
+            guard let self else { return }
+            await self.deliver(request, link: link, generation: generation)
+            self.deliveries.removeValue(forKey: id)
+        }
     }
 
     private func deliver(_ request: CloudGuestURLRequest, link: CloudMachineLink, generation: UUID) async {
@@ -130,6 +164,31 @@ final class CloudGuestURLService {
         guard self.generation == generation, !Task.isCancelled else { return }
         _ = try? await link.run(arguments: CloudTuiRequest(
             "url-open-result", ["request_id": request.requestID, "opened": opened], raw: true
+        ), timeout: .seconds(4))
+    }
+
+    private func deliver(_ request: CloudGuestFilePreviewRequest, link: CloudMachineLink, generation: UUID) async {
+        guard let initial = resolve(request.terminalID), terminals.contains(request.terminalID),
+              admission.admit(machineID: machineID, event: CloudMachineNotificationEvent(
+                  id: request.requestID, terminalID: request.terminalID, title: "file-preview-open", body: request.path
+              )) == .allowed else { return }
+        guard let data = try? await link.run(arguments: CloudTuiRequest(
+            "file-preview-open-claim", ["request_id": request.requestID], raw: true
+        ), timeout: .seconds(4)),
+              let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              reply["claimed"] as? Bool == true,
+              self.generation == generation, !Task.isCancelled else { return }
+        let opened: Bool
+        if let current = resolve(request.terminalID),
+           current.sourceWorkspaceId == initial.sourceWorkspaceId,
+           current.sourcePanelId == initial.sourcePanelId {
+            opened = await deliverFilePreview(request, current)
+        } else {
+            opened = false
+        }
+        guard self.generation == generation, !Task.isCancelled else { return }
+        _ = try? await link.run(arguments: CloudTuiRequest(
+            "file-preview-open-result", ["request_id": request.requestID, "opened": opened], raw: true
         ), timeout: .seconds(4))
     }
 

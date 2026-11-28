@@ -10566,20 +10566,21 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @discardableResult
     func openOrFocusMarkdownSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        focus: Bool = true
     ) -> MarkdownPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let md = panel as? MarkdownPanel else { continue }
             if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
-                focusPanel(existingId)
+                if focus { focusPanel(existingId) }
                 return md
             }
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: focus)
         }
 
         return newMarkdownSplit(
@@ -10587,7 +10588,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             orientation: .horizontal,
             insertFirst: false,
             filePath: filePath,
-            focus: true
+            focus: focus
         )
     }
 
@@ -10895,20 +10896,21 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @discardableResult
     func openOrFocusFilePreviewSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        focus: Bool = true
     ) -> FilePreviewPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let preview = panel as? FilePreviewPanel else { continue }
             if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
-                focusPanel(existingId)
+                if focus { focusPanel(existingId) }
                 return preview
             }
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: focus)
         }
 
         guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
@@ -10916,7 +10918,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             targetPane: sourcePaneId,
             orientation: .horizontal,
             insertFirst: false,
-            filePath: filePath
+            filePath: filePath,
+            focus: focus
         )
     }
 
@@ -11196,7 +11199,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
-        filePath: String
+        filePath: String,
+        focus: Bool = true
     ) -> FilePreviewPanel? {
         guard !isRetiredFromOwningTabManager,
               admitsSplitSpacePreflight(splitting: paneId, orientation: orientation) else { return nil }
@@ -11217,6 +11221,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             isPinned: false
         )
         bindSurface(newTab.id, toPanelId: filePreviewPanel.id)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
@@ -11227,10 +11233,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             removeSurfaceMapping(forSurfaceId: newTab.id)
             return nil
         }
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: filePreviewPanel.id, kind: "file_preview", origin: "file_preview_split", focused: true)
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: filePreviewPanel.id, kind: "file_preview", origin: "file_preview_split", focused: focus)
 
-        bonsplitController.selectTab(newTab.id)
-        filePreviewPanel.focus()
+        if focus {
+            bonsplitController.selectTab(newTab.id)
+            filePreviewPanel.focus()
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: filePreviewPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
         filePreviewPanel.bindTabMetadata(to: self)
         return filePreviewPanel
     }
