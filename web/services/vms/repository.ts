@@ -198,7 +198,12 @@ const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
 const LIVE_VM_RESOURCE_STATUSES = ["provisioning", "running", "paused"] as const;
 
 export type BeginCreateResult =
-  | { readonly inserted: true; readonly vm: CloudVmRow }
+  | {
+    readonly inserted: true;
+    readonly vm: CloudVmRow;
+    /** Live machines in the cap's scope before this row; fleetAdmission alerts at 80% of the limit. */
+    readonly activeBefore?: number;
+  }
   | { readonly inserted: false; readonly vm: CloudVmRow };
 
 export type BeginBaseCreateResult =
@@ -249,6 +254,14 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly billingTeamId: string | null;
     readonly scope: "user" | "team";
     readonly cidr: string;
+  }) => Effect.Effect<number, VmDatabaseError>;
+  /**
+   * Live machines (provisioning, running, paused) on one provider across every
+   * owner. Fleet admission (fleetAdmission.ts) reads it only when a fleet cap
+   * is configured. Optional so older test doubles compile; absent admits.
+   */
+  readonly countLiveProviderVms?: (input: {
+    readonly provider: ProviderId;
   }) => Effect.Effect<number, VmDatabaseError>;
   /** The owner's private-network row for one provider, or null when they have none yet. */
   readonly findNetwork?: (
@@ -1723,6 +1736,15 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return Number(row?.total ?? 0);
     }),
 
+  countLiveProviderVms: (input) =>
+    dbEffect("countLiveProviderVms", async () => {
+      const [row] = await cloudDb()
+        .select({ total: count() })
+        .from(cloudVms)
+        .where(and(eq(cloudVms.provider, input.provider), inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES)));
+      return Number(row?.total ?? 0);
+    }),
+
   findNetwork: (userId, provider) =>
     dbEffect("findNetwork", async () => {
       const db = cloudDb();
@@ -2463,7 +2485,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
             await insertRuntimeForVm(tx, vm);
-            return { inserted: true as const, vm };
+            return { inserted: true as const, vm, activeBefore: activeCount };
           });
         } catch (err) {
           if (idempotencyKey && pgErrorCode(err) === "23505") {
