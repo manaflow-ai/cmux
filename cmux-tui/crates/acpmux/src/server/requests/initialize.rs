@@ -26,6 +26,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_AUTO_SESSION_SET,
     method::MUX_AUTO_SESSION_TRANSCRIPT,
     method::MUX_AUTO_SESSION_WAKE,
+    method::MUX_BG_REARM,
     method::MUX_BOOKMARK_GET,
     method::MUX_BOOKMARK_SET,
     method::MUX_BRIEFS,
@@ -143,6 +144,9 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TASKS,
     method::MUX_TASK_NEW,
     method::MUX_TEAM_ACK,
+    method::MUX_TEAM_CUSTOMIZATION,
+    method::MUX_TEAM_CUSTOMIZE,
+    method::MUX_TEAM_HANDOFF,
     method::MUX_TEAM_INBOX,
     method::MUX_TEAM_LISTEN,
     method::MUX_TEAM_NAVIGATOR,
@@ -234,6 +238,7 @@ const FEATURES: &[&str] = &[
     crate::prompt_uploads::FEATURE,
     crate::request_cancel::FEATURE,
     crate::sender_token::FEATURE,
+    super::super::bg_rearm::FEATURE,
     super::super::client_features::UNSENT_FEATURE,
     super::super::dual_requests::FEATURE,
     super::super::fork_through::FORK_REQUEST_FEATURE,
@@ -263,6 +268,9 @@ pub(super) fn initialize(
     }
     // Also set in order before the next request runs (`note_initialize`).
     note_initialize(conn, params);
+    // Its ABI hello, counted once here for `_acpmux/status` (`note_initialize` runs twice per
+    // `initialize`); nothing in it can fail the connection.
+    crate::abi_hello::note(crate::abi_hello::read(params));
     // A client that only observes (cmux-tui's chat notices watch) keeps no daemon whose
     // owner app exited (`daemon/unused_exit.rs`, R-LIFECYCLE ORPHANS).
     if params.pointer("/_meta/acpmux/observer").and_then(Value::as_bool) == Some(true) {

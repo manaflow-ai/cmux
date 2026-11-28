@@ -20,7 +20,7 @@ import tarfile
 import tempfile
 import textwrap
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 import zlib
 from pathlib import Path
@@ -247,6 +247,20 @@ class Result(unittest.TestCase):
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
         self.assertEqual(hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt"),
                          {"needs_build": True, "staged": [], "withheld": []})
+
+    def test_a_look_with_nothing_to_look_at_stages_nothing(self) -> None:
+        # Runs 46054808380, 46008620288, 46007530167 (2026-11-27): a merge look whose nightly already contained the
+        # merge; the worker's step.json said nothing, no receipt, and `post the look` failed on the missing marker.
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": False, "nothing": True,
+                                                          "error": None}).encode(),
+                             "out/plan.json": json.dumps({"notes": ["the app already contains SHA"]}).encode()})
+        self.assertEqual(hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt"),
+                         {"needs_build": False, "nothing": True, "reason": "the app already contains SHA",
+                          "staged": [], "withheld": []})
+        argv = ["stage", str(out), "--pr", "43000", "--head", HEAD, "--stage", str(self.tmp / "m"),
+                "--text", str(self.tmp / "t.txt")]
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(hv.main(argv), 0)
 
     def test_render(self) -> None:
         out = self.unpacked(look_files())

@@ -702,6 +702,31 @@ fn pick(
 mod tests {
     use super::*;
 
+    /// The vault transport sends the cmux token only as the bearer and the team only as `x-cmux-team`; a call's
+    /// body (sealed by the vault client before it gets here) goes as given and carries neither.
+    #[test]
+    fn seeded_token_and_team_ride_only_in_their_headers() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        cmux_egress::capture::install().unwrap();
+        let bearer = "SEEDvaultBearer-1f8d";
+        let team = "SEEDvaultTeam-a6c3";
+        let http = Transport::new(
+            cmux_cloud_environment::PRODUCTION_API.to_owned(),
+            Zeroizing::new(bearer.to_owned()),
+            Some(team.to_owned()),
+        )
+        .unwrap();
+        let _ = http.send("POST", "/v1/vault/seeded", &[], Some(&json!({"sealed": "b64"})));
+        let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+        assert!(sent.iter().any(|r| r.target == "/v1/vault/seeded"), "{sent:?}");
+        for (secret, place) in [(bearer, ": header authorization"), (team, ": header x-cmux-team")]
+        {
+            let places = cmux_egress::capture::leaks(secret);
+            assert!(!places.is_empty(), "{secret}: {sent:?}");
+            assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
+        }
+    }
+
     fn words(s: &str) -> Vec<String> {
         s.split_whitespace().map(str::to_owned).collect()
     }

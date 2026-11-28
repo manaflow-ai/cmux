@@ -171,6 +171,8 @@ pub const PEER_FEATURES: &[PeerFeature] = &[
     },
     PeerFeature { id: crate::hub::list_tee::HUB_ROWS_FEATURE, gates: &[] },
     PeerFeature { id: crate::author::QUEUE_GET_FEATURE, gates: &[m::MUX_QUEUE_GET] },
+    // A session move's wait handoff (`server/bg_rearm.rs`).
+    PeerFeature { id: crate::server::bg_rearm::FEATURE, gates: &[m::MUX_BG_REARM] },
 ];
 
 /// The features of [`PEER_FEATURES`] that gate request or notification `method` (a registry name,

@@ -55,11 +55,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -201,7 +201,7 @@ jobs:
         if: ${{ format('{0}', vars.CI_TOOLING_SIDE_BY_SIDE) != '0' }}
         env:
           EVENT_NAME: ${{ github.event_name }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           # The batch tests a merged tip: every finding warns.
           WARN_ONLY: --warn-only
         run: |
@@ -234,6 +234,14 @@ jobs:
         id: tt-tooling-tests-batch
         if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tooling-tests-batch ')) }}
         run: python3 tests/test_ci_tooling_tests_batch.py
+
+      # Every reused 'Pool mirror: Checkout' step survives an empty SPARSE and another job's sparse state (#61871): a bare
+      # reapply on a reused non-sparse .git failed rust workspaces 3 of 3 on #61289. ci-guards runs this file too, but
+      # ci-guards skips feat-cmux-next PRs, so it guarded none of the PRs that broke.
+      - name: A reused pool mirror checkout handles an empty SPARSE and another job's sparse state
+        id: tt-pool-checkout-reuse-sparse
+        if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-pool-checkout-reuse-sparse ')) }}
+        run: python3 tests/test_ci_pool_checkout_reuse_sparse.py
 
       - name: A rebuilt cmux-tui commit reuses its earlier publication
         id: tt-cmux-tui-republish
@@ -361,7 +369,7 @@ jobs:
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-test-coverage ')) }}
         env:
           EVENT_NAME: ${{ github.event_name }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         run: |
           set -euo pipefail
           args=()

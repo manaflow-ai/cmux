@@ -154,17 +154,26 @@ impl HubCarrier {
     pub(crate) async fn reopen_saved(&self, saved: &[Saved]) -> usize {
         let now = unix_now();
         let idle = self.timings.kept_idle.as_secs();
-        let opens = saved
-            .iter()
-            .filter(|one| now.saturating_sub(one.used_at) < idle)
-            .filter_map(|one| Some(self.open_saved(&one.daemon, one.lane()?, one.path()?)));
+        let opens =
+            saved.iter().filter(|one| now.saturating_sub(one.used_at) < idle).filter_map(|one| {
+                let quiet = Duration::from_secs(now.saturating_sub(one.used_at));
+                Some(self.open_saved(&one.daemon, one.lane()?, one.path()?, quiet))
+            });
         futures::future::join_all(opens).await.into_iter().filter(|opened| *opened).count()
     }
 
     /// One kept circuit from before the restart, in its slot as a dial would leave it. A dial
     /// to the machine meanwhile waits on this open rather than racing it; a slot a dial already
-    /// filled is left alone.
-    async fn open_saved(&self, daemon: &str, lane: CircuitLane, path: Path) -> bool {
+    /// filled is left alone. One that does not open stays in its slot to open again
+    /// ([`HubCarrier::reopen_closed`], backing off) until it would have idled out, `quiet` being
+    /// how long it had carried no stream.
+    async fn open_saved(
+        &self,
+        daemon: &str,
+        lane: CircuitLane,
+        path: Path,
+        quiet: Duration,
+    ) -> bool {
         let slot = match path {
             Path::Relay => self.kept.slot(daemon, lane),
             Path::Direct(_) | Path::Punched => self.direct.kept.slot(daemon, lane),
@@ -179,6 +188,7 @@ impl HubCarrier {
                     self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                     kept.live = Some(mux);
                     kept.path = Some(path);
+                    kept.saved_since = None;
                     kept.reopen_at = None;
                     kept.reopen_wait = Duration::ZERO;
                     return true;
@@ -195,10 +205,17 @@ impl HubCarrier {
             },
             Err(e) => e,
         };
-        tracing::debug!(
+        // Not a refusal (that machine keeps no circuits): try again on the reopen pass.
+        if kept.no_mux_until.is_none_or(|until| until <= Instant::now()) {
+            kept.path = Some(path);
+            kept.saved_since = Some(Instant::now().checked_sub(quiet).unwrap_or_else(Instant::now));
+            kept.reopen_wait = mux::REOPEN_BACKOFF_MIN;
+            kept.reopen_at = Some(Instant::now() + kept.reopen_wait);
+        }
+        tracing::info!(
             daemon,
             ?path,
-            "hub carrier: a kept circuit from before did not open: {why}"
+            "hub carrier: a kept circuit from before did not open; trying again: {why}"
         );
         false
     }
