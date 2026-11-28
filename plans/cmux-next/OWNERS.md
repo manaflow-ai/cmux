@@ -18,10 +18,11 @@ A row's holder is whoever is live now, not the name written here: at push time t
 (`scripts/cmux-next/owner_live.py`) resolves the cell to a live acpmux session, in order: one tagged
 `owns=` the row's workstream (take one with `acpmux session tag SESSION owns=PL-acpmux`; a comma
 list holds several), the live session that committed under the row's paths most recently in the last 14 days (its
-commits' `Agent-Session` trailers, hashed against the listing; never the pusher, never a session younger than its first
-commit there), and only when no commits could be read a live lane the row's role names (`lanes tabs-*,tab-strip*`:
-comma-separated fnmatch globs on the lane's short name, anchored at its start, so `*sidebar*` holds `sidebar-owner` and
-never `rex-sidebar-look`; the most recently active one). A name alone never makes a holder: on 2026-11-28 seven sidebar
+commits' `Agent-Session` lines, squash merges included, hashed against the listing; never the pusher, a PR finisher,
+a session younger than its first commit there, or one whose check-in ended its work; among them a lane the row's role
+names ranks first: `lanes tabs-*,tab-strip*`, comma-separated fnmatch globs on the lane's short name, anchored at its
+start, so `*sidebar*` names `sidebar-owner` and never `rex-sidebar-look`). A name alone never makes a holder, even
+when no commits could be read (no agent-link key): the push goes on down the chain: on 2026-11-28 seven sidebar
 pushes told sidebar-bench-chiefs-61230-2, a lane that had never committed there, "you hold it now". Then the session the cell names, that session's successor (`succeeds=`,
 `failover=`), the Performance Lead (`owns=PL-lead`), then the coordinator. The owner line names that
 session and the hook sends it the push (a stand-in lead or coordinator hears once a day per area and

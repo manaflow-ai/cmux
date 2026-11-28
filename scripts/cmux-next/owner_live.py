@@ -63,7 +63,9 @@ LIST_TIMEOUT_S = 20
 SEND_TIMEOUT_S = 10
 CHAIN_MAX = 8
 NOTICES_KEEP = 500
-DEAD = {"closed", "stopped", "failed", "dead", "disconnected", "retired"}
+# "unreachable": the hub cannot reach the session's host, so a notice sent there bounces (2026-11-28: 255 of ~2,000
+# listed rows read unreachable and counted as live holders; same line as cmux#64488).
+DEAD = {"closed", "stopped", "failed", "dead", "disconnected", "retired", "unreachable"}
 WORKSTREAM = re.compile(r"\bPL-[A-Za-z0-9][\w-]*")
 SESSION = re.compile(r"\bsessions? ([A-Za-z0-9][\w./-]*[A-Za-z0-9])")
 LANES = re.compile(r"\blanes ([A-Za-z0-9*?\[\]][\w*?\[\]./,-]*)")
@@ -79,8 +81,12 @@ WORK_DAYS = 14
 WORK_TIMEOUT_S = 8
 # A session's start may trail its first commit by clock skew between hosts, not more.
 WORK_SKEW_S = 300
+AGENT_LINE = re.compile(r"\s*Agent-Session:", re.I)
 AID = re.compile(r"\baid-[0-9a-f]{20}\b")
 KEY_FILE = "agent-link.key"
+# A session whose own check-in ended its work (cmux#64488's mark_ended sets it from the fleet heartbeats) holds no
+# area by its commits; unset here, so this filter is a no-op until that reader lands.
+ENDED_KEY = "checkinEnded"
 COORDINATOR = "coordinator"
 
 
@@ -254,13 +260,16 @@ def pathspecs(globs: list[str]) -> list[str]:
 def area_work(repo: Path, globs: list[str], days: int = WORK_DAYS,
               timeout: float = WORK_TIMEOUT_S) -> dict[str, tuple[int, int]] | None:
     """{agent id: (first, last) author time} of the non-merge commits on any ref of REPO in the last DAYS days that
-    touch the area's path GLOBS, by their Agent-Session trailers; None when git failed or ran past TIMEOUT."""
+    touch the area's path GLOBS, by the agent ids in their messages; None when git failed or ran past TIMEOUT. The
+    whole body, not `%(trailers)`: a GitHub squash merge puts Agent-Session in its own paragraph above the
+    Co-authored-by block, so git's trailer parser (last paragraph only) finds it in 0 of 200 feat-cmux-next squash
+    commits of 2026-11-28; the body has it in 185."""
     specs = pathspecs(globs)
     if not specs:
         return None
     try:
         out = subprocess.run(["git", "-C", str(repo), "log", "--all", "--no-merges", f"--since={days}.days",
-                              "--format=%x00%at %(trailers:key=Agent-Session,valueonly,separator=%x20)", "--", *specs],
+                              "--format=%x00%at %B", "--", *specs],
                              capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -269,6 +278,7 @@ def area_work(repo: Path, globs: list[str], days: int = WORK_DAYS,
     work: dict[str, tuple[int, int]] = {}
     for commit in out.stdout.split("\0")[1:]:
         stamp, _, trailers = commit.strip().partition(" ")
+        trailers = "\n".join(l for l in trailers.splitlines() if AGENT_LINE.match(l))
         if not stamp.isdigit():
             continue
         at = int(stamp)
@@ -331,8 +341,9 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None,
            branch: str | None = None, worked=None) -> tuple[str | None, str]:
     """(live session, how) for the owner CELL of AREA, or (None, why none). PUSHER (HOST/NAME) and its BRANCH, when
     given, are asked first (pusher_holds), and the pusher is never the answer of a later step. WORKED (worked_by):
-    a row's (first, last) commit time in the area, or None; when given, the committers hold the role and a name
-    alone does not."""
+    a row's (first, last) commit time in the area, or None; the committers hold the role. A name alone never does:
+    with no WORKED (no agent-link key, git unread) the push goes on down the chain to the coordinator, never to a
+    lane picked by its name (the 2026-11-28 sidebar-bench-chiefs-61230-2 misroutes)."""
     workstreams, sessions = cell_names(cell)
     mine = pusher_holds(cell, rows, pusher, area, branch)
     if mine:
@@ -350,16 +361,17 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None,
             return _name(tagged[0]), f"holds owns={owns_area(tagged[0], area)}"
     globs = cell_lanes(cell)
     if worked is not None:
-        spans = [(r, worked(r)) for r in live]
-        did = sorted(((r, s) for r, s in spans if s and _wrote(r, s)), key=lambda rs: -rs[1][1])
+        # A PR finisher's commits are its one PR's (FINISHER); among the rest a lane the row's role names ranks
+        # first, then the newest commit.
+        spans = [(r, worked(r)) for r in live if not r.get(ENDED_KEY) and not FINISHER.match(_short(_name(r)))]
+        did = sorted(((r, s) for r, s in spans if s and _wrote(r, s)),
+                     key=lambda rs: (not fills_role(_short(_name(rs[0])), globs), -rs[1][1],
+                                     -(rs[0].get("updatedAt") or 0)))
         if did:
-            day = time.strftime("%Y-%m-%d", time.gmtime(did[0][1][1]))
-            return _name(did[0][0]), f"committed in the area last ({day})"
-    elif globs:
-        lanes = sorted((r for r in live if fills_role(_short(_name(r)), globs)),
-                       key=lambda r: -(r.get("updatedAt") or 0))
-        if lanes:
-            return _name(lanes[0]), f"a lane of {','.join(globs)}"
+            (r, span) = did[0]
+            day = time.strftime("%Y-%m-%d", time.gmtime(span[1]))
+            role = f"a lane of {','.join(globs)}, " if fills_role(_short(_name(r)), globs) else ""
+            return _name(r), f"{role}committed in the area last ({day})"
     for s in sessions:
         named = _named(rows, s)
         if named and is_live(named[0]):

@@ -3174,7 +3174,7 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         branch = None
     # Who committed in each area decides its role lane, not a name that happens to start with the area word (the
     # 2026-11-28 sidebar-bench-chiefs-61230-2 misroutes, owner_live step 2). A test's listing reads commits only when
-    # it gives WORKED; with no agent-link key here the name globs stand, as before.
+    # it gives WORKED; with no agent-link key here no lane holds by name: the push goes to the coordinator.
     key = None if given else live.link_key()
     out = []
     for area, (cell, doc, files, head) in hits.items():
