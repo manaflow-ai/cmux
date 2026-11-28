@@ -10,6 +10,19 @@ import Foundation
 extension Workspace {
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
     /// Passing `nil` for `command` starts the same default shell as a newly created terminal.
+    ///
+    /// For a local process, `removingEnvironmentKeys` drops those keys from the env the old surface
+    /// carried, so the child falls back to the workspace's value or none. `environmentOverrides` then
+    /// win over that env, the workspace's env and a removal of the same key, and keep empty values.
+    /// The new surface carries the result into later plain respawns, except that a value equal to the
+    /// workspace's own is treated as inherited workspace env and follows the current workspace (#5995).
+    /// Those overrides last only as long as this process. The account keys a Claude account switch set
+    /// also live in the panel's `claudeAccountEnvironment`, which the replacement panel inherits and
+    /// the session snapshot persists. Every respawn applies that record again against the current
+    /// workspace env (keys the call sets or removes win), and a restore after an app relaunch
+    /// replays it the same way.
+    /// An SSH-owned surface or a `nativeReservation` respawn cannot carry an env change, so it
+    /// returns `nil` when one is given instead of dropping it.
     @discardableResult
     func respawnTerminalSurface(
         panelId: UUID,
@@ -21,8 +34,15 @@ extension Workspace {
         replayScrollback: String? = nil,
         replayFileURL: URL? = nil,
         allowTextBoxFocusDefault: Bool = true,
-        nativeReservation: CloudTerminalPaneReservation? = nil
+        nativeReservation: CloudTerminalPaneReservation? = nil,
+        environmentOverrides: [String: String] = [:],
+        removingEnvironmentKeys: Set<String> = []
     ) -> TerminalPanel? {
+        // A provider-hosted shell cannot take local env: refuse, never drop it.
+        let changesLocalLaunch = !environmentOverrides.isEmpty || !removingEnvironmentKeys.isEmpty
+        if changesLocalLaunch, nativeReservation != nil || machineOwningSurface(panelId)?.isSSH == true {
+            return nil
+        }
         // Native ownership routes through its provider before any local process configuration.
         if machineOwningSurface(panelId)?.isSSH == true, nativeReservation == nil {
             return respawnSSHTuiSurface(panelID: panelId, command: command,
@@ -66,11 +86,32 @@ extension Workspace {
         // re-records the seeded env for the replacement panel against the current
         // workspace.
         let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
+        // A pane switched to another Claude account keeps it: the switch's record is applied again
+        // against the current workspace env, as a relaunch restore does, since a move or a
+        // workspace env change can supply a key the switch cleared. Keys this call sets or removes
+        // win; a switch passes the new account itself.
+        let accountEnvironment = claudeAccountSurfaceEnvironment(oldPanel.claudeAccountEnvironment)
+        let accountOverrides = (accountEnvironment?.overrides ?? [:]).filter {
+            environmentOverrides[$0.key] == nil && !removingEnvironmentKeys.contains($0.key)
+        }
+        let removedKeys = removingEnvironmentKeys.union(
+            (accountEnvironment?.removedKeys ?? []).subtracting(environmentOverrides.keys)
+        )
         // The welcome banner key is one-shot: a respawned shell must not reprint it.
+        // Removed keys leave both inherited channels before the workspace re-fold.
+        // Caller overrides ride this channel, not additionalEnvironment, because the
+        // spawn merge drops empty additional values and an empty value must survive.
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
-            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value && $0.key != WelcomeBannerDelivery.environmentKey }
+            .filter {
+                oldSeededWorkspaceEnvironment[$0.key] != $0.value && $0.key != WelcomeBannerDelivery.environmentKey
+                    && !removedKeys.contains($0.key)
+            }
+            .merging(accountOverrides) { _, account in account }
+            .merging(environmentOverrides) { _, override in override }
         var additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
-            oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
+            oldPanel.surface.respawnAdditionalEnvironment.filter {
+                oldSeededWorkspaceEnvironment[$0.key] != $0.value && !removedKeys.contains($0.key)
+            }
         )
         let effectiveReplayFileURL = replayFileURL ?? SessionScrollbackReplayStore.replayFileURL(for: replayScrollback)
         for (key, value) in SessionScrollbackReplayStore.replayEnvironment(forFileURL: effectiveReplayFileURL) {
@@ -127,6 +168,7 @@ extension Workspace {
             )
         }
         replacementPanel.adoptOwnedSessionScrollbackReplayArtifact(effectiveReplayFileURL)
+        replacementPanel.claudeAccountEnvironment = oldPanel.claudeAccountEnvironment
         // Respawn replaces the panel object but keeps the logical tab identity.
         replacementPanel.adoptStableSurfaceId(oldPanel.stableSurfaceId)
         configureNewTerminalPanel(
