@@ -412,6 +412,10 @@ PARTS = [
     # rows: each older page's ask to its drawn frame (target 50 ms p95), loading and blank frames, the anchor's shift
     # and the 100k / 1k ratio (transcript_scroll_up_scale.*.older_page_drawn_scale, target 1.2). Its own part.
     {"name": "web-ui-scroll-up", "where": "linux", "kind": "webui", "needs": "web-ui-scroll-up"},
+    # The god chat's length curve (webviews/bench/god-length-curve.bench.ts, goal god-chat-ratios): the god session
+    # opened at 1k, 10k and 100k turns and one turn streamed live; per-token, per-thought ms and heap at each and the
+    # 100k / 1k ratio (god_length_curve.ratio_max, target 1.2: it has to stay flat). Its own part.
+    {"name": "web-ui-god-curve", "where": "linux", "kind": "webui", "needs": "web-ui-god-curve", "run_seconds": 2700},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*): a 55-minute
     # run cap (run_seconds), not the 30 minutes it timed out against on 2026-11-17 (bench cap 1770 s).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat", "run_seconds": 3300},
@@ -516,6 +520,7 @@ ROW_PARTS = [
     (r"^webui\.sim_ladder\.", "web-ui-ladder"),
     (r"^webui\.sim_fidelity\.", "web-ui-fidelity"),
     (r"^webui\.transcript_scroll_up_scale\.", "web-ui-scroll-up"),
+    (r"^webui\.god_length_curve\.", "web-ui-god-curve"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
     (r"^webui\.orchestrator\.", "web-ui-orchestrator"),
@@ -1384,6 +1389,9 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-pages-memory"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-flat":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-god-curve":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "god-length-curve"],
+                          os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll-up":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"],
                           os.path.join(root, "webviews"), {})}
@@ -2911,6 +2919,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{FLAT_100K_BENCH}")
         elif need == "web-ui-ladder":
             ok = has_path(sha, f"{SIM_LADDER_BENCH}")
+        elif need == "web-ui-god-curve":
+            ok = has_path(sha, f"{GOD_CURVE_BENCH}")
         elif need == "web-ui-scroll-up":
             ok = has_path(sha, f"{SCROLL_UP_SCALE_BENCH}")
         elif need == "web-ui-scroll":
@@ -3026,6 +3036,7 @@ CHAT_PAGES_MEMORY_BENCH = "webviews/bench/chat-pages-memory.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 SIM_LADDER_BENCH = "webviews/bench/sim-ladder.bench.ts"
 SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
+GOD_CURVE_BENCH = "webviews/bench/god-length-curve.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
