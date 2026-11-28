@@ -585,9 +585,11 @@ fn counts_are_unknown_until_the_reads_cover_the_day() {
     assert!(known >= 3, "{seen:?}");
     assert!(seen[known..].iter().all(|t| *t == Some(80)), "{seen:?}");
 
-    // A transcript it can no longer read leaves the counts unknown.
+    // A transcript it can no longer read leaves the counts unknown: gone, it is looked for
+    // again, and not found, the chat has no stats at all (`Tracker::refresh`).
     std::fs::remove_file(&path).unwrap();
-    assert_eq!(stepped.refresh(&source, now, &models()).unwrap().tokens24h, None);
+    let gone = stepped.refresh(&source, now, &models());
+    assert!(gone.is_none_or(|s| s.tokens24h.is_none()), "{gone:?}");
 }
 
 #[test]
