@@ -101,14 +101,8 @@ class ShardSize(unittest.TestCase):
         for name in WEBVIEW_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             self.assertNotIn("linux_16", runs_on, name)
-            # #50078 (Leo, 2026-11-23): the React shards read CI_REACT_SHARD_RUNNER first; unset, they take cmux-linux.
-            self.assertEqual(runs_on, one_linux_label.CANONICAL.replace("|| 'cmux-linux'", "|| vars.CI_REACT_SHARD_RUNNER || 'cmux-linux'"), name)
-            for kind in ("push", "same-repository pull request"):
-                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
-                self.assertEqual(evaluate(runs_on, knob), "cmux-linux-react", f"{name} {kind}")
-            for kind in ("fork pull request", "fork repository"):
-                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
-                self.assertEqual(evaluate(runs_on, knob), "ubuntu-24.04", f"{name} {kind}")
+            # The React shards take the one label; a Freestyle react runner is the scheduler relabeling, not a variable.
+            self.assertEqual(runs_on, one_linux_label.CANONICAL, name)
             self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
