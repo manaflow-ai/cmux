@@ -24,12 +24,13 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 2
 . scripts/measure/app-at-commit.sh
 here="$PWD"
-base="" head="" rounds=1 files=90 lines=1250 frames=600 step=120 passes=2 clip=18
+base="" head="" rounds=1 small=9 files=90 lines=1250 frames=600 step=120 passes=2 clip=18
 for arg in "$@"; do
   case "$arg" in
     base=*) base="${arg#base=}" ;;
     head=*) head="${arg#head=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
+    small=*) small="${arg#small=}" ;;
     files=*) files="${arg#files=}" ;;
     lines=*) lines="${arg#lines=}" ;;
     frames=*) frames="${arg#frames=}" ;;
@@ -40,7 +41,7 @@ for arg in "$@"; do
   esac
 done
 [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= must be 40-hex commits" >&2; exit 2; }
-for n in "$rounds" "$files" "$lines" "$frames" "$step" "$passes" "$clip"; do
+for n in "$rounds" "$small" "$files" "$lines" "$frames" "$step" "$passes" "$clip"; do
   [[ "$n" =~ ^[0-9]+$ ]] || { echo "diff-page-frames.sh: numbers only: $n" >&2; exit 2; }
 done
 (( rounds >= 1 && rounds <= 6 )) || { echo "rounds= must be 1 to 6" >&2; exit 2; }
@@ -86,19 +87,23 @@ build_arm base "$base" || { echo "DIFF-FRAMES the base arm did not build" >&2; e
 build_arm head "$head" || { echo "DIFF-FRAMES the head arm did not build" >&2; exit 3; }
 
 status=0
-clip_taken=false
-run_arm() {  # run_arm ARM ROUND
-  local arm="$1" i="$2" app clip_args=()
+# small=N (default 9, about 10k lines of `git diff`; 0 skips it): a run of N files before each full-size run, so
+# one step also gives the 10k-line numbers and, when the full size fails, shows whether the open works at all.
+run_size() {  # run_size ARM ROUND LABEL FILES
+  local arm="$1" i="$2" label="$3" n="$4" app clip_args=()
   if [ "$arm" = base ]; then app="$app_base"; else app="$app_head"; fi
-  if [ "$arm" = head ] && ! $clip_taken && (( clip > 0 )); then
-    clip_args=(--clip "$out/clip-head.mov" --clip-seconds "$clip")
-    clip_taken=true
+  if [ "$arm" = head ] && (( clip > 0 )) && [ ! -e "$out/clip-$label.mov" ] && [ "$i" = 1 ]; then
+    clip_args=(--clip "$out/clip-$label.mov" --clip-seconds "$clip")
   fi
-  echo "DIFF-FRAMES round $i $arm load $(uptime | sed 's/.*load averages*: //')"
-  CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/diff-page-frames.py --app "$app" --label "$arm-$i" \
-    --json "$out/runs/$arm-$i.json" --files "$files" --lines "$lines" --frames "$frames" --step "$step" \
-    --passes "$passes" ${clip_args[@]+"${clip_args[@]}"} || status=1
+  echo "DIFF-FRAMES round $i $label load $(uptime | sed 's/.*load averages*: //')"
+  CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/diff-page-frames.py --app "$app" --label "$label" \
+    --json "$out/runs/$label.json" --files "$n" --lines "$lines" --frames "$frames" --step "$step" \
+    --passes "$passes" --dump-dir "$out/dumps" ${clip_args[@]+"${clip_args[@]}"} || status=1
   python3 scripts/cmux-next/tag_teardown.py "$app" >/dev/null 2>&1
+}
+run_arm() {  # run_arm ARM ROUND
+  (( small > 0 )) && run_size "$1" "$2" "$1-small-$2" "$small"
+  run_size "$1" "$2" "$1-$2" "$files"
 }
 for i in $(seq 1 "$rounds"); do
   if (( i % 2 )); then run_arm base "$i"; run_arm head "$i"; else run_arm head "$i"; run_arm base "$i"; fi
@@ -109,7 +114,8 @@ import glob, json, os, sys
 rows = {}
 for path in sorted(glob.glob(os.path.join(sys.argv[1], "*.json"))):
     data = json.load(open(path))
-    arm = os.path.basename(path).split("-")[0]
+    parts = os.path.basename(path)[:-5].split("-")
+    arm = parts[0] + ("-small" if "small" in parts else "")
     row = rows.setdefault(arm, {"code": [], "paint": [], "passes": {}})
     row["code"].append((data.get("code_view") or {}).get("open_to_first_file_header_ms"))
     row["paint"].append((data.get("plain_english") or {}).get("click_to_paint_ms"))
