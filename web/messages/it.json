@@ -5498,7 +5498,9 @@
     "errorInvalidTotp": "Il codice a due fattori non è valido.",
     "errorSignUpNotAllowed": "Al momento non è possibile creare nuovi account.",
     "errorPasskey": "L'accesso con passkey non è stato completato. Riprova o usa un altro metodo.",
-    "errorGeneric": "Si è verificato un errore. Riprova."
+    "errorGeneric": "Si è verificato un errore. Riprova.",
+    "errorRedirectNotAllowed": "L'indirizzo di accesso di questa build non è consentito su {backend}.",
+    "backendDevelopment": "il backend di sviluppo"
   },
   "MobileRelease106": {
     "title": "Novità di 1.0.6",

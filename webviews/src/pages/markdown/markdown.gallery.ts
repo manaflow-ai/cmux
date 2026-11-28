@@ -504,6 +504,12 @@ export default markdownPageEntry({
       path: "/Users/you/src/atlas-web/GUIDE.md",
       text: LONG,
     },
+    "still-trying": {
+      note: "The link to cmux stays down: the page reads again on its own and, past the deadline, says so in one quiet line with no button.",
+      path: "/Users/you/src/atlas-web/README.md",
+      text: README,
+      disconnected: true,
+    },
     empty: {
       note: "No file: the empty state with recent files.",
       path: "",

@@ -53,12 +53,12 @@ export function connectorsSection(
         ...row,
         buttons: [
           {
+            // retry-prompt-ok: reconnecting restarts the MCP server's process or opens its sign-in
+            // (OAuth); after a failure it stays Reconnect, never "Try again" (ConnectorsSection.tsx).
             label: t(
               state === "reconnecting"
                 ? "sessionInfo.connectors.reconnecting"
-                : state === "failed"
-                  ? "sessionInfo.connectors.retry"
-                  : "sessionInfo.connectors.reconnectAction",
+                : "sessionInfo.connectors.reconnectAction",
             ),
             disabled: state === "reconnecting",
             action: actions.add(`connectors.reconnect:${server.name}`, () => onReconnect(server.name)),
@@ -94,6 +94,8 @@ export function connectorsSection(
       buttons: data.status === "not_connected" ? [button("connect", t("imessage.connect"))] : undefined,
     });
     const details: NativeInfoRow[] = [];
+    // A read that keeps failing is asked again on its own (imessage.ts): one quiet line past the
+    // deadline, no button. An error the person can act on (open Messages, Connect again) shows at once.
     if (data.error)
       details.push({
         id: "imessage:error",
@@ -101,6 +103,8 @@ export function connectorsSection(
         tone: "failed",
         indent: 1,
       });
+    else if (imessage.stillTrying)
+      details.push({ id: "imessage:stillTrying", title: t("imessage.stillTrying"), indent: 1, tone: "muted" });
     if (data.status === "needs_full_disk_access")
       details.push({
         id: "imessage:disk",
@@ -151,7 +155,6 @@ export function connectorsSection(
         indent: 1,
         buttons: [
           ...(!data.sends_enabled ? [button("automation", t("imessage.allowMessages"))] : []),
-          ...(data.error ? [button("threads", t("sessionInfo.connectors.retry"))] : []),
           button("disconnect", t("imessage.disconnect")),
         ],
       });

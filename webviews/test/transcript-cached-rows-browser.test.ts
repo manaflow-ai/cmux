@@ -4,11 +4,14 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { JUMP_LATEST } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
+  // WebKit is probed first: where it cannot launch (the fleet pool has no WebKit host libraries)
+  // the file skips; GitHub Actions still fails it (probeEngineOrSkip).
+  if (!(await probeEngineOrSkip("transcript-cached-rows-browser.test.ts", "webkit", webkit))) return;
   setDefaultTimeout(120_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");

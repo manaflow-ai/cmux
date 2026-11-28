@@ -103,10 +103,11 @@ const LOOK_PREFIXES: [&str; 8] = [
 /// grouping), so one file restyles the sidebar as a whole (the shipped
 /// `minimal-sessions`); the tab strip's and titlebar's buttons and inactive
 /// tabs; pane corners; the agent chat's text sizes, sender marks and Session
-/// Info; and the transcript look and its tokens
+/// Info; the transcript look and its tokens, and how a reply streams
+/// (`agentPane.display.streaming`)
 /// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
 /// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 45] = [
+const LOOK_KEYS: [&str; 48] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -116,6 +117,7 @@ const LOOK_KEYS: [&str; 45] = [
     "sidebar.sectionLook",
     "agentPane.display.transcriptLook",
     "agentPane.display.transcriptTokens",
+    "agentPane.display.streaming",
     "sidebar.look",
     "sidebar.drawnMenus",
     "sidebar.density",
@@ -152,6 +154,8 @@ const LOOK_KEYS: [&str; 45] = [
     "agentPane.display.senderIcon.badge",
     "agentPane.display.senderIcon.corner",
     "agentPane.display.trayHandle",
+    "terminal.cursorStyle",
+    "terminal.cursorBlink",
 ];
 /// The workspace row's own keys (`sidebar.workspaceRow.<name>`: which
 /// elements show, their order, where the status mark sits, the row layout).
@@ -550,6 +554,10 @@ impl<'a> Reader<'a> {
             Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
         ) {
             self.picture(written)
+        } else if let (Validation::Domain(DomainKind::BackdropPictures), Value::Array(items)) =
+            (&row.validation, written)
+        {
+            Value::Array(items.iter().map(|item| self.picture(item)).collect())
         } else if row.key == crate::font_faces::SETTING_KEY {
             // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
             match written {

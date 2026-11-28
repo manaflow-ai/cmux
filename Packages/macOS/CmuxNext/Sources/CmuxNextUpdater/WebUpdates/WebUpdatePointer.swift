@@ -4,7 +4,8 @@ public import Foundation
 /// One web update channel's pointer (plans/cmux-next/web-ota.md): the web bundle archive the
 /// channel serves now. CI writes it with scripts/cmux-next/web-ota-pointer.py as an envelope
 /// around exact payload bytes; ``verified(_:keys:channel:)`` checks an ed25519 signature by a
-/// trusted key (``WebUpdateKeys``) before it reads any payload field.
+/// trusted key (``WebUpdateKeys``) before it reads any payload field, then Rust reads and checks
+/// the payload (`web_updates.read_pointer`, cmux-app-ffi src/updater/web_updates.rs).
 nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
     public var channel: String
     /// The bundles' source key (web-bundle-key.py --source); also the folder an update installs in.
@@ -21,14 +22,32 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
     /// When ``commit`` was made, unix seconds.
     public var committedAt: Int
     public var publishedAt: Int
+    /// The same tree as `cas/1` objects (RFD 0166, cmuxterm-hq docs/rfd/0166-own-cdn.md), when CI
+    /// published them: an app holding an older update moves only the chunks it lacks. Nil on older
+    /// pointers, and when the field is malformed (Rust drops it; the archive still serves).
+    public var cas: Cas?
+
+    /// `cas`: a manifest and a pack under `prefix` on the archive's host (`cmux-next-web/cas/`):
+    /// two 64-hex ids and a relative folder of lowercase words, checked in Rust.
+    nonisolated public struct Cas: Sendable, Equatable, Codable {
+        public var prefix: String
+        public var manifest: String
+        public var pack: String
+
+        public init(prefix: String, manifest: String, pack: String) {
+            self.prefix = prefix
+            self.manifest = manifest
+            self.pack = pack
+        }
+    }
 
     nonisolated enum CodingKeys: String, CodingKey {
-        case channel, key, archive, sha256, size, outputs, abi, commit
+        case channel, key, archive, sha256, size, outputs, abi, commit, cas
         case committedAt = "committed_at", publishedAt = "published_at"
     }
 
     public init(channel: String, key: String, archive: String, sha256: String, size: Int, outputs: String, abi: Int,
-                commit: String, committedAt: Int, publishedAt: Int) {
+                commit: String, committedAt: Int, publishedAt: Int, cas: Cas? = nil) {
         self.channel = channel
         self.key = key
         self.archive = archive
@@ -39,6 +58,18 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
         self.commit = commit
         self.committedAt = committedAt
         self.publishedAt = publishedAt
+        self.cas = cas
+    }
+
+    nonisolated public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(channel: c.decode(String.self, forKey: .channel), key: c.decode(String.self, forKey: .key),
+                      archive: c.decode(String.self, forKey: .archive), sha256: c.decode(String.self, forKey: .sha256),
+                      size: c.decode(Int.self, forKey: .size), outputs: c.decode(String.self, forKey: .outputs),
+                      abi: c.decode(Int.self, forKey: .abi), commit: c.decode(String.self, forKey: .commit),
+                      committedAt: c.decode(Int.self, forKey: .committedAt), publishedAt: c.decode(Int.self, forKey: .publishedAt))
+        // A malformed `cas` never refuses the pointer: the archive is the floor.
+        cas = (try? c.decodeIfPresent(Cas.self, forKey: .cas)).flatMap { $0 }
     }
 
     /// The largest archive the app downloads.
@@ -55,12 +86,11 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
             return key.isValidSignature(bytes, for: payload)
         }
         guard signed else { throw .unsigned }
-        guard let body = try? JSONDecoder().decode(Payload.self, from: payload), body.schema == 1 else {
-            throw .malformed("not a pointer payload")
-        }
-        let pointer = body.pointer
-        guard pointer.channel == channel else { throw .wrongChannel(pointer.channel) }
-        try pointer.validate()
+        guard let text = String(data: payload, encoding: .utf8) else { throw .malformed("not a pointer payload") }
+        let reply = UpdaterRust.call("web_updates.read_pointer", ["payload": text, "channel": channel]) as? [String: Any]
+        guard let body = reply?["pointer"], let data = try? JSONSerialization.data(withJSONObject: body),
+              let pointer = try? JSONDecoder().decode(WebUpdatePointer.self, from: data)
+        else { throw WebUpdateRefusal(rust: reply?["refusal"]) }
         return pointer
     }
 
@@ -69,15 +99,16 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
         base.appending(path: key, directoryHint: .isDirectory).appending(path: archive, directoryHint: .notDirectory)
     }
 
-    func validate() throws(WebUpdateRefusal) {
-        guard Self.isHex(key, 64), Self.isHex(sha256, 64), Self.isHex(outputs, 64) else { throw .malformed("bad digest") }
-        guard archive == "web-bundles-\(sha256).tar.gz" else { throw .malformed("archive name") }
-        guard (1...Self.maximumSize).contains(size) else { throw .malformed("size \(size)") }
-        guard Self.isHex(commit, 40), abi > 0, committedAt > 0 else { throw .malformed("commit or abi") }
-    }
-
-    static func isHex(_ text: String, _ count: Int) -> Bool {
-        text.utf8.count == count && text.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    /// The folder of the `cas/1` objects on the archive's host (`base`'s scheme and host), nil
+    /// without a `cas` field.
+    public func casBase(base: URL) -> URL? {
+        guard let cas, let host = base.host(), let scheme = base.scheme else { return nil }
+        var parts = URLComponents()
+        parts.scheme = scheme
+        parts.host = host
+        parts.port = base.port
+        parts.path = "/" + cas.prefix
+        return parts.url
     }
 
     nonisolated struct Envelope: Decodable {
@@ -91,15 +122,6 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
         var signatures: [Signature]
     }
 
-    nonisolated struct Payload: Decodable {
-        var schema: Int
-        var pointer: WebUpdatePointer
-        init(from decoder: any Decoder) throws {
-            schema = try decoder.container(keyedBy: SchemaKey.self).decode(Int.self, forKey: .schema)
-            pointer = try WebUpdatePointer(from: decoder)
-        }
-        nonisolated enum SchemaKey: String, CodingKey { case schema }
-    }
 }
 
 /// The ed25519 keys a pointer may be signed with: `Resources/web-update-keys.json` of this module,
@@ -152,4 +174,16 @@ nonisolated public enum WebUpdateRefusal: Error, Equatable, Sendable {
     /// The channel's switch file of web pieces refuses this update (`cmux app web-pieces
     /// refused`): it is never made active.
     case refusedBySwitchFile
+
+    /// A refusal Rust answered (`{kind, detail}`, cmux-app-ffi src/updater/web_updates.rs).
+    init(rust refusal: Any?) {
+        let body = refusal as? [String: Any]
+        let detail = body?["detail"] as? String ?? ""
+        switch body?["kind"] as? String {
+        case "wrongChannel": self = .wrongChannel(detail)
+        case "integrity": self = .integrity(detail)
+        case "malformed": self = .malformed(detail)
+        default: self = .malformed("the updater library did not answer")
+        }
+    }
 }

@@ -13,6 +13,9 @@ import Testing
     @MainActor final class Recorder {
         var lines: [String] = []
         var opened: [URL] = []
+        /// The hosts each opened page may still be closed on, and the logins' pages ended so far.
+        var hosts: [[String]] = []
+        var ended = 0
     }
 
     struct Call: Sendable, Equatable {
@@ -38,7 +41,7 @@ import Testing
     """.utf8)
 
     /// `missing`: the sign-in methods answer method-not-found (an older daemon).
-    private func make(missing: Bool = false, reply: Data = githubStart)
+    private func make(missing: Bool = false, reply: Data = githubStart, preloaded: Bool = true)
         async -> (harnesses: SettingsHarnesses, recorder: Recorder, calls: OSAllocatedUnfairLock<[Call]>) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-account-sign-in-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
@@ -65,8 +68,8 @@ import Testing
             },
             claudeStatus: { _, _ in nil },
             userHome: URL(fileURLWithPath: "/Users/alex", isDirectory: true),
-            openSignInPage: { url in recorder.opened.append(url); return nil })
-        await harnesses.readAccounts(environment, generation: harnesses.generation)
+            openSignInPage: { url, hosts in recorder.opened.append(url); recorder.hosts.append(hosts); return { recorder.ended += 1 } })
+        if preloaded { await harnesses.readAccounts(environment, generation: harnesses.generation) }
         return (harnesses, recorder, calls)
     }
 
@@ -80,6 +83,15 @@ import Testing
             "accountRemove": "_acpmux/account/remove",
             "accountSignOut": "_acpmux/account/sign_out",
         ])
+    }
+
+    @Test func theFirstSettingsAccountsReadLoadsSignInRows() async {
+        let h = await make(preloaded: false)
+        #expect(h.harnesses.signInAccountsState == .null)
+        await h.harnesses.loadSignInAccounts(ready: { nil })
+        #expect(h.harnesses.signInAccountsState == .null)
+        await h.harnesses.loadSignInAccounts()
+        #expect(h.harnesses.signInAccountsState.arrayValue?.contains { $0["id"]?.stringValue == "claude-2" } == true)
     }
 
     @Test func stateCarriesTheRowsAndNoSecret() async throws {
@@ -122,6 +134,44 @@ import Testing
         let plain = await make(reply: Data(#"{"account":"x","loginId":"l","url":"http://example.com/login","needsCode":false}"#.utf8))
         _ = try await plain.harnesses.runSignIn("signInStart", ["action": "signInStart", "family": "codex"])
         #expect(plain.recorder.opened.isEmpty)
+    }
+
+    /// The tab a sign-in opened closes when that sign-in is cancelled, finishes or expires, once, and only
+    /// on the hosts the daemon names for it (`pageHosts`); a refused finish that leaves the sign-in running
+    /// leaves its page.
+    @Test func aSignInsEndClosesItsOwnPageOnceOnTheDaemonsHosts() async throws {
+        let start = Data("""
+        {"account":"claude-2","loginId":"login-1","url":"https://claude.com/cai/oauth/authorize?code=true","needsCode":true,
+         "expiresAtMs":4102444800000,"added":false,"pageHosts":["claude.com","Claude.AI","platform.claude.com",""]}
+        """.utf8)
+        let h = await make(reply: start)
+        _ = try await h.harnesses.runSignIn("signInStart", ["action": "signInStart", "account": "claude-2"])
+        #expect(h.recorder.hosts == [["claude.com", "claude.ai", "platform.claude.com"]])
+        #expect(h.recorder.ended == 0)
+        // Another login's cancel ends nothing of this one.
+        _ = try await h.harnesses.runSignIn("signInCancel", ["action": "signInCancel", "loginId": "login-2"])
+        #expect(h.recorder.ended == 0)
+        _ = try await h.harnesses.runSignIn("signInCancel", ["action": "signInCancel", "loginId": "login-1"])
+        #expect(h.recorder.ended == 1)
+        // The page's own cancel after an expiry, or a second click: nothing closes twice.
+        _ = try await h.harnesses.runSignIn("signInCancel", ["action": "signInCancel", "loginId": "login-1"])
+        #expect(h.recorder.ended == 1)
+        // A finish ends it too.
+        _ = try await h.harnesses.runSignIn("signInStart", ["action": "signInStart", "account": "claude-2"])
+        _ = try await h.harnesses.runSignIn("signInFinish", ["action": "signInFinish", "loginId": "login-1", "code": "x"])
+        #expect(h.recorder.ended == 2)
+    }
+
+    @Test func thePagesHostsAreTheDaemonsElseThePagesOwn() throws {
+        let page = try #require(URL(string: "https://GitHub.com/login/device"))
+        // An older daemon names none: only the opened page's own host.
+        #expect(SettingsHarnesses.signInPageHosts(["url": "https://github.com/login/device"], page: page) == ["github.com"])
+        #expect(SettingsHarnesses.signInPageHosts(["pageHosts": ["github.com"]], page: page) == ["github.com"])
+        // The daemon's empty list closes nothing.
+        #expect(SettingsHarnesses.signInPageHosts(["pageHosts": []], page: page).isEmpty)
+        #expect(SettingsHarnesses.signInEnded(.accountSignInFinish, refusal: "expired"))
+        #expect(!SettingsHarnesses.signInEnded(.accountSignInFinish, refusal: "bad_code"))
+        #expect(!SettingsHarnesses.signInEnded(.accountSignInFinish, refusal: "busy"))
     }
 
     @Test func olderDaemonKeepsTheTerminalSignIn() async throws {

@@ -6,6 +6,9 @@ use super::*;
 
 /// The wire name of every catalog op.
 pub mod op_names {
+    pub const APPKV_DELETE: &str = "appkv.delete";
+    pub const APPKV_LIST: &str = "appkv.list";
+    pub const APPKV_SET: &str = "appkv.set";
     pub const AUTOMATION_AUDIT_LIST: &str = "automation.audit.list";
     pub const AUTOMATION_CREATE: &str = "automation.create";
     pub const AUTOMATION_DELETE: &str = "automation.delete";
@@ -35,6 +38,7 @@ pub mod op_names {
     pub const CHIEF_DELETE: &str = "chief.delete";
     pub const CHIEF_LIST: &str = "chief.list";
     pub const CHIEF_UPDATE: &str = "chief.update";
+    pub const CLOUD_ALLOTMENT_GET: &str = "cloud.allotment.get";
     pub const CLOUD_BILLING_CHECKOUT: &str = "cloud.billing.checkout";
     pub const CLOUD_ENVIRONMENT_BOOT: &str = "cloud.environment.boot";
     pub const CLOUD_ENVIRONMENT_BUILD: &str = "cloud.environment.build";
@@ -138,6 +142,7 @@ pub mod op_names {
     pub const INSTALL_RENAME: &str = "install.rename";
     pub const INSTALL_REVOKE: &str = "install.revoke";
     pub const INSTALL_SIGN_OUT: &str = "install.sign_out";
+    pub const INTEGRATION_APPROVAL_APPROVE: &str = "integration.approval.approve";
     pub const INTEGRATION_APPROVAL_GET: &str = "integration.approval.get";
     pub const INTEGRATION_COMPLETE: &str = "integration.complete";
     pub const INTEGRATION_CONNECT: &str = "integration.connect";
@@ -258,6 +263,9 @@ pub mod op_names {
 
     /// Every catalog op name, sorted.
     pub const ALL: &[&str] = &[
+        APPKV_DELETE,
+        APPKV_LIST,
+        APPKV_SET,
         AUTOMATION_AUDIT_LIST,
         AUTOMATION_CREATE,
         AUTOMATION_DELETE,
@@ -287,6 +295,7 @@ pub mod op_names {
         CHIEF_DELETE,
         CHIEF_LIST,
         CHIEF_UPDATE,
+        CLOUD_ALLOTMENT_GET,
         CLOUD_BILLING_CHECKOUT,
         CLOUD_ENVIRONMENT_BOOT,
         CLOUD_ENVIRONMENT_BUILD,
@@ -390,6 +399,7 @@ pub mod op_names {
         INSTALL_RENAME,
         INSTALL_REVOKE,
         INSTALL_SIGN_OUT,
+        INTEGRATION_APPROVAL_APPROVE,
         INTEGRATION_APPROVAL_GET,
         INTEGRATION_COMPLETE,
         INTEGRATION_CONNECT,
@@ -513,6 +523,9 @@ pub mod op_names {
 /// Runs `visitor` with the op named `name`; `None` when the catalog has no such op.
 pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output> {
     Some(match name {
+        "appkv.delete" => visitor.visit::<AppkvDeleteOp>(),
+        "appkv.list" => visitor.visit::<AppkvListOp>(),
+        "appkv.set" => visitor.visit::<AppkvSetOp>(),
         "automation.audit.list" => visitor.visit::<AutomationAuditListOp>(),
         "automation.create" => visitor.visit::<AutomationCreateOp>(),
         "automation.delete" => visitor.visit::<AutomationDeleteOp>(),
@@ -542,6 +555,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "chief.delete" => visitor.visit::<ChiefDeleteOp>(),
         "chief.list" => visitor.visit::<ChiefListOp>(),
         "chief.update" => visitor.visit::<ChiefUpdateOp>(),
+        "cloud.allotment.get" => visitor.visit::<CloudAllotmentGetOp>(),
         "cloud.billing.checkout" => visitor.visit::<CloudBillingCheckoutOp>(),
         "cloud.environment.boot" => visitor.visit::<CloudEnvironmentBootOp>(),
         "cloud.environment.build" => visitor.visit::<CloudEnvironmentBuildOp>(),
@@ -645,6 +659,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "install.rename" => visitor.visit::<InstallRenameOp>(),
         "install.revoke" => visitor.visit::<InstallRevokeOp>(),
         "install.sign_out" => visitor.visit::<InstallSignOutOp>(),
+        "integration.approval.approve" => visitor.visit::<IntegrationApprovalApproveOp>(),
         "integration.approval.get" => visitor.visit::<IntegrationApprovalGetOp>(),
         "integration.complete" => visitor.visit::<IntegrationCompleteOp>(),
         "integration.connect" => visitor.visit::<IntegrationConnectOp>(),

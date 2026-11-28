@@ -39,6 +39,13 @@ fn a_fork_without_visibility_sends_only_the_key() {
 }
 
 #[test]
+fn a_fork_at_a_ladder_size_sends_it() {
+    let (origin, seen) = fake(|_| ok(COPY));
+    go(&fork(&origin, json!({ "machine": PARENT, "clientKey": "k", "size": "xl" }))).unwrap();
+    assert_eq!(seen.lock().unwrap()[0].json(), json!({ "clientKey": "k", "size": "xl" }));
+}
+
+#[test]
 fn a_teammates_fork_is_refused_with_the_platforms_code() {
     let (origin, _seen) = fake(|_| Some((403, NOT_CREATOR.into())));
     let failure = go(&fork(&origin, json!({ "machine": PARENT, "clientKey": "k" }))).unwrap_err();
@@ -61,6 +68,7 @@ fn a_fork_is_refused_before_any_request_on_stack_or_bad_args() {
         json!({ "machine": PARENT, "clientKey": "" }),
         json!({ "machine": PARENT, "clientKey": long }),
         json!({ "machine": PARENT, "clientKey": "k", "visibility": "public" }),
+        json!({ "machine": PARENT, "clientKey": "k", "size": "huge" }),
     ] {
         assert!(matches!(go(&fork(&origin, args.clone())), Err(Failure::Transport(_))), "{args}");
     }

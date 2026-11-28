@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Base-branch runner minutes per merged PR (push, schedule and dispatch runs on feat-cmux-next, main,
+nightly-next), ranked by workflow and job, split at the times fixes landed.
+
+Inputs (all local, no GitHub calls), the same files scripts/measure/ci140-heads-per-pr reads:
+  --feed   job rows (JSONL) from the timing feed /v1/github/timing/records: at (= completed_at), seconds, run,
+           workflow (the run name), workflow_path, job, conclusion, branch, sha, seg ('pr' rows are skipped)
+  --prs    {key: {number, mergedAt, ...}} from a GraphQL search of PRs updated in the window
+  --cut    ISO times to split the window at (repeatable), e.g. a fix's merge time
+
+Prints, per workflow: min per merged PR in each segment, runs and distinct shas (runs > shas: one sha ran more
+than once). Then the top jobs, and for fast-checks.yml (the lane-gh broker's dispatches on main, run-name
+"Fast checks SNAPSHOT tests REPO@SHA job ID") the minutes in checks jobs that ran to an hour or more: those are
+the runs that hit their command deadline (exit 124, no verdict) when their logs say so.
+
+Run: scripts/measure/ci140-base-branch --feed feed.jsonl --prs prs.json \
+       --since 2026-11-26T22:00:00Z --until 2026-11-27T03:39:00Z --cut 2026-11-27T00:33:00Z [--top 25]
+"""
+import argparse, collections, json, sys
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--feed", required=True)
+    ap.add_argument("--prs", required=True)
+    ap.add_argument("--since", required=True)
+    ap.add_argument("--until", required=True)
+    ap.add_argument("--cut", action="append", default=[])
+    ap.add_argument("--top", type=int, default=25)
+    a = ap.parse_args(argv)
+    bounds = [a.since] + sorted(a.cut) + [a.until]
+    segs = list(zip(bounds, bounds[1:]))
+    merged = [v["mergedAt"] for v in json.load(open(a.prs)).values() if v.get("mergedAt")]
+    n = [max(1, sum(lo <= m < hi for m in merged)) for lo, hi in segs]
+    total = max(1, sum(a.since <= m < a.until for m in merged))
+    wf = collections.defaultdict(lambda: [0.0] * len(segs))
+    runs, shas = collections.defaultdict(set), collections.defaultdict(set)
+    jobs = collections.Counter()
+    long_checks = collections.Counter()
+    for line in open(a.feed):
+        r = json.loads(line)
+        if r.get("seg") == "pr" or not (a.since <= r["at"] < a.until):
+            continue
+        key = (r.get("branch") or "?", (r.get("workflow_path") or r.get("workflow") or "?").split("/")[-1])
+        mins = r["seconds"] / 60
+        for i, (lo, hi) in enumerate(segs):
+            if lo <= r["at"] < hi:
+                wf[key][i] += mins
+        runs[key].add(r.get("run"))
+        shas[key].add(r.get("sha"))
+        jobs[key + (r["job"],)] += mins
+        if key[1] == "fast-checks.yml" and r["job"].startswith("checks") and r["seconds"] >= 3600:
+            long_checks[r["conclusion"]] += mins
+    print(f"window {a.since}..{a.until}: {total} merged PRs; segments " +
+          ", ".join(f"{lo[11:16]}-{hi[11:16]} ({c} merged)" for (lo, hi), c in zip(segs, n)))
+    print(f"{'min/merged PR':>13}  " + "  ".join(f"{'seg' + str(i + 1):>6}" for i in range(len(segs))) +
+          "    runs   shas  workflow")
+    order = sorted(wf.items(), key=lambda kv: -sum(kv[1]))
+    for key, per in order[:a.top]:
+        print(f"{sum(per) / total:13.2f}  " + "  ".join(f"{x / c:6.2f}" for x, c in zip(per, n)) +
+              f"  {len(runs[key]):6d} {len(shas[key]):6d}  {key[0]} {key[1]}")
+    print(f"all base-branch: {sum(sum(p) for p in wf.values()) / total:.1f} min/merged PR")
+    print("\ntop jobs (min/merged PR):")
+    for key, mins in jobs.most_common(a.top):
+        print(f"{mins / total:6.2f}  {key[0]} {key[1]} :: {key[2]}")
+    if long_checks:
+        print("\nfast-checks.yml checks jobs >= 60 min, by conclusion (min/merged PR): " +
+              ", ".join(f"{c} {m / total:.2f}" for c, m in long_checks.most_common()))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -57,7 +57,7 @@ jobs:
     needs: coalesce
     if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && github.repository == 'manaflow-ai/cmux' }}
     name: select conflicting PRs
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 5
     permissions:
       contents: read
@@ -65,7 +65,7 @@ jobs:
     outputs:
       prs: ${{ steps.select.outputs.prs }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -88,9 +88,9 @@ jobs:
       name: ci-routing-agent
       deployment: false
     needs: select
-    if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
+    if: ${{ !cancelled() && !failure() && needs.select.result == 'success' && (needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]') }}
     name: catch up #${{ matrix.pr.number }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -104,7 +104,7 @@ jobs:
       # The classifier and the generated patterns come from the base, never
       # from the PR being merged.
       - name: Check out the base's catch-up script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: trusted
           persist-credentials: false
@@ -123,7 +123,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Check out the pull request
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ matrix.pr.sha }}
           path: pr

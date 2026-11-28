@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { hasNativeHost, postNative } from "../native";
 import type { Translate } from "../i18n";
+import { useAutoRetry } from "../autoRetry";
 
 export type IMessageStatus = "not_connected" | "needs_full_disk_access" | "needs_automation" | "connected";
 export type IMessageThread = {
@@ -30,6 +31,9 @@ export type IMessageView = {
   expanded: boolean;
   toggle: () => void;
   perform: (action: IMessageAction) => Promise<void>;
+  /// A read (its status, its threads) has failed for the house deadline while it is asked again on
+  /// its own: the connector shows one quiet "Still trying to reach iMessage…" line, with no button.
+  stillTrying: boolean;
 };
 
 export const IMESSAGE_INITIAL: IMessageData = {
@@ -39,7 +43,11 @@ export const IMESSAGE_INITIAL: IMessageData = {
   error: null,
 };
 
+/// What an iMessage error says. "missing" is an instruction (open Messages first); the list is read
+/// again on its own meanwhile. "unavailable" shows only for a step the person chose (Connect, a
+/// permission) that failed: its own button beside it is the way to take that step again.
 export function imessageError(error: string, t: Translate): string {
+  // retry-prompt-ok: "unavailable" follows a failed Connect or permission step, which only the person retakes.
   return t(error === "missing" ? "imessage.missing" : "imessage.unavailable");
 }
 
@@ -51,6 +59,11 @@ export function useIMessage(enabled = true): IMessageView | undefined {
   const opened = useRef(false);
   const revision = useRef(0);
   const live = useRef(false);
+  // A read that failed (its status or its thread list) is asked again on its own (autoRetry.ts): no
+  // Try again button, since reading again has no cost and the only answer was ever yes (Leo,
+  // 2026-11-22). A fresh object per failure arms the next ask. An action the person chose
+  // (connect, a permission) that failed still says so at once, beside its own button.
+  const [readFailed, setReadFailed] = useState<{ action: "status" | "threads" }>();
   const stop = useCallback(() => {
     live.current = false;
     revision.current++;
@@ -62,9 +75,17 @@ export function useIMessage(enabled = true): IMessageView | undefined {
       if (!live.current || id !== revision.current) return;
       if (next.status === "connected" && opened.current && action !== "threads")
         next = await postNative<IMessageData>("imessage.threads");
-      if (live.current && id === revision.current) setData(next);
+      if (live.current && id === revision.current) {
+        // Messages has not made its database yet ("missing"): the list is read again on its own, so
+        // opening Messages is all the person does; no Retry.
+        setReadFailed(next.status === "connected" && next.error && opened.current ? { action: "threads" } : undefined);
+        setData(next);
+      }
     } catch {
-      if (live.current && id === revision.current) setData((was) => ({ ...was, threads: [], error: "unavailable" }));
+      if (!live.current || id !== revision.current) return;
+      // A read keeps what it showed (a thread list a moment old beats an empty one) and asks again.
+      if (action === "status" || action === "threads") setReadFailed({ action });
+      else setData((was) => ({ ...was, threads: [], error: "unavailable" }));
     }
   }, []);
   useEffect(() => {
@@ -77,6 +98,7 @@ export function useIMessage(enabled = true): IMessageView | undefined {
     window.addEventListener("cmux-imessage-changed", refresh);
     return () => {
       stop();
+      setReadFailed(undefined);
       window.removeEventListener("cmux-imessage-changed", refresh);
     };
   }, [enabled, supported, request, stop]);
@@ -99,10 +121,19 @@ export function useIMessage(enabled = true): IMessageView | undefined {
     setExpanded(opened.current);
     if (opened.current && data.status === "connected") void perform("threads");
   }, [busy, data.status, perform]);
+  // A thread list is asked for again only while it is open; the status, always.
+  const asking = enabled && supported && readFailed && (readFailed.action === "status" || expanded);
+  const { stillTrying } = useAutoRetry(
+    asking ? readFailed : undefined,
+    () => {
+      if (readFailed) void request(readFailed.action);
+    },
+    { busy },
+  );
   // A transcript token changes Session Info's summary, not this connector. Keep its props stable
   // so a connected list (up to 500 threads) does no row work for those unrelated renders.
   return useMemo(
-    () => (enabled && supported ? { data, busy, expanded, toggle, perform } : undefined),
-    [enabled, supported, data, busy, expanded, toggle, perform],
+    () => (enabled && supported ? { data, busy, expanded, toggle, perform, stillTrying } : undefined),
+    [enabled, supported, data, busy, expanded, toggle, perform, stillTrying],
   );
 }

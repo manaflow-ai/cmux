@@ -374,6 +374,11 @@ fn each_verb_carries_its_arguments() {
         call(json!({"verb": "inference-gateway-status", "team": "team_0123456789abcdef0123"})).args,
         ["inference", "gateway", "status", "--json", "--team", "team_0123456789abcdef0123"]
     );
+    // The gate hands over the install token it holds (hq#19758): no nested mint inside the 10 s read.
+    assert_eq!(
+        call(json!({"verb": "inference-gateway-status", "team": "team_0123456789abcdef0123", "held": true})).args,
+        ["inference", "gateway", "status", "--json", "--team", "team_0123456789abcdef0123", "--token-stdin"]
+    );
     let release = call(json!({"verb": "start-chat-reservation", "release": true, "request": "{}"}));
     assert_eq!((release.args[2].as_str(), release.timeout_seconds), ("release", Some(15)));
     assert_eq!(

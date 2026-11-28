@@ -12,7 +12,7 @@
 
 use serde_json::{Map, Value, json};
 
-use super::github::refusal;
+use super::github::{rate_limited, refusal, retry_after_of, transient_refusal};
 use super::sender::Answer;
 
 /// The socket line's key.
@@ -141,15 +141,14 @@ pub fn reply_for(answer: &Answer) -> Value {
         Answer::Http { status: 404, .. } => {
             refusal("integration.unavailable", "cmux has no GitHub status route here yet.")
         }
-        Answer::Http { status: 429, .. } => {
-            refusal("rate_limited", "cmux is rate limited. Wait a moment, then retry.")
-        }
-        Answer::Http { .. } => {
-            refusal("integration.unavailable", "cmux did not answer the GitHub status read.")
-        }
-        Answer::Transport => refusal(
+        Answer::Http { status: 429, body } => rate_limited("cmux", retry_after_of(body)),
+        Answer::Http { .. } => transient_refusal(
+            "integration.unavailable",
+            "cmux did not answer the GitHub status read.",
+        ),
+        Answer::Transport => transient_refusal(
             "integration.unreachable",
-            "Check this machine's connection and retry the GitHub status read.",
+            "This Cloud machine could not reach cmux Cloud to read the GitHub status.",
         ),
     }
 }
