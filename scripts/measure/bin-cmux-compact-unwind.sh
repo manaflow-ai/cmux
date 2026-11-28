@@ -1,33 +1,41 @@
 #!/usr/bin/env bash
-# bin/cmux with compact unwind for Rust functions (.cargo/config.toml, CMUX-570), BASE vs HEAD on a Mac:
+# bin/cmux with and without compact unwind for Rust functions (CMUX-570), one commit, one Mac:
 #
-#   cmux-ci run --class exclusive --script scripts/measure/bin-cmux-compact-unwind.sh --ref HEAD_SHA --arg=BASE_SHA
+#   cmux-ci run --class exclusive --os macos --script scripts/measure/bin-cmux-compact-unwind.sh --ref SHA
 #
-# Builds `cmux-tui --bin cmux-tui` (the shipped bin/cmux) release at both commits, strips each as the
-# release does, and prints:
+# Builds `cmux-tui --bin cmux-tui` (the shipped bin/cmux) release twice from the same tree: `base` with
+# no rustflags, `head` with -C llvm-args=--emit-compact-unwind-non-canonical (LLVM otherwise gives
+# every function whose personality is rust_eh_personality a DWARF FDE in __eh_frame). Strips each as
+# the release does, and prints:
 #   SIZE side file=N text=N eh_frame=N unwind_info=N build_seconds=N
 #   UNWIND side flag=on|off ok=1   a panic through frames with Drop guards, caught by catch_unwind,
 #                                  nested panics in drop, and a symbolized backtrace, in a test
 #                                  binary built with and without the flag
 #   BENCH side what p50_ms=N n=60  interleaved runs while every core spins (duress)
 set -euo pipefail
-root="$(git rev-parse --show-toplevel)"; base="${1:?BASE}"
+root="$(git rev-parse --show-toplevel)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/compact-unwind.XXXXXX")"
 busy=()
-cleanup() { ((${#busy[@]})) && kill "${busy[@]}" 2>/dev/null; git -C "$root" worktree remove --force "$scratch/base" 2>/dev/null || true; rm -rf "$scratch"; }
+cleanup() { ((${#busy[@]})) && kill "${busy[@]}" 2>/dev/null; rm -rf "$scratch"; }
 trap cleanup EXIT
-fetch_url="$(git -C "$root" remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)"
-depth=(); [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-git -C "$root" cat-file -e "$base^{commit}" 2>/dev/null || git -C "$root" fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$base"
-git -C "$root" worktree add -q --detach "$scratch/base" "$base"
-# Both sides build ghostty from HEAD's ghostty-next (the base worktree has no submodules).
 export CMUX_GHOSTTY_SRC="${CMUX_GHOSTTY_SRC:-$root/ghostty-next}"
+# A fresh step tree may lack the ghostty-next submodule and the pinned Zig (as alloc-musl-ab.sh does).
+(cd "$root" && { [ -f ghostty-next/build.zig ] || git submodule update --init --depth 1 ghostty-next; })
+if ! command -v zig >/dev/null && [ -z "${ZIG:-}${CMUX_ZIG:-}" ]; then
+  zig_env="$(mktemp)"
+  (cd "$root" && GHOSTTY_ZIG_SOURCE=ghostty-next GITHUB_ENV="$zig_env" GITHUB_PATH=/dev/null ./scripts/install-zig-ci.sh >&2)
+  zig_line="$(grep '^CMUX_ZIG=' "$zig_env" | tail -n 1 || true)"; rm -f "$zig_env"
+  [ -z "$zig_line" ] || export "${zig_line?}"
+fi
 unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
 sect() { size -m "$1" | awk -v s="Section $2:" 'index($0,s){print $3; exit}'; }
+flag=(-C llvm-args=--emit-compact-unwind-non-canonical)
 for side in base head; do
-  tree="$root"; [[ $side == base ]] && tree="$scratch/base"
+  # CARGO_ENCODED_RUSTFLAGS replaces the config's target rustflags, so each arm is exactly its list
+  # whatever .cargo/config.toml says at this commit.
+  enc=""; [[ $side == head ]] && enc="$(IFS=$'\x1f'; echo "${flag[*]}")"
   start=$SECONDS
-  (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$scratch/t-$side" cargo build -q --locked --release -p cmux-tui --bin cmux-tui >&2)
+  (cd "$root/cmux-tui" && CARGO_ENCODED_RUSTFLAGS="$enc" CARGO_TARGET_DIR="$scratch/t-$side" cargo build -q --locked --release -p cmux-tui --bin cmux-tui >&2)
   cp "$scratch/t-$side/release/cmux-tui" "$scratch/$side"; strip "$scratch/$side"
   echo "SIZE $side file=$(stat -f %z "$scratch/$side") text=$(sect "$scratch/$side" __text) eh_frame=$(sect "$scratch/$side" __eh_frame || echo 0) unwind_info=$(sect "$scratch/$side" __unwind_info) build_seconds=$((SECONDS-start))"
 done
