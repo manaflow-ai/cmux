@@ -418,7 +418,9 @@ extension RemoteTmuxController {
         sessionName: String
     ) -> String? {
         guard !connectionExited else { return nil }
-        return sessionId.map { "$\($0)" } ?? sessionName
+        // A bare name is a prefix match, so a kill for a session that is already
+        // gone could take another one with it.
+        return sessionId.map { "$\($0)" } ?? RemoteTmuxHost.exactSessionTarget(sessionName)
     }
 
     /// What to tell an attach that names a different route than the live connection to the same
