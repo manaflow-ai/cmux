@@ -355,7 +355,10 @@ jobs:
           probe=cloud-chat-replies-production
           if [ "$AGENT" = codex ] && [ "$MODEL" = stub ]; then probe=cloud-chat-replies-production-codex-stub; elif [ "$AGENT" = codex ]; then probe=cloud-chat-replies-production-codex; elif [ "$MODEL" = real ]; then probe=cloud-chat-replies-production-real-model; fi
           home_chat_args=()
-          if [ "$MODEL" = stub ]; then home_chat_args+=(--home-chat reserved); fi
+          # The stub leg replays a real run's model time to first token (CAPTURED_FIRST_TOKEN_TRACE in cloud-journey.ts),
+          # so its first text has a real-sized model term and our_path_ms (first text minus the guest's model term) is
+          # judged every hour without the journey's Claude login; the six-hourly real legs check the model term itself.
+          if [ "$MODEL" = stub ]; then home_chat_args+=(--home-chat reserved --stub-replay captured); fi
           # The "cold create (asked size)" cell is a second machine create per run, and the test team may create 20
           # an hour (cloud.rate_limited took 7 of 12 red runs on 2026-11-26). The codex stub's four runs an hour skip it;
           # the claude stub (hourly) and the real legs still prove a cold create boots at the size it asked for.
