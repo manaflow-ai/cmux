@@ -244,6 +244,10 @@ public final class UpdaterService {
     /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):
     /// the click carries over to the newer build's check and download (``carryInstallClick(_:)``).
     @ObservationIgnored var installAfterSwap = false
+    /// The person's update clicks (Update on the found step, Restart to Update) since the flow was
+    /// last idle; the relaunch records them (``UpdateInstallCheck/clicks``) and the next launch
+    /// flags more than one (``UpdateInstallCheck/extraClicksLine(_:)``).
+    @ObservationIgnored var updateClicks = 0
     /// Why the newest build downloads in place of a stale or pulled one, or nil (``followNewestFetch(_:previous:)``).
     var newestFetch: NewestFetch?
     /// Pulled staged builds already dropped once (``followPulled()``).
@@ -419,6 +423,8 @@ public final class UpdaterService {
             + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
         relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, now: now, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
+        // Unpaused: the pause's `SUEnableAutomaticChecks = false` comes off once, before Sparkle reads it.
+        if !pausesAutomaticUpdates, identity.track != .development { AutomaticUpdatePause.resumeAutomaticChecks(in: defaults) }
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {

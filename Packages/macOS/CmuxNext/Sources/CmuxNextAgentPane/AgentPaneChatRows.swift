@@ -8,8 +8,9 @@ import Foundation
 /// The agent page's `cmux.agent.chat.rows.*` operations (the design doc's host contract), on a page
 /// route of their own so ``AgentPageProvider`` never sees them: the chat's rows over the pane's
 /// acpmux v2 client handle (``AcpmuxChatRowsHost``), each batch handed to the page in one call to
-/// `window.cmuxChatRows.receive`. Nothing here parses a change; socket work and the call's script
-/// are built off the main actor, and the page gets one call per batch.
+/// `window.cmuxChatRows.receive`. Nothing here parses a change; socket work and the batch's JSON
+/// text are built off the main actor, and the page gets one call per batch: the fixed
+/// ``AcpmuxChatRowsHost/receiveBody`` with that text as its argument, never a new script text.
 ///
 /// - The handle opens at the document's first `chat.rows.open`, on the pane's own daemon on this
 ///   Mac (``AgentPaneModel/pendingAsksSocket``). A chat on another machine, or no client, answers
@@ -38,7 +39,7 @@ final class AgentPaneChatRows: PageProvider {
     var makeHost: @MainActor (String, @escaping @Sendable (String) -> Void) -> AcpmuxChatRowsHost = { path, deliver in
         AcpmuxChatRowsHost(socketPath: path, deliver: deliver)
     }
-    /// Runs the page's call for a batch, on the main actor (tests record it).
+    /// Runs the page's call for a batch, given the batch's JSON text, on the main actor (tests record it).
     var evaluate: @MainActor (String) -> Void = { _ in }
 
     private(set) var host: AcpmuxChatRowsHost?
@@ -54,7 +55,7 @@ final class AgentPaneChatRows: PageProvider {
     /// Reads hidden from `page` and hands each batch to it.
     func watch(_ page: PageWebView) {
         isHidden = { [weak page] in page.map(AgentPaneFramePacer.nobodySees) ?? true }
-        evaluate = { [weak page] script in page?.evaluate(script) }
+        evaluate = { [weak page] batch in page?.evaluate(AcpmuxChatRowsHost.receiveBody, argument: "batch", text: batch) }
         let probe = AgentPaneVisibilityProbe(frame: .zero)
         probe.onChange = { [weak self] in self?.refreshHidden() }
         // Set first: AppKit may call the probe back inside addSubview.
@@ -116,9 +117,9 @@ final class AgentPaneChatRows: PageProvider {
         guard let path = socket(), !path.isEmpty else {
             throw PageError(code: AgentPaneTransportError.noConnection.rawValue, message: "The pane has no connection yet")
         }
-        let host = makeHost(path) { [weak self] script in
+        let host = makeHost(path) { [weak self] batch in
             // The host calls from its own queue, once a batch: one main-queue turn runs the page's one call.
-            MainDelivery().run { self?.evaluate(script) }
+            MainDelivery().run { self?.evaluate(batch) }
         }
         self.host = host
         refreshHidden()
