@@ -309,8 +309,12 @@ import Testing
 
     static func waitFor(_ condition: () -> Bool) async -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(2)
-        while !condition(), clock.now < deadline { await Task.yield() }
+        // A loaded CI simulator ran the off-main payload read (`transferPayload`) past the old 2 s
+        // (2026-11-27); sleeping, not spinning on `Task.yield()`, leaves the cores to that work.
+        let deadline = clock.now + .seconds(10)
+        while !condition(), clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5)) // test: polls until a deadline
+        }
         return condition()
     }
 
