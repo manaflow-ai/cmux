@@ -84,6 +84,43 @@ where
     tries_with(true, None, SEND_MAX_RETRY_AFTER, call).await
 }
 
+/// The spacing of [`ride_out`]'s tries.
+pub const OUTAGE_STEP: Duration = Duration::from_secs(2);
+
+/// A call whose caller already waits minutes for its answer (a session move's `move`,
+/// `move_out`, `move_forget` control, `hub/transfer_pull.rs`), tried again on every failure that
+/// passes, [`OUTAGE_STEP`] apart (or the hub's `retryAfterSeconds`), until `deadline`. [`retry`]'s
+/// few seconds do not cover a hub outage of minutes: on 2026-11-28 10:15..10:18Z the hub answered
+/// `503 mesh.unavailable` for about three minutes, and a move begun in it failed in 338 ms though
+/// it had ten minutes to land. The call must carry an idempotency key or be a read;
+/// `not_found_passes` as [`transient`] takes it (false for a receipt read: a 404 there is gone).
+pub async fn ride_out<T, F, Fut>(
+    not_found_passes: bool,
+    deadline: Instant,
+    mut call: F,
+) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    loop {
+        let e = match tokio::time::timeout_at(deadline, call()).await {
+            Ok(Ok(value)) => return Ok(value),
+            Ok(Err(e)) => e,
+            Err(_) => return Err(HubError::unavailable("the mesh hub did not answer in time")),
+        };
+        if !transient(&e, not_found_passes) {
+            return Err(e);
+        }
+        let wait = e.retry_after.map_or(OUTAGE_STEP, |after| after.max(OUTAGE_STEP));
+        if Instant::now() + wait >= deadline {
+            return Err(e);
+        }
+        tracing::debug!(error = %e, "mesh hub call failed; riding it out to the caller's deadline");
+        tokio::time::sleep(wait).await;
+    }
+}
+
 async fn tries<T, F, Fut>(
     not_found_passes: bool,
     deadline: Option<Instant>,
