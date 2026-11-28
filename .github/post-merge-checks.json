@@ -70,6 +70,10 @@
       "kind": "publish",
       "why": "a bot that re-pins the app FFI after a release"
     },
+    "app-store-shelf-cargo-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the App Store shelf check's Cargo build cache seed from the base"
+    },
     "chief-evals.yml": {
       "kind": "check",
       "why": "Chief evals on the base only: Leo cut its advisory pull request run on 2026-11-24 (#54661, goal ci-runner-min-per-day-50k); a red shows on base"
