@@ -541,6 +541,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::SPACE_2],
         targets: &["workspace-group"],
         cli_name: "workspace-group move-to-space",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
 ];

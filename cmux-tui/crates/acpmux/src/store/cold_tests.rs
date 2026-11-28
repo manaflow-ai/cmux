@@ -702,8 +702,10 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
         assert_eq!(Store::offload_cold(&store, "c").unwrap(), None);
         let stats = archive(&store, "c");
         let freed = Store::offload_cold(&store, "c").unwrap().expect("offloaded");
-        assert_eq!(freed, stats.bytes_after);
         let dir = store.dir("c");
+        let copy = std::fs::metadata(dir.join(SEARCH_COPY)).expect("a search copy stays").len();
+        assert!(copy > 0 && copy < stats.bytes_after, "{copy} of {}", stats.bytes_after);
+        assert_eq!(freed, stats.bytes_after - copy);
         assert!(!dir.join(COLD_FILE).exists());
         assert!(dir.join(CLOUD_STUB).exists());
         assert!(store.is_cold("c"));
@@ -721,7 +723,7 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
         let tree = std::fs::read_to_string(blobs.join(&tree[..2]).join(&tree)).unwrap();
         assert_eq!(tree, format!("cmux-sync-tree 1\n{blob}\n"));
 
-        // Search skips an offloaded chat: no fetch, no hits, still offloaded.
+        // Search reads an offloaded chat's local search copy: hits, no fetch, still offloaded.
         let query =
             crate::session_search::Query::from_params(&json!({"query": "flaky test"})).unwrap();
         let hits = crate::session_search::search_messages(
@@ -731,7 +733,8 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
             crate::session_search::TextView::Conversation,
         )
         .unwrap();
-        assert!(hits.hits.is_empty());
+        assert!(!hits.hits.is_empty(), "an offloaded chat stays findable");
+        assert!(hits.hits.iter().all(|hit| hit.snippet.contains("flaky test")));
         assert!(!dir.join(COLD_FILE).exists());
         assert!(store.is_cold("c"));
 
@@ -741,6 +744,7 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
         assert_eq!(hashes(&store, "c"), before);
         assert!(!dir.join(COLD_FILE).exists());
         assert!(!dir.join(CLOUD_STUB).exists());
+        assert!(!dir.join(SEARCH_COPY).exists(), "the thaw drops the search copy");
         assert!(!store.is_cold("c"));
         // Fetched back, it leaves the root: the store may collect its blob.
         assert_eq!(Store::register_cloud_root(&store).unwrap(), Some(0));

@@ -52,7 +52,7 @@ export interface FilesView {
   entries?: FsEntry[];
   loading: boolean;
   preview?: FilePreview;
-  /** The last push or pull was refused as busy (`transfer_busy`); Retry runs it again. */
+  /** The last push or pull was refused as busy (`transfer_busy`); Retry runs it again (retry-prompt-ok). */
   busy?: { direction: "push" | "pull"; path: string };
   /** This machine's daemon has no file ops yet (`cmux.cloud.unsupported`, capability `fs-v1`). */
   unavailable?: boolean;
@@ -254,7 +254,11 @@ export class FilesReader {
     if (machine) await this.transfer(machine, "pull", path);
   }
 
-  /** Runs the push or pull that `transfer_busy` refused again (the host asks for the file again). */
+  /**
+   * Runs the push or pull that `transfer_busy` refused again (the host asks for the file again).
+   * retry-prompt-ok: not run on its own when a transfer ends, since it opens a native file panel the
+   * person did not just ask for; the busy line says when it can go.
+   */
   async retryTransfer(): Promise<void> {
     const machine = this.machine();
     const busy = this.host.get()?.files?.busy;

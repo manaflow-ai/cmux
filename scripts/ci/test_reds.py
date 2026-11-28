@@ -152,6 +152,14 @@ SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Inter
 # tests job read as "the test process crashed (signal 9)"). A fault (`Segmentation fault`, a signal code from SwiftPM,
 # an exit status of 128 + N) is a crash wherever it is.
 STEP_ERROR = re.compile(r"^(?:##\[error\]|::error)")
+# The same holds for a unit inside one step: a runner of many units in one step (cmuxterm-hq's
+# scripts/ci/run_parallel.py: `::group::ok   NAME (exit 0, 8 s)`, the unit's log, `::endgroup::`) prints each unit's
+# log under a header naming how the unit ended. A kill inside a unit whose header says exit 0 is that unit's own doing,
+# even when another unit failed the step (2026-11-26: cmuxterm-hq#28312's Fleet tests, run 45790420707, read as "the
+# test process crashed (signal 9)" from the terminate-app unit's cleanup while the step's one red was another unit).
+# A crash needs the unit itself to end on the signal: its header then says a non-zero exit.
+UNIT_PASSED = re.compile(r"^(?:##\[group\]|::group::)ok +\S.* \(exit 0, \d+ s\)$")
+UNIT_EDGE = re.compile(r"^(?:##\[(?:group|endgroup)\]|::(?:group|endgroup)::)")
 # Actions may preserve only the shell status when a process dies after printing its test summary.
 # A 128 + signal status is still an abnormal end; a complete summary cannot excuse it as a base red.
 # Match the runner annotation, never a test name or an assertion quoting the diagnostic.
@@ -238,6 +246,8 @@ RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
 RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")
 # A unittest run (verbose `name (module.Class...) ... ok` lines, or a FAIL/ERROR block) ends with `Ran N tests`.
 UNITTEST_LINE = re.compile(r"^(?:FAIL|ERROR): \w+ \([\w.]+\)|^\w+ \([\w.]+\)(?: \.\.\.|$)")
+UNITTEST_PENDING = re.compile(r"^\w+ \([\w.]+\) \.\.\. (?!\s*(?:ok|FAIL|ERROR|skipped\b.*|expected failure|unexpected success)\s*$)")
+UNITTEST_VERDICT = re.compile(r"(?: \.\.\. |^\s+)?(?:ok|FAIL|ERROR|skipped\b.*|expected failure|unexpected success)\s*$")
 XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
 XC_SUITE_ENDED = re.compile(r"^\s*Test Suite '.+' (?:passed|failed) at ")
 SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
@@ -1184,7 +1194,11 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     named: list[str] = []
     crashed = False
     console = False  # inside a vitest console block (VITEST_CONSOLE)
+    unit_output = False  # inside a unittest -v test's own output (its `name (mod.Cls.name) ... ` line has no verdict yet)
+    unit_passed = False  # inside a passing unit's group of a many-unit step (UNIT_PASSED)
     for passing, text in shown:
+        if UNIT_EDGE.match(text):
+            unit_passed = bool(UNIT_PASSED.match(text))
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
         if VITEST_CONSOLE.match(text):
@@ -1192,6 +1206,18 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
             continue
         if console and not text.strip():
             console = False
+        # unittest -v prints `test_x (m.C.test_x) ... ` and the verdict (`ok`, FAIL, ERROR, skipped) after whatever the
+        # test printed, so its indented lines are that test's output: a probe quoting `crash report x.ips: EXC_BAD_ACCESS`
+        # is not the process dying (hq#26226, run 45717138906 job 139565977393: four named module failures read as a
+        # crash). Only the quoted-diagnostic patterns are muted; `Fatal Python error`, a signal exit and a shell kill
+        # still count.
+        if UNITTEST_PENDING.match(text):
+            unit_output = True
+        elif unit_output and not text[:1].isspace():
+            unit_output = False
+        elif unit_output and UNITTEST_VERDICT.search(text):
+            unit_output = False
+        quoted = unit_output and (text[:1].isspace() or bool(UNITTEST_PENDING.match(text)))
         if BUN_PANIC.match(text):
             crashed = True
         if match := XCTEST_RESTART.search(text):
@@ -1203,9 +1229,10 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
         if 1 <= signal_exit <= 64:
             crashed = True
             signals.append(str(signal_exit))
-        killed = SHELL_SIGNAL.search(text) and not passing
+        killed = SHELL_SIGNAL.search(text) and not passing and not unit_passed
         runtime = HELPER_KILLED.search(text) or killed or (
-            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text) and not HEADING.match(text)
+            (CRASH.search(text) or (not quoted and (CRASH_AT_START.search(text) or SIGNALED.search(text))))
+            and not TEST_LINE.search(text) and not HEADING.match(text)
             and not console and not WORKERD_UNCAUGHT.match(text))
         if runtime:
             crashed = True
@@ -1322,10 +1349,81 @@ def runner_shut_down(log: str) -> str | None:
     return None
 
 
+# A job that died inside actions/checkout, before any step of the change ran: cmux#51655 at fd3c0b17 (2026-11-25),
+# 'cmux-tui spec inventory / changes' (job 139448781664) failed in `Run actions/checkout@...` on "fatal: unable to
+# access 'https://github.com/manaflow-ai/cmux/': Operation too slow" and "could not fetch ... from promisor remote",
+# then "The process '/usr/local/bin/git' failed with exit code 128", and land-judge stopped the land own_red on it as
+# "'changes' is not red on feat-cmux-next". The same reading as leo-workspace tools/ws-check failed_in_checkout
+# (leo-workspace#11281): the step is the last "##[group]Run ..." line before the log's first ##[error], in the raw log
+# and in `gh run view --log` alike. A step the job ran after that error (a checkout with continue-on-error, then the
+# change's own steps) keeps its verdict. Whether the change itself can break the checkout (a submodule pin it moves)
+# is the caller's to read: this reads the log only. The runner's own job-completed hook (`Run '/opt/cmux-job-clean.sh'`
+# on the fleet, after "A job completed hook has been configured ...") is no step of the job: the read ends there.
+CHECKOUT_RUN = "##[group]Run "
+CHECKOUT_ACTION = "actions/checkout@"
+JOB_COMPLETED_HOOK = "A job completed hook has been configured"
+
+
+def died_in_checkout(log):
+    """The first ##[error] line of LOG when it falls inside an actions/checkout step and no other step ran after it,
+    else None."""
+    step = None
+    first = None
+    for line in (log or "").splitlines():
+        if JOB_COMPLETED_HOOK in line:
+            break
+        if CHECKOUT_RUN in line:
+            step = line.split(CHECKOUT_RUN, 1)[1].strip()
+            if first is not None and not step.startswith(CHECKOUT_ACTION):
+                return None  # a step of the job's own ran after the checkout's error
+        elif first is None and "##[error]" in line:
+            if not (step and step.startswith(CHECKOUT_ACTION)):
+                return None
+            first = line.split("##[error]", 1)[1].strip()
+    return first
+
+
+# A job whose runner's own worker process (GitHub.Runner.Worker) crashed under it: 2026-11-25, cmux#50809's
+# `web / react-apps-base-check` (run 45639356121, job 139341128013, runner cmux-runner-pool-c1c-0124) and cmux#50827's
+# (run 45649635922, job 139340766008, cmux-runner-pool-w1b-0056). Each runner's disk filled, its worker could not write
+# its own trace (`System.IO.IOException: No space left on device : '/home/runner/actions-runner/_diag/Worker_...log'`)
+# and died on `Unhandled exception.` in GitHub.Runner.Worker.Program.Main, mid-step with no step failed and no log
+# stored, leaving that stack as the job's one failure annotation. land-judge read it as "its per-test webview verdict
+# names its own reds (react-apps-base-check failed: a red the replay names is the PR's own)" though no test ran. The
+# annotation is the runner's, never a test's: its stack frames name the runner's own assembly, and the full disk is the
+# runner's _diag directory. A job with a failed step keeps its verdict (a test that failed before the crash).
+RUNNER_WORKER_CRASH = re.compile(r"^Unhandled exception\. .*(?:\n.*)*?\n\s+at GitHub\.Runner\.Worker\.", re.M)
+RUNNER_DIAG_FULL = re.compile(r"No space left on device : '[^'\n]*/actions-runner/_diag/[^'\n]*'")
+
+
+def runner_worker_crashed(job, annotations=()):
+    """Why failed JOB's check-run ANNOTATIONS (dicts with "message" and "annotation_level", or plain messages) say its
+    runner's worker crashed under it (RUNNER_WORKER_CRASH, or RUNNER_DIAG_FULL: the runner's own disk full), when no
+    step of JOB failed; else None."""
+    if (job or {}).get("conclusion") != "failure":
+        return None
+    if any(isinstance(step, dict) and step.get("conclusion") == "failure" for step in (job or {}).get("steps") or []):
+        return None
+    for note in annotations or ():
+        if isinstance(note, dict):
+            if (note.get("annotation_level") or "failure") != "failure":
+                continue
+            message = str(note.get("message") or "")
+        else:
+            message = str(note)
+        full = RUNNER_DIAG_FULL.search(message)
+        crash = RUNNER_WORKER_CRASH.search(message)
+        if full or crash:
+            said = (full or crash).group(0).splitlines()[0].strip()
+            return f"its runner's worker crashed ({said[:200]}) before any step of it failed"
+    return None
+
+
 def lost_runner(job, annotations=(), log=None):
     """Why failed JOB (an Actions job or check run) is infra and no verdict, or None. ANNOTATIONS are its check run's
     annotations (dicts with "message" and "annotation_level", or plain messages); LOG, when the caller read it, is
-    its log text or the error its read gave. Any one is enough: a failure annotation that says the runner was lost;
+    its log text or the error its read gave. Any one is enough: a failure annotation that says the runner was lost,
+    or that its worker crashed with no step failed (runner_worker_crashed);
     a job that completed with a step still unfinished and no step failed (the runner stopped reporting mid-step); or
     a log GitHub never stored (BlobNotFound) with no step failed. A job with a failed step keeps its verdict, except
     the one case where the failed step is the shutdown itself (runner_shut_down): the runner's notice in LOG plus a
@@ -1341,6 +1439,8 @@ def lost_runner(job, annotations=(), log=None):
             message = str(note)
         if LOST_RUNNER.search(message):
             return "its runner was lost: " + " ".join(message.split())[:200]
+    if why := runner_worker_crashed(job, annotations):
+        return why
     if isinstance(log, str) and (why := runner_shut_down(log)):
         return why
     steps = [step for step in (job or {}).get("steps") or [] if isinstance(step, dict)]

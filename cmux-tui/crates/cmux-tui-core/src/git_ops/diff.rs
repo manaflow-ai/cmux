@@ -271,7 +271,9 @@ fn report(
     }
 
     let mut files = tracked(repository, comparison, operation, &paths)?;
-    if comparison.untracked {
+    // The home folder's repository lists its tracked changes only: its
+    // untracked files are the whole home folder (`cmux_git::home`).
+    if comparison.untracked && repository.lists_untracked() {
         let listing = git(repository, operation, &untracked_args(&paths), MAX_LISTING_BYTES)?;
         let mut names = parse::file_list(&listing.stdout);
         if listing.truncated {

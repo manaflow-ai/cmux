@@ -126,6 +126,15 @@ one byte that matters for the framing is `0xFF`. No code sends `\xFFCO` yet.
   reflow, the app still asks for a local-history READY at a resize, so the digest fields are optional.
 - The client checks offset continuity: an OUTPUT whose offset is not the end of the last one, outside a
   snapshot, is a gap (section 3.4), never a splice.
+- Before `attach-streams-v1` exists, `stream` = 0 means "this connection's only attach" (today one
+  attach per connection). OUTPUT is the first kind the daemon sends (CMUX-571, the 200 MB `cat`): a Unix
+  connection that declared `attach-frames-v1` gets every plain `output` of its byte attach and its
+  snapshot viewer (READY attach, also a hidden viewer's batch) as OUTPUT; `output` with a colors sidecar,
+  READY, history, resize, `colors-changed`, `size-state` and every other event stay JSON lines in the
+  same FIFO until their kinds land. The header's offset is the stream offset of the payload's FIRST
+  byte: a snapshot viewer's JSON `output` names the END (`offset` after its last byte), so a frame's is
+  that end minus `len`, and the first frame after a READY starts at the READY's `offset`. A byte
+  attach's first frame starts at the stream offset of the replay's cut.
 - Frame size: the daemon cuts OUTPUT payloads at `OUTPUT_FRAME_MAX`. With at most two queued frames per
   stream (existing `OUTBOUND_BACKPRESSURED_STREAM_CAPACITY`), what queues ahead of one stream's frame is at
   most 2 x `OUTPUT_FRAME_MAX` per other busy stream (section 3.3), so the cap bounds head-of-line delay for

@@ -225,3 +225,134 @@ fn the_nat_matrix_before_and_after_punching() {
     assert!(direct(sites[4], sites[5], true));
     assert!(!direct(sites[4], sites[5], false));
 }
+
+#[test]
+fn a_far_candidate_that_is_this_machines_own_address_is_never_opened_toward() {
+    // gcp-agent-lane-12, 2026-11-25 22:37:57Z: a far machine offered its docker0 172.17.0.1;
+    // lane-12 has the same address, connected to its own listener on 47791 in under a
+    // millisecond, and the dial then failed its handshake (`daemon key mismatch: ... got` its
+    // own key) and held the machine on the relay.
+    let far: Vec<SocketAddr> = ["172.17.0.1:47791", "10.138.0.105:47791", "[2001:db8::5]:47791"]
+        .iter()
+        .map(|a| a.parse().unwrap())
+        .collect();
+    let own = |ip: IpAddr| ip == "172.17.0.1".parse::<IpAddr>().unwrap();
+    let toward = usable_toward_from(&far, own);
+    assert_eq!(toward, far[1..].to_vec());
+    // Loopback stays (two carriers on one machine in tests).
+    let local: SocketAddr = "127.0.0.1:47791".parse().unwrap();
+    assert_eq!(usable_toward_from(&[local], |_| true), vec![local]);
+}
+
+#[test]
+fn own_address_is_any_address_a_socket_binds_to() {
+    assert!(own_address("127.0.0.1".parse().unwrap()));
+    // TEST-NET-1 is never assigned to a host.
+    assert!(!own_address("192.0.2.77".parse().unwrap()));
+    if let Some((_, ip)) =
+        cmux_netwatch::usable().unwrap_or_default().into_iter().find(|(_, ip)| ip.is_ipv4())
+    {
+        assert!(own_address(ip), "{ip} is on an interface here");
+    }
+}
+
+#[test]
+fn container_and_vm_bridges_are_never_offered() {
+    for name in ["docker0", "br-3f2a9c1b", "veth12ab", "virbr0", "lxdbr0", "podman0", "cni0"] {
+        assert!(host_bridge(name), "{name}");
+    }
+    for name in ["eth0", "ens3", "en0", "wlan0", "wlp2s0", "tailscale0", "bridge0"] {
+        assert!(!host_bridge(name), "{name}");
+    }
+}
+
+#[test]
+fn a_miss_in_a_row_doubles_the_hold_up_to_the_cap() {
+    assert_eq!(hold_for(1, 0.5), PUNCH_HOLD);
+    assert_eq!(hold_for(2, 0.5), PUNCH_HOLD * 2);
+    assert_eq!(hold_for(3, 0.5), PUNCH_HOLD * 4);
+    assert_eq!(hold_for(40, 0.5), PUNCH_HOLD_MAX);
+    assert_eq!(hold_for(40, 1.0), PUNCH_HOLD_MAX, "jitter never takes it past the cap");
+    assert_eq!(hold_for(1, 0.0), PUNCH_HOLD.mul_f64(0.75));
+}
+
+/// Punches started toward one machine whose every punch fails, asked for once a second for
+/// `hours`, with the hold this file applies.
+fn punches_toward_a_failing_peer(hours: u64) -> u32 {
+    let punches = Punches::default();
+    let start = Instant::now();
+    let mut started = 0;
+    for second in 0..hours * 3600 {
+        let now = start + Duration::from_secs(second);
+        if punches.held_off_at("far", now) || !punches.may_start("far", CircuitLane::Cheap, now) {
+            continue;
+        }
+        started += 1;
+        punches.miss_at("far", now, 0.5);
+    }
+    started
+}
+
+/// cosmic-gray, 2026-11-27: 18.5k punch attempts across about 200 peers. Before: a flat
+/// 120 s hold, 30 punches an hour per failing peer (6,000 an hour at 200 peers). After: 6 in
+/// the first hour, then one an hour.
+#[test]
+fn a_peer_whose_every_punch_fails_is_punched_a_few_times_an_hour_not_every_two_minutes() {
+    let first_hour = punches_toward_a_failing_peer(1);
+    assert!(first_hour <= 6, "{first_hour} punches in the first hour");
+    let day = punches_toward_a_failing_peer(24);
+    assert!(day <= 6 + 23, "{day} punches in a day");
+}
+
+#[test]
+fn a_punch_asked_for_again_soon_after_one_connected_is_churn_and_holds_off() {
+    let punches = Punches::default();
+    let t0 = Instant::now();
+    punches.connected_at("far", CircuitLane::Cheap, t0);
+    // Its link dropped a minute later and a dial asks again: churn, not a new punch.
+    let t1 = t0 + Duration::from_secs(60);
+    assert!(!punches.may_start("far", CircuitLane::Cheap, t1));
+    assert!(punches.held_off_at("far", t1));
+    assert_eq!(punches.hold("far").map(|h| h.misses), Some(1));
+    // Each churned link in a row holds longer.
+    let t2 = punches.hold("far").unwrap().until + Duration::from_secs(1);
+    assert!(punches.may_start("far", CircuitLane::Cheap, t2));
+    punches.connected_at("far", CircuitLane::Cheap, t2);
+    let t3 = t2 + Duration::from_secs(30);
+    assert!(!punches.may_start("far", CircuitLane::Cheap, t3));
+    assert_eq!(punches.hold("far").map(|h| h.misses), Some(2));
+    assert!(punches.hold("far").unwrap().until >= t3 + PUNCH_HOLD * 2 - Duration::from_secs(60));
+    // A punched link that lasted `PUNCH_STABLE` forgets the misses.
+    let t4 = punches.hold("far").unwrap().until + Duration::from_secs(1);
+    assert!(punches.may_start("far", CircuitLane::Cheap, t4));
+    punches.connected_at("far", CircuitLane::Cheap, t4);
+    let t5 = t4 + PUNCH_STABLE + Duration::from_secs(1);
+    assert!(punches.may_start("far", CircuitLane::Cheap, t5));
+    assert!(punches.hold("far").is_none());
+}
+
+#[test]
+fn at_most_a_few_punches_run_at_once_across_every_peer() {
+    let punches = Punches::default();
+    for n in 0..MAX_PUNCHES_AT_ONCE {
+        assert!(punches.claim(&format!("peer-{n}"), CircuitLane::Cheap));
+    }
+    assert!(
+        !punches.claim("one-more", CircuitLane::Cheap),
+        "past the cap the dial rides the relay"
+    );
+    assert!(!punches.claim("peer-0", CircuitLane::Cheap), "one at a time per machine and lane");
+    punches.release("peer-0", CircuitLane::Cheap);
+    assert!(punches.claim("one-more", CircuitLane::Cheap));
+    assert_eq!(punches.stats.capped.load(std::sync::atomic::Ordering::Relaxed), 1);
+}
+
+#[test]
+fn at_most_a_few_offers_are_answered_at_once() {
+    let punches = Punches::default();
+    let slots: Vec<_> = (0..MAX_ANSWERS_AT_ONCE).map(|_| punches.answer_slot()).collect();
+    assert!(slots.iter().all(Option::is_some));
+    assert!(punches.answer_slot().is_none());
+    drop(slots);
+    assert!(punches.answer_slot().is_some(), "a slot frees when its answer ends");
+}

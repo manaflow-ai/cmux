@@ -32,6 +32,7 @@ public struct ChiefSettingsView: View {
     /// A change or stop the Mac did not take (a failed read is the session's ``ChiefSession/engineProblem``).
     @State private var engineError: String?
     @State private var saving = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var stopping = false
     @State private var stopNote: String?
     @State private var muted: Bool
@@ -125,8 +126,12 @@ public struct ChiefSettingsView: View {
         }
         // Reads Chief's engine now, and again with backoff while the
         // Mac or its model server is down, until the page closes; again
-        // once Chief connects with the page open.
-        .task(id: hasControl) { await session.watchEngine() }
+        // once Chief connects with the page open, and at once back in the foreground
+        // (the wait between reads stops while the app is away).
+        .task(id: "\(hasControl)|\(scenePhase == .active)") {
+            guard scenePhase == .active else { return }
+            await session.watchEngine()
+        }
         // The Computer card reads the Mac's Cloud directory now and each time a Mac (re)connects.
         .task(id: computer.reload(preferring: session.macID)) { await computer.load(preferring: session.macID) }
         .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
@@ -279,27 +284,18 @@ public struct ChiefSettingsView: View {
                     .accessibilityIdentifier("chief.settings.effort")
                 }
             } else if session.engineProblem == nil {
-                // The spinner trails, as on Try Again: the text keeps the rows' x (no icons here).
+                // The spinner trails: the text keeps the rows' x (no icons here).
                 HStack { Text("Asking Chief on the Mac…").foregroundStyle(.secondary); Spacer(); CmuxSpinner() }
             }
-            // A failed read never replaces the model: it is said under it,
-            // with Try Again (the page also retries on its own).
+            // A failed read never replaces the model: it is said under it. No Try Again: the page
+            // reads again on its own with backoff while it is open (``ChiefSession/watchEngine()``),
+            // and a refusal answers the same on every read (Leo, 2026-11-22).
             // A transient one says nothing until it has lasted the shared quiet bound.
             if hasControl, let problem = session.engineProblem, !problem.isTransient || problemQuiet.isShown {
                 Text(problem.loadText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("chief.settings.problem")
-                Button {
-                    Task { await retry() }
-                } label: {
-                    HStack {
-                        Text("Try Again")
-                        if retrying { Spacer(); CmuxSpinner() }
-                    }
-                }
-                .disabled(retrying)
-                .accessibilityIdentifier("chief.settings.retry")
             }
             // The model list is Chief's own; its model server shows in the
             // turns: the newest one failed to reach it.
@@ -390,14 +386,6 @@ public struct ChiefSettingsView: View {
     }
 
     // MARK: Actions
-
-    @State private var retrying = false
-
-    private func retry() async {
-        retrying = true
-        defer { retrying = false }
-        await session.refreshEngine()
-    }
 
     /// A picker bound to one engine field: picking writes it on the Mac and
     /// shows the brain's answer; a refusal puts the old value back.
@@ -506,11 +494,13 @@ public struct ChiefSettingsView: View {
         if let backend = error as? ConversationBackendError, backend.code == -1 { return backend.message }
         // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
         switch ChiefEngineProblem(error) {
+        // retry-prompt-ok: a failed settings change or stop the person made
         case .macUnreachable: return String(localized: "Can't reach your Mac. Make sure it's awake and connected, then try again.")
         case .chiefBusy: return String(localized: "mobile.chief.busy", defaultValue: "Chief is busy. Try again.", bundle: .module)
         default: break
         }
         return switch action {
+        // retry-prompt-ok: a failed settings change or stop the person made
         case .change: String(localized: "mobile.chief.saveFailed", defaultValue: "Couldn't save the change. Try again.", bundle: .module)
         case .stop: String(localized: "mobile.chief.stopFailed", defaultValue: "Couldn't stop Chief. Try again.", bundle: .module)
         }

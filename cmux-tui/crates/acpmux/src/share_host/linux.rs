@@ -16,6 +16,9 @@
 //!   share. A new join (another machine id or credential generation), or a cmux-rd that is new
 //!   or was replaced (another size, modification time or inode), runs it again: a machine joined
 //!   before the join line installed cmux-rd gets its host once cmux-rd is there.
+//! - Each check reads the join too ([`tick`]): a machine joined while the daemon runs (`acpmux
+//!   machine join` with no restart, as `fleet-screen-enroll` does) is set up on the next check,
+//!   or at once when `share-host status` sees the join first ([`super::recheck`]).
 //! - The daemon looks at cmux-rd every [`CHECK_EVERY`] (one `stat`), so a cmux-rd the join line
 //!   installs or updates while the daemon runs is set up without a restart. One enable per
 //!   cmux-rd identity per daemon run: one that failed or timed out is tried again only when
@@ -494,10 +497,48 @@ pub(crate) fn status_json(state: &str, detail: &str, rd: &Path, hub: &str) -> Va
     })
 }
 
+/// What a watcher tick does, from the join read on it ([`tick`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Tick<J> {
+    /// Not joined here (no record, copied, revoked, no device hub): the status says why and the
+    /// next tick reads the join again.
+    NotJoined(NotRunning),
+    /// Joined (`J`, its key): the step for the cmux-rd installed now.
+    Joined(J, Value, Step),
+}
+
+/// The tick for the join read now (`join`, keyed by `key_of`, or why there is none), the cmux-rd
+/// build and join this daemon run last tried (`attempted`, forgotten once the join is gone or is
+/// another) and the cmux-rd installed `now`. A machine that joins while the daemon runs is set
+/// up on the tick after its join, with no restart.
+pub(crate) fn tick<J>(
+    join: Result<J, NotRunning>,
+    key_of: impl FnOnce(&J) -> Value,
+    attempted: &mut Option<(Identity, Value)>,
+    now: Option<Identity>,
+) -> Tick<J> {
+    let join = match join {
+        Ok(join) => join,
+        Err(why) => {
+            *attempted = None;
+            return Tick::NotJoined(why);
+        }
+    };
+    let key = key_of(&join);
+    if attempted.as_ref().is_some_and(|(_, tried)| *tried != key) {
+        *attempted = None;
+    }
+    let step = next_step(attempted.as_ref().map(|(id, _)| id), now);
+    Tick::Joined(join, key, step)
+}
+
 /// Sets up this joined Linux machine's cmux-rd host from the daemon's start, as a task of
-/// `scope`: nothing when the machine is not joined (or its record was copied or revoked); else a
-/// watcher that runs the enable (on a blocking thread) for each cmux-rd build it has not tried
-/// in this daemon run, and says when cmux-rd is not installed.
+/// `scope`: a watcher that reads the join on every tick ([`CHECK_EVERY`], or at once when
+/// `share-host status` sees a join the last tick did not, [`super::recheck`]), says why while
+/// the machine is not joined (or its record was copied or revoked), and runs the enable (on a
+/// blocking thread) for each join and cmux-rd build it has not tried in this daemon run, and
+/// says when cmux-rd is not installed. A join made while the daemon runs (`acpmux machine join`
+/// with no restart) is set up without one.
 #[cfg_attr(
     not(target_os = "linux"),
     allow(
@@ -507,10 +548,13 @@ pub(crate) fn status_json(state: &str, detail: &str, rd: &Path, hub: &str) -> Va
 )]
 pub(crate) fn start(scope: &cmux_scope::Scope) {
     let home = crate::config::home();
-    // The hub shown until the first enable; each enable reads the join again (below).
+    // Said now, so a status asked before the first tick is right; each tick reads it again.
     let mut hub = match super::joined() {
         Ok((_, hub)) => hub,
-        Err(why) => return not_running(why),
+        Err(why) => {
+            not_running(why);
+            String::new()
+        }
     };
     let Some(user_home) = dirs::home_dir() else {
         return not_running(NotRunning::new(
@@ -534,19 +578,33 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
     // The loop ends with the daemon's scope (a `while`, so the task's output is `()`).
     let stop = scope.token();
     scope.spawn_until_cancelled("share-host-linux", async move {
-        // The cmux-rd build tried, and the join it was tried for (None: there was no join).
-        let mut attempted: Option<(Identity, Option<Value>)> = None;
+        // The cmux-rd build tried, and the join it was tried for.
+        let mut attempted: Option<(Identity, Value)> = None;
         let mut said: Option<String> = None;
         while !stop.is_cancelled() {
             // One read of the join per check: its credential's mark and its own deployment's
             // hub come from the same record (review F2 of #45480), never from what the daemon
             // read at its start. A leave or a new join since the last enable is set up again.
-            let join = super::joined();
-            let join_key = join.as_ref().ok().map(|(credential, _)| join_key_of(credential));
-            if attempted.as_ref().is_some_and(|(_, key)| *key != join_key) {
-                attempted = None;
-            }
-            match next_step(attempted.as_ref().map(|(id, _)| id), identity_of(&rd)) {
+            let key_of = |(credential, _): &Joined| join_key_of(credential);
+            let now = identity_of(&rd);
+            let (credential, join_key, step) =
+                match tick(super::joined(), key_of, &mut attempted, now) {
+                    Tick::NotJoined(why) => {
+                        let detail = why.to_string();
+                        if said.as_ref() != Some(&detail) {
+                            tracing::info!("{}: not running: {detail}", super::LOG);
+                            super::state::linux(status_json(why.code, &why.detail, &rd, &hub));
+                            said = Some(detail);
+                        }
+                        super::next_check(CHECK_EVERY).await;
+                        continue;
+                    }
+                    Tick::Joined((credential, now), key, step) => {
+                        hub = now;
+                        (credential, key, step)
+                    }
+                };
+            match step {
                 Step::Wait => {}
                 Step::NotInstalled => {
                     let detail = not_installed_detail(&rd, &folder);
@@ -559,20 +617,6 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
                 Step::Enable(id) => {
                     said = None;
                     attempted = Some((id, join_key));
-                    let credential = match join {
-                        Ok((credential, now)) => {
-                            hub = now;
-                            credential
-                        }
-                        Err(why) => {
-                            // Left (or revoked, or copied) since: nothing is set up, and the
-                            // status says so instead of the earlier join's.
-                            tracing::info!("{}: not set up: {why}", super::LOG);
-                            super::state::linux(status_json(why.code, &why.detail, &rd, &hub));
-                            tokio::time::sleep(CHECK_EVERY).await;
-                            continue;
-                        }
-                    };
                     super::state::linux(status_json(
                         "setting_up",
                         "cmux-rd linux-host enable runs",
@@ -610,10 +654,13 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
                     }
                 }
             }
-            tokio::time::sleep(CHECK_EVERY).await;
+            super::next_check(CHECK_EVERY).await;
         }
     });
 }
+
+/// A join as [`super::joined`] reads it: its credential and its deployment's device hub.
+type Joined = (Box<crate::machine_record::MachineCredential>, String);
 
 /// Sets a flag when dropped: an enable's cancel, set when its task is dropped.
 struct CancelOnDrop(Arc<AtomicBool>);

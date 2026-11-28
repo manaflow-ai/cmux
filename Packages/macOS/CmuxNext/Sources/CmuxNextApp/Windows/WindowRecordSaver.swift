@@ -277,7 +277,7 @@ extension AppServices {
         var seen = Set<String>()
         let sidebars = ordered.flatMap { controller in
             let model = controller.sidebar.model
-            let sidebar = SidebarSnapshot(sections: model.sections, profiles: model.profiles, activeProfileID: model.activeProfileID)
+            let sidebar = SidebarSnapshot(model)
             return sidebar.sections.flatMap(\.nodes).flatMap { $0.workspace.map { [$0] } ?? $0.group?.workspaces ?? [] }
         }.filter { !shown.contains($0.id) && seen.insert($0.id).inserted }
             .map { LaunchRecordSidebarSnapshot(id: $0.id, title: $0.title, iconKey: $0.icon ?? "") }

@@ -553,8 +553,17 @@ mod claude {
         out
     }
 
-    /// Adds or drops `name` in the string array `key` of `holder`.
-    fn toggle_in(holder: &mut Json, key: &str, name: &str, present: bool) -> Result<(), String> {
+    /// Adds or drops `name` in the string array `key` of `holder`. `prior` is the same holder
+    /// before cmux's last write: when the array comes back to the names it held there, it takes
+    /// their order (an off then on never reorders the person's list), and an emptied array the
+    /// person did not have goes.
+    fn toggle_in(
+        holder: &mut Json,
+        prior: Option<&Json>,
+        key: &str,
+        name: &str,
+        present: bool,
+    ) -> Result<(), String> {
         let mut items = holder.get(key).map(Json::strings).unwrap_or_default();
         let had = items.iter().any(|item| item == name);
         if present && !had {
@@ -562,6 +571,19 @@ mod claude {
         } else if !present && had {
             items.retain(|item| item != name);
         } else {
+            return Ok(());
+        }
+        let before = prior.and_then(|p| p.get(key)).map(Json::strings);
+        if let Some(before) = &before {
+            let same = |a: &[String], b: &[String]| {
+                a.iter().collect::<BTreeSet<_>>() == b.iter().collect::<BTreeSet<_>>()
+            };
+            if before.len() == items.len() && same(before, &items) {
+                items = before.clone();
+            }
+        }
+        if items.is_empty() && before.is_none() && prior.is_some() {
+            holder.remove(key);
             return Ok(());
         }
         if !holder.set(key, Json::Array(items.into_iter().map(Json::String).collect())) {
@@ -669,14 +691,24 @@ mod claude {
                 (_, Edit::Enable | Edit::Disable) => {
                     let off = matches!(edit, Edit::Disable);
                     let key = key.unwrap_or_default();
+                    // The folder's entry before cmux's last write, for an undo to restore.
+                    let prior = std::fs::read_to_string(fsio::backup_path(&file))
+                        .ok()
+                        .and_then(|text| Json::parse(&text).ok());
+                    let prior = prior
+                        .as_ref()
+                        .and_then(|p| p.get("projects"))
+                        .and_then(|p| p.get(&key))
+                        .cloned();
+                    let prior = if off { None } else { prior };
                     let projects = json.object_at("projects").ok_or("projects is not an object")?;
                     let folder =
                         projects.object_at(&key).ok_or("the folder's entry is not an object")?;
                     if scope == Scope::Project {
-                        toggle_in(folder, "disabledMcpjsonServers", name, off)?;
-                        toggle_in(folder, "enabledMcpjsonServers", name, !off)?;
+                        toggle_in(folder, prior.as_ref(), "disabledMcpjsonServers", name, off)?;
+                        toggle_in(folder, prior.as_ref(), "enabledMcpjsonServers", name, !off)?;
                     } else {
-                        toggle_in(folder, "disabledMcpServers", name, off)?;
+                        toggle_in(folder, prior.as_ref(), "disabledMcpServers", name, off)?;
                     }
                 }
                 (Scope::Plugin, _) => {
@@ -1137,11 +1169,32 @@ mod codex {
                     else {
                         return Err(missing());
                     };
-                    if matches!(edit, Edit::Disable) {
-                        entry.insert("enabled", value(false));
-                    } else if entry.get("enabled").is_some() {
-                        // On is Codex's default: the switch goes, as if it had never been off.
+                    // On is Codex's default: the switch goes, as if it had never been off,
+                    // unless the person had written it before cmux's last write (then it is set
+                    // back to true in place, its comment kept).
+                    let theirs = || {
+                        std::fs::read_to_string(fsio::backup_path(&file))
+                            .ok()
+                            .and_then(|prior| prior.parse::<DocumentMut>().ok())
+                            .is_some_and(|prior| {
+                                prior
+                                    .get("mcp_servers")
+                                    .and_then(|s| s.get(name))
+                                    .and_then(|e| e.get("enabled"))
+                                    .is_some()
+                            })
+                    };
+                    let on = matches!(edit, Edit::Enable);
+                    if on && entry.get("enabled").is_some() && !theirs() {
                         entry.remove("enabled");
+                    } else if let Some(existing) =
+                        entry.get_mut("enabled").and_then(Item::as_value_mut)
+                    {
+                        let decor = existing.decor().clone();
+                        *existing = toml_edit::Value::from(on);
+                        *existing.decor_mut() = decor;
+                    } else if !on {
+                        entry.insert("enabled", value(false));
                     }
                 }
             }

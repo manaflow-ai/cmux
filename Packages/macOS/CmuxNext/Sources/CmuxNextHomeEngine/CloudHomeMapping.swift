@@ -62,54 +62,28 @@ public nonisolated struct CloudIdentity: Hashable, Sendable {
 /// own id (`CloudIdentity`).
 nonisolated enum CloudHomeMapping {
     static func participant(_ participant: ConversationParticipant, identity: CloudIdentity) -> Participant {
-        let isAgent = participant.kind == .agent
-        let isAddress = participant.kind == .address
-        return Participant(id: identity.toHome(participant.id), kind: isAgent ? .agent : .human,
-                           displayName: participant.displayName,
-                           agentClass: isAgent ? (participant.agentClass == "mux" ? .chief : .agent) : nil,
-                           ownerUser: participant.ownerUser.map(identity.toHome),
-                           membership: isAddress ? .invited : .active,
-                           invitedContact: isAddress ? participant.displayName : nil,
-                           role: participant.role.flatMap(Participant.Role.init(rawValue:)))
-    }
-
-    static func part(_ part: MessagePart, identity: CloudIdentity) -> MessagePart {
-        guard case .text(let text, let mentions) = part else { return part }
-        return .text(text, mentions: mentions.map {
-            Mention(start: $0.start, length: $0.length, participant: identity.toHome($0.participant.rawValue))
-        })
+        struct Request: Encodable {
+            let participant: ConversationParticipant
+            let identity: HomeCoreMapping.Identity
+        }
+        struct Reply: Decodable { let participant: Participant }
+        return HomeCoreMapping.mappingRule("cloudParticipant", Request(participant: participant, identity: .init(identity)), fallback: Reply?.none)?
+            .participant ?? Participant(id: identity.toHome(participant.id), kind: .human, displayName: participant.displayName)
     }
 
     static func message(_ wire: ConversationMessage, identity: CloudIdentity) -> Message {
-        let message = HomeCoreMapping.message(wire)
-        var mapped = Message(id: message.id, conversation: message.conversation, seq: message.seq,
-                       clientMessageID: message.clientMessageID, author: identity.toHome(wire.author),
-                       parts: message.parts.map { part($0, identity: identity) }, createdAt: message.createdAt,
-                       editedAt: message.editedAt, retractedAt: message.retractedAt,
-                       reactions: message.reactions.map {
-                           Reaction(author: identity.toHome($0.author.rawValue), partIndex: $0.partIndex, kind: $0.kind)
-                       },
-                       replyTo: message.replyTo, threadRoot: message.threadRoot)
-        mapped.thread = message.thread.map { t in
-            ThreadInfo(title: t.title, owner: t.owner.map { identity.toHome($0.rawValue) }, resolvedAtSeq: t.resolvedAtSeq,
-                       resolvedBy: t.resolvedBy.map { identity.toHome($0.rawValue) })
-        }
-        return mapped
+        HomeCoreMapping.message(wire, identity: identity)
     }
 
-    /// A cloud head. Participants who left are not members any more.
+    /// A cloud head (`mapping.cloudSummary`). Participants who left are not members any more.
     static func summary(_ summary: CmuxNextDaemon.ConversationSummary, identity: CloudIdentity) -> CmuxHomeCore.ConversationSummary {
-        CmuxHomeCore.ConversationSummary(
-            id: ConversationID(summary.id), owner: .cloud, title: summary.title,
-            participants: summary.participants.filter { $0.leftAt == nil }.map { participant($0, identity: identity) },
-            lastSeq: summary.lastSeq, rev: summary.rev,
-            createdAt: HomeCoreMapping.date(summary.createdAt) ?? .distantPast,
-            updatedAt: HomeCoreMapping.date(summary.updatedAt) ?? .distantPast,
-            lastMessage: summary.lastMessage.map { message($0, identity: identity) },
-            readCursors: Dictionary(summary.readCursors.map { (identity.toHome($0.key), $0.value) }, uniquingKeysWith: max),
-            declaredKind: kind(summary.kind), memberCount: summary.memberCount,
-            chiefReplies: summary.wakePolicy.flatMap(ChiefReplyPolicy.init(rawValue:)),
-            channelChief: summary.channelChief.map { identity.toHome($0) })
+        struct Request: Encodable {
+            let summary: CmuxNextDaemon.ConversationSummary
+            let identity: HomeCoreMapping.Identity
+        }
+        struct Reply: Decodable { let summary: HomeCoreMapping.SummaryRow }
+        return HomeCoreMapping.mappingRule("cloudSummary", Request(summary: summary, identity: .init(identity)), fallback: Reply?.none)?
+            .summary.summary ?? HomeCoreMapping.plainSummary(summary, owner: .cloud)
     }
 
     /// The owner's conversation kind (`group`, `dm`, `chief`); nil for one it does not name.
@@ -154,14 +128,17 @@ nonisolated enum CloudHomeMapping {
         }
     }
 
-    /// The text parts a cloud op sends (text and work parts only, as on the local owner).
+    /// The text parts a cloud op sends (text and work parts only, as on the local owner; `mapping.cloudParts`).
     static func parts(_ parts: [MessagePart], identity: CloudIdentity) -> [ConversationPart] {
-        HomeCoreMapping.parts(parts.map { part in
-            guard case .text(let text, let mentions) = part else { return part }
-            return .text(text, mentions: mentions.map {
-                Mention(start: $0.start, length: $0.length, participant: ParticipantID(identity.toCloud($0.participant)))
-            })
-        })
+        struct Request: Encodable {
+            let parts: [MessagePart]
+            let plainTexts: [String?]
+            let identity: HomeCoreMapping.Identity
+        }
+        struct Reply: Decodable { let parts: [ConversationPart] }
+        let request = Request(parts: parts, plainTexts: HomeCoreMapping.plainTexts(parts), identity: .init(identity))
+        return HomeCoreMapping.mappingRule("cloudParts", request, fallback: Reply?.none)?.parts
+            ?? parts.map { .text($0.plainText, runs: []) }
     }
 
     static func address(_ contact: ContactAddress) -> CloudAddress {

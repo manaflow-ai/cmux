@@ -170,7 +170,7 @@ Where things are:
   `tooling-tests` the script tests; `web / ...` the webview typecheck and test shards; `cmux-next/compile`
   the app compile. Which suites run is chosen from your diff ([PR CI coverage](../../skills/cmux-testing/references/pr-ci-coverage.md)).
 - Runners: most Linux jobs on our own branches run on the one `cmux-linux` label since 2026-11-22
-  (cmux#48644; fork PRs use `CI_FORK_LINUX_RUNNER` or `ubuntu-24.04`), and the rest pick from the fleet's
+  (cmux#48644; fork PRs use `ubuntu-24.04`), and the rest pick from the fleet's
   Linux pool (`RUNNER_POOLS`). Mac jobs on our own Mac minis by
   capability label ([runner labels](../ci-runner-capability-labels.md), [runners](../ci-runners.md)).
   A job queued for long is a capacity problem, not your PR's.
@@ -202,3 +202,13 @@ Where things are:
   `gh-merge-green` refuses a PR that touches a path an open
   `merge-freeze` issue freezes, or when the freeze state can't be read; only the freeze owner's
   `freeze-ok` label lets that PR through ([merge freezes](merge-freeze.md)).
+
+## A unittest test's own output is never a crash
+
+`scripts/ci/test_reds.py` reads a log for crashes. A `unittest -v` test prints its verdict after whatever it printed,
+so the indented lines (and the rest of the `name (mod.Cls.name) ... ` line) are that test's output. A probe that quotes
+`crash report x.ips: EXC_BAD_ACCESS` there is not the process dying. Only the quoted-diagnostic patterns (`SIGNALED`,
+`CRASH_AT_START`) are muted in that span; `Fatal Python error`, a signal exit status and a shell kill still count, and a
+crash, cut-short or truncated log is never excused. hq#26226 (run 45717138906, job 139565977393): 4 named
+`FAILED module` lines read as "the test process crashed (no signal named)" and land-judge refused a normal exit 1.
+Test: `tests/test_test_reds.py::UnittestOutputQuotingADiagnosticIsNotACrash`.

@@ -12,6 +12,24 @@ export default agentPaneEntry({
   height: 360,
   covers: ["agent-session/acpmux/conversation/CompactionNote.tsx"],
   variants: {
+    ...Object.fromEntries(
+      (["off", "automatic", "manual"] as const).map((variant) => [
+        `threshold-${variant}`,
+        {
+          note: "Claude reports the same context size with the switch off, on, or after a manual compaction.",
+          experimentSwitches: { compactionThresholdInsight: variant !== "off" },
+          snapshot: chat([
+            row("compaction", 1, {
+              compaction: {
+                state: "completed",
+                trigger: variant === "manual" ? "manual" : "auto",
+                preTokens: 386_000,
+              },
+            }),
+          ]),
+        },
+      ]),
+    ),
     "account-switch": {
       note: "subrouter compacted the chat before moving it to another account, then the turn went on.",
       snapshot: chat([

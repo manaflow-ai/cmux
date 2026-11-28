@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { type EntryRoots, touchedEntries } from "../scripts/gallery/touched";
+import { type EntryRoots, loadEntryRoots, touchedEntries } from "../scripts/gallery/touched";
 
 // A small source tree, read from memory: the summary card with its own gallery and stylesheet,
 // a neighbour in the same folder, a gallery that names the card, a component two imports away
@@ -116,4 +116,22 @@ test("a string catalog under webviews/src renders every entry", () => {
   const result = touchedEntries(entries, ["webviews/src/summary/Localizable.xcstrings"], options);
   expect(result.all).toBe(true);
   expect(result.entries).toHaveLength(5);
+});
+
+test("the postcss config and its plugins render every entry", () => {
+  for (const file of ["webviews/postcss.config.mjs", "webviews/scripts/postcss/splitHasLists.mjs"])
+    expect(touchedEntries(entries, [file], options).all).toBe(true);
+});
+
+test("a gallery file that does not load is named and skipped; the other entries still rank", async () => {
+  // 2026-11-27 a duplicate `const name` in one gallery file rejected the whole run, so ~100 pushes on that tree
+  // got no preview of any entry ("has already been declared at .../ClaudeConnectRow.gallery.tsx").
+  const load = async (file: string) => {
+    if (file.endsWith("broken.gallery.ts")) throw new SyntaxError('"name" has already been declared');
+    return { default: { id: `agent-pane.${file.split("/").at(-1)!.split(".")[0]}`, host: "agent-pane", covers: [] } };
+  };
+  const { entries: loaded, unloaded } = await loadEntryRoots(["/s/a.gallery.ts", "/s/broken.gallery.ts"], load);
+  expect(loaded.map((e) => e.id)).toEqual(["agent-pane.a"]);
+  expect(unloaded).toEqual([{ file: "/s/broken.gallery.ts", error: '"name" has already been declared' }]);
+  await expect(loadEntryRoots(["/s/broken.gallery.ts"], load)).rejects.toThrow("no gallery file loads");
 });

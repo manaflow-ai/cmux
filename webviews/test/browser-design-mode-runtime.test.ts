@@ -22,6 +22,7 @@ type Api = {
   draft(text: string): Snapshot;
   commit(): Snapshot;
   removeSelection(selector: string): Snapshot;
+  restoreThread(selector: string, comment: string, value: { state: string; reply?: string } | null): boolean;
 };
 
 let dom: JSDOM;
@@ -228,4 +229,38 @@ test("automation fills and adds the open bubble through the same path", () => {
   api.draft("From the tour");
   api.commit();
   expect(added()).toEqual([[1, "From the tour"]]);
+});
+
+// A kept comment thread comes back on its element when design mode turns on again (the browser
+// selector anchor, cmuxterm-hq goals/all-surface-comments-round-trip.md): an added pick with its
+// comment and pin, its thread card showing the agent's reply, and the chat's tracker hears it.
+test("a kept thread is put back on its element by selector, with its comment, pin and reply", () => {
+  click("p");
+  type("Tighten this");
+  key("Enter");
+  const [picked] = api.snapshot().selections;
+  api.removeSelection(picked!.selector);
+  expect(added()).toEqual([]);
+  posted.length = 0;
+  expect(api.restoreThread(picked!.selector, "Tighten this", { state: "answered", reply: "Done in 3f2c" })).toBe(true);
+  expect(added()).toEqual([[1, "Tighten this"]]);
+  expect(pins()).toEqual(["1"]);
+  expect(
+    posted
+      .filter((message) => message.type === "snapshot")
+      .at(-1)
+      ?.snapshot?.selections.map((s) => s.selector),
+  ).toEqual([picked!.selector]);
+  const card = root().querySelector("[data-cmux-thread]") as HTMLElement;
+  expect(card.getAttribute("data-state")).toBe("answered");
+  expect(card.textContent).toContain("Done in 3f2c");
+  // Restoring it again changes nothing: still one pick.
+  expect(api.restoreThread(picked!.selector, "Tighten this", { state: "answered", reply: "Done in 3f2c" })).toBe(true);
+  expect(added()).toEqual([[1, "Tighten this"]]);
+});
+
+test("a kept thread whose element is gone is not put back", () => {
+  expect(api.restoreThread("#no-such-element", "Gone", { state: "sent" })).toBe(false);
+  expect(api.restoreThread("::not a selector", "Bad", { state: "sent" })).toBe(false);
+  expect(added()).toEqual([]);
 });

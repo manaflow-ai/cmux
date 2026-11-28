@@ -26,6 +26,7 @@ use super::*;
 pub struct PeerLease {
     pub name: String,
     pub generation: u64,
+    pub(super) cloud_registry_id: Option<String>,
 }
 
 impl Hub {
@@ -43,6 +44,7 @@ impl Hub {
         token: String,
         peer_token: Option<String>,
         vm_boundary: bool,
+        cloud_registry_id: Option<String>,
         saved: &crate::config::Config,
     ) -> Result<(PeerLease, tokio::sync::watch::Receiver<u64>), RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
@@ -67,15 +69,17 @@ impl Hub {
             vm_boundary,
             // A Cloud VM gets its own GitHub App token; the Mac's login is not lent to it.
             github_broker: false,
+            group: None,
         };
-        // Held while the peer starts, so none of its notices finds it unleased
-        // and saves its sessions (`save_peer_cache`).
+        // The peer is marked leased before publication. The writer lock orders its
+        // registry identity with a renewal or removal under the same name.
         let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
         let (generation, settled) = self.spawn_peer(name, &pc, false, true);
-        leases.insert(name.to_owned(), generation);
+        let lease = PeerLease { name: name.to_owned(), generation, cloud_registry_id };
+        leases.insert(name.to_owned(), lease.clone());
         drop(leases);
         tracing::info!(peer = %name, "peer leased");
-        Ok((PeerLease { name: name.to_owned(), generation }, settled))
+        Ok((lease, settled))
     }
 
     /// End `lease`: stop its peer and drop its rows, unless the name now
@@ -92,7 +96,7 @@ impl Hub {
                     _ => None,
                 }
             };
-            if leases.get(&lease.name) == Some(&lease.generation) {
+            if leases.get(&lease.name) == Some(lease) {
                 leases.remove(&lease.name);
             }
             peer
@@ -111,8 +115,59 @@ impl Hub {
     pub fn is_leased(&self, name: &str) -> bool {
         self.peer(name).is_some_and(|peer| peer.leased)
     }
+
+    pub(crate) fn peer_has_cloud_registry(&self, peer: &crate::peer::Peer, registry: &str) -> bool {
+        peer.leased
+            && self
+                .peer_leases
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&peer.name)
+                .is_some_and(|lease| {
+                    lease.generation == peer.generation
+                        && lease.cloud_registry_id.as_deref() == Some(registry)
+                })
+    }
+
+    /// Listing must finish even while a lease writer is publishing a replacement.
+    pub(super) fn listed_cloud_registry_id(&self, peer: &crate::peer::Peer) -> Option<String> {
+        let leases = match self.peer_leases.try_lock() {
+            Ok(leases) => leases,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        leases
+            .get(&peer.name)
+            .filter(|lease| lease.generation == peer.generation)?
+            .cloud_registry_id
+            .clone()
+    }
 }
 
 #[cfg(test)]
 #[path = "peer_lease_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[tokio::test]
+async fn a_renewal_reports_only_its_own_cloud_registry() {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg.clone(), store);
+    let (old, _) = hub
+        .lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, Some("a".into()), &cfg)
+        .unwrap();
+    let original_peer = hub.peer_by_name("vm").unwrap();
+    assert!(hub.peer_has_cloud_registry(&original_peer, "a"));
+    let (new, _) = hub
+        .lease_peer("vm", "ws://127.0.0.1:2", "t".into(), None, false, Some("b".into()), &cfg)
+        .unwrap();
+    hub.end_peer_lease(&old);
+    let current_peer = hub.peer_by_name("vm").unwrap();
+    assert!(!hub.peer_has_cloud_registry(&current_peer, "a"));
+    assert!(!hub.peer_has_cloud_registry(&original_peer, "b"));
+    assert!(hub.peer_has_cloud_registry(&current_peer, "b"));
+    assert_eq!(hub.peers()[0]["cloudRegistryId"], "b");
+    hub.end_peer_lease(&new);
+}

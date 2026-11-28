@@ -34,7 +34,7 @@ await requireBrowserLane("chief-work-gallery-browser.test.ts", async () => {
     ["phone", 390, 844, "dark"],
     ["active", 1280, 900, "light"],
     ["empty", 390, 844, "light"],
-    ["error", 390, 844, "dark"],
+    ["still-loading", 390, 844, "dark"],
     ["loading", 390, 844, "light"],
   ] as const) {
     test(`${variant} ${scheme}: truthful work state fits the pane`, async () => {
@@ -62,6 +62,9 @@ await requireBrowserLane("chief-work-gallery-browser.test.ts", async () => {
         else {
           expect(await page.getByText("No background work", { exact: true }).count()).toBe(0);
           if (variant === "loading") expect(await refresh.isDisabled()).toBe(true);
+          // A read that kept failing: one quiet line, and Refresh is the only button (no Try again).
+          if (variant === "still-loading")
+            await page.getByText("Still loading background work…", { exact: true }).waitFor();
         }
         if (process.env.FAST_CHECKS_OUT) {
           await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });

@@ -65,8 +65,8 @@ s  15|│ >                                                  │|
        ^ 0-0 fg=244; 53-53 fg=244
 s  16|╰────────────────────────────────────────────────────╯|
        ^ 0-53 fg=244
-s  17|  ? for shortcuts                   ◯ IDE disconnected|
-       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 36-36 fg=244; 38-40 fg=244; 42-53 fg=244
+s  17|  ? for shortcuts                  ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 35-35 fg=244; 37-39 fg=244; 41-52 fg=244
 s  18|$ echo a long line that soft-wraps on the phone in por|↩
 s  19|trait and fits in landscape at one hundred sixteen|
 s  20|$|
@@ -137,8 +137,8 @@ s  14|│ >                                                  │|
        ^ 0-0 fg=244; 53-53 fg=244
 s  15|╰────────────────────────────────────────────────────╯|
        ^ 0-53 fg=244
-s  16|  ? for shortcuts                   ◯ IDE disconnected|
-       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 36-36 fg=244; 38-40 fg=244; 42-53 fg=244
+s  16|  ? for shortcuts                  ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 35-35 fg=244; 37-39 fg=244; 41-52 fg=244
 s  17|$ echo a long line that soft-wraps on the phone in por|↩
 s  18|trait and fits in landscape at one hundred sixteen|
 s  19|$|
@@ -203,8 +203,8 @@ s  11|│ >                                                                     
        ^ 0-0 fg=244; 115-115 fg=244
 s  12|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
        ^ 0-115 fg=244
-s  13|  ? for shortcuts                                                                                 ◯ IDE disconnected|
-       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 98-98 fg=244; 100-102 fg=244; 104-115 fg=244
+s  13|  ? for shortcuts                                                                                ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 97-97 fg=244; 99-101 fg=244; 103-114 fg=244
 s  14|$ echo a long line that soft-wraps on the phone in portrait and fits in landscape at one hundred sixteen|
 s  15|$|
 cursor col 2 row 15

@@ -11,7 +11,8 @@ fn cloud_repo_recovery_payload_keeps_retry_and_choices_quiet() {
         assert_eq!(output["structuredContent"], value);
     }
     assert_eq!(
-        result(json!({"code":"seed.disk_full","message":"Free disk space and retry."}))["isError"],
+        result(json!({"code":"seed.disk_full","message":"Free disk space on this Cloud machine."}))
+            ["isError"],
         true
     );
 }

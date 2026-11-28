@@ -45,7 +45,7 @@ fn a_row_has_every_listed_field_with_pinned_and_unread_from_acpmux() {
         summary("s1", "failed"),
         json!({
             "unread": true, "unreadTurns": 2, "tags": {"pinned": "true"}, "peer": "mini",
-            "pullRequests": ["https://github.com/o/r/pull/7"],
+            "pullRequests": ["https://github.com/o/r/pull/7"], "gitBranch": "fix/upload",
             "lane": {"state": "failed", "title": "Fix upload", "step": "Running tests",
                      "error": "Credit balance too low", "since": 900, "stalledSince": null},
         }),
@@ -59,7 +59,8 @@ fn a_row_has_every_listed_field_with_pinned_and_unread_from_acpmux() {
             "machine": "mini", "cwd": "/src/cmux", "project": "cmux", "parent": null,
             "step": "Running tests", "error": "Credit balance too low",
             "since_ms": "900", "updated_ms": "1000", "created_ms": "500",
-            "pull_requests": ["https://github.com/o/r/pull/7"], "preview": null,
+            "pull_requests": ["https://github.com/o/r/pull/7"], "branch": "fix/upload",
+            "preview": null,
         })
     );
     // Its last reply, as acpmux keeps it, is the card's message.
@@ -72,6 +73,7 @@ fn a_row_has_every_listed_field_with_pinned_and_unread_from_acpmux() {
     assert_eq!(plain["pinned"], false);
     assert_eq!(plain["machine"], Value::Null);
     assert_eq!(plain["since_ms"], Value::Null);
+    assert_eq!(plain["branch"], Value::Null, "no gitBranch: null");
     // An unpinned tag value and the other states.
     let unpinned = with(summary("s3", "input"), json!({"tags": {"pinned": ""}}));
     assert_eq!(row(&unpinned).unwrap()["pinned"], false);

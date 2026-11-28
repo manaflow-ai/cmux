@@ -8,6 +8,7 @@ struct PaneChromeInputs: Equatable {
     var dim: CGFloat
     var dimFill: PaneOverlayView.DimFill
     var focusRing: FocusRingSettings
+    var accentGlow: ThemeFlourishes.Glow?
     var ringAlphaOverride: CGFloat?
     var tabEmphasis: ChromeEmphasis
     var border: PaneOverlayView.Border
