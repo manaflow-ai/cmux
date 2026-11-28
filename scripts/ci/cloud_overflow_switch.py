@@ -1085,15 +1085,27 @@ def raw_named(env: Mapping[str, str]) -> set[str]:
     return named
 
 
+# The Blacksmith macOS labels a pool or a picker may have sent jobs to. No probe marks one dead, so one is stranded only
+# when a pool move left it (stranded_labels()) and no runner variable names it. 2026-11-27 23:4xZ:
+# blacksmith-12vcpu-macos-26 held 18 queued jobs, oldest 238 min, 0 started in 1 h, while every pool and variable
+# named another label, and this rescue looked only at Linux sizes.
+MACOS_CLOUD_LABELS = ("blacksmith-6vcpu-macos-15", "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26",
+                      "blacksmith-6vcpu-macos-latest")
+MACOS_RUNNER_VARIABLES_ENV = "MACOS_RUNNER_VARIABLES"
+
+
 def stranded_labels(pools_value: Mapping[str, Any], named: Iterable[str] = (), *,
                     minutes: int = DEFAULT_PROBE_MINUTES) -> dict[str, int]:
-    """Each x64 Blacksmith Linux label a job may be stranded on, with how long its jobs wait before a re-run.
+    """Each Blacksmith label a job may be stranded on, with how long its jobs wait before a re-run.
 
     A label is stranded when no pool names it now (and no raw runner variable, `named`), so a re-run picks another:
     - marked dead (dead_labels()): after `minutes`, the probe's wait, as before;
     - otherwise a label a pool can point at (HEALTH_LABELS, a `_spill` record's `from`) that no pool names: a move
       left it, by runner_pools.py, linux_pool_spill.py or a hand edit of RUNNER_POOLS. It may still start jobs, so
       after MOVED_MINUTES.
+    - a Blacksmith macOS label (MACOS_CLOUD_LABELS) no pool names, after MOVED_MINUTES: a macOS pool member a
+      pool moved off, or one a picker names literally. `named` must then carry the MACOS_RUNNER_* values
+      (rescue_dead() reads MACOS_RUNNER_VARIABLES_ENV), since a re-run would go back to a label one names.
     Reading the state after the move, not each writer's move, covers every writer, a hand edit included.
     """
     pooled = {str(value) for key, value in pools_value.items() if not str(key).startswith("_")}
@@ -1109,6 +1121,11 @@ def stranded_labels(pools_value: Mapping[str, Any], named: Iterable[str] = (), *
     for label in candidates:
         if linux_cloud_label(label) and label not in routed and label not in out:
             out[label] = max(minutes, MOVED_MINUTES)
+    if any(str(value) in MACOS_CLOUD_LABELS for value in pooled):
+        # Only once RUNNER_POOLS carries the macOS pools: a value written before them names no macOS label at all.
+        for label in MACOS_CLOUD_LABELS:
+            if label not in routed and label not in out:
+                out[label] = max(minutes, MOVED_MINUTES)
     return dict(sorted(out.items()))
 
 
@@ -1136,7 +1153,8 @@ def rescue_dead(api: GitHub, switch: GitHub | None, env: Mapping[str, str], *, o
     except ValueError:
         log(f"::warning title=Dead label rescue::{POOLS_VARIABLE} is not JSON; nothing to rescue")
         return 0
-    labels = stranded_labels(value if isinstance(value, Mapping) else {}, raw_named(env), minutes=minutes)
+    named = raw_named(env) | raw_named({RAW_RUNNER_VARIABLES_ENV: env.get(MACOS_RUNNER_VARIABLES_ENV) or ""})
+    labels = stranded_labels(value if isinstance(value, Mapping) else {}, named, minutes=minutes)
     if not labels:
         log(f"no Blacksmith label off every pool in {POOLS_VARIABLE}; nothing to rescue")
         return 0
