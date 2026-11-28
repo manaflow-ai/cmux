@@ -14,6 +14,7 @@ import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { chooserRows, type ProjectRepo } from "./projectRepos";
 import { machineColor } from "./machineColor";
 import { emptyFolderLabel } from "./composerContextModel";
+import { byMachine, machineHeadings, rowKey } from "./projectMachines";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
 /// it lists under that machine's heading (its symbol, in the machine's own color, and its name), and
@@ -31,7 +32,6 @@ export type Project = {
 type Row = { key: string; project?: Project };
 
 const NO_PROJECT_KEY = "\u0000none";
-const rowKey = (project: Project) => (project.peer ? `${project.peer}\u0000${project.cwd}` : project.cwd);
 
 /// The project pill on the composer's tray: it opens a menu above the tray with a search field over the
 /// projects the user has chats in, newest first, one row per repository. Picking one other than the current
@@ -316,36 +316,6 @@ export function ProjectChooser({
       )}
     </span>
   );
-}
-
-/// The chooser's folders with each machine's together: this Mac's first when it has any, then each
-/// other machine in the order its first folder came. Within a machine the order is kept.
-export function byMachine<T extends { peer?: string }>(projects: T[]): T[] {
-  const machines = new Map<string, T[]>();
-  for (const project of projects) {
-    const id = project.peer ?? "";
-    const rows = machines.get(id);
-    if (rows) rows.push(project);
-    else machines.set(id, [project]);
-  }
-  if (machines.size < 2) return projects;
-  const local = machines.get("") ?? [];
-  machines.delete("");
-  return [...local, ...[...machines.values()].flat()];
-}
-
-/// Row key → the machine whose heading goes over that row: the first folder of each machine, except
-/// a list that is only this Mac's.
-export function machineHeadings(shown: readonly Project[]): Map<string, { peer?: string; host?: string }> {
-  const headings = new Map<string, { peer?: string; host?: string }>();
-  if (!shown.some((project) => project.peer)) return headings;
-  let previous: string | null = null;
-  for (const project of shown) {
-    const id = project.peer ?? "";
-    if (id !== previous) headings.set(rowKey(project), { peer: project.peer, host: project.host });
-    previous = id;
-  }
-  return headings;
 }
 
 /// A folder the host names by its own path (a home folder has no project name): its title is

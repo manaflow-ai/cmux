@@ -5907,6 +5907,12 @@
       "title" : "Approve Phone Requests Automatically",
       "type" : "boolean"
     },
+    "mobile.siteDataHandoff" : {
+      "default" : false,
+      "description" : "When you open a browser tab on your iPhone, share this Mac's cookies and site storage for that site.",
+      "title" : "Share Cookies and Site Data on iPhone",
+      "type" : "boolean"
+    },
     "mobile.terminalSizing" : {
       "default" : "smallest",
       "description" : "The size of a terminal shown on this Mac and a phone at once.",

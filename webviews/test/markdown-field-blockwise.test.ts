@@ -74,7 +74,7 @@ const DRAFTS = [
 ];
 
 test("the blocks joined are the whole document's markdown, for every kind of draft", async () => {
-  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/MarkdownField");
+  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/blockwiseMarkdown");
   const { withTextMarksEscaped } = await import("../src/agent-session/acpmux/composer/inlineNode");
   for (const draft of DRAFTS) {
     const doc = parse(draft);
@@ -84,7 +84,7 @@ test("the blocks joined are the whole document's markdown, for every kind of dra
 });
 
 test("empty paragraphs (blank lines typed or pasted) join as the whole document writes them", async () => {
-  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/MarkdownField");
+  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/blockwiseMarkdown");
   const blocks = parse("first\n\nsecond\n\n# third\n\n```\ncode\n```").content;
   const empty = () => blocks.child(0).type.create();
   const shapes = [
@@ -104,7 +104,7 @@ test("empty paragraphs (blank lines typed or pasted) join as the whole document 
 });
 
 test("a key at the end of a 2,000-paragraph draft writes only its paragraph", async () => {
-  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/MarkdownField");
+  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/blockwiseMarkdown");
   const doc = parse(Array.from({ length: 2000 }, (_, at) => `paragraph ${at} with *some* words`).join("\n\n"));
   let writes = 0;
   const counted = (node: ProseNode) => {
@@ -122,7 +122,7 @@ test("a key at the end of a 2,000-paragraph draft writes only its paragraph", as
 });
 
 test("a paragraph of hard-break lines joins as the whole paragraph writes, for every kind of line", async () => {
-  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/MarkdownField");
+  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/blockwiseMarkdown");
   const { withTextMarksEscaped } = await import("../src/agent-session/acpmux/composer/inlineNode");
   const sample = parse("a\\\nb *c* **d** `e`").child(0);
   const hardbreak = sample.child(1);
@@ -186,7 +186,7 @@ test("a paragraph of hard-break lines joins as the whole paragraph writes, for e
 });
 
 test("a key at the end of a 2,000-line pasted paragraph writes only its line", async () => {
-  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/MarkdownField");
+  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/blockwiseMarkdown");
   const sample = parse("a\\\nb").child(0);
   const nodes: ProseNode[] = [];
   for (let line = 0; line < 2000; line++)
@@ -205,7 +205,7 @@ test("a key at the end of a 2,000-line pasted paragraph writes only its line", a
 });
 
 test("a key into a one-line prompt of plain prose writes it without the serializer", async () => {
-  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/MarkdownField");
+  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/blockwiseMarkdown");
   let writes = 0;
   const counted = (node: ProseNode) => {
     writes += 1;
@@ -233,7 +233,7 @@ test("a key into a one-line prompt of plain prose writes it without the serializ
 });
 
 test("plain prose writes as the serializer writes it, and anything it would escape goes to the serializer", async () => {
-  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/MarkdownField");
+  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/blockwiseMarkdown");
   const { withTextMarksEscaped } = await import("../src/agent-session/acpmux/composer/inlineNode");
   const paragraph = parse("x").child(0);
   const schema = paragraph.type.schema;
