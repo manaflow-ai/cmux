@@ -2105,16 +2105,18 @@ inputs = [
 run = "python3 -I tests/test_bench_relevance_map.py && python3 -I tests/test_bench_baselines.py"
 
 # What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
-# for them, in the advisory log, and the Linux benches those areas name (`run`), each against its area's budget_s.
-# Fail open: an unmapped path is a warning, a base with no for-paths, a broken map or a missing or failing bench is
-# a notice; only a measured result over budget_s turns this (non-blocking) check red.
+# for them (Leo, 2026-11-27: "targetted tests per type of situation that things touch based off relevance. like we
+# can have fast retrieval of bench reference per product area"), in the advisory log and the job summary. Plan
+# only: this job runs the base's checkout, so the benches themselves run in bench-relevance-pr.yml on the merge
+# commit against the areas' nightly baselines. Fail open: a base with no for-paths, no paths list or a broken map
+# is a notice and the step passes; it never turns the check red.
 [step.bench-relevance]
 job = "advisory"
 blocks = false
 class = "idle"
-timeout = 300
+timeout = 120
 title = "Benches and tests for these paths"
-about = "cmux-bench for-paths --run on the pull request's paths: areas, benches, targeted tests, check templates, and the areas' Linux benches against budget_s; unmapped paths warn"
+about = "cmux-bench for-paths on the pull request's paths: areas, benches, targeted tests, check templates; plan only (bench-relevance-pr.yml measures); unmapped paths warn; fails open"
 run = '''
 if ! grep -q "for-paths" scripts/bench/cmux-bench 2>/dev/null; then
   echo "::notice::The base branch has no cmux-bench for-paths yet; nothing to report."
@@ -2125,29 +2127,16 @@ if [ ! -s "$paths" ]; then
   echo "::notice::No changed-paths list; for-paths has nothing to read."
   exit 0
 fi
-if ! grep -q -- "--run" scripts/bench/cmux-bench 2>/dev/null; then
-  python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown < "$paths" || echo "::notice::for-paths failed; fail open"
-  exit 0
+out="$RUNNER_TEMP/bench-relevance.md"
+if timeout 60 python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown < "$paths" > "$out"; then
+  cat "$out"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    cat "$out" >> "$GITHUB_STEP_SUMMARY" || true
+  fi
+else
+  echo "::notice::for-paths failed; fail open"
 fi
-# --run also runs the benches the matched areas name (`run`) and exits 1 only on a measured result over the
-# area's budget_s. A missing or failing bench, a timeout with no budget, or a broken map warns and passes.
-# --baselines (Leo, 2026-11-27: "A PR fetches only the baselines for its own areas"): each bench runs 3 times
-# against its areas' nightly baseline on this runner class (bench-baselines-nightly.yml, R2); it is red only when
-# all 3 repeats are more than 15% over. A missing baseline or an unreachable store warns and passes.
-extra=""
-if grep -q -- "--baselines" scripts/bench/cmux-bench 2>/dev/null; then
-  extra="--repeats 3 --baselines"
-fi
-set +e
-python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 $extra < "$paths"
-code=$?
-set -e
-if [ "$code" -eq 1 ]; then
-  echo "::error::A bench for these paths is over its budget_s, or 3 of 3 repeats are >15% over its area's nightly baseline (docs/benches/relevance-map.toml); see the Bench runs above."
-  exit 1
-elif [ "$code" -ne 0 ]; then
-  echo "::notice::for-paths --run exited $code; fail open"
-fi
+exit 0
 '''
 
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
