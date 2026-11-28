@@ -51,6 +51,9 @@ struct ForkApi {
   int (*ext_set_pinned)(int, const char*, int) = nullptr;
   int (*ext_open_options)(int, const char*) = nullptr;
   int (*ext_load_unpacked)(int, const char*) = nullptr;
+  // Additive, no API version (the export is the check): a built-in extension's load into one
+  // persistent profile, answered once installed with its background page loaded.
+  int (*ext_load_command_line_async)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
   char* (*ext_commands)(int) = nullptr;
   int (*ext_command_run)(int, const char*, const char*) = nullptr;
   int (*tab_move_to_window)(int, int, int) = nullptr;

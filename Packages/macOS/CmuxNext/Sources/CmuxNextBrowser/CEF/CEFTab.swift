@@ -130,6 +130,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// `load` gave the page an address while it had no browser and none was on its way: the load starts when one is
     /// (``startLoadAwaitingBrowser()``), not before, since Chromium loads nothing until then.
     @ObservationIgnored var loadAwaitsBrowser = false
+    /// Waits for its profile's built-in extensions before its browser is asked for (``CEFBuiltInExtensionLoader``).
+    @ObservationIgnored var awaitsBuiltInExtensions = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
