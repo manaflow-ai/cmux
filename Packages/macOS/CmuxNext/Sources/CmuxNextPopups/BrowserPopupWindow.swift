@@ -63,6 +63,8 @@ public final class BrowserPopupWindow: NSWindow {
     private let separator = NSBox()
     private var toolbarHeightConstraint: NSLayoutConstraint?
     private var fullscreenObservers: [MainActorObservation] = []
+    /// The first `becomeKey` has run (``becomeKey()``).
+    private var settledInitialFocus = false
 
     /// A popup window showing `page`.
     ///
@@ -231,8 +233,21 @@ public final class BrowserPopupWindow: NSWindow {
     /// tab's does (a sign-in window's read-only bar too: select and copy).
     /// A Chromium page window holding the keyboard gives it back first.
     public func focusAddressBar() {
+        settledInitialFocus = true
         if isVisible, !isKeyWindow { makeKey() }
         addressBar.focus()
+    }
+
+    /// The page view (a CEF tab's container) takes no first responder, so AppKit falls back from
+    /// `initialFirstResponder` to the first key view, the omnibar: a new popup opened with its address
+    /// selected and the focus ring around the bar (Lawrence 2026-11-27: "new browser window omnibar is
+    /// sus in terms of focus ring"). The first time the window becomes key, an edit nobody asked for ends.
+    override public func becomeKey() {
+        super.becomeKey()
+        guard !settledInitialFocus else { return }
+        settledInitialFocus = true
+        if addressBar.isEditing { makeFirstResponder(nil) }
+        page.setFocused(true)
     }
 
     /// Every close path (close button, Cmd-W, `window.close()`) ends here once.
