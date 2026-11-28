@@ -1146,7 +1146,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // The bottom row the reader sees, not the top one: a row inserted on screen above it (the
         // edited-files card that lands above a finished turn's actions once its diff is known)
         // moves the rows above it up with the list's scroll instead of pushing the rows under it.
-        let anchor = surface.following || !loaded ? nil
+        // A following reader too, in this same pass: the dock's pin to the newest row runs only
+        // after the collection view's next layout, and not while a send glides or a disclosure
+        // holds, so the card's own frame drew the rows under it pushed down (#59189). A row
+        // added at the end, or the newest row growing, leaves the anchor's top where it was:
+        // nothing is corrected here and the dock still pins.
+        let anchor = !loaded ? nil
             : layout.lastRow(above: collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom)
         // Before the rows are laid out: the controller notes where the transcript is now.
         #if DEBUG
