@@ -78,7 +78,7 @@ import {
   type CmuxTuiSource,
 } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/workUser";
-import { NPM_CACHE_DIR, NPM_HOST_CACHE_PROFILE, npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
+import { NPM_CACHE_DIR, NPM_HOST_CACHE_PROFILE, NPM_PREFILL_ATTEMPTS, npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
   cmuxTuiWebsocketSmokeCommand,
@@ -122,6 +122,7 @@ import {
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, DNS_SCOPE_PATH, dnsCheckScript, dnsScopeScript, dnsScopeUnits, resolverBakeCommand } from "./dns";
+import { BBR_STAGE_DIR, netBaselineBakeCommand, netBaselineFiles, SYN_RETRY_PATH } from "./net-baseline";
 import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { homeReadmeFile } from "./home-readme";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
@@ -808,6 +809,19 @@ export async function installStoreProgram(L: Pick<StepLog, "step" | "log">, vm: 
   await stepAgain(L, vm, label, command, attempts, "the part it downloaded");
 }
 
+/** The npm cache prefill, run again when it fails; a run again keeps the tarballs already in the cache. */
+export async function prefillNpmCache(L: Pick<StepLog, "step" | "log">, vm: Vm, attempts = NPM_PREFILL_ATTEMPTS): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await L.step(vm, attempt === 1 ? "npm-cache-prefill" : `npm-cache-prefill-try-${attempt}`, npmCachePrefillCommand(attempt === 1), 290_000);
+      return;
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      L.log(`npm-cache-prefill failed (try ${attempt} of ${attempts}); running it again, keeping the tarballs it cached`);
+    }
+  }
+}
+
 async function stepAgain(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts: number, kept: string): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -951,6 +965,10 @@ async function configureSystem(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, DNS_SCOPE_PATH, dnsScopeScript(), 0o755);
   for (const [unitPath, text] of Object.entries(dnsScopeUnits())) await writeGuestFile(vm, unitPath, text, 0o644);
   ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
+  // The fleet's network baseline (net-baseline.ts): IPv6 first, BBR where the kernel has it, the first SYN resent after 200 ms.
+  await L.step(vm, "net-baseline-dirs", `install -d -m 0755 ${path.posix.dirname(SYN_RETRY_PATH)} ${BBR_STAGE_DIR}`);
+  for (const f of netBaselineFiles()) await writeGuestFile(vm, f.path, f.text, f.mode);
+  ctx.result.netBaseline = (await L.step(vm, "net-baseline", netBaselineBakeCommand(), 60_000)).trim();
   await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
@@ -1095,7 +1113,7 @@ async function installGraduated(ctx: Ctx): Promise<void> {
 
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
 async function prefillDepCaches(ctx: Ctx): Promise<void> {
-  await ctx.L.step(ctx.vm, "npm-cache-prefill", npmCachePrefillCommand(), 290_000);
+  await prefillNpmCache(ctx.L, ctx.vm);
   if (ctx.options.labsNpmHostCache) {
     // Keep only the image's contents available to seed the tenant store, even after local npm installs.
     const seed = "/usr/local/share/cmux/npm-seed";
@@ -1257,8 +1275,8 @@ export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string
     'if [ -z "$left" ]; then echo "acpmux-probes-quiet after ${i}s"; exit 0; fi',
     `echo "acpmux's model probes still run after ${limitSeconds}s; stopping them:"; printf '%s\\n' "$left"`,
     `stop() { for p in $(probes | sed -n 's/^  probe pid \\([0-9]*\\):.*/\\1/p'); do kill "-$1" "$p" 2>/dev/null || true; done; }`,
-    'stop TERM; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done',
-    'if [ -n "$(probes)" ]; then stop KILL; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done; fi',
+    'stop TERM; t1=$(date +%s); while [ $(( $(date +%s) - t1 )) -lt 5 ] && [ -n "$(probes)" ]; do sleep 1; done',
+    'if [ -n "$(probes)" ]; then stop KILL; t1=$(date +%s); while [ $(( $(date +%s) - t1 )) -lt 5 ] && [ -n "$(probes)" ]; do sleep 1; done; fi',
     `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes survived KILL:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
     'echo "acpmux-probes-quiet after ${i}s (stopped the rest)"',
   ].join(" && ");
@@ -1340,6 +1358,32 @@ export function syftFetchCommand(syft: { url: string; sha256: string; size: numb
  */
 export const INVENTORY_STEP_BUDGET_MS = 600_000;
 
+/**
+ * The scan's memory bounds. The builder is the base size (2 vCPU, 3.9 GB, no swap) and runs the daemon and the file
+ * manifest beside the scan. In roll 46078031124 the builder stopped answering partway through the scan (no status
+ * after the 660 s deadline, then a bare `mkdir` timed out at the 300 s exec cap twice), and the roll failed after
+ * 1547 s of inventory. A guest that thrashes out of memory goes silent like that, where a killed process would not. The
+ * Go runtime's soft limit makes syft collect garbage before it gets that far, and the cgroup cap kills syft, not the
+ * guest, if it still grows: the step then fails with a status, so the roll fails in seconds with the reason.
+ */
+export const SYFT_GOMEMLIMIT = "1800MiB";
+export const SYFT_MEMORY_MAX = "2560M";
+
+/** The detached SBOM scan: syft under its memory bounds (a guest without systemd-run gets only the Go limit). */
+export function sbomScanCommand(out: string, skip: readonly string[]): string {
+  const cap = `systemd-run --scope --quiet -p MemoryMax=${SYFT_MEMORY_MAX} -p MemorySwapMax=0`;
+  return [
+    "t=$(date +%s)",
+    `cap=""; if ${cap} true > /dev/null 2>&1; then cap="${cap}"; fi`,
+    'echo "syft-cap ${cap:+cgroup ' + SYFT_MEMORY_MAX + '} gomemlimit ' + SYFT_GOMEMLIMIT + '"',
+    "s=0",
+    `cd / && $cap env SYFT_CHECK_FOR_APP_UPDATE=false GOMEMLIMIT=${SYFT_GOMEMLIMIT} HOME=${out}-syft ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q || s=$?`,
+    `if [ "$s" -ne 0 ]; then [ "$s" -eq 137 ] && echo "syft killed (status 137): its ${SYFT_MEMORY_MAX} memory cap or the step budget" >&2; exit "$s"; fi`,
+    "echo syft-secs $(( $(date +%s) - t ))",
+    `gzip -9f ${out}/sbom.cdx.json`,
+  ].join("\n");
+}
+
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out", wake?: () => Promise<unknown>): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
@@ -1355,12 +1399,7 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // The scan and the manifest are detached steps (StepLog.detachedStep) with their own budget, not one exec each.
   const scanSbom = async (): Promise<string> => {
     await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
-    return L.detachedStep(vm, "sbom", [
-    "t=$(date +%s)",
-    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
-    "echo syft-secs $(( $(date +%s) - t ))",
-    `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS, wake });
+    return L.detachedStep(vm, "sbom", sbomScanCommand(out, skip), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS, wake });
   };
   const fileManifest = () => L.detachedStep(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`, { dir: `${out}/job-file-manifest`, budgetMs: INVENTORY_STEP_BUDGET_MS, wake });
   const settled = await Promise.allSettled([fileManifest(), scanSbom()]);

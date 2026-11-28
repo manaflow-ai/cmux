@@ -31,10 +31,14 @@ import Testing
 
     final class FakeService: TryPullRequestService {
         var events: [TryInstallEvent] = []
+        var status: TryInstallStatus?
+        var installs: [Int] = []
         func tryPullRequests(macID: String) async throws -> TryPullRequestList {
             TryPullRequestList(prs: [TryPullRequest(number: 7, title: "x", build: .ahead)])
         }
+        func tryInstallStatus(macID: String) async throws -> TryInstallStatus? { status }
         func installPullRequest(macID: String, number: Int) -> AsyncThrowingStream<TryInstallEvent, any Error> {
+            installs.append(number)
             let events = events
             return AsyncThrowingStream { continuation in
                 for event in events { continuation.yield(event) }
@@ -55,5 +59,35 @@ import Testing
         service.events = [.line("installing")]
         await model.start(7)
         #expect(model.install == .failed(number: 7, message: "The Mac stopped answering before the install ended.", lines: ["installing"]))
+    }
+
+    @Test func statusFramesRead() {
+        let lines = (1...70).map { "\"l\($0)\"" }.joined(separator: ",")
+        let done = TryInstallStatus.decode(Data(#"{"run":{"pr":3,"started_ms":1,"lines":[\#(lines)],"exit":0}}"#.utf8))
+        #expect(done == TryInstallStatus(number: 3, lines: (63...70).map { "l\($0)" }, exit: 0))
+        #expect(TryInstallStatus.decode(Data(#"{"run":{"pr":3,"started_ms":1,"lines":[]}}"#.utf8))?.exit == nil)
+        #expect(TryInstallStatus.decode(Data(#"{"run":null}"#.utf8)) == nil)
+    }
+
+    // #51721 F3: the app an install replaced reads the Mac's last install on relaunch.
+    @Test func theRelaunchedPageShowsTheLastInstall() async {
+        let service = FakeService()
+        service.status = TryInstallStatus(number: 7, lines: ["try: installed"], exit: 0)
+        let finished = TryPullRequestModel(macID: "m", service: service)
+        await finished.resume()
+        #expect(finished.install == .finished(number: 7, exit: 0, lines: ["try: installed"]))
+        #expect(service.installs.isEmpty)
+        // Still running: the page joins it and follows it to the end.
+        service.status = TryInstallStatus(number: 8, lines: ["building"])
+        service.events = [.line("building"), .line("installed"), .done(exit: 0)]
+        let running = TryPullRequestModel(macID: "m", service: service)
+        await running.resume()
+        #expect(service.installs == [8])
+        #expect(running.install == .finished(number: 8, exit: 0, lines: ["building", "installed"]))
+        // No install on the Mac: nothing to show.
+        service.status = nil
+        let none = TryPullRequestModel(macID: "m", service: service)
+        await none.resume()
+        #expect(none.install == .idle)
     }
 }
