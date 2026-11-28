@@ -57,7 +57,8 @@ def test_it_signs_with_the_nightly_profile_and_keychain_group():
     with open(ROOT / entitlements, "rb") as handle:
         keys = plistlib.load(handle)
     assert keys["com.apple.application-identifier"] == "7WLXT3NR37.com.cmuxterm.app.nightly"
-    assert keys["keychain-access-groups"] == ["7WLXT3NR37.com.cmuxterm.app.nightly"]
+    assert keys["keychain-access-groups"] == [
+        "7WLXT3NR37.com.cmuxterm.app.nightly", "7WLXT3NR37.com.cmuxterm.app.shared"]  # one shared group (#46910)
     assert keys["com.apple.developer.web-browser.public-key-credential"] is True
     assert ("core.setOutput('profile_channel', nightlyProbe ? 'NIGHTLY' : notaryProbe ? 'RELEASE' : "
             "track === 'nightly-next' ? 'NIGHTLY' :") in WORKFLOW
@@ -103,6 +104,18 @@ def test_one_feed_and_the_retired_feed_only_keeps_its_metadata():
 def test_packaging_scripts_know_the_next_channel():
     metadata = (ROOT / "scripts/verify-app-bundle-channel-metadata.sh").read_text()
     assert re.search(r'nightly\)\n\s*EXPECTED_NAME="cmux NIGHTLY"\n\s*EXPECTED_BUNDLE_ID="com.cmuxterm.app.nightly"\n', metadata)
+
+
+def test_next_bundle_policy_is_stamped_without_changing_classic_defaults():
+    source_plist = plistlib.loads((ROOT / "Resources/Info.plist").read_bytes())
+    assert "SUAllowsAutomaticUpdates" not in source_plist
+    signer = (ROOT / "scripts/ci/release-signer/nightly_next_identity.py").read_text()
+    assert 'plist["SUAllowsAutomaticUpdates"] = False' in signer
+    inject = (ROOT / "scripts/ci/nightly-steps/inject-nightly-identities.sh").read_text()
+    block = inject[inject.index('if [ "$TRACK" = "nightly-next" ]'):inject.index("\n  fi", inject.index('if [ "$TRACK" = "nightly-next" ]'))]
+    assert "SUAllowsAutomaticUpdates" in block
+    assert "Set :SUAllowsAutomaticUpdates false" in block
+    assert "Add :SUAllowsAutomaticUpdates bool false" in block
 
 
 def test_a_pending_notarization_keeps_its_recovery_artifact():
