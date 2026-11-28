@@ -1616,7 +1616,80 @@ def no_answer_evidence(app, ls_env, tag, sock, out):
         if start:  # a line cut by the seek could start right after `t=`, out of the redactor's reach
             tail = tail.partition("\n")[2]
         files.append(save("mac-debug-log-tail.txt", tail, 200))
-    return f"{facts}; {', '.join(files)}"
+    return f"{facts}; {', '.join(files)}" + exit_evidence(app, out)
+
+
+def summary_safe(line):
+    """A log line fit for SUMMARY.md, which the workflow drops whole when it holds a token- or
+    address-shaped value: redact()'s tokens plus addresses, JWTs and bearer values, cut to 200 chars."""
+    line = redact(line)
+    line = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}", "<address>", line)
+    line = re.sub(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}", "<jwt>", line)
+    line = re.sub(r"(?i)(bearer\s+)\S+", r"\1<redacted>", line)
+    line = re.sub(r"(?i)(refresh[_-]?token|password)\"?\s*[:=]\s*\S*", "<credential>", line)
+    line = re.sub(r"sk-(ant-)?[A-Za-z0-9_-]{10,}", "<key>", line)
+    return line.rstrip("\n")[:200]
+
+
+def exit_evidence(app, out):
+    """When the Mac app is gone before it answered (every VM run since 2026-11-27: "running False"), the
+    summary itself says why, since the VM's logs are not uploaded: its exit status or signal, the last 40
+    lines of its own output, and the newest crash report's exception and first frames of the crashed thread."""
+    code = app.poll()
+    if code is None:
+        return ""
+    status = f"signal {-code} ({signal.Signals(-code).name})" if code < 0 else f"exit status {code}"
+    lines = [f"\n- Mac app ended before it answered: {status}"]
+    try:
+        with open(os.path.join(out, "mac-app.log"), errors="replace") as f:
+            tail = f.readlines()[-40:]
+    except OSError as error:
+        tail = [f"(mac-app.log unreadable: {error})"]
+    lines.append("- Mac app output, last 40 lines:\n\n```")
+    lines += [summary_safe(line) for line in tail] or ["(empty)"]
+    lines.append("```")
+    reports = []
+    for folder in (os.path.expanduser("~/Library/Logs/DiagnosticReports"),
+                   os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "Library/Logs/DiagnosticReports"),
+                   "/Library/Logs/DiagnosticReports"):
+        try:
+            reports += [os.path.join(folder, n) for n in os.listdir(folder)
+                        if re.search(r"(?i)cmux", n) and n.endswith((".ips", ".crash"))]
+        except OSError:
+            pass
+    reports = sorted(set(reports), key=lambda p: os.path.getmtime(p))[-1:]
+    for path in reports:
+        lines.append(f"- crash report {os.path.basename(path)}:\n\n```")
+        lines += [summary_safe(l) for l in crash_frames(path)]
+        lines.append("```")
+    if not reports:
+        lines.append("- crash report: none under DiagnosticReports")
+    return "\n".join(lines)
+
+
+def crash_frames(path):
+    """An .ips report's exception, termination reason and the crashed thread's first 15 frames."""
+    try:
+        text = open(path, errors="replace").read()
+    except OSError as error:
+        return [f"(unreadable: {error})"]
+    _, _, body = text.partition("\n")
+    try:
+        report = json.loads(body)
+    except ValueError:
+        return text.splitlines()[:40]
+    images = report.get("usedImages", [])
+    out = [f"exception: {json.dumps(report.get('exception', {}))}",
+           f"termination: {json.dumps(report.get('termination', {}))}"]
+    if report.get("asi"):
+        out.append(f"asi: {json.dumps(report['asi'])[:400]}")
+    for thread in report.get("threads", []):
+        if not thread.get("triggered"):
+            continue
+        for frame in thread.get("frames", [])[:15]:
+            image = images[frame.get("imageIndex", -1)].get("name", "?") if images else "?"
+            out.append(f"{image} {frame.get('symbol', hex(frame.get('imageOffset', 0)))}")
+    return out
 
 
 def scanner(udid, shot):

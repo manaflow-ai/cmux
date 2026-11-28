@@ -748,6 +748,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_build_space.py"
 
 [[test]]
+path = "tests/test_pair_e2e_exit_evidence.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_exit_evidence.py"
+
+[[test]]
 path = "tests/test_pair_e2e_signin_session.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_signin_session.py"
