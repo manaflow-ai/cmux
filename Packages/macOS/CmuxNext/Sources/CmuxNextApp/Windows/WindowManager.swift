@@ -457,7 +457,7 @@ final class WindowManager {
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
-        if controller.content != nil || controller.root.content is CloudProgressHost || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        if controller.content != nil || !restacking.contains(window.id) && (controller.root.content is CloudProgressHost || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty) { // a restored back window waits for its panes: never a second, empty window (Lawrence 2026-11-25)
             present(controller)
         } else {
             awaitingContent[window.id] = false
