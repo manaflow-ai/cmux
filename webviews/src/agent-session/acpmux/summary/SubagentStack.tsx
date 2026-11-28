@@ -4,7 +4,6 @@ import type { SummarySubagent } from "./sessionSummary";
 import { STATE_LABEL } from "../subagents/subagentGroupModel";
 import { orderedCountParts } from "../session-info/subagentsSectionModel";
 import { CountLine } from "./LiveCount";
-import { countParts, live } from "./countParts";
 
 /// Dots shown before the counts; the rest are counted, not drawn.
 const STACK = 4;

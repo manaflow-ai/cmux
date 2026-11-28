@@ -26,7 +26,7 @@ export function ClaudeConnectRow({
 }) {
   const t = useT();
   return (
-    <div className="acpmux-connect-claude-row" data-connected={connected || undefined}>
+    <span className="acpmux-connect-claude-row" data-connected={connected || undefined}>
       <AgentMark agent={mark ?? CLAUDE_CONNECT_BRAND} size={14} reserve />
       <span className="acpmux-connect-claude-row-text">
         <span className="acpmux-connect-claude-row-name">{name}</span>
@@ -47,7 +47,7 @@ export function ClaudeConnectRow({
             className="ui-button ui-btn acpmux-connect-claude-row-button"
             data-variant="subtle"
             data-size="sm"
-            onClick={onConnect}
+            onClick={() => onConnect()}
           >
             {t("picker.connectClaude.connect")}
           </button>
@@ -56,6 +56,6 @@ export function ClaudeConnectRow({
             {t("picker.connectClaude.connect")}
           </span>
         ))}
-    </div>
+    </span>
   );
 }

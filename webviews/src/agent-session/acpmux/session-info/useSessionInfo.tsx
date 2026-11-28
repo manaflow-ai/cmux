@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useChatDisplay } from "../chatDisplay";
 import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState } from "../header/headerState";
 import { useT } from "../i18n";
 import { type AcpmuxRow, type AcpmuxSnapshot } from "../model";
-import { registerPicker } from "../pickerOpeners";
+import { registerPicker, ChatViewParked } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { chatGallery, type GalleryItem } from "../summary/chatGallery";
 import { sessionSummary, type SessionSummary } from "../summary/sessionSummary";
@@ -26,7 +27,14 @@ import { producedLinks, type ProducedLink } from "./producedLinks";
 import { type ProcessRegistry, type SessionInfoProcess } from "./processes";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import { useSameValue } from "./sameValue";
-import { sessionInfoFits, sessionInfoShown, paneRoom, SESSION_INFO_TOGGLE, toolCallIds } from "./sessionInfoModel";
+import {
+  inlines,
+  sessionInfoFits,
+  sessionInfoShown,
+  paneRoom,
+  SESSION_INFO_TOGGLE,
+  toolCallIds,
+} from "./sessionInfoModel";
 import { subagentsIn } from "../subagents/subagentRows";
 import type { Subagent } from "../subagents/subagentFold";
 import type { ResumeActions } from "../subagents/ResumeControl";
@@ -68,6 +76,7 @@ export function useSessionInfo({
   grants,
   onOpenOutput,
   onOpenSourceFile,
+  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
@@ -130,6 +139,7 @@ export function useSessionInfo({
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
@@ -255,7 +265,11 @@ export function useSessionInfo({
   // closes one that shows either: narrower, it stays as a popover; shorter, too (SessionInfoPresence);
   // and where Find's bar then has no room, the bar steps aside. The chat's saved open choice is kept as
   // it was: a resize changes nothing saved.
-  const narrow = useNarrowPane(shell, on, beside);
+  // Inline (Settings placement `inline`), it is a band atop the transcript: any pane holds it, so no
+  // narrow pane holds it closed.
+  const inline = inlines(useChatDisplay().sessionInfo);
+  const measuredNarrow = useNarrowPane(shell, on && !inline, beside);
+  const narrow = inline ? false : measuredNarrow;
   const roomyShown = sessionInfoShown({ on, open, suppressed: suppressed || stepAside.aside, covered });
   const [narrowWas, setNarrowWas] = useState(narrow);
   // The chats this pane held closed, kept while the page lives: switching to another chat and back
@@ -325,6 +339,7 @@ export function useSessionInfo({
   const openedOutputAt = useRef(0);
   const stableOnOpenOutput = useStableCallback(onOpenOutput);
   const stableOnOpenSourceFile = useStableCallback(onOpenSourceFile);
+  const stableOnRemoveFolder = useStableCallback(onRemoveFolder);
   const stableOnOpenUrl = useStableCallback(onOpenUrl);
   const stableOnOpenImage = useStableCallback(onOpenImage);
   const stableReadPromptImage = useStableCallback(readPromptImage);
@@ -358,8 +373,9 @@ export function useSessionInfo({
   useLayoutEffect(() => {
     uncover.current = bringBack;
   }, [bringBack]);
+  const parked = useContext(ChatViewParked);
   useEffect(() => {
-    if (!on) return;
+    if (!on || parked) return;
     return registerPicker(label, () => {
       onBeforeOpen?.();
       uncover.current?.();
@@ -368,7 +384,7 @@ export function useSessionInfo({
       ask();
       setSessionInfoOpen(true);
     });
-  }, [on, label, onBeforeOpen, backFromAside, ask]);
+  }, [on, parked, label, onBeforeOpen, backFromAside, ask]);
   // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
   // popup in the page takes it (they listen on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
@@ -451,6 +467,7 @@ export function useSessionInfo({
         onRevealed={clearRevealed}
         onStopProcess={stableOnStopProcess}
         onOpenSourceFile={subagent?.agent.host ? undefined : stableOnOpenSourceFile}
+        onRemoveFolder={subagent?.agent.host ? undefined : stableOnRemoveFolder}
         onOpenOutput={openOutput}
         onOpenUrl={stableOnOpenUrl}
         onOpenImage={stableOnOpenImage}

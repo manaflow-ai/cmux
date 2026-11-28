@@ -132,7 +132,7 @@
      var compact: Bool { width < Self.compactBelow }
      /// 3 at normal widths, 2 when 3 do not fit, 1 in the compact list.
      var columns: Int {
-@@ -286,21 +324,59 @@
+@@ -286,29 +324,79 @@
      }
      var tileWidth: CGFloat { ((width - 2 * Self.pinInsetX) / CGFloat(columns)).rounded(.down) }
      /// Grows with the tile in the 3-column grid, from 52 pt at its narrowest to 76 pt; with fewer
@@ -159,6 +159,7 @@
 -        return CGFloat(rows) * tileHeight + Self.pinSectionBottom
 +        return CGFloat(rows) * tileHeight + (compact ? compactDividerGapScaled : Self.pinSectionBottom)
      }
+-    func tileRect(_ i: Int) -> CGRect {
 +    /// cmux: the compact list's slab: the narrowest list's (its row less the insets) scaled with the strip, centred on the
 +    /// avatar, never a bar across the strip (the user, 2026-11-24).
 +    /// The avatar plus an even margin, so the slab shares the avatar's centre on the point grid.
@@ -194,10 +195,32 @@
 +    /// cmux: the width a tile's name is fitted to (`SidebarDraw.tileNameKeyWidth`): the selection's, so a selected
 +    /// name stays 2 pt inside it.
 +    var tileNameWidth: CGFloat { compact ? tileWidth : tileSelection.width + 4 }
-     func tileRect(_ i: Int) -> CGRect {
++    /// cmux: tile `i` of a grid of `count`. A last row with fewer tiles than columns is centred in the list (Messages'
++    /// pinned grid; the user, 2026-11-25: one pinned Chief sat in the left column), so a resize keeps it centred.
++    func tileRect(_ i: Int, count: Int) -> CGRect {
          let cols = columns
          let r = i / cols, c = i % cols
-@@ -323,6 +399,8 @@
+         let tw = tileWidth
+-        let used = tw * CGFloat(cols)
+-        let x0 = ((width - used) / 2).rounded()
++        let inRow = max(1, min(cols, count - r * cols))
++        let x0 = ((width - tw * CGFloat(inRow)) / 2).rounded()
+         return CGRect(x: x0 + CGFloat(c) * tw, y: CGFloat(r) * tileHeight, width: tw, height: tileHeight)
+     }
++    /// cmux: the slot under `p` in a grid of `count` (`tileRect(_:count:)`'s layout), clamped to the grid.
++    func tileSlot(at p: CGPoint, count: Int) -> Int {
++        guard count > 0 else { return 0 }
++        let cols = columns, rows = (count + cols - 1) / cols
++        // no trap on NaN (a zero tile size) or a huge position
++        let r = min(rows - 1, max(0, CrashGuard.int(p.y / tileHeight, in: CrashGuard.rowRange)))
++        let inRow = min(cols, count - r * cols)
++        let c = min(inRow - 1, max(0, CrashGuard.int((p.x - tileRect(r * cols, count: count).minX) / tileWidth, in: CrashGuard.rowRange)))
++        return r * cols + c
++    }
+ }
+ 
+ /// Colors resolved for one appearance and window state (CGColors: the background renderer
+@@ -323,6 +411,8 @@
      var selectionActive: CGColor
      var selectionInactive: CGColor
      var selectedText: CGColor
@@ -206,7 +229,7 @@
      var monogramTop: CGColor
      var monogramBottom: CGColor
      var groupDisc: CGColor
-@@ -349,17 +427,21 @@
+@@ -349,17 +439,21 @@
              }
              return SidebarPalette(
                  dark: dark,

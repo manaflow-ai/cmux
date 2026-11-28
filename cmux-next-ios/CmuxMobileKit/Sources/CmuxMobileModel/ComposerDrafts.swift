@@ -10,6 +10,9 @@ import UIKit
 /// connection f***ing lagged ... and my drafted message on ios in the f***ing round composer got
 /// lost"). The composer writes what it holds as it changes; an empty composer (a send) removes it.
 /// Writes wait a moment and go as one, and go at once when the app leaves the foreground.
+/// A removal (the draft's send) goes at once: a kill inside the wait left the sent text on disk,
+/// and the next launch put it back in the composer as if it were never sent (the LaunchTTI
+/// bench's second launch typed `~` after a restored `~`, sent `~~`, and never saw its echo).
 /// Encoding and the file write run on `writer`, never on the main thread: a write every 400 ms
 /// while typing held the main thread for the encode and an atomic, protected file write (Leo,
 /// 2026-11-22: "some weird hitch in the app at some strange intervals").
@@ -71,6 +74,11 @@ public final class ComposerDraftStore {
         guard drafts[key]?.text != text else { return }
         if text.isEmpty {
             guard drafts.removeValue(forKey: key) != nil else { return }
+            // Sent: off the disk now, not after the wait (still on `writer`, off the main thread).
+            pendingWrite?.cancel()
+            pendingWrite = nil
+            write()
+            return
         } else {
             drafts[key] = Entry(text: text, savedAt: now())
             if drafts.count > Self.limit {
@@ -94,6 +102,9 @@ public final class ComposerDraftStore {
         // The app is leaving the foreground (or a test reads the file back): wait for the writer.
         Self.writer.sync {}
     }
+
+    /// Returns once every write handed to the writer is on disk (tests).
+    static func waitForWriter() { writer.sync {} }
 
     /// One serial queue for every store's file: writes land in the order they were made.
     private static let writer = DispatchQueue(label: "dev.cmux.mobile.composer-drafts", qos: .utility)

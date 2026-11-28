@@ -28,7 +28,6 @@ type Options = {
   pending: readonly PendingAttachment[];
   /// A pending chip's cancel (attachmentIntake.tsx).
   cancel(id: string): void;
-  retry(id: string): void;
   /// A cancelled loading chip's file read again under its id (attachmentIntake.tsx `revive`).
   revive(id: string): boolean;
   expand(id: string): void;
@@ -39,8 +38,9 @@ type Options = {
   placing(): boolean;
   /// A Codex chat: a PDF's chip says it goes as a file (attachmentIntake.tsx PdfAttachmentChip).
   codex?: boolean;
-  /// Why a staged image's original failed to upload, by id: its chip in the text shows Retry, as the
-  /// strip's does (attachmentIntake.tsx `originalFailures`).
+  /// Why a staged image's original failed to upload, by id: it is uploaded again on its own, and its
+  /// chip in the text says so once that lasts, as the strip's does (attachmentIntake.tsx
+  /// `originalFailures`).
   originalFailures?: Readonly<Record<string, string>>;
 };
 
@@ -284,10 +284,8 @@ export function useInlineAttachments(options: Options) {
         clearing.current = false;
       });
     },
-    /// A failed chip's Retry and a pasted chip's open, stable across renders so the chips keep still
-    /// while the person types (InlineChip is memoized).
-    retry: (id: string) => live.current.retry(id),
-    /// A pasted chip opened: kept first, so an undo that brings its node back brings its text too.
+    /// A pasted chip opened, stable across renders so the chips keep still while the person types
+    /// (InlineChip is memoized): kept first, so an undo that brings its node back brings its text too.
     expand: (id: string) => {
       const attachment = live.current.attachmentsRef.current.find((each) => each.id === id);
       if (attachment) keep(attachment);
@@ -372,7 +370,6 @@ export function useInlineAttachments(options: Options) {
         pending={options.pending.find((chip) => chip.id === id)}
         onRemove={api.remove}
         onCancel={api.cancel}
-        onRetry={api.retry}
         onExpand={api.expand}
         {...(options.keepFile ? { onKeepFile: api.keepFile } : {})}
         codex={options.codex ?? false}

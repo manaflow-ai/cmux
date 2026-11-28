@@ -458,6 +458,7 @@ export function HatQuestions({
               {replyLook !== "inline" && field}
               {failed === shown.id && (
                 <p className="acpmux-hat-questions__failed" role="alert">
+                  {/* retry-prompt-ok: answering again re-sends the answer to the agent, the person chooses to */}
                   {t("question.replyFailed")}
                 </p>
               )}

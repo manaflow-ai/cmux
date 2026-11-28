@@ -5498,7 +5498,9 @@
     "errorInvalidTotp": "Dieser Zwei-Faktor-Code ist ungültig.",
     "errorSignUpNotAllowed": "Neue Konten können derzeit nicht erstellt werden.",
     "errorPasskey": "Die Passkey-Anmeldung wurde nicht abgeschlossen. Versuche es erneut oder nutze eine andere Methode.",
-    "errorGeneric": "Etwas ist schiefgelaufen. Versuche es erneut."
+    "errorGeneric": "Etwas ist schiefgelaufen. Versuche es erneut.",
+    "errorRedirectNotAllowed": "Die Anmeldeadresse dieses Builds ist auf {backend} nicht erlaubt.",
+    "backendDevelopment": "dem Entwicklungs-Backend"
   },
   "MobileRelease106": {
     "title": "Neu in 1.0.6",

@@ -129,7 +129,6 @@ extension WorkspaceRowView {
         if let text = Strings.activity(content.activity) { parts.append(text) }
         if ws.isPinnedInGroup { parts.append(Strings.pinned) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
-        parts += ws.usageWarnings
         // The computer: a one-list row on another computer says it with its status when it cannot connect
         // (`SidebarLayout.machineLabel`, "gpu-box · Failed to start"), whether or not the row draws a mark
         // (with one machine listed it draws none). No line draws it (Leo 2026-10-30: "remove the second

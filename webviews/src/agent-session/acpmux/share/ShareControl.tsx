@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog } from "../../../ui/Dialog";
 import { NoticeStack } from "../../../ui/NoticeStack";
+import { useAutoRetry } from "../autoRetry";
 import { useT, translate } from "../i18n";
 import { copyTextResult } from "../conversation/clipboard";
 import { ShareDialogBody } from "./ShareDialog";
@@ -21,8 +22,9 @@ import {
   type ShareCall,
   type ShareRole,
   type ShareView,
+  inviteStep,
 } from "./shareState";
-import { shareFailureText, shareToasts } from "./shareNotices";
+import { shareFailureText, shareRefusalText, shareToasts } from "./shareNotices";
 import "./share.css";
 
 const EMPTY: ShareView = shareView([]);
@@ -49,25 +51,37 @@ export function ShareDialogHost({
   const client = useMemo(() => shareClient(sessionId, call), [sessionId, call]);
   const [view, setView] = useState<ShareView>(initial ?? EMPTY);
   const [status, setStatus] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /// The chat's shares have been read since this host mounted: until then every step waits, so a
   /// step never acts on another chat's view (App keys this host by the chat's session).
   const [loaded, setLoaded] = useState(initial !== undefined);
+  /// The open's read failed: it is read again on the shared backoff (autoRetry.ts) while the dialog
+  /// is open, with no "Try again" (Leo, 2026-11-22: "vacuous decisions like that should be just
+  /// done"); a refusal with its own words says them at once, any other only once it has lasted.
+  const [readFailed, setReadFailed] = useState<{ error: unknown }>();
+  const [reads, setReads] = useState(0);
+  const { stillTrying } = useAutoRetry(open ? readFailed : undefined, () => setReads((count) => count + 1));
 
+  // The read after a step: one that fails is read again on its own, as the open's is (readFailed).
   const reload = async () => {
     try {
       setView(await client.state());
+      setReadFailed(undefined);
     } catch (error) {
-      setStatus(shareFailureText(error));
+      console.warn("agent pane: reading the chat's shares failed", error);
+      setReadFailed({ error });
     }
   };
-  const step = async (work: () => Promise<unknown>) => {
+  /// `done` is the status line a step that worked leaves (a role change says so); else it clears.
+  const step = async (work: () => Promise<unknown>, done: string | null = null) => {
     setBusy(true);
     const failed = await work().then(
       () => null,
       (error: unknown) => shareFailureText(error),
     );
     setStatus(failed);
+    setNotice(failed ? null : done);
     await reload();
     setBusy(false);
   };
@@ -76,18 +90,27 @@ export function ShareDialogHost({
     if (!open) return;
     let current = true;
     setStatus(null);
+    setNotice(null);
     client.state().then(
       (next) => {
         if (!current) return;
         setView(next);
         setLoaded(true);
+        setReadFailed(undefined);
       },
-      (error: unknown) => current && setStatus(shareFailureText(error)),
+      (error: unknown) => {
+        if (!current) return;
+        console.warn("agent pane: reading the chat's shares failed", error);
+        setReadFailed({ error });
+      },
     );
     return () => {
       current = false;
     };
-  }, [open, client]);
+  }, [open, client, reads]);
+  const readLine = readFailed
+    ? (shareRefusalText(readFailed.error) ?? (stillTrying ? t("share.stillReading") : null))
+    : null;
   const copy = () =>
     void step(async () => {
       // Restricted copies the invite link (only invited people get in); Anyone copies the viewer link.
@@ -100,6 +123,20 @@ export function ShareDialogHost({
         actions: [{ id: "manage", label: translate("share.manageLinks"), onSelect: () => void client.manage() }],
       });
     });
+  // Inviting someone who already has access sets their role (the daemon refuses a second invite
+  // with another role, `share.invited`) and says so, since it changes what they may do; the same
+  // role again just says they have access.
+  const invite = (account: string, role: ShareRole) => {
+    const next = inviteStep(view, account, role);
+    setStatus(null);
+    if (next.kind === "already") return setNotice(translate("share.error.alreadyIn", { account: next.account }));
+    if (next.kind === "invite") return void step(() => client.invite(account, role));
+    const label = translate(role === "talk" ? "share.role.talk" : "share.role.view");
+    void step(
+      () => client.setRole(next.account, role),
+      translate("share.roleChanged", { account: next.account, role: label }),
+    );
+  };
   const general = (access: GeneralAccess) =>
     void step(async () => {
       if (access === view.general) return;
@@ -117,11 +154,17 @@ export function ShareDialogHost({
         <ShareDialogBody
           chat={chat}
           view={view}
-          status={status}
+          status={status ?? readLine}
+          notice={notice}
           busy={busy || !loaded}
-          onInvite={(account: string, role: ShareRole) => void step(() => client.invite(account, role))}
+          onInvite={invite}
           onRole={(account: string, role: ShareRole) => void step(() => client.setRole(account, role))}
           onRemove={(account: string) => void step(() => client.remove(account))}
+          onApprove={(account: string, role: ShareRole) =>
+            void step(() => client.approve(account, role), translate("share.approved", { account }))
+          }
+          // Silent (RFD 0077 D2): the row goes, nothing is said here or to them.
+          onDecline={(account: string) => void step(() => client.decline(account))}
           onGeneral={general}
           onCopy={copy}
           onDone={() => onOpenChange(false)}

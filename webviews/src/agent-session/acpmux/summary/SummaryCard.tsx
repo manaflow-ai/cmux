@@ -17,7 +17,6 @@ import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SubagentStatusList } from "./SubagentStatusList";
 import { CountLine } from "./LiveCount";
-import { countParts, live } from "./countParts";
 import { SUBSESSION_STATUS, subagentStatus, waitingSubagents } from "./subagentStatusListModel";
 import { sessionStatus } from "../session-info/childSessionRowsModel";
 import { orderedCountParts } from "../session-info/subagentsSectionModel";

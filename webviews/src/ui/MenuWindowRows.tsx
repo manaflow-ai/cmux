@@ -1,7 +1,7 @@
 // One section's rows in a windowed composer menu (menuWindow.ts holds the window state and keys).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual";
-import { ROW_ATTRIBUTE, type MenuWindow, SCROLLER, MIN_ROW_HEIGHT, focusRow, sectionStarts } from "./menuWindow";
+import { ROW_ATTRIBUTE, type MenuWindow, SCROLLER, MIN_ROW_HEIGHT, focusRow } from "./menuWindow";
 
 const ROW_STYLE = Object.freeze({ display: "flow-root" });
 

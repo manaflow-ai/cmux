@@ -11,7 +11,7 @@
 // so Continue on is that menu's list), chatgpt/live/sidebar-machine-details-hover-card (the machine
 // and its status dot together at the top) and claude/live/sidebar-project-groups-status-dots (a
 // dot, words only where there is something to read).
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { useT, type Translate } from "./i18n";
 import type { MachineCardModel } from "./machineCardModel";
 import { machineStatusWord } from "./machineCardText";
@@ -49,7 +49,7 @@ export function MachineCard({ model }: { model: MachineCardModel }) {
           <span className="acpmux-machine-card-status" data-status={model.status}>
             <span className="acpmux-machine-card-mark" aria-hidden="true">
               {model.status === "starting" ? (
-                <Spinner size={12} loading className="acpmux-machine-card-spinner" />
+                <WaitSpinner size={12} loading className="acpmux-machine-card-spinner" />
               ) : (
                 <span className="acpmux-machine-card-dot" />
               )}

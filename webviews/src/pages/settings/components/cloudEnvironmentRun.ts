@@ -8,7 +8,8 @@ export type EnvironmentDraft = {
   env: CloudEnvironmentVariable[];
 };
 
-const variableValue = (variable: CloudEnvironmentVariable) => ("secret" in variable ? variable.secret : variable.value);
+export const variableValue = (variable: CloudEnvironmentVariable) =>
+  "secret" in variable ? variable.secret : variable.value;
 
 /** Field by field, never by JSON text: the host's `{value, name}` and the form's `{name, value}` are
  * the same variable. */

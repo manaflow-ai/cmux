@@ -17,6 +17,7 @@ import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { shownText } from "../../../../test/support/factsCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -105,7 +106,7 @@ const listed = (...entries: Partial<AcpmuxSessionEntry>[]) => {
 const rowOf = (container: ParentNode, at = 0) => [...container.querySelectorAll<HTMLElement>(".cv-sent-msg")][at]!;
 const lineText = (row: HTMLElement) =>
   [...row.querySelector(":scope > .cv-agentmsg__line")!.children]
-    .map((part) => part.textContent!.trim())
+    .map((part) => shownText(part).trim())
     .filter(Boolean)
     .join(" ");
 const toggleOf = (row: HTMLElement) =>

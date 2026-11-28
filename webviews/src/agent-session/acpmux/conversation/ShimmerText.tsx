@@ -1,13 +1,14 @@
 import { useContext, useEffect, useRef, type ReactNode } from "react";
 import { startShimmerCadence } from "./shimmerCadence";
-import { ShimmerEnabledContext } from "./shimmerEnabledContext";
+import { ShimmerCadenceContext, ShimmerEnabledContext } from "./shimmerEnabledContext";
 
 function useShimmerCadence() {
   const ref = useRef<HTMLSpanElement>(null);
   const enabled = useContext(ShimmerEnabledContext);
+  const cadence = useContext(ShimmerCadenceContext);
   useEffect(() => {
-    if (enabled && ref.current) return startShimmerCadence(ref.current);
-  }, [enabled]);
+    if (enabled && ref.current) return startShimmerCadence(ref.current, cadence);
+  }, [enabled, cadence]);
   return ref;
 }
 

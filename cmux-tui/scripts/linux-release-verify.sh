@@ -311,8 +311,10 @@ clr_download() { # TARGET NAME OUT
   clr_want="$(clr_get "$clr_p" "targets.$1.$2.sha256")"
   clr_size="$(clr_get "$clr_p" "targets.$1.$2.size")"
   [ -n "$clr_u" ] || { clr_refuse "the signed release file of $clr_commit has no $2 for $1" "pick another build, or report it at https://github.com/manaflow-ai/cmux/issues"; return 1; }
-  case "$clr_u" in
-    */"$2-$1") ;;
+  # A binary is the file NAME-TARGET; a package (deb, rpm) one cmux-*.deb or cmux-*.rpm.
+  case "$2:$clr_u" in
+    deb:*/cmux-*.deb | rpm:*/cmux-*.rpm | *:*/"$2-$1") ;;
+    deb:* | rpm:*) clr_refuse "the signed release file names $clr_u for the $2 of $1, not a cmux .$2" "report it at https://github.com/manaflow-ai/cmux/issues"; return 1 ;;
     *) clr_refuse "the signed release file names $clr_u for $2 $1, not a file called $2-$1" "report it at https://github.com/manaflow-ai/cmux/issues"; return 1 ;;
   esac
   case "$clr_want" in *[!0-9a-f]* | '') clr_want="" ;; esac

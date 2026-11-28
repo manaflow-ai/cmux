@@ -84,12 +84,28 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     /// its Return failed): no `error_delivery: known-not-delivered`.
     var ambiguousPasteSubmit = false
     private var declaredHybrid = false
+    /// `identify` lists attach-identity-v1 and says the boot's `generation`;
+    /// an attach with `expected_generation` / `expected_terminal_id` is
+    /// refused unless both still match (the surface must hold the terminal).
+    var fencesAttach = false
+    var generation = "gen-1"
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
+    private var writeLog: [[String]] = []
+    /// The commands of each write the phone made, in order (a batch is one write).
+    var writes: [[String]] { lock.withLock { writeLog } }
+
     func respond(_ service: String, _ data: Data) -> [Data] {
         // A batch (`DaemonClient.requests`) is several lines in one write.
-        data.split(separator: 0x0A).flatMap { respondLine(service, Data($0)) }
+        let lines = data.split(separator: 0x0A)
+        if service == "daemon" {
+            let cmds = lines.compactMap { line in
+                (try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any])?["cmd"] as? String
+            }
+            lock.withLock { writeLog.append(cmds) }
+        }
+        return lines.flatMap { respondLine(service, Data($0)) }
     }
 
     private func respondLine(_ service: String, _ line: Data) -> [Data] {
@@ -112,9 +128,10 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             return [Self.line(["id": id, "ok": false, "error": "submit failed after the text was written", "error_delivery": "ambiguous"])]
         case "resize-surface" where lock.withLock({ unansweredResizes }):
             return []
-        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || sendKeys || pasteSubmit || typedSubmit || lock.withLock({ advertisesHybrid }):
+        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || sendKeys || pasteSubmit || typedSubmit || fencesAttach || lock.withLock({ advertisesHybrid }):
             // Built in steps: one long `+` chain is too slow for the type checker.
             var capabilities: [String] = []
+            if fencesAttach { capabilities.append("attach-identity-v1") }
             if initialSize { capabilities.append("attach-initial-size") }
             if sizeLease { capabilities.append("size-lease-v1") }
             if shortSizeLease { capabilities.append("size-lease-v2") }
@@ -125,7 +142,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             if sendKeys { capabilities.append("send-key-v1") }
             if pasteSubmit { capabilities.append("send-expect-agent-v1") }
             if typedSubmit { capabilities.append("send-typed-submit-v1") }
-            return [reply(["capabilities": capabilities])]
+            let currentGeneration: String = lock.withLock { generation }
+            return [reply(["generation": currentGeneration, "capabilities": capabilities])]
         case "attach-surface" where object["replay_history_start"] != nil && lock.withLock({ laneRefusesHistoryStart }):
             return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_start from a phone"])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
@@ -174,6 +192,13 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                 // The replay a refusing daemon never sends; a stray event first, then the refusal.
                 return [Self.line(["event": "output", "surface": 7, "data": Data("stale".utf8).base64EncodedString()]),
                         Self.line(["id": id, "ok": false, "error": "unknown surface 7"])]
+            }
+            if let expected = object["expected_generation"] as? String {
+                let (now, terminals) = lock.withLock { (generation, self.terminals ?? [:]) }
+                guard expected == now else { return [Self.line(["id": id, "ok": false, "error": "attachment_generation_mismatch"])] }
+                guard let terminal = object["expected_terminal_id"] as? String, terminals[terminal] == object["surface"] as? Int else {
+                    return [Self.line(["id": id, "ok": false, "error": "attachment_terminal_mismatch"])]
+                }
             }
             let live = lock.withLock { liveSurface }
             guard object["surface"] as? Int == live else {
@@ -254,6 +279,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         defer { session.stop() }
         session.reattachBackoff = []
         var screenState = session.connectionState
+        // No grid before the attach: it goes in series, one attach-surface (TerminalAttachPlan).
         if !wasAttached { daemon.failNextAttaches = 1 }
         session.start { screenState = screenState.applying($0) }
         if wasAttached {
@@ -330,6 +356,10 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(lane.recorded.contains { $0["cmd"] as? String == "send" })
+        // The lane says it is this phone's before its first key, so the daemon sends a link a
+        // program opens after them to this phone (`phone-open-link`).
+        let laneCommands = lane.recorded.compactMap { $0["cmd"] as? String }
+        #expect(laneCommands.first == "set-client-info", "\(laneCommands)")
         #expect(!lane.recorded.contains { $0["cmd"] as? String == "resize-surface" })
         #expect(main.recorded.contains { $0["cmd"] as? String == "resize-surface" })
         // Every keystroke arrived exactly once, across both channels.
@@ -1446,6 +1476,85 @@ final class ChannelLog: @unchecked Sendable {
         }
         session.reattachBackoff = [0.02, 0.02, 0.02]
         return session
+    }
+
+    /// Leo, 2026-11-17: "the gosh darn loading of everything needs to be FASTER".
+    /// Against a daemon that fences attaches (`attach-identity-v1`), a
+    /// reattach is one write: the client info, identify and the attach with
+    /// the boot's generation and the terminal id. No `resolve-terminal` and
+    /// no wait for identify first: one round trip instead of three.
+    @Test func aReattachToTheSameBootIsOneWrite() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        daemon.fencesAttach = true
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        // The first attach knows no daemon yet: identify first, then the attach, unfenced.
+        let first = daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }
+        #expect(first.count == 1)
+        #expect(first.first?["expected_generation"] == nil)
+        await channels.last?.close(code: "eof", reason: "background")
+        try await waitUntil { !session.isAttached }
+
+        let before = daemon.recorded.count
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let sent = daemon.recorded[before...].compactMap { $0["cmd"] as? String }
+        #expect(sent.prefix(3) == ["set-client-info", "identify", "attach-surface"], "\(sent)")
+        #expect(!sent.contains("resolve-terminal"))
+        let attach = daemon.recorded[before...].first { $0["cmd"] as? String == "attach-surface" }
+        #expect(attach?["expected_generation"] as? String == "gen-1")
+        #expect(attach?["expected_terminal_id"] as? String == "term_a")
+        #expect(attach?["surface"] as? Int == 7)
+        #expect(session.surface == 7)
+    }
+
+    /// The Mac's daemon restarted (a new boot) and put the terminal on
+    /// another surface: the fenced attach is refused before any stream or
+    /// lease, and the session resolves the terminal and attaches the long way.
+    @Test func aFencedReattachToANewBootResolvesAndAttaches() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        daemon.fencesAttach = true
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "Mac app restarted")
+        try await waitUntil { !session.isAttached }
+
+        daemon.generation = "gen-2"
+        daemon.liveSurface = 15
+        daemon.terminals = ["term_a": 15]
+        let before = daemon.recorded.count
+        let shown = events.count
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
+        let sent = daemon.recorded[before...]
+        let attaches = sent.filter { $0["cmd"] as? String == "attach-surface" }
+        #expect(attaches.count == 2, "the refused fenced attach, then the resolved one")
+        #expect(attaches.first?["expected_generation"] as? String == "gen-1")
+        #expect(attaches.last?["surface"] as? Int == 15)
+        #expect(sent.contains { $0["cmd"] as? String == "resolve-terminal" })
+        #expect(session.surface == 15)
+        let after = events[shown...].compactMap { event -> String? in
+            if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
+            return nil
+        }
+        #expect(after.contains("hello\r\n$ "), "the new surface's replay shows")
+
+        // The next reattach is fenced by the new boot.
+        await channels.last?.close(code: "eof", reason: "background")
+        try await waitUntil { !session.isAttached }
+        let again = daemon.recorded.count
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let fenced = daemon.recorded[again...].first { $0["cmd"] as? String == "attach-surface" }
+        #expect(fenced?["expected_generation"] as? String == "gen-2")
+        #expect(!daemon.recorded[again...].contains { $0["cmd"] as? String == "resolve-terminal" })
     }
 
     @Test func aReattachFollowsTheTerminalToItsNewSurface() async throws {

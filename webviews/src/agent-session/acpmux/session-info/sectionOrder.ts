@@ -21,7 +21,7 @@ export type SessionInfoGroupId = "about" | "made" | "running";
 export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly SessionInfoSectionId[]>> = {
   about: ["environment", "context", "usage", "connectors", "carried"],
   made: ["changes", "sources", "outputs"],
-  running: ["subagents", "tasks", "alsoHere"],
+  running: ["subagents", "tasks"],
 };
 
 const GROUPS = Object.keys(GROUP_SECTIONS) as SessionInfoGroupId[];
@@ -44,7 +44,6 @@ export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
   "tasks",
   "sources",
   "outputs",
-  "alsoHere",
   MORE_LINE,
   "changes",
   "usage",
@@ -79,11 +78,6 @@ export function tuckedSections(
   const line = order.indexOf(MORE_LINE);
   if (line < 0) return [];
   return shown.filter((id) => id !== MORE_LINE && order.indexOf(id) > line);
-}
-
-/// The block a section belongs to by default.
-export function sectionGroup(id: SessionInfoSectionId): SessionInfoGroupId {
-  return GROUPS.find((group) => GROUP_SECTIONS[group].includes(id)) ?? "about";
 }
 
 export const ORDER_KEY = "cmux.agentPane.inspector.order";

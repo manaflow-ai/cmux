@@ -7,6 +7,7 @@ import { RetryTargetContext } from "../conversation/turnActions";
 import { type FindReveal, type ChatFind } from "../conversation/chatFind";
 import { ChatFindBar } from "../conversation/ChatFindBar";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
+import { type RunDisclosure } from "../conversation/transcriptDisclosureModel";
 import { type TranscriptNeedsYou } from "../needsYou/JumpPill";
 import { UnreadBanner } from "../conversation/SinceDivider";
 import { topZoneOffset } from "../overlayLayout";
@@ -20,10 +21,16 @@ import { FOLLOW_BOTTOM_DEADBAND_PX } from "../virtualTranscriptModel";
 import { standInElements } from "./rowFrames";
 import { JumpUp } from "./JumpButtons";
 import { LIVE_STEP_VARS } from "./liveStepVars";
-import { ChatMinimapMemo, JumpToLatestMemo, ReadOnlyBoundary, TranscriptContext } from "./TranscriptShellParts";
+import {
+  ChatMinimapMemo,
+  JumpToLatestMemo,
+  ReadOnlyBoundary,
+  RowMotionContexts,
+  TranscriptContext,
+} from "./TranscriptShellParts";
 import { type ScrollAnchor } from "./scrollAnchors";
 import { THREAD_TOP } from "./RowFrame";
-import { Spinner } from "../conversation/icons";
+import { WaitSpinner } from "../conversation/WaitSpinner";
 import { OlderLoadingMark } from "./OlderLoadingMark";
 
 /// The box of the spinner over the loaded rows while older ones load (`.acpmux-older-loading`): it
@@ -37,6 +44,8 @@ export type TranscriptShellDeps = {
   readOnly: boolean;
   retryTarget: React.ContextType<typeof RetryTargetContext>;
   livePulse: React.ContextType<typeof LiveLinePulseContext>;
+  /** A disclosure's change as one motion-owner transition (useDisclosure.ts). */
+  runDisclosure: RunDisclosure;
   ref: React.RefObject<HTMLDivElement | null>;
   slimFollow: boolean;
   /** The live line is among the mounted rows: the scroller's `data-live-line` (conversation.css). */
@@ -63,6 +72,8 @@ export type TranscriptShellDeps = {
   earlier: MinimapProps["earlier"];
   canLoadNewer: boolean;
   canLoadOlder: boolean;
+  /** The room that seats a short first page at the view's foot: not older room. */
+  footRoom: number;
   /// The chat is still reading its rows.
   loading: boolean;
   later: MinimapProps["later"];
@@ -110,6 +121,7 @@ export function drawTranscriptShell({
   readOnly,
   retryTarget,
   livePulse,
+  runDisclosure,
   ref,
   slimFollow,
   liveLineMounted,
@@ -135,6 +147,7 @@ export function drawTranscriptShell({
   earlier,
   canLoadNewer,
   canLoadOlder,
+  footRoom,
   loading,
   later,
   promptCount,
@@ -175,7 +188,7 @@ export function drawTranscriptShell({
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
       <RetryTargetContext.Provider value={retryTarget}>
-        <LiveLinePulseContext.Provider value={livePulse}>
+        <RowMotionContexts livePulse={livePulse} runDisclosure={runDisclosure}>
           <div
             ref={ref}
             className="acpmux-scroll"
@@ -273,8 +286,9 @@ export function drawTranscriptShell({
             <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
               <div
                 className="acpmux-spacer"
-                // The room held above the loaded rows for older history (conversation/olderReserve.ts).
-                data-older-room={layout.origin || undefined}
+                // The room held above the loaded rows for older history (conversation/olderReserve.ts). The room that
+                // seats a short first page at the view's foot is not older room: no scrollbar shows over it.
+                data-older-room={Math.max(0, (layout.origin ?? 0) - footRoom) || undefined}
                 // Older history is left to load. The room is not the sign of it: it goes once the reader
                 // nears the loaded top with no page there yet (`giveRoomNearTop`), while pages still come.
                 data-loads-older={canLoadOlder || undefined}
@@ -287,7 +301,7 @@ export function drawTranscriptShell({
                     (cmux#48605). The spacer is at least the view's height, so it sits in the view's middle. */}
                 {loading && rows.length === 0 && (
                   <output className="acpmux-transcript-loading" aria-label={t("transcript.loading")}>
-                    <Spinner size={20} loading />
+                    <WaitSpinner size={20} loading />
                   </output>
                 )}
                 {/* Older history still to load: a spinner just above the first loaded row, in the room held
@@ -362,7 +376,7 @@ export function drawTranscriptShell({
               needsYou={needsYou}
             />
           )}
-        </LiveLinePulseContext.Provider>
+        </RowMotionContexts>
       </RetryTargetContext.Provider>
     </ReadOnlyBoundary>
   );

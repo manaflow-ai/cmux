@@ -7,7 +7,9 @@ macOS was red on feat-cmux-next with two dead_code errors in src/hybrid.rs (#436
 macOS check ran on pull requests until 2026-11-22, when it moved to the tip (once per window, base-coalesce.yml): it
 had been red 0 times in 70 pull request runs in 24 h. This test fails unless some workflow both starts on a
 feat-cmux-next push that changes a macOS-only file of the crate and runs `cmux-tui-rust-check.sh` in mode `rd-host`
-with `--os macos` (fleet-rd-host-macos.yml).
+with `--os macos`, or reads that check's verdict with `fleet_compile_result.py --phase rd-host-macos`, whose read has
+the controller submit the same macOS step (fleet-rd-host-macos.yml since RFD 0162 moved it off its gateway Mac,
+2026-11-26).
 
 The trigger is read as GitHub reads it (branches, branches-ignore, paths, paths-ignore), and a job or step whose
 `if:` names another event, or a run line that asks for Linux, does not count.
@@ -36,6 +38,9 @@ MAC_ONLY_FILES = (
 SCRIPT = re.compile(r"(^|[\s/])cmux-tui-rust-check\.sh(\s|$)")
 MAC = re.compile(r"(^|\s)--os(=|\s+)[\"']?macos[\"']?(\s|$)")
 RD_HOST = re.compile(r"(^|\s)--arg(=|\s+)[\"']?rd-host[\"']?(\s|$)")
+# The controller-submitted form: the read of phase rd-host-macos submits cmux-tui-rust-check.sh rd-host on a fleet Mac.
+READER = re.compile(r"(^|[\s/\"'])fleet_compile_result\.py[\"']?(\s|$)")
+PHASE = re.compile(r"(^|\s)--phase(=|\s+)[\"']?rd-host-macos[\"']?(\s|$)")
 
 
 EVENT = "push"
@@ -61,9 +66,11 @@ def admits_push(document, path: str, base: str = BASE) -> bool:
 
 
 def runs_rd_host_on_macos(run: str) -> bool:
-    """Whether one command of a step's script runs cmux-tui-rust-check.sh rd-host on macOS."""
+    """Whether one command of a step's script runs cmux-tui-rust-check.sh rd-host on macOS, or reads its verdict."""
     for command in run.replace("\\\n", " ").splitlines():
         if SCRIPT.search(command) and MAC.search(command) and RD_HOST.search(command):
+            return True
+        if READER.search(command) and PHASE.search(command):
             return True
     return False
 
@@ -122,6 +129,19 @@ class Matcher(unittest.TestCase):
         step = self.STEP.format(os="--os macos", arg="rd-host")
         self.assertEqual(self.routed(self.workflow('["cmux-tui/crates/cmux-rd-host/**"]', step)),
                          [".github/workflows/w.yml"])
+
+    def test_a_read_of_the_rd_host_macos_phase_counts(self):
+        # The reader is named on the run line itself: a variable hides what it reads.
+        read = 'word="$(python3 "$reader" --sha "$REF" --repo R --phase rd-host-macos --wait 4800)"'
+        self.assertTrue(runs_rd_host_on_macos(
+            'python3 "$GITHUB_WORKSPACE/scripts/ci/fleet_compile_result.py" --sha "$REF" --phase rd-host-macos'))
+        self.assertEqual(self.routed(self.workflow('["cmux-tui/crates/cmux-rd-host/**"]',
+                                                   "python3 scripts/ci/fleet_compile_result.py --sha X --phase rd-host-macos")),
+                         [".github/workflows/w.yml"])
+        for other in ("python3 scripts/ci/fleet_compile_result.py --sha X --phase app-debug",
+                      "python3 scripts/ci/fleet_compile_result.py --sha X", read):
+            with self.subTest(run=other):
+                self.assertFalse(runs_rd_host_on_macos(other))
 
     def test_a_linux_run_or_another_mode_does_not_count(self):
         for os_flag, arg in (("--os linux", "rd-host"), ("", "rd-host"), ("--os macos", "rd-bench")):

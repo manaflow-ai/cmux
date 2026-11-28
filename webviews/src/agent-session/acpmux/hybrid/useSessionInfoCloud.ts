@@ -1,6 +1,8 @@
 import { useMemo } from "react";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { useHeaderState } from "../header/headerState";
 import { placeActions } from "../place/usePlace";
+import { CLOUD_TOGGLE_SWITCH } from "./hybridModel";
 import type { SessionInfoCloudControl } from "./SessionInfoCloud";
 
 /// Session Info's cloud control for the tab's own chat: where it may run, and Keep Running with the plan's slots when the
@@ -9,9 +11,10 @@ export function useSessionInfoCloud(
   session: string | undefined,
   say?: (text: string) => void,
 ): SessionInfoCloudControl | undefined {
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const { place } = useHeaderState();
   return useMemo(() => {
-    if (!place || !session) return undefined;
+    if (!on || !place || !session) return undefined;
     const actions = placeActions(session, say);
     const keep = place.keep;
     if (!keep)
@@ -21,5 +24,5 @@ export function useSessionInfoCloud(
       setLit: (on: boolean) => actions.setPriority(on ? "high" : "normal"),
       setPin: actions.setMode,
     };
-  }, [place, session, say]);
+  }, [on, place, session, say]);
 }

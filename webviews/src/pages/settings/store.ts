@@ -20,7 +20,20 @@ import {
   tracksAppearance,
   withLinked,
   type AppearanceArea,
+  UNTRACKED_KEYS,
+  durableLabel,
 } from "./appearanceUndo";
+import {
+  areaResetGroup,
+  type DurableEntry,
+  isPersonOrigin,
+  isBookkeeping,
+  newestLookRevision,
+  newestRevision,
+  nextDurableUndo,
+  parseDurableHistory,
+  planUndo,
+} from "./durableHistory";
 import type { PageCommand } from "./keyboard";
 import {
   createSettingsQueryClient,
@@ -61,8 +74,6 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
-  type LooksRun,
-  type Standup,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -90,6 +101,8 @@ import {
   type JoinConsentSurface,
   type KeysState,
   type ModelsRun,
+  type ModelsAccessRun,
+  type ModelsAccessResult,
   type ModelsState,
   type AgentToolsCardRun,
   type AgentToolsCardState,
@@ -109,6 +122,8 @@ import {
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
+  type LooksRun,
+  type Standup,
   type ArchivedRun,
   type ArchivedState,
   type ConnectionsRun,
@@ -120,6 +135,9 @@ import {
   type Checklist,
   type ChecklistFact,
   type PreviousBuild,
+  type CreatedToken,
+  type DeveloperTokensRun,
+  type DeveloperTokensState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -174,6 +192,7 @@ export type SettingsState = {
   devices: DevicesState | null;
   /** Settings > Models; null until read, or when the host has none. */
   models: ModelsState | null;
+  modelsSettled: boolean;
   /** Theme colors by name (cmux.settings.theme.colors); null until read or when the host has none. */
   themeColors: ReadonlyMap<string, GhosttyTheme> | null;
 };
@@ -193,6 +212,7 @@ export type CacheView = {
   harnesses?: HarnessesData | undefined;
   devices?: DevicesData | undefined;
   models?: ModelsData | undefined;
+  modelsSettled?: boolean;
   themeColors: ThemeColorsData | undefined;
 };
 
@@ -239,6 +259,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     harnesses: cache.harnesses ?? null,
     devices: cache.devices ?? null,
     models: cache.models ?? null,
+    modelsSettled: cache.modelsSettled ?? false,
     themeColors: cache.themeColors ?? null,
   };
 }
@@ -252,6 +273,8 @@ export class SettingsStore {
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribers: Array<() => void> = [];
   private readonly commandListeners = new Set<(command: PageCommand) => void>();
+  /** Settings > Extensions cards waiting for `cmux.settings.extensions.changed`. */
+  private readonly extensionListeners = new Set<() => void>();
   private disposed = false;
   private openingThemeFile = false;
   private themeColorsRequested = false;
@@ -265,6 +288,14 @@ export class SettingsStore {
   private appearanceOpened: TargetState[] | null = null;
   /** How many appearance steps are running (`trackAppearance`); inner ones record nothing. */
   private tracking = 0;
+  /** The daemon's durable settings history as last read (durableHistory.ts), newest first; null
+   * until read, or for a host without it (`durableUnsupported`), whose undo stays the page's own. */
+  private durable: DurableEntry[] | null = null;
+  private durableUnsupported = false;
+  /** Whether an appearance page showed: only then does a change read the history again. */
+  private durableWanted = false;
+  /** The newest read started, so an older read finishing later is dropped. */
+  private durableReads = 0;
 
   constructor(
     private readonly client: SettingsClient,
@@ -290,8 +321,8 @@ export class SettingsStore {
     });
     this.queryClient.setQueryDefaults(settingsKeys.models, {
       queryFn: () => this.native("cmux.settings.models.state"),
-      // A page that opened before this Mac's agent service was up reads again until it answers.
       refetchInterval: (query) => modelsRetryMs(query.state.data as ModelsState | undefined),
+      retry: false,
     });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
@@ -319,6 +350,10 @@ export class SettingsStore {
       this.listen("cmux.settings.models.changed", (models) =>
         this.queryClient.setQueryData(settingsKeys.models, models),
       ),
+      // An extension was installed, removed or saved (hot reload): Settings > Extensions reads again.
+      this.listen("cmux.settings.extensions.changed", () => {
+        for (const listener of this.extensionListeners) listener();
+      }),
       // A key request arrived or ended: Settings > Keys reads its list again (the event has no values).
       this.listen("cmux.settings.keys.changed", () =>
         this.queryClient.invalidateQueries({ queryKey: [...settingsKeys.all, "keys"] }),
@@ -354,6 +389,8 @@ export class SettingsStore {
         }
         // A read that already shows this revision (this page's own write re-reads it) is enough.
         void this.refresh(typeof event.revision === "number" ? event.revision : undefined);
+        // Any writer's change is a new entry the bar's Undo may name.
+        if (this.durableWanted) void this.refreshDurableHistory();
       },
       connection: (connected) => {
         if (this.disposed) return;
@@ -641,7 +678,12 @@ export class SettingsStore {
     });
     const changes = diff([state(field === "value" ? was.value : (was.opacity ?? null))], [state(value)]);
     if (changes.length > 0)
-      this.appearance.record({ label: changeLabel(this.getSnapshot(), changes[0]!.after), changes });
+      this.appearance.record({
+        label: changeLabel(this.getSnapshot(), changes[0]!.after),
+        changes,
+        revisions: [],
+        head: newestRevision(this.durable),
+      });
     return ok;
   }
 
@@ -823,6 +865,11 @@ export class SettingsStore {
     call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
 
+  /** The Slack row owns its TS state; the host forwards authenticated Cloud requests only. */
+  readonly slackCalls = {
+    call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
+  };
+
   /** Settings > Updates' channels, with the way back to `ring` (the Channel row's value); null
    * when the host has no updater. */
   async channelsState(ring?: string): Promise<ChannelsState | null> {
@@ -915,6 +962,42 @@ export class SettingsStore {
     return this.hubState();
   }
 
+  /** Settings > Developer (API tokens); null when the host has none. */
+  async tokensState(): Promise<DeveloperTokensState | null> {
+    const reply = await this.request("cmux.settings.tokens.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Developer gesture, then the card as it is after it. `created` is the new token, answered once. */
+  async runTokens(
+    run: DeveloperTokensRun,
+  ): Promise<{ ok: boolean; state: DeveloperTokensState | null; created: CreatedToken | null }> {
+    const reply = await this.request("cmux.settings.tokens.run", run);
+    const created = reply.ok ? (reply.value?.created ?? null) : null;
+    const ok = reply.ok && reply.value?.ok !== false;
+    const state = await this.tokensState();
+    if (reply.ok) return { ok, state, created };
+    // Validation and bridge refusals never reach the provider's lastError. Preserve them across
+    // the read so the card can explain the failed gesture, even if the host is no longer there.
+    return {
+      ok: false,
+      created: null,
+      state: {
+        ...(state ?? {
+          loading: false,
+          problem: "unavailable",
+          listError: null,
+          platform: null,
+          team: null,
+          tokens: [],
+          canManageTeamTokens: false,
+          githubRules: null,
+        }),
+        error: { action: run.action, code: reply.error.code, message: userMessage(reply.error, SETTINGS_SENTENCES) },
+      },
+    };
+  }
+
   /** Settings > Automations (Cloud automations); null when the host has none. */
   async autocloudState(): Promise<AutocloudState | null> {
     const reply = await this.request("cmux.settings.autocloud.state", {});
@@ -993,22 +1076,37 @@ export class SettingsStore {
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
-  async refreshModels(): Promise<void> {
-    await this.fetchNative(settingsKeys.models);
+  async refreshModels(): Promise<boolean> {
+    return this.fetchNative(settingsKeys.models);
   }
 
-  /** One Settings > Models gesture, then a fresh read of the part; answers the host's refusal in plain
-   * words (userMessage), null when it took the gesture. */
-  async runModels(run: ModelsRun): Promise<string | null> {
+  /** One Settings > Models gesture, then a fresh read of the part and the host's result. */
+  async runModels(run: ModelsRun): Promise<{ failure: string | null; verificationFailed?: boolean }> {
     const reply = await this.request("cmux.settings.models.run", run);
-    await this.refreshModels();
-    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+    if (run.action !== "checkClaudeLogin" && run.action !== "closeKeyPage") await this.refreshModels();
+    return reply.ok
+      ? { failure: reply.value.failure ?? null, verificationFailed: reply.value.verificationFailed }
+      : {
+          failure:
+            run.action === "signOutClaude" && reply.error.code === "cmux.models.failed"
+              ? t("settingsWindow.models.claude.signOutFailed")
+              : userMessage(reply.error, SETTINGS_SENTENCES),
+        };
+  }
+
+  /** Reads the provider's model list without refreshing or changing saved connections. */
+  async checkModelsAccess(run: ModelsAccessRun): Promise<ModelsAccessResult> {
+    const reply = await this.request("cmux.settings.models.run", run);
+    if (!reply.ok) return { failure: userMessage(reply.error, SETTINGS_SENTENCES) };
+    if (Array.isArray(reply.value.models)) return { models: reply.value.models };
+    return { failure: reply.value.failure ?? t("settingsWindow.models.access.unavailable") };
   }
 
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */
-  async runHarnesses(run: HarnessesRun): Promise<void> {
-    await this.request("cmux.settings.harnesses.run", run);
+  async runHarnesses(run: HarnessesRun): Promise<Reply<unknown>> {
+    const reply = await this.request("cmux.settings.harnesses.run", run);
     await this.fetchNative(settingsKeys.harnesses);
+    return reply;
   }
 
   /** Settings > Accounts > Cloud Environments: the host's state (null when the host has none). */
@@ -1056,6 +1154,13 @@ export class SettingsStore {
     return { apps: readExtensionSettings(reply.value), error: null, unavailable: false };
   }
 
+  /** Runs `listener` each time the installed extensions change: an install, a removal, a hide, or a
+   * save of an extension's manifest that the daemon reloaded. */
+  onExtensionsChanged(listener: () => void): () => void {
+    this.extensionListeners.add(listener);
+    return () => this.extensionListeners.delete(listener);
+  }
+
   /** Changes settings of one extension (`null` resets a key): the values it now runs with, or the
    * daemon's refusal text. The running extension hears the change at once. */
   async setExtensionSettings(
@@ -1080,11 +1185,20 @@ export class SettingsStore {
   /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
   async runEnvironments(
     run: CloudEnvironmentsRun,
-  ): Promise<{ state: CloudEnvironmentsState | null; error: string | null }> {
+  ): Promise<{ state: CloudEnvironmentsState | null; failed: boolean; unsupported: boolean }> {
     const reply = await this.request("cmux.settings.environments.run", run);
     const state = await this.environments();
-    if (!reply.ok) return { state, error: userMessage(reply.error, SETTINGS_SENTENCES) };
-    return { state, error: reply.value?.error ?? null };
+    const error = reply.ok ? reply.value?.error : reply.error.message;
+    const listUnavailable = "cloud.environment.list is not available yet";
+    const unsupported =
+      state?.unsupported === true ||
+      (run.action === "refresh" &&
+        (error === listUnavailable || state?.error === listUnavailable || (!reply.ok && isUnsupported(reply.error))));
+    return {
+      state,
+      unsupported,
+      failed: !unsupported && (!reply.ok || Boolean(error || state?.error) || state === null),
+    };
   }
 
   /** The customization being tried on, after running `verb` (Keep, Revert Now); null when none is,
@@ -1283,6 +1397,7 @@ export class SettingsStore {
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     this.listeners.clear();
     this.commandListeners.clear();
+    this.extensionListeners.clear();
     this.queryClient.clear();
   }
 
@@ -1298,6 +1413,7 @@ export class SettingsStore {
   cacheView(): CacheView {
     const scopeState = this.queryClient.getQueryState(settingsKeys.scope("user"));
     const hostState = this.queryClient.getQueryState(settingsKeys.host);
+    const modelsState = this.queryClient.getQueryState<ModelsData>(settingsKeys.models);
     return {
       scope: this.queryClient.getQueryData<ScopeData>(settingsKeys.scope("user")),
       scopeSettled: scopeState !== undefined && scopeState.status !== "pending",
@@ -1307,6 +1423,8 @@ export class SettingsStore {
       harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
       devices: this.queryClient.getQueryData<DevicesData>(settingsKeys.devices),
       models: this.queryClient.getQueryData<ModelsData>(settingsKeys.models),
+      modelsSettled:
+        modelsState !== undefined && modelsState.status !== "pending" && modelsState.fetchStatus !== "fetching",
       themeColors: this.queryClient.getQueryData<ThemeColorsData>(settingsKeys.themeColors),
     };
   }
@@ -1327,6 +1445,7 @@ export class SettingsStore {
       last.cache.harnesses === cache.harnesses &&
       last.cache.devices === cache.devices &&
       last.cache.models === cache.models &&
+      last.cache.modelsSettled === cache.modelsSettled &&
       last.cache.themeColors === cache.themeColors
     )
       return last.state;
@@ -1371,6 +1490,7 @@ export class SettingsStore {
       ...(options.themes ? captureThemes(this.getSnapshot()) : []),
     ];
     const before = read();
+    const head = await this.durableHead();
     this.tracking += 1;
     let result: T;
     try {
@@ -1380,8 +1500,82 @@ export class SettingsStore {
     }
     const changes = diff(before, read());
     if (changes.length > 0)
-      this.appearance.record({ label: options.label ?? changeLabel(this.getSnapshot(), changes[0]!.after), changes });
+      this.appearance.record({
+        label: options.label ?? changeLabel(this.getSnapshot(), changes[0]!.after),
+        changes,
+        ...(await this.durableSince(head)),
+      });
     return result;
+  }
+
+  /** The durable history's newest revision before a step, read once when the page has none yet;
+   * null for a host without the history. */
+  private async durableHead(): Promise<number | null> {
+    if (this.durableUnsupported) return null;
+    const entries = this.durable ?? (await this.refreshDurableHistory());
+    return entries === null ? null : newestRevision(entries);
+  }
+
+  /** The person's changes the durable history recorded after `head` (a step's own writes), and its
+   * newest revision now. Nothing for a host without the history. */
+  private async durableSince(head: number | null): Promise<{ revisions?: number[]; head?: number }> {
+    if (head === null) return {};
+    const entries = await this.refreshDurableHistory();
+    if (entries === null) return {};
+    const revisions = entries
+      .filter((entry) => entry.revision > head && entry.undoes === null && isPersonOrigin(entry.origin))
+      .map((entry) => entry.revision);
+    return { revisions, head: newestRevision(entries) };
+  }
+
+  /** Reads the daemon's durable settings history through the host (`cmux.settings.history`), for
+   * the bar's Undo and Redo. A host without it answers null from then on: the page's own stack
+   * stays. A Redo whose undo a newer change came after is dropped. */
+  async refreshDurableHistory(): Promise<DurableEntry[] | null> {
+    this.durableWanted = true;
+    if (this.durableUnsupported) return null;
+    const read = ++this.durableReads;
+    const reply = await this.request("cmux.settings.history", {});
+    if (read !== this.durableReads) return this.durable;
+    if (!reply.ok) {
+      // An older host (before settings-history-v1) knows no such op.
+      if (errorCode(reply.error) === "unknown_op") {
+        this.durableUnsupported = true;
+        this.durable = null;
+      }
+      this.appearance.changed();
+      return this.durable;
+    }
+    this.durable = parseDurableHistory(reply.value);
+    const redo = this.appearance.nextRedo;
+    if (redo?.redoFrom !== undefined && newestLookRevision(this.durable) > (redo.head ?? 0))
+      this.appearance.clearRedo();
+    this.appearance.changed();
+    return this.durable;
+  }
+
+  /** What the bar's Undo takes back, as its button names it; null when nothing. */
+  appearanceUndoLabel(): string | null {
+    const top = this.appearance.nextUndo;
+    const plan = planUndo(top, this.durableUnsupported ? null : this.durable);
+    if (!plan) return null;
+    return plan.kind === "foreign" ? durableLabel(plan.pick) : (top?.label ?? null);
+  }
+
+  /** One write of the durable history through the host, as the person; the scope is read again. */
+  private async historyWrite<
+    K extends "cmux.settings.undo" | "cmux.settings.restore" | "cmux.settings.reset_group" | "cmux.settings.reset_keys",
+  >(
+    op: K,
+    params: Omit<SettingsOps[K][0], "idempotency_key">,
+  ): Promise<{ ok: true; revision: number | null } | { ok: false; error: WireError }> {
+    if (!this.ui.connected)
+      return { ok: false, error: { code: "cmux.page.unavailable", message: "cmux is not connected" } };
+    const reply = await this.request(op, { ...params, idempotency_key: newIdempotencyKey() } as SettingsOps[K][0]);
+    await this.refresh();
+    if (!reply.ok) return reply;
+    const revision = Number(reply.value.history_revision ?? reply.value.revision);
+    return { ok: true, revision: Number.isSafeInteger(revision) && revision > 0 ? revision : null };
   }
 
   /** Records an appearance step its caller applied itself (states it read before and after). */
@@ -1389,9 +1583,109 @@ export class SettingsStore {
     return this.appearance.record(entry);
   }
 
-  /** Undo: puts the last appearance step's earlier states back. False when there was none or the
-   * owner refused (the step stays where it was). */
+  /** Undo: takes the last change back. It runs on the daemon's durable settings history
+   * (settings.undo through the host) whenever that change is in the settings file: the page's own
+   * step, or a newer change by an agent, the CLI or a hand edit (that one first). What the file does
+   * not hold (a theme level, a workspace's own background) goes back from the page's own stack.
+   * False when there was nothing or the owner refused (the step stays where it was). */
   async undoAppearance(): Promise<boolean> {
+    const entries = this.durableUnsupported ? null : await this.refreshDurableHistory();
+    const plan = planUndo(this.appearance.nextUndo, entries);
+    if (!plan) return false;
+    if (plan.kind === "memory") return this.undoFromStack();
+    if (plan.kind === "foreign") {
+      const undone = await this.undoThrough(new Set([plan.pick.revision]), entries!);
+      if (undone.first === null) return false;
+      this.appearance.pushUndone({
+        label: durableLabel(plan.pick),
+        changes: [],
+        redoFrom: undone.first,
+        head: newestRevision(undone.current),
+      });
+      return true;
+    }
+    const step = this.appearance.takeUndo()!;
+    const { first, ok: undoneOk, current } = await this.undoThrough(new Set(step.entry.revisions), entries!);
+    let ok = undoneOk;
+    if (first === null) {
+      this.appearance.restore("undo", step.entry);
+      return false;
+    }
+    step.entry.redoFrom = first;
+    step.entry.head = newestRevision(current);
+    const rest = step.apply.filter((state) => state.kind !== "setting");
+    if (rest.length > 0) ok = (await this.applyAppearance(rest)) && ok;
+    this.appearance.changed();
+    return ok;
+  }
+
+  /** Takes `targets` back through settings.undo, one per entry: while the next undo is one of them
+   * or bookkeeping (a background mode's memory, written beside a pick and again when an undo leaves
+   * the mode), so one click takes a whole step, or an agent's change, back. `first`: the first
+   * undo's revision, which a Redo restores; null when nothing was undone. */
+  private async undoThrough(
+    targets: ReadonlySet<number>,
+    entries: DurableEntry[],
+  ): Promise<{ first: number | null; ok: boolean; current: DurableEntry[] | null }> {
+    // Bookkeeping is no look: the undo takes its entries back on the way (settings.undo puts the
+    // whole file back), then it is written back as it was, as Undo leaves it on the page's own stack.
+    const kept = [...UNTRACKED_KEYS].map((key) => {
+      const row = this.getSnapshot().rows.get(key);
+      return { key, customized: row?.customized ?? false, value: row?.value };
+    });
+    let first: number | null = null;
+    let current: DurableEntry[] | null = entries;
+    const left = () => {
+      const undone = new Set(current?.flatMap((entry) => (entry.undoes === null ? [] : [entry.undoes])) ?? []);
+      return [...targets].some((revision) => !undone.has(revision));
+    };
+    for (let tries = entries.length + 1; tries > 0 && current && left(); tries -= 1) {
+      const next = nextDurableUndo(current);
+      if (!next || !(targets.has(next.revision) || isBookkeeping(next))) break;
+      const reply = await this.historyWrite("cmux.settings.undo", {});
+      if (!reply.ok) return { first, ok: false, current };
+      first ??= reply.revision;
+      current = await this.refreshDurableHistory();
+    }
+    if (first !== null) {
+      for (const was of kept) {
+        const row = this.getSnapshot().rows.get(was.key);
+        if ((row?.customized ?? false) === was.customized && JSON.stringify(row?.value) === JSON.stringify(was.value))
+          continue;
+        await (was.customized ? this.set(was.key, was.value) : this.reset(was.key));
+      }
+      current = await this.refreshDurableHistory();
+    }
+    return { first, ok: true, current };
+  }
+
+  /** Redo: puts the last undone step back. A step undone through the durable history comes back
+   * with settings.restore of its undo's revision (the file just before that undo); a change made
+   * after the undo dropped it. */
+  async redoAppearance(): Promise<boolean> {
+    const top = this.appearance.nextRedo;
+    if (!top) return false;
+    if (top.redoFrom === undefined) return this.redoFromStack();
+    const entries = await this.refreshDurableHistory();
+    if (this.appearance.nextRedo !== top) return false;
+    const step = this.appearance.takeRedo()!;
+    const reply = await this.historyWrite("cmux.settings.restore", { revision: String(top.redoFrom) });
+    if (!reply.ok) {
+      this.appearance.restore("redo", step.entry);
+      return false;
+    }
+    const after = await this.refreshDurableHistory();
+    step.entry.redoFrom = undefined;
+    step.entry.revisions = reply.revision === null ? [] : [reply.revision];
+    step.entry.head = newestRevision(after ?? entries);
+    const rest = step.apply.filter((state) => state.kind !== "setting");
+    const ok = rest.length === 0 || (await this.applyAppearance(rest));
+    this.appearance.changed();
+    return ok;
+  }
+
+  /** Undo from the page's own stack: puts the step's earlier states back with writes of their own. */
+  private async undoFromStack(): Promise<boolean> {
     const step = this.appearance.takeUndo();
     if (!step) return false;
     const ok = await this.applyAppearance(step.apply);
@@ -1399,8 +1693,7 @@ export class SettingsStore {
     return ok;
   }
 
-  /** Redo: puts the last undone step's states back. */
-  async redoAppearance(): Promise<boolean> {
+  private async redoFromStack(): Promise<boolean> {
     const step = this.appearance.takeRedo();
     if (!step) return false;
     const ok = await this.applyAppearance(step.apply);
@@ -1411,6 +1704,8 @@ export class SettingsStore {
   /** Remembers every appearance target the first time Appearance shows in this visit, for
    * Restore How It Was. Later calls keep the first snapshot. */
   noteAppearanceOpened(): void {
+    // The bar's Undo names the durable history's next change, whoever made it.
+    if (!this.durableWanted) void this.refreshDurableHistory();
     const state = this.getSnapshot();
     if (this.appearanceOpened || !state.readable) return;
     this.appearanceOpened = captureAppearance(state);
@@ -1466,9 +1761,19 @@ export class SettingsStore {
   async resetAppearanceArea(area: AppearanceArea): Promise<boolean> {
     const keys = this.areaCustomizedKeys(area);
     if (keys.length === 0) return true;
+    // One write, so one history entry and one Undo: settings.reset_group where the card is exactly
+    // one schema group, else one edit of the card's keys. A host without the durable history resets
+    // key by key, as before.
+    const group = areaResetGroup(area);
     return this.trackAppearance(
       area.keys,
       async () => {
+        if (!this.durableUnsupported) {
+          const reply = group
+            ? await this.historyWrite("cmux.settings.reset_group", { group })
+            : await this.historyWrite("cmux.settings.reset_keys", { keys });
+          if (reply.ok || errorCode(reply.error) !== "unknown_op") return reply.ok;
+        }
         let ok = true;
         for (const key of keys) ok = (await this.reset(key)).ok && ok;
         return ok;
@@ -1490,8 +1795,9 @@ export class SettingsStore {
     const current = [...captureAppearance(state)];
     const changes = diff(current, [...targets]);
     if (changes.length === 0) return true;
+    const head = await this.durableHead();
     const ok = await this.applyAppearance(changes.map((change) => change.after));
-    this.appearance.record({ label, changes });
+    this.appearance.record({ label, changes, ...(await this.durableSince(head)) });
     return ok;
   }
 
@@ -1531,10 +1837,13 @@ export class SettingsStore {
   /** The host holds one live preview at a time, whatever its key: its latest owner. */
   private previewOwner: object | null = null;
 
-  preview(key: string, value: unknown, owner?: object): void {
+  /** `also` previews more keys with `key` as one preview (the whole-app theme preview). */
+  preview(key: string, value: unknown, owner?: object, also?: readonly { key: string; value: unknown }[]): void {
     this.previewOwner = owner ?? {};
     this.setLive({ key, value });
-    if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
+    if (this.ui.connected) {
+      void this.request("cmux.settings.preview", also?.length ? { key, value, also } : { key, value });
+    }
   }
 
   /** With an `owner`, ends the preview only while that owner's is still the one showing. */
@@ -1630,9 +1939,12 @@ export class SettingsStore {
     return { ok: true };
   }
 
-  private async fetchNative(queryKey: readonly string[]): Promise<void> {
-    if (this.disposed) return;
-    await this.queryClient.fetchQuery({ queryKey, staleTime: 0 }).catch(() => undefined);
+  private async fetchNative(queryKey: readonly string[]): Promise<boolean> {
+    if (this.disposed) return false;
+    return this.queryClient.fetchQuery({ queryKey, staleTime: 0 }).then(
+      () => true,
+      () => false,
+    );
   }
 
   /** One of the host's own reads, for its query; rejects with the host's error. */
@@ -1710,7 +2022,7 @@ export function valueOf(state: SettingsState, key: string): unknown {
   return row ? row.value : rowsByKey.get(key)?.default;
 }
 
-/** How soon the Models state is read again: only while this Mac's connections could not be listed. */
+/** Refresh while this Mac's model connections are unavailable. */
 export function modelsRetryMs(state: ModelsState | undefined): number | false {
   return state && !state.personal.available ? 2000 : false;
 }

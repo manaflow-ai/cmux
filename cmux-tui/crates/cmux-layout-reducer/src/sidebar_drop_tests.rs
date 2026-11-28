@@ -234,6 +234,7 @@ fn request(y: f64, payload: Payload) -> Request {
         section_top_fraction: SECTION_TOP_FRACTION,
         workspace_onto_start: 0.0,
         workspace_onto_end: 0.0,
+        move_to: vec![],
     }
 }
 
@@ -506,6 +507,40 @@ fn group_drag_and_cross_machine_targets_match_swift() {
     );
     let cloud = rows.iter().find(|row| row.key == RowKey::Workspace { id: "x".into() }).unwrap();
     assert_eq!(resolve(&request_at(cloud.y + cloud.height / 2.0)), None);
+}
+
+#[test]
+fn a_chat_that_can_move_drops_on_another_machine() {
+    let sections = sections();
+    let rows = rows_without(&["b"], None);
+    let x = rows.iter().find(|row| row.key == RowKey::Workspace { id: "x".into() }).unwrap();
+    let at = |ids: Vec<&str>, move_to: Vec<&str>| Request {
+        move_to: move_to.into_iter().map(str::to_owned).collect(),
+        ..request_with_rows(
+            x.y + x.height * 0.9,
+            Payload::Workspaces { ids: ids.into_iter().map(str::to_owned).collect() },
+            rows.clone(),
+            sections.clone(),
+        )
+    };
+    // Over Cloud's rows: refused for a row that cannot move there, as before; a slot in Cloud's section for a
+    // chat whose Move to… lists it.
+    assert_eq!(resolve(&at(vec!["b"], vec![])), None);
+    assert_eq!(resolve(&at(vec!["b"], vec!["elsewhere"])), None);
+    assert_eq!(
+        resolve(&at(vec!["b"], vec!["cloud"])),
+        Some(Target::Position { section: machine("cloud"), group: None, index: 1 })
+    );
+    // Two rows never move together: a move is one chat's.
+    assert_eq!(resolve(&at(vec!["a", "b"], vec!["cloud"])), None);
+    // A machine's remote group is that machine; a document group or another row is no move.
+    let host = Target::IntoGroup { group: "host:cloud".into() };
+    assert!(is_move(&host, &["b".into()], &sections, &["cloud".into()]));
+    assert!(!is_move(&host, &["x".into()], &sections, &["cloud".into()]), "already there");
+    let group = Target::IntoGroup { group: "g1".into() };
+    assert!(!is_move(&group, &["x".into()], &sections, &["local".into()]));
+    let onto = Target::OntoWorkspace { workspace: "x".into() };
+    assert!(!is_move(&onto, &["b".into()], &sections, &["cloud".into()]));
 }
 
 #[test]

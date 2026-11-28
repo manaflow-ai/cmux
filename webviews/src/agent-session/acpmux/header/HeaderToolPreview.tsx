@@ -8,6 +8,7 @@ import { useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { hoverCardGlass, hoverCardUnder } from "../../../ui/glass/hoverCardGlass";
 import { attachSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { KeyHint } from "../../../ui/KeyHint";
 import { interfaceScale } from "../../../ui/interfaceScale";
 import { HeaderIcon } from "./HeaderIcon";
 import { headerToolPreviewPlacement, PREVIEW_GAP } from "./headerToolPreviewPlacement";
@@ -63,7 +64,7 @@ export function HeaderToolPreview({ target }: { target: HeaderToolPreviewTarget 
       </div>
       <div className="acpmux-header-preview-text">
         <span className="acpmux-header-preview-name">{target.label}</span>
-        {target.shortcut && <kbd className="acpmux-header-preview-key">{target.shortcut}</kbd>}
+        {target.shortcut && <KeyHint keys={target.shortcut} className="acpmux-header-preview-key" />}
       </div>
       {target.title && target.title !== target.label && (
         <div className="acpmux-header-preview-detail">{target.title}</div>

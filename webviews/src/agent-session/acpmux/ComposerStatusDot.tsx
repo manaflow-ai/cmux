@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useId, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { StatusCard } from "./composerStatusCard";
-import { HOVER_INTENT, HoverBridge, Keycap, focusAfterEscape, tooltipsWarm } from "./composerStatusHover";
+import { HOVER_INTENT, HoverBridge, KeyHint, focusAfterEscape, tooltipsWarm } from "./composerStatusHover";
 import { composerFooterFacts } from "./composerFooterFacts.experiment";
 import { composerMachineAtRest } from "./composerMachineAtRest.experiment";
 import {
@@ -34,6 +34,7 @@ import {
   type HostRecovery,
   type StatusAction,
   type StatusItem,
+  withPauseReason,
 } from "./composerStatusModel";
 import { useHostRecovery } from "./composerStatusStore";
 import { relativeTime } from "./conversation/relativeTime";
@@ -41,6 +42,7 @@ import { waitedText } from "./hostErrorModel";
 import { useT, usePaneLanguage, type StringKey, type StringValues, type Translate } from "./i18n";
 import { Icon } from "./icons/Icon";
 import { MachineLinkStatus } from "./MachineLinkStatus";
+import { useLinkRedial } from "./useLinkRedial";
 import { peekPin, peekPinOpen, type PeekPinEvent, type PeekPinState } from "./peekPin";
 import type { PeerLink } from "./peerLink";
 import { useNow } from "./subagents/subagentGroupModel";
@@ -69,6 +71,7 @@ export function ComposerStatusFoot({
   heldForHost,
   onReconnectMachine,
   onResumeQueue,
+  pauseReason,
 }: {
   snapshot: StatusSnapshot;
   /// The chat's machine link (peerLink.ts), null for a chat on this Mac or one said elsewhere.
@@ -76,9 +79,14 @@ export function ComposerStatusFoot({
   heldForHost: boolean;
   onReconnectMachine?: (link: PeerLink) => void;
   onResumeQueue?: () => void;
+  /// Why a failed turn paused the queue (queuePause.ts): the queue item's row names it.
+  pauseReason?: string | undefined;
 }) {
   const mounts = statusDotMounts(snapshot);
   const host = useHostRecovery(mounts);
+  // A link that is down is redialed on its own, not offered as a Reconnect action (useLinkRedial);
+  // without the dot, MachineLinkStatus redials it.
+  useLinkRedial(mounts ? link : null, onReconnectMachine);
   if (!mounts) return <MachineLinkStatus link={link} onReconnect={onReconnectMachine} />;
   const peer = snapshot.summary?.peer;
   const status = readComposerStatus(snapshot.summary?.composerStatus);
@@ -87,32 +95,25 @@ export function ComposerStatusFoot({
   // unless a person must act on it.
   const linkShown = linkItem && (link !== null || linkItem.level === "problem") ? [linkItem] : [];
   const held = sendsHeldItem(heldForHost);
-  const items = [...(status?.items ?? []), ...linkShown, ...(held ? [held] : [])];
-  const reconnect = link && onReconnectMachine && !link.stuck ? () => onReconnectMachine(link) : undefined;
+  const items = [...withPauseReason(status?.items ?? [], pauseReason), ...linkShown, ...(held ? [held] : [])];
   return (
     <ComposerStatusDot
       items={items}
       host={host}
       facts={status?.facts}
       connectedTo={link?.link === "connected" ? link.machine : undefined}
-      onAction={(action) =>
-        action === "reconnect" ? reconnect?.() : action === "resumeQueue" ? onResumeQueue?.() : undefined
-      }
-      actions={actionSet(!!reconnect, !!onResumeQueue)}
+      onAction={(action) => (action === "resumeQueue" ? onResumeQueue?.() : undefined)}
+      actions={onResumeQueue ? RESUME : NO_ACTIONS}
     />
   );
 }
 
 const NO_ACTIONS: ReadonlySet<StatusAction> = new Set();
-const RECONNECT: ReadonlySet<StatusAction> = new Set(["reconnect"]);
 const RESUME: ReadonlySet<StatusAction> = new Set(["resumeQueue"]);
-const BOTH: ReadonlySet<StatusAction> = new Set(["reconnect", "resumeQueue"]);
-const actionSet = (reconnect: boolean, resume: boolean) =>
-  reconnect ? (resume ? BOTH : RECONNECT) : resume ? RESUME : NO_ACTIONS;
 
-/// The action buttons' words. signIn and update have no path from the composer yet: no button.
+/// The action buttons' words. signIn and update have no path from the composer yet, and reconnect is
+/// done on its own (useLinkRedial): no button.
 const ACTION_WORDS: Partial<Record<StatusAction, StringKey>> = {
-  reconnect: "machineLink.reconnect",
   resumeQueue: "composer.queueResume",
 };
 
@@ -515,7 +516,13 @@ export function ComposerStatusDot({
                 return (
                   <li key={item.kind} className="acpmux-status-row" data-tone={item.level}>
                     <span className="acpmux-status-row-dot" aria-hidden="true" />
-                    <span className="acpmux-status-row-words">{words}</span>
+                    <span
+                      className="acpmux-status-row-words"
+                      // tooltip-allow: a long error is cut to three lines; its whole text is the tooltip
+                      title={item.subject !== undefined && item.kind === "queuePaused" ? words : undefined}
+                    >
+                      {words}
+                    </span>
                     {when ? <span className="acpmux-status-row-time">{when}</span> : null}
                     {action && actionWords ? (
                       <button type="button" className="acpmux-status-action" onClick={() => onAction?.(action)}>
@@ -544,7 +551,7 @@ export function ComposerStatusDot({
             </dl>
           ) : null}
           <div className="acpmux-status-hint" data-shown={state === "pinned" ? "" : undefined}>
-            <Keycap>{ESC}</Keycap>
+            <KeyHint keys={ESC} aria-hidden="true" />
             {t("contextScreen.close")}
           </div>
         </div>

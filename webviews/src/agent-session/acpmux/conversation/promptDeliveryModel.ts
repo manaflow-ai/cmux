@@ -1,7 +1,7 @@
 import { createContext, useEffect, useState } from "react";
 import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
 import { type StringKey } from "../i18n";
-import { type FailedRun } from "../sendFailure";
+import { sendRetriesItself, type FailedRun } from "../sendFailure";
 
 /// What the failure cards read from the chat (App.tsx): the runs of failed prompts, and the
 /// folder's trust for a trust failure. Without it each failed prompt has its own card.
@@ -39,17 +39,14 @@ export function deliveryDebugText(row: Pick<AcpmuxRow, "id" | "text">, delivery:
 
 const PENDING_AFTER_MS = PROMPT_PENDING_AFTER_MS;
 
-/// What a prompt still on its way says: the one sentence its footer shows.
-export function pendingLabel(delivery: PromptDelivery): StringKey {
-  return delivery.waitingForHost ? "prompt.delivery.whenReady" : "prompt.delivery.sending";
-}
+/// A prompt that did not get there and goes again by itself: shown as on its way, never as failed.
+export const resendsItself = (delivery: PromptDelivery | undefined): boolean =>
+  delivery?.state === "failed" && sendRetriesItself(delivery);
 
-/// Whether `delivery` shows as pending now: on its way, and either past its first second or held
-/// for the host (whose words show at once). Re-renders once when the second passes. A prompt that
-/// waits behind the running turn (`queued`: a steer, or one acpmux holds for the turn's end) says
-/// nothing of it: its bubble and its Send now already do, and the slot keeps its time (Leo,
-/// 2026-11-17: "Queued, sends when the turn ends" / "it's not really useful to see ever"). Held for
-/// the host, it still says "Sending when ready".
+/// Whether `delivery` draws its pending row now: on its way past its first second, held for the host
+/// or not, so a send that lands within a second shows nothing (Leo, 2026-11-24: "this "sending" is
+/// bad"), or going again by itself. Re-renders once when the second passes. `queued`: a steer acpmux
+/// holds for the running turn draws that row on its own terms (PendingSteer.tsx).
 export function usePendingShown(delivery: PromptDelivery | undefined, queued = false): boolean {
   const sending = delivery?.state === "sending";
   const sentAt = delivery?.sentAt ?? 0;
@@ -59,6 +56,17 @@ export function usePendingShown(delivery: PromptDelivery | undefined, queued = f
     const timer = setTimeout(() => setLate(true), Math.max(0, PENDING_AFTER_MS - (Date.now() - sentAt)));
     return () => clearTimeout(timer);
   }, [sending, late, sentAt]);
-  if (delivery?.waitingForHost === true) return sending;
+  // Once it went again by itself, its next try keeps the row from its first frame: no footer
+  // flashing between tries.
+  const again = resendsItself(delivery);
+  useEffect(() => {
+    if (again && !late) setLate(true);
+  }, [again, late]);
+  if (again) return true;
   return sending && late && !queued;
+}
+
+/// What a prompt still on its way says: the one sentence its footer shows.
+export function pendingLabel(delivery: PromptDelivery): StringKey {
+  return delivery.waitingForHost ? "prompt.delivery.whenReady" : "prompt.delivery.sending";
 }

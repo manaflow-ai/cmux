@@ -72,8 +72,11 @@ impl Tokens {
     pub fn new(source: TokenSource) -> Self {
         cmux_mobile_link::install_crypto_provider();
         // The Mac's proxy and trust store, as the link's own connections use
-        // (cmux_mobile_link::egress): a Mac behind a company proxy refreshes too.
-        let http = cmux_mobile_link::egress::http_client_builder().build().unwrap_or_default();
+        // (cmux_mobile_link::egress), through the egress gate (docs/privacy.md):
+        // the Stack API is a listed host.
+        let http = cmux_mobile_link::egress::http_client_builder("cmux_mobile_host::auth")
+            .build()
+            .unwrap_or_default();
         Self { source, cached: Mutex::new(None), refused: Mutex::new(None), http }
     }
 

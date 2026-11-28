@@ -102,6 +102,7 @@ export function RunElsewhereChip({
     openPanel(runs, toolCallId, command);
   };
   return (
+    // retry-prompt-ok: runs the command again on another machine, a command with side effects.
     <WithFacts facts={[{ value: t("runElsewhere.chipHint") }]}>
       {(facts) => (
         <span

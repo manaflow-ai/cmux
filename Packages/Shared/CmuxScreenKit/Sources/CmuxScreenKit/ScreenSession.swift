@@ -277,6 +277,11 @@ public final class ScreenSession {
     /// The remote pointer in framebuffer pixels.
     @ObservationIgnored public private(set) var pointer = CGPoint(x: 100, y: 100)
 
+    /// The RFB handshake's rules (cmux-vnc) for a VNC connection and the demo desktop: the app
+    /// that makes the session sets its channel (the phone's cmux-mobile-link-ffi `vnc_json`).
+    /// Without one a VNC connection fails; a screen stream does not need them.
+    @ObservationIgnored public var vncRules = VNCRules()
+
     /// A VNC server reached directly (LAN, tailnet).
     public init(title: String, endpoint: VNCEndpoint, credentials: VNCCredentials = VNCCredentials(),
                 preferences: ScreenPreferences = ScreenPreferences()) {
@@ -351,7 +356,7 @@ public final class ScreenSession {
             guard let self else { return }
             var target = endpoint
             if target == nil {
-                let server = demo ?? VNCDemoServer(configuration: .init(width: 1440, height: 900, name: "cmux VNC demo desktop"))
+                let server = demo ?? VNCDemoServer(configuration: .init(width: 1440, height: 900, name: "cmux VNC demo desktop", rules: vncRules))
                 demo = server
                 guard let port = try? await server.start() else {
                     phase = .failed(message: "The demo desktop could not start.", needsSignIn: false)
@@ -360,7 +365,7 @@ public final class ScreenSession {
                 target = VNCEndpoint(host: "127.0.0.1", port: port)
             }
             guard let target else { return }
-            let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor)
+            let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor, rules: vncRules)
             start(VNCClient(endpoint: target, options: options, transport: pairing.map { WebRTCRFBTransport(pairing: $0) }))
         })
     }

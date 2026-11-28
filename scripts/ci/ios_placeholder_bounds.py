@@ -21,10 +21,14 @@ cmux-next-ios/design/placeholders.json holds:
                the fixing PR deletes its own entries). A bound of 0 is a placeholder being removed:
                drawn at all, it fails.
   known_layout_shifts
-               the flows of the simulator half whose layout-shift count (frames after first paint in
-               which a drawn row or card moved or resized, CmuxMobileDesign/LayoutShift.swift) is not
-               yet zero, each with its item and pull request. Zero is the bound: the simulator half
-               fails on a shift in an unlisted flow and on a listed flow that reached zero.
+               a ratchet, not a fix: the flows of the simulator half whose layout-shift count (frames
+               after first paint in which a drawn row or card moved or resized,
+               CmuxMobileDesign/LayoutShift.swift) is not yet zero, each with max_shift_frames (the
+               count measured when it was listed, a ceiling) and the issue that fixes it at the
+               cause. Zero is the bound: the simulator half fails on a shift in an unlisted flow and
+               on a listed flow past its ceiling, and names the lower ceiling (or the entry to drop)
+               when a run comes in under it, so the count can only fall. Leo, 2026-11-24: "stop
+               layout shifting".
 
 KNOWN_SWIFT (the simulator half's copy of known_over_bound) is written from the inventory by
 `--write-known`; the check fails when it differs.
@@ -54,6 +58,7 @@ SOURCE_DIRS = ("cmux-next-ios/App", "cmux-next-ios/CmuxMobileKit/Sources", "cmux
 INVENTORY = "cmux-next-ios/design/placeholders.json"
 KNOWN_SWIFT = "cmux-next-ios/UITests/PlaceholderKnownOverBound.swift"
 SUITE_SWIFT = "cmux-next-ios/UITests/PlaceholderBoundUITests.swift"
+ISSUE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+")
 MARK = re.compile(r'\.placeholderBound\(\s*"([^"]+)"\s*,\s*\.(milliseconds|seconds)\((\d+(?:\.\d+)?)\)')
 
 
@@ -74,19 +79,22 @@ def known_swift(inventory: dict) -> str:
     known = sorted(inventory.get("known_over_bound", []), key=lambda k: k["id"])
     shifts = sorted(inventory.get("known_layout_shifts", []), key=lambda k: k["flow"])
 
-    def table(doc: str, name: str, pairs: list[tuple[str, str]]) -> list[str]:
+    def table(doc: str, name: str, pairs: list[tuple[str, str]], kind: str = "String") -> list[str]:
         if not pairs:
-            return [f"    /// {doc}", f"    static let {name}: [String: String] = [:]"]
-        body = [f'        "{key}": "{value}",' for key, value in pairs]
-        return [f"    /// {doc}", f"    static let {name}: [String: String] = [", *body, "    ]"]
+            return [f"    /// {doc}", f"    static let {name}: [String: {kind}] = [:]"]
+        body = [f'        "{key}": {value},' for key, value in pairs]
+        return [f"    /// {doc}", f"    static let {name}: [String: {kind}] = [", *body, "    ]"]
     return "\n".join([
         "// Written by scripts/ci/ios_placeholder_bounds.py --write-known from",
-        "// cmux-next-ios/design/placeholders.json (known_over_bound); do not edit by hand.",
+        "// cmux-next-ios/design/placeholders.json (known_over_bound, known_layout_shifts); do not edit by hand.",
         "enum PlaceholderKnownOverBound {",
         *table("Placeholder id -> the item and pull request that removes it.", "ids",
-               [(k["id"], f'{k.get("item", "")}, {k.get("fix", "")}') for k in known]),
-        *table("Flow -> the item and pull request that brings its layout-shift count to zero.", "layoutShiftFlows",
-               [(k["flow"], f'{k.get("item", "")}, {k.get("fix", "")}') for k in shifts]),
+               [(k["id"], f'"{k.get("item", "")}, {k.get("fix", "")}"') for k in known]),
+        *table("Flow -> its layout-shift ceiling (frames; the count may only fall) and the issue that fixes it.",
+               "layoutShiftFlows",
+               [(k["flow"], f'(maxShiftFrames: {int(k.get("max_shift_frames") or 0)}, issue: "{k.get("issue", "")}")')
+                for k in shifts],
+               kind="(maxShiftFrames: Int, issue: String)"),
         "}",
         "",
     ])
@@ -147,8 +155,13 @@ def check(root: Path) -> list[str]:
     suite_text = suite.read_text() if suite.is_file() else None
     for known in inventory.get("known_layout_shifts", []):
         flow = known.get("flow")
-        if not known.get("item") or not known.get("fix"):
-            problems.append(f"{INVENTORY}: known_layout_shifts {flow!r} needs the item and the pull request that removes its shifts")
+        ceiling = known.get("max_shift_frames")
+        if not isinstance(ceiling, int) or isinstance(ceiling, bool) or ceiling <= 0:
+            problems.append(f"{INVENTORY}: known_layout_shifts {flow!r} needs max_shift_frames, the count measured "
+                            "when it was listed (a positive ceiling; a flow at zero is dropped)")
+        if not ISSUE.fullmatch(str(known.get("issue", ""))):
+            problems.append(f"{INVENTORY}: known_layout_shifts {flow!r} needs issue, the link of the issue that fixes "
+                            "its shifts at the cause (https://github.com/OWNER/REPO/issues/N)")
         if suite_text is not None and f'"{flow}"' not in suite_text:
             problems.append(f"{INVENTORY}: known_layout_shifts {flow!r} is not a flow {SUITE_SWIFT} drives")
     swift = root / KNOWN_SWIFT

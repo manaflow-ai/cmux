@@ -5,7 +5,7 @@ import { ImageIcon, PlayTriangle } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
-import { AttachmentChip, InstantPreview, PendingChip, RetryButton, UploadProgress } from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, PendingChip, UploadProgress, useStillUploading } from "./attachmentIntake";
 import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { localDraftShape, useDraftRatio } from "./draftMediaShape";
 import { videoShapeStyle } from "./videoShape";
@@ -31,7 +31,6 @@ export const InlineChip = memo(function InlineChip({
   pending,
   onRemove,
   onCancel,
-  onRetry,
   onExpand,
   onKeepFile,
   codex,
@@ -42,7 +41,6 @@ export const InlineChip = memo(function InlineChip({
   pending: PendingAttachment | undefined;
   onRemove(id: string): void;
   onCancel(id: string): void;
-  onRetry(id: string): void;
   onExpand(id: string): void;
   onKeepFile?(id: string): void;
   codex: boolean;
@@ -51,6 +49,11 @@ export const InlineChip = memo(function InlineChip({
   const t = useT();
   const language = usePaneLanguage();
   const look = usePasteLoadingLook();
+  // A loading tile whose upload is asked again on its own: its quiet words once that lasts.
+  const still = useStillUploading(
+    pending ?? {},
+    pending?.image ? imageLabel(t, { name: pending.name }) : (pending?.name ?? ""),
+  );
   const ratio = useDraftRatio(attachment?.[localDraftShape] ?? pending?.[localDraftShape]);
   /// Whether this chip loaded in place (a paste, a drop): its picture then comes up from the loading
   /// tile's dim instead of popping in. A chip that arrives ready (a draft read back) just shows.
@@ -69,7 +72,7 @@ export const InlineChip = memo(function InlineChip({
   if (!attachment && pending && ((!pending.image && !pending.video) || pending.resolvingPath))
     return (
       <span className="acpmux-md-inline-chip" data-chip="strip">
-        <PendingChip chip={pending} onCancel={onCancel} onRetry={onRetry} />
+        <PendingChip chip={pending} onCancel={onCancel} />
       </span>
     );
   const name = imageLabel(t, { name: attachment?.name ?? pending?.name, ...keptThumb(id) });
@@ -100,7 +103,9 @@ export const InlineChip = memo(function InlineChip({
         {...(!pending!.failed && pending!.image && pending!.preview ? { "data-instant": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}
-        /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}
+        {...(still ? { "data-still-trying": "" } : {})}
+        /* tooltip-allow: the tile is cut to its size; the tooltip has why it failed or is still trying */
+        title={pending!.failed ?? still}
       >
         {pending!.failed ? (
           <>
@@ -108,13 +113,6 @@ export const InlineChip = memo(function InlineChip({
               <ImageIcon size={14} className="acpmux-attachment-failed-icon" />
             ) : (
               <PlayTriangle size={14} className="acpmux-attachment-failed-icon" />
-            )}
-            {pending!.retryable && (
-              <RetryButton
-                className="acpmux-attachment-retry acpmux-md-inline-retry"
-                reason={pending!.failed}
-                onRetry={() => onRetry(id)}
-              />
             )}
           </>
         ) : (
@@ -201,7 +199,7 @@ export const InlineChip = memo(function InlineChip({
         attachment={attachment}
         codex={codex}
         onRemove={onRemove}
-        {...(originalFailed ? { onRetry, originalFailed } : {})}
+        {...(originalFailed ? { originalFailed } : {})}
       />
     </span>
   );

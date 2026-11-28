@@ -1075,14 +1075,33 @@ export const MINIMAL_SCROLLER_CSS = `
 }
 `;
 
-/** Installs the root rules, the card and minimal scrollers, the Monaco rule, the resize handles'
+/** On a scroller whose track stops short of its ends: `--cmux-inset-scroller-start` below its top,
+    clear of a sticky header the box keeps over its rows, and `--cmux-inset-scroller-end` above its
+    bottom, clear of a rounded corner (the edited-files card's file stack). Only a drawn scrollbar has
+    a track to inset ("Show scroll bars: Always", `data-scrollers="legacy"`); WebKit's overlay
+    scroller keeps its own. */
+export const INSET_SCROLLER_ATTRIBUTE = "data-cmux-inset-scroller";
+
+export const INSET_SCROLLER_CSS = `
+html[data-scrollers="legacy"] [${INSET_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track {
+  margin-top: var(--cmux-inset-scroller-start, 0px);
+  margin-bottom: var(--cmux-inset-scroller-end, 0px);
+}
+`;
+
+/** Installs the root rules, the card, minimal and inset scrollers, the Monaco rule, the resize handles'
     layer, the wheel marks and the pointer-near marks once per document. */
 export function installScrollers(document: Document, timers: ScrollTimers = defaultTimers): void {
   if (!document.getElementById("cmux-scrollers")) {
     const style = document.createElement("style");
     style.id = "cmux-scrollers";
     style.textContent =
-      SCROLLER_ROOT_CSS + CARD_SCROLLER_CSS + MINIMAL_SCROLLER_CSS + MONACO_SCROLLER_CSS + RESIZE_HANDLE_CSS;
+      SCROLLER_ROOT_CSS +
+      CARD_SCROLLER_CSS +
+      MINIMAL_SCROLLER_CSS +
+      INSET_SCROLLER_CSS +
+      MONACO_SCROLLER_CSS +
+      RESIZE_HANDLE_CSS;
     (document.head ?? document.documentElement).appendChild(style);
   }
   installSidewaysScrollers(document);

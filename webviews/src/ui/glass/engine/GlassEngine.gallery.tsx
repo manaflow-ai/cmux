@@ -10,6 +10,7 @@ import { useEffect, useMemo } from "react";
 import wallpaper from "../../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { componentEntry } from "../../../gallery/format";
 import { Glass } from "../Glass";
+import { KeyHint } from "../../KeyHint";
 import { glassEngine } from "./glassEngine.experiment";
 
 type Scheme = "dark" | "light";
@@ -216,7 +217,7 @@ function GlassEngineGallery(props: Props) {
         <div style={{ display: "flex", gap: 8, fontSize: "var(--text-control)", ...secondary }}>
           <span>Plan</span>
           <span>Claude</span>
-          <span style={{ marginInlineStart: "auto" }}>⌘↩</span>
+          <KeyHint keys="⌘↩" style={{ marginInlineStart: "auto" }} />
         </div>
       </Glass>
     </div>

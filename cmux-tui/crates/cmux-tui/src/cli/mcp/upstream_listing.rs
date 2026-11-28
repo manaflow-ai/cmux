@@ -34,17 +34,20 @@ const DIR_ENV: &str = "CMUX_NEXT_MCP_UPSTREAMS_DIR";
 
 /// The folder of this process ([`dir_from`] its environment).
 pub(super) fn default_dir() -> Option<PathBuf> {
-    dir_from(|name| std::env::var_os(name))
+    dir_from(cfg!(target_os = "macos"), |name| std::env::var_os(name))
 }
 
-/// The folder for the environment `env`: a DEV build's own (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, which the Mac app
-/// sets: BuildStatePaths), else the person's, `~/.cache/cmux/mcp-upstreams`, which NIGHTLY and stable share.
-pub(super) fn dir_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+/// The folder for the environment `env`: a DEV build's own (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, which
+/// the Mac app sets: BuildStatePaths), else `mcp-upstreams` in cmux NEXT's own caches
+/// ([`cmux_config::cache_dir`]), never cmux Classic's `~/.cache/cmux` on macOS.
+pub(super) fn dir_from(
+    macos: bool,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
     if let Some(own) = env(DIR_ENV).filter(|dir| !dir.is_empty()) {
         return Some(PathBuf::from(own));
     }
-    let home = env("HOME").filter(|h| !h.is_empty())?;
-    Some(Path::new(&home).join(".cache").join("cmux").join("mcp-upstreams"))
+    Some(cmux_config::cache_dir_from(macos, env)?.join("mcp-upstreams"))
 }
 
 /// A file’s identity for a key: its real path, size and modification time.
@@ -86,16 +89,32 @@ pub(super) fn key(spec: &Spec) -> Option<String> {
         what.set("shared", json!({"command": shared.command, "args": shared.args, "env": env}));
     }
     // A server at an HTTP endpoint lists what that endpoint gives it: its path and its header
-    // names are in the key, not the port (the daemon's changes each start) or a header's value
-    // (a token).
+    // names are in the key, not the port (the daemon's changes each start), the chat's session
+    // in the path ([`http_path`]) or a header's value (a token).
     if let Some(http) = &spec.http {
-        let path = http.url.splitn(4, '/').nth(3).unwrap_or_default();
         let mut headers: Vec<&str> = http.headers.iter().map(|(k, _)| k.as_str()).collect();
         headers.sort_unstable();
-        what.set("http", json!({"path": path, "headers": headers}));
+        what.set("http", json!({"path": http_path(&http.url), "headers": headers}));
     }
     let digest = Sha256::digest(what.to_string().as_bytes());
     Some(digest.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// The path of an HTTP upstream's `url` as a key names it: acpmux's gateway serves every chat's
+/// own servers at `/mcp/<session>/tools[/<server>]` (acpmux `mcp_gateway.rs`), so the session
+/// segment is left out, as a token's value is. With it in the key, no chat ever found another
+/// chat's list: every new chat's `cmux mcp serve` started each of acpmux's servers to list it
+/// (the hosted one asks the cmux app for a token and cmux-platform for its tools) before it
+/// answered the harness's first `tools/list`, which Claude Code waits for before its first turn:
+/// 1.0 to 1.7 s on every new chat (cmux#57487), and six new entries here each time (39,361
+/// files, 472 MB on one Mac, 2026-11-25).
+fn http_path(url: &str) -> String {
+    let path = url.splitn(4, '/').nth(3).unwrap_or_default();
+    let mut parts: Vec<&str> = path.split('/').collect();
+    if parts.len() > 1 && parts[0] == "mcp" {
+        parts[1] = "{session}";
+    }
+    parts.join("/")
 }
 
 /// The file `spec`'s command runs: itself when it names a path, else the

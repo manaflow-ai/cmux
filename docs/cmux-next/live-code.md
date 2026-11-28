@@ -233,3 +233,29 @@ edit's color in the simulator's screenshot) on a fleet Mac:
 
 The live code build itself takes about 2.5 minutes from an empty DerivedData (both passes, `-jobs 6`).
 The app it makes is 190 MB and exports 79,324 interposable symbols.
+
+## The iPhone app on a device: cmux Dev
+
+The same patches reach a real iPhone (cmuxterm-hq `docs/design/ios-dev-channels.md`, step 4): "Hot
+Swift on the device: #45397's engine targeting `iphoneos`, patches signed by the Mac, sent over the
+link, loaded by cmux Dev only." A phone cannot read a folder on the Mac, so the patch travels on the
+link: `patch.py` compiles an arm64 iphoneos patch and signs it with the identity that signed the
+app (this Mac's Apple Development certificate, team 7WLXT3NR37), the Mac's cmux NEXT host streams
+it on the `live-code` service (cmux-next-ios/PROTOCOL.md), and cmux Dev writes it into its own
+live folder, where the engine checks it and loads it.
+
+| You want | Do this, on the Mac the phone is attached to and linked with |
+|---|---|
+| The live code build of cmux Dev, once | `scripts/live-code/ios-device.sh build OUT` |
+| Sign, install and launch it on the phone | `scripts/live-code/ios-device.sh run OUT UDID` |
+| Apply edited files | `scripts/live-code/ios-device.sh patch OUT FILE.swift...` |
+| Undo the newest patch (or all) | `scripts/live-code/ios-device.sh undo OUT [--all]` |
+| The log (the host's lines and the phone's) | `scripts/live-code/ios-device.sh log` |
+
+Who may load what: only a DEBUG build has the engine on iOS; only cmux Dev or a tagged dev build
+(`dev.cmux.mobile.*`) launched with `CMUX_LIVE_CODE_LINK=1` (`run` passes it) opens the service;
+and the engine loads only a patch whose code signature names the app's own team and is not ad hoc
+(`DevicePatchSignature.swift` reads both Mach-O signatures; iOS has no SecStaticCode). The kernel
+checks the same again when it maps the code: a third-party iOS app always has library validation.
+`patch.py` refuses an ad hoc patch for a device target. `check-production-binary.sh` fails a
+Release, TestFlight or App Store build that holds any of the live code strings.

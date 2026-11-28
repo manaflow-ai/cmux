@@ -25,7 +25,7 @@ jobs:
   kick:
     if: github.repository == 'manaflow-ai/cmux'
     name: Ask the DEV dispatcher and the nightly-next tick for the newest tip
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: holds a write token; the dev-kick test keeps it on the ephemeral_only pool
     timeout-minutes: 3
     permissions:
       actions: write
@@ -50,21 +50,25 @@ jobs:
       - name: Dispatch cmux-next-dev-daily-dispatch.yml on main
         env: &kick-env
           BOT_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+          # The quota-goblin CI pool's tokens (leo-workspace gh-app-roles push.actions_secrets), each its own hour.
+          POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           REPO_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           KICK: |
             kick() {
               local token out
-              for token in "$BOT_TOKEN" "$REPO_TOKEN"; do
+              for token in "$BOT_TOKEN" ${POOL_TOKENS:-} "$REPO_TOKEN"; do
                 [ -n "$token" ] || continue
                 if out="$(GH_TOKEN="$token" "$@" 2>&1)"; then
                   [ -z "$out" ] || printf '%s\n' "$out"
                   return 0
                 fi
                 printf '%s\n' "$out" >&2
-                grep -qiE 'rate limit exceeded|secondary rate limit|HTTP 429' <<<"$out" || return 1
+                # A rate limit, or GitHub's own 5xx (run 45835365613: "HTTP 500: Failed to run workflow
+                # dispatch"), is GitHub's side: the next token tries. Anything else stays red.
+                grep -qiE 'rate limit exceeded|secondary rate limit|HTTP 429|HTTP 5[0-9][0-9]' <<<"$out" || return 1
               done
-              echo "::warning title=DEV kick skipped::every token was rate-limited for: $*; the workflow's own cron picks up the tip"
+              echo "::warning title=DEV kick skipped::every token was rate-limited or got a GitHub 5xx for: $*; the workflow's own cron picks up the tip"
             }
         run: |
           set -uo pipefail

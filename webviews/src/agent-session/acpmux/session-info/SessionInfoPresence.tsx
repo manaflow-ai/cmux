@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { usePresence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing } from "../chatWidth";
@@ -46,6 +46,7 @@ import {
   DISMISS_KEEPERS,
   SESSION_INFO_TOGGLE,
   openOutputFile,
+  inlines,
 } from "./sessionInfoModel";
 import { MemoSessionInfoPanel, MemoSessionInfoSections } from "./SessionInfo";
 import type { ResumeActions } from "../subagents/ResumeControl";
@@ -55,7 +56,6 @@ import { useChangeCounts, type ReadChanges } from "./changeCounts";
 import type { ReadCarried, ResolveCarried } from "./carriedSectionModel";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
-import { useAlsoHere } from "./alsoHereSectionModel";
 import { agentSideRowsOf } from "./agentSide";
 import type { SessionInfoLists } from "./useSessionInfo";
 import { useStableCallback } from "./useStableCallback";
@@ -192,6 +192,7 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   onStopProcess,
   onOpenOutput,
   onOpenSourceFile,
+  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
@@ -264,6 +265,7 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
@@ -297,10 +299,13 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   onRender?.();
   useCountedRender("session-info:presence");
   const { width, sections } = useSessionInfoState(chat);
-  const native = useNativeSessionInfoHost();
+  const display = useChatDisplay();
+  // Inline (Settings placement `inline`): a band atop the transcript, in the chat's own flow, which the
+  // page draws itself even where the App draws the side panel natively (its native panel then closes).
+  const inline = inlines(display.sessionInfo);
+  const native = useNativeSessionInfoHost() && !inline;
   const t = useT();
   const [gallery, setGallery] = useState(false);
-  const display = useChatDisplay();
   const sizing = useChatSizing();
   // A column the display owns (its own width) or a zoomed page's is a new object on every call: kept
   // while its numbers are the same, so the placement effect below (the shell's column pin and its
@@ -322,15 +327,13 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   // 2026-11-01: "why does the session info not push the layout left ever anymore"). It keeps its
   // reading while pushed, and starts again at 0 each time the panel opens.
   const [overflow, setOverflow] = useState(0);
-  // Its three places by the pane's width: in the gutter, pushing into the chat, over the chat.
-  const stage = sessionInfoStage(
-    display.sessionInfo,
-    { width: paneWidth, height: paneHeight },
-    width,
-    column,
-    wide,
-    overflow,
-  );
+  // Its three places by the pane's width: in the gutter, pushing into the chat, over the chat. Inline
+  // has one place, atop the transcript, whatever the pane's width: it never pushes, floats or covers.
+  const stage = inline
+    ? "inline"
+    : sessionInfoStage(display.sessionInfo, { width: paneWidth, height: paneHeight }, width, column, wide, overflow);
+  // Where the inline band goes: the chat's stage, under its header (sessionInfo.css orders it there).
+  const inlineHost = useInlineHost(shell, drawn && inline);
   const push = stage === "push";
   const overChat = stage === "overlay";
   // Pushing, its width (narrowed to keep a readable chat) and the room it takes from the chat's right
@@ -341,8 +344,9 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   // The web panel floats over the chat's whole width (its column moves left instead), so the chat's
   // right edge is the pane's; the App's native panel still takes its room from the chat.
   const chatRoom = native ? room : 0;
-  const clear = sessionInfoClear(panelWidth, chatRoom);
-  const cramped = findBarCramped(paneWidth - chatRoom, clear);
+  // Inline, it is above the transcript, never beside Find's bar.
+  const clear = inline ? 0 : sessionInfoClear(panelWidth, chatRoom);
+  const cramped = !inline && findBarCramped(paneWidth - chatRoom, clear);
   // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT);
   // in a narrow one too (useSessionInfo `narrow`).
   const popover = sessionInfoPopover(paneHeight, overChat) || (overChat && !sessionInfoFits(paneWidth));
@@ -402,7 +406,7 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
       return;
     }
-    shell.dataset.sessionInfoChatPlacement = push ? "push" : "overlay";
+    shell.dataset.sessionInfoChatPlacement = push ? "push" : inline ? "inline" : "overlay";
     // Pushing, the transcript's column keeps the width it has in the whole pane on every frame of the
     // slide, and only moves left (pushKeepsColumn, sessionInfo.css).
     // Beside the computer use card (App.tsx data-cu-preview on the chat), the column the chat has
@@ -426,7 +430,7 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
     // Push always narrows the transcript, not the header: native tabs reserve the tools at the
     // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
     if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
-  }, [shell, drawn, push, paneWidth, column, native, leaving, room, preview]);
+  }, [shell, drawn, push, paneWidth, column, native, leaving, room, preview, inline]);
   // Find in Chat's bar keeps left of the panel (sessionInfoClear, conversation.css .acpmux-find__bar). Its
   // own effect, so a width drag only moves the bar and fires no chat layout event per frame.
   useLayoutEffect(() => {
@@ -479,7 +483,15 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   }, [shell]);
   // A card under the panel (the computer use live preview) reads where it goes from the shell.
   // The web panel floats at the pane's right, pushing or not; the native one's room is in the chat's row.
-  useUnderSessionInfo(shell, drawn, push && native, FLOAT_MARGIN, sessionInfoTop, push && native ? room : undefined);
+  // Inline, it is above the transcript and no card goes under it.
+  useUnderSessionInfo(
+    shell,
+    drawn && !inline,
+    push && native,
+    FLOAT_MARGIN,
+    sessionInfoTop,
+    push && native ? room : undefined,
+  );
   // What the sections list of the rows (useSessionInfoLists, read as the pane renders): a subagent's
   // panel reads its own rows only.
   const {
@@ -545,11 +557,10 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   // The rest of what the sections take from the snapshot and the App, kept the same way.
   // What the sections draw of the other chats acpmux lists, not the list itself: the list is new each
   // time any chat anywhere changes (its status, its indicator, its time), which drew every section
-  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) and Also
-  // working here's (useAlsoHere) keep their identity until what they draw changes.
+  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) keep their
+  // identity until what they draw changes.
   const everyChat = drawn && !scope ? snapshot.sessions : undefined;
   const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
-  const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
   // Where the chat runs beyond its summary (its route and listed peer), for Environment's machine row.
   const place = useSameValue(chatPlace(snapshot));
@@ -712,6 +723,7 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
           onStopProcess={onStopProcess}
           onOpenOutput={onOpenOutput}
           onOpenSourceFile={onOpenSourceFile}
+          onRemoveFolder={onRemoveFolder}
           onOpenUrl={onOpenUrl}
           onOpenDocument={onOpenDocument}
           onOpenArtifacts={rowCount > 0 ? () => setGallery(true) : undefined}
@@ -742,11 +754,14 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
       </>
     );
   if (!drawn) return null;
-  return (
+  // Inline, the band draws in the chat's stage under the header (useInlineHost), not beside the chat;
+  // until that stage is there (a New Tab, a replay), it draws nothing.
+  if (inline && !inlineHost) return null;
+  const panel = (
     <MemoSessionInfoPanel
       title={scope && SUBAGENT_HEADER === "title" ? <SubagentTitle scope={scope} /> : undefined}
       width={panelWidth}
-      placement={push ? "push" : "overlay"}
+      placement={inline ? "inline" : push ? "push" : "overlay"}
       overlap={0}
       // Floating or pushing, it starts under the chat header (styles.css --acpmux-header-height; in the
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
@@ -792,7 +807,6 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenSession={onOpenSession}
         // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
         usageSessions={usageSessions}
-        alsoHere={alsoHereRows}
         onOpenChat={onOpenChat}
         onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={setRunningLimit}
@@ -802,6 +816,7 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
         sections={sections}
         onSection={setSessionInfoSection}
         onOpenSourceFile={onOpenSourceFile}
+        onRemoveFolder={onRemoveFolder}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
         readPromptImage={readPromptImage}
@@ -826,4 +841,28 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
       />
     </MemoSessionInfoPanel>
   );
+  return inline && inlineHost ? createPortal(panel, inlineHost) : panel;
 });
+
+/// The chat's stage (App.tsx `.acpmux-stage`: the header over the transcript), where the inline band
+/// draws, while `on`: found again when the stage is drawn anew (a replay or a New Tab gives way to the
+/// chat), watching only the shell's and the chat's own children, never the transcript's subtree.
+const STAGE = ":scope > .acpmux-main > .acpmux-stage";
+function useInlineHost(shell: HTMLElement | null | undefined, on: boolean): HTMLElement | null {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (!shell || !on) {
+      setHost(null);
+      return;
+    }
+    const find = () => setHost(shell.querySelector<HTMLElement>(STAGE));
+    find();
+    if (typeof MutationObserver !== "function") return;
+    const observer = new MutationObserver(find);
+    observer.observe(shell, { childList: true });
+    const main = shell.querySelector(":scope > .acpmux-main");
+    if (main) observer.observe(main, { childList: true });
+    return () => observer.disconnect();
+  }, [shell, on]);
+  return host;
+}

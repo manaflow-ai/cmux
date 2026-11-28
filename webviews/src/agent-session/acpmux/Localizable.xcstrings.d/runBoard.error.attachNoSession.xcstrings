@@ -7,128 +7,128 @@
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تعذّر فتح طرفية هذا العامل. حاول مرة أخرى."
+            "state" : "translated",
+            "value" : "تعذّر فتح طرفية هذا العامل."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Terminal ovog radnika nije moguće otvoriti. Pokušajte ponovo."
+            "state" : "translated",
+            "value" : "Terminal ovog radnika nije moguće otvoriti."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kunne ikke åbne denne arbejders terminal. Prøv igen."
+            "state" : "translated",
+            "value" : "Kunne ikke åbne denne arbejders terminal."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Das Terminal dieses Workers konnte nicht geöffnet werden. Versuche es erneut."
+            "state" : "translated",
+            "value" : "Das Terminal dieses Workers konnte nicht geöffnet werden."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Couldn't open this worker's terminal. Try again."
+            "value" : "Couldn't open this worker's terminal."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "No se pudo abrir la terminal de este worker. Inténtalo de nuevo."
+            "state" : "translated",
+            "value" : "No se pudo abrir la terminal de este worker."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Impossible d’ouvrir le terminal de ce worker. Réessayez."
+            "state" : "translated",
+            "value" : "Impossible d’ouvrir le terminal de ce worker."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Impossibile aprire il terminale di questo worker. Riprova."
+            "state" : "translated",
+            "value" : "Impossibile aprire il terminale di questo worker."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "このワーカーのターミナルを開けませんでした。もう一度お試しください。"
+            "state" : "translated",
+            "value" : "このワーカーのターミナルを開けませんでした。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "មិនអាចបើក terminal របស់ worker នេះបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+            "state" : "translated",
+            "value" : "មិនអាចបើក terminal របស់ worker នេះបានទេ។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "이 워커의 터미널을 열 수 없습니다. 다시 시도하세요."
+            "state" : "translated",
+            "value" : "이 워커의 터미널을 열 수 없습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kunne ikke åpne terminalen til denne arbeideren. Prøv igjen."
+            "state" : "translated",
+            "value" : "Kunne ikke åpne terminalen til denne arbeideren."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nie udało się otworzyć terminala tego workera. Spróbuj ponownie."
+            "state" : "translated",
+            "value" : "Nie udało się otworzyć terminala tego workera."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Não foi possível abrir o terminal deste worker. Tente novamente."
+            "state" : "translated",
+            "value" : "Não foi possível abrir o terminal deste worker."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Не удалось открыть терминал этого воркера. Попробуйте ещё раз."
+            "state" : "translated",
+            "value" : "Не удалось открыть терминал этого воркера."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เปิดเทอร์มินัลของเวิร์กเกอร์นี้ไม่ได้ ลองอีกครั้ง"
+            "state" : "translated",
+            "value" : "เปิดเทอร์มินัลของเวิร์กเกอร์นี้ไม่ได้"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Bu çalışanın terminali açılamadı. Yeniden deneyin."
+            "state" : "translated",
+            "value" : "Bu çalışanın terminali açılamadı."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Не вдалося відкрити термінал цього воркера. Спробуйте ще раз."
+            "state" : "translated",
+            "value" : "Не вдалося відкрити термінал цього воркера."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Không thể mở terminal của worker này. Hãy thử lại."
+            "state" : "translated",
+            "value" : "Không thể mở terminal của worker này."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "无法打开此工作器的终端。请重试。"
+            "state" : "translated",
+            "value" : "无法打开此工作器的终端。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "無法開啟此工作器的終端機。請重試。"
+            "state" : "translated",
+            "value" : "無法開啟此工作器的終端機。"
           }
         }
       }

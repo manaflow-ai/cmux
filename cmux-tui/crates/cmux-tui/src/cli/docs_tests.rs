@@ -99,6 +99,6 @@ fn docs_search_preserves_json_output_mode() {
         OutputMode::Json,
     )
     .unwrap();
-    assert_eq!(plan.query, "browser navigate");
+    assert_eq!(plan.request, Request::Search("browser navigate".to_owned()));
     assert_eq!(plan.output, OutputMode::Json);
 }

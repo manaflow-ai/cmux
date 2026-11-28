@@ -8,6 +8,7 @@ mod app_id;
 mod backdrop;
 mod build_defaults;
 mod chat_roots;
+mod file_keys;
 mod json_schema;
 mod retired;
 pub mod shape;
@@ -32,9 +33,10 @@ pub use backdrop::{
 };
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
+pub use file_keys::{FileKey, file_key, file_keys};
 pub use retired::{
-    Replaced, Retired, replaced_by_row, replaced_keys, retired_entries, retired_keys,
-    retired_reason,
+    Replaced, Retired, aliasing_replaced, replaced_by_row, replaced_keys, replaced_old_keys,
+    replaced_value, retired_entries, retired_keys, retired_reason,
 };
 pub use sidebar_rows::problems as sidebar_row_problems;
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
@@ -45,8 +47,8 @@ use crate::value::canonical;
 pub const DESKTOP_BRIDGE_ENABLED: &str = "agents.desktopBridge.enabled";
 pub const DESKTOP_BRIDGE_ENTRYPOINTS: &str = "agents.desktopBridge.entrypoints";
 
-/// Compiled in compressed (cmux-embed): 2.4 MB of JSON, about 85 KB packed. Inflated once
-/// into the one text whose bytes the embedded rows borrow (`EMBEDDED.get()`).
+/// Compiled in compressed (cmux-embed): 3.2 MB of JSON, about 85 KB packed. Inflated once,
+/// parsed, and dropped ([`Schema::embedded`]); the rows keep their compact JSON in one text.
 static EMBEDDED: cmux_embed::PackedStr =
     cmux_embed::packed_str!(include_str!("../../../../../schemas/settings/settings-schema.json"));
 
@@ -170,6 +172,10 @@ pub enum DomainKind {
     /// background, a listed choice or `system:` / `file:` with an absolute
     /// path (Swift `BackdropSelectionSetting.acceptsPicture`).
     BackdropPicture,
+    /// `appearance.paneArt.dark` / `.light`: a list of fixed backgrounds,
+    /// each one a [`DomainKind::BackdropPicture`] (Swift
+    /// `ThemeFlourishSetting.acceptsPictures`).
+    BackdropPictures,
     /// `appearance.backgroundSchedule`: an object of times (`HH:MM`, or a sun
     /// event with an offset) to fixed backgrounds (Swift
     /// `BackdropSelectionSetting.acceptsSchedule`).
@@ -255,10 +261,12 @@ pub struct Row {
     raw: RowText,
 }
 
-/// A row's exported JSON text. The embedded schema's rows are slices of the
-/// text compiled into the binary (clean, shared pages); a copy of each row in
-/// the heap took 2 MB of every process that loads the schema (daemon, TUI,
-/// CLI). A schema parsed from other text keeps its rows as compact JSON.
+/// A row's exported JSON text, compact. The embedded schema's rows are slices
+/// of one text holding every row's compact JSON (1.7 MB), made once and kept:
+/// the document is compiled in compressed, so keeping slices of its inflated
+/// 3.2 MB text (pretty-printed, with sections) held that whole text in the
+/// heap of every process that loads the schema (daemon, TUI, CLI, `cmux mcp
+/// serve`). A schema parsed from other text keeps each row as its own box.
 #[derive(Debug, Clone)]
 enum RowText {
     Embedded(&'static str),
@@ -288,6 +296,12 @@ impl Row {
     pub fn raw(&self) -> Value {
         // The text is this row's own JSON (checked in `row`), so it parses.
         serde_json::from_str(self.raw.text()).unwrap_or_default()
+    }
+
+    /// Parses one exported row (a member of the document's `rows`).
+    pub fn from_export(raw: Value) -> Result<Row, String> {
+        let compact = serde_json::to_string(&raw).map_err(|error| error.to_string())?;
+        row(raw, RowText::Owned(compact.into_boxed_str()))
     }
 }
 
@@ -381,8 +395,7 @@ impl Schema {
     pub fn embedded() -> &'static Schema {
         static SCHEMA: OnceLock<Schema> = OnceLock::new();
         SCHEMA.get_or_init(|| {
-            let parsed =
-                Schema::parse_keeping(EMBEDDED.get(), |embedded, _| RowText::Embedded(embedded));
+            let parsed = Schema::parse_embedded(EMBEDDED.inflate());
             // crash-allow: the schema is compiled in; the behavior tests parse it on every run.
             let schema = parsed.expect("the embedded settings schema parses");
             // The build's defaults the app named (`CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, build_defaults.rs).
@@ -396,11 +409,57 @@ impl Schema {
         Schema::parse_keeping(text, |_, compact| RowText::Owned(compact.into_boxed_str()))
     }
 
+    /// Parses the embedded document, keeping every row's compact JSON in one
+    /// text that lives as long as the process (the embedded schema is a
+    /// process-wide `OnceLock`). The compact rows are written over the front
+    /// of `text`'s own buffer, which is then cut to them: a second buffer
+    /// beside the inflated text raised the parse peak (7.7 to 10 MB).
+    fn parse_embedded(text: String) -> Result<Schema, String> {
+        let base = text.as_ptr() as usize;
+        let mut spans = Vec::new();
+        let mut schema = Schema::parse_keeping(&text, |raw, _| {
+            // A row's text is a slice of `text`, so its address is never below `base`.
+            let start = (raw.as_ptr() as usize).saturating_sub(base);
+            spans.push(start..start.saturating_add(raw.len()));
+            // An empty box does not allocate; the slice replaces it below.
+            RowText::Owned(Box::default())
+        })?;
+        let mut bytes = text.into_bytes();
+        let mut kept = Vec::with_capacity(spans.len());
+        let mut end = 0usize;
+        for (row, span) in schema.rows.iter_mut().zip(spans) {
+            let raw = bytes.get(span.clone()).ok_or("a schema row lies outside the document")?;
+            let raw = std::str::from_utf8(raw).map_err(|e| e.to_string())?;
+            let value: Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+            let compact = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+            // Rows come in document order, and compact JSON is no longer than
+            // its source but for a float written short (`1e2`, kept `100.0`):
+            // such a row keeps its own box.
+            let stop = end.checked_add(compact.len()).filter(|stop| *stop <= span.end);
+            let Some((stop, slot)) = stop.and_then(|stop| Some((stop, bytes.get_mut(end..stop)?)))
+            else {
+                row.raw = RowText::Owned(compact.into_boxed_str());
+                continue;
+            };
+            slot.copy_from_slice(compact.as_bytes());
+            kept.push((row, end..stop));
+            end = stop;
+        }
+        bytes.truncate(end);
+        let text = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+        let text: &'static str = Box::leak(text.into_boxed_str());
+        for (row, span) in kept {
+            let raw = text.get(span).ok_or("a compact schema row lies outside the kept text")?;
+            row.raw = RowText::Embedded(raw);
+        }
+        Ok(schema)
+    }
+
     /// Parses `text`; `keep` picks each row's kept text from its text in
     /// `text` and its compact JSON.
     fn parse_keeping<'a>(
         text: &'a str,
-        keep: impl Fn(&'a str, String) -> RowText,
+        mut keep: impl FnMut(&'a str, String) -> RowText,
     ) -> Result<Schema, String> {
         let document: Document<'a> =
             serde_json::from_str(text).map_err(|error| error.to_string())?;
@@ -534,6 +593,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:sound" => Validation::Domain(DomainKind::Sound),
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
+        "domain:backdrop_pictures" => Validation::Domain(DomainKind::BackdropPictures),
         "domain:backdrop_schedule" => Validation::Domain(DomainKind::BackdropSchedule),
         "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
         "domain:backdrop_memory" => Validation::Domain(DomainKind::BackdropMemory),
@@ -593,25 +653,34 @@ mod row_text_tests {
 
     #[test]
     fn the_schema_hash_equals_the_whole_array_hash() {
-        assert_eq!(Schema::embedded().schema_hash, rows_hash_reference(EMBEDDED.get()));
+        assert_eq!(Schema::embedded().schema_hash, rows_hash_reference(&EMBEDDED.inflate()));
         let empty = r#"{"version":1,"sections":[],"rows":[]}"#;
         assert_eq!(Schema::parse(empty).expect("parses").schema_hash, rows_hash_reference(empty));
     }
 
     #[test]
-    fn embedded_rows_keep_slices_of_the_compiled_text_not_heap_copies() {
-        let range = EMBEDDED.get().as_bytes().as_ptr_range();
+    fn embedded_rows_are_slices_of_one_compact_text_not_the_document() {
         let rows = &Schema::embedded().rows;
         assert!(!rows.is_empty());
+        let mut next: Option<*const u8> = None;
+        let mut kept = 0;
         for row in rows {
             let RowText::Embedded(text) = &row.raw else {
-                panic!("{}: an embedded row holds a heap copy", row.key);
+                panic!("{}: an embedded row holds its own box", row.key);
             };
-            let start = text.as_ptr();
-            assert!(range.contains(&start), "{}: not a slice of the embedded text", row.key);
+            // Each row starts where the one before it ended: one text, in order.
+            if let Some(next) = next {
+                assert_eq!(text.as_ptr(), next, "{}: not in the shared text", row.key);
+            }
+            next = Some(text.as_bytes().as_ptr_range().end);
+            let value: Value = serde_json::from_str(text).expect("row parses");
+            assert_eq!(*text, serde_json::to_string(&value).expect("serializes"), "{}", row.key);
+            kept += text.len();
         }
+        // The kept text is the compact rows, well under the inflated document.
+        assert!(kept * 10 < EMBEDDED.len() * 7, "kept {kept} of {}", EMBEDDED.len());
         // Another text keeps owned compact rows that give back the same values.
-        let parsed = Schema::parse(EMBEDDED.get()).expect("parses");
+        let parsed = Schema::parse(&EMBEDDED.inflate()).expect("parses");
         assert_eq!(parsed.schema_hash, Schema::embedded().schema_hash);
         for (owned, embedded) in parsed.rows.iter().zip(rows) {
             assert!(matches!(owned.raw, RowText::Owned(_)));
