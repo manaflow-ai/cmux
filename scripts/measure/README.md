@@ -17,6 +17,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | bench | wraps (script) | what |
 |---|---|---|
 | localization-discovery | `localization-discovery.py` (anywhere, checkout source) | Swift source discovery with 2,000 excluded dependency directories: directory reads and wall time; compare `--arg algorithm=baseline` with `--arg algorithm=current`. |
+| local-summary | `local_summary_gate.py` (`local-summary-gate.sh` as a fleet Mac step) | Smallest installed on-device model (ollama, llama.cpp, mlx_lm) writing the sidebar's one-line session summary for 30 labeled, redacted sessions: warm/cold p95, first token, length, key-fact recall, unsupported status claims, against the deterministic baseline; verdict pass, fail or no-runtime (hq finding 2026-11-20-local-model-session-summary). |
 | coordinator-cpu | `chat-open.sh --coordinator-cpu` | Whole-renderer CPU on a 10,000-row chat with twenty ACP children updating at 1 Hz. Saves raw CPU intervals, daemon tick receipts, a JavaScript profile and a macOS sample. |
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
@@ -164,6 +165,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `pane-perf.sh` | Pane layout motion (split, close, zoom, drag) at 2, 8 and 30 terminals. | panes-perf | 2026-10-27 | active |
 | `pane-zoom.sh` | Cmd-Shift-Enter zoom and unzoom frames in 1x2, 2x2, 2x4 layouts. | pane-zoom | 2026-10-27 | active |
 | `split-spring.sh` | Rapid Cmd-D and Cmd-Shift-D frames, plus the perf cron budgets suite. | - | 2026-11-08 | active |
+| `split-ab.sh` | A split-spring A/B (base vs head, any suite) in one step on any measure Mac, rounds interleaved on the same host; per-arm medians and the head - base delta (`split_ab_summary.py`). Use it instead of pinning both arms to cmux20-bench. | goal instant-splits | 2026-11-28 | active |
 | `diff-page-frames.sh` | A large diff tab at two commits: code view open, Plain English first paint, rAF scroll frame times, a clip (`diff-page-frames.py`). | cmux#46299 | 2026-11-20 | active |
 | `transcript-fling.sh` | The React transcript against the native Metal one (RFD 0121), interleaved in one bench app on a 120 Hz virtual display, 3,000 rows: fling frame-interval p50/p95/max, late frames, late textures (`scripts/ci/frame-pacing/transcript_fling.py`). | RFD 0121 | 2026-11-28 | active |
 | `perf-10x-drag.sh` | Pane and divider drags at 120 Hz, plus daemon cost per drag value. | perf-10x | 2026-10-22 | active |
