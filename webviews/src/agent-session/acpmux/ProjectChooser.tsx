@@ -320,7 +320,7 @@ export function ProjectChooser({
 
 /// The chooser's folders with each machine's together: this Mac's first when it has any, then each
 /// other machine in the order its first folder came. Within a machine the order is kept.
-export function byMachine<T extends { peer?: string }>(projects: T[]): T[] {
+function byMachine<T extends { peer?: string }>(projects: T[]): T[] {
   const machines = new Map<string, T[]>();
   for (const project of projects) {
     const id = project.peer ?? "";
@@ -336,7 +336,7 @@ export function byMachine<T extends { peer?: string }>(projects: T[]): T[] {
 
 /// Row key → the machine whose heading goes over that row: the first folder of each machine, except
 /// a list that is only this Mac's.
-export function machineHeadings(shown: readonly Project[]): Map<string, { peer?: string; host?: string }> {
+function machineHeadings(shown: readonly Project[]): Map<string, { peer?: string; host?: string }> {
   const headings = new Map<string, { peer?: string; host?: string }>();
   if (!shown.some((project) => project.peer)) return headings;
   let previous: string | null = null;
