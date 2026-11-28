@@ -249,6 +249,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-agents"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
@@ -611,6 +619,7 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-app-agents",
  "cmux-bookmarks-core",
  "cmux-browser-rules",
  "cmux-cloud-config",

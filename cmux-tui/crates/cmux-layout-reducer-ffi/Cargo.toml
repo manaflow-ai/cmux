@@ -13,6 +13,7 @@ description = "C ABI for the app's pure Rust rules: the JSON channel's ops (one 
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+cmux-app-agents = { path = "../cmux-app-agents" }
 # One line per crate, in name order: add yours at its place, not at the end.
 
 # Without its `url` feature: the app links no URL parser (cmux-bookmarks-core `validate_url`).
