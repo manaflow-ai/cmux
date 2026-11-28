@@ -40,9 +40,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: conforms
+          - leg: premain
             ref: 63240ca15f87fb8e14d42c2cfe94de700c0f04b2
-            profile: "1"
+            profile: "0"
             nomirror: "0"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -94,6 +94,43 @@ jobs:
           mkdir -p artifacts/ios-sim; tar -czf artifacts/ios-sim/samples.tgz -C "$RUNNER_TEMP" samples
           grep -rhoI 'LAUNCHPROFILE {.*' artifacts/ios-sim --include='*.txt' | sort -u > artifacts/ios-sim/launch-profile.txt || true
           grep -rhoI 'LAUNCHENV .*' artifacts/ios-sim --include='*.txt' | sort -u > artifacts/ios-sim/launch-env.txt || true
+
+      - name: Plain launches (no XCUITest)
+        if: ${{ !cancelled() }}
+        run: |
+          # Splits pre-main: the warm suite's `main` mark sits 2.5-3.8 s after process start. The same
+          # Demo app launched by simctl alone, 10 times, its own `timing launch NAME (Nms)` lines.
+          set -uo pipefail
+          app=$(find .build/ios-sim -path '*Demo-iphonesimulator/CmuxMobileApp.app' -maxdepth 6 | head -1)
+          [ -n "$app" ] || { echo "no Demo app"; exit 0; }
+          echo "app: $app"
+          bid=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          rt=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x["isAvailable"] and x["platform"]=="iOS"]; print(r[-1]["identifier"])')
+          dt=$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; d=[x["identifier"] for x in json.load(sys.stdin)["devicetypes"] if "iPhone-1" in x["identifier"] or "iPhone-2" in x["identifier"]]; print(d[-1])')
+          u=$(xcrun simctl create plain-launch "$dt" "$rt"); xcrun simctl boot "$u"; xcrun simctl bootstatus "$u" -b >/dev/null
+          xcrun simctl install "$u" "$app"
+          log=artifacts/ios-sim/plain-launch.log
+          xcrun simctl spawn "$u" log stream --level info --style compact --predicate 'subsystem == "dev.cmux.mobile" AND category == "timing"' > "$log" 2>&1 &
+          lp=$!; sleep 3
+          for i in $(seq 10); do
+            xcrun simctl launch "$u" "$bid" >/dev/null; sleep 12
+            xcrun simctl terminate "$u" "$bid" >/dev/null 2>&1; sleep 2
+          done
+          kill "$lp" 2>/dev/null; xcrun simctl delete "$u" || true
+          python3 - "$log" <<'PY'
+          import re, sys, statistics as s
+          runs = []; cur = {}
+          for line in open(sys.argv[1]):
+              m = re.search(r"timing launch (\w+) \((\d+)ms\)", line)
+              if not m: continue
+              if m[1] == "main" and cur: runs.append(cur); cur = {}
+              cur[m[1]] = int(m[2])
+          if cur: runs.append(cur)
+          keys = ["main", "app_init", "did_finish_launching", "root_body", "first_frame", "first_idle"]
+          print("PLAINLAUNCH n=%d " % len(runs) + " ".join(
+              f"{k}={s.median([r[k] for r in runs if k in r]):.0f}" for k in keys if any(k in r for r in runs)))
+          print("PLAINLAUNCH main_each=" + ",".join(str(r.get("main")) for r in runs))
+          PY
 
       - name: Export the time-profile table
         if: ${{ !cancelled() }}
