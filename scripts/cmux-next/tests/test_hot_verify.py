@@ -1021,6 +1021,44 @@ class PublishedPullRequestWebTest(unittest.TestCase):
         self.assertEqual(done, {"how": "published bundles", "key": self.KEY})
         self.assertEqual(ran, ["fetch-web-bundles.sh", "web-overlay.sh"])
 
+    def test_a_squash_merged_head_with_no_published_layer_is_landed_code_not_a_fork(self):
+        # cmux#62289 (2026-11-27): head 19e26fb9 is an ancestor of nothing once squashed and its branch is deleted,
+        # so apply_web raised "is on no branch of origin" and the look kept only the default scene.
+        planned = {"head": self.HEAD, "pr": 62289}
+
+        def run(argv, **_kw):
+            if "merge-base" in argv:
+                return subprocess.CompletedProcess(argv, 1, "", "")
+            if "log" in argv:
+                return subprocess.CompletedProcess(argv, 0, "Fix hat deck (#62289)\n", "")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        side = unittest.mock.Mock(env=lambda: {})
+        with unittest.mock.patch.object(hv, "published_web_key", return_value=None), \
+                unittest.mock.patch.object(hv.shutil, "which", return_value="/bin/bun"), \
+                unittest.mock.patch.object(hv, "git", return_value=""), \
+                unittest.mock.patch.object(hv, "base_tip", return_value="origin/feat-cmux-next"), \
+                unittest.mock.patch.object(hv, "web_checkout", return_value=Path("/tree")), \
+                unittest.mock.patch.object(hv, "free_port", return_value=1), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            done = hv.apply_web(Path("/nonexistent"), planned, None, side, Path("/nonexistent"))
+        self.assertEqual(done["how"], "dev server")
+
+    def test_a_head_of_a_pr_not_on_the_base_still_stops(self):
+        planned = {"head": self.HEAD, "pr": 62289}
+
+        def run(argv, **_kw):
+            return subprocess.CompletedProcess(argv, 1 if "merge-base" in argv else 0, "", "")
+
+        side = unittest.mock.Mock(env=lambda: {})
+        with unittest.mock.patch.object(hv, "published_web_key", return_value=None), \
+                unittest.mock.patch.object(hv.shutil, "which", return_value="/bin/bun"), \
+                unittest.mock.patch.object(hv, "git", return_value=""), \
+                unittest.mock.patch.object(hv, "base_tip", return_value="origin/feat-cmux-next"), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            with self.assertRaises(hv.LookError):
+                hv.apply_web(Path("/nonexistent"), planned, None, side, Path("/nonexistent"))
+
     def test_stop_ends_a_dev_server_still_starting_before_server_off(self):
         side = hv.Side("t")
         order = []
