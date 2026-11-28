@@ -1484,10 +1484,22 @@ def never_carries(run: dict, name: str) -> bool:
     return name in SUITE_JOBS and jobs is not None and name not in jobs
 
 
+# A workflow_dispatch run runs on the branch it was dispatched on (feat-cmux-next's tip), so its head_sha is that tip
+# whatever head it looks at; a dispatch whose run name names its target says which: cmux-next-hot-verify.yml's
+# "cmux-next hot verify PR N <head>[ merge][ result]". cmux#63955 at 3bf87e15 (2026-11-28): its cmux/ui-proof linked
+# result run 46156338209, named for 3bf87e15, head_sha the tip 62a30cd0; refused "which tested 62a30cd0, not" the
+# head on every base merge, a loop no base merge breaks. The same misread was fixed for fast gates alone twice
+# (cmux#38640, cmux#62419). Detector: tests/test_base_red_excuse.py DispatchTestedShaTest.
+DISPATCH_TARGET = re.compile(r"\bPR \d+ ([0-9a-f]{40})(?: merge)?(?: result)?$")
+
+
 def tested_sha(run: dict) -> str:
-    """The commit a cmux-next.yml run tested: the sha its name ends in (a same-tree run tests it after the
-    branch moved on), else its head_sha."""
-    match = re.search(r" · ([0-9a-f]{40})$", run.get("display_title") or "")
+    """The commit a run tested: the sha a cmux-next.yml run's name ends in (a same-tree run tests it after the
+    branch moved on), the head a dispatch run's name targets (DISPATCH_TARGET), else its head_sha."""
+    title = run.get("display_title") or ""
+    match = re.search(r" · ([0-9a-f]{40})$", title)
+    if match is None and run.get("event") == "workflow_dispatch":
+        match = DISPATCH_TARGET.search(title)
     return match.group(1) if match else str(run.get("head_sha") or "")
 
 
@@ -4489,6 +4501,10 @@ SAME_TREE_SUFFIX = " (same-tree)"
 # dispatched run's head_sha is the feat-cmux-next tip, not the PR head, so its red is never compared by the run: it is
 # the PR's own at that base (a merger reruns one at a stale base), never a base red (cmux#38640, 2026-11-09).
 FAST_GATES_STATUS = "cmux-next/fast-gates"
+# cmux's UI proof gate (scripts/ci/ui_proof_verdict.py): a look's verdict, or no look ("UI look could not run: ...
+# the fleet's look queue was full"), never a CI job's red the base can share. A red one is refused as the head's own,
+# naming the act that clears it, before any run lookup (the run behind it is a dispatch: DISPATCH_TARGET).
+UI_PROOF_STATUS = "cmux/ui-proof"
 # The cmux-next-fast-gates.yml jobs behind that status: `fast gates` runs the checks on the merge with the base and
 # compares every red with the base itself (fast_gate_webviews_checks.py: a red the base has too passes), and `post`
 # posts FAST_GATES_STATUS. When `post` could not post (a rate limit), no status exists, so the status rule above never
@@ -4687,6 +4703,12 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
         raise Refused(f"'{name}': {state} at base {tested[1][:12] if tested else '(none named)'}"
                       f"{f' (run {run[1]})' if run else ''} is the pull request's own: the fast gates ran on it merged "
                       "with that base, never a base red; fix it, or dispatch them again on the tip if that base is stale")
+    if name == UI_PROOF_STATUS and state in ("failure", "error"):
+        description = str(status.get("description") or "no description")
+        raise Refused(f"'{name}': {state} at {sha[:12]} ({description[:200]}) is a look's verdict or no look, never a "
+                      "base red: a look at this head clears it (scripts/cmux-next/hot-verify.py look --pr N --record; "
+                      "a look at an older head carries across base merges alone), or a `Visual: none (WHY)` body line "
+                      "for a change with no visible output")
     if (name == LINUX_CROSS_STATUS and state in ("failure", "error")
             and LINUX_CROSS_COVERED.match(status.get("description") or "")):
         return linux_cross_covered(repo, sha, name, state, status, github)
