@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures for the live line's tool calls, not shipped UI.
-// The Working line and the activity line under a todo list change their words as Claude desktop's
+// The Working line changes its words as Claude desktop's
 // do (Leo, 2026-11-05: "this is quite good too how it animates the changing text!!! we need to have
 // that!!! for changing tool calls at the bottom"): the old call rises out, the new one rises in, and
 // the clock slides to its end while it ticks, on the one text roll every live label shares
@@ -16,7 +16,6 @@ import type { PlayContext } from "../../../gallery/play";
 import { textRollLook } from "../../../ui/motion/textRoll.experiment";
 import type { AcpmuxRow } from "../model";
 import { Tick } from "../subagents/trayMotion";
-import { ActivityLine } from "./ActivityLine";
 import { WorkingFor } from "./WorkingFor";
 
 const CALLS = [
@@ -59,19 +58,8 @@ function Fixture({ variant }: { variant: Variant }) {
           } as AcpmuxRow
         }
       />
-      <ActivityLine
-        row={
-          {
-            id: "activity",
-            kind: "activityLine",
-            version: step + 1,
-            at: since,
-            text: call,
-          } as AcpmuxRow
-        }
-      />
       {/* A subagent activity row's latest line (AgentLine.tsx's Tick). */}
-      <div style={{ marginTop: 12, fontSize: 12, opacity: 0.8 }}>
+      <div style={{ marginTop: 12, fontSize: "var(--text-detail)", opacity: 0.8 }}>
         <Tick className="acpmux-agent-line__latest-inline" text={call} slide />
       </div>
     </div>
@@ -95,7 +83,7 @@ const settled = (ctx: PlayContext) => ctx.waitFor(() => swapAnimations(ctx.docum
 
 export default componentEntry<{ variant: Variant }>({
   id: "agent-pane.live-line-text-swap",
-  title: "Working and activity lines: the call's words change in place",
+  title: "Working line: the call's words change in place",
   area: "Agent pane",
   pane: true,
   height: 170,
@@ -104,7 +92,6 @@ export default componentEntry<{ variant: Variant }>({
     Promise.all([import("../styles.css"), import("./conversation.css"), import("../subagents/subagents.css")]),
   covers: [
     "agent-session/acpmux/conversation/WorkingFor.tsx#WorkingFor",
-    "agent-session/acpmux/conversation/ActivityLine.tsx#ActivityLine",
     "agent-session/acpmux/subagents/trayMotion.tsx#Tick",
     "ui/motion/TextRoll.tsx#TextRoll",
     "ui/motion/textRoll.experiment.ts",

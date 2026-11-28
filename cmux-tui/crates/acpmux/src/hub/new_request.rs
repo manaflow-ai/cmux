@@ -177,6 +177,11 @@ pub struct NewRequest {
     /// The creator's key (`_meta.acpmux.createKey`, local socket only, `create_key.rs`): a
     /// create sent again with it, after a restart cut its reply, gets the session it made.
     pub create_key: Option<String>,
+    /// `_meta.acpmux.placedBy` (`SessionMeta::placed_by`): only `autoCloud` is kept.
+    pub placed_by: Option<String>,
+    /// `_meta.acpmux.tags.priority` (`asked_tag`): kept on the chat before
+    /// its agent first spawns, so its first process already runs at that class.
+    pub priority: Option<String>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

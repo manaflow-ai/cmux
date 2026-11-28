@@ -18,8 +18,8 @@
 //!    account: no login, token or keychain item is ever read or sent, and an Info.plist that carries a
 //!    secret-looking value is refused.
 //!
-//! The store is `--store URL`, else `CMUX_APP_SHARE_STORE`, else `~/.config/cmux/app-share.json`
-//! (`{"store": "https://..."}`, which the team's HQ menu bar app writes).
+//! The store is `--store URL`, else `CMUX_APP_SHARE_STORE`, else `~/.config/cmux-next/app-share.json`
+//! (`~/.config/cmux/` off macOS; `{"store": "https://..."}`, which the team's HQ menu bar app writes).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -35,8 +35,8 @@ use crate::localization::ShareMessages;
 
 /// The share store when `--store` names none.
 pub(super) const STORE_ENV: &str = "CMUX_APP_SHARE_STORE";
-/// `~/.config/cmux/app-share.json`, relative to HOME.
-const STORE_FILE: &str = ".config/cmux/app-share.json";
+/// `app-share.json` in `~/.config/<cmux_config::NEXT_DIR>` (`cmux-next` on macOS).
+const STORE_FILE: &str = "app-share.json";
 /// Where shared builds are unpacked, relative to HOME.
 const SHARED_DIR: &str = "Applications/cmux Shared";
 /// The branch whose commits CI publishes builds of.
@@ -440,7 +440,9 @@ pub(in super::super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         );
     }
     let Way::Bundle(why) = way else { return 1 };
-    let file = home().and_then(|home| fs::read_to_string(home.join(STORE_FILE)).ok());
+    let file = home().and_then(|home| {
+        fs::read_to_string(home.join(".config").join(cmux_config::NEXT_DIR).join(STORE_FILE)).ok()
+    });
     let env = std::env::var(STORE_ENV).ok();
     let store = match store_from(store.as_deref(), env.as_deref(), file.as_deref()) {
         Ok(store) => store,

@@ -227,7 +227,11 @@ async fn look_and_adopt(
 
 /// The signed machine channel, verified as the machine's updater verifies it.
 async fn verified_channel() -> Result<channel::Payload, String> {
+    // Through the system's proxy when it names one for the channel (macOS PAC included;
+    // `cmux-proxy`), asked off this thread first.
+    cmux_proxy::proxy::warm(CHANNEL_URL).await;
     let client = cmux_egress::client_builder("cmux_tui::carrier::adopt")
+        .proxy(reqwest::Proxy::custom(cmux_proxy::proxy::http_proxy_url))
         .redirect(reqwest::redirect::Policy::none())
         .timeout(CHANNEL_TIMEOUT)
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))

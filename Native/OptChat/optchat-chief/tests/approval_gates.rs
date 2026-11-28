@@ -1593,8 +1593,13 @@ fn losing_local_ownership_before_a_late_ack_tombstones_that_request() {
 // Chief's own subagents, with the sender shown in the tell; every other
 // local effect keeps the ask floor, and untrusted senders keep it all.
 
-/// A coordinator session's name: the default trust list holds `*-coord`.
+/// A coordinator session's name, trusted by [`trusting_coords`].
 const COORD: &str = "fleet-coord";
+
+/// Chief settings that trust every `*-coord` session (the default trusts none).
+fn trusting_coords() -> serde_json::Value {
+    json!({"relay": {"trustedAgents": ["*-coord"]}})
+}
 
 /// A turn started by `sender`'s message through the CLI, held at the fake
 /// agent; `also` adds a second agent's message to the same turn.
@@ -1627,7 +1632,7 @@ fn spawn_one(h: &mut Harness) -> optchat_chief::acpmux::SessionSpec {
 
 #[test]
 fn a_trusted_coordinators_message_may_tell_and_spawn_the_chiefs_own_subagents() {
-    let mut h = harness(None, false, started());
+    let mut h = harness(Some(trusting_coords()), false, started());
     agent_turn(&mut h, COORD, None);
     // The turn itself stays under the ask floor: no Bash, no file writes.
     assert_eq!(policy(&h, 0), "ask");
@@ -1702,7 +1707,7 @@ fn a_trusted_coordinators_message_may_tell_and_spawn_the_chiefs_own_subagents() 
 
 #[test]
 fn an_untrusted_agent_in_the_same_turn_keeps_the_whole_floor() {
-    let mut h = harness(None, false, started());
+    let mut h = harness(Some(trusting_coords()), false, started());
     agent_turn(&mut h, COORD, Some("lane-a"));
     assert_eq!(h.brain.spawn_policy(), Some("ask"));
     let tell = json!({"id": "a1", "message": "deploy"});
@@ -1712,7 +1717,7 @@ fn an_untrusted_agent_in_the_same_turn_keeps_the_whole_floor() {
 
 #[test]
 fn the_person_can_turn_trusted_relays_off() {
-    let off = json!({"relay": {"trustAgents": false}});
+    let off = json!({"relay": {"trustAgents": false, "trustedAgents": ["*-coord"]}});
     let mut h = harness(Some(off), false, started());
     agent_turn(&mut h, COORD, None);
     assert_eq!(h.brain.spawn_policy(), Some("ask"));
@@ -1723,7 +1728,12 @@ fn the_person_can_turn_trusted_relays_off() {
 
 #[test]
 fn the_trusted_list_names_the_sessions_and_the_contact_is_trusted() {
-    // A list that leaves the default out: a `*-coord` session is untrusted.
+    // The default trusts no agent session: a `*-coord` name is not enough.
+    let mut h = harness(None, false, started());
+    agent_turn(&mut h, COORD, None);
+    assert_eq!(h.brain.spawn_policy(), Some("ask"));
+    finish(&mut h);
+    // A list without `*-coord`: a `*-coord` session is untrusted.
     let listed = json!({"relay": {"trustedAgents": ["ops-lead"]}});
     let mut h = harness(Some(listed.clone()), false, started());
     agent_turn(&mut h, COORD, None);
@@ -1748,7 +1758,7 @@ fn the_trusted_list_names_the_sessions_and_the_contact_is_trusted() {
 
 #[test]
 fn a_trusted_agents_turn_may_call_only_the_mcp_servers_the_owner_named() {
-    let named = json!({"relay": {"mcpServers": ["tracker"]}});
+    let named = json!({"relay": {"mcpServers": ["tracker"], "trustedAgents": ["*-coord"]}});
     let mut h = harness(Some(named.clone()), false, started());
     agent_turn(&mut h, COORD, None);
     let call = |server: &str| json!({"action": "call", "server": server, "tool": "list_issues", "args": {}});
@@ -1779,7 +1789,7 @@ fn a_trusted_agents_turn_may_call_only_the_mcp_servers_the_owner_named() {
     finish(&mut h);
 
     // No list (the default): a trusted turn only looks.
-    let mut h = harness(None, false, started());
+    let mut h = harness(Some(trusting_coords()), false, started());
     agent_turn(&mut h, COORD, None);
     assert!(
         h.brain

@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use serde_json::json;
 
 use super::{
-    AfterLostStart, Request, apply, ended, install_target, lost_start_began, machine_is_older,
-    parse, route_args,
+    AfterLostStart, Failed, Request, apply, ended, install_target, lost_start_began,
+    machine_is_older, parse, retry_busy, route_args,
 };
 
 fn args(line: &str) -> Vec<String> {
@@ -137,9 +137,47 @@ fn the_in_place_flag_goes_only_with_the_explicit_ask_on_the_store_route() {
     let store =
         |to_bundled, if_older| route_args(apply::Route::Store, &request(to_bundled, if_older));
     assert_eq!(store(true, false), ["--route", "store", apply::IN_PLACE_FLAG]);
-    assert_eq!(store(true, true), ["--route", "store"]);
+    assert_eq!(store(true, true), [apply::IF_IDLE_FLAG, "--route", "store"]);
     assert_eq!(store(false, false), ["--route", "store"]);
-    for (to_bundled, if_older) in [(true, false), (true, true), (false, false)] {
+    for (to_bundled, if_older) in [(true, false), (false, false)] {
         assert!(route_args(apply::Route::Work, &request(to_bundled, if_older)).is_empty());
+    }
+}
+
+#[test]
+fn a_busy_machine_is_waited_for_and_other_failures_end_at_once() {
+    let mut tries = 0;
+    let out = retry_busy(std::time::Duration::from_secs(30), || {
+        tries += 1;
+        if tries < 2 { Err(Failed::new("machine_update_busy", "another update")) } else { Ok(7) }
+    });
+    assert_eq!(out.ok(), Some(7));
+    assert_eq!(tries, 2);
+
+    let mut tries = 0;
+    let out: Result<(), Failed> = retry_busy(std::time::Duration::from_secs(30), || {
+        tries += 1;
+        Err(Failed::new("machine_update_failed", "no"))
+    });
+    assert_eq!(out.err().map(|failed| failed.code), Some("machine_update_failed"));
+    assert_eq!(tries, 1);
+}
+
+/// The app's automatic update (`--if-older`) leaves a machine whose agents work alone on either route; a start's
+/// own update (no `--if-older`) runs whatever its agents do (cmux#57192: the automatic update restarted a busy
+/// machine's daemon under a GUI chat's start).
+#[test]
+fn only_the_automatic_update_waits_for_idle_agents() {
+    let request =
+        |to_bundled, if_older| Request { socket: PathBuf::from("/s"), to_bundled, if_older };
+    assert_eq!(route_args(apply::Route::Work, &request(true, true)), [apply::IF_IDLE_FLAG]);
+    for route in [apply::Route::Work, apply::Route::Store] {
+        assert!(route_args(route, &request(true, true)).contains(&apply::IF_IDLE_FLAG.to_owned()));
+        for (to_bundled, if_older) in [(true, false), (false, false)] {
+            assert!(
+                !route_args(route, &request(to_bundled, if_older))
+                    .contains(&apply::IF_IDLE_FLAG.to_owned())
+            );
+        }
     }
 }

@@ -37,7 +37,8 @@ SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
               "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_LOCAL_HEAVY_CHECKS", "CMUX_WEB_LINT_STRICT",
-              "CMUX_WEB_LINT_TIMEOUT_SECONDS", "CMUX_PREPUSH_GATE_TIMEOUT_SECONDS")
+              "CMUX_WEB_LINT_TIMEOUT_SECONDS", "CMUX_PREPUSH_GATE_TIMEOUT_SECONDS",
+              "CMUX_PREPUSH_QUEUE_HELD", "CMUX_PREPUSH_PASS_KEY_HELD")
 # A web lint finding never stops a push in the hook unless CMUX_WEB_LINT_STRICT=1 (lint never stops a push). The
 # fixture runs strict, so the tests about what the lint finds read it as a refusal; HOOK_DEFAULT is the person's hook.
 HOOK_DEFAULT = {"CMUX_WEB_LINT_STRICT": ""}
@@ -112,6 +113,9 @@ class WebLintPrePushTests(unittest.TestCase):
                     if not key.startswith("GIT_") and key not in AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
                         HOME=str(self.root), ESLINT_LOG=str(self.eslint_log), CMUX_WEB_LINT_STRICT="1")
+        # The hook's queue is host-wide (/tmp), independent of HOME. Fixture pushes must not wait behind
+        # another suite or a real push, nor inherit a parent's claim that it already holds a slot.
+        self.env["CMUX_PREPUSH_QUEUE_DIR"] = str(self.root)
         git_fixture_env.without_auto_maintenance(self.env)
         self.stub_lint_tools()
 
@@ -189,6 +193,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/ci/workflow_job_bounds.py",
+            "scripts/ci/check_reusable_workflow_permissions.py",
             "scripts/normalize-pbxproj.py",
             "scripts/webviews_bun_version.py",
             "scripts/lint_swift_namespaces.py",
@@ -299,6 +304,35 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stderr, r"web lint passed in \d+\.\ds \(webviews\)")
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    def test_fixture_push_does_not_share_its_parents_queue(self):
+        import fcntl
+
+        # Occupy a private stand-in for the runner's queue, never the runner's real slots.
+        parent_queue = self.root / "parent-queue"
+        parent_queue.mkdir()
+        with (parent_queue / f"cmux-pre-push-queue.{os.getuid()}.0.lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            for held in ("", "37"):
+                with self.subTest(inherited_held=held), mock.patch.dict(os.environ, {
+                    "CMUX_PREPUSH_QUEUE_DIR": str(parent_queue), "CMUX_PREPUSH_SLOTS": "1",
+                    "CMUX_PREPUSH_QUEUE_WAIT_SECONDS": "0.2", "CMUX_PREPUSH_QUEUE_HELD": held,
+                    "CMUX_PREPUSH_PASS_KEY_HELD": "a" * 40,
+                }):
+                    fixture = WebLintPrePushTests()
+                    try:
+                        fixture.setUp()
+                        fixture.write("webviews/src/app.ts", "export const app = 2;\n")
+                        fixture.commit("check with the parent queue occupied")
+                        result = fixture.git("push", "origin", "feat-cmux-next", check=False)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("web lint passed", result.stderr)
+                        self.assertNotIn("waiting for a turn", result.stderr)
+                        self.assertNotIn("checking now, beside", result.stderr)
+                        self.assertTrue((fixture.root / f"cmux-pre-push-queue.{os.getuid()}.0.lock").is_file(),
+                                        "the fixture must acquire its own queue slot, not bypass the queue")
+                    finally:
+                        fixture.doCleanups()
 
     def test_push_without_web_changes_runs_no_lint(self):
         self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")
@@ -1004,6 +1038,36 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning title=web lint (base)::webviews: sh check-lanes.sh", result.stderr)
+
+    def test_new_only_reruns_the_base_reds_side_by_side(self):
+        # 2026-11-26: a webviews pull request over a base red on 13 checks reran them on the base one at a time, 128 s
+        # of a 290 s fast gates job, while the head's run had them side by side. Each check here, red on the base,
+        # logs its start, sleeps a second and logs its end: on the base tree the two reruns overlap.
+        if len(os.sched_getaffinity(0)) < 2 if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1) < 2:
+            self.skipTest("one core: the checks run one at a time by design")
+        spans = self.root / "spans.log"
+        for name in ("one", "two"):
+            self.write(f"webviews/check-{name}.sh",
+                       "#!/bin/sh\nif grep -rl 'BAD_LANE' src >/dev/null 2>&1; then\n"
+                       f'  echo "start {name} $(pwd)" >> "$SPANS"; sleep 1; echo "end {name} $(pwd)" >> "$SPANS"\n'
+                       f"  echo 'src/old.ts:1:1: error {name}'; exit 1\nfi\n")
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
+            '"sh check-lanes.sh && sh check-format.sh"', '"sh check-one.sh && sh check-two.sh"'))
+        self.write("webviews/src/old.ts", "export const old = BAD_LANE;\n")
+        self.commit("a base red on two checks")
+        self.write("webviews/src/app.ts", "export const app = 9;\n")
+        self.commit("a clean change on it")
+        self.env["SPANS"] = str(spans)
+
+        result = self.lint_range("--new-only")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = spans.read_text().splitlines()
+        head = str((self.repo / "webviews").resolve())
+        base = [line for line in lines if line.split(" ", 2)[2] != head]  # the reruns, in the base lint tree
+        self.assertEqual(len(base), 4, lines)
+        self.assertEqual([line.split()[0] for line in base[:2]], ["start", "start"],
+                         f"the base reruns ran one after the other: {lines}")
 
     def test_new_only_hands_the_checks_the_changed_files_and_a_full_lint_none(self):
         # check:compiler-bails compiled every agent-chat file on every pull request (65 s of the fast gates' step,
@@ -2505,6 +2569,40 @@ class CheckPiecesTests(unittest.TestCase):
                 self.assertEqual(lint.declared_inputs((SOURCE / "scripts/cmux-next" / script).read_text()), ())
 
 
+class NewCheckTransitionTests(unittest.TestCase):
+    """--new-only on a ratchet that lands with its own script: the base cannot run it (cmux#49989, whose merge was
+    charged 25 findings of a baseline row the base had moved, against a base with no check-surface-bypass.ts)."""
+
+    def charge(self, base_has_script: bool):
+        import contextlib
+        lint = load_lint(SOURCE)
+        holder = Path(tempfile.mkdtemp(prefix="cmux-new-check-"))
+        self.addCleanup(shutil.rmtree, holder, True)
+        if base_has_script:
+            (holder / "webviews/scripts").mkdir(parents=True)
+            (holder / "webviews/scripts/check-surface-bypass.ts").write_text("// base copy\n")
+        result = lint.Result("webviews", "bun run check:surface-bypass", 1,
+                             "new surface bypass (21 > 20): a.css own-shell\n", 4.0)
+        plan = lint.Plan(script_pieces={"webviews": ["check:surface-bypass"]})
+        reran = []
+        with mock.patch.object(lint, "tree_of", lambda *a, **k: contextlib.nullcontext(holder)), \
+                mock.patch.object(lint, "run", lambda *a, **k: reran.append(a) or lint.Result(
+                    "webviews", a[1], 1, "", 1.0)), \
+                mock.patch.object(lint, "package_env", lambda *a, **k: {}):
+            lint.charge_new_only(SOURCE, "b" * 40, plan, SOURCE, [result])
+        return result, reran
+
+    def test_a_check_the_base_has_no_script_for_is_not_charged(self):
+        result, reran = self.charge(base_has_script=False)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(reran, [], "the base cannot run a script it does not have")
+
+    def test_a_check_the_base_has_is_compared_as_before(self):
+        result, reran = self.charge(base_has_script=True)
+        self.assertEqual(len(reran), 1)
+        self.assertEqual(result.returncode, 1)
+
+
 class TrustBoundaryTests(unittest.TestCase):
     """The pieces of the trust boundary on their own: which changes reach check code, and which paths escape."""
 
@@ -2806,6 +2904,10 @@ class FreeMemoryHeavyTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.addCleanup(self.release)
+        # The floor is judged on the meminfo below alone, not on this host's cgroup (CgroupHeadroomTests).
+        patcher = mock.patch.object(self.lint, "cgroup_headroom_gib", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def release(self):
         if self.lint._heavy_lock is not None:
@@ -2855,6 +2957,56 @@ class FreeMemoryHeavyTests(unittest.TestCase):
         ok, err = self.run_it("lots", 32 * 1024 * 1024)
         self.assertFalse(ok)
         self.assertIn("not a number", err)
+
+
+class CgroupHeadroomTests(unittest.TestCase):
+    """Free memory is the least of MemAvailable and every cgroup level's memory.max - memory.current, and the
+    type-aware checks start one per HEAVY_PEAK_GIB of it: a 16 GiB acpmux slice on a 64 GiB, 32 vCPU lane VM let 16
+    start and the OOM killer stopped tsgolint (2026-11-28)."""
+
+    def setUp(self):
+        self.lint = load_lint(Path(__file__).resolve().parent.parent)
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.root = self.tmp / "cg"
+        self.leaf = self.root / "user.slice" / "session.slice" / "run.scope"
+        self.leaf.mkdir(parents=True)
+        self.proc = self.tmp / "cgroup"
+        self.proc.write_text("0::/user.slice/session.slice/run.scope\n")
+        self.meminfo = self.tmp / "meminfo"
+        self.meminfo.write_text(f"MemAvailable: {56 * 1024 * 1024} kB\n")
+
+    def limit(self, level, max_gib, current_gib):
+        (level / "memory.max").write_text("max\n" if max_gib is None else f"{int(max_gib * 1024 ** 3)}\n")
+        (level / "memory.current").write_text(f"{int(current_gib * 1024 ** 3)}\n")
+
+    def headroom(self):
+        return self.lint.cgroup_headroom_gib(str(self.proc), str(self.root))
+
+    def test_no_limit_anywhere_is_none(self):
+        self.limit(self.leaf, None, 1)
+        self.assertIsNone(self.headroom())
+
+    def test_a_parent_slice_limit_is_found_and_the_least_wins(self):
+        self.limit(self.leaf, None, 1)
+        self.limit(self.leaf.parent, 16, 2)
+        self.limit(self.leaf.parent.parent, 60, 10)
+        self.assertAlmostEqual(self.headroom(), 14.0)
+
+    def test_available_takes_the_cgroup_when_it_is_less(self):
+        with mock.patch.object(self.lint, "cgroup_headroom_gib", return_value=14.0):
+            self.assertAlmostEqual(self.lint.available_gib(str(self.meminfo)), 14.0)
+        with mock.patch.object(self.lint, "cgroup_headroom_gib", return_value=None):
+            self.assertAlmostEqual(self.lint.available_gib(str(self.meminfo)), 56.0)
+
+    def test_heavy_slots_follow_memory_not_only_cores(self):
+        with mock.patch.object(self.lint, "usable_cores", return_value=32):
+            self.assertEqual(self.lint.heavy_slots(free_gib=14.0), 1)
+            self.assertEqual(self.lint.heavy_slots(free_gib=4.0), 1)
+            self.assertEqual(self.lint.heavy_slots(free_gib=200.0), 16)
+        with mock.patch.object(self.lint, "usable_cores", return_value=2), \
+                mock.patch.object(self.lint, "available_gib", return_value=None):
+            self.assertEqual(self.lint.heavy_slots(), 1)
 
 
 class BloblessMirrorRefTests(unittest.TestCase):

@@ -635,6 +635,67 @@ fn notifications_last_prompt_mute_and_banners() {
 }
 
 #[test]
+fn notifications_decide_an_arrival() {
+    let (code, body) = call_json(
+        c"window_notifications_decide",
+        &json!({
+            "prefs": {"dismissal": "click", "sound": "Glass", "dockBounce": "once",
+                      "sounds": {"volume": 0.5, "workspaces": {"ws_1": {"sound": "Frog", "volume": 0.4}}}},
+            "arrival": {"source": "agent", "appActive": false, "soundEvent": "needsInput",
+                        "soundScope": {"workspace": "ws_1"}}
+        }),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body,
+        json!({"acknowledge": false, "attention": true, "alerts": true, "desktop": true,
+               "sound": "Frog", "soundVolume": 0.2, "soundEvent": "needsInput",
+               "soundLevel": "workspace:ws_1", "timeout": null, "bounce": "once"})
+    );
+    let (code, _) = call_json(c"window_notifications_decide", &json!({"prefs": {}}));
+    assert_ne!(code, OK, "an arrival is required");
+}
+
+#[test]
+fn notifications_clears_table_and_sound_cooldown() {
+    let (code, body) = call_json(c"window_notifications_clears_table", &json!({}));
+    assert_eq!(code, OK);
+    assert_eq!(body["focus"], json!(["focus", "click", "keystroke", "open"]));
+    assert_eq!(body["never"], json!([]));
+    let (_, body) = call_json(
+        c"window_notifications_sound_admit",
+        &json!({"event": "finished", "nowMs": 100, "cooldownMs": 1500}),
+    );
+    assert_eq!(body, json!({"admitted": true, "last": {"atMs": 100, "urgency": 1}}));
+    let (_, body) = call_json(
+        c"window_notifications_sound_admit",
+        &json!({"last": {"atMs": 100, "urgency": 1}, "event": "bell", "nowMs": 300, "cooldownMs": 1500}),
+    );
+    assert_eq!(body, json!({"admitted": false}));
+}
+
+#[test]
+fn notifications_sound_choice_and_event() {
+    let (code, body) = call_json(
+        c"window_notifications_sound_choice",
+        &json!({"sounds": {"volume": 0.5, "groups": {"Ops": {"sound": "Tink"}}}, "event": "finished",
+                "scope": {"groups": [{"id": "g1", "name": "Ops"}]}, "fallback": "Glass"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"choice": {"name": "Tink", "volume": 0.5, "level": "group:Ops"}}));
+    let (_, body) = call_json(
+        c"window_notifications_sound_choice",
+        &json!({"event": "bell", "fallback": "none"}),
+    );
+    assert_eq!(body, json!({"choice": null}));
+    let (_, body) = call_json(
+        c"window_notifications_sound_event",
+        &json!({"source": "cli", "level": "warning"}),
+    );
+    assert_eq!(body, json!({"event": "needsInput"}));
+}
+
+#[test]
 fn history_actions_and_layout_undo() {
     let (code, body) = call_json(c"window_history_actions", &json!({}));
     assert_eq!(code, OK);

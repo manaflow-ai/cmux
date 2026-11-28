@@ -301,6 +301,12 @@ CMUX_SHIM_EXPORT void cmux_shim_set_default_search(const char* template_url_json
 // Call before cmux_shim_initialize; later calls do nothing.
 // plans/cmux-next/chrome-enterprise-policy-DESIGN.md.
 CMUX_SHIM_EXPORT void cmux_shim_set_chrome_policy_id(const char* policy_id);
+// Where Chromium looks first for locale paks (CefSettings.locales_dir_path): a folder of
+// "<catalog>.lproj/locale.pak" outside the signed framework, the person's language pack
+// downloaded on first use (CMUX-570). A catalog missing there is read from the framework,
+// whose "en" always stays. NULL or "" reads the framework only. Call before
+// cmux_shim_initialize; later calls do nothing.
+CMUX_SHIM_EXPORT void cmux_shim_set_locales_dir(const char* dir);
 // The keychain item Chromium keeps its cookie and password key in (fork API 25,
 // cmux_set_keychain_item): cmux's own item, never the "Chromium Safe Storage"
 // item every Chromium build shares, which belongs to whichever app made it first
@@ -1038,6 +1044,11 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond_page(int token, int status,
 // CMUX_SHIM_PAGE_RESOURCE, as a dynamic path does, instead of being read from the page's folder
 // (the live web loop, web-dev.json). Any thread; applies to the next request.
 CMUX_SHIM_EXPORT void cmux_shim_page_scheme_set_live(int live);
+// The browser whose agent chat (cmux-page://cmux.agent/) top document is answered with
+// `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless` (cross-
+// origin isolated), which puts that document in the chat site's one isolated renderer instead of the renderer every other chat shares
+// (OwnRendererHeaders, cmux_page_path.h). 0 for none. Main thread; applies to the next load.
+CMUX_SHIM_EXPORT void cmux_shim_page_own_renderer(int browser_id);
 
 #ifdef __cplusplus
 }

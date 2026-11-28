@@ -76,6 +76,7 @@ fn no_kept_row_is_no_move() {
 /// a real hub's `transfer_receive`, `transfer_write` and `transfer_finish`, is a chat there with
 /// the copy's name and transcript, under its new id.
 #[tokio::test]
+#[cfg(unix)]
 async fn a_move_from_the_copy_lands_as_a_chat_with_its_transcript_and_name() {
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().join("app");
@@ -202,4 +203,69 @@ async fn a_finish_with_the_owners_login_starts_the_moved_chats_agent_signed_in()
     let on_disk = String::from_utf8_lossy(&on_disk);
     assert!(!on_disk.contains(TOKEN), "no file this daemon wrote holds it");
     hub.shutdown_all().await;
+}
+
+/// RFD 0181 B7: a move's finish rebinds the chat's namespace manifest to its folder here only
+/// when the move's folder plan says it is the chat's own folder (`sameFolder`). A `--cwd` folder,
+/// or one whose changes stayed behind, keeps the old folder, which a start here reads as no
+/// record, so it records anew instead of reading another folder's tools, env names and ports.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_finish_rebinds_the_manifest_only_to_the_chats_own_folder() {
+    async fn landed(same_folder: Option<bool>) -> (PathBuf, Option<PathBuf>) {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().join("app");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"claude": {"argv": ["python3", fake], "family": "claude"}},
+            "defaultHarness": "claude"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        cfg.profile_sources = crate::config::ProfileSources::none();
+        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, dir.path()).unwrap());
+        let new_id = uuid::Uuid::now_v7().to_string();
+        let mut bundle =
+            bundle_from_snapshot(&snapshot("/Users/me/app"), &new_id, None, 7).unwrap();
+        // The source recorded the manifest for its own folder.
+        for (path, bytes) in &mut bundle.files {
+            if path == "session.json" {
+                let mut meta: Value = serde_json::from_slice(bytes).unwrap();
+                meta["manifest"] = json!({"folder": "/Users/me/app", "allTools": true,
+                                          "env": ["OPENAI_API_KEY"], "ports": [5173]});
+                *bytes = serde_json::to_vec(&meta).unwrap();
+                let size = bytes.len();
+                for listed in bundle.manifest["files"].as_array_mut().unwrap() {
+                    if listed["path"] == "session.json" {
+                        listed["size"] = json!(size);
+                    }
+                }
+            }
+        }
+        let receive = hub
+            .transfer_request("_acpmux/transfer_receive", &json!({"manifest": bundle.manifest}))
+            .await
+            .unwrap();
+        let receive_id = receive["receiveId"].clone();
+        for (path, bytes) in &bundle.files {
+            let write = json!({"receiveId": receive_id, "path": path, "offset": 0,
+                               "data": BASE64.encode(bytes), "epoch": 0});
+            hub.transfer_request("_acpmux/transfer_write", &write).await.unwrap();
+        }
+        let mut finish = json!({"receiveId": receive_id, "from": {"sessionId": "vm-1/old"},
+                                "epoch": 0, "cwd": cwd});
+        if let Some(same) = same_folder {
+            finish["sameFolder"] = json!(same);
+        }
+        hub.transfer_request("_acpmux/transfer_finish", &finish).await.unwrap();
+        let meta = hub.resolve(&new_id).unwrap().meta();
+        hub.shutdown_all().await;
+        (cwd, meta.manifest.map(|m| m.folder))
+    }
+    let (cwd, folder) = landed(Some(true)).await;
+    assert_eq!(folder, Some(cwd), "the chat's own folder: the record holds here");
+    for other in [Some(false), None] {
+        let (_, folder) = landed(other).await;
+        assert_eq!(folder, Some(PathBuf::from("/Users/me/app")), "{other:?}: records anew");
+    }
 }

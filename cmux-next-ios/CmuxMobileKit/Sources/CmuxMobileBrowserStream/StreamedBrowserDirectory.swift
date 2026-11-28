@@ -60,6 +60,17 @@ public final class StreamedBrowserDirectory {
         return try await link.openLocalhost(port: port)
     }
 
+    /// The Mac's one-shot hand-off of browser tab `tab`'s cookies and local storage
+    /// for `url`'s site (`site-data`, PROTOCOL.md): its one frame, or nil (not linked,
+    /// refused, or nothing sent). Only Open on iPhone calls it.
+    public func siteData(macID: String?, tab: String, url: String) async -> Data? {
+        guard let link = await link(macID: macID),
+              let channel = try? await link.openSiteData(tab: tab, url: url) else { return nil }
+        let frame = try? await channel.receive()
+        await channel.close(code: "eof", reason: "")
+        return frame ?? nil
+    }
+
     /// A Mac's link (`macID`: its own; nil: the focused Mac's), or nil when not linked.
     func link(macID: String?) async -> (any BrowserStreamOpening)? {
         if let macID, !macID.isEmpty, let macOpener { return await macOpener(macID) }
@@ -70,6 +81,14 @@ public final class StreamedBrowserDirectory {
     /// became real (``rename(tab:to:)``): pages opened on the iPhone follow them.
     public var tabsRetained: (@MainActor (Set<String>) -> Void)?
     public var tabRenamed: (@MainActor (_ old: String, _ new: String) -> Void)?
+    /// Hears one Mac's browser tabs each time it lists its workspaces: a tab new since
+    /// the last list opens where Settings → Browser → Open New Pages says.
+    public var browserTabsListed: (@MainActor (_ macID: String, _ tabs: [(id: String, url: URL?)]) -> Void)?
+
+    /// One Mac listed its workspaces (`tabs`: its browser tabs, in list order).
+    public func listed(macID: String, browserTabs tabs: [(id: String, url: URL?)]) {
+        browserTabsListed?(macID, tabs)
+    }
 
     /// The streamed model of a tab (`tab`: its key on the Mac, `url`: its
     /// first page), or nil when not linked.

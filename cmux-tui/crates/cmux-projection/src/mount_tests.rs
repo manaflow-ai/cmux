@@ -482,6 +482,108 @@ fn a_cached_manifest_folder_listing_shows_every_change_made_through_the_mount() 
     mounted.unmount();
 }
 
+/// A Mac that does not answer (a stalled link) until released.
+struct Stalled {
+    released: Mutex<bool>,
+    changed: std::sync::Condvar,
+}
+
+impl Stalled {
+    fn wait(&self) {
+        let mut released = self.released.lock().unwrap();
+        while !*released {
+            released = self.changed.wait(released).unwrap();
+        }
+    }
+
+    fn release(&self) {
+        *self.released.lock().unwrap() = true;
+        self.changed.notify_all();
+    }
+}
+
+impl Fetch for Stalled {
+    fn read(&self, _entry: u32, _offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
+        self.wait();
+        Ok(vec![b'x'; len as usize])
+    }
+
+    fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+        self.wait();
+        entries.iter().map(|_| Ok(b"x".to_vec())).collect()
+    }
+}
+
+/// Every fetch thread held by a stalled link (more cold reads at once than threads) does not
+/// hold the agent's own files: writing and reading back a file it made answers at once. It
+/// waited for the link (up to its stall wait, two minutes before that existed).
+#[test]
+fn a_stalled_link_holding_every_fetch_does_not_hold_the_agents_own_writes() {
+    if !fuse_here() {
+        println!("skipping: no FUSE here (no /dev/fuse or no fusermount3)");
+        return;
+    }
+    let cold = 3 * WORKERS;
+    let items = (0..cold)
+        .map(|at| Item {
+            path: format!("d{at}/cold.txt"),
+            kind: Kind::File,
+            mode: 0o644,
+            size: 1,
+            mtime_ns: 1_700_000_000_000_000_000,
+            link: None,
+        })
+        .collect();
+    let manifest = Arc::new(Manifest::build(1, items).unwrap());
+    let state = tempfile::tempdir().unwrap();
+    let at = tempfile::tempdir().unwrap();
+    let owner = {
+        use std::os::unix::fs::MetadataExt as _;
+        let meta = std::fs::metadata(state.path()).unwrap();
+        (meta.uid(), meta.gid())
+    };
+    let stalled = Arc::new(Stalled { released: Mutex::new(false), changed: Default::default() });
+    let overlay = Arc::new(Overlay::open(manifest, state.path(), stalled.clone(), owner).unwrap());
+    let mounted = match mount(overlay, at.path()) {
+        Ok(mounted) => mounted,
+        Err(error) => {
+            println!("skipping: no FUSE here (mount failed: {error:#})");
+            return;
+        }
+    };
+    let root = at.path().to_path_buf();
+    std::fs::write(root.join("mine.txt"), "draft").unwrap();
+    // Let the link go after a while whatever happens, so a failing run ends.
+    let watchdog = {
+        let stalled = stalled.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(5));
+            stalled.release();
+        })
+    };
+    let readers: Vec<_> = (0..cold)
+        .map(|at| {
+            let path = root.join(format!("d{at}/cold.txt"));
+            std::thread::spawn(move || std::fs::read(path).map(|bytes| bytes.len()))
+        })
+        .collect();
+    std::thread::sleep(Duration::from_millis(300));
+    let started = Instant::now();
+    std::fs::write(root.join("mine.txt"), "saved while the link is stalled").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("mine.txt")).unwrap(),
+        "saved while the link is stalled"
+    );
+    let took = started.elapsed();
+    stalled.release();
+    for reader in readers {
+        assert_eq!(reader.join().unwrap().unwrap(), 1);
+    }
+    watchdog.join().unwrap();
+    mounted.unmount();
+    assert!(took < Duration::from_secs(2), "the agent's own write waited {took:?} for the link");
+}
+
 #[test]
 fn idle_since_counts_whole_seconds_from_the_last_request() {
     let idle = Duration::from_secs(30);
@@ -514,7 +616,7 @@ fn an_idle_mount_unmounts_itself_but_never_while_a_file_is_open() {
             .unwrap(),
     );
     let options = Options { idle_exit: Some(Duration::from_secs(2)), ..Options::default() };
-    let (up, is_up) = std::sync::mpsc::channel();
+    let (up, is_up) = channel();
     let path = at.path().to_owned();
     let server = std::thread::spawn(move || {
         serve_with(overlay, &path, options, move || up.send(()).unwrap())
@@ -540,4 +642,127 @@ fn an_idle_mount_unmounts_itself_but_never_while_a_file_is_open() {
     assert!(server.is_finished(), "an idle mount nobody holds unmounts itself");
     server.join().unwrap().unwrap();
     assert!(!file.exists(), "the folder is empty again once unmounted");
+}
+
+fn git(dir: &Path, home: &Path, args: &[&str]) -> std::process::Output {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("HOME", home)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@example.com")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@example.com")
+        .output()
+        .unwrap()
+}
+
+/// RFD 0007, hard case 7, as Leo's `~/Projects` showed it: the repository's `.git/index` is
+/// rewritten on the Mac (by rename, a new inode) after the manifest. Before, the Mac answered
+/// CHANGED, the read failed, and `git status` on the machine died of SIGBUS on its mapped index.
+/// Now the open re-lists the index, the kernel takes its new size, and `git status` reads the new
+/// index: the Mac's unstaging shows.
+#[test]
+fn git_status_succeeds_over_an_index_rewritten_on_the_mac_after_the_manifest() {
+    if !fuse_here() {
+        println!("skipping: no FUSE here (no /dev/fuse or no fusermount3)");
+        return;
+    }
+    let home = tempfile::tempdir().unwrap();
+    let mac = tempfile::tempdir().unwrap();
+    let repo = mac.path();
+    assert!(git(repo, home.path(), &["init", "-q", "-b", "main"]).status.success());
+    std::fs::write(repo.join("a.txt"), "alpha\n").unwrap();
+    std::fs::write(repo.join("b.txt"), "beta\n").unwrap();
+    assert!(git(repo, home.path(), &["add", "a.txt", "b.txt"]).status.success());
+    assert!(git(repo, home.path(), &["commit", "-q", "-m", "one"]).status.success());
+    let (manifest, source) = crate::test_mac::FolderMac::list(repo);
+    let listed_index = std::fs::read(repo.join(".git/index")).unwrap();
+
+    // On the Mac, after the manifest: git rewrites its index (unstages b.txt).
+    std::thread::sleep(Duration::from_millis(20));
+    assert!(git(repo, home.path(), &["rm", "--cached", "-q", "b.txt"]).status.success());
+    let rewritten = std::fs::read(repo.join(".git/index")).unwrap();
+    assert_ne!(rewritten.len(), listed_index.len());
+
+    let state = tempfile::tempdir().unwrap();
+    let at = tempfile::tempdir().unwrap();
+    let owner = {
+        use std::os::unix::fs::MetadataExt as _;
+        let meta = std::fs::metadata(state.path()).unwrap();
+        (meta.uid(), meta.gid())
+    };
+    let overlay = Arc::new(Overlay::open(manifest, state.path(), source.linked(), owner).unwrap());
+    let mounted = match mount(overlay, at.path()) {
+        Ok(mounted) => mounted,
+        Err(error) => {
+            println!("skipping: no FUSE here (mount failed: {error:#})");
+            return;
+        }
+    };
+    let status = git(at.path(), home.path(), &["status", "--porcelain"]);
+    let out = String::from_utf8_lossy(&status.stdout).into_owned();
+    let err = String::from_utf8_lossy(&status.stderr).into_owned();
+    assert!(status.status.success(), "git status failed ({:?}): {out}{err}", status.status);
+    assert!(out.contains("D  b.txt") && out.contains("?? b.txt"), "the Mac's new index: {out}");
+    // The index's bytes and size through the mount are the Mac's new ones.
+    assert_eq!(
+        std::fs::metadata(at.path().join(".git/index")).unwrap().len(),
+        rewritten.len() as u64
+    );
+
+    // The Mac rewrites it again; the machine read it already, so its copy stays the session's
+    // base, and git keeps working.
+    std::thread::sleep(Duration::from_millis(20));
+    assert!(git(repo, home.path(), &["add", "b.txt"]).status.success());
+    let again = git(at.path(), home.path(), &["status", "--porcelain"]);
+    assert!(again.status.success(), "{}", String::from_utf8_lossy(&again.stderr));
+    mounted.unmount();
+}
+
+/// The kernel never keeps a re-listed file's old size or pages: a plain read through the mount of
+/// a file changed on the Mac returns all of its new bytes, longer or shorter, whether it was
+/// written in place (the round-trip matrix's "remanifest" case) or replaced by a rename.
+#[test]
+fn a_file_changed_on_the_mac_after_the_manifest_reads_its_new_bytes_through_the_mount() {
+    if !fuse_here() {
+        println!("skipping: no FUSE here (no /dev/fuse or no fusermount3)");
+        return;
+    }
+    let mac = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mac.path().join("src")).unwrap();
+    std::fs::write(mac.path().join("src/a.txt"), "alpha\n").unwrap();
+    std::fs::write(mac.path().join("src/b.txt"), "a longer file, before\n").unwrap();
+    let (manifest, source) = crate::test_mac::FolderMac::list(mac.path());
+    // In place, as the matrix writes it: the same inode, a new size and mtime.
+    std::thread::sleep(Duration::from_millis(20));
+    std::fs::write(mac.path().join("src/a.txt"), "alpha, changed on the mac after the start\n")
+        .unwrap();
+    crate::test_mac::rewrite(&mac.path().join("src/b.txt"), b"short\n");
+    let state = tempfile::tempdir().unwrap();
+    let at = tempfile::tempdir().unwrap();
+    let owner = {
+        use std::os::unix::fs::MetadataExt as _;
+        let meta = std::fs::metadata(state.path()).unwrap();
+        (meta.uid(), meta.gid())
+    };
+    let overlay = Arc::new(Overlay::open(manifest, state.path(), source.linked(), owner).unwrap());
+    let mounted = match mount(overlay, at.path()) {
+        Ok(mounted) => mounted,
+        Err(error) => {
+            println!("skipping: no FUSE here (mount failed: {error:#})");
+            return;
+        }
+    };
+    // Stat before any read: the manifest's size (no fault yet).
+    assert_eq!(std::fs::metadata(at.path().join("src/a.txt")).unwrap().len(), 6);
+    assert_eq!(
+        std::fs::read_to_string(at.path().join("src/a.txt")).unwrap(),
+        "alpha, changed on the mac after the start\n"
+    );
+    assert_eq!(std::fs::metadata(at.path().join("src/a.txt")).unwrap().len(), 42);
+    assert_eq!(std::fs::read_to_string(at.path().join("src/b.txt")).unwrap(), "short\n");
+    mounted.unmount();
 }

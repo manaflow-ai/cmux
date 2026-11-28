@@ -56,6 +56,10 @@ pub enum Via {
     Hub,
     /// Over a direct connection to the far machine.
     Direct,
+    /// Over iroh on a hole-punched UDP path (`hub_carrier_iroh.rs`).
+    IrohDirect,
+    /// Over iroh through iroh's own relay.
+    IrohRelay,
 }
 
 impl Via {
@@ -63,6 +67,8 @@ impl Via {
         match self {
             Self::Hub => "hub",
             Self::Direct => "direct",
+            Self::IrohDirect => "iroh-direct",
+            Self::IrohRelay => "iroh-relay",
         }
     }
 }
@@ -135,6 +141,72 @@ pub fn private_address(ip: IpAddr) -> bool {
     }
 }
 
+/// The first direct-path address of `addresses`: private, not loopback, and not one of this
+/// machine's own interface addresses (a self-dial would only ever reach our own listener).
+fn first_direct(addresses: impl IntoIterator<Item = SocketAddr>) -> Option<SocketAddr> {
+    addresses.into_iter().find(|a| {
+        private_address(a.ip()) && !a.ip().is_loopback() && !super::punch::own_address(a.ip())
+    })
+}
+
+/// `name`'s direct address by the resolver's usual lookup (both families), in [`RESOLVE_BOUND`].
+async fn resolve_any(name: &str, port: u16) -> Option<SocketAddr> {
+    tokio::time::timeout(RESOLVE_BOUND, tokio::net::lookup_host((name, port)))
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .and_then(first_direct)
+}
+
+/// `name`'s direct address by an IPv4-only lookup, in [`RESOLVE_BOUND`]. The Linux daemon is a
+/// static musl build, and musl drops a search-list name whose AAAA answer is NXDOMAIN even when
+/// its A answer is there. GCP's resolver gives exactly that for a VM in another zone: its short
+/// name only resolves through the project suffix (`NAME.c.PROJECT.internal`), which answers A
+/// and NXDOMAINs AAAA, so the both-families lookup of every other-zone lane fails and the dial
+/// rides the relay. An A-only query takes that answer.
+async fn resolve_v4(name: &str, port: u16) -> Option<SocketAddr> {
+    let name = name.to_owned();
+    let lookup = tokio::task::spawn_blocking(move || lookup_v4(&name, port));
+    tokio::time::timeout(RESOLVE_BOUND, lookup).await.ok()?.ok()?.ok().and_then(first_direct)
+}
+
+/// `getaddrinfo(name, port)` asking for IPv4 stream addresses only.
+fn lookup_v4(name: &str, port: u16) -> std::io::Result<Vec<SocketAddr>> {
+    use std::ffi::CString;
+    let host = CString::new(name).map_err(|_| std::io::ErrorKind::InvalidInput)?;
+    let service = CString::new(port.to_string()).map_err(|_| std::io::ErrorKind::InvalidInput)?;
+    // SAFETY: zeroed `addrinfo` is the documented empty hints value; the fields set are plain ints.
+    let mut hints: libc::addrinfo = unsafe { std::mem::zeroed() };
+    hints.ai_family = libc::AF_INET;
+    hints.ai_socktype = libc::SOCK_STREAM;
+    hints.ai_flags = libc::AI_NUMERICSERV;
+    let mut list: *mut libc::addrinfo = std::ptr::null_mut();
+    // SAFETY: `host`, `service` and `hints` outlive the call; `list` is written by it.
+    let code = unsafe { libc::getaddrinfo(host.as_ptr(), service.as_ptr(), &hints, &mut list) };
+    if code != 0 {
+        return Err(std::io::Error::other(format!("getaddrinfo {name}: {code}")));
+    }
+    let mut found = Vec::new();
+    let mut at = list;
+    while !at.is_null() {
+        // SAFETY: `at` walks the list getaddrinfo returned, freed only after the walk.
+        let entry = unsafe { &*at };
+        if entry.ai_family == libc::AF_INET
+            && !entry.ai_addr.is_null()
+            && entry.ai_addrlen as usize >= std::mem::size_of::<libc::sockaddr_in>()
+        {
+            // SAFETY: an AF_INET entry's `ai_addr` points at a `sockaddr_in` of `ai_addrlen`.
+            let v4 = unsafe { &*(entry.ai_addr as *const libc::sockaddr_in) };
+            let ip = std::net::Ipv4Addr::from(u32::from_be(v4.sin_addr.s_addr));
+            found.push(SocketAddr::new(IpAddr::V4(ip), u16::from_be(v4.sin_port)));
+        }
+        at = entry.ai_next;
+    }
+    // SAFETY: `list` came from a successful getaddrinfo and is freed once.
+    unsafe { libc::freeaddrinfo(list) };
+    Ok(found)
+}
+
 impl HubCarrier {
     /// Dial the person's other machines on `port` first (their `directPort`), finding each by
     /// the name `names` gives for its `daemonId`.
@@ -177,12 +249,10 @@ impl HubCarrier {
         }
         let names = self.direct.names.read().unwrap_or_else(|e| e.into_inner()).clone()?;
         let name = names(daemon)?;
-        let found =
-            tokio::time::timeout(RESOLVE_BOUND, tokio::net::lookup_host((name.as_str(), port)))
-                .await
-                .ok()
-                .and_then(Result::ok)
-                .and_then(|mut all| all.find(|a| private_address(a.ip()) && !a.ip().is_loopback()));
+        let found = match resolve_any(&name, port).await {
+            Some(address) => Some(address),
+            None => resolve_v4(&name, port).await,
+        };
         match found {
             Some(address) => {
                 self.direct
@@ -305,33 +375,5 @@ pub(crate) fn scope() -> &'static cmux_scope::Scope {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_private_and_loopback_addresses_take_the_direct_path() {
-        for yes in [
-            "10.138.0.38",
-            "172.16.0.1",
-            "192.168.1.2",
-            "127.0.0.1",
-            "::1",
-            "fd00::1",
-            "::ffff:10.0.0.1",
-        ] {
-            assert!(private_address(yes.parse().unwrap()), "{yes}");
-        }
-        for no in ["8.8.8.8", "100.127.178.43", "fd7a:115c:a1e0::1", "2600::1", "::ffff:1.1.1.1"] {
-            assert!(!private_address(no.parse().unwrap()), "{no}");
-        }
-    }
-
-    #[test]
-    fn a_miss_holds_a_machine_off_the_direct_path() {
-        let direct = Direct::default();
-        assert!(!direct.held_off("k"));
-        direct.miss("k");
-        assert!(direct.held_off("k"));
-        assert!(!direct.held_off("other"));
-    }
-}
+#[path = "hub_carrier_direct_tests.rs"]
+mod tests;

@@ -196,7 +196,7 @@ describe("computer use", () => {
     const html = render(computerUseState("finished"));
     const words = text(html);
     expect(words).toContain("Computer Use Is Ready");
-    expect(words).toContain("Setup is complete. You can now ask agents to use apps on your Mac.");
+    expect(words).toContain("Setup is complete. Agents can now use apps on your Mac.");
     expect(words).not.toContain("Turn On Computer Use");
     expect(html).not.toContain('class="onb-grant"');
     expect(words).not.toContain(footnote);

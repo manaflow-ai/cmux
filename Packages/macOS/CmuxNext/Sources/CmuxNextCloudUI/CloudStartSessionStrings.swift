@@ -18,6 +18,11 @@ public struct CloudStartSessionStrings {
         }
     }
 
+    public static var environmentMismatch: CloudMoveFailure {
+        CloudMoveFailure(message: String(localized: "cloud.start.environmentMismatch", defaultValue: "The chosen machine cannot serve the selected Cloud environment.", table: "CloudSessions", bundle: .localizedModule),
+                         code: "environment_mismatch")
+    }
+
     public static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .localizedModule) }
     public static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .localizedModule) }
 
@@ -58,9 +63,15 @@ public struct CloudStartSessionStrings {
     /// connection on this Mac or the team serves `agent`'s family, so no machine was taken. `link` opens the Settings >
     /// Cloud row that sets it up (`cmux://settings/cloud/claude` or `/chatgpt`, the running build's scheme). With
     /// `localLogin` (a Claude Code or Codex login on this Mac, which serves only this Mac) it says why that one does not count.
-    public static func setupRequired(agent: String, family: String, localLogin: Bool, link: String, command: String) -> String {
+    /// `gatewayTeam`, `gatewayCode`: the team gateway the refusal read and why it counted none (the CLI's error code, or
+    /// `not_serving` when it read the gateway off or offline), said last (hq#19758); nil when none was read.
+    public static func setupRequired(agent: String, family: String, localLogin: Bool, link: String, command: String,
+                                     gatewayTeam: String? = nil, gatewayCode: String? = nil) -> String {
         let text = String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "No Cloud connection serves %1$@ yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), then run `%2$@` again.", table: "CloudSessions", bundle: .localizedModule), agent, command)
-        let open = String(format: String(localized: "cloud.startSession.setupRequired.open", defaultValue: "`cmux link open --url %@` opens it there.", table: "CloudSessions", bundle: .localizedModule), link)
+        var open = String(format: String(localized: "cloud.startSession.setupRequired.open", defaultValue: "`cmux link open --url %@` opens it there.", table: "CloudSessions", bundle: .localizedModule), link)
+        if let gatewayCode {
+            open += " " + String(format: String(localized: "cloud.startSession.setupRequired.gateway", defaultValue: "Inference gateway of team %1$@: %2$@.", table: "CloudSessions", bundle: .localizedModule), gatewayTeam ?? "-", gatewayCode)
+        }
         guard localLogin else { return text + " " + open }
         let login = family == "codex"
             ? String(localized: "cloud.startSession.setupRequired.codexLogin", defaultValue: "Your Codex login on this Mac works only on this Mac; Cloud needs a ChatGPT connection (or an API key).", table: "CloudSessions", bundle: .localizedModule)
@@ -139,6 +150,22 @@ public struct CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.newMachineKept", defaultValue: "Its new machine `%1$@` still runs. Delete it with `cmux cloud kill-machine --target machine:%2$@ --confirm true`.", table: "CloudSessions", bundle: .module), name, id)
     }
 
+    /// A failed start's error once the machine it made for itself is deleted: its `message` without the steps that name
+    /// that machine (`machine:ID`), which `cmux` refuses for a gone machine ("No Cloud machine has the id"), then that a
+    /// new chat starts on a new machine. Production, 2026-11-28 05:20Z-07:45Z (cmuxterm-hq#36372): four starts said
+    /// "Run `cmux vm start-session --target vm:…` again" for a machine already deleted. Nil when `message` names none.
+    public static func newMachineDeleted(_ name: String, id: String, after message: String) -> String? {
+        guard let named = message.range(of: "machine:\(id)") else { return nil }
+        let before = message[..<named.lowerBound]
+        let kept: String
+        if let end = before.lastIndex(where: { ".。".contains($0) }) {
+            kept = String(message[...end])
+        } else if let tick = before.lastIndex(of: "`") {
+            kept = message[..<tick].trimmingCharacters(in: .whitespaces)
+        } else { return nil }
+        return kept + " " + String(format: String(localized: "cloud.startSession.newMachineDeleted", defaultValue: "Its new machine `%1$@` was deleted. Start a new chat to try again on a new machine.", table: "CloudSessions", bundle: .localizedModule), name)
+    }
+
     /// The person closed the new chat's tab before its session started.
     public static func tabClosed(_ name: String, id: String, agent: String) -> String {
         String(format: String(localized: "cloud.startSession.tabClosed", defaultValue: "The new chat's tab on machine `%1$@` was closed before its agent started, so %3$@ didn't start there. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .localizedModule), name, id, agent)
@@ -160,6 +187,11 @@ public struct CloudStartSessionStrings {
     /// The `agent-session-start` refusals that name their cause (cmux-tui agent_session_start.rs, hq#11225): an agent
     /// not signed in, an agent the machine lacks, a model route that can't serve the start.
     public static let namedRefusals: Set<String> = ["agent_session.sign_in_required", "agent_session.harness_missing", "agent_session.route_unavailable"]
+
+    /// A team launch would expose a credential from the machine's Claude settings file.
+    package static var claudeSettingsSecret: String {
+        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again.", table: "CloudSessions", bundle: .localizedModule)
+    }
 
     /// A named refusal (`namedRefusals`) in the run's words. `agentName`: the agent as a person reads it; `expired`:
     /// its sign-in expired; `harness`: the refused harness id (`cmux`, the cmux router, is named as the router).
@@ -245,6 +277,12 @@ public struct CloudStartSessionStrings {
 
     public static func targetUnread(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.startSession.targetUnread", defaultValue: "Couldn't read the Cloud machines of the account signed in now, so %2$@ didn't start on %1$@. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command)
+    }
+
+    /// The list read itself failed (`reason`), so the start stopped before any create: name that failure, not a guess
+    /// that a machine by the name exists.
+    public static func listFailed(_ asked: Asked, reason: String) -> String {
+        String(format: String(localized: "cloud.startSession.listFailed", defaultValue: "Couldn't read your Cloud machines, so %2$@ didn't start on %1$@: %4$@. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command, reason)
     }
 
     public static func listUnread(_ asked: Asked) -> String {

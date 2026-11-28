@@ -266,6 +266,44 @@ int main() {
     for (auto& [name, value] : kept) same |= name == "Content-Security-Policy" && value == "default-src 'none'; frame-ancestors 'none'";
     Expect(same, "a CSP with its own frame-ancestors is kept");
   }
+  {
+    // The focused agent chat's top document is cross-origin isolated (COOP same-origin + COEP
+    // credentialless), which Chromium's one-renderer-per-site map keys apart: the site's isolated
+    // renderer. Never Origin-Agent-Cluster: Chromium CHECKs in the browser process on that opt-in from
+    // a non-HTTP(S) origin such as cmux-page (the app died on the first chat opened so).
+    auto has = [](const std::vector<std::pair<std::string, std::string>>& headers, const char* name,
+                  const char* value) {
+      for (auto& [n, v] : headers)
+        if (n == name && v == value) return true;
+      return false;
+    };
+    auto never_oac = [](const std::vector<std::pair<std::string, std::string>>& headers) {
+      for (auto& [n, v] : headers)
+        if (n == "Origin-Agent-Cluster") return false;
+      return true;
+    };
+    auto own = cmux_shim::OwnRendererHeaders("cmux.agent", true, 7, 7);
+    Expect(own.size() == 2 && has(own, "Cross-Origin-Opener-Policy", "same-origin") &&
+               has(own, "Cross-Origin-Embedder-Policy", "credentialless"),
+           "the named chat's document is cross-origin isolated");
+    Expect(never_oac(own), "no Origin-Agent-Cluster on a cmux-page document (Chromium CHECK)");
+    Expect(cmux_shim::OwnRendererHeaders("cmux.agent", true, 8, 7).empty(), "another chat keeps sharing");
+    Expect(cmux_shim::OwnRendererHeaders("cmux.agent", true, 0, 0).empty(), "no chat named, no headers");
+    // Its workers and frames load inside an isolated document only with a COEP of their own.
+    for (int owner : {0, 7}) {
+      auto sub = cmux_shim::OwnRendererHeaders("cmux.agent", false, 7, owner);
+      Expect(sub.size() == 1 && has(sub, "Cross-Origin-Embedder-Policy", "credentialless") && never_oac(sub),
+             "a chat's worker, frame or subresource carries COEP");
+    }
+    Expect(cmux_shim::OwnRendererHeaders("cmux.markdown", true, 7, 7).empty(), "another page id keeps sharing");
+    Expect(cmux_shim::OwnRendererHeaders("cmux.markdown", false, 7, 7).empty(), "another page id gets no COEP");
+    // A chat's top document waits one UI turn only while the app may still name its browser.
+    Expect(!cmux_shim::OwnRendererNeedsUITurn(true, 7, 7), "the named chat's document is answered now");
+    Expect(cmux_shim::OwnRendererNeedsUITurn(true, 8, 7), "another chat waits the turn (it may be named in it)");
+    Expect(cmux_shim::OwnRendererNeedsUITurn(true, 7, 0), "no chat named yet: wait the turn");
+    Expect(cmux_shim::OwnRendererNeedsUITurn(true, 0, 0), "no browser id: wait the turn");
+    Expect(!cmux_shim::OwnRendererNeedsUITurn(false, 8, 7), "not a chat's top document: no turn");
+  }
   char tmpl[] = "/tmp/cmux-page-path.XXXXXX";
   if (!mkdtemp(tmpl)) return 2;
   // The root is given through a symlink on purpose (macOS's /tmp is one too),

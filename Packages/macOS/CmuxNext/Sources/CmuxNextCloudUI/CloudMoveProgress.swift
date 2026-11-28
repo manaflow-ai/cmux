@@ -22,7 +22,16 @@ public final class CloudMoveProgress {
         var copyMs: UInt64?
     }
     /// Rust's answer: the line, and how long until it changes on its own.
-    struct Line: Decodable, Equatable { var text: String, nextMs: UInt64? }
+    struct Line: Decodable, Equatable {
+        var text: String, nextMs: UInt64?
+        /// How far the whole move is, 0...1 (the sidebar's moving row); nil from a Rust before it said.
+        var fraction: Double?
+    }
+
+    /// Each new line with how far the whole move is (``ChatMoves``: the sidebar's moving chat row).
+    public var stepped: (@MainActor (_ line: String, _ fraction: Double?) -> Void)?
+    /// Called once the run ends (``end()``), done or not.
+    public var ended: (@MainActor () -> Void)?
 
     private let direction: Direction
     private let show: @MainActor (String) -> Void
@@ -91,6 +100,7 @@ public final class CloudMoveProgress {
     public func end() {
         facts = nil
         stopWaking()
+        ended?()
     }
 
     private func stopWaking() { wake.cancel() }
@@ -105,6 +115,7 @@ public final class CloudMoveProgress {
         if line.text != shown {
             shown = line.text
             show(line.text)
+            stepped?(line.text, line.fraction)
         }
         guard let next = line.nextMs else { return }
         // One deadline when Rust says the line next changes; each answer replaces it, end() and hold() cancel it.

@@ -21,8 +21,8 @@ service first, so an app of the console user whose panel service hangs still blo
 about 40 s (open; plans/cmux-next/picker.md).
 
 The session rule (the same as the hq worker gate that grants gui-session-v1, build-fleet console_session.go
-readConsoleUser; change both together. The app's open-panel warm-up, CmuxNextDesign OpenPanelWarmGate, still reads
-SCDynamicStoreCopyConsoleUser): the console user is the session
+readConsoleUser, and the app's open-panel warm-up, CmuxNextDesign OpenPanelWarmGate; change all three together; a
+shell script asks `bench_launch.py console-user`): the console user is the session
 IOConsoleUsers marks kCGSSessionOnConsoleKey (`ioreg -n Root -d1 -a`), not scutil's State:/Users/ConsoleUser `Name`,
 which is the last GUI login (a hidden Screen Sharing account on a gui-ci-users mini); `loginwindow`, no on-console
 session, or no answer at all means nobody, and the check fails closed. This account has a GUI session only
@@ -342,6 +342,33 @@ def start_fresh_state(tag):
             os.makedirs(root, exist_ok=True)
             shutil.copy2(tunables, os.path.join(root, "debug-tunables.json"))
         note(f"bench-launch: {tag} starts from an empty saved session (earlier state moved to {prev})")
+
+
+def bundle_executable(app):
+    """The main executable of bundle app: Info.plist's CFBundleExecutable. A bench (Release) build's is not `cmux DEV`
+    (close-flash job 12728f0a2b37 started a `cmux DEV` that was not there; bench_idle.py and home-perf.py found "no
+    app" in every perf-budgets run on a bench build), and the first file in Contents/MacOS can be another executable;
+    only a bundle with no Info.plist falls back to those guesses. Every bench that starts or checks the app's
+    executable reads it here (test_bench_launch_executable.py refuses a hard-coded `Contents/MacOS/cmux DEV` in the
+    perf-budgets benches and the modules they load)."""
+    try:
+        with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
+            info = plistlib.load(f)
+    except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
+        info = None
+    named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
+    if named:
+        main = os.path.join(app, "Contents/MacOS", named)
+        if not os.path.exists(main):
+            raise SystemExit(f"bench-launch: {app} names CFBundleExecutable {named!r}, which is not in Contents/MacOS")
+        return main
+    main = os.path.join(app, "Contents/MacOS/cmux DEV")
+    if os.path.exists(main):
+        return main
+    found = [p for p in sorted(glob.glob(os.path.join(app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
+    if not found:
+        raise SystemExit(f"bench-launch: no executable in {app}/Contents/MacOS")
+    return found[0]
 
 
 def bundle_pids(app, inside="Contents/"):
@@ -1060,27 +1087,8 @@ class BenchApp:
 
     @property
     def binary(self):
-        """The bundle's main executable: Info.plist's CFBundleExecutable. A bench (Release) build's is not `cmux DEV`
-        (close-flash job 12728f0a2b37 started a `cmux DEV` that was not there), and the first file in Contents/MacOS
-        can be another executable; only a bundle with no Info.plist falls back to those guesses."""
-        try:
-            with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as f:
-                info = plistlib.load(f)
-        except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
-            info = None
-        named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
-        if named:
-            main = os.path.join(self.app, "Contents/MacOS", named)
-            if not os.path.exists(main):
-                raise SystemExit(f"bench-launch: {self.app} names CFBundleExecutable {named!r}, which is not in Contents/MacOS")
-            return main
-        main = os.path.join(self.app, "Contents/MacOS/cmux DEV")
-        if os.path.exists(main):
-            return main
-        found = [p for p in sorted(glob.glob(os.path.join(self.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
-        if not found:
-            raise SystemExit(f"bench-launch: no executable in {self.app}/Contents/MacOS")
-        return found[0]
+        """The bundle's main executable (bundle_executable)."""
+        return bundle_executable(self.app)
 
     def running_pids(self):
         """PIDs of processes running an executable of this bundle (another run of the same app)."""
@@ -1293,7 +1301,7 @@ class BenchApp:
         pid = self.process.pid if self.process else None
 
         def found():
-            return crash_reports(self.launched_at - 1, pid=pid, binary=self.binary)
+            return crash_reports(self.launched_at - 1, name=os.path.basename(self.binary), pid=pid, binary=self.binary)
 
         if exit_code is None or exit_code >= 0:
             return found()
@@ -1309,7 +1317,7 @@ class BenchApp:
             while True:
                 # Each report file seen is watched before the read below, so one whose body is still being written
                 # wakes the wait when it grows; reading after the watches are armed misses nothing written meanwhile.
-                for path in crash_report_candidates(self.launched_at - 1):
+                for path in crash_report_candidates(self.launched_at - 1, os.path.basename(self.binary)):
                     events.watch_file(path)
                 reports = found()
                 left = deadline - time.monotonic()
@@ -1377,6 +1385,8 @@ def main(argv=None):
                        help="launch even with no GUI session: only the socket and the window list are checked, no "
                             "frames; the result says socket_only and gui_session")
     sub.add_parser("session", help="only report whether this account has a GUI session")
+    sub.add_parser("console-user", help="print the account whose session is on the console (IOConsoleUsers), or "
+                                        "nothing: the one reader for scripts (scripts/ci/frame-pacing/console-session.sh)")
     sub.add_parser("limits", help="launchd's soft limits (a Finder launch's) and this process's, one JSON line")
     finder = sub.add_parser("finder-exec", help="run COMMAND with launchd's soft limits, as a Finder launch gets")
     finder.add_argument("cmd", nargs=argparse.REMAINDER, metavar="-- COMMAND")
@@ -1397,6 +1407,11 @@ def main(argv=None):
                 os.execvp(cmd[0], cmd)  # the limits set here are the command's (exec keeps them)
             except OSError as error:
                 parser.error(f"finder-exec: cannot run {cmd[0]}: {error}")
+    if opts.command == "console-user":
+        user = console_user()
+        if user:
+            print(user, flush=True)
+        return 0
     if opts.command == "session":
         result = {**host_facts(), "gui_session": gui_session()}
         print("BENCH-LAUNCH " + json.dumps(result), flush=True)

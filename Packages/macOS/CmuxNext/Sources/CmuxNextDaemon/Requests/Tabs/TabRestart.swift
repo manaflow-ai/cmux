@@ -6,7 +6,7 @@ import Foundation
 /// its placement and every reference to the terminal stay. The reply comes
 /// when the restart started; the tree shows the tab running again. A tab
 /// whose terminal runs is refused with `tab-not-dead`.
-public struct RestartTabRequest: DaemonRequest {
+extension RestartTabRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var surface: SurfaceID
         public var terminal: String
@@ -15,13 +15,5 @@ public struct RestartTabRequest: DaemonRequest {
             self.surface = surface
             self.terminal = terminal
         }
-    }
-
-    public static let command = "restart-tab"
-    public static let requiredCapability: String? = DaemonCapability.tabRestart.rawValue
-    public var surface: SurfaceID
-
-    public init(surface: SurfaceID) {
-        self.surface = surface
     }
 }

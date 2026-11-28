@@ -1,4 +1,5 @@
 import Darwin
+internal import CmuxNextHomeModel
 public import Foundation
 
 /// NIGHTLY's adoption of the shared Chief home (per-build isolation S6,
@@ -26,37 +27,54 @@ public nonisolated struct ChiefAdoption: Sendable {
         case busy
     }
 
-    static let recordName = "adopted.json"
-
     public let home: ChiefHome
 
     public init(home: ChiefHome) {
         self.home = home
     }
 
-    /// Whether this home is NIGHTLY's (the only one that is adopted).
-    public var applies: Bool { !home.isolated && home.buildID == ChiefHome.nightlyBundleID }
+    /// `ChiefAdoption.run`'s paths and steps (Rust `chief_home.adoption_plan`).
+    private struct Plan: Decodable {
+        let step: String
+        let recordPath: String
+        let lockPath: String
+        let backupNeeded: Bool
+        let backups: String
+        let target: String
+    }
+
+    private func plan(recordExists: Bool, names: [String], now: Date) throws -> Plan {
+        struct Request: Encodable {
+            let root: String
+            let isolated: Bool
+            let buildID: String?
+            let recordExists: Bool
+            let names: [String]
+            let now: Double
+        }
+        return try HomeRules.call("chief_home.adoption_plan", Request(root: home.root.path, isolated: home.isolated, buildID: home.buildID,
+                                                                       recordExists: recordExists, names: names, now: now.timeIntervalSince1970))
+    }
 
     /// Clones and records the home once. `by` names the adopting build.
     public func run(by: String, now: Date = Date()) throws -> Outcome {
         let fm = FileManager.default
-        let record = home.root.appendingPathComponent(Self.recordName)
-        guard applies, !fm.fileExists(atPath: record.path) else { return .nothingToDo }
-        let lockPath = home.root.appendingPathComponent("state/host.lock")
+        let paths = try plan(recordExists: false, names: [], now: now)
+        let record = URL(fileURLWithPath: paths.recordPath)
+        guard paths.step == "adopt", !fm.fileExists(atPath: record.path) else { return .nothingToDo }
+        let lockPath = URL(fileURLWithPath: paths.lockPath)
         try fm.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard let lock = ChiefMigration.HostLock(path: lockPath) else { return .busy }
         defer { lock.release() }
         guard !fm.fileExists(atPath: record.path) else { return .nothingToDo }
         let names = (try? fm.contentsOfDirectory(atPath: home.root.path)) ?? []
+        let plan = try plan(recordExists: false, names: names, now: now)
         var backup: URL?
         var raw: [String] = []
-        if names.contains(where: { $0 != "state" }) {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withYear, .withMonth, .withDay, .withTime, .withTimeZone]
-            let stamp = formatter.string(from: now).replacingOccurrences(of: ":", with: "")
-            let backups = home.root.deletingLastPathComponent().appendingPathComponent(".backups", isDirectory: true)
+        if plan.backupNeeded {
+            let backups = URL(fileURLWithPath: plan.backups, isDirectory: true)
             try fm.createDirectory(at: backups, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            let target = backups.appendingPathComponent("\(home.root.lastPathComponent)-\(stamp)", isDirectory: true)
+            let target = URL(fileURLWithPath: plan.target, isDirectory: true)
             guard !fm.fileExists(atPath: target.path) else { return .busy }
             // Cloned under a hidden name and renamed when complete: a failed
             // clone leaves no backup that looks whole, and no partial copy.
@@ -70,9 +88,11 @@ public nonisolated struct ChiefAdoption: Sendable {
             }
             backup = target
         }
-        let json: [String: Any] = ["by": by, "at": ISO8601DateFormatter().string(from: now),
-                                   "backup": backup?.path ?? NSNull(), "raw": raw]
-        try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]).write(to: record, options: .atomic)
+        struct Record: Encodable { let by: String; let now: Double; let backup: String?; let raw: [String] }
+        struct Text: Decodable { let json: String }
+        let text: Text = try HomeRules.call("chief_home.adoption_record",
+                                            Record(by: by, now: now.timeIntervalSince1970, backup: backup?.path, raw: raw))
+        try Data(text.json.utf8).write(to: record, options: .atomic)
         return .adopted(backup: backup)
     }
 
@@ -106,7 +126,10 @@ public nonisolated struct ChiefAdoption: Sendable {
                     throw error
                 } catch {
                     try? FileManager.default.removeItem(at: to)
-                    for file in [name] + ["-wal", "-shm", "-journal"].map({ name + $0 }) where names.contains(file) {
+                    struct Request: Encodable { let name: String; let names: [String] }
+                    struct Reply: Decodable { let files: [String] }
+                    let files: Reply = try HomeRules.call("chief_home.adoption_raw_files", Request(name: name, names: names))
+                    for file in files.files {
                         try Self.cloneFile(from: source.appendingPathComponent(file), to: target.appendingPathComponent(file))
                     }
                     raw.append(from.path)

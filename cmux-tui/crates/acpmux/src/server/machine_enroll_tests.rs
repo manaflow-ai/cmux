@@ -70,6 +70,7 @@ async fn recording_hub() -> (crate::mesh_http::MeshRelayConfig, Arc<Mutex<Vec<St
         team_messaging: true,
         credential: None,
         control_from: Vec::new(),
+        direct_send: false,
     };
     let seen = Arc::new(Mutex::new(Vec::new()));
     let log = Arc::clone(&seen);

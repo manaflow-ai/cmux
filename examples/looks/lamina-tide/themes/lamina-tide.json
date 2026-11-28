@@ -2,11 +2,11 @@
 // one-point strokes, no reveal effects, an accent mark on the selected row. Every key is a look key.
 {
   "name": "Lamina Tide",
-  "description": "A layered, translucent desktop look: accent-forward teal, dark.",
+  "description": "Dark: frosted glass with a teal accent.",
 
   // Palette: layer color, ink, selection, accent.
   "appearance.theme": "Builtin Dark",
-  "colors": {"background": "#141f1f", "foreground": "#eef6f5", "selection": "#1f4a47", "accent": "#2dd4bf"},
+  "colors": {"background": "#141f1f", "foreground": "#eef6f5", "selection": "#37847e", "accent": "#2dd4bf"},
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "theme",
   "appearance.highlightColor": "#1f4a47",

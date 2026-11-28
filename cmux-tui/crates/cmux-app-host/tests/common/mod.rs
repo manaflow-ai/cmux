@@ -32,6 +32,8 @@ pub struct Harness {
     pub calls: Vec<Call>,
     pub unanswered: Vec<Call>,
     pub logs: Vec<(String, String)>,
+    /// Every `FromHost::State` (`cmux.state`) the VM sent, oldest first.
+    pub kept: Vec<Value>,
     pub done: HashMap<u64, (bool, Value)>,
     pub subscriptions: BTreeMap<u64, (String, Value)>,
     pub fatal: Option<FromHost>,
@@ -66,7 +68,7 @@ impl Harness {
         )
     }
 
-    /// `init` may carry `app`, `settings`, `ops`, `knownOps`, `locale`, `strings`.
+    /// `init` may carry `app`, `settings`, `ops`, `knownOps`, `locale`, `strings`, `state`.
     pub fn with(main: &str, init: Value, limits: Limits) -> Self {
         let mut vm = AppVm::new(limits).expect("vm");
         let list = |key: &str| -> Option<Vec<String>> {
@@ -78,22 +80,26 @@ impl Harness {
             .get("app")
             .cloned()
             .unwrap_or_else(|| json!({ "id": "local/test", "version": "1.0.0" }));
-        vm.init(InitParams {
-            app: AppInfo {
-                id: app["id"].as_str().unwrap_or("local/test").into(),
-                version: app["version"].as_str().unwrap_or("1.0.0").into(),
+        vm.init_with_state(
+            InitParams {
+                app: AppInfo {
+                    id: app["id"].as_str().unwrap_or("local/test").into(),
+                    version: app["version"].as_str().unwrap_or("1.0.0").into(),
+                },
+                settings: init.get("settings").cloned().unwrap_or_else(|| json!({})),
+                api_version: "1.0.0".into(),
+                ops: list("ops"),
+                known_ops: list("knownOps"),
+                locale: init.get("locale").and_then(Value::as_str).map(str::to_string),
+                strings: init.get("strings").cloned().unwrap_or(Value::Null),
+                main: main.to_string(),
+                main_name: Some("main.js".into()),
             },
-            settings: init.get("settings").cloned().unwrap_or_else(|| json!({})),
-            api_version: "1.0.0".into(),
-            ops: list("ops"),
-            known_ops: list("knownOps"),
-            locale: init.get("locale").and_then(Value::as_str).map(str::to_string),
-            strings: init.get("strings").cloned().unwrap_or(Value::Null),
-            main: main.to_string(),
-            main_name: Some("main.js".into()),
-        })
+            init.get("state").cloned(),
+        )
         .expect("init");
         let mut harness = Self {
+            kept: Vec::new(),
             vm,
             scenes: HashMap::new(),
             calls: Vec::new(),
@@ -149,6 +155,7 @@ impl Harness {
                         answers.push((cb, answer));
                     }
                     FromHost::Log { level, message } => self.logs.push((level, message)),
+                    FromHost::State { values } => self.kept.push(values),
                     FromHost::Done { cb, ok, body } => {
                         self.done.insert(cb, (ok, body));
                     }

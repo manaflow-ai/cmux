@@ -22,7 +22,7 @@ SHA256_IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 # Blacksmith Linux size (an ephemeral VM, never a persistent runner).
 OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| "
     # A fork pull request's branch of the one Linux label (scripts/ci/one_linux_label.py): fork runs only.
-    r"|github\.event\.pull_request\.head\.repo\.full_name != github\.repository && \(vars\.CI_FORK_LINUX_RUNNER \|\| '[^']+'\)")
+    r"|github\.event\.pull_request\.head\.repo\.full_name != github\.repository && 'ubuntu-[^']+'")
 
 def workflow(name: str) -> dict:
     return yaml.load((WORKFLOWS / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
@@ -169,7 +169,8 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     assert not workflow_jobs.secret_names(installer)
     assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", runs_on_text(installer)))
     installer_script = run_text(installer)
-    assert "gh attestation verify" in installer_script
+    # #56977 wraps gh in gh_waiting_out_rate_limit (a bounded 403 back-off); the verify itself stays required.
+    assert re.search(r"\bgh(_waiting_out_rate_limit)? attestation verify\b", installer_script)
     assert "--source-ref refs/heads/main" in installer_script
     assert "sourceRepositoryDigest" in installer_script
     assert "latest/manifest.json" not in installer_script
@@ -179,8 +180,12 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     assert any("actions/upload-artifact@" in str(step.get("uses", "")) for step in installer["steps"])
 
     assert journey.get("needs") == "installer"
-    # NEXT Cloud: the cmux VM API's own environments, never classic cloud-vm-*.
-    assert workflow_jobs.resolve(journey).environment == {"name": "cmux-vm-${{ inputs.target }}"}
+    # NEXT Cloud: the cmux VM API's own environments, never classic cloud-vm-*. #59050 (Leo) signs paused staging
+    # reads in from cmux-next-vm-image-dev; every branch of the expression is still a named, gated environment.
+    assert workflow_jobs.resolve(journey).environment == {
+        "name": "${{ inputs.paused_reads && inputs.target == 'staging' && 'cmux-next-vm-image-dev'"
+        " || format('cmux-vm-{0}', inputs.target) }}"
+    }
     assert "/api/vm" not in yaml.dump(journey)
     assert "scripts/cmux-next/cloud-vm-dogfood-journey.ts" in run_text(journey)
     assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", runs_on_text(journey)))

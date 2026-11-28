@@ -1,5 +1,7 @@
 use super::*;
 use crate::write_journal::MemoryJournalStore;
+use crate::write_journal::browse::{ListOutcome, SearchOutcome};
+use crate::write_journal::diff::{DiffOutcome, PauseDiff};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -44,7 +46,8 @@ fn fixture(files: &[(&str, &str)], bounds: SeedBounds) -> Fixture {
         std::fs::write(p, text).unwrap();
     }
     let fs =
-        PausedFs::new(Arc::new(MemoryJournalStore::default()), dir.path().join("replicas"), bounds);
+        PausedFs::new(Arc::new(MemoryJournalStore::default()), dir.path().join("replicas"), bounds)
+            .with_serve_reads(true);
     Fixture { machine, fs, _dir: dir }
 }
 
@@ -196,4 +199,304 @@ async fn paused_read_latency_journal_vs_resume_then_read() {
             assert!(j < w, "journal {j:?} vs resume-then-read {w:?}");
         }
     }
+}
+
+fn names(r: Routed<ListOutcome>) -> Vec<(String, bool)> {
+    match r {
+        Routed::Answered(ListOutcome::Entries(e)) => {
+            e.into_iter().map(|e| (e.name, e.is_dir)).collect()
+        }
+        other => panic!("expected entries, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_paused_machine_lists_and_searches_with_no_resume_and_the_journal_on_top() {
+    let f = fixture(
+        &[("src/a.rs", "fn a() {}\nlet needle = 1;\n"), ("b.txt", "hello\n"), ("c.txt", "x\n")],
+        SeedBounds::default(),
+    );
+    let resume = FakeResume::new(Duration::ZERO);
+    f.fs.pause("m1", &f.machine, resume.clone(), 0).unwrap();
+    assert_eq!(
+        names(f.fs.list_dir("m1", &f.machine, 0).unwrap()),
+        [("b.txt".into(), false), ("c.txt".into(), false), ("src".into(), true)]
+    );
+    // The journal is laid over the copy: a new file under a new folder, and a delete.
+    f.fs.write("m1", &f.machine.join("new/d.txt"), "needle too\n", 0, 1).unwrap();
+    f.fs.write("m1", &f.machine.join("b.txt"), "changed\n", 0, 2).unwrap();
+    let deleted = f.fs.write("m1", &f.machine.join("c.txt"), "", 0, 3).unwrap();
+    assert!(matches!(deleted, Routed::Answered(_)));
+    assert_eq!(
+        names(f.fs.list_dir("m1", &f.machine, 0).unwrap()),
+        [
+            ("b.txt".into(), false),
+            ("c.txt".into(), false),
+            ("new".into(), true),
+            ("src".into(), true)
+        ]
+    );
+    assert_eq!(
+        f.fs.list_dir("m1", &f.machine.join("nope"), 0).unwrap(),
+        Routed::Answered(ListOutcome::NotFound)
+    );
+    let Routed::Answered(SearchOutcome::Hits { hits, truncated }) =
+        f.fs.search("m1", &f.machine, "needle", 10, 0).unwrap()
+    else {
+        panic!("search was not answered");
+    };
+    assert!(!truncated);
+    let at: Vec<_> = hits.iter().map(|h| (h.path.as_str(), h.line)).collect();
+    assert_eq!(at, [("new/d.txt", 1), ("src/a.rs", 2)]);
+    assert_eq!(resume.calls.load(Ordering::SeqCst), 0, "a read never wakes the machine");
+}
+
+#[test]
+fn listings_and_searches_stop_answering_once_the_machine_ran() {
+    let f = fixture(&[("a.txt", "needle\n")], SeedBounds::default());
+    f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), 0).unwrap();
+    // The daemon saw a resume since the seed: anything may have run.
+    assert!(matches!(
+        f.fs.list_dir("m1", &f.machine, 1).unwrap(),
+        Routed::Answered(ListOutcome::NeedsMachine(NeedsMachine::Stale))
+    ));
+    assert!(matches!(
+        f.fs.search("m1", &f.machine, "needle", 5, 1).unwrap(),
+        Routed::Answered(SearchOutcome::NeedsMachine(NeedsMachine::Stale))
+    ));
+}
+
+#[test]
+fn listings_and_searches_are_off_unless_the_setting_is_on() {
+    let mut f = fixture(&[("a.txt", "x\n")], SeedBounds::default());
+    f.fs = f.fs.with_serve_reads(false);
+    f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), 0).unwrap();
+    assert_eq!(f.fs.list_dir("m1", &f.machine, 0).unwrap(), Routed::NotPaused);
+    assert_eq!(f.fs.search("m1", &f.machine, "x", 5, 0).unwrap(), Routed::NotPaused);
+}
+
+#[test]
+fn a_file_the_seed_left_out_is_still_in_the_tree() {
+    let bounds = SeedBounds { max_file_bytes: 4, ..SeedBounds::default() };
+    let f = fixture(&[("big.txt", "much too large\n"), ("s.txt", "ok\n")], bounds);
+    f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), 0).unwrap();
+    assert_eq!(
+        names(f.fs.list_dir("m1", &f.machine, 0).unwrap()),
+        [("big.txt".into(), false), ("s.txt".into(), false)]
+    );
+}
+
+/// Duress (RFD 0144's 200 ms file-open bound): a 5,000-file tree of 4 KiB sources in 50 folders,
+/// 200 journal writes on top, then folder listings, file opens and whole-tree searches while
+/// paused. Prints p50 and p95 with n; fails past the bound for a listing or an open.
+#[test]
+fn paused_reads_duress_large_tree_with_a_busy_journal() {
+    let body = "let value = compute(1, 2);\n".repeat(150);
+    let paths: Vec<String> = (0..5000).map(|i| format!("d{:02}/f{i:04}.rs", i % 50)).collect();
+    let files: Vec<(&str, &str)> = paths.iter().map(|p| (p.as_str(), body.as_str())).collect();
+    let f = fixture(&files, SeedBounds::default());
+    let resume = FakeResume::new(Duration::ZERO);
+    let report = f.fs.pause("m1", &f.machine, resume.clone(), 0).unwrap();
+    assert!(report.complete);
+    for i in 0..200u64 {
+        let p = f.machine.join(format!("d{:02}/new{i}.rs", i % 50));
+        f.fs.write("m1", &p, "let needle = 1;\n", 0, i + 1).unwrap();
+    }
+    let pct = |mut v: Vec<Duration>, q: f64| {
+        v.sort();
+        v[((v.len() as f64 * q).ceil() as usize).saturating_sub(1)]
+    };
+    let report_line = |what: &str, v: Vec<Duration>| {
+        let n = v.len();
+        let (p50, p95) = (pct(v.clone(), 0.5), pct(v, 0.95));
+        eprintln!(
+            "RFD 0144 paused {what}: n={n} p50 {:.2} ms p95 {:.2} ms",
+            p50.as_secs_f64() * 1e3,
+            p95.as_secs_f64() * 1e3
+        );
+        p95
+    };
+    let mut lists = Vec::new();
+    for i in 0..200 {
+        let dir = f.machine.join(format!("d{:02}", i % 50));
+        let at = Instant::now();
+        let n = names(f.fs.list_dir("m1", &dir, 0).unwrap()).len();
+        lists.push(at.elapsed());
+        assert_eq!(n, 104);
+    }
+    let mut opens = Vec::new();
+    for i in 0..200 {
+        let at = Instant::now();
+        let t = text(f.fs.open("m1", &f.machine.join(&paths[i * 25]), 0).unwrap());
+        opens.push(at.elapsed());
+        assert_eq!(t.len(), body.len());
+    }
+    let mut searches = Vec::new();
+    for _ in 0..10 {
+        let at = Instant::now();
+        let r = f.fs.search("m1", &f.machine, "needle", 1000, 0).unwrap();
+        searches.push(at.elapsed());
+        match r {
+            Routed::Answered(SearchOutcome::Hits { hits, .. }) => assert_eq!(hits.len(), 200),
+            other => panic!("expected hits, got {other:?}"),
+        }
+    }
+    let mut diffs = Vec::new();
+    for _ in 0..20 {
+        let at = Instant::now();
+        let r = f.fs.diff("m1", &f.machine, 0).unwrap();
+        diffs.push(at.elapsed());
+        match r {
+            Routed::Answered(DiffOutcome::Diff { changed, .. }) => assert_eq!(changed.len(), 200),
+            other => panic!("expected a diff, got {other:?}"),
+        }
+    }
+    assert_eq!(resume.calls.load(Ordering::SeqCst), 0, "no read woke the machine");
+    let bound = Duration::from_millis(200);
+    assert!(report_line("diff (200 journaled files)", diffs) < bound);
+    assert!(report_line("folder listing", lists) < bound);
+    assert!(report_line("file open", opens) < bound);
+    report_line("whole-tree search (5,200 files)", searches);
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+fn diff_of(r: Routed<DiffOutcome>) -> (PauseDiff, String, Vec<String>) {
+    match r {
+        Routed::Answered(DiffOutcome::Diff { at_pause, since_pause, changed, truncated }) => {
+            assert!(!truncated);
+            (at_pause, since_pause, changed)
+        }
+        other => panic!("expected a diff, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_paused_machine_answers_its_diff_and_file_open_with_no_resume() {
+    let f = fixture(&[("a.txt", "one\ntwo\n"), ("b.txt", "keep\n")], SeedBounds::default());
+    git(&f.machine, &["init", "-q"]);
+    git(&f.machine, &["add", "."]);
+    git(&f.machine, &["commit", "-qm", "base"]);
+    std::fs::write(f.machine.join("a.txt"), "one\nTWO\n").unwrap();
+    std::fs::write(f.machine.join("new.txt"), "untracked\n").unwrap();
+    let resume = FakeResume::new(Duration::ZERO);
+    f.fs.pause("m1", &f.machine, resume.clone(), 0).unwrap();
+
+    let (at_pause, since, changed) = diff_of(f.fs.diff("m1", &f.machine, 0).unwrap());
+    let PauseDiff::Captured { text, untracked, untracked_truncated } = at_pause else {
+        panic!("git diff not captured: {at_pause:?}");
+    };
+    assert!(
+        text.contains("--- a/a.txt") && text.contains("-two") && text.contains("+TWO"),
+        "{text}"
+    );
+    assert_eq!(untracked, ["new.txt"]);
+    assert!(!untracked_truncated);
+    assert!(since.is_empty() && changed.is_empty());
+
+    // The agent edits while paused: the diff since the pause is against the paused file.
+    f.fs.write("m1", &f.machine.join("b.txt"), "kept\n", 0, 1).unwrap();
+    f.fs.write("m1", &f.machine.join("c/d.txt"), "fresh\n", 0, 2).unwrap();
+    let (_, since, changed) = diff_of(f.fs.diff("m1", &f.machine, 0).unwrap());
+    assert_eq!(changed, ["b.txt", "c/d.txt"]);
+    assert!(
+        since.contains("--- a/b.txt\n+++ b/b.txt") && since.contains("-keep\n+kept"),
+        "{since}"
+    );
+    assert!(since.contains("--- /dev/null\n+++ b/c/d.txt") && since.contains("+fresh"), "{since}");
+
+    // File open sees the journal first, then the paused disk.
+    assert_eq!(text_of_open(&f, "b.txt"), "kept\n");
+    assert_eq!(text_of_open(&f, "a.txt"), "one\nTWO\n");
+    assert_eq!(
+        f.fs.open("m1", &f.machine.join("gone.txt"), 0).unwrap(),
+        Routed::Answered(ReadOutcome::NotFound)
+    );
+    // A folder under the machine's is a different question; a resume gap makes it stale.
+    assert!(matches!(
+        f.fs.diff("m1", &f.machine.join("c"), 0).unwrap(),
+        Routed::NeedsMachine(NeedsMachine::MachineOnly)
+    ));
+    assert!(matches!(
+        f.fs.diff("m1", &f.machine, 1).unwrap(),
+        Routed::Answered(DiffOutcome::NeedsMachine(NeedsMachine::Stale))
+    ));
+    assert_eq!(resume.calls.load(Ordering::SeqCst), 0, "no read woke the machine");
+}
+
+fn text_of_open(f: &Fixture, rel: &str) -> String {
+    text(f.fs.open("m1", &f.machine.join(rel), 0).unwrap())
+}
+
+#[test]
+fn a_folder_outside_git_says_only_its_pause_part_is_missing() {
+    let f = fixture(&[("a.txt", "x\n")], SeedBounds::default());
+    f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), 0).unwrap();
+    let (at_pause, _, _) = diff_of(f.fs.diff("m1", &f.machine, 0).unwrap());
+    // The tempdir may sit inside some repo on a dev box; then the diff is that repo's, relative.
+    assert!(matches!(at_pause, PauseDiff::Missing("notGit") | PauseDiff::Captured { .. }));
+}
+
+#[test]
+fn file_open_and_diff_are_off_unless_the_setting_is_on() {
+    let mut f = fixture(&[("a.txt", "x\n")], SeedBounds::default());
+    f.fs = f.fs.with_serve_reads(false);
+    f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), 0).unwrap();
+    assert_eq!(f.fs.open("m1", &f.machine.join("a.txt"), 0).unwrap(), Routed::NotPaused);
+    assert_eq!(f.fs.diff("m1", &f.machine, 0).unwrap(), Routed::NotPaused);
+    // The agent's own read is not this setting's.
+    assert_eq!(text(f.fs.read("m1", &f.machine.join("a.txt"), 0).unwrap()), "x\n");
+}
+
+/// Duress: what the git read adds to a pause of a 5,000-file repo with 50 changed files
+/// (the pause waits on it). Prints both pause times; fails past 2 s for the git part.
+#[test]
+fn pause_git_capture_duress_5000_file_repo() {
+    let body = "let value = compute(1, 2);\n".repeat(150);
+    let paths: Vec<String> = (0..5000).map(|i| format!("d{:02}/f{i:04}.rs", i % 50)).collect();
+    let files: Vec<(&str, &str)> = paths.iter().map(|p| (p.as_str(), body.as_str())).collect();
+    let mut f = fixture(&files, SeedBounds::default());
+    git(&f.machine, &["init", "-q"]);
+    git(&f.machine, &["add", "."]);
+    git(&f.machine, &["commit", "-qm", "base"]);
+    for p in paths.iter().step_by(100) {
+        std::fs::write(f.machine.join(p), format!("{body}changed\n")).unwrap();
+    }
+    let mut with = Vec::new();
+    let mut without = Vec::new();
+    for round in 0..5u64 {
+        f.fs = f.fs.with_serve_reads(true);
+        let at = Instant::now();
+        f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), round).unwrap();
+        with.push(at.elapsed());
+        f.fs.resumed("m1").unwrap();
+        f.fs = f.fs.with_serve_reads(false);
+        let at = Instant::now();
+        f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), round).unwrap();
+        without.push(at.elapsed());
+        f.fs.resumed("m1").unwrap();
+    }
+    f.fs = f.fs.with_serve_reads(true);
+    f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), 9).unwrap();
+    let (at_pause, _, _) = diff_of(f.fs.diff("m1", &f.machine, 9).unwrap());
+    let PauseDiff::Captured { text, .. } = at_pause else { panic!("{at_pause:?}") };
+    assert_eq!(text.matches("\n+changed").count(), 50);
+    with.sort();
+    without.sort();
+    let (w, wo) = (with[2], without[2]);
+    eprintln!(
+        "RFD 0144 pause of 5,000 files, 50 changed: median {:.1} ms with the git diff, {:.1} ms \
+         without (n=5 each)",
+        w.as_secs_f64() * 1e3,
+        wo.as_secs_f64() * 1e3
+    );
+    assert!(w.saturating_sub(wo) < Duration::from_secs(2));
 }

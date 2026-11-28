@@ -38,4 +38,15 @@ public struct UnreadTotals: Sendable, Equatable {
         markedWorkspaces += other.markedWorkspaces
         for (id, count) in other.conversations { conversations[id, default: 0] += count }
     }
+
+    /// Takes `other` out (a workspace that left, or the old count of one that changed); a conversation no tab counts
+    /// any more leaves the map, so the totals equal a count from scratch.
+    mutating func subtract(_ other: UnreadTotals) {
+        tabs -= other.tabs
+        markedWorkspaces -= other.markedWorkspaces
+        for (id, count) in other.conversations {
+            let left = (conversations[id] ?? 0) - count
+            conversations[id] = left > 0 ? left : nil
+        }
+    }
 }

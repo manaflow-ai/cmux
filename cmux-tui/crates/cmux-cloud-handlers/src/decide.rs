@@ -190,11 +190,14 @@ pub enum Creation {
 }
 
 /// The creation's state from its facts: still `listed`, its machine (`has_session`), `failed`.
+/// A failure outranks the row's leaving: a creation no window shows (a CLI's, an agent's) ends
+/// as it fails, so `cloud list-machines` never keeps a failed create, and its caller still hears
+/// why it failed, not "declined".
 pub fn creation(listed: bool, has_session: bool, failed: bool) -> Creation {
     match (listed, has_session, failed) {
-        (false, false, _) => Creation::Gone,
         (_, true, _) => Creation::Created,
-        (true, false, true) => Creation::Failed,
+        (_, false, true) => Creation::Failed,
+        (false, false, false) => Creation::Gone,
         (true, false, false) => Creation::Pending,
     }
 }
@@ -215,6 +218,9 @@ pub struct Settled {
     pub workspace_id: Option<String>,
     /// The paid plan a refusal names.
     pub plan: Option<String>,
+    /// When the request was made, unix seconds: whether the machine is `reused`
+    /// ([`fields::note_reuse`]).
+    pub asked_at: Option<f64>,
 }
 
 /// A run's failure: its reason, the error code a caller can act on, and whether it is a
@@ -234,7 +240,9 @@ pub struct Failure {
 pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
     // A machine the server returned is made, whatever phase raced it (as `creation` decides).
     if let Some(machine) = &settled.machine {
-        return Ok(fields::created_machine(machine, settled.workspace_id.as_deref()));
+        let mut made = fields::created_machine(machine, settled.workspace_id.as_deref());
+        fields::note_reuse(&mut made, machine, settled.asked_at);
+        return Ok(made);
     }
     match settled.state {
         Some(Creation::Failed) => {
@@ -490,6 +498,33 @@ pub fn port_failure(code: Option<&str>, text: &str, names: &PortNames) -> Said {
         Some("cmux.cloud.port_limit") => names.said("portLimit", &[]),
         _ => names.said("portFailed", &[&detail(text)]),
     }
+}
+
+/// The machine changes an agent or a script runs with no Allow: they only change the size of, or
+/// add a snapshot of, one of the person's own machines, which counts on their plan and nothing
+/// else (Leo, 2026-11-18, on the Allow card for an agent's resize: "this shouldnt wait"). A new
+/// machine (create, restore, fork) and a delete still ask.
+pub const UNASKED_CHANGES: [&str; 3] =
+    ["cloudResizeMachine", "palette.cloud.snapshot", "palette.cloud.promoteTemplate"];
+
+/// How an agent's or a script's machine change reaches the person.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeGate {
+    /// It waits for the person's Allow (the consent card) before it runs.
+    pub asks: bool,
+    /// A toast once it ran.
+    pub toast: bool,
+}
+
+/// The gate of `action`'s change when an agent or a script runs it (a person's own run is never
+/// gated). Only what needs the person interrupts them: a change that makes or deletes something
+/// asks first, in its consent card. A change that ran never toasts: an agent's resize of a
+/// lane's machine is routine, the person was not looking at it, and the run's answer (the
+/// machine's id and new size) and the machine's row already record it (Leo, 2026-11-27, on
+/// "Resize Machine by an agent or a script: lane-…, disk: 128": "also why are we showing this").
+pub fn change_gate(action: &str) -> ChangeGate {
+    ChangeGate { asks: !UNASKED_CHANGES.contains(&action), toast: false }
 }
 
 #[cfg(test)]

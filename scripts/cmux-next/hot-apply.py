@@ -127,11 +127,30 @@ another pauses it), so they add up to the run:
   backup    the copies of what the app had, kept for `rollback`
   find      the daemons running from the app (ps, lsof, `server status`)
   swap      the files renamed into place; the web overlay installed
-  reload    the daemon handoff until a new owner answers; the acpmux daemons restarted. The app's
-            own reload of its pages (on the overlay's manifest.json) is not seen from here.
+  handoff   the daemon handoff until a new owner answers (terminals kept). The app's own reload of
+            its pages (on the overlay's manifest.json) is not seen from here.
+  sessions  --restart-sessions: every other session's daemon handed to the new build (`server restart`)
+  acpmux    `acpmux daemon restart` in each home until a new daemon answers (sessions resume)
   quit      ffi: `cmux app quit --keep-sessions` until the app's pid is gone
   launch    ffi: `open APP` until a new pid answers on the app's control socket, then the stay-up check
   rollback  putting back what was there after a failed check
+
+A receipt of an apply that went in also carries `layers`, the swap time of each layer it moved, the
+part of the run the person waits on (RFD 0174, "time every layer"):
+
+  daemon    {ms, state_kept}: the app's daemon's handoff phase (terminals and the app pid kept); other
+            sessions' daemons (--restart-sessions) are their own phase, not in it
+  acpmux    {ms, state_kept, homes}: the acpmux phase; state_kept when every home answered from a new
+            daemon (its sessions resume)
+  ffi       {ms, state_kept: false, kept: "sessions"}: quit plus launch (the window layout and the app
+            process are lost, sessions kept); absent when the app was not running
+
+`layers [--history FILE]...` reads history.jsonl (this host's, else each FILE: receipts gathered from
+other hosts) and prints, per platform and layer, the count, p50 and p95 in ms and the NOW row names
+(`hot_swap_mac_daemon_handoff_p95_ms`, `hot_swap_mac_acpmux_restart_p95_ms`,
+`hot_swap_mac_ffi_warm_swap_p95_ms`). A receipt from before `layers` gives what its phases still say:
+`reload` was the daemon handoff when no acpmux or other session's daemon restarted in it; `quit` and `launch` are the ffi
+part's.
 
 `apply --dry-run` plans, fetches and verifies every part and stops before `backup`: nothing in the
 app changes, and the receipt (action `dry-run`) goes only to history.jsonl, never to last.json
@@ -161,6 +180,7 @@ import contextlib
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import platform
 import plistlib
@@ -299,7 +319,7 @@ def have_commit(repo: Path, sha: str) -> bool:
                               capture_output=True).returncode == 0
     if present():
         return True
-    subprocess.run(["git", "-C", str(repo), "fetch", "-q", "origin", sha], capture_output=True)
+    git_fetch(repo, "origin", sha)
     return present()
 
 
@@ -454,26 +474,90 @@ def unverifiable(team: str | None, have: str | None, what: str) -> str | None:
             "--unsigned-daemon takes it anyway")
 
 
-def app_commit(app: Path, repo: Path = ROOT) -> str:
-    """The app's commit as a full sha. A nightly stamps CMUXCommit with the short one (nightly.yml)."""
+FETCH_SECONDS = 120  # a Mac fleet worker reaches GitHub only through a slow proxy, or not at all (hq#27830)
+# Bundle files that record a full commit as `commit=SHA`: a nightly's cmux-tui is the build commit's tree
+# (write-cmux-tui-version.sh), or an older commit's, so only one that extends the short stamp counts.
+BUNDLE_COMMIT_FILES = ("cmux-tui.version", "acpmux.version")
+
+
+def git_fetch(repo: Path, *args: str) -> bool:
+    """`git fetch -q ARGS` in REPO, bounded by FETCH_SECONDS: False when it failed or hung. Not `fetch`: that name is
+    the HTTP read fetch_kept uses, and a second def of it replaced the first (tests/test_hot_apply_fetch_names.py)."""
+    try:
+        return subprocess.run(["git", "-C", str(repo), "fetch", "-q", *args], capture_output=True,
+                              timeout=FETCH_SECONDS).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def bundle_commit(app: Path, short: str) -> str | None:
+    """A full sha the bundle itself records that extends SHORT, else None."""
+    for name in BUNDLE_COMMIT_FILES:
+        try:
+            lines = (app / BIN / name).read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            key, _, value = line.partition("=")
+            if key.strip() == "commit" and SHA.fullmatch(value.strip()) and value.strip().startswith(short):
+                return value.strip()
+    return None
+
+
+def resolve_app_commit(app: Path, repo: Path = ROOT, may_fetch: bool = True) -> dict:
+    """APP's commit: {commit, resolved, via[, why]}. A nightly stamps CMUXCommit with the short sha (nightly.yml).
+
+    The full sha comes from REPO's history, else a full one the bundle records, else a bounded fetch of
+    feat-cmux-next. A fleet Mac's step source is a shallow bundle with no history and often no reachable
+    origin (hq#27830/#27935), so all three can miss: then commit is the short stamp, resolved False, and why
+    says so. Raises only when the app has no CMUXCommit at all (a DEV build)."""
     with open(app / "Contents/Info.plist", "rb") as handle:
         commit = str(plistlib.load(handle).get("CMUXCommit") or "")
     if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
         raise RuntimeError(f"{app} has no CMUXCommit (a DEV build): nothing to compare SHA with")
-    if not SHA.fullmatch(commit):
-        def resolve() -> str:
-            return git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
-        full = resolve()
-        if not SHA.fullmatch(full):
-            # A short sha cannot be fetched by itself: the branch the nightly was cut from can.
-            shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
-            subprocess.run(["git", "-C", str(repo), "fetch", "-q", *(["--unshallow"] if shallow else []),
-                            "origin", "feat-cmux-next"], capture_output=True)
-            full = resolve()
-        if not SHA.fullmatch(full):
-            raise RuntimeError(f"{app}'s CMUXCommit {commit} is not one commit in {repo} (fetch feat-cmux-next)")
-        commit = full
-    return commit
+    if SHA.fullmatch(commit):
+        return {"commit": commit, "resolved": True, "via": "Info.plist"}
+
+    def resolve() -> str:
+        return git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
+    full = resolve()
+    if SHA.fullmatch(full):
+        return {"commit": full, "resolved": True, "via": "checkout"}
+    recorded = bundle_commit(app, commit)
+    if recorded:
+        return {"commit": recorded, "resolved": True, "via": "bundle"}
+    # A short sha cannot be fetched by itself: the branch the nightly was cut from can. A nightly is at most a
+    # day of merges behind it (LIVE_FROM_MAX), so a shallow checkout deepens by that much, not --unshallow.
+    shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
+    fetched = may_fetch and git_fetch(repo, *([f"--depth={LIVE_FROM_MAX}"] if shallow else []), "origin", "feat-cmux-next")
+    full = resolve()
+    if SHA.fullmatch(full):
+        return {"commit": full, "resolved": True, "via": "fetch"}
+    where = "a shallow checkout" if shallow else "this checkout"
+    tried = ("the fetch of feat-cmux-next brought no such commit" if fetched else
+             f"feat-cmux-next could not be fetched within {FETCH_SECONDS} s" if may_fetch else "no fetch was asked")
+    return {"commit": commit, "resolved": False, "via": "Info.plist",
+            "why": f"CMUXCommit {commit} is not one commit in {where} ({repo}), the bundle records no full sha "
+                   f"for it, and {tried}"}
+
+
+def app_commit(app: Path, repo: Path = ROOT) -> str:
+    """The app's commit as a full sha, for what diffs or compares it (plan, hot-verify): raises when only the
+    short stamp is known. A receipt that only names the commit takes app_commit_receipt instead."""
+    found = resolve_app_commit(app, repo)
+    if not found["resolved"]:
+        raise RuntimeError(f"{app}'s {found['why']} (fetch feat-cmux-next)")
+    return found["commit"]
+
+
+def app_commit_receipt(app: Path, repo: Path = ROOT) -> dict:
+    """The receipt fields for APP's commit: {app_commit, app_commit_resolved[, app_commit_unresolved]}. On a
+    shallow step source the short stamp is recorded as given, never faked as a full sha; nothing is compared."""
+    found = resolve_app_commit(app, repo)
+    out = {"app_commit": found["commit"], "app_commit_resolved": found["resolved"]}
+    if not found["resolved"]:
+        out["app_commit_unresolved"] = found["why"]
+    return out
 
 
 def app_abi(app: Path) -> int | None:
@@ -647,7 +731,7 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
     web_strings, swift_strings = web_catalogs(repo, sha, files.get("strings", []))
     shell = files.get("rebuild", []) + files.get("swift-live", []) + swift_strings
     daemon = files.get("daemon", [])
-    abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
+    abi = abi_needed(repo, sha)
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
             # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
             "web": set_digest(blobs, files.get("web-live", []) + web_strings),
@@ -846,17 +930,64 @@ def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
     return out
 
 
+def command_app_commit(args) -> int:
+    """Print APP's commit as JSON ({commit, resolved, via[, why]}); exit 1 when only the short stamp is known."""
+    found = resolve_app_commit(Path(args.app), Path(args.repo), may_fetch=not args.no_fetch)
+    print(json.dumps(found))
+    return 0 if found["resolved"] else 1
+
+
 def command_live_from(args) -> int:
     print(json.dumps(live_from(Path(args.repo), args.sha, args.max)))
     return 0
 
 
+WEB_ABI_PATH = "webviews/src/web-abi.json"
+# Waits between tries of a web-abi.json read that failed: a blob-less clone fetches the blob from GitHub, which
+# answers 503 at times ("RPC failed; HTTP 503").
+ABI_READ_RETRY_SECONDS = (2, 5)
+
+
+class AbiReadError(RuntimeError):
+    """COMMIT's web-abi.json is in its tree and could not be read: an infra failure (the blob fetch failed), not
+    "no ABI". A plan that took it for None compared None with the app's ABI and planned a build (PR 57082 at
+    6c31c0584c7d, abi 9 like its app: a 503 on the worker's blob fetch planned needs_build, a 40-minute look lost)."""
+
+
 def abi_at(repo: Path, commit: str) -> int | None:
-    """The web ABI of COMMIT's tree (--base: no app to read it from)."""
-    try:
-        return json.loads(git(repo, "show", f"{commit}:webviews/src/web-abi.json"))["abi"]
-    except (RuntimeError, ValueError, KeyError):
-        return None
+    """The web ABI of COMMIT's tree (--base: no app to read it from). None only when COMMIT's tree has no
+    web-abi.json, or one with no integer `abi`. A read that fails (the blob fetch of a blob-less clone, a missing
+    commit) is retried, then raises AbiReadError: it never comes back as None."""
+    failures = []
+    for wait in (*ABI_READ_RETRY_SECONDS, None):
+        listed = subprocess.run(["git", "-C", str(repo), "ls-tree", "-z", commit, "--", WEB_ABI_PATH],
+                                capture_output=True, text=True, errors="replace")
+        if listed.returncode == 0 and not listed.stdout.strip("\0"):
+            return None  # the tree has no web-abi.json
+        if listed.returncode == 0:
+            shown = subprocess.run(["git", "-C", str(repo), "show", f"{commit}:{WEB_ABI_PATH}"],
+                                   capture_output=True, text=True, errors="replace")
+            if shown.returncode == 0:
+                try:
+                    abi = json.loads(shown.stdout)["abi"]
+                except (ValueError, KeyError, TypeError):
+                    return None
+                return abi if type(abi) is int else None
+            failures.append(f"git show: {shown.stderr.strip()[-300:]}")
+        else:
+            failures.append(f"git ls-tree: {listed.stderr.strip()[-300:]}")
+        if wait is not None:
+            time.sleep(wait)
+    raise AbiReadError(f"infra: could not read {commit}:{WEB_ABI_PATH} in {repo} after {len(failures)} tries "
+                       f"(not a missing ABI): {failures[-1]}")
+
+
+def abi_needed(repo: Path, commit: str) -> int:
+    """COMMIT's web ABI, where its tree must have one: AbiReadError on a read failure, RuntimeError when absent."""
+    abi = abi_at(repo, commit)
+    if abi is None:
+        raise RuntimeError(f"{commit} has no web ABI in {WEB_ABI_PATH}")
+    return abi
 
 
 def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None, unsigned: bool = False) -> dict:
@@ -898,7 +1029,7 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         # A branch's web is not published: try-pr.sh serves it from the branch (web-overlay.sh follow).
         out["left"]["web (not published for a branch)"] = web
     elif web:
-        want = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
+        want = abi_needed(repo, sha)
         have = abi_at(repo, base) if given_base else app_abi(app)
         if have == want:
             out["parts"].append("web")
@@ -1359,7 +1490,7 @@ def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict
         t0 = time.monotonic()
         with PHASES("find"):
             before = swapper.owner(target, timeout=10)
-        with PHASES("reload"):
+        with PHASES("sessions"):
             # The cmux-tui surface keeps `server` for the daemon's lifecycle in every build (the nightly's too, for
             # the rollback); on `cmux`, `server` is the machine server and refuses --socket (cmux 7a6e6fb, a Chief's).
             surface = target.with_name("cmux-tui") if target.with_name("cmux-tui").exists() else target
@@ -1448,7 +1579,7 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path, 
             raise RuntimeError(f"no daemon answers on {socket}")
         if swapper.app_file(owner[1]) != target:
             raise RuntimeError(f"the daemon on {socket} runs {owner[1]}, not {target}: not this app's")
-        with PHASES("reload"):  # the rename over target, SIGTERM, until the app's next owner answers
+        with PHASES("handoff"):  # the rename over target, SIGTERM, until the app's next owner answers
             swapper.app_handoff(new, owner[0], target)
             now = swapper.owner(target, timeout=10)
         step.update(old_pid=owner[0], new_pid=now[0] if now else None, daemon="app handoff")
@@ -1569,7 +1700,7 @@ def outside_login_session() -> bool:
 
 def restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None = None,
                    sockets: dict[str, str] | None = None) -> list[dict]:
-    with PHASES("reload"):
+    with PHASES("acpmux"):
         return _restart_acpmux(app, homes, before, sockets)
 
 
@@ -1858,9 +1989,13 @@ def apply_web(key: str, sha: str, live) -> dict:
 
 
 def record(state: Path, receipt: dict, last: bool = True) -> None:
-    """Writes the receipt, with the run's phases, to history.jsonl (and last.json unless LAST is false, as for a
-    dry run), prints it as the last line on stdout and the phases on stderr."""
+    """Writes the receipt, with the run's phases (and the layers it swapped), to history.jsonl (and last.json
+    unless LAST is false, as for a dry run), prints it as the last line on stdout and the phases on stderr."""
     receipt["phases"] = PHASES.rounded()
+    receipt.setdefault("platform", PLATFORM)
+    layers = swap_layers(receipt)
+    if layers:
+        receipt["layers"] = layers
     state.mkdir(parents=True, exist_ok=True)
     line = json.dumps(receipt)
     if last:
@@ -1869,6 +2004,81 @@ def record(state: Path, receipt: dict, last: bool = True) -> None:
         handle.write(line + "\n")
     log(timings(receipt))
     print(line)
+
+
+PLATFORM = {"darwin": "mac", "linux": "linux"}.get(sys.platform, sys.platform)
+# The NOW row each layer's p95 publishes as, per platform (hot_swap_<platform>_<row>_p95_ms).
+LAYER_ROWS = {"daemon": "daemon_handoff", "acpmux": "acpmux_restart", "ffi": "ffi_warm_swap"}
+
+
+def swap_layers(receipt: dict) -> dict:
+    """What each layer an apply moved cost the person, from its phases: {} for a dry run, a failed apply, or
+    one that moved nothing. A receipt from before the handoff and acpmux phases (one `reload` for all)
+    gives the daemon's only when no acpmux daemon and no other session's daemon restarted in it."""
+    if receipt.get("action") != "apply" or receipt.get("error") or not receipt.get("applied"):
+        return {}
+    phases, steps, out = receipt.get("phases") or {}, receipt.get("steps") or {}, {}
+    rust = steps.get("rust") or {}
+    handoff = phases.get("handoff")
+    if handoff is None and "reload" in phases and not steps.get("acpmux") and not rust.get("sessions"):
+        handoff = phases["reload"]
+    if handoff is not None and rust.get("daemon") == "app handoff":
+        out["daemon"] = {"ms": round(handoff * 1000), "state_kept": True}
+    acpmux = steps.get("acpmux") or []
+    if "acpmux" in phases and acpmux:
+        out["acpmux"] = {"ms": round(phases["acpmux"] * 1000), "homes": len(acpmux),
+                         "state_kept": all(s.get("new_pid") and s.get("new_pid") != s.get("old_pid") for s in acpmux)}
+    ffi = steps.get("ffi") or {}
+    if ffi.get("launch") and "quit" in phases and "launch" in phases:
+        out["ffi"] = {"ms": round((phases["quit"] + phases["launch"]) * 1000), "state_kept": False,
+                      "kept": "sessions"}
+    return out
+
+
+def quantile(values: list[float], q: float) -> float | None:
+    """Nearest-rank quantile (p95 of 20 samples is the 19th), None for no samples."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[min(len(ordered), max(1, math.ceil(len(ordered) * q))) - 1]
+
+
+def layer_summary(lines) -> dict:
+    """Per platform and layer: count, p50 and p95 ms, state kept count, and the NOW rows, from receipt lines."""
+    samples: dict[tuple[str, str], list[dict]] = {}
+    for line in lines:
+        try:
+            receipt = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(receipt, dict):
+            continue
+        platform = receipt.get("platform") or "mac"  # every receipt before `platform` was a Mac's
+        for layer, row in (receipt.get("layers") or swap_layers(receipt)).items():
+            if layer in LAYER_ROWS and isinstance(row.get("ms"), (int, float)):
+                samples.setdefault((platform, layer), []).append(row)
+    layers, rows = {}, {}
+    for (platform, layer), got in sorted(samples.items()):
+        ms = [r["ms"] for r in got]
+        entry = {"n": len(ms), "p50_ms": quantile(ms, 0.5), "p95_ms": quantile(ms, 0.95), "max_ms": max(ms),
+                 "state_kept": sum(1 for r in got if r.get("state_kept"))}
+        layers.setdefault(platform, {})[layer] = entry
+        rows[f"hot_swap_{platform}_{LAYER_ROWS[layer]}_p95_ms"] = entry["p95_ms"]
+    return {"layers": layers, "rows": rows}
+
+
+def command_layers(args) -> int:
+    paths = [Path(p) for p in args.history] or [state_dir() / "history.jsonl"]
+    lines, read = [], []
+    for path in paths:
+        try:
+            lines.extend(path.read_text().splitlines())
+            read.append(str(path))
+        except OSError as error:
+            print(f"hot-apply: {path}: {error.strerror or error}", file=sys.stderr)
+    out = {"read": read, **layer_summary(lines)}
+    print(json.dumps(out, indent=None if args.json else 2))
+    return 0 if read else 1
 
 
 def timings(receipt: dict) -> str:
@@ -2200,10 +2410,17 @@ def main(argv=None) -> int:
     p.add_argument("sha")
     p.add_argument("--repo", default=str(ROOT))
     p.add_argument("--max", type=int, default=LIVE_FROM_MAX)
+    p = sub.add_parser("app-commit", help="APP's commit, its short CMUXCommit resolved to a full sha (JSON)")
+    p.add_argument("app")
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--no-fetch", action="store_true", help="the checkout and the bundle only: no fetch of feat-cmux-next")
     p = sub.add_parser("rollback")
     p.add_argument("--app")
     p.add_argument("--socket")
     sub.add_parser("status")
+    p = sub.add_parser("layers", help="count, p50 and p95 ms of each layer's swap over the receipts (JSON)")
+    p.add_argument("--history", action="append", default=[], help="a history.jsonl to read (repeat); else this host's")
+    p.add_argument("--json", action="store_true", help="one line")
     p = sub.add_parser("drop-refused-overlay",
                        help="drop web-dev.json's pointer at an overlay the app refuses (it serves its bundled pages)")
     p.add_argument("--app", default=DEFAULT_APP)
@@ -2216,6 +2433,7 @@ def main(argv=None) -> int:
     try:
         return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "keys": command_keys,
                 "rollback": command_rollback, "status": command_status, "live-from": command_live_from,
+                "app-commit": command_app_commit, "layers": command_layers,
                 "drop-refused-overlay": command_drop_refused_overlay}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)

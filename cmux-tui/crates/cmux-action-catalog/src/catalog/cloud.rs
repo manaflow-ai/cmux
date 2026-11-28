@@ -68,7 +68,7 @@ pub static ACTIONS: &[Action] = &[
         id: "palette.cloud.snapshot",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.cloud.snapshot", "Snapshot Cloud Machine"),
-        description: Some("Takes a snapshot of the machine (--target machine:<id>) and returns machine_id and snapshot_id. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes."),
+        description: Some("Takes a snapshot of the machine (--target machine:<id>) and returns machine_id and snapshot_id. From an agent or a script it runs at once with no Allow (it only changes the person's own machine) and shows no toast; the app log records it."),
         keywords: &["vm", "backup"],
         category: "cloud",
         symbol: "camera.aperture",
@@ -103,7 +103,7 @@ pub static ACTIONS: &[Action] = &[
         id: "palette.cloud.promoteTemplate",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.cloud.promoteTemplate", "Promote Machine to Template"),
-        description: Some("Saves the machine (--target machine:<id>) as a template: a snapshot named template-<first 12 characters of the machine id>-<Unix seconds>, which `cmux cloud restore-machine --target machine:<id> --snapshot <snapshot id>` starts new machines from. Returns machine_id and snapshot_id. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes."),
+        description: Some("Saves the machine (--target machine:<id>) as a template: a snapshot named template-<first 12 characters of the machine id>-<Unix seconds>, which `cmux cloud restore-machine --target machine:<id> --snapshot <snapshot id>` starts new machines from. Returns machine_id and snapshot_id. From an agent or a script it runs at once with no Allow (it only changes the person's own machine) and shows no toast; the app log records it."),
         keywords: &["vm", "template"],
         category: "cloud",
         symbol: "star.square",
@@ -800,6 +800,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target: Some("machine"),
         palette_target_source: Some("cloud"),
         cli_name: "cloud open-desktop",
+        focuses: true,
         ..Action::DEFAULT
     },
     Action {
@@ -817,6 +818,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         cli_name: "cloud setup-desktop",
         waits_for_result: true,
+        focuses: true,
         ..Action::DEFAULT
     },
     Action {
@@ -948,7 +950,7 @@ pub static ACTIONS: &[Action] = &[
         id: "cloudResizeMachine",
         group: GROUP,
         title: t("ActionCatalog", "action.cloudResizeMachine", "Resize Machine…"),
-        description: Some("Resizes the machine (--target machine:<id>): --size small, medium, large or xlarge (2 vCPU and 4 GB, 4 and 8, 8 and 16, or 16 and 24), --disk GIB (the disk's new size in whole GiB: 4 GiB steps, up to 256, grow-only), or both in one call; at least one. Returns machine_id, target, and size and disk_gib as given once Cloud has resized it. From an agent or a script it first asks the person in the cmux window (Allow or Don't Allow): the CLI says so at once with the dialog_id, waits, and exits non-zero if they chose Don't Allow or nobody answered in 10 minutes."),
+        description: Some("Resizes the machine (--target machine:<id>): --size small, medium, large or xlarge (2 vCPU and 4 GB, 4 and 8, 8 and 16, or 16 and 24), --disk GIB (the disk's new size in whole GiB: 4 GiB steps, up to 256, grow-only), or both in one call; at least one. Returns machine_id, target, and size and disk_gib as given once Cloud has resized it. From an agent or a script it runs at once with no Allow (it only changes the person's own machine) and shows no toast; the app log records it."),
         keywords: &["vm", "cloud tree", "cpu", "memory", "disk", "storage"],
         category: "cloud",
         symbol: "arrow.up.left.and.arrow.down.right",
@@ -1032,6 +1034,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         targets: &["machine"],
         cli_name: "cloud set-idle-pause",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1068,6 +1071,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         cli_name: "cloud delete-snapshot",
         is_destructive: true,
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1082,6 +1086,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "cloud diagnostics",
         main_menu: Some("help"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1110,6 +1115,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
         requires: &["signedOut"],
         cli_name: "cloud sign-in",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -1123,6 +1129,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
         requires: &["signedIn"],
         cli_name: "cloud sign-out",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

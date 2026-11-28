@@ -32,7 +32,28 @@ pub(crate) async fn run(
     // `--keep-agents` is a compatibility no-op; only the explicit restart
     // command or --restart updater flag requests service-restart signaling.
     let _ = keep_agents;
-    run_on(&*TokioClock::new(), end_agents, json_out, false, restart).await
+    let Some(was) = run_on(&*TokioClock::new(), end_agents, json_out, false, restart).await? else {
+        return Ok(());
+    };
+    // With `acpmux.v2` `start` a restart never exits: the installed build runs in its place.
+    let Some(status) = back_from_handoff(was).await? else {
+        // A stop signal during the restart, or an exec that failed: it exited after all.
+        if json_out {
+            print_json(&json!({"stopped": true, "restarted": false, "handoff": false}));
+        } else {
+            println!("stopped; the restart in place gave way to an exit");
+        }
+        return Ok(());
+    };
+    let pid = status.get("pid").and_then(Value::as_u64).unwrap_or(0);
+    if json_out {
+        print_json(&json!({"stopped": false, "restarted": true, "handoff": true, "pid": pid}));
+    } else if end_agents {
+        println!("restarted in place; daemon pid {pid}");
+    } else {
+        println!("restarted in place; daemon pid {pid}, its agent hosts untouched");
+    }
+    Ok(())
 }
 
 /// Stop and start the daemon while keeping hosted agents for handoff.
@@ -40,18 +61,51 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
     // A daemon started with `--listen`/`--token` keeps those values only in
     // memory for that run. Refuse an unsaved token before stopping; save only
     // the bound listener when the configured credential already matches.
-    let client = connect(false).await?;
-    let before = client.request(method::MUX_STATUS, json!({})).await?;
-    preserve_restart_listener(&before)?;
-    drop(client);
+    // Bounded: a daemon whose queue nobody accepts from never answers the hello.
+    let reach = restart_reach();
+    let reached = tokio::time::timeout(reach, async {
+        let client = connect(false).await?;
+        let before = client.request(method::MUX_STATUS, json!({})).await?;
+        anyhow::Ok(before)
+    })
+    .await
+    .unwrap_or_else(|_| Err(anyhow!("the daemon did not answer within {reach:?}")));
+    let before = match reached {
+        Ok(before) => {
+            preserve_restart_listener(&before)?;
+            Some(before)
+        }
+        // The lock held and the socket refusing (2026-11-27, a Mac at load 60): there is no socket
+        // to ask that daemon to stop through, so it is stopped by its pid, once proven this home's
+        // acpmux daemon (`daemon/hung_holder.rs`), and the restart starts the next one.
+        Err(e) => {
+            stop_unanswering_holder(e).await?;
+            None
+        }
+    };
     // The binary the next daemon should run: this command's own, or a newer install
     // (`daemon/start_exe.rs`), never whatever `acpmux` PATH names.
     let choice = crate::daemon::start_exe::current(&crate::config::home())?;
     let mut status = Value::Null;
     for attempt in 1..=RESTART_ATTEMPTS {
-        run_on(&*TokioClock::new(), false, json_out, true, true).await?;
-        let client = crate::daemon::connect(true).await?;
-        status = client.request(method::MUX_STATUS, json!({})).await?;
+        // A holder stopped by its pid left nothing to shut down on the first attempt.
+        let handed_off = if before.is_some() || attempt > 1 {
+            run_on(&*TokioClock::new(), false, json_out, true, true).await?
+        } else {
+            None
+        };
+        let back = match handed_off {
+            Some(was) => back_from_handoff(was).await.ok().flatten(),
+            None => None,
+        };
+        status = match back {
+            Some(status) => status,
+            // The daemon exited (also where its exec in place failed): start the next one.
+            None => {
+                let client = crate::daemon::connect(true).await?;
+                client.request(method::MUX_STATUS, json!({})).await?
+            }
+        };
         let Some(stale) = stale_winner(&choice, &status) else { break };
         // Another client of an older build started its own binary between the old daemon's
         // exit and this start (air-blue, 2026-11-22). Restart again; say so either way.
@@ -66,11 +120,13 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
         eprintln!("restart: the daemon came back as {stale}, an older build; restarting it again");
         tracing::warn!("restart: the daemon came back as {stale}, an older build; again");
     }
-    anyhow::ensure!(
-        before.get("listen") == status.get("listen")
-            && before.get("webUrl") == status.get("webUrl"),
-        "the daemon started with different listener settings; inspect `daemon status`"
-    );
+    if let Some(before) = &before {
+        anyhow::ensure!(
+            before.get("listen") == status.get("listen")
+                && before.get("webUrl") == status.get("webUrl"),
+            "the daemon started with different listener settings; inspect `daemon status`"
+        );
+    }
     let exe = status.get("exe").and_then(Value::as_str).unwrap_or("unknown");
     if json_out {
         print_json(&json!({
@@ -86,6 +142,81 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// The daemon's status once its exec in place serves again (`daemon/handoff.rs`): the same pid,
+/// whose `handoffs` grew past `was` (the count its shutdown answer named). The old image may
+/// still accept for a moment and then end the connection, so it dials again until the new one
+/// answers, within the budget a stop has to exit ([`crate::daemon::EXIT_BUDGET`]). None when the
+/// daemon exited instead (a stop signal during the restart, or an exec that failed): only an exit
+/// removes the socket, which a restart in place keeps throughout.
+async fn back_from_handoff(was: u64) -> Result<Option<Value>> {
+    // timeout: the same bound as the wait for an old daemon's exit; past it the restart failed.
+    let deadline = tokio::time::Instant::now() + crate::daemon::EXIT_BUDGET;
+    loop {
+        // A dial that waits in the kept socket's backlog is answered once the new image serves.
+        let dial = async {
+            let client = connect(false).await.ok()?;
+            client.request(method::MUX_STATUS, json!({})).await.ok()
+        };
+        if let Ok(Some(status)) = tokio::time::timeout_at(deadline, dial).await
+            && status.get("handoffs").and_then(Value::as_u64).is_some_and(|n| n > was)
+        {
+            return Ok(Some(status));
+        }
+        if !crate::config::socket_path().exists() {
+            return Ok(None);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(anyhow!(
+                "the daemon did not serve again within {:?} of its restart; inspect `daemon status`",
+                crate::daemon::EXIT_BUDGET
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// How long `restart` tries to reach the daemon before it treats a held lock as a hung holder:
+/// above `connect`'s own wait for a starting daemon (8 s) and a hello on a loaded machine.
+// timeout: hazard is a daemon holding its lock with a socket nobody accepts on; fallback is the
+// verified pid stop (`daemon/hung_holder.rs`).
+const RESTART_REACH: Duration = Duration::from_secs(30);
+
+/// [`RESTART_REACH`]; in a debug build under `ACPMUX_TEST_STALL_MS`, that bound (the tests).
+fn restart_reach() -> Duration {
+    #[cfg(all(unix, debug_assertions))]
+    if std::env::var_os("ACPMUX_TEST_STALL_MS").is_some() {
+        return crate::daemon::hung_holder::Bounds::current().serving;
+    }
+    RESTART_REACH
+}
+
+/// `restart` could not reach the daemon (`reached`): when a live process holds the lock, that
+/// holder is stopped by its pid (SIGTERM, then SIGKILL), only once proven to be this home's
+/// acpmux daemon; without a holder, or one not proven, the error stands.
+async fn stop_unanswering_holder(reached: anyhow::Error) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let home = crate::config::home();
+        if crate::daemon::live_holder_pid(&home.join("daemon.lock")).is_none() {
+            return Err(reached);
+        }
+        let why = format!("restart: the daemon holds its lock but does not answer ({reached:#})");
+        match crate::daemon::hung_holder::replace(&home, &why).await {
+            Ok(pid) => {
+                eprintln!(
+                    "restart: daemon {pid} held the lock without answering its socket; stopped it"
+                );
+                Ok(())
+            }
+            Err(refusal) => Err(reached.context(format!(
+                "the lock's holder does not answer and was not stopped: {refusal}"
+            ))),
+        }
+    }
+    #[cfg(not(unix))]
+    Err(reached)
 }
 
 /// How many times `restart` stops and starts the daemon when an older build keeps winning.
@@ -167,13 +298,16 @@ fn cli_reason(restart: bool, end_agents: bool) -> String {
     }
 }
 
+/// Stop the daemon and wait for its exit. Some when it answered with `handoff` instead: a
+/// restart that execs in place, which never exits (`daemon/handoff.rs`); nothing is waited for
+/// or swept then. The value is the daemon's `handoffs` before this one.
 async fn run_on(
     clock: &dyn Clock,
     end_agents: bool,
     json_out: bool,
     quiet: bool,
     restart: bool,
-) -> Result<()> {
+) -> Result<Option<u64>> {
     let keep_agents = !end_agents;
     let hosts = agent_host::hosts_dir();
     let before = sweep::running_hosts(&hosts).len();
@@ -192,6 +326,21 @@ async fn run_on(
         && e.to_string().contains("refused to stop the daemon")
     {
         return Err(anyhow!("{e}"));
+    }
+    // A restart whose installed build failed its check: the daemon serves on, unchanged.
+    if let Err(e) = &answer
+        && e.downcast_ref::<crate::client::DaemonError>().is_some_and(|e| {
+            e.0.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+                == Some("restart.handoff_check_failed")
+        })
+    {
+        return Err(anyhow!("{e}; the daemon is still running"));
+    }
+    // An exec in place: the same pid serves again, its agents and hosts untouched.
+    if let Ok(a) = &answer
+        && a.get("handoff").and_then(Value::as_bool) == Some(true)
+    {
+        return Ok(Some(a.get("handoffs").and_then(Value::as_u64).unwrap_or(0)));
     }
     drop(client);
     // The daemon holds its lock until it exits, so a `daemon start` right
@@ -220,7 +369,7 @@ async fn run_on(
     }
     let ended = before.saturating_sub(kept.len()).max(after_exit);
     if quiet {
-        return Ok(());
+        return Ok(None);
     }
     if json_out {
         print_json(&json!({
@@ -244,5 +393,5 @@ async fn run_on(
         }
         println!("{line}");
     }
-    Ok(())
+    Ok(None)
 }

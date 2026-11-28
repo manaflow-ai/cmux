@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 import SwiftUI
 
 /// An agent's brand mark, or the generic agent glyph when it has none.
@@ -78,3 +79,4 @@ private struct AgentBrandAccessibility: ViewModifier {
         }
     }
 }
+#endif

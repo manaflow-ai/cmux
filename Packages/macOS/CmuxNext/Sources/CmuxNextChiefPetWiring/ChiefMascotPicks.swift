@@ -13,6 +13,9 @@ import Observation
 /// picks.remember("moon", for: "agent_scout01")
 /// picks.mascot(of: "agent_scout01", in: settings.snapshot)  // "moon"
 /// ```
+///
+/// The rules are `welcome.mascotPicksLoad`, `welcome.mascot`, `welcome.mascotPicked` and
+/// `welcome.mascotRemember` (cmux-home-rules); this type keeps the picks and writes the defaults.
 @Observable @MainActor
 public final class ChiefMascotPicks {
     static let key = "home.chief.mascots"
@@ -22,6 +25,19 @@ public final class ChiefMascotPicks {
     @ObservationIgnored private let defaults: UserDefaults?
     /// Each other Chief's pick, by participant id.
     private(set) var picks: [String: String]
+    /// `welcome.mascot` and `welcome.mascotPicked` answers, by their whole input: both are pure, so a
+    /// new pick, setting or file value is a new key and nothing is invalidated. The sidebar asks per
+    /// Chief per row on every flush (thread p1795759419, cmux#59531's class); this makes that a lookup.
+    /// The rows still read `picks` (observed) to build the key, so a pick still maps every row again.
+    @ObservationIgnored private var mascotMemo: [PicksInput: String] = [:]
+    @ObservationIgnored private var pickedMemo: [PicksInput: String?] = [:]
+    /// Past this many inputs a memo starts over (picks change rarely; this only bounds a long session).
+    static let memoLimit = 256
+
+    private static func remember<Value>(_ value: Value, for input: PicksInput, in memo: inout [PicksInput: Value]) {
+        if memo.count >= memoLimit { memo.removeAll(keepingCapacity: true) }
+        memo[input] = value
+    }
 
     /// - Parameters:
     ///   - defaults: where the picks are kept across launches; nil keeps them in memory.
@@ -30,8 +46,9 @@ public final class ChiefMascotPicks {
         self.defaults = defaults
         self.defaultChief = defaultChief
         // One entry that is not a character id is dropped, never the others.
-        picks = (defaults?.dictionary(forKey: Self.key) ?? [:]).compactMapValues { $0 as? String }
-            .filter { HomeChiefPetSetting.mascotValues.contains($0.value) }
+        let stored = (defaults?.dictionary(forKey: Self.key) ?? [:]).compactMapValues { $0 as? String }
+        let reply: PicksReply = welcomeRule("welcome.mascotPicksLoad", LoadInput(stored: stored, mascots: .setting), fallback: PicksReply(picks: [:]))
+        picks = reply.picks
     }
 
     /// Whether `chief` (a participant id; nil: the default Chief) wears `home.chiefPetMascot`.
@@ -40,25 +57,84 @@ public final class ChiefMascotPicks {
     /// The character Chief `chief` wears: the default Chief's is `snapshot`'s `home.chiefPetMascot`,
     /// another's its own pick, else the default character.
     public func mascot(of chief: String?, in snapshot: CmuxConfigSnapshot?) -> String {
-        guard let chief, !isDefault(chief) else { return snapshot?.homeChiefPetMascot ?? HomeChiefPetSetting.mascotDefault }
-        return picks[chief] ?? HomeChiefPetSetting.mascotDefault
+        let input = PicksInput(chief: chief, defaultChief: defaultChief, picks: picks, snapshotMascot: snapshot?.homeChiefPetMascot)
+        if let known = mascotMemo[input] { return known }
+        let reply: MascotReply = welcomeRule("welcome.mascot", input, fallback: MascotReply(mascot: HomeChiefPetSetting.mascotDefault))
+        Self.remember(reply.mascot, for: input, in: &mascotMemo)
+        return reply.mascot
     }
 
     /// The character Chief `chief` (nil: the default Chief) was given by a pick (the popover, Settings >
     /// Chiefs, the config file), or nil while it wears the default without one: the default Chief's is
     /// `home.chiefPetMascot` when `file` (the config file's root) sets it, another's its own pick.
     public func picked(_ chief: String?, in file: JSONValue?) -> String? {
-        guard let chief, !isDefault(chief) else {
-            return file?.value(at: HomeChiefPetSetting.mascotPath)?.stringValue.flatMap { HomeChiefPetSetting.mascotValues.contains($0) ? $0 : nil }
-        }
-        return picks[chief]
+        // Only the default Chief reads the file, and only `home.chiefPetMascot`: the root whole is
+        // ~157 KB for some people and the sidebar asks this per Chief per row, which JSON-encoded it
+        // each time and blocked the main thread 2-6 s with ~1,100 workspaces (as `JSONValue.keeping`).
+        let read = isDefault(chief) ? file?.keeping([Array(HomeChiefPetSetting.mascotPath)]) : nil
+        let input = PicksInput(chief: chief, defaultChief: defaultChief, picks: picks, file: read)
+        if let known = pickedMemo[input] { return known }
+        let reply: PickedReply = welcomeRule("welcome.mascotPicked", input, fallback: PickedReply(picked: nil))
+        Self.remember(reply.picked, for: input, in: &pickedMemo)
+        return reply.picked
     }
 
     /// Makes `mascot` the character of Chief `chief`, which is not the default Chief (its character is
     /// the setting, written through the settings). An id that is not a character is ignored.
     public func remember(_ mascot: String, for chief: String) {
-        guard !isDefault(chief), HomeChiefPetSetting.mascotValues.contains(mascot), picks[chief] != mascot else { return }
-        picks[chief] = mascot
-        defaults?.set(picks, forKey: Self.key)
+        let input = PicksInput(chief: chief, defaultChief: defaultChief, picks: picks, mascot: mascot)
+        let reply: RememberReply = welcomeRule("welcome.mascotRemember", input, fallback: RememberReply(picks: picks, write: nil))
+        guard let write = reply.write else { return }
+        picks = reply.picks
+        defaults?.set(write.value, forKey: write.key)
+    }
+}
+
+// The mascot ops' wire shapes (cmux-home-rules `welcome/pet.rs`).
+nonisolated struct Mascots: Encodable, Hashable {
+    /// The generated `home.chiefPetMascot` choices, default and path.
+    static var setting: Mascots {
+        Mascots(values: Array(HomeChiefPetSetting.mascotValues), default: HomeChiefPetSetting.mascotDefault, path: Array(HomeChiefPetSetting.mascotPath))
+    }
+
+    var values: [String]
+    var `default`: String
+    var path: [String]
+}
+
+private nonisolated struct LoadInput: Encodable {
+    var stored: [String: String]
+    var mascots: Mascots
+}
+
+nonisolated struct PicksInput: Encodable, Hashable {
+    var chief: String?
+    var defaultChief: String
+    var picks: [String: String]
+    var mascots = Mascots.setting
+    var snapshotMascot: String?
+    var file: JSONValue?
+    var mascot: String?
+}
+
+private nonisolated struct PicksReply: Decodable {
+    var picks: [String: String]
+}
+
+private nonisolated struct MascotReply: Decodable {
+    var mascot: String
+}
+
+private nonisolated struct PickedReply: Decodable {
+    var picked: String?
+}
+
+private nonisolated struct RememberReply: Decodable {
+    var picks: [String: String]
+    var write: Write?
+
+    nonisolated struct Write: Decodable {
+        var key: String
+        var value: [String: String]
     }
 }

@@ -207,7 +207,10 @@ async function traced<T>(page: Page, label: string, run: () => Promise<T>): Prom
 
 async function openChat(page: Page, port: number, size: number, turns: number) {
   await page.addInitScript((count) => {
-    (globalThis as { cmuxAcpmuxMockListSize?: number }).cmuxAcpmuxMockListSize = count;
+    const mock = globalThis as { cmuxAcpmuxMockListSize?: number; cmuxAcpmuxMockPaged?: boolean };
+    mock.cmuxAcpmuxMockListSize = count;
+    // The list in pages of the client's `limit`, as acpmux sends it (mock.ts `listPage`).
+    mock.cmuxAcpmuxMockPaged = true;
   }, size);
   await installPaintedFrames(page);
   await installReactWatch(page);

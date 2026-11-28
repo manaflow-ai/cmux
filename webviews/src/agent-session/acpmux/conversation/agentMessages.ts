@@ -152,6 +152,20 @@ const FEEDS = new Set(["echo", "printf", "cat"]);
 /// also builds, pushes or tests (`git push && tell-coordinator "pushed"`) stays a command row,
 /// so its output stays reachable.
 export function commandMessage(command: string): AgentMessage | undefined {
+  // Read for every shell row on every reshape of the running turn: the same command line is split
+  // and tokenized once. A copy goes out, so no caller shares the kept one.
+  let kept = commandMessages.get(command);
+  if (kept === undefined) {
+    if (commandMessages.size >= 2000) commandMessages.clear();
+    kept = readCommandMessage(command) ?? null;
+    commandMessages.set(command, kept);
+  }
+  return kept ? { ...kept } : undefined;
+}
+
+const commandMessages = new Map<string, AgentMessage | null>();
+
+function readCommandMessage(command: string): AgentMessage | undefined {
   const heredoc = heredocBody(command);
   const steps = shellStepParts(withoutHeredoc(command)).map(({ text, pipesNext }) => {
     const { words, redirects } = parseStep(text);

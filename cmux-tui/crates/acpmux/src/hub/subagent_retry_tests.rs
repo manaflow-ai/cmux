@@ -46,6 +46,14 @@ fn failed(id: &str) -> Value {
         "error": "API Error: 503 no non-exhausted claude accounts available"})
 }
 
+/// A top-level subagent's end on a dropped stream: a transport error, which keeps its configured
+/// attempts (an outage such as [`failed`]'s is waited out, `subagent_retry_outage.rs`).
+fn dropped(id: &str) -> Value {
+    let mut end = failed(id);
+    end["error"] = json!("API Error: Connection error (ECONNRESET)");
+    end
+}
+
 /// The chat's `subagent_retry` outcomes, `skipped:<why>` for a skip.
 fn outcomes(hub: &Hub, session: &Session) -> Vec<String> {
     let records = hub.events(&session.id, 0, 10_000).unwrap();
@@ -619,7 +627,7 @@ fn none_in_flight(entry: &Value) -> bool {
 #[tokio::test]
 async fn an_automatic_attempt_is_in_flight_from_its_fire_until_its_turn_ends() {
     let (hub, session, _conn) = chat(vec![0]).await;
-    hub.observe_subagents(&session, &[failed("s/t1")]);
+    hub.observe_subagents(&session, &[dropped("s/t1")]);
     for _ in 0..100 {
         if outcomes(&hub, &session).iter().any(|o| o == "exhausted") {
             break;
@@ -632,11 +640,36 @@ async fn an_automatic_attempt_is_in_flight_from_its_fire_until_its_turn_ends() {
     assert!(none_in_flight(&got[0]), "scheduled: {}", got[0]);
     let fired = &got[1]["retryInFlight"];
     assert_eq!((&fired["attempt"], &fired["of"]), (&json!(1), &json!(1)), "{fired}");
-    assert_eq!((&fired["reason"], &fired["manual"]), (&json!("capacity"), &json!(false)));
+    assert_eq!((&fired["reason"], &fired["manual"]), (&json!("transport"), &json!(false)));
     assert!(fired["firedAt"].as_u64().is_some_and(|at| at > 0), "{fired}");
     assert!(fired["promptId"].as_str().is_some_and(|p| p.starts_with("subagent-retry-")));
     assert!(none_in_flight(&got[2]), "given up: {}", got[2]);
     assert!(!retry_open(&session), "nothing left open for a load to settle");
+}
+
+/// A subagent an outage failed (SR2's 503) is not given up after the configured attempts: its
+/// attempts go on, each one counted on (`of` grows with them), as a cut turn's do. Before, a
+/// one-attempt loop logged `scheduled, fired, exhausted` and the helper sat failed until its
+/// coordinator resumed it by hand.
+#[tokio::test]
+async fn an_outage_failed_subagent_is_retried_past_the_configured_attempts() {
+    let (hub, session, _conn) = chat(vec![0]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    for _ in 0..100 {
+        if outcomes(&hub, &session).iter().filter(|o| *o == "fired").count() >= 3 {
+            break;
+        }
+        settle().await;
+    }
+    let seen = outcomes(&hub, &session);
+    assert!(seen.iter().filter(|o| *o == "fired").count() >= 3, "{seen:?}");
+    assert!(!seen.iter().any(|o| o == "exhausted"), "{seen:?}");
+    let third = entries(&hub, &session, "s/t1")
+        .into_iter()
+        .find(|e| e["retryInFlight"]["attempt"] == json!(3))
+        .expect("a third attempt in flight");
+    assert_eq!(third["retryInFlight"]["of"], json!(3), "{third}");
+    hub.stop_subagent_retries(&session, true);
 }
 
 /// A person's attempt is in flight from its fire (a second retry meanwhile is busy) until the

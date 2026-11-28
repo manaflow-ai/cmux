@@ -11,6 +11,9 @@ use crate::rpc::method;
 use anyhow::Result;
 use serde_json::{Value, json};
 
+/// How long the inbox read waits for the session's sent list before showing the inbox without it.
+const SENT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
 pub async fn run(
     client: &Client,
     session: &str,
@@ -119,18 +122,21 @@ pub async fn run(
     // The thread list ends with the messages this session sent and their delivery state: queued
     // here, delivering, delivered or failed (`hub/outbox.rs`). A daemon from before the list,
     // or a session on a peer (whose outbox is that daemon's), adds nothing.
+    // The sent list is an extra: a daemon slow to answer it (its outbox book held by a save
+    // under load) leaves it out after [`SENT_WAIT`] rather than holding the inbox read.
     let sent = match thread {
         Some(_) => None,
-        None => client
-            .request(
+        None => tokio::time::timeout(
+            SENT_WAIT,
+            client.request(
                 method::MUX_SEND_STATUS,
                 json!({"list": true, "caller": id, "limit": SENT_SHOWN}),
-            )
-            .await
-            .ok()
-            .filter(|v| {
-                v.get("deliveries").and_then(Value::as_array).is_some_and(|d| !d.is_empty())
-            }),
+            ),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .filter(|v| v.get("deliveries").and_then(Value::as_array).is_some_and(|d| !d.is_empty())),
     };
     if json_out {
         let mut reply = reply;
@@ -203,21 +209,5 @@ pub fn describe(reply: &Value) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn describe_lists_threads_and_messages() {
-        assert_eq!(describe(&json!({"threads": []})), "The inbox is empty.");
-        let threads = json!({"threads": [{"threadId": "pr:12", "label": "#12", "class": "action", "unread": 2, "count": 3, "from": ["lane-a", "lane-b"], "newestPreview": "merged"}]});
-        assert_eq!(
-            describe(&threads),
-            "#12 (action): 2 unread of 3, from lane-a, lane-b; newest: merged [thread pr:12]"
-        );
-        let thread = json!({"threadId": "pr:12", "label": "#12", "messages": [{"kind": "blocker", "from": "lane-a", "promptId": "p1", "text": "rebase"}]});
-        assert_eq!(
-            describe(&thread),
-            "Thread #12 (pr:12), newest first:\n\n[blocker] from lane-a, promptId p1:\nrebase"
-        );
-    }
-}
+#[path = "session_inbox_tests.rs"]
+mod tests;

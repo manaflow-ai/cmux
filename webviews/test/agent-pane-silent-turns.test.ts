@@ -96,6 +96,31 @@ test("a notification's turn with no reply goes to the hat; one with a reply stay
   expect(said.rows).toBe(said.all);
 });
 
+test("a subagent's report keeps its line even when the agent's reply was quiet", async () => {
+  const { rows, all, silent } = await split([
+    ...personTurn("Have a subagent fix it", "Started a subagent.", "t1"),
+    [
+      "mux",
+      "background_turn",
+      {
+        state: "started",
+        id: "bg1",
+        trigger: "task_notification",
+        cause: { kind: "subagent", status: "completed", weight: "result", origin: "fixer-call" },
+      },
+    ],
+    say("Noted."),
+    [
+      "mux",
+      "background_turn",
+      { state: "ended", id: "bg1", trigger: "task_notification", quiet: true, reason: "result" },
+    ],
+  ]);
+  expect(silent).toHaveLength(0);
+  expect(rows).toBe(all);
+  expect(rows.some((row) => row.kind === BACKGROUND_TURN && row.background?.cause?.kind === "subagent")).toBe(true);
+});
+
 test("a silent turn with effects keeps its place", async () => {
   for (const effect of [ran("e", "Edit src/a.ts", "edit"), ran("l", "glaeda-gh land manaflow-ai/cmux#1 --sha abc")]) {
     const { rows, all, silent } = await split([

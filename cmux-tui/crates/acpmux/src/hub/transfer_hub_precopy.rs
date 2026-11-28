@@ -28,7 +28,6 @@
 //! TODO: a chat coming back does not send only the delta (`transfer_base`) over the hub: a
 //! guarded stage rewrites every line, so the target's own copy cannot stand in for a base.
 
-use super::transfer_guard::Guard;
 use super::transfer_out::transfer_precopy::PREFIX_SCHEMA;
 use super::transfer_out::{inside, transfers_dir};
 use super::transfer_pull::{
@@ -136,7 +135,7 @@ impl Hub {
                 && super::transfer::is_plain_id(prepare_id)
                 && super::transfer::is_plain_id(session_id)
                 && session_id == body["sessionId"].as_str().unwrap_or("")
-                && !manifest.get("base").is_some_and(|b| !b.is_null())
+                && manifest.get("base").is_none_or(|b| b.is_null())
         };
         let unplain = || RpcError::invalid_params("move: the stage names no plain prefix");
         let pulled_id = pull.map(|p| field(p, "transferId").as_str().unwrap_or(""));
@@ -148,14 +147,7 @@ impl Hub {
         if !plain_daemon(source) {
             return Err(pull_error("source", "the message names no source daemon"));
         }
-        let roots = self.config.read().await.web_roots.clone();
-        if roots.is_empty() {
-            return Err(pull_error(
-                "no_roots",
-                "this machine names no webRoots, so no moved chat may work here",
-            ));
-        }
-        let guard = Guard::parse(&json!({"control": "peer", "roots": roots})).await?;
+        let guard = self.hub_move_guard().await?;
         let dial = self.transfer_dial().ok_or_else(|| {
             pull_error("no_route", "this daemon has no hub carrier to the source")
         })?;

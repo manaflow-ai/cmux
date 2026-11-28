@@ -35,12 +35,9 @@ extension AppControl {
                                        "creations": .array(services.cloud.creations.controlRows),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
-            // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (`cmux cloud automation-relay`).
-            .async("cloud.automation") { [forward = CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth), registry = services.registry] call in
-                if let refusal = await MainActor.run(body: { ControlError.policyRefusal("cloud.automation", disabled: registry.disabledFeatures) }) { throw refusal }
-                let reply = await forward(try JSONSerialization.data(withJSONObject: JSONValue.object(call.params).foundationObject))
-                return JSONValue(foundation: try JSONSerialization.jsonObject(with: reply)) ?? .null
-            }.withDeadline(.fixed(.seconds(30))),
+            // `cmux automation --target cloud`, and `cmux app ls|versions` off a Cloud machine: as the signed-in person.
+            .cloudRelay("cloud.automation", seconds: 30, disabledFeatures: { services.registry.disabledFeatures }, relay: CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth)),
+            .cloudRelay("cloud.apps", seconds: 35, disabledFeatures: { services.registry.disabledFeatures }, relay: CloudCLICall(cli: services.bundledCLI).appsRelay(signedIn: services.cloud.auth)),
         ])
         registerRunMethods(services); CaptureAuthControl().register(on: service?.router, remote: services.cmuxRemote.capture) { [weak services] in services?.cloud.auth }
         registerCloudEnvironmentMethods(services)
@@ -193,7 +190,7 @@ extension AppControl {
             // A managed team missing or a local-only backend: no new run asks the server (mayCallCloud).
             guard !newRun || services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module.inAppLanguage)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module.inAppLanguage)) }
-            return newRun ? services.cloud.machineAPI.daemon.runningAs(services.cloud.auth.runAccount) : services.cloud.machineAPI.daemon
+            return newRun ? services.cloud.machineAPI.runningAs(services.cloud.auth.runAccount) : services.cloud.machineAPI
         }
     }
 

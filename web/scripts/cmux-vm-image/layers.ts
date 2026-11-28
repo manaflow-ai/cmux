@@ -21,7 +21,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { DEVBOX_WORK_HOME } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME } from "../../services/vms/workUser";
 import { GRADUATED_REPO_PATH, graduatedKeyText, readGraduated, type Graduated } from "./graduate";
 import { CURRENT_BIN, STORE_DIR } from "./lock";
 
@@ -161,12 +161,35 @@ export function layerLabel(name: string, parentSlug: string | null | undefined):
 
 /** The parent layer's slug a layered snapshot's label records, or undefined when it records none. */
 export function labelParent(displayName: string | null | undefined): string | undefined {
-  const short = /^\S+ \^((?:sys|agt)-[0-9a-f]{16})$/.exec(displayName ?? "")?.[1];
+  const short = /^\S+ \^((?:sys|agt)-[0-9a-f]{16}(?:-e[0-9a-f]{4})?)$/.exec(displayName ?? "")?.[1];
   return short ? `cmuxnp-dev-vmimg-${short}` : undefined;
 }
 
 /** A cached layer's snapshot name and slug. Fits the 41-character tag limit of `cmuxnp-dev-vmimg-<tag>`. */
 export const layerName = (layer: LayerName, key: string) => `${LAYER_PREFIX[layer]}${key.slice(0, 16)}`;
+
+/**
+ * The slug a layer is rebuilt under after its cached snapshot stalled a bake (bake.ts LAYER EVICT): the layer's own
+ * slug plus `-e` and the first 4 hex of the evicted snapshot's id. Roll 46107492079: attempts 2 and 3 booted their
+ * builder from the cached layers (LAYER HIT sys sh-d56f2197..., agt sh-6c5a2351...) and both stalled (the clean step
+ * past its 300 s, then 7 min with no answer), while every bake that built its layers fresh passed. The provider
+ * keeps a slug unique, and deleting a layer an image was built on is gc-layers.ts's call, so the rebuild takes a new
+ * slug and pickLayer prefers it from then on.
+ */
+export const evictedLayerSlug = (slug: string, evictedId: string) => `${slug.replace(/-e[0-9a-f]{4}$/, "")}-e${evictedId.replace(/^sh-/, "").slice(0, 4)}`;
+
+export type ListedSnapshot = { id: string; slug?: string | null; createdAt?: string | null };
+
+/**
+ * The cached snapshot a layer's slug resolves to: the newest of the slug itself and its rebuilds (evictedLayerSlug),
+ * so a rebuild supersedes the snapshot it replaced in every later bake. Undefined when none exists (a LAYER MISS).
+ */
+export function pickLayer(snapshots: readonly ListedSnapshot[], slug: string): ListedSnapshot | undefined {
+  const rebuild = new RegExp(`^${slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-e[0-9a-f]{4}$`);
+  const mine = snapshots.filter((s) => s.slug === slug || (s.slug != null && rebuild.test(s.slug)));
+  const at = (s: ListedSnapshot) => (s.createdAt ? Date.parse(s.createdAt) : 0) || 0;
+  return mine.reduce<ListedSnapshot | undefined>((best, s) => (!best || at(s) > at(best) || (at(s) === at(best) && s.slug !== slug) ? s : best), undefined);
+}
 
 /**
  * First step of an overlay layer on a parent clone: no self-update during the bake (the snapshot carries the

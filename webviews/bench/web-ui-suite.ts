@@ -268,7 +268,11 @@ export const BENCHES: readonly Bench[] = [
   {
     name: "composer-typing",
     file: "composer-typing.bench.ts",
-    args: ["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60", "--keys", "500", "--gap", "20"],
+    // --repeat 3: each case's median-p99 attempt, so a burst from another runner slot on the host is not the reading.
+    args: [
+      ...["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60"],
+      ...["--keys", "500", "--gap", "20", "--repeat", "3"],
+    ],
     timeoutMs: 1_500_000,
     ownPart: true,
   },
@@ -358,6 +362,18 @@ export const BENCHES: readonly Bench[] = [
     args: ["3", "300"],
     env: { FIXTURE: "god" },
     timeoutMs: 420_000,
+    ownPart: true,
+  },
+  // The god chat's length curve (goal god-chat-ratios): the god session opened at 1k, 10k and 100k turns, each at its
+  // last checkpoint as a pane opens a long chat (TAIL=1: the newest page, older pages on scroll), then one turn
+  // streamed live; per-token and per-thought main-thread ms and heap at each, and the 100k / 1k ratio
+  // (god_length_curve.ratio_max, target 1.2). perf-cron.py's web-ui-god-curve part runs it.
+  {
+    name: "god-length-curve",
+    file: "god-length-curve.bench.ts",
+    args: [],
+    env: { CLOCK: "cpu" },
+    timeoutMs: 2_400_000,
     ownPart: true,
   },
   {

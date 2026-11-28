@@ -83,6 +83,18 @@ public final class ControlIdempotencyCache: Sendable {
         }
     }
 
+    /// Looks up an existing run without creating an entry on a cache miss.
+    /// Join-only reconciliation uses this so an evicted key cannot start a
+    /// second mutation.
+    func peek(_ key: String, fingerprint: Fingerprint) -> Claim? {
+        state.withLock { state in
+            guard let entry = state.entries[key] else { return nil }
+            guard entry.fingerprint == fingerprint else { return .conflict }
+            if let outcome = entry.outcome { return .finished(outcome) }
+            return .join(Joiner(cache: self, key: key))
+        }
+    }
+
     /// Stores the outcome of a run that started and wakes its joiners.
     func finish(_ key: String, with outcome: Outcome) {
         let waiters = state.withLock { state -> [CheckedContinuation<Outcome?, Never>] in

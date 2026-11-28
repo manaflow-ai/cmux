@@ -46,41 +46,22 @@ fn codex_error(update: &Value) -> Option<(bool, Value)> {
 const PLUMBING_TOOLS: &[&str] = &["ToolSearch", "tool_search", "load_tools"];
 
 /// Whether `update` is where the pane cuts a reply's row (direct.ts `endAssistantSegment`), so
-/// the next reply text is another segment: a thought, a new tool call the person sees, a
-/// compaction note, and the turn's first checklist (a plan, or Claude Code's TodoWrite call, which
-/// the pane shows until the turn has a checklist and hides after). `plan_shown`: this turn has
-/// drawn one (`StreamState::plan_shown`), which this updates. Not a call the pane hides or folds
-/// into the message (plumbing, a todo call that becomes the plan, a later TodoWrite or plan), nor a
+/// the next reply text is another segment: a thought, a new tool call the person sees and a
+/// compaction note. Not a call the pane folds into the message (plumbing), nor a
 /// background task's note or a subagent's update, beside which the message goes on in its row
 /// (Leo, 2026-11-03: "this chat's text stream got cut in the middle by a tool call which is
 /// weird"). The pane cuts in a few rarer places too (a permission card, an offer); a row after one
 /// is named by its first chunk read.
-fn cuts_reply(kind: &str, update: &Value, plan_shown: &mut bool) -> bool {
+fn cuts_reply(kind: &str, update: &Value) -> bool {
     match kind {
         "agent_thought_chunk" => update.get("content").is_some_and(has_text),
         "compaction" => true,
-        "plan" => match update.get("entries").and_then(Value::as_array) {
-            // A cleared list takes the checklist away; the next one is new.
-            Some(entries) if entries.is_empty() => {
-                *plan_shown = false;
-                false
-            }
-            _ => !std::mem::replace(plan_shown, true),
-        },
         "tool_call" => {
             let tool = update
                 .pointer("/_meta/claude/tool")
                 .or_else(|| update.pointer("/_meta/claudeCode/toolName"))
                 .and_then(Value::as_str);
-            let plumbing = tool.is_some_and(|t| PLUMBING_TOOLS.contains(&t));
-            // The pane names a call by `_meta.claude.tool`, else its title (direct.ts).
-            let named = update.pointer("/_meta/claude/tool").or_else(|| update.get("title"));
-            if named.and_then(Value::as_str) == Some("TodoWrite") {
-                return !*plan_shown;
-            }
-            let todo = update.get("name").and_then(Value::as_str) == Some("write_todos")
-                || update.pointer("/_meta/acpmux/planTool").and_then(Value::as_bool) == Some(true);
-            !plumbing && !todo
+            !tool.is_some_and(|t| PLUMBING_TOOLS.contains(&t))
         }
         _ => false,
     }
@@ -223,12 +204,11 @@ impl Hub {
         let mut retrying = None;
         let mut segment = None;
         // Read before the stream lock: the turn's lock is never taken under it.
-        let turn_id = matches!(kind, "agent_message_chunk" | "plan" | "tool_call")
-            .then(|| session.turn().map(|t| t.turn_id))
-            .flatten();
+        let turn_id =
+            (kind == "agent_message_chunk").then(|| session.turn().map(|t| t.turn_id)).flatten();
         {
             let mut st = session.stream.lock().unwrap();
-            if matches!(kind, "agent_thought_chunk" | "tool_call" | "plan") {
+            if matches!(kind, "agent_thought_chunk" | "tool_call") {
                 st.agent_worked = true;
             }
             match kind {
@@ -277,24 +257,11 @@ impl Hub {
                     }
                 }
                 _ => {
-                    // A checklist is the turn's (the pane starts a new one at each prompt and turn).
-                    // Only an update read with its turn (a plan or tool call) can show the turn
-                    // changed: a usage tick, a call's update or a thought between a checklist and
-                    // its next update reads none, and is never a new turn's start.
-                    if matches!(kind, "plan" | "tool_call") {
-                        let turn = turn_id.as_deref().unwrap_or("-");
-                        if st.plan_turn.as_deref() != Some(turn) {
-                            st.plan_turn = Some(turn.to_owned());
-                            st.plan_shown = false;
-                        }
-                    }
-                    let mut plan_shown = st.plan_shown;
-                    if cuts_reply(kind, update, &mut plan_shown) {
+                    if cuts_reply(kind, update) {
                         st.reply_segment = None;
                     }
-                    st.plan_shown = plan_shown;
                     if !NEUTRAL_UPDATES.contains(&kind) {
-                        // A tool call, plan or user chunk ends the message: a
+                        // A tool call or user chunk ends the message: a
                         // later retry does not abandon it.
                         st.open_message = None;
                         st.retry_from = None;
@@ -398,40 +365,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod reply_segment_tests {
-    use super::StreamState;
-
-    /// Text between turns never takes an id an earlier run of such text had, however many turns
-    /// come between them (cmux#48659: `-.<boot>.1` named two replies an hour apart).
-    #[test]
-    fn replies_with_no_turn_never_reuse_a_segment() {
-        let mut st = StreamState::default();
-        let first = st.reply_segment_for(None, Some("msg_a"), "b");
-        assert_eq!(first, "-.b.1");
-        assert_eq!(
-            st.reply_segment_for(None, Some("msg_a"), "b"),
-            first,
-            "one message, one segment"
-        );
-        assert_eq!(st.reply_segment_for(Some("t1"), Some("msg_b"), "b"), "t1.b.1");
-        assert_eq!(st.reply_segment_for(Some("t1"), Some("msg_c"), "b"), "t1.b.2");
-        let later = st.reply_segment_for(None, Some("msg_d"), "b");
-        assert_eq!(later, "-.b.2");
-        assert_ne!(later, first);
-        assert_eq!(
-            st.reply_segment_for(Some("t2"), Some("msg_e"), "b"),
-            "t2.b.1",
-            "a turn counts from 1"
-        );
-        assert_eq!(st.reply_segment_for(None, Some("msg_f"), "b"), "-.b.3");
-    }
-
-    /// A cut (`reply_segment` cleared) starts a new segment of the same message.
-    #[test]
-    fn a_cut_starts_a_new_segment_of_the_same_message() {
-        let mut st = StreamState::default();
-        assert_eq!(st.reply_segment_for(None, Some("msg_a"), "b"), "-.b.1");
-        st.reply_segment = None;
-        assert_eq!(st.reply_segment_for(None, Some("msg_a"), "b"), "-.b.2");
-    }
-}
+#[path = "stream_reply_segment_tests.rs"]
+mod reply_segment_tests;

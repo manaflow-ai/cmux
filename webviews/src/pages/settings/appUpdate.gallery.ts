@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // Updates > App Update (AppUpdateCard): the app update's status, from the host lists' `app_update`.
 // The sidebar shows no download (Leo 2026-11-03, after ChatGPT's one-step update), so this card
+// retry-prompt-ok: the update Try Again downloads and installs an update.
 // carries the progress, Cancel, Restart to Update and a failure's Try Again. One variant per state.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type { AppUpdateState, PreviousBuild } from "./ops";
@@ -28,6 +29,39 @@ const previousBuild = (refusal: string | null): PreviousBuild => ({
   build_label: "Build 3913596493800",
   refusal,
 });
+const pull = (pr: number, title: string, author: string, build: string) => ({
+  pr,
+  title,
+  author,
+  url: `https://github.com/manaflow-ai/cmux/pull/${pr}`,
+  build,
+});
+const readyWithPRs: AppUpdateState = {
+  ...idle,
+  phase: "ready",
+  status: "Update Ready",
+  detail: "Version 1.0.0-nightly.3913596493802",
+  actions: [{ id: "install", title: "Restart to Update", prominent: true }],
+  prs: {
+    title: "What's in this build",
+    other: "Other",
+    internalCount: 2,
+    groups: [
+      {
+        area: "Mac app",
+        items: [
+          pull(57301, "Pinned tabs keep their order after a restart", "lawrence", "3913596493802"),
+          pull(57288, "Sidebar rows fade on hover", "austin", "3913596493801"),
+        ],
+      },
+      {
+        area: "Terminal and CLI",
+        items: [pull(57295, "Find bar remembers its query", "leo", "3913596493802")],
+      },
+      { area: null, items: [pull(57270, "Faster cold start", "leo", "3913596493801")] },
+    ],
+  },
+};
 const card = (phase: string): PageFixtureStep => ({
   selector: `[data-card="app-update"][data-phase="${phase}"]`,
   action: "wait",
@@ -69,12 +103,19 @@ export default settingsPageEntry({
       },
       "Staged: one Restart to Update, the same click as the sidebar's ready card.",
     ),
+    "ready-prs": {
+      section: "updates",
+      host: { app_update: readyWithPRs },
+      steps: [card("ready"), { selector: "[data-app-update-prs] summary", action: "click" }],
+      note: "Staged with What's in this build open: every PR since the installed build, skipped nightlies' too, by area.",
+    },
     failed: variant(
       {
         ...idle,
         phase: "check_failed",
         status: "Update Check Failed",
         detail: "The network connection was lost.",
+        // retry-prompt-ok: the host's action (UpdaterService); its download Try Again installs an update.
         actions: [{ id: "retry", title: "Try Again", prominent: false }],
       },
       "A failed check or download, background ones too: the cause and Try Again.",

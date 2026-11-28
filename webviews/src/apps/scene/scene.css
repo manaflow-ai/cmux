@@ -16,6 +16,10 @@
   flex-direction: column;
   gap: 0;
 }
+/* Holds the place of a LazyVStack's unmounted children (SceneRenderer.tsx LazySpacer). */
+.cmux-app-scene-lazy-spacer {
+  flex: none;
+}
 .cmux-app-scene-hstack {
   display: flex;
   flex-direction: row;
@@ -34,6 +38,8 @@
 .cmux-app-scene-zstack > :has(.cmux-app-scene-spacer) {
   justify-self: stretch;
 }
+/* No box of their own, so a LazyVStack measures these by their children (SceneRenderer.tsx CONTENTS_WRAPPER):
+ * keep the two lists the same. */
 .cmux-app-scene-group,
 .cmux-app-scene-foreach,
 .cmux-app-scene-context {
@@ -72,7 +78,7 @@
   white-space: nowrap;
 }
 .cmux-app-scene-row-title[data-unread] {
-  font-weight: 600;
+  font-weight: var(--weight-emphasis, 600);
 }
 .cmux-app-scene-row-subtitle {
   color: var(--agent-muted);
@@ -102,7 +108,7 @@
   opacity: 0.5;
 }
 .cmux-app-scene-node:is(button, [role="button"]):focus-visible {
-  outline: 1.5px solid var(--agent-text);
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--agent-text);
   outline-offset: -1.5px;
 }
 .cmux-app-scene-button {
@@ -316,7 +322,7 @@
   cursor: default;
 }
 .cmux-app-scene-failure-action:focus-visible {
-  outline: 1.5px solid var(--agent-text);
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--agent-text);
   outline-offset: 1px;
 }
 .cmux-app-scene-mount {

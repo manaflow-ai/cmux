@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 
 use cmux_auto_session::AutoCloud;
 use cmux_auto_session::holder::{Change, Chat, ImportReason, Side, State};
-use cmux_auto_session::wire::{self, Blocked, OpenTool, SessionView};
+use cmux_auto_session::wire::{self, Blocked, Holder, MoveTo, OpenTool, SessionView};
 
 use super::Reply;
 use super::run::Loop;
@@ -23,6 +23,9 @@ pub(super) enum LaneOp {
     Drain,
     /// Tell the store the assignment was picked up.
     Ack { epoch: u64 },
+    /// Send the Cloud inbox the person's queued prompts the store never had: the ones queued
+    /// here after record `after` (`tasks.rs` `unsent`).
+    Unsent { after: u64 },
 }
 
 /// Whether the chat's work is being read, and what to read it for next.
@@ -52,6 +55,10 @@ pub(super) struct Tracked {
     pub view: Option<SessionView>,
     /// The store's last event, as far as this machine knows.
     pub sent: u64,
+    /// The last record of this machine's own log that the store has, when that is known: what
+    /// its last copy stored, or the import its log began from. `sent` follows the store, so it
+    /// counts another holder's records once the chat is theirs; this does not.
+    pub own: Option<u64>,
     /// The epoch of the copy that is on its way.
     pub copying: Option<u64>,
     /// The newest copy asked for while one was on its way. It goes at the chat's epoch then.
@@ -76,6 +83,11 @@ pub(super) struct Tracked {
     pub absent: bool,
     /// A task waits for the chat's work to settle (`settle.rs`).
     pub settling: bool,
+    /// What a give keeps of the turn it stopped (`give.rs`).
+    pub give: super::give::Stopped,
+    /// The store was asked to switch Auto off for a chat set to this machine only, and has not
+    /// answered yet (`moves.rs` `leave_when_home`): it is not asked twice.
+    pub leaving: bool,
 }
 
 impl Tracked {
@@ -85,6 +97,7 @@ impl Tracked {
             timer: None,
             view: None,
             sent: 0,
+            own: None,
             copying: None,
             wanted: None,
             lane: VecDeque::new(),
@@ -97,6 +110,8 @@ impl Tracked {
             anchor: None,
             absent: false,
             settling: false,
+            give: super::give::Stopped::default(),
+            leaving: false,
         }
     }
 
@@ -136,9 +151,35 @@ fn stands(chat: &Chat, view: Option<&SessionView>) -> wire::State {
     }
 }
 
-/// The chat's record as the loop's state says it is now. `old` gives what only the record
-/// keeps (the leftover patch).
-pub(super) fn record_of(tracked: &Tracked, old: Option<AutoRecord>) -> Option<AutoRecord> {
+/// Whether a chat set to this machine only is still on its way to `me`, or here, as the store's
+/// `view` says. It is while this machine holds the chat or is taking it, and while the store
+/// still tells the wish to bring it to this machine. It is not once the store keeps the chat in
+/// the Cloud (the person picked Cloud for it since, from any device), or another holder has it
+/// with no such wish (the move home ran out or was refused, or the person picked Auto).
+fn coming_here(chat: &Chat, view: &SessionView, me: &Holder) -> bool {
+    if view.keep_in_cloud {
+        return false;
+    }
+    let taking = matches!(
+        chat.state,
+        State::ComingHome { .. }
+            | State::Holding { .. }
+            | State::Stopped { .. }
+            | State::Giving { .. }
+    );
+    let wished = view.moving.as_ref().is_some_and(|wish| {
+        wish.to == MoveTo::Local && wish.device.as_ref().is_none_or(|device| device == me)
+    });
+    taking || view.holder == *me || wished
+}
+
+/// The chat's record as the loop's state says it is now, on the machine `me`. `old` gives what
+/// only the record keeps (the leftover patch, and that the chat is set to this machine only).
+pub(super) fn record_of(
+    tracked: &Tracked,
+    me: &Holder,
+    old: Option<AutoRecord>,
+) -> Option<AutoRecord> {
     let chat = &tracked.chat;
     let view = tracked.view.as_ref();
     let mut record = old.unwrap_or_else(AutoRecord::on);
@@ -154,6 +195,12 @@ pub(super) fn record_of(tracked: &Tracked, old: Option<AutoRecord>) -> Option<Au
     if let Some(view) = view {
         record.keep_in_cloud = view.keep_in_cloud;
     }
+    // Moving: this holder is giving the chat, or the store still tells the wish.
+    let wished = view.and_then(|view| view.moving.as_ref()).map(|wish| wish.to);
+    record.moving = chat.moving().or(wished).filter(|_| record.auto);
+    // "This machine only" follows the store too: with no view yet (a daemon that just started)
+    // it stays as the record has it.
+    record.local_wanted &= record.auto && view.is_none_or(|view| coming_here(chat, view, me));
     record.anchor = tracked.anchor.clone();
     (!record.spent()).then_some(record)
 }
@@ -165,7 +212,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
         let Some(tracked) = self.chats.get(id) else { return };
         let Some(session) = self.hub.auto_session(id) else { return };
         self.hub.auto_hold(&session, frozen(&tracked.chat));
-        self.hub.update_auto_record(&session, |old| record_of(tracked, old));
+        let me = &self.ctx.me;
+        self.hub.update_auto_record(&session, |old| record_of(tracked, me, old));
     }
 
     /// Drops a chat the loop has nothing left to do for. Auto went off while a request waited
@@ -185,52 +233,5 @@ impl<C: AutoCloud + 'static> Loop<C> {
 }
 
 #[cfg(test)]
-mod tests {
-    use cmux_auto_session::holder::Stop;
-
-    use super::*;
-
-    fn chat(state: State) -> Tracked {
-        Tracked::new(Chat { state, ..Chat::new(Side::Laptop, 0) })
-    }
-
-    #[test]
-    fn a_chat_stopped_here_reads_as_here_and_frozen() {
-        let stopped = chat(State::Stopped { epoch: 3, why: Stop::Offline });
-        assert!(frozen(&stopped.chat));
-        let record = record_of(&stopped, None).unwrap();
-        assert!(record.auto && record.here);
-        assert_eq!(record.epoch, 3);
-        assert_eq!(record.state, wire::State::Local);
-        assert_eq!(record.blocked, Some(Blocked::Offline));
-    }
-
-    #[test]
-    fn a_chat_with_auto_off_keeps_a_record_only_for_its_leftover() {
-        let off = chat(State::Off);
-        assert!(!frozen(&off.chat));
-        assert_eq!(record_of(&off, None), None);
-        assert_eq!(record_of(&off, Some(AutoRecord::on())), None);
-        let mut kept = AutoRecord::on();
-        kept.leftover = Some(crate::auto_session::record::Leftover {
-            files: vec!["a".into()],
-            at: 1,
-            path: "/x/p".into(),
-            top: "/x".into(),
-        });
-        let record = record_of(&off, Some(kept)).unwrap();
-        assert!(!record.auto);
-        assert!(record.leftover.is_some());
-    }
-
-    #[test]
-    fn a_standby_chat_reads_where_the_store_says_it_is() {
-        let standby = chat(State::Standby { epoch: 2 });
-        assert!(frozen(&standby.chat));
-        let record = record_of(&standby, None).unwrap();
-        assert!(!record.here);
-        assert_eq!(record.state, wire::State::Cloud);
-        let home = chat(State::ComingHome { epoch: 4, failed: false });
-        assert_eq!(record_of(&home, None).unwrap().state, wire::State::ComingBack);
-    }
-}
+#[path = "chats_tests.rs"]
+mod tests;

@@ -50,6 +50,26 @@
       "source": "Apple Network Link Conditioner preset 'Very Bad Network': 1 Mbps each way, 500 ms delay each way, 10% loss; plus 0-300 ms jitter per the lane brief."
     },
     {
+      "name": "satellite-600",
+      "version": 1,
+      "down_kbit": 25000,
+      "up_kbit": 3000,
+      "rtt_ms": 600,
+      "jitter_ms": 20,
+      "loss_percent": 0.5,
+      "source": "A geostationary satellite link (the scoreboard's 'satellite 600 ms' row; hq docs/design/ultra-connectivity.md section 8 names 600 ms, 20 ms jitter, 0.5 % loss). RTT: four hops of 35,786 km at c is 477 ms of propagation before any modem or gateway time, so 600 ms is a typical measured GEO round trip. Rates: the 25 Mbit/s down, 3 Mbit/s up tier consumer GEO plans advertise (HughesNet Gen5); an advertised tier, not a measurement. The shaper plays one rate per direction; the UDP model in cmux-mobile-link testing/shaped.rs uses the lower, 3 Mbit/s, for both."
+    },
+    {
+      "name": "airplane-wifi",
+      "version": 1,
+      "down_kbit": 5000,
+      "up_kbit": 1000,
+      "rtt_ms": 700,
+      "jitter_ms": 100,
+      "loss_percent": 2,
+      "source": "In-flight Wi-Fi (the scoreboard's 'airplane Wi-Fi' row; hq docs/design/ultra-connectivity.md section 8 names 700 ms and 2 % loss, section 3 '600+ ms, 1-5 % loss'): a cabin access point behind a shared GEO or air-to-ground backhaul. RTT and loss: the design's numbers. Rates: assumed, 5 Mbit/s down and 1 Mbit/s up for one passenger of a shared bearer (the order airlines quote per device); jitter 0-100 ms assumed for the shared queue. The 443-only and captive-portal parts of an airplane network are not in a shaper profile: see the scoreboard's captive-portal and proxy rows."
+    },
+    {
       "name": "elevator-30s",
       "version": 1,
       "down_kbit": 12000,
@@ -58,6 +78,84 @@
       "loss_percent": 0.5,
       "disruption": { "kind": "blackout", "duration_ms": 30000 },
       "source": "The 'lte' row's link, then 30 s with nothing through and the same link back, per the lane brief (the elevator). Bytes sent into the dark retransmit on TCP's doubling backoff (200 ms min RTO, RFC 6298), so recovery lands after the window, not at its end."
+    },
+    {
+      "name": "blackout-2s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 2000 },
+      "source": "The 'lte' row's link, then 2 s with nothing through either way and the same addresses back, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change). 'elevator-30s' is the 30 s row."
+    },
+    {
+      "name": "blackout-5s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 5000 },
+      "source": "The 'lte' row's link, then 5 s with nothing through either way and the same addresses back, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change). 'elevator-30s' is the 30 s row."
+    },
+    {
+      "name": "blackout-8s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 8000 },
+      "source": "The 'lte' row's link, then 8 s with nothing through either way and the same addresses back, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change). 'elevator-30s' is the 30 s row."
+    },
+    {
+      "name": "blackout-10s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 10000 },
+      "source": "The 'lte' row's link, then 10 s with nothing through either way and the same addresses back, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change). 'elevator-30s' is the 30 s row."
+    },
+    {
+      "name": "blackout-60s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 60000 },
+      "source": "The 'lte' row's link, then 60 s with nothing through either way and the same addresses back, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change). 'elevator-30s' is the 30 s row."
+    },
+    {
+      "name": "nat-rebind",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "address_change", "stall_ms": [0, 0] },
+      "source": "The 'lte' row's link, then a NAT rebinding: the same IP, a new source port, no event on the phone and no stall; live connections (TCP) or the old port (UDP) go silent for good, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change)."
+    },
+    {
+      "name": "wifi-to-cell",
+      "version": 1,
+      "down_kbit": 40000,
+      "up_kbit": 33000,
+      "rtt_ms": 2,
+      "disruption": { "kind": "address_change", "stall_ms": [0, 0], "then": "cell-after-wifi" },
+      "source": "The 'good-wifi' row's link, then the phone moves to cellular: the Wi-Fi path goes dark at once and the new path is 'cell-after-wifi', per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change)."
+    },
+    {
+      "name": "cell-after-wifi",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 42,
+      "loss_percent": 1,
+      "source": "The cellular path after 'wifi-to-cell': 'good-wifi''s 2 ms round trip plus 40 ms, 1% loss, at the 'lte' row's 12 Mbit/s each way, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change)."
     },
     {
       "name": "2g-trickle",

@@ -202,13 +202,8 @@ test("a section drags anywhere, lifted while held, and the order stays", async (
   expect(container.querySelector("[data-lifted]")).toBeNull();
   expect(container.querySelector("[data-dragging]")).toBeNull();
   expect(slotOf(container, "outputs").style.transform).toBe("");
-  // The saved order is the drawn one, the line included, with Progress (no plan here), Also working
-  // here (no other chat here) and Carried memory (no read here) in their slots, none drawn.
-  expect(
-    (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter(
-      (id) => id !== "progress" && id !== "alsoHere" && id !== "carried",
-    ),
-  ).toEqual(order(container));
+  // The saved order is the drawn one, the line included.
+  expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).toEqual(order(container));
   await act(async () => root.unmount());
 
   // A fresh page reads the saved order.
@@ -342,14 +337,11 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
     "context",
     "outputs",
     "sources",
-    "progress",
     "tasks",
     "subagents",
-    "alsoHere",
     "more",
     "usage",
     "connectors",
-    "carried",
     "changes",
   ]);
   await act(async () => root.unmount());
@@ -364,16 +356,21 @@ test("parseOrder keeps known sections once and reads both shapes", () => {
     "context",
     "usage",
     "connectors",
-    "carried",
     "changes",
     "sources",
     "outputs",
-    "progress",
     "tasks",
-    "alsoHere",
     "subagents",
   ]);
   expect(parseOrder(JSON.stringify({ about: 3 }))).toEqual([]);
+  // An order saved while Also working here was a section (removed 2026-11-25) drops it and keeps the rest.
+  expect(parseOrder(JSON.stringify(["environment", "outputs", "alsoHere", "context", "more", "usage"]))).toEqual([
+    "environment",
+    "outputs",
+    "context",
+    "more",
+    "usage",
+  ]);
 });
 
 test("another pane's drag reaches this one", async () => {
@@ -384,7 +381,7 @@ test("another pane's drag reaches this one", async () => {
     dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: ORDER_KEY, newValue: value }));
   });
   // A section the saved order lacks takes the place after the one it follows by default: Context after
-  // Environment, Subagents after Context (Progress, not drawn, between), the line's sections after it.
+  // Environment, Subagents after Context, the line's sections after it.
   // Environment is pinned first, so Outputs lands right under it.
   expect(order(container)).toEqual([
     "environment",
@@ -465,17 +462,14 @@ test("a hidden section keeps its slot when the shown ones move", async () => {
   expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)).toEqual([
     "environment",
     "subagents",
-    "progress",
     "context",
     "tasks",
     "sources",
     "outputs",
-    "alsoHere",
     "more",
     "changes",
     "usage",
     "connectors",
-    "carried",
   ]);
   await act(async () => root.unmount());
 });

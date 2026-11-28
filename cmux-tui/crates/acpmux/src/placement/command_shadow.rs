@@ -177,7 +177,7 @@ pub fn decide(p: &Predicted, s: &Situation) -> Verdict {
 }
 
 /// A workload VM's shape for a need: whole vCPU, 1 to 64; whole GiB, at least 1.
-fn workload_shape(need: Shape) -> Shape {
+pub fn workload_shape(need: Shape) -> Shape {
     Shape {
         vcpu: need.vcpu.ceil().clamp(1.0, MAX_WORKLOAD_VCPU),
         mem_gib: need.mem_gib.ceil().max(1.0),

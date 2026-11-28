@@ -1,5 +1,5 @@
-// The hosts docs/privacy.md lists as `connects` (the same set as cmux-tui/crates/cmux-egress/hosts.txt), sorted.
-// Hand-kept: tests/test_egress_gate.py fails when this list and the doc differ.
+// The egress allowlist's hosts (cmux-tui/crates/cmux-egress/hosts.txt, the source docs/privacy.md is generated from), sorted.
+// Hand-kept: tests/test_egress_gate.py fails when this list and hosts.txt differ.
 enum EgressHosts {
     static let patterns: [String] = [
         "*.*.wdev.cmux.dev",
@@ -19,6 +19,7 @@ enum EgressHosts {
         "api.open-meteo.com",
         "api.openai.com",
         "api.stack-auth.com",
+        "api.tailscale.com",
         "api.x.ai",
         "app.notion.com",
         "app.slack.com",
@@ -41,7 +42,6 @@ enum EgressHosts {
         "cmux-api-staging.debussy.workers.dev",
         "cmux-device-hub-dev.debussy.workers.dev",
         "cmux-device-hub.debussy.workers.dev",
-        "cmux-lawrences-mac-mini.tail137216.ts.net",
         "cmux-mobile-api-dev.debussy.workers.dev",
         "cmux-platform-development.debussy.workers.dev",
         "cmux-platform-production.debussy.workers.dev",
@@ -69,6 +69,7 @@ enum EgressHosts {
         "home.atlassian.com",
         "html.duckduckgo.com",
         "ice2.somafm.com",
+        "index.crates.io",
         "lh3.googleusercontent.com",
         "linear.app",
         "mail.google.com",
@@ -76,6 +77,7 @@ enum EgressHosts {
         "models.dev",
         "monitoring.googleapis.com",
         "o4507547940749312.ingest.us.sentry.io",
+        "objects.githubusercontent.com",
         "openaccess-api.clevelandart.org",
         "openaccess-cdn.clevelandart.org",
         "opencode.ai",
@@ -85,10 +87,12 @@ enum EgressHosts {
         "pypi.org",
         "raw.githubusercontent.com",
         "registry.npmjs.org",
+        "release-assets.githubusercontent.com",
         "share-dev.cmux.dev",
         "share-staging.cmux.dev",
         "share.cmux.dev",
         "somafm.com",
+        "static.crates.io",
         "stun.cloudflare.com",
         "stun.l.google.com",
         "suggestqueries.google.com",

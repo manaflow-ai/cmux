@@ -52,18 +52,35 @@ extension CloudService {
     func appServerCreate(name: String?, startedByPerson: Bool, ownCreate: Bool = false, asksFirst: Bool = true, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
                          onSent: @escaping @MainActor @Sendable () async -> Void,
-                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil, onAnswer: @MainActor (JSONValue) -> Void = { _ in }) async throws -> CloudMachine {
+                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil, onAnswer: @MainActor (JSONValue) -> Void = { _ in }, goneAttempt: Int = 1) async throws -> CloudMachine {
         let pinned = creation?.request ?? request, identity = installIdentity
+        let scope = account
+        let checkScope: @MainActor @Sendable () throws -> Void = { [weak self] in
+            try Task.checkCancellation()
+            guard let self, !isSigningOut, account == scope else { throw CancellationError() }
+        }
+        try checkScope()
         if let environment, let cli = move.cli {
-            await onSent(); let id = try await CloudMoveCLI(binary: cli).machineInEnvironment(environment, key: pinned.idempotencyKey, platform: configuration.artifactsAPIBaseURL()?.absoluteString, access: try await auth.tokens().access)
-            if let name, !name.isEmpty { try? await renameMachine(id, to: name) }; return try await machineRecord(id)
+            let access = try await identity.installToken() // The platform route verifies the install token’s team claim.
+            await onSent()
+            try checkScope()
+            let id = try await CloudMoveCLI(binary: cli).machineInEnvironment(
+                environment, key: pinned.idempotencyKey, platform: configuration.artifactsAPIBaseURL()?.absoluteString, access: access
+            )
+            try checkScope()
+            if let name, !name.isEmpty { try? await renameMachine(id, to: name) }
+            try checkScope()
+            return setup.machineEnvironment(try await machineRecord(id), ensured: environment, account: scope, defaults: move.ledger)
         }
         let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }
         // The team the relay's create bills: the install token's team claim, captured now (the direct route sends it as
         // `x-cmux-team`). A Retry stays with the first send's team and route, and is refused if the token now bills another team.
         let team = try Self.appServerTeam(current: try await currentTeam(), request: pinned), route = pinned.createRoute(personsOwnCreate: ownCreate, team: team)
+        try checkScope()
         let sent: @MainActor @Sendable () async throws -> Void = { [weak creation] in
+            try checkScope()
             try await persistSent?(team, route)
+            try checkScope()
             creation?.markRequestSent(team: team, route: route)
             await onSent()
         }
@@ -71,7 +88,9 @@ extension CloudService {
         // user it has none of: the machine would stay provisioning. `user.ensure` (idempotent; its own key each attempt, as a same-key retry would
         // replay a failed one) goes beside the relay's held first call, done before the answer lets the op run; a direct create's, right before it.
         let ensure: @Sendable () async -> Void = { [appOps] in _ = try? await appOps("user.ensure", .object([:]), "user-ensure-" + UUID().uuidString.lowercased(), .user) }
-        var flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: route.timed(route == .direct ? CloudPersonCreate.ops(sessionCall(team: team), after: ensure) : appOps)), creation: creation)
+        let ops = route == .direct ? CloudPersonCreate.ops(sessionCall(team: team, checking: checkScope), after: ensure) : appOps
+        var flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent,
+                                                               ops: route.timed(ops)), creation: creation)
         if route == .relay { flow.beside = ensure }
         // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
         let record: JSONValue
@@ -85,12 +104,13 @@ extension CloudService {
             // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
             if !Task.isCancelled { creation?.renewKey(replacing: pinned.idempotencyKey) }
-            throw failure
+            guard persistSent == nil, !Task.isCancelled, CloudStartCore().createMachineGoneRetries(failure, attempt: goneAttempt) else { throw failure } // else its machine was gone before it answered: a new key asks again (`cloud.machine.create`'s contract), never "no such machine in this team"
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate, asksFirst: asksFirst, askedBy: askedBy, environment: environment, creation: creation, request: pinned.renewed, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer, goneAttempt: goneAttempt + 1)
         } catch is CloudPersonCreate.Unavailable where !pinned.wasSent && creation?.request.answeringRequest == nil && !Task.isCancelled && persistSent == nil {
             // The direct route refused before the op ran (no usable session, an older server): the relay takes it with a NEW key, never this one (a caller that keeps the key in its own ledger, `persistSent`, takes the new key from it).
+            try checkScope()
             var relay = pinned; relay.idempotencyKey = UUID().uuidString; creation?.renewKey(replacing: pinned.idempotencyKey)
-            return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment,
-                                             creation: creation, request: relay, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer)
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment, creation: creation, request: relay, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer)
         }
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
         return machine
@@ -156,21 +176,20 @@ extension CloudService {
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the way the feed does, in `team` (`x-cmux-team`)
     /// when given: only to answer a G8 approval after the person's native confirmation, and for a person's own create
-    /// (``CloudPersonCreate``). The session never goes to the daemon or the relay. Every call carries this build's
-    /// space (a misconfigured dev build's call throws).
-    private func sessionCall(team: String? = nil) -> CloudApprovalAnswer.Call {
-        let base = FeedService.apiBaseURL(auth: auth)
-        // A create (the call with a team) waits for the provider to make the machine; an approval's calls answer at once.
-        let auth = auth, session = team == nil ? Self.sessionTransport : Self.createTransport, timeout = team == nil ? CloudPersonCreate.callTimeout : CloudPersonCreate.createTimeout
-        let buildSpace = configuration.buildSpace
+    /// (``CloudPersonCreate``). The session never goes to the daemon or the relay. The bundled `cmux cloud install-post`
+    /// sends it. A create (the call with a team) waits for the provider to make the machine; an approval's calls answer at once.
+    private func sessionCall(team: String? = nil, checking check: (@MainActor @Sendable () throws -> Void)? = nil) -> CloudApprovalAnswer.Call {
+        let base = FeedService.apiBaseURL(auth: auth), auth = auth, io = auth.machineIO, space = configuration.buildSpace
+        let wait = team == nil ? CloudPersonCreate.callTimeout : CloudPersonCreate.createTimeout
         return { path, body in
-            var request = CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: try await auth.tokens().access, team: team, timeout: timeout)
-            try buildSpace.apply(to: &request)
-            return try await CloudConnectHedge().data(for: request, on: session).0
+            let bearer = try await auth.tokens().access
+            try await check?()
+            let reply = try await InstallHTTPTransport(baseURL: base, buildSpace: space, machineIO: io)
+                .send(path, json: body, bearer: bearer, headers: team.flatMap { $0.isEmpty ? nil : ["x-cmux-team": $0] } ?? [:], attempt: wait)
+            if reply.resent { CloudPersonCreate.resends?.note() }
+            return reply.body
         }
     }
-
-    private static let sessionTransport = CloudPersonCreate.session(), createTransport = CloudPersonCreate.session(timeout: CloudPersonCreate.createTimeout)
 }
 
 extension CloudPresenter {

@@ -159,6 +159,7 @@ fn calls() -> Vec<(Call, &'static str, String)> {
         (Call::read(Kind::Get, "as_1"), "GET", at("")),
         (Call::write(Kind::Lease, "as_1", lease), "POST", at("/lease")),
         (Call::write(Kind::Release, "as_1", fence()), "POST", at("/release")),
+        (Call::write(Kind::Give, "as_1", fence()), "POST", at("/give")),
         (Call::write(Kind::EventsAppend, "as_1", events), "POST", at("/events")),
         (Call::page(Kind::Events, "as_1", 7, Some(100)), "GET", at("/events?after=7&limit=100")),
         (Call::page(Kind::Events, "as_1", 0, None), "GET", at("/events?after=0")),
@@ -173,6 +174,8 @@ fn calls() -> Vec<(Call, &'static str, String)> {
         (Call::page(Kind::Inbox, "as_1", 3, None), "GET", at("/inbox?after=3")),
         (Call::write(Kind::InboxAck, "as_1", ack), "POST", at("/inbox/ack")),
         (Call::write(Kind::AssignmentAck, "as_1", fence()), "POST", at("/assignment/ack")),
+        (Call::write(Kind::Move, "as_1", json!({ "to": "local" })), "POST", at("/move")),
+        (Call::write(Kind::Keep, "as_1", json!({ "keepInCloud": false })), "POST", at("/keep")),
     ]
 }
 
@@ -371,6 +374,10 @@ fn calls_are_checked_before_they_reach_the_api() {
         json!({ "call": "lease", "session": "as_1", "body": { "holder": "vm:a b", "epoch": 4 } }),
         json!({ "call": "lease", "session": "as_1", "body": { "holder": holder(), "epoch": -1 } }),
         json!({ "call": "lease", "session": "as_1", "body": { "holder": holder(), "epoch": "4" } }),
+        json!({ "call": "move", "session": "as_1" }),
+        json!({ "call": "move", "session": "as_1", "body": { "to": "mars" } }),
+        json!({ "call": "move", "session": "as_1", "body": { "to": "local", "device": "vm:a" } }),
+        json!({ "call": "keep", "session": "as_1", "body": { "keepInCloud": "yes" } }),
         json!({ "call": "events", "session": "as_1", "after": -1 }),
         json!({ "call": "events", "session": "as_1", "after": 1, "limit": 0 }),
         json!({ "call": "inbox", "session": "as_1", "after": "1" }),

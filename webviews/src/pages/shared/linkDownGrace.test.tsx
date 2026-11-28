@@ -14,7 +14,12 @@ import { teardownDom } from "../../../test/support/domTeardown";
 import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { createStrings } from "./i18n";
 
-const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
+// A frame clock (`pretendToBeVisual`): the Bookmarks tree draws only its visible lines (#46207), and
+// its virtualizer reconciles a scroll to the selected row on the next animation frame, as in a browser.
+const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+});
 // jsdom draws no layout, so it has no scrollIntoView; the Bookmarks tree reveals its selected row with it.
 dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
 const globals = globalThis as Record<string, unknown>;
@@ -252,25 +257,6 @@ test("Apps: a lost link keeps the listings and says so only once it lasts", asyn
       () => store.getSnapshot().connection,
     ),
   );
-});
-
-test("CodeRouter: a page with nothing read yet stays blank, not 'not available', until the loss lasts", async () => {
-  const { CodeRouterPage } = await import("../coderouter/CodeRouterPage");
-  const { CodeRouterStore } = await import("../coderouter/store");
-  const table = (await import("../coderouter/generated/strings.json")).default;
-  const strings = createStrings(table);
-  // No host: the store is disconnected from its first frame, with no status read.
-  const store = new CodeRouterStore(null);
-  await mounted(<CodeRouterPage store={store} strings={strings} />, async (element) => {
-    const message = strings.t("disconnected");
-    const chip = () => element.querySelector("[data-connection-chip]");
-    expect(chip()).toBeNull();
-    await advance(CONNECTION_QUIET_MS - 100);
-    expect(chip()).toBeNull();
-    await advance(200);
-    expect(chip()).not.toBeNull();
-    expect(chip()!.getAttribute("title")).toBe(message);
-  });
 });
 
 test("Tasks: an owner that drops is said lost only once that lasts", async () => {

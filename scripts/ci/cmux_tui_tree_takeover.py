@@ -100,9 +100,44 @@ def take_over(api: Api, *, repo: str, commit: str, key: str = "", exclude_run: i
                   f"waiting tree jobs")
 
 
+# GitHub's run states that are not yet completed (a status filter takes one at a time).
+ACTIVE_STATUSES = ("queued", "in_progress")
+
+
+def active_waiter(api: Api, *, repo: str, commits: Iterable[str], exclude_run: int = 0) -> dict | None:
+    """A trusted active artifacts run of any waiting commit (two list reads, not one per commit), or None.
+    Unreadable: None, and the per-commit takeover below decides as before."""
+    wanted = {commit for commit in commits if SHA.match(commit)}
+    if not wanted:
+        return None
+    for status in ACTIVE_STATUSES:
+        try:
+            listing = api.get(f"repos/{repo}/actions/workflows/{ARTIFACTS_WORKFLOW}/runs"
+                              f"?branch={BRANCH}&status={status}&per_page=100")
+        except (RuntimeError, OSError, ValueError):
+            return None
+        for run in trusted_runs(listing.get("workflow_runs", []) if isinstance(listing, dict) else []):
+            if run.get("head_sha") in wanted and int(run.get("id") or 0) != exclude_run:
+                return run
+    return None
+
+
 def take_over_any(api: Api, *, repo: str, commits: Iterable[str], key: str = "", exclude_run: int = 0,
                   log: Callable[[str], None] = print) -> bool:
-    """Tries each distinct commit in order until one takes the publish over."""
+    """Tries each distinct commit in order until one takes the publish over.
+
+    First, one read of feat-cmux-next's active artifacts runs: when any waiting commit's run is already active
+    (an earlier takeover's re-run, or its own push run), it is publishing the key and nothing is re-run. Without
+    it, a second owner failing the same key took over the next waiter whose run was idle while the first
+    takeover was still building (2026-11-28 05:56-06:07Z: 633f285a, d33b51f3 and 70306e4e were each re-run as a
+    full 134-143 min rebuild of one window's tree)."""
+    commits = list(commits)
+    publishing = active_waiter(api, repo=repo, commits=commits, exclude_run=exclude_run)
+    if publishing:
+        log(f"cmux-tui artifacts run {publishing.get('html_url') or publishing.get('id')} of "
+            f"{str(publishing.get('head_sha'))[:12]} (a waiting commit) is already active; it publishes "
+            f"{f'tree {key}' if key else 'the tree'}: nothing re-run")
+        return True
     seen: set[str] = set()
     for commit in commits:
         if commit in seen:
@@ -122,6 +157,17 @@ def take_over_any(api: Api, *, repo: str, commits: Iterable[str], key: str = "",
     return False
 
 
+def owner_failed_on_compile_error(repo: str, run_id: int) -> bool:
+    """Whether the owner run's latest attempt failed a build leg on a Rust compile error (#54942's check): a takeover
+    builds the same tree key from the same source and fails the same way. Unreadable: False (no evidence)."""
+    try:
+        from cmux_tui_tree_request_rerun import failed_on_compile_error  # same directory; needs the gh CLI
+        return failed_on_compile_error(repo, str(run_id))
+    except Exception as error:
+        print(f"::warning::could not read owner run {run_id}'s jobs for the compile-error check: {error}")
+        return False
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", required=True)
@@ -139,6 +185,10 @@ def main(argv: list[str]) -> int:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from cmux_next_tree_notify import GitHub  # noqa: E402
 
+    if exclude_run and owner_failed_on_compile_error(args.repo, exclude_run):
+        print(f"owner run {exclude_run} failed a build leg on a Rust compile error: a re-run builds the same tree "
+              f"and fails the same way; not taken over")
+        return 1
     api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
     return 0 if take_over_any(api, repo=args.repo, commits=[args.commit], key=args.key,
                          exclude_run=exclude_run) else 1

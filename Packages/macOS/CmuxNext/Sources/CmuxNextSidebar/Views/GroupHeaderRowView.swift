@@ -171,16 +171,6 @@ final class GroupHeaderRowView: SidebarRowView {
         onUnpin = nil
     }
 
-    private struct Content: Hashable {
-        var group: SidebarGroup
-        var childCount: Int
-        var collapsed: Bool
-        var fontSize: CGFloat
-        var details: GroupHeaderDetails
-        var status: StatusIndicatorState?
-        var look: SidebarHostGroupLook
-    }
-
     /// Shows `group`. A collapsed header shows its loading spinner on the right; `details` turns
     /// on its member count, unread total and other states (all off by default).
     ///
@@ -188,9 +178,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// of the group and its subgroups); nil rolls up `group`'s own members.
     func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(),
                    status rollUp: StatusIndicatorState? = nil, animated: Bool) {
-        let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed,
-                              fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp,
-                              look: group.hostLook)
+        let content = Content(group, row: row, details: details, rollUp: rollUp)
         guard needsConfigure(content) else { return }
         tint = group.tint
         backgroundStyle = details.background
@@ -212,17 +200,14 @@ final class GroupHeaderRowView: SidebarRowView {
         chevron.setImage(NSImage.icon(.disclosureCollapsed, size: SidebarStyle.rowSymbolSide)) // the + ⋮ and Unpin's size (#49583)
         chevron.setOpen(!collapsed, animated: animated && configuredOnce)
         configuredOnce = true
-        // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
-        let status = collapsed && details.otherStates ? group.aggregateActivity : rollUp ?? group.statusRollUp(collapsed: collapsed)
-        if status.isVisible {
+        if content.status.isVisible {
             activityEnding = false
-            activity.configure(status)
+            activity.configure(content.status)
         } else if activity.state.isVisible {
             activityEnding = true
         }
         fadesNextActivity = animated
-        let unread = group.unreadTotal
-        badge.configure(details.unreadCount && collapsed && unread > 0 ? .count(unread) : .none)
+        badge.configure(content.unread > 0 ? .count(content.unread) : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityLabel(group.machine.map { "\(group.name), \(SectionHeaderRowView.statusWords($0.status))" }
@@ -256,6 +241,13 @@ final class GroupHeaderRowView: SidebarRowView {
     var debugBadge: UnreadState { badge.state }
     /// Whether the header shows a loading or activity mark.
     var debugActivityVisible: Bool { activity.state.isVisible }
+    /// What the header draws that its labels don't say: the tint, the pin, the icon, the machine's look and the status
+    /// mark it keeps (`GroupHeaderTickTests`: a header configured again shows what a fresh one shows).
+    var debugDrawn: String {
+        "tint \(tint) | pinned \(pinned) | icon \(hasIcon) chip \(glyph.showsChip) | look \(hostLook)"
+            + " | machine \(machine?.name ?? "-") \(machineTone.map { "\($0)" } ?? "-")"
+            + " | status \(activityEnding ? StatusIndicatorState.idle : activity.state) | style \(backgroundStyle)"
+    }
     /// The header's status mark's frame, in the header's coordinates (`SidebarStatusGlyphParityTests`).
     var debugActivityFrame: CGRect { activitySlot.convert(activity.frame, to: self) }
     /// Whether the header's mark ignores the scale setting, as the rows' badges do (`SidebarStatusGlyphParityTests`).
@@ -646,7 +638,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // aligned"; Leo 2026-10-28, "the alignment").
         let pinSide = SidebarStyle.pinGlyphSide // Home's glyph square, as a pinned workspace row's pin (#38061)
         // A pinned group keeps its pin, and its own icon (or a machine mark) takes the next column, as a pinned workspace
-        // row's does (`SidebarPinnedRowLeading.pinThenIcon`, #42431). The Debug `ownIcon` look draws it in the pin's place.
+        // row's does (`SidebarPinnedRowLeading.pinThenIcon`, #42431, #63247). The Debug `ownIcon` look draws it in the pin's place.
         let showsPin = pinned && (!(hasIcon || leadsWithMachineMark) || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
         pin.isHidden = !showsPin
         // `configure` sets the image; a density or type scale change since then moves `pinGlyphSide`.

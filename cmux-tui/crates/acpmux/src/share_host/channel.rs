@@ -4,7 +4,8 @@
 //! hears pushes as the daemon's device. Only this user's processes connect (the kernel's peer
 //! uid). Requests are `{"id":N,"method":M,"params":{..}}`; answers `{"id":N,"ok":true,
 //! "result":{..}}` or `{"id":N,"ok":false,"error":{"message":..}}`; a subscribed channel also
-//! gets `{"event":"push","text":"<push json>"}`.
+//! gets `{"event":"push","text":"<push json>"}`, and a watching one (`device.watch`)
+//! `{"event":"online","id":..,"user_id":..}` each time the daemon comes online as its device.
 
 use super::state::Shared;
 use cmux_hub_host::b64;
@@ -23,6 +24,9 @@ pub(crate) enum After {
     Nothing,
     /// `hub.subscribe`: the channel gets every push from now on.
     Subscribe,
+    /// `device.watch`: the channel hears `{"event":"online","id":..,"user_id":..}` now when the
+    /// daemon is online and each time it comes online again (a new sign-in or device).
+    Watch,
 }
 
 /// The answer to one request line.
@@ -56,7 +60,14 @@ fn method_result(shared: &Shared, method: &str, params: &Value) -> Result<(Value
             let mut result = json!({"id": hub.device.id, "signing_key": signing,
                                     "agreement_key": agreement});
             // The account the daemon signed in as: the app uses this device only for its own.
-            if let (Some(user), Some(fields)) = (hub.user_id(), result.as_object_mut()) {
+            // A link the hub stopped (it removed or signed out this device, link.rs `Hold::Fatal`)
+            // names no account: the hub no longer lists the device, so an app that took it would
+            // draw no This Mac and its socket would never connect (hq run 45954248647:
+            // host.open_sharing.not_found). The app keeps its own identity instead.
+            let usable = shared.link().state != "stopped";
+            if let (true, Some(user), Some(fields)) =
+                (usable, hub.user_id(), result.as_object_mut())
+            {
                 fields.insert("user_id".into(), Value::String(user));
             }
             done(result)
@@ -73,6 +84,7 @@ fn method_result(shared: &Shared, method: &str, params: &Value) -> Result<(Value
             done(json!({"plaintext": b64::encode(&plaintext)}))
         }
         "hub.subscribe" => Ok((json!({}), After::Subscribe)),
+        "device.watch" => Ok((json!({}), After::Watch)),
         // The app's settings for the worker: accepted, and shown by `share-host status`.
         "host.mode" | "consent" | "hub.anchored" | "hub.signed_out" => {
             let mut app = shared.app.lock().unwrap_or_else(PoisonError::into_inner);
@@ -140,10 +152,14 @@ async fn connection(shared: Arc<Shared>, stream: tokio::net::UnixStream) {
                 if framed.send(reply.to_string()).await.is_err() {
                     return;
                 }
-                if after == After::Subscribe
+                if after != After::Nothing
                     && let Some(sender) = sender.take()
                 {
-                    shared.subscribe(sender);
+                    if after == After::Watch {
+                        shared.watch(sender);
+                    } else {
+                        shared.subscribe(sender);
+                    }
                 }
             }
             Some(push) = pushes.recv() => {

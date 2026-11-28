@@ -54,10 +54,6 @@ afterEach(async () => {
 });
 
 test("subagent, messaging, and inbox activity use the shared row and agent tag", () => {
-  expect(source("./ActivityLine.tsx")).toContain("TranscriptActivityRow");
-  expect(source("./ActivityLine.tsx")).toContain('className="cv-activity cv-tool"');
-  expect(source("./ActivityLine.tsx")).toContain('className="cv-tool__icon"');
-  expect(source("./ActivityLine.tsx")).toContain("row.doingCommand ? <TerminalSquare /> : null");
   expect(source("../subagents/SubagentDoneLine.tsx")).toContain("TranscriptActivityRow");
   expect(source("./LaneNoticeBatch.tsx")).toContain("TranscriptActivityRow");
   expect(source("./IncomingMessageCard.tsx")).toContain("AgentTag");
@@ -78,7 +74,7 @@ test("the shared activity row lights only its chevron on hover and press, never 
   expect(css).not.toMatch(/\) > \.cv-agent-activity__control \{/);
   // A chevron beside the line's button lifts too (SubagentDoneLine.tsx).
   expect(css).toContain(":has(> button.cv-agent-activity__control:not(:disabled)) > .cv-agent-activity__chevron {");
-  expect(source("./AgentTag.css")).toContain(":is(:hover, :focus-visible, :active)");
+  expect(source("./AgentTag.css")).toContain(":is([data-pointed]:hover, :focus-visible, :active)");
 });
 
 test("the three activity kinds render through one row with an agent tag", () => {

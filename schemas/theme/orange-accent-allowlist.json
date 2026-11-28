@@ -15,6 +15,10 @@
     {
       "id": "tandem-addon",
       "why": "the Tandem example add-on look (examples/looks/tandem), drawn from captured references with an orange accent"
+    },
+    {
+      "id": "plush-clay-addon",
+      "why": "the Plush example add-on's Clay tint (examples/looks/plush, #49936): its themes' accent is coral #ff8d5e by design (plush-clay*.json); accent-glass part 12 flagged its golden stage once a gallery entry moved it into that part (#53707, job 139810744349)"
     }
   ]
 }

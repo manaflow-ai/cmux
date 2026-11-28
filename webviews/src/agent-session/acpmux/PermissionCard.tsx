@@ -1,11 +1,10 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { KeyHint } from "../../ui/KeyHint";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
-import { playResize } from "./conversation/fold";
 import { ChevronDown } from "./conversation/icons";
 import { Markdown } from "./conversation/Markdown";
 import { toolIcon } from "./conversation/toolRowModel";
 import { useT } from "./i18n";
-import { Keycap } from "./Keycap";
 import type { AcpmuxPermission } from "./model";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -53,7 +52,7 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
     const titleId = React.useId();
     // The ask role's shell (ui/surface): the content material, the card corner, the hairline, the
     // type and the padding are the role's, the same as every other card in the transcript. The
-    // `acpmux-permission-card` class is a hook for keys.css and the tests, with no shell rules.
+    // `acpmux-permission-card` class is a hook for styles.css and the tests, with no shell rules.
     return (
       <Surface
         as="fieldset"
@@ -78,20 +77,6 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
 
 /// How many asks' answers a card remembers: far more than a card shows before the snapshot moves on.
 const KEPT_ANSWERS = 32;
-
-/** A button's shortcut as a light hint after its label: the modifiers fainter than the key, so the
- * eye finds 1, 2, 3 as in Claude Code's and Codex's numbered prompts. Decoration only: the button
- * carries the key in `aria-keyshortcuts`. */
-function KeyHint({ shortcut }: { shortcut: string }) {
-  const key = Array.from(shortcut).at(-1) ?? "";
-  const modifiers = shortcut.slice(0, shortcut.length - key.length);
-  return (
-    <kbd className="acpmux-permission-action-shortcut" aria-hidden="true">
-      {modifiers && <span className="acpmux-permission-action-modifiers">{modifiers}</span>}
-      {key}
-    </kbd>
-  );
-}
 
 /// A key the card itself answers (Esc, ⌘↩), drawn as a keycap in its button: `keys` as shown,
 /// `aria` in `aria-keyshortcuts` form. `letter` is the answer's letter (y, a, n), drawn first.
@@ -130,18 +115,20 @@ export function PermissionActionButton({
       <span className="acpmux-permission-action-label">{label}</span>
       {cardKey ? (
         <Surface.Keys className="acpmux-permission-keys">
-          {cardKey.letter && <Keycap>{cardKey.letter.toUpperCase()}</Keycap>}
+          {cardKey.letter && <KeyHint keys={cardKey.letter.toUpperCase()} aria-hidden="true" />}
           {cardKey.letter && (cardKey.keys.length > 0 || shortcut) && (
             <span className="acpmux-permission-keys-or" aria-hidden="true">
               /
             </span>
           )}
-          {cardKey.keys.length > 0
-            ? cardKey.keys.map((key) => <Keycap key={key}>{key}</Keycap>)
-            : shortcut && <KeyHint shortcut={shortcut} />}
+          {cardKey.keys.length > 0 ? (
+            <KeyHint keys={cardKey.keys.join("")} aria-hidden="true" />
+          ) : (
+            shortcut && <KeyHint keys={shortcut} aria-hidden="true" />
+          )}
         </Surface.Keys>
       ) : (
-        shortcut && <KeyHint shortcut={shortcut} />
+        shortcut && <KeyHint keys={shortcut} aria-hidden="true" />
       )}
     </>
   );
@@ -367,17 +354,9 @@ export function PermissionCard({
   const [expanded, setExpanded] = useState<string>();
   const showFull = expanded === permission.permissionId;
   const fullId = React.useId();
-  // The command's box grows to the full command (and back) on the fold's clock (fold.ts `playResize`)
-  // from the height it was drawn at before the toggle, so the stack's top and the transcript's rows
-  // over it travel together instead of the card growing in one frame.
-  const commandRef = useRef<HTMLDivElement>(null);
-  const commandFrom = useRef<number | undefined>(undefined);
-  useLayoutEffect(() => {
-    const node = commandRef.current;
-    const from = commandFrom.current;
-    commandFrom.current = undefined;
-    if (node && from !== undefined) playResize(node, from);
-  }, [showFull]);
+  // The command's box takes the full command (and back) in one frame: the stack's room changes once and
+  // the transcript's rows over it glide on the dock's own clock (no height is animated, cmuxterm-hq
+  // docs/design/transcript-motion-model.md rule 7).
   // A one-line command longer than the two lines the preview holds is cut off: measured, so "Show
   // full command" is offered whenever the preview does not show all of it.
   const previewRef = useRef<HTMLElement>(null);
@@ -564,6 +543,7 @@ export function PermissionCard({
         // In plain words, with the pane's reason when it words one; acpmux's text goes to the log.
         const known = knownRefusalText(failure);
         if (!known) console.warn("agent pane: the plan was not built", failure);
+        // retry-prompt-ok: building the plan again is an answer to the agent (a paid model turn).
         refuse(sent, known ? t("permission.plan.buildRefused", { error: known }) : t("permission.plan.buildFailed"));
       },
     );
@@ -682,7 +662,7 @@ export function PermissionCard({
   };
 
   const commandBlock = command && (
-    <div ref={commandRef} className="acpmux-permission-command" data-expanded={showFull || undefined}>
+    <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
       {showFull ? (
         <Surface.Inset as="pre" mono scroll id={fullId} className="acpmux-permission-command-full">
           <code>{command}</code>
@@ -698,10 +678,7 @@ export function PermissionCard({
           className="acpmux-permission-command-toggle"
           aria-expanded={showFull}
           aria-controls={showFull ? fullId : undefined}
-          onClick={() => {
-            commandFrom.current = commandRef.current?.getBoundingClientRect().height;
-            setExpanded(showFull ? undefined : permission.permissionId);
-          }}
+          onClick={() => setExpanded(showFull ? undefined : permission.permissionId)}
         >
           {showFull ? t("permission.hideFullCommand") : t("permission.showFullCommand")}
         </button>
@@ -757,6 +734,7 @@ export function PermissionCard({
                 value={planEdit.text}
                 rows={Math.min(16, Math.max(4, planEdit.text.split("\n").length + 1))}
                 spellCheck
+                // oxlint-disable-next-line jsx-a11y/no-autofocus -- the editor opens on the person's own click on Edit plan.
                 autoFocus
                 onChange={(event) => setPlanEdit({ permissionId: permission.permissionId, text: event.target.value })}
                 onKeyDown={(event) => {
@@ -968,7 +946,7 @@ export function PermissionCard({
             <Surface.Action aria-keyshortcuts="Escape" disabled={writing.sending} onClick={closeFeedback}>
               {t("permission.feedbackCancel")}
               <Surface.Keys>
-                <Keycap>{DENY_KEY.keys[0]}</Keycap>
+                <KeyHint keys={DENY_KEY.keys.join("")} aria-hidden="true" />
               </Surface.Keys>
             </Surface.Action>
             <Surface.Action
@@ -980,7 +958,7 @@ export function PermissionCard({
             >
               {t("permission.feedbackSend")}
               <Surface.Keys>
-                <Keycap>↩</Keycap>
+                <KeyHint keys="↩" aria-hidden="true" />
               </Surface.Keys>
             </Surface.Action>
           </div>

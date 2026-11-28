@@ -144,6 +144,55 @@ pub const ENV: &str = "CMUX_WG_ULTRA";
 /// congested link.
 pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
 
+/// Parities per group for bulk data (the pacer's bulk class: paced TCP
+/// transfers), at most the mode's own. Bulk needs its repair at any loss (a
+/// loss gate cut 50 ms / 2 % echo-flood goodput from 18.1 to 2.1 Mbit/s,
+/// RFD 0164 row 106), but not the four parities per four data datagrams
+/// input gets: a lost bulk datagram costs TCP a fast retransmit, a lost
+/// keystroke costs a visible stall. Two parities rebuild any two losses of a
+/// group of four. Measured at 50 ms (median of 3, echo-flood goodput in
+/// Mbit/s, bulk parity 4 / 2 / 1): 0.5 % loss 70.5 / 82.4 / 75.8, 1 % loss
+/// 68.5 / 74.4 / 45.5, 2 % loss 49.1 / 55.6 / 33.6; one parity loses goodput
+/// from 1 % loss up, two match four at half the parity bytes.
+const BULK_PARITY: u8 = 2;
+/// Benches only: the cap on bulk parities per group (1 to 15), in place of
+/// [`BULK_PARITY`]. A cap, not a count: a bulk group sends the smaller of
+/// this and the mode's own parities, so a value above the mode's changes
+/// nothing (`Fec { group: 4, parity: 4 }` with 8 still sends 4).
+pub const BULK_PARITY_ENV: &str = "CMUX_WG_ULTRA_BULK_PARITY";
+
+/// Bulk parities per group: [`BULK_PARITY_ENV`] when set and in range, else
+/// [`BULK_PARITY`]. Read once per process.
+fn bulk_parity() -> u8 {
+    static PARITY: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *PARITY.get_or_init(|| bulk_parity_from(std::env::var(BULK_PARITY_ENV).ok().as_deref()))
+}
+
+pub(crate) fn bulk_parity_from(value: Option<&str>) -> u8 {
+    value
+        .and_then(|value| value.trim().parse::<u8>().ok())
+        .filter(|parity| (1..=MAX_PARITY).contains(parity))
+        .unwrap_or(BULK_PARITY)
+}
+
+/// Benches only: `class` makes remote desktop media (`Priority::Media`) follow
+/// its Braid class's repair rule (class 1, state: copies or parity only above
+/// 1 % measured loss) instead of being repaired at any loss, so the two can be
+/// measured against each other (RFD 0164 B6; numbers at [`UltraUnderlay::repairs`]).
+/// Anything else, or unset, keeps media repaired at any loss.
+pub const MEDIA_REPAIR_ENV: &str = "CMUX_WG_ULTRA_MEDIA_REPAIR";
+
+/// Whether media follows its class's repair rule ([`MEDIA_REPAIR_ENV`]). Read
+/// once per process.
+fn media_follows_class() -> bool {
+    static CLASS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CLASS.get_or_init(|| media_follows_class_from(std::env::var(MEDIA_REPAIR_ENV).ok().as_deref()))
+}
+
+pub(crate) fn media_follows_class_from(value: Option<&str>) -> bool {
+    value.is_some_and(|value| value.trim() == "class")
+}
+
 /// Whether `datagram` is an ultra-mode parity datagram. A carrier that
 /// classifies datagrams by shape should give parity the class the tunnel's
 /// pacer sent it in, not treat it as control.
@@ -341,6 +390,18 @@ impl UltraMode {
             _ => Self::Off,
         };
         mode.normalized()
+    }
+
+    /// The mode a bulk group closes in: the same code and group, at most
+    /// [`bulk_parity`] parities. Copies are not cut: duplicating bulk is a
+    /// mode someone chose by hand.
+    fn for_bulk(self) -> Self {
+        let cut = |parity: u8| parity.min(bulk_parity());
+        match self {
+            Self::Fec { group, parity } => Self::Fec { group, parity: cut(parity) },
+            Self::Rs { group, parity } => Self::Rs { group, parity: cut(parity) },
+            other => other,
+        }
     }
 
     /// Parities for a group of `members`: in proportion to `parity / group`,
@@ -870,23 +931,34 @@ impl UltraUnderlay {
 
     /// Whether a datagram of this class gets copies or parity: input at any
     /// loss (Auto decides when repair is on at all), screen state only above
-    /// 1 % measured loss. Bulk keeps the mode's repair: the pacer's bulk
+    /// 1 % measured loss. Bulk keeps repair, with fewer parities per group
+    /// ([`BULK_PARITY`]): the pacer's bulk
     /// class is mostly paced TCP connections, and with no repair their
     /// goodput at 50 ms / 2 % loss fell from 16.8 to 2.1 Mbit/s
     /// (`link_stream_bench --workload echo-flood`). Datagrams of no class
     /// (handshakes, the tunnel's own) keep the mode's repair too.
     fn repairs(&mut self, priority: Option<Priority>) -> bool {
         match priority {
-            Some(Priority::Screen) => {
+            // Remote desktop media keeps its repair at any loss. Measured under the 1 %
+            // rule (RFD 0164 B6, MEDIA_REPAIR_ENV=class; 50 ms, 10 s, 60 fps): the rule
+            // never turns repair on, since the window reads loss on the way in after
+            // repair, not the media direction's; 5 % loss then lost 101 of 596 frames
+            // (49.5 on-time fps) against 2 (59.4) for 1.8x to 2x parity bytes.
+            None => true,
+            Some(Priority::Media) if !media_follows_class() => true,
+            Some(priority) => priority.braid_class().repairs_at(|| {
                 self.fold_loss();
                 self.window.above_one_percent()
-            }
-            _ => true,
+            }),
         }
     }
 
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
-        self.forward(datagram, priority);
+        match priority {
+            // Class 0 (input) goes on the best two paths; its repair below does not.
+            Some(p) if p.braid_class().duplicates() => self.inner.send_duplicated(datagram, p),
+            _ => self.forward(datagram, priority),
+        }
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
         if is_idle_keepalive(datagram) || !self.repairs(priority) {
             return;
@@ -965,6 +1037,7 @@ impl UltraUnderlay {
     fn close_group(&mut self) {
         let Some(group) = self.group.take() else { return };
         let mode = if self.mode == UltraMode::Off && self.floor { FLOOR_MODE } else { self.mode };
+        let mode = if group.priority == Some(Priority::Bulk) { mode.for_bulk() } else { mode };
         let parities = match mode {
             UltraMode::Fec { group: k, parity: m } => parity_datagrams(&group, k, m),
             UltraMode::Rs { group: k, parity: m } => {

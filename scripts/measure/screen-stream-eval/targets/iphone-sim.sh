@@ -55,10 +55,7 @@ build_app() {
   local xg="$EVAL_STATE/xcodegen" version=2.46.0 sha=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
   rm -rf "$xg"
   mkdir -p "$xg"
-  curl -fsSL --retry 3 --retry-delay 2 -o "$xg/xcodegen.zip" \
-    "https://github.com/yonaskolb/XcodeGen/releases/download/$version/xcodegen.zip"
-  [[ "$(shasum -a 256 "$xg/xcodegen.zip" | awk '{ print $1 }')" == "$sha" ]] || { echo "iphone-sim: xcodegen checksum mismatch" >&2; return 1; }
-  unzip -q "$xg/xcodegen.zip" -d "$xg"
+  bash "$EVAL_ROOT/scripts/ci/fetch-xcodegen.sh" "$version" "$sha" "$xg" >/dev/null || return 1
   (cd "$ios" && "$xg/xcodegen/bin/xcodegen" generate -q)
   # Demo: optimized like Release, with DEBUG (the link viewer and the probe exist only there).
   # $(inherited) is xcodebuild's, not the shell's.
@@ -87,11 +84,14 @@ ensure_sim() {
   read -r runtime device_type <"$EVAL_STATE/sim-choice" || return 1
   [[ -n "$runtime" && -n "$device_type" ]] || { echo "iphone-sim: no simulator choice from build" >&2; return 1; }
   if [[ -z "$(sims)" ]]; then
-    # One set per checkout (a short /tmp path: CoreSimulator's sockets live inside it), made by mktemp
-    # so no other account can have guessed its name first, and recorded in $EVAL_STATE/sims: this
-    # script runs once per verb, so no EXIT trap here can own it; host-stop (also from the harness's
-    # exit trap) removes it, and a run it misses leaves it recorded, so the next run reuses it.
-    set="$(mktemp -d /tmp/iphsim.XXXXXX)" || return 1
+    # One fixed set per checkout (a short /tmp path: CoreSimulator's sockets live inside it), not a
+    # fresh folder per run: this script runs once per verb, so no EXIT trap here can own it; host-stop
+    # (also from the harness's exit trap) removes it, and a run it misses leaves this one folder, which
+    # the next run reuses. The name is guessable, so the folder is made 0700 and used only if this
+    # account owns it and it is not a symlink: a folder another account made first is refused.
+    set="/tmp/iphsim.$(printf %s "$EVAL_STATE" | shasum | cut -c1-10)"
+    mkdir -m 700 "$set" 2>/dev/null || [[ -d "$set" ]] || return 1
+    [[ -O "$set" && ! -L "$set" ]] || { echo "iphone-sim: $set is not this account's own folder" >&2; return 1; }
     echo "$set" >"$EVAL_STATE/sims" || return 1
   fi
   udid=$(simctl create screen-eval-iphone "$device_type" "$runtime") || return 1
@@ -162,6 +162,10 @@ case "$verb" in
     ;;
   latency-view)
     # latency-view INPUT SAMPLES RAW
+    # The step log keeps only stdout: send this view's stderr there too, and name the line a set -e
+    # exit stops at, so a failed view says why instead of only "latency INPUT failed".
+    exec 2>&1
+    trap 'echo "iphone-sim: latency-view stopped at line $LINENO (exit $?)"' ERR
     one_mac_only
     input=$1 samples=$2 raw=$3
     kind=key
@@ -171,6 +175,7 @@ case "$verb" in
     udid=$(ensure_sim) || { echo "iphone-sim: could not make, boot or install the simulator" >&2; exit 1; }
     bundle=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$(cat "$EVAL_BIN/iphone-sim-app")/Info.plist")
     : >"$raw.app"
+    touch "$raw.launched"
     SIMCTL_CHILD_CMUX_MOBILE_SS_LINK="$link" SIMCTL_CHILD_CMUX_MOBILE_SS_MARKER="$marker" \
       SIMCTL_CHILD_CMUX_MOBILE_SS_INPUT="$kind" SIMCTL_CHILD_CMUX_MOBILE_SS_SAMPLES="$samples" \
       simctl launch --terminate-running-process --stdout="$raw.app" --stderr="$raw.app.err" "$udid" "$bundle" >/dev/null
@@ -181,7 +186,15 @@ case "$verb" in
       sleep 1 # bounded wait for the app's report line
     done
     simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
-    grep '^iphonesim: ' "$raw.app" >"$raw" || { echo "iphone-sim: no report within $limit s" >&2; tail -20 "$raw.app.err" >&2; exit 1; }
+    grep '^iphonesim: ' "$raw.app" >"$raw" || {
+      echo "iphone-sim: no report within $limit s; app stdout/stderr tails:"
+      tail -20 "$raw.app" || true
+      tail -40 "$raw.app.err" || true
+      # A crash leaves an .ips report for the app's process; print the newest one's head.
+      report=$(find "$HOME/Library/Logs/DiagnosticReports" -name '*.ips' -newer "$raw.launched" 2>/dev/null | head -1)
+      [[ -z "$report" ]] || { echo "iphone-sim: crash report $report"; head -c 6000 "$report"; echo; }
+      exit 1
+    }
     ;;
   latency-report)
     # latency-report INPUT RAW OUT: RAW.span cuts the host's encode lines to the view.
@@ -219,6 +232,10 @@ json.dump({
 }, open(sys.argv[2], "w"))
 EOF
     ;;
+  # For iphone-link (same app and simulator, the rd/1 link viewer): the booted, installed iPhone's
+  # udid, and the marker's fractions.
+  ensure-sim) ensure_sim ;;
+  fractions) fractions ;;
   window-view | window-report) echo "iphone-sim: latency only (caps: latency-only)" >&2; exit 2 ;;
   *) echo "iphone-sim.sh: unknown verb $verb" >&2; exit 2 ;;
 esac

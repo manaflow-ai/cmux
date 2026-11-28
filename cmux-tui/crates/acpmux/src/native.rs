@@ -26,7 +26,7 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
             for p in walk(&root, 4) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                if name.ends_with(".jsonl") && name.contains(sid) {
+                if is_codex_rollout(&name, sid) {
                     out.push(("codex-rollout".to_owned(), p));
                 }
             }
@@ -40,21 +40,13 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
             // also spares a snapshot the walk of every project.
             let own = root.join(claude_project_dir(&meta.cwd)).join(format!("{sid}.jsonl"));
             if std::fs::symlink_metadata(&own).is_ok_and(|m| m.file_type().is_file()) {
-                return vec![("claude-project".to_owned(), own)];
+                return claude_transcript_with_children(own);
             }
             for p in walk(&root, 2) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 if name == format!("{sid}.jsonl") {
-                    // Its `Task` children's transcripts: `<session-id>/subagents/*.jsonl`
-                    // beside it, which Claude reads back for the subagents it ran.
-                    let children = p.with_extension("").join(CLAUDE_SUBAGENTS);
-                    out.push(("claude-project".to_owned(), p));
-                    for child in walk(&children, 0) {
-                        if child.extension().is_some_and(|e| e == "jsonl") {
-                            out.push((CLAUDE_SUBAGENT_LABEL.to_owned(), child));
-                        }
-                    }
+                    out.extend(claude_transcript_with_children(p));
                 }
             }
         }
@@ -74,7 +66,29 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
     out
 }
 
+/// Whether the file named `name` is the Codex rollout of the session `sid`:
+/// `rollout-<time>-<sid>.jsonl`. The id is the name's whole end after a dash, so a word that is
+/// merely somewhere in a name (`rollout`, a date, the start of another id) names no file.
+fn is_codex_rollout(name: &str, sid: &str) -> bool {
+    name.starts_with("rollout-") && name.ends_with(&format!("-{sid}.jsonl"))
+}
+
 /// The folder beside a Claude transcript (`<session-id>/subagents`) that holds its subagents'.
+/// A Claude transcript and its `Task` children's transcripts
+/// (`<session-id>/subagents/*.jsonl` beside it, which Claude reads back for the subagents
+/// it ran). Both the chat's own folder and the walk of every project list through this, so
+/// neither leaves the children behind.
+fn claude_transcript_with_children(transcript: PathBuf) -> Vec<(String, PathBuf)> {
+    let children = transcript.with_extension("").join(CLAUDE_SUBAGENTS);
+    let mut out = vec![("claude-project".to_owned(), transcript)];
+    for child in walk(&children, 0) {
+        if child.extension().is_some_and(|e| e == "jsonl") {
+            out.push((CLAUDE_SUBAGENT_LABEL.to_owned(), child));
+        }
+    }
+    out
+}
+
 const CLAUDE_SUBAGENTS: &str = "subagents";
 /// The bundle label of a Claude subagent's transcript (`<session-id>/subagents/*.jsonl`).
 pub const CLAUDE_SUBAGENT_LABEL: &str = "claude-subagent";
@@ -279,9 +293,7 @@ fn restore_target(meta: &SessionMeta, label: &str, rel: &Path) -> Option<PathBuf
         }
         ("claude", CLAUDE_SUBAGENT_LABEL) => claude_subagent_target(meta, sid, rel),
         ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
-                && name.ends_with(".jsonl")
-                && name.contains(sid) =>
+            if rel.starts_with(".codex/sessions") && is_codex_rollout(&name, sid) =>
         {
             Some(rel.to_path_buf())
         }
@@ -403,6 +415,41 @@ fn restore_as(bundle: &Path, meta: &SessionMeta, home: &Path, placing: Placing) 
     Ok(n)
 }
 
+/// The bundle's agent files a restore did not place: each `<label>/<path>` under the bundle's
+/// `native` folder (the source's manifest of what the chat owns) whose file is not at its place
+/// under the home folder, or that has no place for this chat here. A file kept as it was (the
+/// home folder held other bytes there) counts as placed. Empty when every entry landed.
+pub fn unacked(bundle: &Path, meta: &SessionMeta) -> Vec<String> {
+    unacked_in(bundle, meta, &dirs::home_dir().unwrap_or_default())
+}
+
+/// [`unacked`] under the home folder `home`.
+pub fn unacked_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Vec<String> {
+    let Ok(labels) = std::fs::read_dir(bundle.join("native")) else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    for label in labels.flatten() {
+        let label_name = label.file_name().to_string_lossy().into_owned();
+        if label_name == OPENCODE_EXPORT {
+            continue;
+        }
+        for file in walk(&label.path(), 8) {
+            let rel = file.strip_prefix(label.path()).unwrap_or(&file);
+            let entry = format!("{label_name}/{}", rel.display());
+            match restore_target(meta, &label_name, rel) {
+                None => out.push(format!("{entry}: no place for this chat")),
+                Some(target) if !home.join(&target).is_file() => {
+                    out.push(format!("{entry}: not at {}", target.display()))
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 /// Whether `old` holds fewer bytes than `new` and they are the first bytes of `new`: an
 /// append-only agent log that grew since `old` was copied.
 fn is_strict_prefix(old: &Path, new: &Path) -> Result<bool> {
@@ -509,9 +556,7 @@ fn guarded_target(meta: &SessionMeta, sid: &str, label: &str, rel: &Path) -> Opt
         }
         ("claude", CLAUDE_SUBAGENT_LABEL) => claude_subagent_target(meta, sid, rel),
         ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
-                && name.starts_with("rollout-")
-                && name.ends_with(&format!("-{sid}.jsonl")) =>
+            if rel.starts_with(".codex/sessions") && is_codex_rollout(name, sid) =>
         {
             Some(rel.to_path_buf())
         }

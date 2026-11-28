@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The driver half of scripts/measure/meet-browser.sh: what a video-call page needs, per browser.
 
-    meet-browser.py --side SIDE_SH --name NAME --work DIR --out DIR --dmg URL --version V [--call S] [--only a,b]
+    meet-browser.py --side SIDE_SH --name NAME --work DIR --out DIR --dmg URL --version V [--call S] [--only a,b] [--record]
 
 Runs (each a fresh page on a local test page served here; 127.0.0.1 is a secure context):
   cmux-chromium       the side copy of the NIGHTLY, a Chromium tab, launched with no extra arguments
@@ -26,6 +26,7 @@ import http.server
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import socketserver
@@ -48,6 +49,8 @@ PAGE = r"""<!doctype html><html><head><meta charset=utf-8><title>meet-measure</t
 <button id=b-pip onclick="__m.start('pip')">pip</button>
 <button id=b-gdm onclick="__m.start('gdm')">gdm</button>
 <button id=b-notif onclick="__m.start('notif')">notif</button>
+<button id=b-show onclick="__m.start('show')">join call (camera, mic, screen share)</button>
+<div id=tiles style="display:flex;gap:8px;flex-wrap:wrap"></div>
 <video id=v muted playsinline width=320></video>
 <script>
 const R = {}; const LABEL = new URLSearchParams(location.search).get('run') || 'x';
@@ -70,11 +73,19 @@ function media(key, call) {
 }
 const pipVideo = document.getElementById('v');
 try { pipVideo.srcObject = canvasStream(640, 360, 30); pipVideo.play().catch(() => {}); } catch (e) {}
+// The WebGL renderer string says whether the page has a hardware GPU (Apple M…) or a software
+// fallback (SwiftShader), the first thing to rule out when one browser's renderer burns more CPU.
+function glRenderer() {
+  try { const g = document.createElement('canvas').getContext('webgl');
+    const x = g && g.getExtension('WEBGL_debug_renderer_info');
+    return g ? (x ? g.getParameter(x.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER)) : 'no webgl'; }
+  catch (e) { return 'error ' + e.name; }
+}
 const steps = {
   info() { put('info', {ua: navigator.userAgent, secure: isSecureContext, mediaDevices: !!navigator.mediaDevices,
     gdm: !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia), pipEnabled: !!document.pictureInPictureEnabled,
     pipFn: typeof pipVideo.requestPictureInPicture, notification: 'Notification' in window ? Notification.permission : 'absent',
-    rtc: typeof RTCPeerConnection}); },
+    rtc: typeof RTCPeerConnection, gl: glRenderer()}); },
   gum() { if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return put('gum', {ok: false, state: 'absent'});
     media('gum', () => navigator.mediaDevices.getUserMedia({video: true, audio: true})); },
   devices() { if (!navigator.mediaDevices) return put('devices', {ok: false});
@@ -95,6 +106,59 @@ const steps = {
       e => put('pip', {ok: false, state: 'rejected', error: e.name, message: String(e.message).slice(0, 200), enabled: document.pictureInPictureEnabled})); },
   gdm() { if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return put('gdm', {ok: false, state: 'absent'});
     media('gdm', () => navigator.mediaDevices.getDisplayMedia({video: true})); },
+  // record=1: a call the recording can show, after the measured steps (it changes no number). One click gives
+  // the user gesture getDisplayMedia needs; camera and mic go through a loopback peer connection to a remote tile.
+  async show() {
+    put('show', {state: 'starting'});
+    const tiles = document.getElementById('tiles');
+    const tile = (name, stream) => { const box = document.createElement('figure'); box.style.margin = '0';
+      const v = document.createElement('video'); v.muted = v.autoplay = v.playsInline = true; v.width = 480; v.srcObject = stream;
+      const cap = document.createElement('figcaption'); cap.textContent = name; box.append(v, cap); tiles.append(box); v.play().catch(() => {}); return cap; };
+    const [screen, cam] = await Promise.all([navigator.mediaDevices.getDisplayMedia({video: true}),
+      navigator.mediaDevices.getUserMedia({video: true, audio: true})]);
+    tile('camera (local)', cam); tile('screen share', screen);
+    const sender = new RTCPeerConnection(), receiver = new RTCPeerConnection();
+    sender.onicecandidate = e => e.candidate && receiver.addIceCandidate(e.candidate);
+    receiver.onicecandidate = e => e.candidate && sender.addIceCandidate(e.candidate);
+    const remote = new MediaStream(); receiver.ontrack = e => remote.addTrack(e.track);
+    cam.getTracks().concat(screen.getVideoTracks()).forEach(track => sender.addTrack(track, cam));
+    await sender.setLocalDescription(await sender.createOffer()); await receiver.setRemoteDescription(sender.localDescription);
+    await receiver.setLocalDescription(await receiver.createAnswer()); await sender.setRemoteDescription(receiver.localDescription);
+    const remoteCap = tile('remote (camera over WebRTC)', remote);
+    const level = document.createElement('meter'); level.max = 1; level.style.width = '480px'; tiles.append(level);
+    const ac = new AudioContext(), an = ac.createAnalyser(); ac.createMediaStreamSource(cam).connect(an);
+    const buf = new Float32Array(an.fftSize);
+    R.showIv = setInterval(() => { an.getFloatTimeDomainData(buf); level.value = Math.min(1, Math.sqrt(buf.reduce((p, q) => p + q * q, 0) / buf.length) * 8);
+      remoteCap.textContent = 'remote (camera over WebRTC) ' + receiver.connectionState; }, 100);
+    // The page's own recording of the call (no Screen Recording grant needed): the three tiles, the mic level and
+    // the call state drawn on a canvas, with the mic, through MediaRecorder; POSTed to /v/ at showStop.
+    const vids = [...tiles.querySelectorAll('video')], names = ['camera (local)', 'screen share', 'remote (camera over WebRTC)'];
+    const cv = document.createElement('canvas'); cv.width = 1280; cv.height = 720; const g = cv.getContext('2d');
+    R.drawIv = setInterval(() => { g.fillStyle = '#202124'; g.fillRect(0, 0, 1280, 720); g.font = '22px sans-serif';
+      vids.forEach((v, i) => { const x = (i % 2) * 640 + 10, y = Math.floor(i / 2) * 360 + 10;
+        try { g.drawImage(v, x, y, 620, 310); } catch (e) {} g.fillStyle = '#e8eaed'; g.fillText(names[i], x, y + 336); });
+      g.fillStyle = '#e8eaed'; g.fillText('cmux in-app browser, loopback call: ' + receiver.connectionState, 650, 420);
+      g.fillText('mic level', 650, 470); g.fillStyle = '#34a853'; g.fillRect(760, 452, 480 * level.value, 24);
+      g.fillStyle = '#e8eaed'; g.fillText(new Date().toISOString().slice(11, 23), 650, 530); }, 33);
+    R.pageChunks = []; R.pageRec = null;
+    try { const mime = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find(m => MediaRecorder.isTypeSupported(m)) || '';
+      R.pageRec = new MediaRecorder(new MediaStream(cv.captureStream(30).getVideoTracks().concat(cam.getAudioTracks())),
+        {mimeType: mime, videoBitsPerSecond: 2500000});
+      R.pageRec.ondataavailable = e => e.data.size && R.pageChunks.push(e.data); R.pageRec.start(1000);
+      put('pagerec', {state: 'running', mime: R.pageRec.mimeType});
+    } catch (e) { put('pagerec', {ok: false, state: 'threw', error: e.name, message: String(e.message).slice(0, 200)}); }
+    R.showStop = async () => { clearInterval(R.showIv);
+      if (R.pageRec && R.pageRec.state !== 'inactive') {
+        await new Promise(res => { R.pageRec.onstop = res; R.pageRec.stop(); });
+        const blob = new Blob(R.pageChunks, {type: R.pageRec.mimeType});
+        const r = await fetch('/v/' + LABEL, {method: 'POST', body: blob});
+        put('pagerec', {ok: r.ok, state: 'done', mime: R.pageRec.mimeType, bytes: blob.size});
+      }
+      clearInterval(R.drawIv); sender.close(); receiver.close(); ac.close();
+      cam.getTracks().concat(screen.getTracks()).forEach(track => track.stop()); };
+    put('show', {state: 'running', tracks: cam.getTracks().concat(screen.getTracks()).map(x => x.kind + ':' + x.label)});
+  },
+  async showStop() { if (R.showStop) await R.showStop(); put('show', {state: 'done'}); },
   async loop(secs) {
     put('loop', {state: 'starting'});
     const stream = canvasStream(1280, 720, 30);
@@ -156,6 +220,7 @@ const steps = {
           rtcpRtt, iceRtt: pair?.currentRoundTripTime,
           w: inbound?.frameWidth || video.videoWidth, h: inbound?.frameHeight || video.videoHeight,
           ew: outbound?.frameWidth, limit: outbound?.qualityLimitationReason, encoder: outbound?.encoderImplementation,
+          codec: sent.get(outbound?.codecId)?.mimeType,
           decoder: inbound?.decoderImplementation, dropped: inbound?.framesDropped, ice: sender.iceConnectionState});
       } while (t() - t0 < secs * 1000);
 
@@ -171,7 +236,7 @@ const steps = {
         rttSource: rtcpRtt !== null ? 'RTCP' : rtt !== null ? 'ICE' : null,
         rttMsMedian: rtt === null ? null : Math.round(rtt * 10000) / 10,
         size: last.w && last.h ? last.w + 'x' + last.h : null, sentWidth: last.ew,
-        limit: last.limit, encoder: last.encoder, decoder: last.decoder, dropped: last.dropped, samples});
+        limit: last.limit, codec: last.codec, encoder: last.encoder, decoder: last.decoder, dropped: last.dropped, samples});
     } finally {
       sender.close(); receiver.close();
       stream.getTracks().forEach(track => track.stop());
@@ -215,7 +280,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         parts = self.path.split("/")
         data = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-        if len(parts) == 4 and parts[1] == "r":
+        if len(parts) == 3 and parts[1] == "v" and re.fullmatch(r"[\w-]+", parts[2]):
+            # The page's own recording (record=1): kept beside the screen recording, or in its place.
+            (Path(OPTS.out) / f"meet-call-page-{parts[2]}.webm").write_bytes(data)
+        elif len(parts) == 4 and parts[1] == "r":
             try:
                 RESULTS.setdefault(parts[2], {})[parts[3]] = json.loads(data)
             except ValueError:
@@ -700,6 +768,72 @@ class Driver:
         self.log(f"  {self.run} hidden: fewer than {count} {state} ticks in {seconds} s")
         return False
 
+    def record(self, seconds: int) -> dict:
+        """record=1: film the page joining a call (camera, mic, screen share, a remote tile), then the signed-out Meet
+        page, after every measured step. Two recordings: the fleet screen recorder (CuaDriver, OUT/meet-call.mov|mp4)
+        when it holds its grants, and always the page's own MediaRecorder of the call (OUT/meet-call-page.webm, plus
+        .mp4 when ffmpeg is here), which needs no Screen Recording grant. Each one's failure reason is in the result."""
+        folder = Path(OPTS.work) / "rec"
+        logf = Path(OPTS.out) / "rec.log"
+        out: dict = {}
+        with open(logf, "w") as sink:
+            rec = subprocess.Popen(["python3", str(ROOT / "scripts/measure/launch_reveal_record.py"), "record",
+                                    str(folder), str(seconds + 60)], stdout=sink, stderr=subprocess.STDOUT)
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and rec.poll() is None and "READY" not in logf.read_text():
+            time.sleep(0.2)
+        if "READY" not in logf.read_text():
+            rec.kill()
+            rec = None
+            out["screenError"] = "screen recorder did not start: " + logf.read_text()[-300:]
+            self.log(f"  {self.run} record: {out['screenError']} (the page's own recording still runs)")
+        self.navigate(f"{BASE}/t?run={self.run}-show")
+        time.sleep(2)
+        self.click("b-show")
+        shown = wait_result(f"{self.run}-show", "show", 20, done=lambda v: v.get("state") != "starting")
+        self.log(f"  {self.run} record show: {json.dumps(shown)[:300]}")
+        out["show"] = shown
+        time.sleep(max(10, seconds - 15))  # sleep-ok: the call on screen is what is recorded
+        self.js("__m.start('showStop')")
+        page = wait_result(f"{self.run}-show", "pagerec", 60, done=lambda v: v.get("state") not in ("running",))
+        out["page"] = page
+        webm = Path(OPTS.out) / f"meet-call-page-{self.run}-show.webm"
+        if webm.is_file() and webm.stat().st_size > 0:
+            target = Path(OPTS.out) / "meet-call-page.webm"
+            webm.rename(target)
+            out["pageVideo"] = target.name
+            ffmpeg = shutil.which("ffmpeg") or next((p for p in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg")
+                                                     if os.path.isfile(p)), None)
+            if ffmpeg:
+                conv = subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-i", str(target), "-c:v", "libx264",
+                                       "-pix_fmt", "yuv420p", "-c:a", "aac", str(target.with_suffix(".mp4"))],
+                                      capture_output=True, text=True, timeout=300)
+                if conv.returncode == 0:
+                    out["pageVideo"] = target.with_suffix(".mp4").name
+                else:
+                    out["pageConvertError"] = conv.stderr[-300:]
+        else:
+            out["pageError"] = "the page posted no recording: " + json.dumps(page)[:300]
+        self.navigate(MEET)
+        time.sleep(15)  # sleep-ok: the signed-out Meet page on screen
+        if rec:
+            rec.send_signal(signal.SIGTERM)
+            try:
+                rec.wait(60)
+            except subprocess.TimeoutExpired:
+                rec.kill()
+            text = logf.read_text()
+            video = next((line[6:].strip() for line in text.splitlines() if line.startswith("VIDEO ")), "")
+            if video and os.path.isfile(video):
+                target = Path(OPTS.out) / ("meet-call" + (Path(video).suffix or ".mp4"))
+                subprocess.run(["cp", video, str(target)], check=False)
+                out["video"] = target.name
+            else:
+                out["screenError"] = "no screen video: " + text[-300:]
+        out["ok"] = bool(shown.get("state") == "running" and (out.get("video") or out.get("pageVideo")))
+        self.log(f"  {self.run} record: {json.dumps(out)[:400]}")
+        return out
+
     def meet(self):
         out = {}
         for phase in ("cold", "warm"):
@@ -758,6 +892,8 @@ def run_cmux(cmux: Cmux, run: str, engine: str, full: bool, meet: bool, log) -> 
     driver.media(out, full)
     if meet:
         out["meet"] = driver.meet()
+    if OPTS.record and run == "cmux-chromium-fake":
+        out["record"] = driver.record(OPTS.call)
     for t in covers + [tab]:
         cmux.close(t)
     return out
@@ -815,6 +951,11 @@ def cell_media(v):
     return f"fail {state}"
 
 
+def top_pct(cpu: dict) -> float | None:
+    top = cpu.get("top") or []
+    return top[0]["pct"] if top else None
+
+
 def cell(run: dict, key: str) -> str:
     if run.get("error") and key not in run:
         return "error: " + run["error"][:60]
@@ -840,7 +981,10 @@ def cell(run: dict, key: str) -> str:
         if v.get("fpsMedian") is None or v.get("rttMsMedian") is None:
             return f"fail: {v.get('message') or v.get('ice') or v.get('state')} (no complete FPS/RTT sample)"
         return (f"{'pass' if v.get('ok') else 'fail'} {v.get('fpsMedian'):.1f} fps, rtt {v.get('rttMsMedian')} ms ({v.get('rttSource')}), "
-                f"{v.get('size')}, CPU {v['cpuCall']['pct']}% (idle {v['cpuIdle']['pct']}%)")
+                f"{v.get('size')}, {v.get('codec') or 'codec ?'}, CPU {v['cpuCall']['pct']}% (idle {v['cpuIdle']['pct']}%, "
+                f"busiest process {top_pct(v['cpuCall'])}%)")
+    if key == "gl":
+        return str((run.get("info") or {}).get("gl") or "not run")
     if key == "hidden":
         if not v:
             return "not run"
@@ -859,7 +1003,7 @@ def cell(run: dict, key: str) -> str:
 
 
 ROWS = [("getUserMedia (camera+mic)", "gum"), ("getDisplayMedia", "gdm"), ("Picture-in-Picture", "pip"),
-        ("Notification.requestPermission", "notif"), ("loopback call 720p", "loop"),
+        ("Notification.requestPermission", "notif"), ("loopback call 720p", "loop"), ("WebGL renderer", "gl"),
         ("hidden-tab 100 ms timer", "hidden"), ("Signed-out Meet navigation, cold", "meet_cold"),
         ("Signed-out Meet navigation, warm", "meet_warm")]
 
@@ -887,6 +1031,7 @@ def main():
     parser.add_argument("--build-job", default="")
     parser.add_argument("--call", type=int, default=60)
     parser.add_argument("--only", default="")
+    parser.add_argument("--record", action="store_true")
     OPTS = parser.parse_args()
     out_dir, work = Path(OPTS.out), Path(OPTS.work)
     only = set(filter(None, OPTS.only.split(",")))
@@ -913,7 +1058,7 @@ def main():
         cmux.stop()
     if want("cmux-chromium-fake"):
         if cmux.launch(["--cmux-measure-fake-media"]):
-            runs["cmux-chromium-fake"] = run_cmux(cmux, "cmux-chromium-fake", "chromium", True, False, log) | {
+            runs["cmux-chromium-fake"] = run_cmux(cmux, "cmux-chromium-fake", "chromium", True, True, log) | {
                 "flags": ["--cmux-measure-fake-media (requests CEF fake device and UI)"]}
         else:
             runs["cmux-chromium-fake"] = {"browser": "cmux chromium", "error": "the side copy gave no control socket"}

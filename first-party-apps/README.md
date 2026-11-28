@@ -7,7 +7,6 @@ Official cmux apps built on the app platform with only the public app API (the g
 | `search/` | `cmux/search` | finds workspaces, tabs, terminal text, browser pages, notes, inbox items and files, and opens the result |
 | `inbox/` | `cmux/inbox` | one triage list of notifications, waiting agents and connected-service work items |
 | `notes/` | `cmux/notes` | markdown notes, global and per workspace, readable by agents |
-| `coderouter/` | `cmux/coderouter` | CodeRouter status, accounts, keys, usage and first-run onboarding |
 | `usage/` | `cmux/usage` | usage and pace of every router account per provider, in the menu bar, a pane and the sidebar |
 | `diffs/` | `cmux/diffs` | `cmux.diff.renderer/1`: working tree, refs, agent proposals and run diffs, with per-hunk decisions and comments |
 | `codemirror/` | `cmux/codemirror` | `cmux.editor/1` on CodeMirror 6 in a web pane |
@@ -16,6 +15,7 @@ Official cmux apps built on the app platform with only the public app API (the g
 | `agents/` | `cmux/agents` | agent CLIs (Claude Code, Codex, OpenCode, Pi, Chief, ...) on every machine: versions, updates, installs and sign-ins, run by cmux in a visible terminal |
 | `skills/` | `cmux/skills` | skills and MCP servers per agent, project or everywhere; every config change is a reviewed diff before it is written |
 | `memory/` | `cmux/memory` | agent memory files (CLAUDE.md, AGENTS.md, project memory) per machine and project; every edit shows a diff, deletes go to the Trash |
+| `worktree-cleanup/` | `cmux/worktree-cleanup` | Auto cleanup: the App Store switch for the `worktrees.autoCleanup` setting (manifest only, a `setting`-backed entry) |
 | `remote-desktop/` | `cmux/remote-desktop` | the native `remote_view` pane and the `rd.*` ops of the `cmux-rd` host engine (manifest v2 only, development only) |
 | `rfd-reader/` | `local/rfd-reader` | reads a repository's RFDs (`docs/rfd/NNNN-slug.md`) and reading notes (`docs/reading/YYYY-MM-DD-slug.md`) in a web pane, a tab each: lists by last update or read date with state and tag filters, full-text search, review comments beside their lines, hover previews both ways, Cmd-/ jump-to, a new RFD or reading note as a pull request |
 

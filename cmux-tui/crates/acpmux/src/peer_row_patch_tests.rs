@@ -109,6 +109,24 @@ fn a_purge_lets_the_row_go() {
     assert_eq!(held.bytes(), 0);
 }
 
+/// A patched row is used: past the bound it outlives a row only held whole, as the peer keeps the
+/// rows it sent last (`session_patch.rs` `SentRows`).
+#[test]
+fn a_patched_row_outlives_an_idle_one() {
+    let mut held = HeldRows::default();
+    for i in 0..MAX_ROWS {
+        let mut p = changed(&format!("c{i}"), json!({"i": i}), Some(1));
+        held.read(method::MUX_SESSION_CHANGED, &mut p, 10);
+    }
+    let mut patch = json!({"sessionId": "c0", "patch": {"i": 99}, "rowSeq": 2, "baseRowSeq": 1});
+    assert_eq!(held.read(method::MUX_SESSION_PATCH, &mut patch, 10), Read::Changed);
+    let mut p = changed("fresh", json!({}), Some(1));
+    held.read(method::MUX_SESSION_CHANGED, &mut p, 10);
+    assert!(held.held("c0").is_some(), "the patched row stays");
+    assert!(held.held("c1").is_none(), "the row heard longest ago went");
+    assert_eq!(held.rows.len(), MAX_ROWS);
+}
+
 /// Bounded by count and by bytes: past either the oldest go, and the bytes count stays true.
 #[test]
 fn held_rows_stay_within_their_bounds() {

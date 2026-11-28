@@ -162,3 +162,80 @@ fn a_plain_folder_handback_never_resurrects_or_overwrites() {
     assert!(placed.is_err(), "a plain folder is blocked, not overlaid");
     assert_eq!(std::fs::read(laptop.join("keep.txt")).unwrap(), b"keep, edited on the laptop\n");
 }
+
+/// What is beside `dir` in its parent, but `dir` itself.
+fn siblings(dir: &Path) -> Vec<String> {
+    let name = dir.file_name().unwrap();
+    std::fs::read_dir(dir.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .filter(|entry| entry != name)
+        .map(|entry| entry.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// The laptop's copy (a local commit and uncommitted work) placed in a new folder at `into`.
+fn arrive_new(from: &Path, into: &Path) -> Result<(), String> {
+    let Folder::Git(copy) = folder::read(from, u64::MAX).unwrap() else { panic!("a git folder") };
+    let cwd = Cwd::Git {
+        remote: copy.remote,
+        branch: copy.branch,
+        base: copy.base,
+        bundle: vec![],
+        patch: vec![],
+    };
+    place(into, true, &cwd, &copy.bundle, &copy.patch, "chat-1")
+}
+
+#[test]
+fn a_new_folder_arrives_whole_with_the_commit_and_the_uncommitted_work() {
+    let rig = rig();
+    write(&rig.laptop.join("local.txt"), b"a local commit\n", 0o644);
+    git(&rig.laptop, &["add", "local.txt"]);
+    git(&rig.laptop, &["commit", "-q", "-m", "local"]);
+    write(&rig.laptop.join("uncommitted.txt"), b"uncommitted\n", 0o644);
+    let head = git(&rig.laptop, &["rev-parse", "HEAD"]);
+    let auto = rig.cloud.parent().unwrap().join("auto");
+    std::fs::create_dir(&auto).unwrap();
+    let into = auto.join("chat-1");
+    arrive_new(&rig.laptop, &into).unwrap();
+    assert_eq!(git(&into, &["rev-parse", "HEAD"]), head);
+    assert_eq!(std::fs::read(into.join("local.txt")).unwrap(), b"a local commit\n");
+    assert_eq!(std::fs::read(into.join("uncommitted.txt")).unwrap(), b"uncommitted\n");
+    // It was laid out under another name and moved here whole: nothing of it is left beside.
+    let left: Vec<_> =
+        siblings(&into).into_iter().filter(|n| n.starts_with(".arriving-")).collect();
+    assert!(left.is_empty(), "a partial folder was left beside the chat's: {left:?}");
+}
+
+#[test]
+fn a_new_folder_that_cannot_be_finished_is_never_there() {
+    let rig = rig();
+    let auto = rig.cloud.parent().unwrap().join("auto");
+    std::fs::create_dir(&auto).unwrap();
+    let into = auto.join("chat-1");
+    // A base no remote has and no bundle: the folder cannot be finished.
+    let cwd = Cwd::Git {
+        remote: rig.cloud.join("no-such-remote").to_string_lossy().into_owned(),
+        branch: "main".into(),
+        base: "0123456789012345678901234567890123456789".into(),
+        bundle: vec![],
+        patch: vec![],
+    };
+    assert!(place(&into, true, &cwd, &[], &[], "chat-1").is_err());
+    assert!(!into.exists(), "a folder that failed is not the chat's");
+    let left: Vec<_> =
+        siblings(&into).into_iter().filter(|n| n.starts_with(".arriving-")).collect();
+    assert!(left.is_empty(), "the partial folder was not removed: {left:?}");
+}
+
+#[test]
+fn a_new_folder_is_never_laid_over_one_with_files() {
+    let root = tempfile::tempdir().unwrap();
+    let into = root.path().join("chat-1");
+    write(&into.join("someone.txt"), b"theirs\n", 0o644);
+    let cwd = Cwd::Folder { tar: vec![] };
+    assert!(place(&into, true, &cwd, &[], &[], "chat-1").is_err());
+    assert_eq!(std::fs::read(into.join("someone.txt")).unwrap(), b"theirs\n");
+    assert_eq!(siblings(&into), Vec::<String>::new());
+}

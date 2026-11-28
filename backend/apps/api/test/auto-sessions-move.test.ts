@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers"
 import { beforeAll, describe, expect, it } from "vitest"
 import { MOVE_MS } from "../src/auto-sessions/model.ts"
-import { advance, as, call, chatStub, copied, fakeClock, fakeCloud, get, indexStub, lapse, LAPTOP, lease, M, open, person, post, runIn, setMachine, starts, takenOver, VM, vmBearer, type Person } from "./auto-sessions-support.ts"
+import { advance, as, call, chatStub, copied, fakeClock, fakeCloud, get, indexStub, lapse, LAPTOP, lease, M, M2, open, person, post, runIn, setMachine, starts, takenOver, VM, vmBearer, type Person } from "./auto-sessions-support.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -47,8 +47,38 @@ describe("auto sessions: moving a chat by hand", { timeout: 60_000 }, () => {
     await setMachine(a)
     await takenOver(a, "away")
     expect(refused(await move(a.installToken, "away", { to: "local" }))).toEqual([409, "auto.no_laptop"])
-    // A machine cannot ask for a move.
-    expect((await move(await vmBearer(a, M), "away", { to: "local" })).status).toBe(403)
+    // The machine that holds the chat asks the same, and is refused the same; another machine is not let in.
+    expect(refused(await move(await vmBearer(a, M), "away", { to: "local" }))).toEqual([409, "auto.no_laptop"])
+    expect((await move(await vmBearer(a, M2), "away", { to: "local" })).status).toBe(404)
+  })
+
+  it("the machine that holds a chat moves it and says whether it is kept in the Cloud, for the agent in it; a machine that does not hold it cannot", async () => {
+    const a = await person("machine-moves")
+    await fakeCloud(a.user)
+    await setMachine(a)
+    const vm = await vmBearer(a, M)
+    const other = await vmBearer(a, M2)
+    // Held by the laptop: the machine is only assigned, and is not let in.
+    await open(a.installToken, "near")
+    expect((await move(vm, "near", { to: "cloud" })).status).toBe(404)
+    expect((await post(vm, "near", "keep", { keepInCloud: true })).status).toBe(404)
+    expect((await session(a, "near")).keepInCloud).toBe(false)
+    // Held by the machine.
+    await takenOver(a, "far")
+    expect((await post(vm, "far", "assignment/ack", { holder: VM, epoch: 2 })).status).toBe(200)
+    expect((await post(vm, "far", "keep", { keepInCloud: true })).body.session).toMatchObject({ holder: VM, keepInCloud: true })
+    expect((await post(vm, "far", "keep", { keepInCloud: false })).body.session).toMatchObject({ holder: VM, keepInCloud: false })
+    expect((await post(other, "far", "keep", { keepInCloud: true })).status).toBe(404)
+    expect((await move(other, "far", { to: "local" })).status).toBe(404)
+    expect((await session(a, "far")).keepInCloud).toBe(false)
+    // To the laptop that stands by: the wish is written, the chat is not kept in the Cloud, and the machine gives at its renewal.
+    expect((await lease(a.installToken, "far", LAPTOP, 1, { standby: true })).body.role).toBe("standby")
+    const moved = await move(vm, "far", { to: "local" })
+    expect(moved.status).toBe(200)
+    expect(moved.body.session).toMatchObject({ holder: VM, epoch: 2, keepInCloud: false, move: { to: "local" } })
+    expect((await lease(vm, "far", VM, 2, { needsRun: true })).body).toMatchObject({ role: "holder", move: "local" })
+    // Back to the Cloud while it still holds it: kept there, the wish dropped.
+    expect((await move(vm, "far", { to: "cloud" })).body.session).toMatchObject({ holder: VM, keepInCloud: true })
   })
 
   it("a give is refused with no wish, and until the store has a snapshot that covers the last event", async () => {
@@ -151,6 +181,44 @@ describe("auto sessions: moving a chat by hand", { timeout: 60_000 }, () => {
     expect(refused(await off(a.installToken, "home"))).toEqual([409, "auto.held_in_cloud"])
     expect((await snap(a.installToken, "home", LAPTOP, 3, 0)).status).toBe(200)
     expect((await off(a.installToken, "home")).body.session).toMatchObject({ auto: false })
+  })
+
+  it("the holder's lease answer says when the person asked, so a move asked again after a refused give is a new one", async () => {
+    const a = await person("asked-again")
+    await fakeCloud(a.user)
+    await setMachine(a)
+    const vm = await vmBearer(a, M)
+    await takenOver(a, "home")
+    expect((await post(vm, "home", "assignment/ack", { holder: VM, epoch: 2 })).status).toBe(200)
+    const standBy = async () => (await lease(a.installToken, "home", LAPTOP, 1, { standby: true })).body
+    const renewed = async () => (await lease(vm, "home", VM, 2, { needsRun: true })).body
+    // With no wish the answer names no time.
+    const quiet = await renewed()
+    expect(quiet.move).toBeUndefined()
+    expect(quiet.moveAt).toBeUndefined()
+    expect((await standBy()).role).toBe("standby")
+    const first = (await move(a.installToken, "home", { to: "local" })).body.session.move.at as number
+    expect(await renewed()).toMatchObject({ role: "holder", move: "local", moveAt: first })
+    // Only the holder is told: a standby's answer names neither the wish nor its time.
+    const waits = await standBy()
+    expect(waits.move).toBeUndefined()
+    expect(waits.moveAt).toBeUndefined()
+    // The laptop stops standing by, so the give is refused. The wish still waits, with the time it was asked.
+    await lapse(a.user, "home")
+    expect((await snap(vm, "home", VM, 2, 0)).status).toBe(200)
+    expect(refused(await give(vm, "home", VM, 2))).toEqual([409, "auto.no_laptop"])
+    expect(await renewed()).toMatchObject({ role: "holder", move: "local", moveAt: first })
+    // The laptop is open again and the person asks again: the same wish, with a new time.
+    expect((await standBy()).role).toBe("standby")
+    const second = (await move(a.installToken, "home", { to: "local" })).body.session.move.at as number
+    expect(second).toBeGreaterThan(first)
+    expect(await renewed()).toMatchObject({ role: "holder", move: "local", moveAt: second })
+    expect((await give(vm, "home", VM, 2)).body.session).toMatchObject({ holder: LAPTOP, epoch: 3 })
+    // The chat is another holder's: neither answer names a wish.
+    const lost = await renewed()
+    expect(lost.role).toBe("lost")
+    expect(lost.moveAt).toBeUndefined()
+    expect((await standBy()).moveAt).toBeUndefined()
   })
 
   it("a parked chat has no holder to give it: to the Cloud it is a takeover at once, and needs a snapshot; to a laptop it goes to the one that stands by", async () => {

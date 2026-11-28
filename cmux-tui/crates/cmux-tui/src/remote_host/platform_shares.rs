@@ -945,6 +945,7 @@ mod live {
                 platform: None,
                 token_file: flags.value("cloud-token-file").map(std::path::PathBuf::from),
                 token_stdin: flags.has("cloud-token-stdin"),
+                app_session: false,
             };
             let credential =
                 crate::cli::read_platform_credential(&auth, &env, &mut std::io::stdin().lock())

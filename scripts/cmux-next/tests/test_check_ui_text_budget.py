@@ -93,6 +93,7 @@ class KindTests(unittest.TestCase):
             "confirm.body": "dialog",
             "Open Settings": "text",
             "lane.needsName": "status",
+            "cloud.computerControl.badAction": "status",
             "handlers.refusal.noTab": "cli",
             "cloud.cli.machineGone": "cli",
             "foo.bar": "text",

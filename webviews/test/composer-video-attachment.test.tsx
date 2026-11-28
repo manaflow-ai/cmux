@@ -110,6 +110,23 @@ function expectUnreadVideoTile() {
   expect(host.querySelector(".acpmux-attachment-link-name")).toBeNull();
 }
 
+/// A video whose poster the host is still reading: since #63541 ("an attached video loads in one
+/// look", Leo 2026-11-08: "it is bad that there are 2+ loading states it goes from themed opaque
+/// (which is frequently ugly) into unthemed then to loaded") the tile wears the loading glass with its
+/// play glyph until the poster comes, never the neutral square; nothing spins and it is not pending.
+function expectLoadingVideoTile() {
+  const tile = host.querySelector(".acpmux-attachment-video");
+  expect(tile?.classList.contains("acpmux-attachment-image")).toBe(true);
+  expect(tile?.classList.contains("acpmux-paste-loading")).toBe(true);
+  expect(tile?.classList.contains("acpmux-attachment-video-unread")).toBe(false);
+  expect(tile?.getAttribute("aria-busy")).toBe("true");
+  expect(tile?.getAttribute("title")).toBe(video().name);
+  expect(tile?.querySelector("img")).toBeNull();
+  expect(tile?.querySelector(".acpmux-attachment-video-play")).not.toBeNull();
+  expect(host.querySelector(".acpmux-attachment-pending, .acpmux-paste-late")).toBeNull();
+  expect(host.querySelector(".acpmux-attachment-link-name")).toBeNull();
+}
+
 async function render(initial: ComposerAttachment[], local = true, key: string = crypto.randomUUID()) {
   calls = [];
   await act(async () => {
@@ -144,9 +161,9 @@ try {
   test("a dropped video is its tile at once while the host reads it, then shows its poster and length, and a click plays it", async () => {
     await render([video()]);
     expect(calls.map(({ method, params }) => [method, params])).toEqual([["video.info", { src: PATH }]]);
-    // While the host reads it: the tile in its box with its play glyph, ready to send, nothing spinning.
-    expect(host.querySelector(".acpmux-attachment-pending, [aria-busy='true']")).toBeNull();
-    expectUnreadVideoTile();
+    // While the host reads it: the tile in its box with its play glyph in its one loading look, ready
+    // to send, nothing spinning (expectLoadingVideoTile).
+    expectLoadingVideoTile();
     expect(state?.reading).toBe(1);
 
     await act(async () => calls[0]!.answer(INFO));
@@ -216,9 +233,8 @@ try {
       root.render(
         <AttachmentStrip
           attachments={[]}
-          pending={[{ ...chip, failed: "The upload timed out", retryable: true }]}
+          pending={[{ ...chip, failed: "The file is not readable." }]}
           onCancel={() => {}}
-          onRetry={() => {}}
           onRemove={() => {}}
         />,
       );
@@ -226,13 +242,14 @@ try {
     const failed = host.querySelector(".acpmux-attachment-failed")!;
     expect(failed.classList.contains("acpmux-attachment-image")).toBe(true);
     expect(failed.textContent).not.toContain(chip.name);
-    expect(failed.querySelector(".acpmux-attachment-retry")).not.toBeNull();
+    // An upload that failed is asked again on its own while it loads; a tile that failed has only its x.
+    expect(failed.querySelectorAll("button").length).toBe(1);
   });
 
   test("a rejected video.info request ends its read and leaves the file ready to send", async () => {
     await render([video()]);
     expect(state?.reading).toBe(1);
-    expectUnreadVideoTile();
+    expectLoadingVideoTile();
 
     // A disconnected or outdated host may refuse the native video.info call.
     await act(async () => calls[0]!.fail(new Error("video.info unavailable")));
@@ -551,6 +568,77 @@ try {
     expect(state?.attachments[0]?.transcript).toEqual(SPEECH);
     expect(calls.filter((call) => call.method === "video.probes")).toHaveLength(1);
     expect(calls.filter((call) => call.method === "video.transcript")).toHaveLength(1);
+  });
+
+  // Leo, 2026-11-08: "there was a problem loading thse two videos together in the composer for some
+  // reason i added one after the other really quickly and the whole thing lagged/froze?". Two videos
+  // added back to back are read side by side: the second is asked at once, never behind the first's
+  // chain, either answer may come first, each read goes on its own chip only, and every read is asked
+  // once per video, so nothing is read twice and no answer repaints the other chip.
+  test("two videos added one after the other are read side by side, each once, each answer on its own chip", async () => {
+    const SECOND = "/Users/dev/Desktop/Screen Recording 2026-11-08 at 2.29.39 AM.mov";
+    const second = () => ({ ...linkAttachment(SECOND, false), mimeType: "video/quicktime", size: 61_000_000 });
+    const cells = (gray: number) => btoa(String.fromCharCode(...new Uint8Array(24 * 24).fill(gray)));
+    const probes = Array.from({ length: 48 }, (_, index) => ({
+      atMs: 400 + index * 880,
+      cells: cells(index < 20 ? 0 : 255),
+    }));
+    await render([video()]);
+    await act(async () => state!.add(second()));
+    // Both asked now, the second before the first answered.
+    expect(calls.map(({ method, params }) => [method, params.src])).toEqual([
+      ["video.info", PATH],
+      ["video.info", SECOND],
+    ]);
+    expect(state?.reading).toBe(2);
+    const of = (method: string, src: string) =>
+      calls.filter((call) => call.method === method && call.params.src === src);
+    // The second answers first: its poster shows while the first is still read.
+    await act(async () =>
+      of("video.info", SECOND)[0]!.answer({
+        ...INFO,
+        poster: "data:image/jpeg;base64,/9j/EE==",
+        frames: [],
+        more: true,
+      }),
+    );
+    const posters = () =>
+      [...host.querySelectorAll(".acpmux-attachment-video")].map(
+        (tile) => tile.querySelector("img")?.getAttribute("src") ?? null,
+      );
+    expect(posters()).toEqual([null, "data:image/jpeg;base64,/9j/EE=="]);
+    const firstChip = state!.attachments[0]!;
+    await act(async () => of("video.info", PATH)[0]!.answer({ ...INFO, frames: [], more: true }));
+    expect(posters()).toEqual([POSTER, "data:image/jpeg;base64,/9j/EE=="]);
+    // Each video's key frames, picked frames and speech, in any order across the two.
+    await act(async () => of("video.probes", SECOND)[0]!.answer({ frames: INFO.frames, probes }));
+    await act(async () => of("video.probes", PATH)[0]!.answer({ frames: INFO.frames, probes }));
+    await act(async () => of("video.transcript", PATH)[0]!.answer(SPEECH));
+    for (const src of [PATH, SECOND]) {
+      const asked = of("video.frames", src)[0]!;
+      await act(async () =>
+        asked.answer({ frames: (asked.params.times as number[]).map((atMs) => ({ atMs, data: "/9j/FF==" })) }),
+      );
+    }
+    await act(async () =>
+      of("video.transcript", SECOND)[0]!.answer({ ...SPEECH, segments: [{ startMs: 0, endMs: 900, text: "second" }] }),
+    );
+    expect(state?.reading).toBe(0);
+    // Each read once per video: nothing asked again by the other's answers.
+    for (const src of [PATH, SECOND])
+      expect(
+        calls
+          .filter((call) => call.params.src === src)
+          .map((call) => call.method)
+          .sort(),
+      ).toEqual(["video.frames", "video.info", "video.probes", "video.transcript"]);
+    const [a, b] = state!.attachments;
+    expect(a?.id).toBe(firstChip.id);
+    expect(a?.video?.picked).toBe(true);
+    expect(b?.video?.picked).toBe(true);
+    expect(a?.transcript).toEqual(SPEECH);
+    expect(b?.transcript?.segments[0]?.text).toBe("second");
+    expect(posters()).toEqual([POSTER, "data:image/jpeg;base64,/9j/EE=="]);
   });
 
   test("an older host that has no video.frames keeps the answer's four frames, and the send goes", async () => {

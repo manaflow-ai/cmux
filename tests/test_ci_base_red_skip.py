@@ -66,6 +66,41 @@ class BaseRedSkip(unittest.TestCase):
             raise RuntimeError("HTTP 403")
         self.assertEqual(brs.decide(args(), PR, boom), ["base_red=false"])
 
+    def test_refused_token_moves_to_the_fallback(self):
+        seen = []
+
+        def get(path, token, deadline):
+            seen.append(token)
+            if token == "repo":
+                raise brs.Refused(f"GET {path}: HTTP 403 (rate limit left: 0)")
+            return reader([(3, [("kit", "failure")])])(path)
+        read = brs.token_reader(["repo", "app"], deadline=None, get=get)
+        self.assertEqual(brs.decide(args(), PR, now=NOW, read=read), ["base_red=true", "base_run=job/3/kit"])
+        self.assertEqual(seen, ["repo", "app", "app"], "a refused token is not asked again")
+
+        def refused(path, token, deadline):
+            raise brs.Refused("HTTP 403")
+        self.assertEqual(brs.decide(args(), PR, now=NOW, read=brs.token_reader(["repo", "app"], None, refused)),
+                         ["base_red=false"])
+
+    def test_workflows_pass_a_fallback_token(self):
+        for name in ("cmux-next-guards.yml", "cloud-journey-pr.yml", "cmux-next.yml"):
+            with open(os.path.join(WORKFLOWS, name), encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertIn("GH_TOKEN_FALLBACK: ${{ steps.base-red-token.outputs.token }}", text, name)
+
+    def test_cmux_next_reads_the_base_only_when_cargo_is_routed(self):
+        """The walk reads up to 61 pages on github.token; a PR run that does not route cargo (its only reader)
+        must not spend them (2026-11-27: the repo's 5000 calls an hour gone ~8 min after each reset)."""
+        with open(os.path.join(WORKFLOWS, "cmux-next.yml"), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        gate = "steps.route.outputs.fast_tier_cargo != 'false'"
+        for step_id in ("base-red-token", "base-red"):
+            at = lines.index(f"        id: {step_id}")
+            cond = lines[at + 1]
+            self.assertTrue(cond.lstrip().startswith("if:"), step_id)
+            self.assertIn(gate, cond, step_id)
+
     def test_push_runs_never_skip(self):
         env = dict(PR, GITHUB_EVENT_NAME="push")
         self.assertEqual(brs.decide(args(), env, now=NOW, read=reader([(3, [("kit", "failure")])])), ["base_red=false"])
@@ -120,6 +155,17 @@ class BaseRedSkip(unittest.TestCase):
         self.assertEqual(brs.decide_many(args(job=["a", "b"]), PR, now=NOW, read=read), ['red_jobs=["b"]'])
         self.assertEqual(len(calls), 2)
 
+    def test_decide_many_moves_to_the_fallback_token(self):
+        base = reader([(3, [("a", "failure")])])
+
+        def get(path, token, deadline):
+            if token == "repo":
+                raise brs.Refused(f"GET {path}: HTTP 403")
+            return base(path)
+        read = brs.token_reader(brs.tokens_of({"GH_TOKEN": "repo", "GH_TOKEN_FALLBACK": "app"}), None, get)
+        self.assertEqual(brs.decide_many(args(job=["a"]), PR, now=NOW, read=read), ['red_jobs=["a"]'])
+        self.assertEqual(brs.tokens_of({"GH_TOKEN": "repo", "GH_TOKEN_FALLBACK": ""}), ["repo"])
+
     def test_decide_many_fails_open_and_skips_only_pull_requests(self):
         def boom(path):
             raise RuntimeError("HTTP 403")
@@ -135,9 +181,75 @@ class BaseRedSkip(unittest.TestCase):
         self.assertEqual(brs.decide_many(args(job=["a", "b"], audit_percent=100), PR, now=NOW, read=red),
                          ["red_jobs=[]"])
 
+    def test_a_red_past_twelve_skipped_base_runs_still_skips(self):
+        """2026-11-25: 462 of 548 base push cargo rows were skipped, so 12 runs often held no verdict and the PR ran."""
+        runs = [(100 - i, [("kit", "skipped")]) for i in range(20)] + [(50, [("kit", "failure")])]
+        self.assertEqual(brs.decide(args(runs=12), PR, now=NOW, read=reader(runs)), ["base_red=false"])
+        self.assertEqual(brs.decide(args(runs=60), PR, now=NOW, read=reader(runs))[0], "base_red=true")
+
+    def test_a_failed_read_keeps_the_verdicts_already_read(self):
+        base = reader([(5, [("a", "failure")]), (4, [("b", "success")])])
+
+        def read(path):
+            if "/runs/4/" in path:
+                raise TimeoutError("deadline")
+            return base(path)
+        self.assertEqual(brs.decide_many(args(job=["a", "b"]), PR, now=NOW, read=read), ['red_jobs=["a"]'])
+
+        def none_found(path):
+            if "/runs/" in path and "/workflows/" not in path:
+                raise TimeoutError("deadline")
+            return base(path)
+        self.assertEqual(brs.decide_many(args(job=["a"]), PR, now=NOW, read=none_found), ["red_jobs=[]"])
+
+    def test_cmux_next_cargo_reads_past_the_skipped_base_runs(self):
+        with open(os.path.join(WORKFLOWS, "cmux-next.yml"), encoding="utf-8") as fh:
+            text = fh.read()
+        line = next(x for x in text.splitlines() if 'decide-many --workflow cmux-next.yml' in x)
+        runs = int(line.split("--runs ")[1].split()[0])
+        # 0.85 ** 12 = 14% of PRs found no verdict; 0.85 ** 40 = 0.15%.
+        self.assertGreaterEqual(runs, 40, line)
+
+    def test_get_json_tries_a_slow_or_5xx_read_again(self):
+        answers = [TimeoutError("slow"), (502, b"", {}), (200, b'{"ok": 1}', {})]
+        calls, pauses = [], []
+
+        def request(req, deadline):
+            calls.append(deadline.seconds)
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        saved = brs.deadline_http.request
+        brs.deadline_http.request = request
+        try:
+            got = brs.get_json("/x", "t", brs.deadline_http.Deadline(90.0), sleep=pauses.append)
+        finally:
+            brs.deadline_http.request = saved
+        self.assertEqual(got, {"ok": 1})
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(s <= brs.READ_S for s in calls), calls)  # one slow read cannot eat the whole budget
+        self.assertEqual(pauses, [2.0, 4.0])
+
+    def test_get_json_gives_up_after_its_tries_and_on_a_hard_status(self):
+        def request(req, deadline):
+            raise TimeoutError("slow")
+        saved = brs.deadline_http.request
+        brs.deadline_http.request = request
+        try:
+            with self.assertRaisesRegex(RuntimeError, "slow"):
+                brs.get_json("/x", "t", brs.deadline_http.Deadline(90.0), sleep=lambda s: None)
+            brs.deadline_http.request = lambda req, deadline: (403, b"", {})
+            with self.assertRaisesRegex(RuntimeError, "HTTP 403"):
+                brs.get_json("/x", "t", brs.deadline_http.Deadline(90.0), sleep=lambda s: None)
+        finally:
+            brs.deadline_http.request = saved
+
     def test_workflows_wire_the_switch_and_full_ci(self):
         wired = {
             "cmux-next-guards.yml": ["tooling-tests"],
+            # ci/steps.toml's tooling-tests-N, the job's tt- steps on a feat-cmux-next pull request.
+            "pr-pipeline.yml": ["tooling-tests"],
             "cloud-journey-pr.yml": ["journey-staging"],
             "cmux-next.yml": ["cmux-next fast tier (cargo)", "cmux-next generated files"],
         }

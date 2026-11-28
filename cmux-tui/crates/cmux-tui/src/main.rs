@@ -10,12 +10,14 @@ use cmux_json::JsonSet as _;
 
 #[cfg(unix)]
 mod acp;
+// This build's identity, installed by the binary (cmux-tui src/bin/cmux-tui.rs).
 #[cfg(unix)]
 mod agent_browser_provider;
 #[cfg(unix)]
 mod agent_computer_use;
 #[cfg(unix)]
 mod agent_mcp_choice;
+pub mod build_identity;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
@@ -45,8 +47,6 @@ mod cloud_conversations_backend;
 #[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
-mod coderouter_usage;
-#[cfg(unix)]
 #[cfg(unix)]
 mod codex_wrapper;
 #[cfg(not(target_os = "macos"))]
@@ -63,7 +63,10 @@ mod heap_profile;
 mod host_orphan_policy;
 mod local_actor;
 #[cfg(unix)]
+mod machine_identity;
+#[cfg(unix)]
 mod machine_secrets;
+mod measure_clock;
 #[cfg(unix)]
 mod own_build_helpers;
 mod page_listener;
@@ -71,6 +74,8 @@ mod private_mode;
 mod screen_detection_status;
 #[cfg(unix)]
 mod scroll_probe;
+#[cfg(unix)]
+mod seed_deps_warm;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
@@ -687,6 +692,11 @@ struct Args {
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
+    /// `--freeing-idle-seconds`: the idle freeing timer on with this idle time (the bench).
+    freeing_idle: Option<std::time::Duration>,
+    /// `--measure-freeing-clock-fifo`: a FIFO the bench writes seconds to, each line letting that
+    /// long pass for the freeing timer (`idle_freeing.rs`, the measure clock).
+    measure_freeing_clock_fifo: Option<std::path::PathBuf>,
     exit_with_pid: Option<local_owner::ExitWith>,
 }
 
@@ -800,6 +810,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_ready_fd: None,
         owner_install_key_fd: None,
         terminal_reap_grace: None,
+        freeing_idle: None,
+        measure_freeing_clock_fifo: None,
         exit_with_pid: None,
     };
     let mut args = args.into_iter().peekable();
@@ -908,6 +920,26 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     return Err("--ws-allow-host needs a host name with no port".into());
                 }
                 out.ws_access.hosts.push(host);
+            }
+            "--freeing-idle-seconds" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--freeing-idle-seconds needs a value".to_string())?;
+                let seconds =
+                    value.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| {
+                        "--freeing-idle-seconds must be a positive integer".to_string()
+                    })?;
+                if out.freeing_idle.replace(std::time::Duration::from_secs(seconds)).is_some() {
+                    return Err("--freeing-idle-seconds may be supplied only once".into());
+                }
+            }
+            "--measure-freeing-clock-fifo" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--measure-freeing-clock-fifo needs a path".to_string())?;
+                if out.measure_freeing_clock_fifo.replace(value.into()).is_some() {
+                    return Err("--measure-freeing-clock-fifo may be supplied only once".into());
+                }
             }
             "--terminal-reap-grace-seconds" => {
                 let value = args
@@ -1118,7 +1150,7 @@ fn build_stamp() -> cmux_tui_core::server::BuildStamp {
     // The source commit's time (`identify {revisions: true}`): what
     // `link machine update --if-older` orders two builds by.
     #[cfg(unix)]
-    let build_time = cmux_build_identity::BUILD_TIME;
+    let build_time = crate::build_identity::time();
     #[cfg(not(unix))]
     let build_time = 0;
     // Test seam, debug builds only: a daemon that reports another build time,
@@ -1161,8 +1193,8 @@ fn version_report_json() -> serde_json::Value {
     let stamp = build_stamp();
     #[cfg(unix)]
     let (build_identity, build_time, remote_protocol) = (
-        Some(cmux_build_identity::BUILD_IDENTITY),
-        cmux_build_identity::BUILD_TIME,
+        Some(crate::build_identity::identity()),
+        crate::build_identity::time(),
         Some(u64::from(cmux_remote_protocol::REMOTE_PROTOCOL_VERSION)),
     );
     #[cfg(not(unix))]
@@ -1628,6 +1660,8 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-resume-lease-seconds",
     "--remote-local-socket",
     "--terminal-reap-grace-seconds",
+    "--freeing-idle-seconds",
+    "--measure-freeing-clock-fifo",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -1833,62 +1867,6 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     Ok(())
 }
 
-/// After a seed checks out a folder on this machine: restore its dependencies
-/// from the cache in the background, never running its install
-/// (`acpmux machine deps warm --if-joined --no-install`, which does nothing on
-/// a machine that is not joined). `CMUX_DEPS_WARM=0` turns it off. Seeds and `acp` are
-/// unix-only.
-#[cfg(unix)]
-fn warm_seeded_deps(folder: &Path) {
-    if std::env::var_os("CMUX_DEPS_WARM").is_some_and(|v| v == "0") {
-        return;
-    }
-    let Ok(exe) = std::env::current_exe() else { return };
-    // After a self-update replaced the binary, Linux names the running one "<path> (deleted)".
-    let exe = exe
-        .to_str()
-        .and_then(|path| path.strip_suffix(" (deleted)"))
-        .map_or(exe.clone(), PathBuf::from);
-    // The warm's stderr can hold private output: an owner-only log in this
-    // build's acpmux state folder, never a shared temp folder, never through a link.
-    let out = {
-        use std::os::unix::fs::OpenOptionsExt;
-        let dir = acpmux::config::home();
-        std::fs::create_dir_all(&dir).ok().and_then(|()| {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(dir.join("deps-warm.log"))
-                .ok()
-        })
-    };
-    let err = out.as_ref().and_then(|f| f.try_clone().ok());
-    // A binary named `acpmux` (a symlink or a copy) runs acpmux directly; the
-    // `cmux` binary takes it under `acp`.
-    let standalone = exe.file_name().is_some_and(|name| name == "acpmux");
-    let mut command = cmux_process::Command::new(&exe);
-    if !standalone {
-        command.arg("acp");
-    }
-    command
-        // Restore only: a seed never runs a project's install, whose lifecycle
-        // scripts would execute repository code without the owner's consent.
-        .args(["machine", "deps", "warm", "--if-joined", "--if-missing", "--no-install", "--json"])
-        .arg(folder)
-        .current_dir(folder)
-        .stdin(cmux_process::Stdio::null())
-        .stdout(out.map_or_else(cmux_process::Stdio::null, Into::into))
-        .stderr(err.map_or_else(cmux_process::Stdio::null, Into::into));
-    // Reaped by a thread so it never lingers as a zombie of the daemon.
-    if let Ok(mut child) = command.spawn() {
-        let _ = std::thread::Builder::new().name("cmux-deps-warm".into()).spawn(move || {
-            let _ = child.wait();
-        });
-    }
-}
-
 /// The whole cmux-tui program: the `cmux-tui` binary calls this, and on
 /// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
 /// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
@@ -1899,6 +1877,8 @@ pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statements of main: no other thread runs yet.
     unsafe {
         cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+        // macOS: malloc read its space-efficient mode at exec; children start without it (malloc_space.rs).
+        cmux_tui_platform::malloc_space::forget();
     }
     // The browser host and the app host are this binary under their own names
     // (links beside bin/cmux). They run before anything else here: the app
@@ -1906,8 +1886,7 @@ pub fn main() -> std::process::ExitCode {
     // the CLI's environment, stamps or test-owner setup.
     #[cfg(unix)]
     if let Some(code) = run_folded_host() {
-        // The status the standalone host binaries' `process::exit` gives: its low 8 bits.
-        return std::process::ExitCode::from(u8::try_from(code & 0xff).unwrap_or(u8::MAX));
+        return code;
     }
     cmux_tui_core::startup_timings::process_mark("process.start");
     // SAFETY: the first statements of main: no other thread runs yet (G4).
@@ -1925,7 +1904,7 @@ pub fn main() -> std::process::ExitCode {
     // acpmux is headless; its interactive commands open the terminal UI this binary links.
     acpmux_tui::install();
     #[cfg(unix)]
-    cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
+    cmux_tui_core::git_seed::on_seeded(seed_deps_warm::warm_seeded_deps);
     // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
     cmux_tui_core::device_setup::on_device_setup(devices::setup::daemon_run);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
@@ -1950,23 +1929,58 @@ pub fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-/// Runs the host argv[0]'s file name names (`cmux-browser-host`,
-/// `cmux-app-host`, `cmux-mobile-host`) and returns its exit code, or `None` when it names none.
+/// The programs this binary runs when argv[0]'s file name is theirs (links
+/// beside bin/cmux, scripts/cmux-next/link-folded-hosts.sh, CMUX-570).
 #[cfg(unix)]
-fn run_folded_host() -> Option<i32> {
+pub const FOLDED_HOSTS: &[&str] =
+    &["cmux-browser-host", "cmux-app-host", "cmux-agent-screen-detection", "cmux-cloud"];
+
+/// Set to `1` on a run through a folded name: the binary prints
+/// `folded-hosts: <name>...` ([`FOLDED_HOSTS`]) and exits, so the bundle
+/// scripts learn which programs it carries. A binary from before this list
+/// ignores it and runs the host (link-folded-hosts.sh reads that answer too).
+#[cfg(unix)]
+const FOLDED_HOSTS_PROBE_ENV: &str = "CMUX_FOLDED_HOSTS_PROBE";
+
+/// Runs the program argv[0]'s file name names ([`FOLDED_HOSTS`]) and returns
+/// its exit status, or `None` when it names none.
+#[cfg(unix)]
+fn run_folded_host() -> Option<std::process::ExitCode> {
+    use std::process::ExitCode;
+    // The status the standalone binaries' `process::exit` gives: its low 8 bits.
+    let low_byte = |code: i32| ExitCode::from(u8::try_from(code & 0xff).unwrap_or(u8::MAX));
     let argv0 = std::env::args_os().next()?;
     let name = Path::new(&argv0).file_name()?.to_str()?;
-    let args = || std::env::args().skip(1).collect::<Vec<_>>();
-    match name {
-        "cmux-browser-host" => Some(cmux_browser_host::cli::run(args())),
-        "cmux-app-host" => Some(cmux_app_host::entry::run(&args())),
-        // A tool the app downloads on first use (`tool_packs`): runs it in this process's place.
-        "cmux-mobile-host" => {
-            let exe = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
-            cmux_tui_core::tool_packs::run_as(name, &exe)
-        }
-        _ => None,
+    // A tool the app downloads on first use (`tool_packs`): runs it in this process's place.
+    // Not a folded host: the bundle links no name for it.
+    if name == "cmux-mobile-host" {
+        let exe = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+        return cmux_tui_core::tool_packs::run_as(name, &exe).map(low_byte);
     }
+    if !FOLDED_HOSTS.contains(&name) {
+        return None;
+    }
+    if std::env::var_os(FOLDED_HOSTS_PROBE_ENV).is_some_and(|value| value == "1") {
+        println!("folded-hosts: {}", FOLDED_HOSTS.join(" "));
+        return Some(ExitCode::SUCCESS);
+    }
+    let args = || std::env::args().skip(1).collect::<Vec<_>>();
+    Some(match name {
+        "cmux-browser-host" => low_byte(cmux_browser_host::cli::run(args())),
+        "cmux-app-host" => low_byte(cmux_app_host::entry::run(&args())),
+        // A panic in the plugin still ends its process here, where panics
+        // unwind: `cli::run` installs that hook (its own build is panic=abort).
+        "cmux-agent-screen-detection" => cmux_agent_screen_detection::cli::run(args()),
+        // What a `main` returning `io::Result` prints and exits with on an error.
+        "cmux-cloud" => match cmux_cloud::run_stdio() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Error: {error:?}");
+                ExitCode::FAILURE
+            }
+        },
+        _ => return None,
+    })
 }
 
 /// The `cmux_tui.dll` entry point (cx-w0uha) that the thin Windows
@@ -2054,7 +2068,7 @@ fn run_main() {
     // Terminal hosts this process starts run from the slim cmux-tui-host
     // beside it when that is this build (macOS; host_exe.rs).
     #[cfg(unix)]
-    cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
+    cmux_tui_core::host_exe::use_sibling_host(crate::build_identity::identity());
     // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux in
     // this process. It needs none of the mux's provider credentials or signal handlers.
     // `cmux share screens|start|stop|move …`: the screen shares, read and changed by this
@@ -2076,7 +2090,7 @@ fn run_main() {
     }
     #[cfg(unix)]
     if let Some(head) = raw_args.first().map(String::as_str)
-        && (matches!(head, "acp" | "harness" | "chats" | "board")
+        && (matches!(head, "acp" | "harness" | "chats" | "board" | "care")
             || cli::agent_engine_requested(&raw_args)
             || cli::TOP_LEVEL_ENGINE_VERBS.contains(&head))
     {
@@ -2848,6 +2862,12 @@ fn run_server(
             }
         });
     // `identify` answers from the attach below: announce the reaper first.
+    if let Some(idle) = args.freeing_idle {
+        mux.set_freeing_idle_override(idle);
+    }
+    if let Some(fifo) = &args.measure_freeing_clock_fifo {
+        measure_clock::start_measure_freeing_clock(&mux, fifo)?;
+    }
     if let Some(grace) = args.terminal_reap_grace {
         mux.set_terminal_reap_grace(grace)?;
         mux.announce_terminal_reaper();
@@ -2965,6 +2985,7 @@ fn run_server(
         );
     }
     loopback_policy::install(&mux, loopback_forward_policy);
+    mux.start_terminal_warm_compact();
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]
@@ -2974,10 +2995,6 @@ fn run_server(
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
-    // Cloud VMs carry coderouter identity in their model-plane env; every
-    // other host resolves no source and gets no poller.
-    #[cfg(unix)]
-    let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
     #[cfg(unix)]
@@ -3107,10 +3124,6 @@ fn run_server(
     }
     if let Some(writer) = launch_snapshot_writer {
         writer.stop();
-    }
-    #[cfg(unix)]
-    if let Some(poller) = machine_usage_poller {
-        poller.stop();
     }
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();

@@ -38,6 +38,12 @@ fn parses_create_and_exec() {
     ]))
     .unwrap();
     assert_eq!(exec.verb, Verb::Exec { command: "uname -a".into(), timeout_ms: 5000 });
+    // Several words keep their argv (each shell-quoted); one word is a shell line as written.
+    let quoted =
+        parse(&strings(&["exec", &format!("--target={VM}"), "--", "sh", "-c", "cat > f"])).unwrap();
+    assert_eq!(quoted.verb, Verb::Exec { command: "sh -c 'cat > f'".into(), timeout_ms: 30_000 });
+    let line = parse(&strings(&["exec", &format!("--target={VM}"), "--", "ls | wc -l"])).unwrap();
+    assert_eq!(line.verb, Verb::Exec { command: "ls | wc -l".into(), timeout_ms: 30_000 });
     for bad in [
         vec!["create"],
         vec!["create", "--target", "machine:builder"],
@@ -648,6 +654,32 @@ fn a_refused_machine_exec_route_prints_only_a_known_code() {
         let (origin, _requests) = fake_no_sessions(
             status,
             json!({ "ok": false, "error": { "code": code, "message": "secret-ish detail" } })
+                .to_string(),
+        );
+        let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let message =
+            run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+                .unwrap_err();
+        assert!(message.ends_with(shown), "{message}");
+        assert!(!message.contains("secret-ish"), "{message}");
+    }
+}
+
+#[test]
+fn a_vm_unavailable_exec_says_which_rpc_failure_it_was_and_nothing_else() {
+    // cmux-platform MachineGuest.ts answers a thrown Durable Object call as 503 vm_unavailable
+    // with `reason` one of RpcReset.ts's three words; any other reason text is never printed.
+    for (reason, shown) in [
+        (json!("restarted"), "vm_unavailable (restarted)"),
+        (json!("overloaded"), "vm_unavailable (overloaded)"),
+        (json!("unreachable"), "vm_unavailable (unreachable)"),
+        (json!("secret-ish reason"), "503 Service Unavailable vm_unavailable"),
+        (json!(7), "503 Service Unavailable vm_unavailable"),
+    ] {
+        let (origin, _requests) = fake_no_sessions(
+            503,
+            json!({ "ok": false, "error": { "code": "vm_unavailable", "message": "secret-ish detail", "reason": reason } })
                 .to_string(),
         );
         let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();

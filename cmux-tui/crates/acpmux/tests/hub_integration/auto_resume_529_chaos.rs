@@ -275,13 +275,20 @@ async fn a_529_storm_leaves_no_session_dead_or_silent_and_bounds_the_time_lost()
     let upstream = Upstream::start().await;
     let env = BTreeMap::from([
         ("FAKE_UPSTREAM_URL".to_owned(), upstream.url.clone()),
+        // A gateway's route: only one gets the priority header (`subrouter_priority.rs`).
+        ("ANTHROPIC_BASE_URL".to_owned(), upstream.url.clone()),
         ("FAKE_UPSTREAM_RETRIES".to_owned(), IN_TURN_RETRIES.to_string()),
         ("FAKE_UPSTREAM_BACKOFF_MS".to_owned(), (2_000 / SCALE).to_string()),
         ("FAKE_PICKER".to_owned(), "1".to_owned()),
         ("FAKE_PICKER_MODES".to_owned(), "claude".to_owned()),
     ]);
     let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
-    hub.config.write().await.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+    {
+        let mut cfg = hub.config.write().await;
+        cfg.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+        // The storm measures the opt-in failover (off by default since cmux#57784).
+        cfg.capacity_fallback_after = Some(1);
+    }
 
     // The chats, each on Opus.
     // The interactive chats are the person's; the lanes are the coordinator's, made from inside
@@ -411,13 +418,20 @@ async fn a_dead_pool_gets_one_probe_at_a_time_and_every_lane_comes_back_after_it
     upstream.whole_pool();
     let env = BTreeMap::from([
         ("FAKE_UPSTREAM_URL".to_owned(), upstream.url.clone()),
+        // A gateway's route: only one gets the priority header (`subrouter_priority.rs`).
+        ("ANTHROPIC_BASE_URL".to_owned(), upstream.url.clone()),
         ("FAKE_UPSTREAM_RETRIES".to_owned(), IN_TURN_RETRIES.to_string()),
         ("FAKE_UPSTREAM_BACKOFF_MS".to_owned(), (2_000 / SCALE).to_string()),
         ("FAKE_PICKER".to_owned(), "1".to_owned()),
         ("FAKE_PICKER_MODES".to_owned(), "claude".to_owned()),
     ]);
     let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
-    hub.config.write().await.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+    {
+        let mut cfg = hub.config.write().await;
+        cfg.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+        // The storm measures the opt-in failover (off by default since cmux#57784).
+        cfg.capacity_fallback_after = Some(1);
+    }
 
     // A coordinator (no prompt of its own) starts the lanes, so they are background.
     let coord = new_session(&mut c, INTERACTIVE[0]).await;

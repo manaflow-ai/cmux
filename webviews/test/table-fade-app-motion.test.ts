@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("table-fade-app-motion.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -28,10 +28,15 @@ await requireBrowserLane("table-fade-app-motion.test.ts", async () => {
 <div class="cv-table-block cv-enter"><div class="cv-table-wrap" data-cmux-sideways data-more-right id="chat"><table><tbody><tr id="row"><td>a</td></tr></tbody></table></div></div>`;
 
   type Read = { viewer: string; chat: string; row: string };
-  const engines: [string, BrowserType][] = [
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const engines: [string, BrowserType][] = [];
+  for (const engine of [
     ["chromium", chromium],
     ["webkit", webkit],
-  ];
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("table-fade-app-motion.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
   const browsers = new Map<string, Browser>();
   beforeAll(async () => {
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));

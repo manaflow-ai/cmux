@@ -477,6 +477,8 @@ struct Driver {
     /// Dials waiting for a session ([`Driver::begin_connect`]).
     held_connects: Vec<HeldConnect>,
     scratch: Vec<u8>,
+    /// `CMUX_WG_STALL_TRACE` only.
+    trace: Option<crate::stall_trace::Trace>,
 }
 
 /// A dial made before the tunnel had a session. Its SYN is made once the
@@ -640,6 +642,7 @@ impl Driver {
             responded_at: None,
             held_connects: Vec::new(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
+            trace: crate::stall_trace::Trace::new("net"),
         })
     }
 
@@ -674,6 +677,7 @@ impl Driver {
                 retry,
                 hello,
                 self.stack.release_deadline(),
+                self.trace.as_ref().map(crate::stall_trace::Trace::next_dump),
             ]
             .into_iter()
             .flatten()
@@ -704,6 +708,12 @@ impl Driver {
                 () = stack_deadline => Event::StackDeadline,
             };
             self.wakeups.fetch_add(1, Ordering::Relaxed);
+            if let Some(trace) = &mut self.trace {
+                trace.pass();
+                if let Event::Datagram(count, _) = &event {
+                    trace.received(*count);
+                }
+            }
             self.tap_parity();
             self.catch_up_timers();
             self.run_watchdog();
@@ -740,7 +750,26 @@ impl Driver {
             self.service();
             self.run_probes();
             self.underlay.flush();
+            self.dump_trace();
         }
+    }
+
+    /// `CMUX_WG_STALL_TRACE` only: the state every [`crate::stall_trace::EVERY`].
+    fn dump_trace(&mut self) {
+        let Some(mut trace) = self.trace.take() else { return };
+        let now = Instant::now();
+        let (pacer, stack, backlogged) = (&self.pacer, &self.stack, self.underlay.backlogged());
+        let pace_in = self.pace_deadline.map(|at| at.saturating_duration_since(now).as_millis());
+        let handshake = self.tunn.time_since_last_handshake();
+        trace.due(
+            || format!(
+                "backlogged={backlogged} pace_in_ms={pace_in:?} has_room={} last_handshake={handshake:?} pacer {}",
+                pacer.has_room(),
+                pacer.trace_state(now)
+            ),
+            || stack.trace_state(),
+        );
+        self.trace = Some(trace);
     }
 
     /// Measurement only: reports the parity datagrams the repair layer
@@ -960,6 +989,9 @@ impl Driver {
             if let TunnResult::WriteToNetwork(encrypted) =
                 self.tunn.encapsulate(&packet, &mut self.scratch)
             {
+                if let Some(trace) = &mut self.trace {
+                    trace.sent(encrypted.len());
+                }
                 self.underlay.send_classified(encrypted, priority);
             }
             // Datagrams are unreliable: the watchdog neither waits on them
@@ -968,6 +1000,8 @@ impl Driver {
                 self.watchdog.on_data_sent(now, &packet);
             }
         }
+        let pacer = &self.pacer;
+        self.stack.set_pacer_held(|local, remote| pacer.held(local, remote));
         if fresh {
             self.schedule.on_activity(now);
         }

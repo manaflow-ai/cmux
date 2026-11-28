@@ -369,24 +369,6 @@ public struct ACPToolOutputCut: Hashable, Sendable, Codable {
     }
 }
 
-public struct ACPPlanEntry: Hashable, Sendable, Codable {
-    public enum Status: String, Hashable, Sendable, Codable {
-        case pending
-        case inProgress = "in_progress"
-        case completed
-    }
-
-    public var content: String
-    public var priority: String
-    public var status: Status
-
-    public init(content: String, priority: String = "medium", status: Status = .pending) {
-        self.content = content
-        self.priority = priority
-        self.status = status
-    }
-}
-
 public struct ACPPermissionOption: Hashable, Sendable, Codable, Identifiable {
     public enum Kind: String, Hashable, Sendable, Codable {
         case allowOnce = "allow_once"
@@ -579,6 +561,18 @@ extension ACPMode {
         let folded = String(id.lowercased().filter { !"-_ ".contains($0) })
         return fullAccessMarkers.contains { folded.contains($0) }
     }
+
+    /// The SF Symbol the composer's model pill shows for a mode other than the agent's first, in
+    /// place of its name ("Opus 5.5 Bypass permissions Medium" read as three equal words, issue
+    /// 51331): full access a shield, plan a checklist, edits accepted a pencil, any other mode a
+    /// generic slider. The name stays in the pill's accessibility value and the Mode menu.
+    public static func pillSymbol(_ id: String) -> String {
+        if isFullAccess(id) { return "exclamationmark.shield" }
+        let folded = String(id.lowercased().filter { !"-_ ".contains($0) })
+        if folded.contains("plan") { return "list.bullet.clipboard" }
+        if folded.contains("acceptedits") || folded.contains("autoedit") { return "pencil" }
+        return "slider.horizontal.3"
+    }
 }
 
 /// Agent `session/update` notifications (discriminator `sessionUpdate`).
@@ -587,7 +581,6 @@ public enum ACPSessionUpdate: Hashable, Sendable {
     case agentThoughtChunk(text: String)
     case toolCall(ACPToolCall)
     case toolCallUpdate(ACPToolCallUpdate)
-    case plan([ACPPlanEntry])
     case availableCommands([ACPAvailableCommand])
     case currentMode(String)
     case configOptions([ACPConfigOption])
@@ -598,7 +591,7 @@ public enum ACPSessionUpdate: Hashable, Sendable {
 
 extension ACPSessionUpdate: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case sessionUpdate, content, messageId, entries, availableCommands, currentModeId, configOptions, used, size, toolCallId, title
+        case sessionUpdate, content, messageId, availableCommands, currentModeId, configOptions, used, size, toolCallId, title
     }
 
     public init(from decoder: any Decoder) throws {
@@ -621,8 +614,6 @@ extension ACPSessionUpdate: Decodable {
             self = .toolCall(try ACPToolCall(from: decoder))
         case "tool_call_update":
             self = .toolCallUpdate(try ACPToolCallUpdate(from: decoder))
-        case "plan":
-            self = .plan(try container.decode([ACPPlanEntry].self, forKey: .entries))
         case "available_commands_update":
             let commands = try container.decode([ACPAvailableCommand].self, forKey: .availableCommands)
             self = .availableCommands(commands.map { var c = $0; if c.name.hasPrefix("/") { c.name.removeFirst() }; return c })

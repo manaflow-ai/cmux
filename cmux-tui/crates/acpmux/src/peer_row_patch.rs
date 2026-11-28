@@ -17,7 +17,8 @@
 //! pair, idle or under duress (transport pair matrix, long cell, 2026-11-24).
 //!
 //! Bounded: at most [`MAX_ROWS`] chats' rows and [`MAX_BYTES`] of them (each counted as the
-//! frame that made it, and each patch's frame added), past which the oldest are let go.
+//! frame that made it, and each patch's frame added), past which the ones heard longest ago are
+//! let go, as the peer lets go the ones it sent longest ago.
 
 use crate::rpc::method;
 use serde_json::Value;
@@ -34,7 +35,7 @@ pub(crate) const MAX_BYTES: usize = 32 << 20;
 
 #[derive(Debug)]
 struct Held {
-    /// When it was held whole, in [`HeldRows::order`].
+    /// When it was last held whole or patched, in [`HeldRows::order`].
     stamp: u64,
     row_seq: u64,
     row: Value,
@@ -82,11 +83,15 @@ impl HeldRows {
         let base = p.get("baseRowSeq").and_then(Value::as_u64);
         let row_seq = p.get("rowSeq").and_then(Value::as_u64);
         let patch = p.as_object_mut().and_then(|o| o.remove("patch"));
+        let stamp = self.stamps + 1;
         let applied = match (self.rows.get_mut(&id), base, row_seq, patch) {
             (Some(held), Some(base), Some(row_seq), Some(patch)) if held.row_seq == base => {
                 crate::server::session_patch::apply(&mut held.row, &patch).then(|| {
                     held.row_seq = row_seq;
                     held.bytes += bytes;
+                    // Patched is used: the peer lets the row it sent longest ago go
+                    // (`session_patch.rs` `SentRows`), so this side does too.
+                    held.stamp = stamp;
                     held.row.clone()
                 })
             }
@@ -97,6 +102,8 @@ impl HeldRows {
             // Asked once; the whole row it brings is newer than every patch until then.
             return Read::Drop(self.resyncing.insert(id.clone()).then_some(id));
         };
+        self.stamps = stamp;
+        self.order.push_back((id.clone(), stamp));
         self.bytes += bytes;
         if let Some(o) = p.as_object_mut() {
             o.remove("baseRowSeq");

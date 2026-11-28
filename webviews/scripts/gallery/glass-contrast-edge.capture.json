@@ -1,0 +1,75 @@
+{
+  "envs": [
+    ["light", "photo-light"],
+    ["dark", "photo-light"],
+    ["light", "photo-dark"],
+    ["dark", "photo-dark"],
+    ["light", "photo-busy"],
+    ["dark", "photo-busy"]
+  ],
+  "shots": [
+    {
+      "name": "edge-variants",
+      "entry": "ui.glass-contrast-edge",
+      "variant": "ring-lift",
+      "width": 760,
+      "height": 240,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "before": ":root .ui-glass.ui-glass{--glass-contrast-edge:0 0 transparent}",
+        "ring": ":root .ui-glass.ui-glass{--glass-contrast-edge:0 0 0 var(--cmux-hairline,0.5px) var(--glass-contrast-ring)}",
+        "lift": ":root .ui-glass.ui-glass{--glass-contrast-edge:0 4px 14px -4px var(--glass-contrast-lift)}",
+        "floor": ":root .ui-glass.ui-glass{--glass-contrast-edge:inset 0 0 0 999px light-dark(color-mix(in srgb,var(--cmux-text,CanvasText) 5%,transparent),transparent)}",
+        "ring-lift-shipped": ""
+      }
+    },
+    {
+      "name": "hover-one",
+      "entry": "ui.hover-surface",
+      "variant": "one",
+      "width": 960,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "before": ":root .ui-glass.ui-glass{--glass-contrast-edge:0 0 transparent}",
+        "after": ""
+      }
+    },
+    {
+      "name": "hover-now",
+      "entry": "ui.hover-surface",
+      "variant": "now",
+      "width": 960,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "before": ":root .ui-glass.ui-glass{--glass-contrast-edge:0 0 transparent}",
+        "after": ""
+      }
+    },
+    {
+      "name": "glass-system",
+      "entry": "ui.glass-system",
+      "variant": "glass",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "before": ":root .ui-glass.ui-glass{--glass-contrast-edge:0 0 transparent}",
+        "after": ""
+      }
+    },
+    {
+      "name": "menu-material",
+      "entry": "ui.menu-material",
+      "variant": "one",
+      "width": 800,
+      "height": 340,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "before": ":root .ui-glass.ui-glass{--glass-contrast-edge:0 0 transparent}",
+        "after": ""
+      }
+    }
+  ]
+}

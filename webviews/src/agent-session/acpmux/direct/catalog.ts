@@ -44,6 +44,8 @@ export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["mod
     name: typeof model?.name === "string" ? model.name : undefined,
   };
   if (typeof model?.unavailable === "string") entry.unavailable = model.unavailable;
+  if (entry.unavailable && typeof model?.codexUpdateVersion === "string")
+    entry.codexUpdateVersion = model.codexUpdateVersion;
   for (const key of ["curated", "declared"] as const) if (typeof model?.[key] === "boolean") entry[key] = model[key];
   for (const key of ["shortName", "family", "defaultEffort"] as const)
     if (typeof model?.[key] === "string" && model[key]) entry[key] = model[key];
@@ -68,10 +70,19 @@ function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown):
 /// known fields.
 function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"] {
   if (!value || typeof value !== "object") return undefined;
-  const { model, effort, modelSource, effortSource } = value as Record<string, unknown>;
+  const { model, effort, modelSource, effortSource, newTab } = value as Record<string, unknown>;
   const source = (raw: unknown) =>
     raw === "saved" || raw === "profile" || raw === "catalog" ? (raw as StartSource) : undefined;
+  const own = newTab && typeof newTab === "object" ? (newTab as Record<string, unknown>) : undefined;
   const start = {
+    ...(own
+      ? {
+          newTab: {
+            ...(typeof own.model === "string" && own.model ? { model: own.model } : {}),
+            ...(source(own.modelSource) ? { modelSource: source(own.modelSource) } : {}),
+          },
+        }
+      : {}),
     ...(typeof model === "string" && model ? { model } : {}),
     ...(typeof effort === "string" && effort ? { effort } : {}),
     ...(source(modelSource) ? { modelSource: source(modelSource) } : {}),
@@ -127,6 +138,7 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
     ...(reportsNoModes(harness.reported) ? { modeless: true as const } : {}),
     // Its chats (or its startup probe) report permission modes: a new chat holds its Mode chip.
     ...(reportsModes(harness.reported) ? { reportsModes: true as const } : {}),
+    ...(reportsModes(harness.reported) ? reportedModes(harness.reported) : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
       : {}),
@@ -134,5 +146,28 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
     ...(!harness.unavailable && harnessRefusal(harness) ? { probeFailed: true } : {}),
+  };
+}
+
+/// A harness row's reported modes as a new chat's Mode menu rows, and the mode the harness starts a
+/// chat in when acpmux sets none (`reported.startModeId`) when it is one of them.
+function reportedModes(reported: any): Pick<AcpmuxSnapshot["catalog"][number], "reportedModes" | "ownStartMode"> {
+  const rows = (Array.isArray(reported?.modes) ? reported.modes : []).flatMap((mode: any) =>
+    typeof mode?.id === "string" && mode.id
+      ? [
+          {
+            id: mode.id as string,
+            ...(typeof mode.name === "string" && mode.name ? { name: mode.name as string } : {}),
+            ...(typeof mode.description === "string" && mode.description
+              ? { description: mode.description as string }
+              : {}),
+          },
+        ]
+      : [],
+  );
+  const own = typeof reported?.startModeId === "string" ? reported.startModeId : undefined;
+  return {
+    ...(rows.length > 0 ? { reportedModes: rows } : {}),
+    ...(own && rows.some((row: { id: string }) => row.id === own) ? { ownStartMode: own } : {}),
   };
 }

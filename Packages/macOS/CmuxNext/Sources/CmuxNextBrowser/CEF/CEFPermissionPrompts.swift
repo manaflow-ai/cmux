@@ -1,11 +1,13 @@
 import Foundation
 
 /// Chromium permission requests cmux asks about in the prompt bar
-/// (location, camera, microphone, notifications; PERMISSION_PROMPT,
+/// (location, camera, microphone, clipboard, notifications; PERMISSION_PROMPT,
 /// `CEFShim/src/shim_permissions.mm`), decided
 /// with the shared store like WebKit's (`SitePermissionRequest`). Chromium
 /// remembers Allow and Block itself as well.
 struct CEFPermissionPrompts {
+    /// `CEF_PERMISSION_TYPE_CLIPBOARD`.
+    static let clipboard: Int64 = 1 << 4
     /// `CEF_PERMISSION_TYPE_GEOLOCATION`.
     static let geolocation: Int64 = 1 << 8
     /// `CEF_PERMISSION_TYPE_CAMERA_STREAM`, `_CAMERA_PAN_TILT_ZOOM`, `_MIC_STREAM`.
@@ -24,6 +26,7 @@ struct CEFPermissionPrompts {
     /// Chromium groups a page's camera and microphone into one request,
     /// and pan-tilt-zoom comes with the camera.
     static func kind(of permissions: Int64) -> BrowserPermissionKind? {
+        if permissions == clipboard { return .clipboard }
         if permissions == geolocation { return .location }
         if permissions == displayCapture { return .screenShare }
         if permissions == notifications { return .notifications }
@@ -90,7 +93,7 @@ private extension BrowserPromptKind {
     var isChromiumPermission: Bool {
         switch self {
         case .permission(.location), .permission(.camera), .permission(.microphone), .permission(.cameraAndMicrophone), .permission(.screenShare),
-             .permission(.notifications): true
+             .permission(.clipboard), .permission(.notifications): true
         default: false
         }
     }

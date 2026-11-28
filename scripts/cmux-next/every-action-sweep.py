@@ -2033,9 +2033,9 @@ class Sweep:
             bad.append(f"default engine {cef.get('default_engine')}")
         if cef.get("ready_after_launch_s") is None:
             bad.append(f"Chromium not ready (state {cef.get('state')})")
-        web_dev = os.path.exists(os.path.expanduser("~/.config/cmux/web-dev.json"))
-        if web_dev:
-            bad.append("~/.config/cmux/web-dev.json")
+        web_dev_path = "~/.config/cmux-next/web-dev.json" if sys.platform == "darwin" else "~/.config/cmux/web-dev.json"
+        if os.path.exists(os.path.expanduser(web_dev_path)):
+            bad.append(web_dev_path)
         shown = None
         if self.show("chromium"):
             # The picked tab itself, among the shown CEF tabs (debug.cef devtools: one entry per shown CEF tab of every

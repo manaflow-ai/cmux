@@ -360,6 +360,7 @@ async fn with_the_key_off_the_start_hook_does_nothing() {
     assert_eq!(objects(parent.path()), before_objects, "not even a snapshot is written");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn without_cloud_credentials_the_start_hook_falls_back_and_changes_nothing() {
     let parent = checkout();
@@ -377,6 +378,7 @@ async fn without_cloud_credentials_the_start_hook_falls_back_and_changes_nothing
     assert_eq!(files(parent.path()), before);
 }
 
+#[cfg(unix)]
 #[test]
 fn the_cloud_backend_reads_its_api_and_credential_and_names_what_is_missing() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {
@@ -393,4 +395,23 @@ fn the_cloud_backend_reads_its_api_and_credential_and_names_what_is_missing() {
     ]))
     .unwrap();
     assert_eq!(ok.request.team.as_deref(), Some("team"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_refused_fork_names_its_route_and_machine() {
+    // A port nothing listens on: the fork fails before any answer, and the refusal says where it went.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let api = format!("http://127.0.0.1:{port}");
+    let machines = CloudMachines::from_env(|k: &str| match k {
+        API_ENV => Some(api.clone()),
+        TOKEN_ENV => Some("t".into()),
+        _ => None,
+    })
+    .unwrap();
+    let err = machines.fork_sized("m1", "key", None).await.err().unwrap();
+    assert!(err.starts_with("POST "), "{err}");
+    assert!(err.contains("/v1/machines/m1/fork (machine m1): "), "{err}");
 }

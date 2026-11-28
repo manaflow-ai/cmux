@@ -44,7 +44,7 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     .github/*|*/Cargo.lock|*/Cargo.toml|*/package.json|*.lock|*/package-lock.json|*/rust-toolchain.toml|*/node_modules/*) return 1 ;;
     Packages/macOS/CmuxNext/ci-target-graph.json) return 0 ;;
     webviews/*) return 0 ;; # page strings and vp fmt
-    cmux-tui/bindings/*) return 0 ;; # SDK wire layers
+    cmux-tui/bindings/*|cmux-tui/spec/api-compat.surface.json) return 0 ;; # SDK wire layers and checked daemon baseline
     cmux-tui/crates/cmux-app-host/generated/*) return 0 ;; # the typed cmux global, scopes and ops
     web/data/cmux-shortcuts.generated.json) return 0 ;;
     web/data/next-docs/*.generated.json) return 0 ;; # docs reference pages (export-next-docs.ts)
@@ -56,6 +56,8 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
     scripts/ghosttykit-checksums.txt) return 0 ;;
     cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift) return 0 ;; # uniffi Swift bindings (ios-ffi-bindings.sh)
+    cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/actions/*|cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/removal/*) return 0 ;; # settled re-pin markers (base-autofix.sh 1a)
+    scripts/ci/job-inputs-always.json) return 0 ;; # undeclared jobs recorded as runs-always (base-autofix.sh 6, job_inputs.py fix)
     cmux-tui/*.rs|Native/OptChat/*.rs) return 0 ;; # cargo fmt
   esac
   return 1

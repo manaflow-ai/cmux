@@ -2,6 +2,10 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "tests/test_check_bridge_on_main.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_check_concurrency_caller_isolated.py"
 lane = "linux-guard"
 
@@ -36,6 +40,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_check_swift_acpmux_protocol.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_team_hosts.py"
 lane = "linux-guard"
 
 [[test]]

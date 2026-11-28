@@ -73,6 +73,7 @@ final class PendingWorkspaceRows {
     /// a row forgotten then left a gap.
     /// `held`: the store holds the workspace now (a taken-over row whose workspace closed before the document placed
     /// it has nothing left to list, so it goes too).
+    var watchedIDs: Set<String> { Set(rows.map(\.id)).union(names.keys) } // what `forget` asks `listed` about
     func forget(in window: String, listed: Set<String>, held: (String) -> Bool, elsewhere: (String) -> Bool) {
         if !names.isEmpty { names = names.filter { !listed.contains($0.key) } } // listed: its name counts in the store now
         func done(_ row: Row) -> Bool {
