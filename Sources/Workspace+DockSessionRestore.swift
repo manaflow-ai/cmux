@@ -32,6 +32,7 @@ extension Workspace {
             return nil
         }
         guard let detached = detachSurface(panelId: panelId) else {
+            SurfaceResumeRunPromptBatch.shared.releaseAgentRestore(panelID: panelId)
             terminalStartupRestoreCoordinator.cancelPendingRestore(panelID: panelId)
             _ = closePanel(panelId, force: true)
             return nil
