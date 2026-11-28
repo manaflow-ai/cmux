@@ -52,6 +52,10 @@ on:
         description: "The commit the red states are judged against (the post-merge batch's last judged batch head, or a bisect probe's known-good commit): a state red there too is a standing red, listed by name and not failed. Empty: no base, every red state fails."
         type: string
         default: ""
+      states:
+        description: "A bisect probe's states (entry#variant, comma-joined): the states red on its origin batch run, the only ones it renders. Empty: the whole render."
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       screenshots:
@@ -65,7 +69,9 @@ permissions:
 concurrency:
   # The nightly dispatch and a post-merge batch run (or bisect probe) of the same commit must not cancel
   # each other: under the batch caller github.sha is the caller's tip, so the batch keys on inputs.sha.
-  group: gallery-health-${{ github.event.pull_request.number || format('{0}-{1}', inputs.sha && format('batch-{0}', inputs.only) || github.event_name, inputs.sha || github.sha) }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: gallery-health-${{ github.event.pull_request.number || format('{0}-{1}', inputs.sha && format('batch-{0}', inputs.only) || github.event_name, inputs.sha || github.sha) }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -277,8 +283,23 @@ jobs:
         env:
           EVENT: ${{ inputs.sha != '' && 'workflow_dispatch' || github.event_name }}
           BEFORE: ${{ github.event.before }}
+          STATES: ${{ inputs.states }}
         run: |
           set -euo pipefail
+          # A bisect probe renders only the states red on its origin batch run (post_merge_batch.py red_states):
+          # its verdict is whether those are red at this commit, and the whole gallery over ~22 shards gave the
+          # same answer for ~16k runner-min a day (11-27). The entries are the states' own; the size and render
+          # steps keep only the states themselves (manifest --entries matches by prefix).
+          if [ -n "${STATES:-}" ]; then
+            if ! [[ "$STATES" =~ ^[^,#[:space:]]+#[^,[:space:]]*(,[^,#[:space:]]+#[^,[:space:]]*)*$ ]]; then
+              echo "::error::inputs.states is not a list of entry#variant states: $STATES"
+              exit 1
+            fi
+            echo 'all=false' >> "$GITHUB_OUTPUT"
+            echo "ids=$(tr ',' '\n' <<<"$STATES" | sed 's/#[^#]*$//' | sort -u | paste -sd, -)" >> "$GITHUB_OUTPUT"
+            echo "a bisect probe: $(tr ',' '\n' <<<"$STATES" | grep -c .) red states of its origin run"
+            exit 0
+          fi
           # Each part in its own log group, so its time shows in the log and in the controller's
           # /v1/github/job-groups: the step takes ~45 s a shard while bun install (~1.5 s) and touched.ts
           # alone (~1.5 s on Linux) explain little of it (2026-11-11). Find the cost before cutting it.
@@ -327,6 +348,7 @@ jobs:
         env:
           ALL: ${{ steps.entries.outputs.all }}
           IDS: ${{ steps.entries.outputs.ids }}
+          STATES: ${{ inputs.states }}
           # Held in step with "Hold each shard within its time budget" (tests/test_ci_gallery_health_merge_ref.py).
           MAX_CASES_PER_SHARD: "800"
           MAX_SHARDS: "32"
@@ -350,6 +372,13 @@ jobs:
             bun scripts/gallery/manifest.ts --frame component --entries "$IDS" --out "$RUNNER_TEMP/manifest.json"
           else
             echo '[]' > "$RUNNER_TEMP/manifest.json"
+          fi
+          if [ -n "${STATES:-}" ]; then
+            # Every case (theme, width) of each named state and nothing else, as the render step keeps.
+            jq --arg states "$STATES" '($states | split(",")) as $red
+              | map(select(((.params.entry // "") + "#" + (.params.variant // "")) as $state | any($red[]; . == $state)))' \
+              "$RUNNER_TEMP/manifest.json" > "$RUNNER_TEMP/states-manifest.json"
+            mv "$RUNNER_TEMP/states-manifest.json" "$RUNNER_TEMP/manifest.json"
           fi
           cases=$(jq length "$RUNNER_TEMP/manifest.json")
           shards=$(( (cases + MAX_CASES_PER_SHARD - 1) / MAX_CASES_PER_SHARD ))
@@ -576,6 +605,7 @@ jobs:
         env:
           ALL: ${{ needs.plan.outputs.all }}
           IDS: ${{ needs.plan.outputs.ids }}
+          STATES: ${{ inputs.states }}
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ needs.plan.outputs.split || strategy.job-total }}
           CMUX_GALLERY_IN_VM: "1"
@@ -587,6 +617,13 @@ jobs:
             subset=""
           else
             bun scripts/gallery/manifest.ts --frame component --entries "$IDS" --out "$RUNNER_TEMP/manifest.json"
+            if [ -n "${STATES:-}" ]; then
+              # A bisect probe: only the named states, as the plan job sized the matrix for.
+              jq --arg states "$STATES" '($states | split(",")) as $red
+                | map(select(((.params.entry // "") + "#" + (.params.variant // "")) as $state | any($red[]; . == $state)))' \
+                "$RUNNER_TEMP/manifest.json" > "$RUNNER_TEMP/states-manifest.json"
+              mv "$RUNNER_TEMP/states-manifest.json" "$RUNNER_TEMP/manifest.json"
+            fi
             # Build only the entries this render reads (galleryEntrySubset in webviews/dev-server/galleryHost.ts),
             # as the base replay below does: each of 16 shards built all ~3,200 gallery modules (~55-85 s) to
             # render a handful of touched entries. The ids come from the manifest, not $IDS: --entries matches
@@ -722,6 +759,40 @@ jobs:
               sed 's/^/- /' <<<"$standing"; } >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$rc"
+
+      # A post-merge call's red states, for the batch judge: a bisect probe of this red renders only these
+      # (post_merge_batch.py red_states). WHOLE when the shard gave no list (a crash, a cut-short or missing
+      # health.json): the probe then renders everything, as before. A shard with no file reads as WHOLE too.
+      - name: Name the red states for a bisect probe
+        if: ${{ !cancelled() && inputs.sha != '' && steps.render.outcome == 'failure' }}
+        continue-on-error: true
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reds"
+          out="$RUNNER_TEMP/reds/reds-$SHARD.txt"
+          # The judge step's copy: it put the tree back to the base, test_reds.py included.
+          classify="$RUNNER_TEMP/test_reds.py"
+          [ -f "$classify" ] || classify=scripts/ci/test_reds.py
+          rc=0
+          states=$(python3 "$classify" gallery --head "$RUNNER_TEMP/health/health.json" --states) || rc=$?
+          if [ "$rc" = 0 ] && [ -n "$states" ]; then
+            tr ',' '\n' <<<"$states" > "$out"
+          else
+            echo WHOLE > "$out"
+          fi
+          echo "$(grep -c . "$out") line(s) in reds-$SHARD.txt"
+
+      - name: Upload the red states for a bisect probe
+        if: ${{ !cancelled() && inputs.sha != '' && steps.render.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gallery-reds-${{ matrix.shard }}
+          path: ${{ runner.temp }}/reds
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Fail past the case budget
         if: ${{ !cancelled() && steps.cap.outcome == 'failure' }}
