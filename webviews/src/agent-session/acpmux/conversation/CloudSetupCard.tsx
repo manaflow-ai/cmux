@@ -3,8 +3,9 @@ import { useT } from "../i18n";
 import { cloudSetupAction, cloudSetupName, type CloudSetupAction, type CloudSetupNeed } from "../cloudSetup";
 import type { ConnectProgress } from "../claudeConnect";
 import { ConnectCard, type ConnectCardLook } from "../ConnectCard";
-import { CloudSetupSteps, type CloudSetupStepsLook } from "./CloudSetupSteps";
+import { CloudSetupSteps } from "./CloudSetupSteps";
 import { WaitSpinner } from "./WaitSpinner";
+import type { CloudSetupStepsLook } from "./cloudSetupStep";
 
 export function CloudSetupCard({
   need,
@@ -41,7 +42,8 @@ export function CloudSetupCard({
         ? "claude"
         : "codex"
       : undefined;
-  const shown = progress ?? { phase: waiting ? "signing_in" : null, error: null };
+  // The last set up's sign-in failed (cmux#63349): the card says why and offers Try again.
+  const shown = progress ?? { phase: waiting ? "signing_in" : null, error: waiting ? null : (need.error ?? null) };
   const pending = waiting || shown.phase !== null;
   return (
     <section className="acpmux-cloud-setup" aria-labelledby={titleId} data-waiting={pending || undefined}>

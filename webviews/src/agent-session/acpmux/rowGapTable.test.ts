@@ -91,11 +91,10 @@ bgLine          32      16       8      16       0       0       0       0      
 // A reply over "Worked for" or another agent's line (not a steer) is the turn before's last reply over the turn that
 // line opened: the block gap, as under a footer (transcriptGrid.ts MARK_TOPS_TURN; Leo, 2026-11-21: "it is noticeably
 // bad when you start a new working for whatever and there is no space before").
-// Two of the person's own messages stick together, the footer gap apart (#61546, ownMessagesJoin; Leo, 2026-11-27:
-// "potentially we can just stick the steered together"). A background task's end and a background turn's line sit
-// flush under the footer (#61248; Lucas, 2026-11-27: "less top padding and make it closer to the actions"). Another
-// agent's line opens nothing for the row under it (#44818, model.ts opensBackgroundTurn): a background reply under it
-// stands the run gap, as under any line, and a background run sits flush.
+// Two of the person's own messages stand the footer gap apart, one group (#61546, transcriptGrid ownMessagesJoin); a
+// background task's or turn's line under a reply's footer sits flush under it (#61248, Lucas, 2026-11-27: "less top
+// padding and make it closer to the actions"); a background row under another agent's line is the turn that line
+// opened (model.ts opensBackgroundTurn, #44818), so its reply stands the run gap under the line, not the turn gap.
 test("the shipped gap table: every adjacent kind pair", () => {
   expect(draw(under("shipped", gapTable))).toBe(SHIPPED);
 });
@@ -104,7 +103,7 @@ test("the replaced look had a flush header and a blank band under every line", (
   const before = under("before", gapTable);
   for (const line of ["run", "peer", "bgTask", "group", "bgLine"]) {
     expect(before[line]!.worked).toBe(0);
-    // A received line opens no turn for the row under it (#44818), in any look.
+    // Under another agent's line the background run is the turn that line opened: no band (#44818).
     expect(before[line]!.bgRun).toBe(line === "peer" ? 0 : 32);
   }
   const shipped = under("shipped", gapTable);

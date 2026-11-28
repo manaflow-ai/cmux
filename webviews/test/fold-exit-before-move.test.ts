@@ -237,14 +237,20 @@ test("a reader opening Worked for plays no lead: the rows move at once", () => {
   }
 });
 
-test("the since line moves no row: it fades and narrows on the compositor, never animating size", () => {
+// Since #56110 the line comes and goes in place by opacity alone (Leo, 2026-11-25: "the animation it
+// does when it falls from the top of the screen down is wack"): no scale on the line or its rule.
+// #61543 eases New's room at the line's end (padding-inline-end): an inline width, which moves no row.
+test("the since line moves no row: it fades in place on the compositor, never animating its height", () => {
   const css = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/conversation/unread.css"), "utf8");
   const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference)"));
   expect(motion).toMatch(
-    /\.cv-since__line,\s*\.cv-since__rule \{\s*transition:\s*opacity var\(--agent-motion-calm\) var\(--agent-ease-out\),\s*scale var\(--agent-motion-calm\) var\(--agent-ease-out\);/,
+    /\.cv-since__line \{\s*transition:\s*opacity var\(--agent-motion-calm\) var\(--agent-ease-out\);/,
   );
   const since = css.slice(css.indexOf(".cv-since {"), css.indexOf(".acpmux-over-top"));
-  expect(since).not.toMatch(/transition:[^;]*\b(?:height|margin|padding|block-size)\b/);
+  const sized = [...since.matchAll(/transition:([^;]*)/g)]
+    .flatMap((match) => match[1].match(/\b(?:height|margin|padding|block-size)[\w-]*/g) ?? [])
+    .filter((property) => !property.includes("inline"));
+  expect(sized).toEqual([]);
   expect(since).toMatch(/\.cv-since__menu \{\s*position: absolute;/);
 });
 test("the gallery's arms: none plays no lead, quick a whole quick step, shipped the 40 ms lead", () => {

@@ -311,7 +311,8 @@ test("the machine name at rest draws only behind its switch, only for the fact a
 // error and Resume; the queue's own note stays out once the dot says it, and stays for an acpmux
 // that sends no such item.
 test("a paused queue is the dot's to say, naming the error, and the queue note defers to it", async () => {
-  const { ComposerStatusFoot, dotSaysQueuePaused } = await import("./ComposerStatusDot");
+  const { ComposerStatusFoot } = await import("./ComposerStatusDot");
+  const { dotSaysQueuePaused } = await import("./composerStatusDotModel");
   const paused: StatusItem = {
     kind: "queuePaused",
     level: "attention",
