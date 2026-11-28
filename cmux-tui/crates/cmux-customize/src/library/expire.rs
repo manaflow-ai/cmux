@@ -299,6 +299,22 @@ impl Customize {
         Ok(overlay.path)
     }
 
+    /// Keeps entry `name`, which refresh turned off for `why` (a folded
+    /// layer's "now built in"), in the week's history beside what expired:
+    /// `library status` and `cmux version` say it the same way.
+    pub fn record_off(&self, name: &str, why: &str, now_ms: u64) -> Result<(), crate::Error> {
+        let mut file = self.read_expired();
+        file.expired.retain(|old| old.name != name);
+        file.expired.push(Expired {
+            name: name.to_owned(),
+            why: why.to_owned(),
+            at_ms: now_ms,
+            back: format!("cmux customize library on {name}"),
+        });
+        file.expired.retain(|old| now_ms.saturating_sub(old.at_ms) < SHOWN_MS);
+        self.write_expired(&file)
+    }
+
     fn read_expired(&self) -> ExpiredFile {
         std::fs::read(self.roots().state_dir.join(EXPIRED))
             .ok()

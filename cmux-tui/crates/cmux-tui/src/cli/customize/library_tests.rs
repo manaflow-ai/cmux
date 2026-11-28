@@ -193,6 +193,21 @@ fn a_link_carries_the_collection_and_a_damaged_one_is_refused() {
 }
 
 #[test]
+fn a_folded_layer_reads_as_folded_not_expired() {
+    let shown = |why: &str| Expired {
+        name: "pr-7".into(),
+        why: why.into(),
+        at_ms: 1,
+        back: "cmux customize library on pr-7".into(),
+    };
+    assert_eq!(
+        expired_lines(&[shown(FOLDED)], None),
+        "  folded: pr-7 (now built in); back: cmux customize library on pr-7\n"
+    );
+    assert!(expired_lines(&[shown("PR merged")], None).starts_with("  expired: pr-7"));
+}
+
+#[test]
 fn refresh_if_app_changed_parses() {
     assert_eq!(parse(&words("refresh")).unwrap(), Request::Refresh { if_app_changed: false });
     assert_eq!(

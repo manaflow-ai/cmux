@@ -17,6 +17,7 @@ cmux-config.workspace = true
 cmux-theme-tokens.workspace = true
 fs4.workspace = true
 cmux-file-lock.workspace = true
+cmux-process.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

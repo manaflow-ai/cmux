@@ -2024,6 +2024,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-config",
  "cmux-file-lock",
+ "cmux-process",
  "cmux-theme-tokens",
  "fs4",
  "serde",

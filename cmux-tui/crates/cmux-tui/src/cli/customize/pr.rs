@@ -16,9 +16,11 @@
 //! the bundles into a layer folder, and puts the code on top of the library,
 //! on. `library off NAME` puts back what was under it. `library refresh`
 //! follows each entry: a newer head (a PR's push, a branch's tip) is fetched,
-//! code that is in this app's build turns the entry off, a web ABI the app no
-//! longer has turns it off and says so. A fork's newer layer is only named:
-//! fork code changes in someone's cmux when they run `use` again.
+//! code that is in this app's build, by its commits or by content (a squash
+//! merge, a re-land, a cherry-pick: `fold`), turns the entry off as "now
+//! built in", a web ABI the app no longer has turns it off and says so. A
+//! fork's newer layer is only named: fork code changes in someone's cmux when
+//! they run `use` again.
 //!
 //! What the code changes that a running app cannot take (Swift, resources,
 //! Rust the app links) is listed on the entry as "needs a build".
@@ -27,6 +29,7 @@ use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
+use cmux_customize::library::fold::{self, FOLDED, How};
 use cmux_customize::library::{CodeKind, CodeLayer, code};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
@@ -847,6 +850,51 @@ fn contains(http: &Http, repo: &str, merge: &str, commit: &str) -> Option<bool> 
     Some(matches!(value.get("status").and_then(Value::as_str), Some("ahead" | "identical")))
 }
 
+/// Whether code layer `code` (at `head`) is in the app at `commit` by
+/// content ([`fold`]): asked of a checkout that has both commits when there
+/// is one (`CMUX_CUSTOMIZE_REPO`, or a folder entry's), else of GitHub with
+/// two compares. Each answer is kept by head and app commit, so a refresh
+/// asks once per update. `None`: not folded, or nobody could say.
+fn folded_by_content(
+    customize: &Customize,
+    http: &Http,
+    listing: &cmux_customize::library::Listing,
+    code: &CodeLayer,
+    head: &str,
+    commit: &str,
+) -> Option<How> {
+    if !is_sha(head) || !is_sha(commit) || head == commit {
+        return None;
+    }
+    if let Some(known) = customize.folded_cached(head, commit) {
+        return known;
+    }
+    let checkouts = std::env::var_os("CMUX_CUSTOMIZE_REPO")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .into_iter()
+        .chain(listing.entries.iter().filter_map(|entry| {
+            let dir = entry.code.as_ref().filter(|code| code.kind == CodeKind::Dir)?;
+            Some(PathBuf::from(&dir.source))
+        }));
+    for checkout in checkouts {
+        if let Some(how) = fold::local_folded(&checkout, head, commit) {
+            customize.remember_folded(head, commit, Some(how));
+            return Some(how);
+        }
+    }
+    let compare = |from: &str, to: &str| {
+        http.get_json(&format!("https://api.github.com/repos/{}/compare/{from}...{to}", code.repo))
+            .ok()
+            .flatten()
+    };
+    let layer = compare(commit, head)?;
+    let app = compare(head, commit)?;
+    let how = fold::compare_folded(&layer, &app);
+    customize.remember_folded(head, commit, how);
+    how
+}
+
 /// What refresh says instead of installing a fork's newer layer. Someone who
 /// ran `use OWNER/REPO@REF` agreed to the code they got then; the fork's owner
 /// can publish anything later (its layer.json and archive are the fork's own),
@@ -1028,13 +1076,27 @@ pub(super) fn refresh_with(
             (Some(merge), Some(commit)) => contains(&http, &code.repo, merge, commit),
             _ => None,
         };
-        let (note, on) = if code.kind == CodeKind::Pr && merge.is_some() {
-            match in_build {
-                Some(true) => ("merged: in your build".to_owned(), Some(false)),
-                _ => ("merged: not in your build yet".to_owned(), None),
+        // Folded: the app has the layer's change, by its commits (merge
+        // containment) or by content (a squash merge, a re-land, a
+        // cherry-pick). Judged before the pointer: a folded layer needs none.
+        let folded = in_build == Some(true)
+            || app.commit.as_deref().is_some_and(|commit| {
+                let head = match &published {
+                    Published::Ref { kind: CodeKind::Branch, .. } => merge.as_deref(),
+                    _ => None,
+                }
+                .unwrap_or(&code.head);
+                folded_by_content(customize, &http, &listing, &code, head, commit).is_some()
+            });
+        let (note, on) = if folded {
+            if entry.on {
+                // The week's history, beside what expired; never a reason
+                // to stop the refresh.
+                let _ = customize.record_off(&name, FOLDED, now_ms);
             }
-        } else if code.kind != CodeKind::Pr && in_build == Some(true) {
-            ("in your build".to_owned(), Some(false))
+            (FOLDED.to_owned(), Some(false))
+        } else if code.kind == CodeKind::Pr && merge.is_some() {
+            ("merged: not in your build yet".to_owned(), None)
         } else if let Some(pointer) = pointer(&http, &published, app.commit.as_deref())? {
             let fork = Some(&published).filter(|p| matches!(p, Published::Fork { .. }));
             let layer = layer_from(&pointer, &app, fork)?;

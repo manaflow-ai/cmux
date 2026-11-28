@@ -7,6 +7,7 @@ use std::io::{Read, Write};
 
 use base64::Engine;
 use cmux_customize::library::expire::{self, Expired, Expiring, Expiry};
+use cmux_customize::library::fold::FOLDED;
 use cmux_customize::library::{Changed, Collection, Listing, NoLongerApplies, Position, Recovered};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
@@ -462,8 +463,10 @@ fn expire_by_age(customize: &Customize, origin: &str, now_ms: u64) -> Expiring {
 pub(super) fn expired_lines(expired: &[Expired], now: Option<&Expiring>) -> String {
     let mut out = String::new();
     for expired in expired {
+        // A folded layer did not expire: its change is in the app now.
+        let word = if expired.why == FOLDED { "folded" } else { "expired" };
         out.push_str(&format!(
-            "  expired: {} ({}); back: {}\n",
+            "  {word}: {} ({}); back: {}\n",
             expired.name, expired.why, expired.back
         ));
     }

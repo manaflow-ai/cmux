@@ -51,6 +51,7 @@ pub mod code;
 mod collection;
 pub mod doctor;
 pub mod expire;
+pub mod fold;
 pub mod keys;
 pub mod overlay;
 mod put;
