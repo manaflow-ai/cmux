@@ -51,7 +51,7 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
-import { MoveDock } from "../place/PlaceMounts";
+import { MoveDock, AutoSizeDock } from "../place/PlaceMounts";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
 import { RulesNotice } from "../RulesNotice";
 import { composerShell, shellContextAttachments, type ShellRuns } from "../shell/shellRuns";
@@ -870,14 +870,17 @@ export function drawPaneComposer({
             </Notice>
             {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
             {!showNewTab && !quick && (
-              <MoveDock
-                session={snapshot.sessionId}
-                say={notices.transient}
-                claims={() => ({
-                  queued: snapshot.queue.length,
-                  hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                })}
-              />
+              <>
+                <MoveDock
+                  session={snapshot.sessionId}
+                  say={notices.transient}
+                  claims={() => ({
+                    queued: snapshot.queue.length,
+                    hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                  })}
+                />
+                <AutoSizeDock say={notices.transient} />
+              </>
             )}
             {!showNewTab && (
               <ShareNudge
