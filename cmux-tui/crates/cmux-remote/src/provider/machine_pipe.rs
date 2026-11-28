@@ -69,6 +69,7 @@ impl MachinePipeDialer {
                 self.socket.display()
             ))
         })?;
+        crate::phase_timing::mark("pipe-asked");
         stream
             .write_all(request.as_bytes())
             .await
@@ -88,6 +89,14 @@ impl MachinePipeDialer {
             line.push(byte);
         }
         machine_pipe_reply(&line)?;
+        // The local acpmux's own split of the open (a stream on its kept circuit, or a new
+        // circuit's ticket, relay, join, Noise and answer), beside this side's clock.
+        crate::phase_timing::mark_with("pipe-open", || {
+            serde_json::from_slice::<Value>(&line)
+                .ok()
+                .and_then(|reply| reply.pointer("/result/dial").map(Value::to_string))
+                .unwrap_or_default()
+        });
         Ok(stream)
     }
 }

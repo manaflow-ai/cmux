@@ -62,7 +62,14 @@ hot-modules = ["dep:acpmux-hot"]
 # machines through the Cloud carrier's relay, Noise end to end (cmux-remote's relay client and
 # handshake). Opt-in because cmux-remote builds libghostty-vt with zig; the shipping build turns it
 # on (scripts/ci/acpmux-build-features.sh).
-hub-carrier = ["dep:cmux-remote", "dep:cmux-remote-protocol", "dep:async-trait", "dep:url"]
+hub-carrier = [
+    "dep:cmux-remote",
+    "dep:cmux-remote-protocol",
+    "dep:async-trait",
+    "dep:url",
+    "dep:iroh",
+    "cmux-remote/iroh-transport",
+]
 # The heap by allocation site (dhat) for the god-fixture profile (`tests/god_daemon.rs`): the
 # binary's allocator records every block and writes `ACPMUX_DHAT_OUT` when the daemon stops
 # (`heap_profile.rs`). Never in a shipped build: it slows every allocation.
@@ -112,6 +119,9 @@ cmux-cloud-start-core.workspace = true
 # The disk budget the evictor shares with the disk bar and the Cloud grow (`disk_evict.rs`).
 cmux-cloud-disk.workspace = true
 cmux-sync.workspace = true
+# A move's history pages: the zstd level per page, from the event-log curve and the copy's measured
+# link and compressor (`cmux_bytes::serial`, `cli/run/transfer_live.rs`).
+cmux-bytes.workspace = true
 cmux-team-messaging.workspace = true
 cmux-session-cloud.workspace = true
 # The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
@@ -292,6 +302,8 @@ cmux-remote = { workspace = true, optional = true }
 cmux-remote-protocol = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
+# The hub carrier's iroh path (`hub_carrier_iroh.rs`), on where `irohDirect` or `directPort` is set.
+iroh = { workspace = true, optional = true }
 
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),

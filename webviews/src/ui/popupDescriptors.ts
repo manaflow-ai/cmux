@@ -97,9 +97,6 @@ export function toggleRow(input: PopupActionInput & { checked: boolean }): Popup
 export function choiceRow(input: PopupActionInput & { checked?: boolean; value?: string }): PopupRow {
   return { kind: "action", ...input };
 }
-export function sectionRow(id: string, label: string): PopupRow {
-  return { id, kind: "section", label };
-}
 export function separatorRow(id: string): PopupRow {
   return { id, kind: "separator", label: "" };
 }
