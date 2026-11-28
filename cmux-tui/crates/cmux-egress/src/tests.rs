@@ -175,6 +175,9 @@ async fn a_proxied_client_never_sends_a_refused_request_to_the_proxy() {
     let site = "cmux_egress::tests";
     let env = test_env(&[("HTTPS_PROXY", &proxy)]);
     // A proxy the caller adds after the gate's must not see the refused host either.
+    // This builds reqwest directly, not through client_builder, so it installs the provider itself
+    // (it panicked whenever it ran before any test that had).
+    install_crypto_provider();
     let client = reqwest::Client::builder()
         .dns_resolver(Arc::new(Gate::new(site)))
         .proxy(gated_proxy_matcher(site, env.clone()))

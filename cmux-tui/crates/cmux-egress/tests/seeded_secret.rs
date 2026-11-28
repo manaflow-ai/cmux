@@ -58,3 +58,56 @@ async fn capture_never_lets_an_unlisted_host_through() {
     assert!(refused.is_err());
     assert!(capture::requests_to("evil-seeded-test.org").is_empty());
 }
+
+/// Every host in hosts.txt (the allowlist the gate compiles in and
+/// docs/privacy.md is generated from), with each `*` filled in.
+fn manifest_hosts() -> Vec<String> {
+    include_str!("../hosts.txt")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|host| host.to_ascii_lowercase().replace('*', "canary"))
+        .collect()
+}
+
+/// The manifest drives the gate: a canary secret sent to each row's host goes
+/// through the gated client in enforce mode and is captured at that host and
+/// nowhere else, and a host no row lists is refused before any byte leaves.
+/// A row the gate can't reach, or a host it lets through unlisted, fails here.
+#[tokio::test]
+async fn a_canary_reaches_every_manifest_row_and_no_unlisted_host()
+-> Result<(), Box<dyn std::error::Error>> {
+    capture::install()?;
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let client = cmux_egress::client(SITE)?;
+    let hosts = manifest_hosts();
+    assert!(hosts.len() > 50, "hosts.txt parsed to only {} hosts", hosts.len());
+    for (row, host) in hosts.iter().enumerate() {
+        let secret = format!("canary-{row}-manifest-row");
+        assert_eq!(cmux_egress::verdict(host), cmux_egress::Verdict::Listed, "{host}");
+        let answer = client
+            .post(format!("https://{host}/canary"))
+            .header("x-canary", &secret)
+            .body(secret.clone())
+            .send()
+            .await?;
+        assert_eq!(answer.status(), 200, "{host}");
+        let leaks = capture::leaks(&secret);
+        assert_eq!(leaks.len(), 2, "{host}: {leaks:?}");
+        assert!(
+            leaks.iter().all(|leak| leak.starts_with(&format!("{host} POST /canary: "))),
+            "{host}: {leaks:?}"
+        );
+    }
+    let unlisted = "canary-unlisted-host.org";
+    assert_eq!(cmux_egress::verdict(unlisted), cmux_egress::Verdict::Unlisted);
+    let refused = client
+        .post(format!("https://{unlisted}/canary"))
+        .body("canary-unlisted-secret")
+        .send()
+        .await;
+    assert!(refused.is_err(), "an unlisted host was let through");
+    assert!(capture::requests_to(unlisted).is_empty());
+    assert!(capture::leaks("canary-unlisted-secret").is_empty());
+    Ok(())
+}
