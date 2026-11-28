@@ -168,10 +168,11 @@
       ]
     },
     "macos_15": {
-      "why": "The macOS 15 image (its default SDK), after any owned-Mac picker",
+      "why": "The macOS 15 image (its default SDK), after any owned-Mac picker. Blacksmith macOS 26 follows it so a dead macOS 15 label moves its jobs instead of stranding them: 2026-11-28 ~12:50-14:35Z blacksmith-6vcpu-macos-15 started nothing for 104+ min with 9-10 jobs queued (oldest 99 min) while 6 vCPU macOS 26 ran 16. Readers that pin the macOS 15 Xcode take the macOS 26 pin when the pool names macOS 26; the SDK 15 Ghostty helper job does not read this pool. Owned Macs never join: fork pull request code reads this pool",
       "ephemeral_only": true,
       "members": [
-        "blacksmith-6vcpu-macos-15"
+        "blacksmith-6vcpu-macos-15",
+        "blacksmith-6vcpu-macos-26"
       ]
     },
     "macos_26": {
@@ -541,8 +542,8 @@
       "class": "apple-signing-release",
       "picker_followup": "retired (if: false), so it never starts; should it run again, it follows promote-nightly-next on a main dispatch with no pick of its own and takes promote-nightly-next's route, which admits the exclusive claim the release App key needs"
     },
-    "nightly.yml#refresh-compilation-cache": "apple-app-build",
-    "nightly.yml#refresh-test-compilation-cache": {
+    "nightly-compilation-cache.yml#refresh-compilation-cache": "apple-app-build",
+    "nightly-compilation-cache.yml#refresh-test-compilation-cache": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
