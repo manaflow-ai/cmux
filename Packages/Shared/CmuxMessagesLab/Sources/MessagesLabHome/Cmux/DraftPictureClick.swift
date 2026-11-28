@@ -8,25 +8,28 @@ import AppKit
 final class DraftPictureClick {
     /// How long a click waits for a second press; nil is the user's double-click interval. Tests shorten it.
     var delay: TimeInterval?
-    private var pending: DispatchWorkItem?
+    /// The queued callback checks this generation before opening. Keeping only the generation here lets replacing
+    /// or cancelling a click drop the previous callback without retaining a dispatch work item in the owner.
+    private var nextGeneration: UInt = 0
+    private var pendingGeneration: UInt?
 
     /// Opens with `open` on the main queue once the interval passes with no press in between (replacing an open
     /// still pending).
     func schedule(_ open: @escaping () -> Void) {
-        pending?.cancel()
-        let item = DispatchWorkItem { [weak self] in
-            self?.pending = nil
+        nextGeneration &+= 1
+        let generation = nextGeneration
+        pendingGeneration = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + (delay ?? NSEvent.doubleClickInterval)) { [weak self] in
+            guard let self, self.pendingGeneration == generation else { return }
+            self.pendingGeneration = nil
             open()
         }
-        pending = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + (delay ?? NSEvent.doubleClickInterval), execute: item)
     }
 
     /// A press in the field: whatever click was waiting does not open.
     func cancel() {
-        pending?.cancel()
-        pending = nil
+        pendingGeneration = nil
     }
 
-    var isPending: Bool { pending != nil }
+    var isPending: Bool { pendingGeneration != nil }
 }
