@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
@@ -52,7 +52,7 @@ use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
 use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstrapper};
-use cmux_remote::ssh_control::SSH_MASTER_AUTH_TIMEOUT;
+use cmux_remote::ssh_control::SshTarget;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1620,6 +1620,7 @@ struct ReconnectGroupsInner {
     /// The reconnect pass's race (`None`: one route at a time), as the first connect's.
     race: Option<RouteRace>,
     prepared_ssh: Vec<AtomicBool>,
+    ssh_targets: Vec<SshTarget>,
     shutdown: Option<watch::Receiver<bool>>,
     /// The warm standby route (`warm_standby.rs`); empty until [`Self::start_standby`].
     standby: WarmStandby<Arc<dyn LinkGroup>>,
@@ -1670,12 +1671,31 @@ impl RuntimeReconnectGroups {
             })
             .collect();
         let race = reconnect_race(&options);
+        let mut ssh_targets = Vec::new();
+        for candidate in &options.routes {
+            if candidate.endpoint.scheme() != "ssh" {
+                continue;
+            }
+            let Ok((destination, port)) = ssh_bootstrap_destination(&candidate.endpoint) else {
+                continue;
+            };
+            let target = SshTarget {
+                ssh_binary: options.ssh.ssh_binary.clone(),
+                destination,
+                port,
+                extra_args: options.ssh.extra_args.clone(),
+            };
+            if !ssh_targets.contains(&target) {
+                ssh_targets.push(target);
+            }
+        }
         Self {
             inner: Arc::new(ReconnectGroupsInner {
                 options,
                 next: AtomicUsize::new(selected_index.saturating_add(1)),
                 race,
                 prepared_ssh,
+                ssh_targets,
                 shutdown,
                 standby: WarmStandby::new(selected_index),
             }),
@@ -1728,27 +1748,19 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
         )
         .unwrap_or(u32::MAX);
         let ssh_bootstraps = u32::try_from(self.unprepared_ssh_probe_count()).unwrap_or(u32::MAX);
-        // Each SSH route may open its shared connection, which may prompt.
-        let ssh_authentications = if self.options.ssh.connection_share.auth_clock().is_some() {
-            u32::try_from(
-                self.options
-                    .routes
-                    .iter()
-                    .filter(|candidate| {
-                        candidate.endpoint.scheme() == "ssh" && candidate.supports_client_auth(auth)
-                    })
-                    .count(),
-            )
-            .unwrap_or(u32::MAX)
-        } else {
-            0
-        };
-        reconnect_attempt_timeout
-            .saturating_mul(provider_attempts)
-            .saturating_add(
-                self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
-            )
-            .saturating_add(SSH_MASTER_AUTH_TIMEOUT.saturating_mul(ssh_authentications))
+        reconnect_attempt_timeout.saturating_mul(provider_attempts).saturating_add(
+            self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
+        )
+    }
+
+    fn resolution_time_excluded(&self) -> Duration {
+        self.options.ssh.connection_share.auth_clock().map_or(Duration::ZERO, |clock| {
+            clock.excluded_for_targets(&self.ssh_targets, Instant::now())
+        })
+    }
+
+    async fn begin_resolution(&self) {
+        self.options.ssh.connection_share.retry_unavailable(&self.ssh_targets).await;
     }
 
     /// Every route this client can authenticate on but the link's own. Without the route race

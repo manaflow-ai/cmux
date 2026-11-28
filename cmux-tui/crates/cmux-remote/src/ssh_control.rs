@@ -89,48 +89,110 @@ impl std::error::Error for SshConnectionError {}
 /// deadlines leave out. Shared across threads; reads never block on ssh.
 #[derive(Debug, Default)]
 pub struct SshAuthClock {
-    state: StdMutex<AuthClockState>,
+    state: StdMutex<HashMap<SshTarget, AuthClockState>>,
 }
 
 #[derive(Debug, Default)]
 struct AuthClockState {
     active: usize,
     active_since: Option<Instant>,
-    spent: Duration,
+    intervals: Vec<(Instant, Instant)>,
 }
 
 impl SshAuthClock {
     /// Authentication time up to `now`, including a run still in progress.
     pub fn excluded(&self, now: Instant) -> Duration {
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.spent
-            + state
-                .active_since
-                .map_or(Duration::ZERO, |since| now.saturating_duration_since(since))
+        let intervals = state.values().flat_map(|state| state.intervals_until(now)).collect();
+        merged_interval_duration(intervals)
     }
 
-    fn begin(self: &Arc<Self>) -> AuthClockGuard {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    /// Authentication time for one SSH target, up to `now`.
+    pub fn excluded_for(&self, target: &SshTarget, now: Instant) -> Duration {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.get(target).map_or(Duration::ZERO, |state| state.excluded(now))
+    }
+
+    /// Authentication time for a set of SSH targets, counting overlapping
+    /// prompts once because a deadline advances in wall-clock time.
+    pub fn excluded_for_targets(&self, targets: &[SshTarget], now: Instant) -> Duration {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let intervals = targets
+            .iter()
+            .filter_map(|target| state.get(target))
+            .flat_map(|state| state.intervals_until(now))
+            .collect();
+        merged_interval_duration(intervals)
+    }
+
+    fn begin(self: &Arc<Self>, target: SshTarget) -> AuthClockGuard {
+        let mut clocks = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = clocks.entry(target.clone()).or_default();
         if state.active == 0 {
             state.active_since = Some(Instant::now());
         }
         state.active += 1;
-        AuthClockGuard { clock: Arc::clone(self) }
+        AuthClockGuard { clock: Arc::clone(self), target }
     }
+}
+
+impl AuthClockState {
+    fn excluded(&self, now: Instant) -> Duration {
+        merged_interval_duration(self.intervals_until(now))
+    }
+
+    fn intervals_until(&self, now: Instant) -> Vec<(Instant, Instant)> {
+        let mut intervals = self.intervals.clone();
+        if let Some(since) = self.active_since {
+            intervals.push((since, now));
+        }
+        intervals
+    }
+
+    fn record(&mut self, start: Instant, end: Instant) {
+        if let Some((_, previous_end)) = self.intervals.last_mut()
+            && start <= *previous_end
+        {
+            *previous_end = (*previous_end).max(end);
+        } else {
+            self.intervals.push((start, end));
+        }
+    }
+}
+
+fn merged_interval_duration(mut intervals: Vec<(Instant, Instant)>) -> Duration {
+    intervals.sort_unstable_by_key(|(start, _)| *start);
+    let Some((mut current_start, mut current_end)) = intervals.pop() else {
+        return Duration::ZERO;
+    };
+    let mut total = Duration::ZERO;
+    for (start, end) in intervals.into_iter().rev() {
+        if end >= current_start {
+            current_start = current_start.min(start);
+            current_end = current_end.max(end);
+        } else {
+            total = total.saturating_add(current_end.saturating_duration_since(current_start));
+            current_start = start;
+            current_end = end;
+        }
+    }
+    total.saturating_add(current_end.saturating_duration_since(current_start))
 }
 
 struct AuthClockGuard {
     clock: Arc<SshAuthClock>,
+    target: SshTarget,
 }
 
 impl Drop for AuthClockGuard {
     fn drop(&mut self) {
-        let mut state = self.clock.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut clocks = self.clock.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(state) = clocks.get_mut(&self.target) else { return };
         state.active = state.active.saturating_sub(1);
         if state.active == 0
             && let Some(since) = state.active_since.take()
         {
-            state.spent += since.elapsed();
+            state.record(since, Instant::now());
         }
     }
 }
@@ -143,8 +205,15 @@ pub struct SshConnectionShare {
     inner: Option<Arc<ShareInner>>,
 }
 
+type SharedTarget = Arc<SharedTargetInner>;
+
+struct SharedTargetInner {
+    shared: Mutex<Option<Shared>>,
+    reconnect_generation: AtomicU64,
+}
+
 struct ShareInner {
-    masters: Mutex<HashMap<SshTarget, Shared>>,
+    masters: Mutex<HashMap<SshTarget, SharedTarget>>,
     clock: Arc<SshAuthClock>,
 }
 
@@ -182,6 +251,18 @@ impl SshConnectionShare {
         self.inner.as_ref().map(|inner| Arc::clone(&inner.clock))
     }
 
+    /// Retry unavailable control sockets on the next reconnect, while keeping
+    /// live masters and coalescing concurrent runs for each target.
+    pub async fn retry_unavailable(&self, targets: &[SshTarget]) {
+        let Some(inner) = &self.inner else { return };
+        let masters = inner.masters.lock().await;
+        for target in targets {
+            if let Some(entry) = masters.get(target) {
+                entry.reconnect_generation.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+    }
+
     /// Options that send one `ssh` run for `target` through the shared
     /// connection, opening it first when none is alive. They go before the
     /// caller's own options so they win. Empty when sharing is off or the
@@ -195,30 +276,73 @@ impl SshConnectionShare {
         if caller_manages_connection_sharing(&target.extra_args) {
             return Ok(Vec::new());
         }
-        // Concurrent runs wait here for the first one's master instead of
-        // each opening (and authenticating) their own.
-        let mut masters = inner.masters.lock().await;
-        let live = match masters.get_mut(target) {
+        // Only runs for the same target wait for its authentication. Never
+        // hold the map lock while a person is typing a password.
+        let entry = {
+            let mut masters = inner.masters.lock().await;
+            Arc::clone(masters.entry(target.clone()).or_insert_with(|| {
+                Arc::new(SharedTargetInner {
+                    shared: Mutex::new(None),
+                    reconnect_generation: AtomicU64::new(0),
+                })
+            }))
+        };
+        let mut shared = entry.shared.lock().await;
+        let generation = entry.reconnect_generation.load(Ordering::Acquire);
+        let live = match shared.as_mut() {
             Some(Shared::Master(master)) => master.is_alive().then(|| master.client_arguments()),
-            Some(Shared::Unavailable) => return Ok(Vec::new()),
-            None => None,
+            Some(Shared::Unavailable(failed_generation)) if *failed_generation == generation => {
+                return Ok(Vec::new());
+            }
+            _ => None,
         };
         if let Some(arguments) = live {
             return Ok(arguments);
         }
-        masters.remove(target);
-        let _clock = inner.clock.begin();
-        match ControlMaster::open(target).await? {
+        *shared = None;
+        let _clock = inner.clock.begin(target.clone());
+        let opened = ControlMaster::open(target).await;
+        let opened = match opened {
+            Ok(opened) => opened,
+            Err(error) => {
+                drop(shared);
+                remove_unused_entry(inner, target, &entry).await;
+                return Err(error);
+            }
+        };
+        match opened {
             Some(master) => {
                 let arguments = master.client_arguments();
-                masters.insert(target.clone(), Shared::Master(Box::new(master)));
+                *shared = Some(Shared::Master(Box::new(master)));
                 Ok(arguments)
             }
             None => {
-                masters.insert(target.clone(), Shared::Unavailable);
+                // A reconnect may have started while authentication was in
+                // flight. Cache the failure under the generation that is
+                // current now, so that newer work does not immediately retry
+                // the same unavailable socket because it observed an old
+                // generation before opening the master.
+                let generation = entry.reconnect_generation.load(Ordering::Acquire);
+                *shared = Some(Shared::Unavailable(generation));
                 Ok(Vec::new())
             }
         }
+    }
+}
+
+async fn remove_unused_entry(inner: &ShareInner, target: &SshTarget, entry: &SharedTarget) {
+    // The map owns one reference. If no waiter retained another reference after
+    // its per-target lock was released, discard a failed entry so a later run
+    // does not grow the map forever.
+    // The map and this caller each retain one reference while this helper runs.
+    if Arc::strong_count(entry) != 2 {
+        return;
+    }
+    let mut masters = inner.masters.lock().await;
+    if masters.get(target).is_some_and(|current| Arc::ptr_eq(current, entry))
+        && Arc::strong_count(entry) == 2
+    {
+        masters.remove(target);
     }
 }
 
@@ -227,8 +351,8 @@ enum Shared {
     Master(Box<ControlMaster>),
     /// ssh authenticated but could not listen on a control socket: runs
     /// connect on their own instead of opening (and prompting for) another
-    /// master each time.
-    Unavailable,
+    /// master each time. A reconnect expires this negative cache entry.
+    Unavailable(u64),
 }
 
 /// One `ssh -N` control master, owned by the share. Dropping it ends ssh,
