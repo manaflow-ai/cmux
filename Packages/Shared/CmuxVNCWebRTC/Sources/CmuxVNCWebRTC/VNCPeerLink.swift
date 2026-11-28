@@ -513,6 +513,7 @@ extension VNCPeerLink {
                         stats.totalDecodeTime = (values["totalDecodeTime"] as? NSNumber)?.doubleValue ?? 0
                         stats.freezeCount = (values["freezeCount"] as? NSNumber)?.doubleValue ?? 0
                         stats.packetsLost = (values["packetsLost"] as? NSNumber)?.doubleValue ?? 0
+                        stats.qpSum = (values["qpSum"] as? NSNumber)?.doubleValue ?? 0
                         if let delay = (values["jitterBufferDelay"] as? NSNumber)?.doubleValue,
                            let emitted = (values["jitterBufferEmittedCount"] as? NSNumber)?.doubleValue, emitted > 0 {
                             stats.jitterBufferMs = delay / emitted * 1000
