@@ -6,6 +6,7 @@ checkout, 285 s of a ~350 s build phase on an AWS M4 Pro, though the FFI's input
 1846 feat-cmux-next commits over three days. Run: python3 -I THIS.
 """
 import json
+import shutil
 import re
 import os
 import pathlib
@@ -14,6 +15,11 @@ import sys
 import tempfile
 import unittest
 import importlib.util
+import hashlib
+import http.server
+import io
+import tarfile
+import threading
 
 # tests/git_fixture_env.py turns off git's background maintenance in the temp repos; loaded by path for python3 -I.
 _git_fixture_env = importlib.util.spec_from_file_location(
@@ -37,7 +43,9 @@ def write(path, text):
     path.write_text(text)
 
 
-class FFICacheTest(unittest.TestCase):
+class FFIRepoCase(unittest.TestCase):
+    """A landed repository, a step's checkout of it and a worker cache (no tests of its own)."""
+
     def setUp(self):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
@@ -96,6 +104,8 @@ class FFICacheTest(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         return self.run_helper("store", str(self.checkout), str(self.work / "inputs.json"), str(self.work / "tip.json"))
 
+
+class FFICacheTest(FFIRepoCase):
     def test_landed_build_is_stored_then_restored(self):
         key = self.key()
         self.assertEqual(len(key), 64)
@@ -466,6 +476,280 @@ class FFICacheTest(unittest.TestCase):
         p, calls, summary = self.run_block("import sys; sys.exit(3)\n", build_body="exit 5")
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("CmuxMobileLinkFFI.xcframework build failed", p.stderr)
+
+
+RESTORE = ROOT / "cmux-next-ios/rust/scripts/restore-ios-patch-lock.sh"
+BUILD = ROOT / "cmux-next-ios/rust/scripts/build-xcframework.sh"
+
+LOCK = 'version = 4\n\n[[package]]\nname = "nix"\nversion = "0.26.4"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n'
+PATCHED = 'version = 4\n\n[[package]]\nname = "nix"\nversion = "0.26.4"\n'
+NEWER = LOCK + '\n[[package]]\nname = "zstd"\nversion = "0.13.4"\n'
+
+
+def sh_quiet(cwd, *args):
+    subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True)
+
+
+class FakeController:
+    """The controller's component index and artifact store as a step reads them (GET only)."""
+
+    def __init__(self):
+        self.entries = {}  # key -> {"manifest", "files": [{"name","sha256","size"}], "worker"}
+        self.blobs = {}    # "sha256:<hex>" -> bytes
+        self.gets = []
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                owner.gets.append(self.path)
+                body, code = b"", 404
+                if self.path.startswith("/v1/components/dev/ios-ffi/"):
+                    key = self.path.rsplit("/", 1)[1]
+                    if key in owner.entries:
+                        body, code = json.dumps(owner.entries[key]).encode(), 200
+                elif self.path.startswith("/v1/artifacts/") and self.path.endswith("/url"):
+                    digest = self.path.split("/")[3]
+                    if digest in owner.blobs:
+                        url = "http://127.0.0.1:%d/blob/%s" % (owner.port, digest)
+                        body, code = json.dumps({"url": url}).encode(), 200
+                elif self.path.startswith("/blob/"):
+                    digest = self.path.split("/", 2)[2]
+                    if digest in owner.blobs:
+                        body, code = owner.blobs[digest], 200
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    @property
+    def url(self):
+        return "http://127.0.0.1:%d" % self.port
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def publish(self, out_dir, worker="aws-m4pro-2", tamper=None):
+        """What the worker does with a step's component-outputs/ios-ffi/<key>/ after the step."""
+        key = out_dir.name
+        files = []
+        for f in sorted(out_dir.iterdir()):
+            if f.name == "manifest.json":
+                continue
+            data = f.read_bytes()
+            digest = "sha256:" + hashlib.sha256(data).hexdigest()
+            files.append({"name": f.name, "sha256": digest, "size": len(data)})
+            self.blobs[digest] = data if tamper != f.name else data[:-1] + b"X"
+        self.entries[key] = {"manifest": (out_dir / "manifest.json").read_text(), "files": files, "worker": worker}
+
+
+class FleetTierTest(FFIRepoCase):
+    """2026-11-27: the cache was per worker. 44 simulator steps missed in 15 h (31,407 s of FFI builds) and 13 of
+    those misses were keys another worker had already built (a2b7b418 missed on 5 hosts). A step now reads the
+    fleet's component store on a local miss, and its fresh build goes to the store through the worker."""
+
+    def setUp(self):
+        super().setUp()
+        self.controller = FakeController()
+        self.addCleanup(self.controller.close)
+        self.job = self.tmp / "job"
+        self.job.mkdir()
+        self.env.update({"CMUX_CI_CONTROLLER": self.controller.url, "CI_JOB_DIR": str(self.job)})
+
+    def build_on_worker_a(self):
+        key = self.key()
+        self.build("worker-a")
+        p = self.probe_and_store()
+        self.assertIn("stored", p.stdout, p.stdout + p.stderr)
+        return key
+
+    def worker_b(self):
+        """Another worker: its own cache, its own fresh checkout of the same commit."""
+        env = dict(self.env, CMUX_CI_CACHE_DIR=str(self.tmp / "cache-b"), CI_JOB_DIR=str(self.tmp / "job-b"))
+        checkout = self.tmp / "checkout-b"
+        sh(self.tmp, "git", "clone", "-q", str(self.origin), str(checkout))
+        return env, checkout
+
+    def test_a_fresh_build_is_exported_for_the_fleet_store_under_its_content_key(self):
+        self.env["CARGO_REGISTRIES_PRIVATE_TOKEN"] = "s3cr3t-value"
+        key = self.build_on_worker_a()
+        out = self.job / "component-outputs" / "ios-ffi" / key
+        # Every step can read a fleet manifest: build settings are there as hashes, never as values.
+        self.assertNotIn(b"s3cr3t-value", (out / "manifest.json").read_bytes())
+        self.assertIn("CARGO_REGISTRIES_PRIVATE_TOKEN", json.loads((out / "manifest.json").read_text())["env"])
+        out = self.job / "component-outputs" / "ios-ffi" / key
+        self.assertTrue(out.is_dir(), list(self.job.rglob("*")))
+        manifest = (out / "manifest.json").read_bytes()
+        # The controller accepts an entry only when sha256(manifest) is its key and the manifest names its component.
+        self.assertEqual(hashlib.sha256(manifest).hexdigest(), key)
+        m = json.loads(manifest)
+        self.assertEqual(m["name"], "ios-ffi")
+        self.assertTrue(m["v"])
+        self.assertEqual(sorted(p.name for p in out.iterdir()),
+                         ["CmuxMobileLinkFFI.swift", "CmuxMobileLinkFFI.xcframework.tar", "manifest.json"])
+        with tarfile.open(out / "CmuxMobileLinkFFI.xcframework.tar") as tar:
+            names = sorted(tar.getnames())
+            self.assertIn("CmuxMobileLinkFFI.xcframework/Info.plist", names)
+            self.assertTrue(all(t.mtime == 0 and t.uid == 0 for t in tar.getmembers()), "deterministic archive")
+
+    def test_another_worker_restores_the_fleet_entry_verified(self):
+        key = self.build_on_worker_a()
+        self.controller.publish(self.job / "component-outputs" / "ios-ffi" / key)
+        env, checkout = self.worker_b()
+        p = self.run_helper("key", str(checkout), str(self.tmp / "inputs-b.json"), env=env)
+        self.assertEqual(p.stdout.strip(), key, p.stderr)
+        p = self.run_helper("restore", str(checkout), key, env=env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("hit", p.stdout)
+        self.assertIn("fleet", p.stdout)
+        self.assertEqual((checkout / XCF / "ios-arm64-simulator/F.framework/F").read_text(), "worker-a")
+        self.assertEqual((checkout / SWIFT).read_text(), "// generated worker-a\n")
+        # Installed into worker B's own cache: its next step hits locally, without the controller.
+        self.assertTrue((self.tmp / "cache-b" / "ios-ffi" / key / "manifest.json").is_file())
+        gets = len(self.controller.gets)
+        sh(checkout, "rm", "-rf", "cmux-next-ios/CmuxMobileKit/Frameworks")
+        self.assertEqual(self.run_helper("restore", str(checkout), key, env=env).returncode, 0)
+        self.assertEqual(len(self.controller.gets), gets)
+        # A restored entry is not exported again: only a build this step made goes to the store.
+        self.assertFalse((self.tmp / "job-b" / "component-outputs").exists())
+
+    def test_bytes_that_do_not_match_the_index_are_a_miss(self):
+        key = self.build_on_worker_a()
+        self.controller.publish(self.job / "component-outputs" / "ios-ffi" / key, tamper="CmuxMobileLinkFFI.xcframework.tar")
+        env, checkout = self.worker_b()
+        p = self.run_helper("restore", str(checkout), key, env=env)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("does not match", p.stdout + p.stderr)
+        self.assertFalse((checkout / XCF).exists())
+        self.assertFalse((self.tmp / "cache-b" / "ios-ffi" / key).exists())
+
+    def test_an_entry_whose_manifest_is_not_its_key_is_a_miss(self):
+        key = self.build_on_worker_a()
+        self.controller.publish(self.job / "component-outputs" / "ios-ffi" / key)
+        self.controller.entries[key]["manifest"] += " "
+        env, checkout = self.worker_b()
+        p = self.run_helper("restore", str(checkout), key, env=env)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertFalse((checkout / XCF).exists())
+
+    def test_an_archive_that_escapes_or_links_is_refused(self):
+        key = self.build_on_worker_a()
+        out = self.job / "component-outputs" / "ios-ffi" / key
+        for bad in ("../../escape", "CmuxMobileLinkFFI.xcframework/link"):
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w") as tar:
+                info = tarfile.TarInfo(bad)
+                if bad.endswith("link"):
+                    info.type, info.linkname = tarfile.SYMTYPE, "/etc/passwd"
+                    tar.addfile(info)
+                else:
+                    info.size = 1
+                    tar.addfile(info, io.BytesIO(b"x"))
+            (out / "CmuxMobileLinkFFI.xcframework.tar").write_bytes(buf.getvalue())
+            self.controller.publish(out)
+            env, checkout = self.worker_b()
+            p = self.run_helper("restore", str(checkout), key, env=env)
+            self.assertEqual(p.returncode, 1, bad + ": " + p.stdout + p.stderr)
+            self.assertFalse((self.tmp / "escape").exists())
+            self.assertFalse((self.tmp / "cache-b" / "ios-ffi" / key).exists())
+            shutil.rmtree(checkout)
+
+    def test_remote_off_neither_reads_nor_exports(self):
+        self.env["CMUX_CI_COMPONENT_REMOTE"] = "0"
+        key = self.build_on_worker_a()
+        self.assertFalse((self.job / "component-outputs").exists())
+        env, checkout = self.worker_b()
+        self.assertEqual(self.run_helper("restore", str(checkout), key, env=env).returncode, 1)
+        self.assertEqual(self.controller.gets, [])
+
+
+class RestorePatchLock(unittest.TestCase):
+    """A build-xcframework.sh killed mid-build (a CI step timeout reaps it without its EXIT trap) left Cargo.lock
+    patched, and the next `cargo fetch --locked` failed "cannot update the lock file" (cmux#49999's ios job,
+    2026-11-26). restore-ios-patch-lock.sh, which both entry points run first, puts the checked-in lock back."""
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.ws = self.tmp / "cmux-next-ios/rust"
+        (self.ws / "scripts").mkdir(parents=True)
+        shutil.copy(RESTORE, self.ws / "scripts" / RESTORE.name)
+        self.lock = self.ws / "Cargo.lock"
+        self.saved = self.ws / "target/ios-patches/Cargo.lock.orig"
+        sh_quiet(self.tmp, "git", "init", "-q")
+        sh_quiet(self.tmp, "git", "config", "user.email", "t@example.com")
+        sh_quiet(self.tmp, "git", "config", "user.name", "t")
+
+    def commit_lock(self, text):
+        self.lock.write_text(text)
+        sh_quiet(self.tmp, "git", "add", "-A")
+        sh_quiet(self.tmp, "git", "commit", "-qm", "lock")
+
+    def save(self, text):
+        self.saved.parent.mkdir(parents=True, exist_ok=True)
+        self.saved.write_text(text)
+
+    def run_helper(self):
+        p = subprocess.run(["bash", str(self.ws / "scripts" / RESTORE.name)], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stderr
+
+    def test_a_killed_build_s_patched_lock_is_put_back(self):
+        self.commit_lock(LOCK)
+        self.save(LOCK)
+        self.lock.write_text(PATCHED)
+        self.assertIn("put back", self.run_helper())
+        self.assertEqual(self.lock.read_text(), LOCK)
+        self.assertFalse(self.saved.exists())
+
+    def test_a_saved_lock_from_an_older_checkout_is_dropped_not_restored(self):
+        # target/ outlives a reused CI workspace; the new checkout's committed lock stays.
+        self.commit_lock(NEWER)
+        self.save(LOCK)
+        self.assertIn("dropped", self.run_helper())
+        self.assertEqual(self.lock.read_text(), NEWER)
+        self.assertFalse(self.saved.exists())
+
+    def test_a_lock_with_uncommitted_edits_is_never_overwritten(self):
+        self.commit_lock(LOCK)
+        self.save(NEWER)  # saved before the patch, with an edit nobody committed
+        self.lock.write_text(PATCHED)
+        self.run_helper()
+        self.assertEqual(self.lock.read_text(), PATCHED)
+
+    def test_no_saved_lock_is_a_no_op(self):
+        self.commit_lock(LOCK)
+        self.assertEqual(self.run_helper(), "")
+        self.assertEqual(self.lock.read_text(), LOCK)
+
+    def test_a_saved_lock_equal_to_the_checkout_s_is_cleared(self):
+        self.commit_lock(LOCK)
+        self.save(LOCK)
+        self.run_helper()
+        self.assertEqual(self.lock.read_text(), LOCK)
+        self.assertFalse(self.saved.exists())
+
+
+class EntryPointsCallIt(unittest.TestCase):
+    def test_build_xcframework_restores_before_its_locked_fetch_and_on_signals(self):
+        text = BUILD.read_text()
+        self.assertLess(text.index("restore-ios-patch-lock.sh"), text.index("cargo fetch --locked"))
+        for line in ("trap 'exit 129' HUP", "trap 'exit 130' INT", "trap 'exit 143' TERM"):
+            self.assertIn(line, text)
+        # The saved lock sits where the helper looks (this checkout's target/, not the shared
+        # CARGO_TARGET_DIR), and a normal restore removes it.
+        self.assertIn('lock_orig="$rust_dir/target/ios-patches/Cargo.lock.orig"', text)
+        self.assertIn('rm -f "$lock_orig"', text)
+
+    def test_ios_ffi_cache_restores_before_its_locked_fetch(self):
+        text = HELPER.read_text()
+        self.assertLess(text.index("restore-ios-patch-lock.sh"), text.index('"cargo", "fetch", "--locked"'))
 
 
 if __name__ == "__main__":

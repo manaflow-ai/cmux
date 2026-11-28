@@ -148,7 +148,6 @@ cmux-tui/bindings/go/raw/generated_*.go merge=cmux-generated-v1
 cmux-tui/bindings/typescript/src/raw/generated/** merge=cmux-generated-v1
 cmux-tui/bindings/rust/src/generated/** merge=cmux-generated-v1
 cmux-tui/bindings/zig/src/raw/generated/** merge=cmux-generated-v1
-cmux-tui/bindings/*/.cmux-resource-api.json merge=cmux-generated-v1
 cmux-tui/bindings/cpp/.cmux-sdk-manifest.json merge=cmux-generated-v1
 # The Java raw package: every file its .cmux-sdk-manifest.json lists is
 # generated; the hand-written ones (not in the manifest) merge by line.
@@ -195,7 +194,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ChromeStyleSetting+Choices.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Catalog.swift merge=cmux-generated-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Members.swift merge=cmux-generated-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift merge=cmux-generated-v1
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift merge=cmux-generated-v1
 cmux-tui/crates/acpmux/src/chats/brand/table.rs merge=cmux-generated-v1
 webviews/src/pages/shared/generated/pageRouter.ts merge=cmux-generated-v1
 cmux-tui/bindings/go-pane/internal/richpane/*.go merge=cmux-generated-v1
@@ -205,6 +203,8 @@ workers/presence/src/generated/** merge=cmux-generated-v1
 web/services/relay/generated/** merge=cmux-generated-v1
 schemas/defaults/cmux-next.json merge=cmux-generated-v1
 cmux-tui/crates/cmux-app-host/generated/** merge=cmux-generated-v1
+# Compatibility evidence must survive a conflict, never be kept from one side and regenerated.
+cmux-tui/spec/api-compat.surface.json !merge
 clients/ts/cloud/src/generated.ts merge=cmux-generated-v1
 clients/ts/cloud/src/automation-cmux.ts merge=cmux-generated-v1
 cmux-tui/crates/cmux-cloud-wire/src/generated/** merge=cmux-generated-v1
@@ -239,6 +239,12 @@ scripts/lint-namespace-types-ratchet.txt merge=cmux-baseline-v1
 scripts/lint-namespace-types-baseline.txt merge=cmux-baseline-v1
 scripts/lint-ios-package-conventions-baseline.txt merge=cmux-baseline-v1
 scripts/cmux-next/*-baseline.tsv merge=cmux-baseline-v1
+# The Swift logic class table (swift-logic-lines.py) gets a row per declaration
+# from many lanes at once, mostly in the same package regions, so a line merge
+# conflicts on nearly every base merge. Its rows end in a reason, so the driver
+# keys each whole line: rows either side added are kept, rows either side
+# removed are removed, and no row is lost to a hand resolution.
+plans/cmux-next/swift-logic-classes.tsv merge=cmux-baseline-v1
 scripts/cmux-next/*-baseline.json merge=cmux-baseline-v1
 webviews/scripts/design-tokens-baseline.jsonl merge=cmux-baseline-v1
 # Upstream license texts the shared Ghostty license collector ships, pinned by

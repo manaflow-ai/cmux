@@ -641,6 +641,16 @@ def test_settings_schema_only_diff_runs_the_web_checks() -> None:
     assert web_subareas.classify_paths([path], ROOT).react_apps is True
 
 
+def test_relay_params_rule_runs_the_page_params_contract() -> None:
+    # cmux#46563: the page sent a key the relay's params rule refused. The webviews contract test
+    # reads the rule and its Rust mirror, so a PR changing only those still runs react-apps-check.
+    for path in sorted(module.RELAY_PARAMS_RULE):
+        assert (ROOT / path).is_file(), path
+        assert module.classify_files([path]).web is True, path
+        assert web_subareas.classify_paths([path], ROOT).react_apps is True, path
+        assert path in web_subareas.REACT_EXACT, path
+
+
 def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
     # Derived, not listed: whatever web-bundle-key.py finds a webviews source
     # importing (or gen-strings.mjs reading) routes the web area and its
@@ -3195,6 +3205,52 @@ def test_non_pr_events_run_all_areas() -> None:
     assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
 
 
+def _plan_lines(*args: str, env: Optional[dict] = None) -> list[str]:
+    result = subprocess.run(
+        [sys.executable, str(HELPER), *args],
+        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env={**os.environ, "GITHUB_ACTIONS": "", **(env or {})},
+    )
+    return [line for line in result.stdout.splitlines() if "ci-plan" in line]
+
+
+def test_cli_names_the_plan_class_and_fallback_rule() -> None:
+    # One line per run says whether the planner narrowed the run or fell
+    # back to every area, and which rule forced the fallback, so a weekly
+    # roll-up can report the fail-open share (cmuxterm-hq
+    # docs/reading/2026-11-26-cloudflare-dns-targeted-zone-builds.md).
+    with tempfile.TemporaryDirectory() as temp_dir:
+        files_path = Path(temp_dir) / "files.txt"
+        files_path.write_text("web/app/page.tsx\n", encoding="utf-8")
+        assert _plan_lines("--event-name", "pull_request", "--files-from", str(files_path)) == [
+            "ci-plan v1 class=targeted fallback=none",
+        ]
+        files_path.write_text("", encoding="utf-8")
+        assert _plan_lines("--event-name", "pull_request", "--files-from", str(files_path)) == [
+            "ci-plan v1 class=fail_open fallback=empty_diff",
+        ]
+        # ci.yml with no base to compare its jobs against fails open.
+        files_path.write_text(".github/workflows/ci.yml\n", encoding="utf-8")
+        assert _plan_lines("--event-name", "pull_request", "--files-from", str(files_path)) == [
+            "ci-plan v1 class=fail_open fallback=ci_yml_jobs_unreadable:1 first=.github/workflows/ci.yml",
+        ]
+    assert _plan_lines("--event-name", "push") == ["ci-plan v1 class=full fallback=post_merge_event"]
+    # In Actions the same line is also a notice annotation on the check run.
+    assert _plan_lines("--event-name", "push", env={"GITHUB_ACTIONS": "true"}) == [
+        "ci-plan v1 class=full fallback=post_merge_event",
+        "::notice title=ci-plan::ci-plan v1 class=full fallback=post_merge_event",
+    ]
+
+
+def test_classify_files_collects_fail_open_rules() -> None:
+    fallbacks: list[tuple[str, str]] = []
+    module.classify_files([".github/workflows/ci.yml", "web/app/page.tsx"], fallbacks=fallbacks)
+    assert fallbacks == [("ci_yml_jobs_unreadable", ".github/workflows/ci.yml")]
+    fallbacks = []
+    module.classify_files(["web/app/page.tsx"], fallbacks=fallbacks)
+    assert fallbacks == []
+
+
 def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     block = workflow_job_block("ci-status")
 
@@ -4337,7 +4393,7 @@ def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> N
     )
     assert (
         "ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && "
-        "!contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
+        "!(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
         in changes
     )
 
@@ -5604,7 +5660,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
         "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
     ) in release_block
-    assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
+    # The required SDK major follows the selected app: the PR pin is Xcode 26.x
+    # and the macOS 26 pin Xcode 27.2 while the fleet moves to 27.2.
+    assert "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains((" in release_block
+    assert "'Xcode_27') && '27' || '26' }}" in release_block
 
 
 def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> None:

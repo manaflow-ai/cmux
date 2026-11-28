@@ -71,23 +71,43 @@ export function isFreestyleOverload(error: unknown): boolean {
 }
 
 /**
+ * A 429 overload or any 5xx: Freestyle failed on its side and the same request
+ * may pass when asked again. Only for calls that are safe to repeat (a resize
+ * to a fixed target is; a snapshot, which would make a second image, is not).
+ * Rebake run 45889121287 (11-26) lost the xl row, and with it the promotion of
+ * a passing bake, to one 500 INTERNAL_ERROR from POST /v5/vms/ID/resize.
+ */
+export function isFreestyleTransient(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return isFreestyleOverload(error) || (typeof status === "number" && status >= 500 && status < 600);
+}
+
+/**
  * Freestyle answers a VM start it has no capacity for with 429
  * INFRASTRUCTURE_OVERLOADED ("VM start capacity queue wait expired"). The
  * size ladder starts up to twelve VMs at once and the largest shapes queue
  * longest: rebake run 45818176059 lost xl and 2xl to it after the bake, the
  * verify and md..lgx had passed. Every VM start on the rebake path goes
- * through this: back off and ask again for up to ten minutes, and rethrow any
+ * through this: back off and ask again for up to ten minutes of backoff (the
+ * time Freestyle holds an ask in its queue does not count), and rethrow any
  * other error at once.
  */
-export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000): Promise<T> {
-  const deadline = Date.now() + budgetMs;
+export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000, retryable: (error: unknown) => boolean = isFreestyleOverload): Promise<T> {
+  // The budget is our own backoff between asks, not wall time: Freestyle holds
+  // each start in its capacity queue up to ten minutes before it answers 429,
+  // so a wall-clock budget was spent by the first ask and the overload was
+  // never asked again (rebake run 46028301324 attempt 2: verify asked at
+  // 22:05:52Z, 429 at 22:15:58Z, gave up with the bake done).
+  let waitedMs = 0;
   for (let attempt = 1, waitMs = firstWaitMs; ; attempt += 1, waitMs = Math.min(waitMs * 2, Math.max(firstWaitMs, 120_000))) {
     try {
       return await start();
     } catch (error) {
-      if (!isFreestyleOverload(error) || Date.now() + waitMs > deadline) throw error;
-      const e = error as { code?: unknown; message?: unknown };
-      console.log(`${label}: Freestyle start capacity overloaded (${String(e?.message ?? e?.code)}); retry ${attempt} in ${waitMs / 1000}s`);
+      if (!retryable(error) || waitedMs + waitMs > budgetMs) throw error;
+      waitedMs += waitMs;
+      const e = error as { status?: unknown; code?: unknown; message?: unknown };
+      const why = isFreestyleOverload(error) ? "Freestyle start capacity overloaded" : `Freestyle answered ${String(e?.status)} ${String(e?.code)}`;
+      console.log(`${label}: ${why} (${String(e?.message ?? e?.code)}); retry ${attempt} in ${waitMs / 1000}s`);
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
   }
@@ -1476,11 +1496,32 @@ export function devboxSettleBeforeSnapshotCommand(): string {
  * Code start with that config dir rewrites the file without `theme` (Claude
  * drops values equal to its defaults) and adds per-install ids
  * (firstStartTime, machineID, userID) every clone would then share. The bake
- * runs it right before the snapshot and the verifier on the clone, so a start
- * during the bake fails the bake, not the verify after it.
+ * runs it right before the snapshot, so a start during the bake fails the
+ * bake; the clone, where the warm pool starts Claude on resume, runs
+ * devboxClaudeTeamCloneCheckCommand.
  */
 export function devboxClaudeTeamOnboardingCheckCommand(homes: readonly string[] = ["/root", DEVBOX_WORK_HOME]): string {
   return `python3 -c 'import json, pathlib; homes = ${JSON.stringify(homes)}; configs = [pathlib.Path(h) / ".config/cmux/claude-team/.claude.json" for h in homes]; rows = [json.loads(p.read_text()) for p in configs]; assert all(j.get("hasCompletedOnboarding") is True and j.get("theme") == "dark" and j.get("projects", {}).get("/", {}).get("hasTrustDialogAccepted") is True and "-vm-edge-placeholder" in j.get("customApiKeyResponses", {}).get("approved", []) and "firstStartTime" not in j for j in rows), rows; assert all(p.stat().st_mode & 0o777 == 0o600 for p in configs)' && echo claude-team-onboarding-ok`;
+}
+
+/**
+ * The clone-side form of devboxClaudeTeamOnboardingCheckCommand. Since the
+ * warm pool (#53075, #54995, #55786) acpmux starts a spare Claude chat as soon
+ * as a clone resumes, so the work user's team config is rewritten within
+ * seconds of resume (rebake 45947789684: firstStartTime 8 s after resume,
+ * `theme` dropped). That start is the clone's own: its ids belong to that one
+ * machine. What must still hold is what a resumed Claude keeps (onboarding
+ * done, "/" trusted, the placeholder key approved, mode 0600) and that any
+ * per-install ids postdate the bake: firstStartTime is newer than
+ * `stampPath` (written by the bake's image-stamp step, after which the
+ * pre-snapshot check already proved no Claude ran). A file with no
+ * firstStartTime is still the untouched seed, theme and all.
+ */
+export function devboxClaudeTeamCloneCheckCommand(
+  homes: readonly string[] = ["/root", DEVBOX_WORK_HOME],
+  stampPath = "/etc/cmux/image-stamp",
+): string {
+  return `python3 -c 'import datetime, json, os, pathlib; homes = ${JSON.stringify(homes)}; stamp = os.stat(${JSON.stringify(stampPath)}).st_mtime; configs = [pathlib.Path(h) / ".config/cmux/claude-team/.claude.json" for h in homes]; rows = [json.loads(p.read_text()) for p in configs]; kept = lambda j: j.get("hasCompletedOnboarding") is True and j.get("projects", {}).get("/", {}).get("hasTrustDialogAccepted") is True and "-vm-edge-placeholder" in j.get("customApiKeyResponses", {}).get("approved", []); started = lambda j: datetime.datetime.fromisoformat(j["firstStartTime"].replace("Z", "+00:00")).timestamp(); ours = lambda j: (j.get("theme") == "dark" and not any(k in j for k in ("machineID", "userID"))) if "firstStartTime" not in j else started(j) > stamp; assert all(kept(j) and ours(j) for j in rows), rows; assert all(p.stat().st_mode & 0o777 == 0o600 for p in configs)' && echo claude-team-onboarding-ok`;
 }
 
 /**
