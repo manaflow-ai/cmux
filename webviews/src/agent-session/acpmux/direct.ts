@@ -16919,10 +16919,18 @@ export class AcpmuxDirectClient {
         if (result?.sessionId) this.takeBackFork(String(result.sessionId));
         return undefined;
       }
-      if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
+      if (!result?.sessionId) return undefined;
+      // A fork for its own tab names its source itself (`sessionId`), so the page reselecting
+      // meanwhile (a tab rebound, a fallback) changes nothing about where it opens: it still opens.
       if (stay) {
         this.handOverForkTail(sessionId, result);
         return String(result.sessionId);
+      }
+      // A fork that would open in this pane after the reader opened another chat opens nowhere:
+      // acpmux made it all the same, so it is taken back, never left as a chat nobody opened.
+      if (generation !== this.selectionGeneration) {
+        this.takeBackFork(String(result.sessionId));
+        return undefined;
       }
       return await this.select(String(result.sessionId));
     } catch (error) {
