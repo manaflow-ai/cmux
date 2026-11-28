@@ -398,7 +398,7 @@ test("a chat that ran on is read from where its read stopped, not as a whole pag
 /// `agent_start_waiting`, every 10 s) kept no tail, so every change in the list read it again: each
 /// tick re-asked its page while its transcript never moved. Asked once, then again only once it does.
 test("a chat whose page holds nothing to keep is not read again until its transcript moves", async () => {
-  prefix = "0190e000";
+  prefix = "0190f000";
   rows = makeRows();
   const pending = rows.slice(1, 4);
   for (const row of pending) row.transcriptSeq = 0;
