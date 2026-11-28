@@ -123,6 +123,14 @@ final class CEFLayerHosting {
     /// only when the deadline value changes, so a surviving sibling does not sit out Chromium's 500 ms wait.
     nonisolated static let resizeSyncReapply = ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_SYNC_REAPPLY"] == "1"
 
+    /// `CMUX_CEF_SPRING_REST_ALL=1` (default off, instant-splits close flatness): in a split's, close's or zoom's spring
+    /// every page lays out once at the size it rests at, as the page holding the keys already does
+    /// (``CEFTabContentView/paneMotionWillRest(sizeChange:)``), instead of following its pane at each frame's size. A
+    /// close in a 9-pane window posted ~7 geometry changes per surviving page, each a page window resize and a relayout
+    /// of a heavy page. Off, the default, keeps the per-frame follow Leo asked for (2026-11-08): it changes what a
+    /// close shows, so it stays an A/B until he picks it.
+    nonisolated static let springRestsEveryPage = ProcessInfo.processInfo.environment["CMUX_CEF_SPRING_REST_ALL"] == "1"
+
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
