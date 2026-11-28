@@ -768,11 +768,12 @@ jobs:
     environment: pr-media
     # contents: write reaches the pr-media branch (the code branches are protected by their rulesets);
     # pull-requests: write edits or posts the one comment; actions: write starts one more look and finds a
-    # gallery run on the head.
+    # gallery run on the head; statuses: write posts cmux/ui-proof's failure for a look that could not run.
     permissions:
       contents: write
       pull-requests: write
       actions: write
+      statuses: write
     steps:
       # A reused pool workspace breaks this sparse checkout (see the plan job).
       - name: Drop a reused workspace's repository
@@ -921,8 +922,9 @@ jobs:
           set -euo pipefail
           python3 scripts/cmux-next/hot-verify-ci.py result --pr "$PR" --head "$HEAD_SHA" > "$RUNNER_TEMP/result.out"
           url="$(sed -n 's/^url=//p' "$RUNNER_TEMP/result.out")"
-          echo "hot verify: the fleet's look: $(sed -n 's/^reason=//p' "$RUNNER_TEMP/result.out")" | tee -a "$GITHUB_STEP_SUMMARY"
-          { echo "url=$url"; [[ -n "$url" ]] && echo "tar=true" || echo "tar=false"; } >> "$GITHUB_OUTPUT"
+          reason="$(sed -n 's/^reason=//p' "$RUNNER_TEMP/result.out" | head -n 1 | tr -d '\r')"
+          echo "hot verify: the fleet's look: $reason" | tee -a "$GITHUB_STEP_SUMMARY"
+          { echo "url=$url"; [[ -n "$url" ]] && echo "tar=true" || echo "tar=false"; echo "reason=$reason"; } >> "$GITHUB_OUTPUT"
       # The fleet step's out.tar, from the fleet artifact store's signed link (the controller's look_result): data
       # from a fleet worker, unpacked and checked below before anything is published.
       - name: Download the look's out.tar
@@ -975,6 +977,7 @@ jobs:
       # held for one API call. It goes out on the pools first, then the job's cmux-bot spare (actions: write, minted
       # above), then github.token, and waits at most 2 minutes once all are spent (#59431, goal ci-min-per-pr-30).
       - name: Dispatch one more look
+        id: again
         if: ${{ steps.check.outputs.ok == 'true' && (steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && inputs.attempt != '1' }}
         env:
           GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
@@ -1113,3 +1116,33 @@ jobs:
           GH_TOKEN="$POST_TOKEN" gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$OUT/proof-record.md" || exit 1
           python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import ui_proof_verdict as v; print(v.rerun_gate(*sys.argv[1:]))' \
             "$GITHUB_REPOSITORY" "$HEAD_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+      # A look that made no record left cmux/ui-proof pending with nothing coming to answer it: on 2026-11-27
+      # cmux#61289, #61543 and #61546 sat pending 4 h+ while each look was cancelled ("no fleet Mac took the look
+      # within 3h0m0s"), started once more and cancelled or late again, and no status said so. Leo, 2026-11-27: "we
+      # need to be fixing reds as they come instead of just waving them off". Now every result run whose look gave
+      # no record posts cmux/ui-proof failure with the look's reason (a later passing record reruns the gate, which
+      # turns it to success; a gate rerun with no record keeps it). A merge look has no gate to answer.
+      - name: Post cmux/ui-proof for a look that could not run
+        if: ${{ always() && steps.check.outputs.ok == 'true' && inputs.kind != 'merge' && (steps.result.outcome == 'failure' || steps.result.outputs.tar == 'false' || steps.stage.outcome == 'failure' || steps.stage.outputs.again == 'true' || steps.stage.outputs.nothing == 'true' || steps.stage.outputs.needs_build == 'true') }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          TOKENS: ${{ github.token }} ${{ env.CI_POOL_GH_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.head }}
+          PR: ${{ inputs.pr }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT_OUTCOME: ${{ steps.result.outcome }}
+          REASON: ${{ steps.result.outputs.reason }}
+          TAR: ${{ steps.result.outputs.tar }}
+          STAGE_OUTCOME: ${{ steps.stage.outcome }}
+          NO_RECEIPT: ${{ steps.stage.outputs.again }}
+          NOTHING: ${{ steps.stage.outputs.nothing }}
+          NEEDS_BUILD: ${{ steps.stage.outputs.needs_build }}
+          AGAIN: ${{ steps.again.outcome }}
+        run: |
+          set -uo pipefail
+          why="$(python3 scripts/ci/ui_proof_verdict.py look-reason)"
+          again=()
+          [[ "$AGAIN" == success ]] && again=(--again)
+          python3 scripts/ci/ui_proof_verdict.py look-failed --pr "$PR" --reason "$why" ${again[@]+"${again[@]}"} | tee -a "$GITHUB_STEP_SUMMARY"
