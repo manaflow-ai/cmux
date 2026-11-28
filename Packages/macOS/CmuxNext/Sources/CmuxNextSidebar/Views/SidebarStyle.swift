@@ -215,7 +215,9 @@ enum SidebarStyle {
     /// to the square but a hairline (22 pt); Lawrence 2026-10-21 reverted that: "bottom footer
     /// thing too big, revert to old icon sizes".
     static var avatarDiameter: CGFloat { iconBox }
-    static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
+    /// The account/footer row: one plain row tall (24 pt compact, 32 comfortable). It was the subtitle row
+    /// less space2 (28/38 pt); Lawrence 2026-11-23: "height of this area is too tall".
+    static var footerHeight: CGFloat { Metrics.sidebarRowHeight }
     /// The margin under everything the sidebar draws: the 4 pt grid step (space2 at compact). It was
     /// space4 (8 pt) since Leo 2026-10-20. Lawrence 2026-10-27 (message 13901): the footer is still too
     /// tall, so the margin is cut.
