@@ -271,13 +271,14 @@ pub(crate) fn prune(dir: &Path, keep: usize) {
 /// macOS: `sample` of this process for 2 s, every thread's stack with its counts.
 #[cfg(target_os = "macos")]
 fn write_stacks(file: &Path) -> std::io::Result<()> {
-    let mut child = std::process::Command::new("/usr/bin/sample")
+    // cmux-process (cmuxterm-hq#9096): the sampler ends with this handle if the capture returns early.
+    let mut child = cmux_process::Command::new("/usr/bin/sample")
         .arg(std::process::id().to_string())
         .args(["2", "10", "-mayDie", "-file"])
         .arg(file)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::piped())
         .spawn()?;
     let deadline = Instant::now() + CAPTURE_BOUND;
     while Instant::now() < deadline {

@@ -69,6 +69,27 @@ export const admitAgentSlot = (storage: LedgerStorage, agent: string, limit: num
     return true;
   });
 
+/**
+ * Read only: what fills an agent key's budget, one line per VM or slot, for the refusal at its cap to name. A refusal
+ * that names only the count left 2026-11-28's smoke key at 2 of 2 with no VM listed and no way to tell a held create
+ * from a create in flight. `describeCreation` names a held create's idempotency state (phase and dispatch).
+ */
+export const describeAgentSlots = async (storage: LedgerStorage, agent: string, ownedVmIds: ReadonlyArray<string>, nowMs: number, describeCreation?: (storage: LedgerStorage, creationKey: string) => Promise<string>): Promise<ReadonlyArray<string>> => {
+  const lines = ownedVmIds.map((vmId) => `${vmId} listed`);
+  const listed = new Set(ownedVmIds);
+  for (const [key, value] of await storage.list({ prefix: prefixOf(agent) })) {
+    if (!isAgentSlot(value) || value.expiresMs <= nowMs) continue;
+    const left = `${Math.ceil((value.expiresMs - nowMs) / 60_000)} min left`;
+    if (value.creationKey !== undefined) {
+      const state = describeCreation === undefined ? "unknown" : await describeCreation(storage, value.creationKey);
+      lines.push(`${value.vmId ?? "a create"} held as may-exist (${state}), ${left}`);
+    } else if (value.vmId !== undefined) {
+      if (!listed.has(value.vmId)) lines.push(`${value.vmId} recorded, not listed yet, ${left}`);
+    } else lines.push(`a create in flight (${key.slice(prefixOf(agent).length, prefixOf(agent).length + 8)}), ${left}`);
+  }
+  return lines;
+};
+
 /** Ends a create's slot: keeps it naming the recorded VM, holds it for a create that may exist, or gives it back. */
 export const settleAgentSlot = (storage: LedgerStorage, agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> =>
   storage.transaction(async (tx) => {

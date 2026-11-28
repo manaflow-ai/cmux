@@ -49,6 +49,8 @@ export interface TenantLimitsService {
   readonly release: (tenantId: TenantId, reservationId: string) => Effect.Effect<void>;
   /** An agent key's live-VM budget, admitted atomically (agent-slots.ts): false at `limit`. */
   readonly admitAgentSlot: (tenantId: TenantId, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, slotId: string, heldBoundMs?: number) => Effect.Effect<boolean, LimitsUnavailable>;
+  /** Read only: one line per VM or slot filling an agent key's budget, for the cap refusal (agent-slots.ts). */
+  readonly describeAgentSlots: (tenantId: TenantId, agent: string, ownedVmIds: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<string>, LimitsUnavailable>;
   readonly settleAgentSlot: (tenantId: TenantId, agent: string, slotId: string, outcome: AgentSlotOutcome) => Effect.Effect<void, LimitsUnavailable>;
   readonly bindAgentCreation: (tenantId: TenantId, agent: string, creationKey: string, vmId: string) => Effect.Effect<void, LimitsUnavailable>;
   readonly forgetAgentVm: (tenantId: TenantId, vmId: string, creationKey: string | null) => Effect.Effect<void, LimitsUnavailable>;
@@ -96,6 +98,7 @@ interface LedgerHandle {
   reserve(kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string): Promise<ReserveDecision>;
   release(reservationId: string): Promise<void>;
   admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, heldBoundMs?: number): Promise<boolean>;
+  describeAgentSlots(agent: string, ownedVmIds: ReadonlyArray<string>, nowMs: number): Promise<ReadonlyArray<string>>;
   settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void>;
   bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void>;
   forgetAgentVm(vmId: string, creationKey: string | null): Promise<void>;
@@ -141,6 +144,7 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     // Releases are best effort: an unreleased reservation lapses on its own.
     release: (tenantId, reservationId) => call((ledger) => ledger.release(reservationId))(tenantId).pipe(Effect.ignore),
     admitAgentSlot: (tenantId, agent, limit, ownedVmIds, slotId, heldBoundMs) => call((ledger, now) => ledger.admitAgentSlot(agent, limit, ownedVmIds, now, slotId, heldBoundMs))(tenantId),
+    describeAgentSlots: (tenantId, agent, ownedVmIds) => call((ledger, now) => ledger.describeAgentSlots(agent, ownedVmIds, now))(tenantId),
     settleAgentSlot: (tenantId, agent, slotId, outcome) => call((ledger, now) => ledger.settleAgentSlot(agent, slotId, outcome, now))(tenantId),
     bindAgentCreation: (tenantId, agent, creationKey, vmId) => call((ledger, now) => ledger.bindAgentCreation(agent, creationKey, vmId, now))(tenantId),
     forgetAgentVm: (tenantId, vmId, creationKey) => call((ledger) => ledger.forgetAgentVm(vmId, creationKey))(tenantId),
@@ -196,6 +200,7 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
           await stub.release(reservationId);
         },
         admitAgentSlot: (agent, limit, ownedVmIds, nowMs, slotId, heldBoundMs) => decoded(Schema.Boolean)(stub.admitAgentSlot(agent, limit, [...ownedVmIds], nowMs, slotId, heldBoundMs)),
+        describeAgentSlots: (agent, ownedVmIds, nowMs) => decoded(Schema.Array(Schema.String))(stub.describeAgentSlots(agent, [...ownedVmIds], nowMs)),
         settleAgentSlot: async (agent, slotId, outcome, nowMs) => {
           await stub.settleAgentSlot(agent, slotId, outcome, nowMs);
         },

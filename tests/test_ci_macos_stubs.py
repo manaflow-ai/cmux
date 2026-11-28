@@ -12,12 +12,14 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import os
 import re
 import struct
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -271,6 +273,17 @@ class SysCrateCoverageTests(unittest.TestCase):
                                          "fn not_extern() {}\n")
             self.assertEqual(stubs.declared_externs(src), {"_kSecMatchSearchList", "_SecItemCopyMatching"})
 
+    def test_declared_externs_reads_objc2s_own_extern_macros(self) -> None:
+        # objc2::ffi declares the runtime in extern_c! / extern_c_unwind!, not a bare `extern "C" {`.
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp)
+            (src / "rc.rs").write_text("macro_rules! extern_c {\n    { $(pub fn $name:ident();)* } => {};\n}\n"
+                                       "extern_c! {\n    #[cfg(target_vendor = \"apple\")]\n"
+                                       "    pub fn objc_alloc(value: *const AnyClass) -> *mut AnyObject;\n}\n"
+                                       "extern_c_unwind! {\n    /// fn some_external_function() in a doc\n"
+                                       "    pub fn objc_msgSend(); // and the linker\n}\n")
+            self.assertEqual(stubs.declared_externs(src), {"_objc_alloc", "_objc_msgSend"})
+
     def test_locked_versions_names_only_the_binding_crates(self) -> None:
         lock = ('[[package]]\nname = "security-framework-sys"\nversion = "2.17.0"\n\n'
                 '[[package]]\nname = "security-framework"\nversion = "3.7.0"\n\n'
@@ -287,10 +300,142 @@ class SysCrateCoverageTests(unittest.TestCase):
         self.assertEqual(missing, [], "run: python3 scripts/ci/macos_stubs.py sys-crates scripts/ci/macos-stubs "
                                       "cmux-tui/Cargo.lock")
 
+    def test_every_locked_objc2_crate_is_classified(self) -> None:
+        # #56513 (iroh) locked objc2-core-wlan and objc2-security-foundation; their #[link(kind = "framework")]
+        # had no stub, so every Linux link of the daemon failed "framework not found for -framework CoreWLAN".
+        lock = (ROOT / LOCK_PATH).read_text()
+        known = set(stubs.SYS_CRATES) | set(stubs.OBJC2_STUBBED_FROM_BINARIES) | stubs.OBJC2_NOT_IN_DAEMON_BUILD
+        new = sorted({name for name, _ in stubs.LOCKED.findall(lock) if name.startswith("objc2")} - known)
+        self.assertEqual(new, [], "a new objc2 binding crate links its framework: add it to SYS_CRATES (then run "
+                                  "macos_stubs.py sys-crates) or to OBJC2_NOT_IN_DAEMON_BUILD in scripts/ci/macos_stubs.py")
+
+    def test_every_sys_crate_framework_has_a_stub(self) -> None:
+        for framework in set(stubs.SYS_CRATES.values()):
+            install, _ = stubs.read_stub(ROOT / "scripts/ci/macos-stubs" / f"{framework}.tbd")
+            # libobjc is a dylib, not a framework (objc2's runtime): its stub keeps /usr/lib/libobjc.A.dylib.
+            self.assertIn("/usr/lib/libobjc.A.dylib" if framework == "libobjc" else f"/{framework}.framework/", install)
+
+    def test_sys_crates_starts_a_stub_for_a_new_framework(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "src" / "objc2-core-wlan-9.9.9" / "src"
+            src.mkdir(parents=True)
+            (src / "lib.rs").write_text('extern "C" {\n    pub static CWErrorDomain: u8;\n}\n'
+                                        'extern "C-unwind" {\n    pub fn CWKeychainDeleteWiFiPassword() -> i32;\n}\n')
+            stub_dir = root / "stubs"
+            stub_dir.mkdir()
+            lock = root / "Cargo.lock"
+            lock.write_text('[[package]]\nname = "objc2-core-wlan"\nversion = "9.9.9"\n')
+            with mock.patch.dict(os.environ, {"SYS_CRATES_SRC": str(root / "src")}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    stubs.cmd_sys_crates(stub_dir, lock)
+            install, held = stubs.read_stub(stub_dir / "CoreWLAN.tbd")
+            self.assertEqual(install, "/System/Library/Frameworks/CoreWLAN.framework/Versions/A/CoreWLAN")
+            self.assertEqual(held, {"_CWErrorDomain", "_CWKeychainDeleteWiFiPassword"})
+
     def test_the_stubs_hold_the_keychain_search_that_broke_the_link(self) -> None:
         held = stubs.read_stub(ROOT / "scripts/ci/macos-stubs/Security.tbd")[1]
         for name in ("_kSecMatchSearchList", "_SecKeychainItemDelete", "_kSecUseAuthenticationUISkip"):
             self.assertIn(name, held)
+
+    def test_the_stubs_hold_the_objc_runtime_calls_that_broke_the_link(self) -> None:
+        # 2026-11-28: every Linux link of cmux-tui failed "undefined symbol: objc_alloc" and 4 more (objc2).
+        held = stubs.read_stub(ROOT / "scripts/ci/macos-stubs/libobjc.tbd")[1]
+        for name in ("_objc_alloc", "_sel_getName", "_class_getName", "_class_isMetaClass", "_object_getClass"):
+            self.assertIn(name, held)
+        # A libSystem routine bound to libobjc would not resolve on a Mac: sys-crates drops what libSystem exports
+        # (MACOS_STUBS_SYSTEM_TBD), and a comment's words are no symbols.
+        for name in ("_free", "_dlopen", "_dlsym", "_sysctlbyname", "_pthread_main_np", "_and", "_linker"):
+            self.assertNotIn(name, held)
+
+
+# Every other locked crates.io package: lock-scan.txt records what each declares against an Apple framework, and
+# the stubs hold those names. #54956's keychain search came through a crate the source-extern test above could not
+# see; a crate outside SYS_CRATES that declares its own framework externs (a keychain, notification or IOKit
+# binding) would fail the pool's link the same way at its first call.
+LOCK_SCAN_PATH = "scripts/ci/macos-stubs/lock-scan.txt"
+LOCK_SCAN_CMD = "python3 scripts/ci/macos_stubs.py lock-scan scripts/ci/macos-stubs cmux-tui/Cargo.lock"
+
+
+class LockScanTests(unittest.TestCase):
+    def test_a_framework_link_names_its_block_and_a_build_script_its_framework(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            crate = Path(tmp)
+            (crate / "src").mkdir()
+            (crate / "src" / "lib.rs").write_text(
+                '#[cfg_attr(target_os = "macos", link(name = "IOKit", kind = "framework"))]\n#[allow(dead_code)]\n'
+                'unsafe extern "C" {\n    pub fn IOServiceMatching(name: *const u8) -> *mut u8;\n'
+                "    pub static kIOMasterPortDefault: u32;\n}\n"
+                '#[link(name = "CoreFoundation", kind = "framework")]\nextern "C" {\n'
+                "    fn CFTimeZoneCopySystem() -> *const u8;\n}\n"
+                'extern "C" { fn not_a_framework(); }\n')
+            (crate / "build.rs").write_text('fn main() { println!("cargo:rustc-link-lib=framework=CoreWLAN"); }\n')
+            self.assertEqual(stubs.framework_declarations(crate), {
+                "IOKit": {"_IOServiceMatching", "_kIOMasterPortDefault"},
+                "CoreFoundation": {"_CFTimeZoneCopySystem"}, "CoreWLAN": set()})
+
+    def test_lock_scan_skips_what_sys_crates_covers_and_non_registry_packages(self) -> None:
+        lock = ('[[package]]\nname = "core-foundation-sys"\nversion = "0.8.7"\n'
+                'source = "registry+https://github.com/rust-lang/crates.io-index"\n\n'
+                '[[package]]\nname = "objc2-app-kit"\nversion = "0.3.2"\n'
+                'source = "registry+https://github.com/rust-lang/crates.io-index"\n\n'
+                '[[package]]\nname = "cmux-tui"\nversion = "0.1.0"\n\n'
+                '[[package]]\nname = "iana-time-zone"\nversion = "0.1.63"\n'
+                'source = "registry+https://github.com/rust-lang/crates.io-index"\n')
+        self.assertEqual(stubs.lock_scan_packages(lock), [("iana-time-zone", "0.1.63")])
+
+    def test_lock_scan_records_each_crate_and_fills_the_stub(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for leaf, body in (("keys-1.0.0", '#[link(name = "Security", kind = "framework")]\nextern "C" {\n'
+                                              "    pub fn SecKeychainItemDelete(item: *mut u8) -> i32;\n}\n"),
+                               ("plain-2.0.0", "pub fn nothing() {}\n")):
+                (root / "src" / leaf / "src").mkdir(parents=True)
+                (root / "src" / leaf / "src" / "lib.rs").write_text(body)
+            stub_dir = root / "stubs"
+            stub_dir.mkdir()
+            lock = root / "Cargo.lock"
+            lock.write_text("".join(f'[[package]]\nname = "{n}"\nversion = "{v}"\n'
+                                    'source = "registry+https://github.com/rust-lang/crates.io-index"\n\n'
+                                    for n, v in (("keys", "1.0.0"), ("plain", "2.0.0"))))
+            with mock.patch.dict(os.environ, {"SYS_CRATES_SRC": str(root / "src")}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    stubs.cmd_lock_scan(stub_dir, lock)
+            self.assertEqual(stubs.read_lock_scan(stub_dir / "lock-scan.txt"),
+                             {("keys", "1.0.0"): {"Security": {"_SecKeychainItemDelete"}}, ("plain", "2.0.0"): {}})
+            install, held = stubs.read_stub(stub_dir / "Security.tbd")
+            self.assertEqual(install, "/System/Library/Frameworks/Security.framework/Versions/A/Security")
+            self.assertEqual(held, {"_SecKeychainItemDelete"})
+
+    def test_every_recorded_framework_name_is_in_its_stub(self) -> None:
+        stub_dir, missing = ROOT / "scripts/ci/macos-stubs", []
+        for (name, version), declared in sorted(stubs.read_lock_scan(ROOT / LOCK_SCAN_PATH).items()):
+            for framework, names in sorted(declared.items()):
+                path = stub_dir / f"{framework}.tbd"
+                if not path.exists():
+                    missing.append(f"{name} {version}: no {framework}.tbd")
+                    continue
+                lacks = sorted(names - stubs.read_stub(path)[1])
+                if lacks:
+                    missing.append(f"{name} {version}: {framework}.tbd lacks {', '.join(lacks[:8])}")
+        self.assertEqual(missing, [], f"run: {LOCK_SCAN_CMD}")
+
+    def test_every_locked_package_is_scanned(self) -> None:
+        # A package lock-scan.txt lacks is read here (cargo's registry, else crates.io): one that declares no
+        # framework passes, so a lock bump costs nothing; one that declares a framework fails until lock-scan
+        # records it and its names are in the stub.
+        record = stubs.read_lock_scan(ROOT / LOCK_SCAN_PATH)
+        unread = [p for p in stubs.lock_scan_packages((ROOT / LOCK_PATH).read_text()) if p not in record]
+        if not unread:
+            return
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                found = stubs.scan_packages(unread, Path(tmp))
+        except OSError as error:
+            self.fail(f"{len(unread)} locked packages are not in {LOCK_SCAN_PATH} and could not be read "
+                      f"({error}); run: {LOCK_SCAN_CMD}")
+        declaring = [f"{n} {v}: {', '.join(sorted(found[(n, v)]))}" for n, v in unread if found[(n, v)]]
+        self.assertEqual(declaring, [], f"these locked packages link Apple frameworks; run: {LOCK_SCAN_CMD}")
 
 
 class MergeStubs(unittest.TestCase):

@@ -768,3 +768,46 @@ fn more_big_blobs_than_processes_never_wait_on_a_held_stream() {
     let live = blobs.held.pool.lock().unwrap().live;
     assert_eq!(live, blobs.pooled(), "no process counted twice");
 }
+
+#[test]
+fn a_shared_listings_folder_keeps_only_the_newest_and_a_new_commit_lists_from_them() {
+    let (dir, git_dir, commit) = repo();
+    let trees = shared_trees(&git_dir);
+    assert!(trees.starts_with(&git_dir), "one folder per mirror, shared by every mount of it");
+    std::fs::create_dir_all(&trees).unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    for n in 0..KEPT_LISTINGS + 3 {
+        let stale = trees.join(format!("{n:040}"));
+        std::fs::write(&stale, b"").unwrap();
+        std::fs::File::options().write(true).open(&stale).unwrap().set_modified(old).unwrap();
+    }
+    std::fs::write(trees.join("partial.tmp1"), b"").unwrap();
+    ls_tree_cached(&git_dir, &commit, &trees.join(&commit)).unwrap();
+    let names: Vec<String> = std::fs::read_dir(&trees)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| !name.contains('.'))
+        .collect();
+    assert_eq!(names.len(), KEPT_LISTINGS, "{names:?}");
+    assert!(names.contains(&commit), "the listing just written is kept");
+    assert!(trees.join("partial.tmp1").exists(), "a writer's temp file is left alone");
+
+    // A second worktree's first mount of the next commit asks for no size the first one listed.
+    let work = dir.path().join("work");
+    std::fs::write(work.join("new.txt"), "new\n").unwrap();
+    run(&work, &["add", "-A"]);
+    run(&work, &["commit", "-q", "-m", "two"]);
+    let two = run(&work, &["rev-parse", "HEAD"]).trim().to_owned();
+    let all = ls_tree(&git_dir, &two).unwrap();
+    let kept = oid_of(&all, "a-b");
+    std::fs::remove_file(loose(&git_dir, &kept)).unwrap();
+    let asked = Mutex::new(Vec::<String>::new());
+    let listed = ls_tree_cached_with(&git_dir, &two, &trees.join(&two), &|oids| {
+        asked.lock().unwrap().extend(oids.iter().cloned());
+        Ok(())
+    })
+    .unwrap();
+    assert!(asked.lock().unwrap().is_empty(), "every size came from the shared listing");
+    assert_eq!(listed.iter().find(|i| i.path == "a-b").unwrap().size, 5);
+}

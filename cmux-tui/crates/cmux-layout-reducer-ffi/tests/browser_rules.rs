@@ -1,6 +1,5 @@
-//! `browser_rules_*` through the C ABI: the app sends a Chromium window request and gets back where
-//! it goes, a WebKit link click's modifiers and gets back what it does, and a tab state machine
-//! with an engine's events and gets back the tab's state.
+//! Browser rules through the C ABI. The app asks where a link opens, how an engine event updates
+//! a tab, and how URL filtering, agent navigation, downloads and password filling are decided.
 
 use cmux_layout_reducer_ffi::{ERR_INVALID, OK, cmux_layout_reducer_json};
 use serde_json::{Value, json};
@@ -71,6 +70,50 @@ fn browser_rules_tab_state_apply_ignores_a_superseded_loads_late_failure() {
     assert_eq!(state["url"], "https://b.example/");
     assert_eq!(state["security"], json!({"secure": {}}));
     assert_eq!(state["activeNavigation"], json!({"rawValue": 2}));
+}
+
+#[test]
+fn browser_rules_url_policies_answer_through_the_c_abi() {
+    let request = json!({"blocklist": ["*"], "allowlist": ["example.com"],
+                         "urls": ["https://docs.example.com/a", "https://other.org", "about:blank"]});
+    let (code, body) =
+        call("browser_rules_url_filter_blocks", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!([false, true, false]));
+
+    let (code, body) =
+        call("browser_rules_agent_url_refuses", br#"{"url": "chrome://password-manager"}"#);
+    assert_eq!(code, OK);
+    assert_eq!(body, json!(true));
+
+    let (code, body) =
+        call("browser_rules_download_decision", br#"{"isFirst": false, "setting": "ask"}"#);
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"ask": {}}));
+
+    let (code, body) = call("browser_rules_password_fill_switch", br#"{"agentDriven": true}"#);
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"state": {"allowedByProfile": true, "switchedOff": true}, "value": 0}));
+}
+
+#[test]
+fn browser_rules_input_key_stroke_gives_a_meta_shortcut_its_editing_command() {
+    let request = json!({"key": "z", "code": "KeyZ", "modifiers": ["Meta", "Shift"]});
+    let (code, body) =
+        call("browser_rules_input_key_stroke", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body["keyCode"], json!(6));
+    assert_eq!(body["modifierFlags"], json!((1u64 << 20) | (1u64 << 17)));
+    assert_eq!(body["editingCommand"], json!("redo:"));
+}
+
+#[test]
+fn browser_rules_input_mouse_event_drags_while_a_button_is_held() {
+    let request = json!({"held": ["left"], "type": "move", "button": "left"});
+    let (code, body) =
+        call("browser_rules_input_mouse_event", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"eventType": "leftMouseDragged", "held": ["left"]}));
 }
 
 #[test]
@@ -170,4 +213,27 @@ fn browser_rules_automation_console_event_maps_a_pageerror() {
         call("browser_rules_automation_console_event", &serde_json::to_vec(&request).unwrap());
     assert_eq!(code, OK);
     assert_eq!(body, json!({"name": "pageerror", "payload": {"message": "boom", "stack": "boom"}}));
+}
+
+#[test]
+fn browser_rules_linkroute_sign_in_to_close_names_the_one_tab_on_the_provider() {
+    let request = json!({
+        "tabs": [{"shown": [{"scheme": "https", "host": "example.com"}]},
+                 {"shown": [null, {"scheme": "https", "host": "GitHub.com"}]}],
+        "host": "github.com", "hosts": [],
+    });
+    let (code, body) =
+        call("browser_rules_linkroute_sign_in_to_close", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!(1));
+}
+
+#[test]
+fn browser_rules_linkroute_is_new_tab_page_knows_the_blank_and_chromium_pages() {
+    let (code, body) =
+        call("browser_rules_linkroute_is_new_tab_page", br#"{"text":"chrome://newtab/"}"#);
+    assert_eq!(code, OK);
+    assert_eq!(body, json!(true));
+    let (code, _) = call("browser_rules_linkroute_is_new_tab_page", b"{}");
+    assert_eq!(code, ERR_INVALID);
 }

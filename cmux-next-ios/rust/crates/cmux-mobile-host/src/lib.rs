@@ -12,6 +12,7 @@
 
 pub mod acpmux_policy;
 pub mod activity;
+pub mod api;
 pub mod appearance;
 pub mod auth;
 pub mod browser;
@@ -21,7 +22,6 @@ pub mod bundle;
 pub mod catch_up;
 pub mod chief_answers;
 pub mod chief_policy;
-pub(crate) mod cloud_acp;
 pub mod config;
 pub mod control;
 pub mod dial_mailbox;

@@ -72,6 +72,7 @@ import { liveThought, thoughtOnly } from "../liveThought";
 import { changeHidden } from "../drawnRows";
 import { callOnly, liveCallLine, setLiveLine } from "../liveCallLine";
 import { liveSummary, usageOnly } from "../liveSummary";
+import { hiddenReply, hiddenReplyOnly } from "../hiddenReply";
 import { pageLanes } from "../schedule/lanes";
 import type { ComposerHandle, ComposerWake } from "../Composer";
 import { composerReadback, takeExternalInto } from "../composer/externalAttach";
@@ -154,10 +155,10 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
-  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
@@ -209,7 +210,9 @@ import type { ShownChrome } from "../shownChrome";
 import { applyPaneTheme, applyPaneThemeCSS } from "../paneTheme";
 import { dismissFocusRing } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
-import { currentRegistry, NEW_TAB_CLOSE_EVENT, streamedOnly } from "../App";
+import { NEW_TAB_CLOSE_EVENT } from "../App";
+import { currentRegistry } from "../currentRegistry";
+import { streamedOnly } from "../streamedOnly";
 import {
   failedRowIds,
   heldGoesAfterTrust,
@@ -929,6 +932,7 @@ export function paneSnapshotEffect({
     toolOutputEpoch.current = liveToolOutput.redraw();
     thoughtEpoch.current = liveThought.redraw();
     liveCallLine.redraw(next);
+    hiddenReply.redraw(next);
     const drewBefore = drawnSnapshot.current;
     drawnSnapshot.current = next;
     const draw = () =>
@@ -949,6 +953,11 @@ export function paneSnapshotEffect({
   // A pass drew the running turn from the pane's older rows while its line ran ahead on hidden
   // calls (liveCallLine.ts): the client's newest snapshot, at once.
   const unregisterLineFlush = liveCallLine.onFlush(() => {
+    const next = receivedSnapshot.current;
+    if (!cancelled && next) redrawPane(next, true);
+  });
+  // A pass drew a background reply the pane went around while its line hid it (hiddenReply.ts).
+  const unregisterHiddenFlush = hiddenReply.onFlush(() => {
     const next = receivedSnapshot.current;
     if (!cancelled && next) redrawPane(next, true);
   });
@@ -1114,7 +1123,7 @@ export function paneSnapshotEffect({
       if (received.folder) setHandedFolder(received.folder);
       // A started Cloud chat's pick of another agent: this new Cloud chat's Cloud send starts on it
       // (cloudAgentPick.ts), and this Mac's own remembered pick stays as it was (cmux#51731).
-      if (received.agent) holdCloudAgentPick(received.agent);
+      if (received.agent) holdCloudAgentPick({ ...received.agent, handed: true });
       // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
       if (typeof host.tab === "string" && host.tab) {
         setSessionInfoTab(host.tab);
@@ -1379,6 +1388,14 @@ export function paneSnapshotEffect({
           const at = drawn ? streamedOnly(drawn, next) : -1;
           if (drawn && at >= 0) {
             streamingRow.set(next.rows[at]!, drawn.rows[at]!);
+            liveCallLine.follow(received, next);
+            return;
+          }
+          // Only a background turn's reply grew while its line hides it (hiddenReply.ts): no row
+          // anyone sees changed; the pane, the transcript and the composer keep what they drew.
+          const hidden = drawn ? hiddenReplyOnly(drawn, next) : -1;
+          if (drawn && hidden >= 0) {
+            hiddenReply.set(next, hidden);
             liveCallLine.follow(received, next);
             return;
           }
@@ -3198,6 +3215,7 @@ export function paneSnapshotEffect({
   return () => {
     cancelled = true;
     unregisterLineFlush();
+    unregisterHiddenFlush();
     unregisterViewBridge?.();
     for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
     for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);

@@ -818,6 +818,7 @@ class Swapper:
                 self.previous = new
                 return self.swap_acpmux(built, steps)
             restart = self.cli(new, "server", "restart")
+            self.marks["restarted"] = time.monotonic()
             if restart.returncode == 0:
                 steps["cmux-tui"] = "server restart"
             else:
@@ -833,6 +834,14 @@ class Swapper:
                                        + ("; the previous build is back" if back and back.returncode == 0 else ""))
                 steps["cmux-tui"] = "server stop + ensure"
             steps["cmux-tui_secs"] = round(time.monotonic() - t0, 3)
+            # Where the swap's time went (owner lookup, then the new build's first runs): a new executable's
+            # first exec on macOS waits for its malware scan, about 5 ms per MB (scripts/measure/macos-first-exec.sh).
+            self.marks["done"] = time.monotonic()
+            steps["trace"] = self.handoff_trace()
+            try:
+                steps["cmux-tui_bytes"] = new.stat().st_size
+            except OSError:
+                pass
             self.previous = new
         return self.swap_acpmux(built, steps)
 
