@@ -3187,6 +3187,12 @@ fn start_punch(carrier: &Arc<HubCarrier>, port: u16) -> Option<tokio::task::Join
         direct::scope().spawn_named("hub carrier port map", async move {
             punch::portmap::keep_mapped(mapping, port).await;
         });
+        if punch::reflexive::enabled() {
+            let learning = Arc::downgrade(carrier);
+            direct::scope().spawn_named("hub carrier public address", async move {
+                punch::reflexive::keep_learned(learning, port).await;
+            });
+        }
     }
     Some(carrier.serve_direct(listener))
 }
