@@ -16,6 +16,14 @@ angle measures a baseline window on the quiet app, then applies its stressor and
            --cli-clients threads calling snapshot.get / debug.windows / workspace list as fast as answered.
   memory   Memory pressure: --memory-fraction x RAM of incompressible dirty pages (stress_load.py memory) until
            the machine compresses and swaps.
+  starve   Whether a starved app stays recoverable (Leo, 2026-11-12: "just bc it's starved tho like... that shouldn't
+           cause the app to become irrecoverable"). Not in the default list. A quiet cold open first, then CPU
+           (stress_load.py cpu) plus --starve-memory-fraction x RAM held for the whole angle; under it: a cold open
+           (opened at all, seconds to answer), --starve-idle-seconds of idle with no input (the main-thread stalls it
+           saw, and how many reached 2 s, when macOS starts the spinning cursor, and 5 s), a measured window; then the
+           load ends and the bench times recovery: seconds until --recover-keys keys in a row answer within
+           max(50 ms, 2 x the quiet window's p95), bounded by --recover-seconds. `recovered: false` (or `opened:
+           false`) is a failure in the report.
 
 Each window records: frame time p50/p95 and dropped frames % (debug.frames, a display-link probe), input latency
 p50/p95 (debug.key round trips into a focused `zsh -f` terminal: the key waits on the main thread), daemon round
@@ -49,6 +57,7 @@ from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 
 VERSION = 1
 ANGLES = ("cpu", "chats", "scale", "cli", "memory")
+OPT_IN_ANGLES = ("starve",)
 FLOOD = "while :; do printf '%s flood line %s %s %s\\n' $RANDOM $RANDOM $RANDOM $RANDOM; done"
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -74,6 +83,10 @@ parser.add_argument("--cli-clients", type=int, default=16, help="cli angle: sock
 parser.add_argument("--cli-burst-workers", type=int, default=16, help="cli angle: stress-cli-socket-api.py --burst-workers")
 parser.add_argument("--memory-fraction", type=float, default=1.1, help="memory angle: allocate this share of RAM")
 parser.add_argument("--memory-cap-mb", type=int, default=0, help="memory angle: never more than this (0: free disk bound)")
+parser.add_argument("--starve-idle-seconds", type=float, default=300.0, help="starve angle: idle under load, no input")
+parser.add_argument("--starve-memory-fraction", type=float, default=0.8, help="starve angle: share of RAM held beside the CPU load")
+parser.add_argument("--recover-seconds", type=float, default=120.0, help="starve angle: bound on recovery after the load ends")
+parser.add_argument("--recover-keys", type=int, default=5, help="starve angle: keys in a row within bound that count as recovered")
 opts = parser.parse_args()
 
 OUT = os.path.abspath(opts.out)
@@ -557,6 +570,133 @@ class Memory(Angle):
 STRESSORS = {"cpu": Cpu, "chats": Chats, "scale": Scale, "cli": CliFlood, "memory": Memory}
 
 
+# ---------------------------------------------------------------- starve: does a starved app come back
+STALL_SPIN_MS, STALL_NOT_RESPONDING_MS = 2000, 5000
+
+
+def stall_counts(hangs):
+    """Main-thread stalls from one debug.hangs read: count, max, and how many reached 2 s and 5 s."""
+    if not isinstance(hangs, dict) or hangs.get("error"):
+        return {"stalls": None}
+    lengths = []
+    for record in hangs.get("records") or []:
+        if isinstance(record, dict):
+            ms = next((record[k] for k in ("duration_ms", "ms", "stall_ms") if isinstance(record.get(k), (int, float))), None)
+            if ms is not None:
+                lengths.append(ms)
+    return {"stalls": hangs.get("count"), "stall_max_ms": hangs.get("max_ms"), "stalls_listed": len(lengths),
+            "stalls_over_2s": sum(1 for ms in lengths if ms >= STALL_SPIN_MS),
+            "stalls_over_5s": sum(1 for ms in lengths if ms >= STALL_NOT_RESPONDING_MS)}
+
+
+def key_trip_ms():
+    k0 = time.perf_counter()
+    reply = rpc("debug.key", {"key": "a", "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)}, timeout=10)
+    if reply is None or (isinstance(reply, dict) and reply.get("error")):
+        return None
+    return (time.perf_counter() - k0) * 1000
+
+
+def recovery(bound_ms, seconds, need):
+    """Seconds from now until `need` keys in a row answer within bound_ms; None if not within `seconds`."""
+    t0, streak, trips = time.monotonic(), 0, []
+    while time.monotonic() - t0 < seconds:  # bounded by --recover-seconds
+        ms = key_trip_ms()
+        trips.append(round(ms, 1) if ms is not None else None)
+        streak = streak + 1 if ms is not None and ms <= bound_ms else 0
+        if streak >= need:
+            return round(time.monotonic() - t0, 2), trips
+        time.sleep(0.1)
+    return None, trips
+
+
+def starve_launch(label):
+    bench = BenchApp(APP, out=OUT, config={"browser": {"defaultEngine": "chromium"}}, window=WINDOW,
+                     log_name=f"app-stress-starve-{label}.log",
+                     env={"CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms)})
+    t0 = time.monotonic()
+    try:
+        bench.launch(timeout=180)
+    except LaunchError as error:
+        return bench, {"opened": False, "open_s": round(time.monotonic() - t0, 2), "reason": error.reason}
+    STATE["socket"], STATE["config"] = bench.socket, os.path.join(bench.scratch, "cmux.json")
+    return bench, {"opened": True, "open_s": bench.ready_seconds or round(time.monotonic() - t0, 2)}
+
+
+def typing_pane():
+    cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec /bin/zsh -f")
+    ws, panes = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("typing")), 60) or (None, [])
+    return ws, panes[0].get("id") if panes else None
+
+
+def run_starve():
+    entry = {"angle": "starve", "load": {}, "notes": [], "failures": []}
+    report["stress"]["angles"]["starve"] = entry
+    fail = lambda reason, **more: (entry["failures"].append(reason),  # noqa: E731
+                                   report["stress"]["failures"].append({"angle": "starve", "reason": reason, **more}))
+    # The quiet cold open and window: what "recovered" is measured against.
+    bench, entry["quiet_open"] = starve_launch("quiet")
+    try:
+        if not entry["quiet_open"]["opened"]:
+            fail("quiet_open_failed", detail=entry["quiet_open"].get("reason"))
+            return
+        typing = typing_pane()
+        entry["quiet"] = measure(bench.process.pid, typing, opts.window)
+        note(f"starve quiet: open {entry['quiet_open']['open_s']} s, {summary_line(entry['quiet'])}")
+    finally:
+        bench.stop()
+    quiet_p95 = entry["quiet"].get("input_p95_ms") or 25.0
+    bound_ms = max(50.0, 2 * quiet_p95)
+    entry["recover_bound_ms"] = round(bound_ms, 1)
+    # The load, held through the open, the idle and the loaded window.
+    hold = opts.starve_idle_seconds + opts.window + 400
+    procs = opts.cpu_procs or os.cpu_count() or 8
+    ram = ram_mb() or 16384
+    mb = int(ram * opts.starve_memory_fraction)
+    children = [stress_load.start_cpu(procs, opts.cpu_threads, hold), stress_load.start_memory(mb, hold)]
+    threading.Thread(target=lambda: [None for c in children for _ in c.stdout], daemon=True).start()
+    entry["load"] = {"procs": procs, "threads_each": opts.cpu_threads, "runnable_threads": procs * opts.cpu_threads,
+                     "cores": os.cpu_count(), "memory_mb": mb, "ram_mb": ram}
+    bench = None
+    try:
+        time.sleep(20)  # the load ramps: workers spin, pages fill
+        entry["load"]["load_avg_at_open"] = round(os.getloadavg()[0], 2)
+        entry["load"]["swap_used_mb_at_open"] = swap_used_mb()
+        bench, entry["loaded_open"] = starve_launch("loaded")
+        note(f"starve loaded open: {entry['loaded_open']}")
+        if not entry["loaded_open"]["opened"]:
+            fail("did_not_open_under_load", detail=entry["loaded_open"].get("reason"))
+            return
+        pid = bench.process.pid
+        typing = typing_pane()
+        rpc("debug.hangs", {"clear": True}, timeout=30)
+        time.sleep(opts.starve_idle_seconds)  # idle: no input, as when the app sits behind a starved machine
+        entry["idle"] = {"seconds": opts.starve_idle_seconds, "load_avg_1m": round(os.getloadavg()[0], 2),
+                         **stall_counts(rpc("debug.hangs", {"limit": 256}, timeout=60))}
+        note(f"starve idle under load: {entry['idle']}")
+        entry["loaded"] = measure(pid, typing, opts.window)
+        note(f"starve loaded window: {summary_line(entry['loaded'])}")
+    finally:
+        for child in children:
+            stress_load.stop(child)
+        entry["load"]["ended"] = True
+    try:
+        rpc("debug.hangs", {"clear": True}, timeout=60)
+        seconds, trips = recovery(bound_ms, opts.recover_seconds, opts.recover_keys)
+        entry["recovery"] = {"recovered": seconds is not None, "seconds": seconds, "bound_ms": round(bound_ms, 1),
+                             "keys_tried": len(trips), "first_keys_ms": trips[:20],
+                             **stall_counts(rpc("debug.hangs", {"limit": 256}, timeout=60))}
+        note(f"starve recovery: {entry['recovery']}")
+        if seconds is None:
+            fail("did_not_recover", detail=f"no {opts.recover_keys} keys in a row within {bound_ms:.0f} ms in {opts.recover_seconds} s")
+        else:
+            entry["recovered_window"] = measure(bench.process.pid, typing, opts.window)
+            note(f"starve recovered window: {summary_line(entry['recovered_window'])}")
+    finally:
+        bench.stop()
+        save()
+
+
 # ---------------------------------------------------------------- one angle
 def run_angle(name):
     entry = {"angle": name, "load": {}, "notes": []}
@@ -617,17 +757,25 @@ def summary_line(m):
 
 def main():
     angles = [a.strip() for a in opts.angles.split(",") if a.strip()]
-    unknown = [a for a in angles if a not in STRESSORS]
+    unknown = [a for a in angles if a not in STRESSORS and a not in OPT_IN_ANGLES]
     if unknown:
-        sys.exit(f"stress: unknown angles {unknown}; known: {','.join(ANGLES)}")
+        sys.exit(f"stress: unknown angles {unknown}; known: {','.join(ANGLES + OPT_IN_ANGLES)}")
     report["stress"]["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     report["stress"]["ram_mb"] = ram_mb()
     try:
         for name in angles:
-            run_angle(name)
+            if name == "starve":
+                try:
+                    run_starve()
+                except Exception as error:  # noqa: BLE001  one angle failing must not hide the others
+                    note(f"starve: failed: {error!r}")
+                    report["stress"]["failures"].append({"angle": "starve", "reason": "exception", "detail": repr(error)})
+                    save()
+            else:
+                run_angle(name)
     finally:
         save()
-    measured = [a for a, e in report["stress"]["angles"].items() if e.get("stress")]
+    measured = [a for a, e in report["stress"]["angles"].items() if e.get("stress") or e.get("recovery")]
     print(f"STRESS measured {measured} of {angles}; report {opts.json}", flush=True)
     sys.exit(0 if measured else 1)
 

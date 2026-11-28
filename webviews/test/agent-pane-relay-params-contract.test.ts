@@ -41,10 +41,9 @@ const policyKnown = new Map(
 /// What the page sends through the relay that the relay is known to refuse, each with why it stays.
 /// Nothing else may be here: a new entry is a decision about the relay, not a way to make this pass.
 const KNOWN_REFUSED: Record<string, string> = {
-  // Sent by the page, refused by both relay tables today; whether the pane relay serves them is the
-  // relay owners' call (inbox_threads reads a session's inbox; acpmux refuses it to agents).
+  // Sent by the page, refused by the relay table today; whether the pane relay serves it is the
+  // relay owners' call.
   "_acpmux/browser_workspaces": "browser device workspace list; not in the relay tables yet",
-  "_acpmux/inbox_threads": "a session's inbox threads; not in the relay tables yet",
   // schemas/agent-pane/methods.json `refused_today`: each a live bug, listed with its call site there.
   ...(
     JSON.parse(readFileSync(join(root, "schemas/agent-pane/methods.json"), "utf8")) as {
