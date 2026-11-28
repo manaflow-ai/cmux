@@ -697,6 +697,17 @@ const NO_ROWS: ReadonlyMap<string, AcpmuxRow> = new Map();
 /// scroll up waited on a daemon round trip every few screens (Leo, 2026-11-10: "the infinite
 /// scrolling does kind of work, but it's too slow. It needs to do more. It needs to do a lot").
 const OPEN_PAGE_BYTES = 128 * 1024;
+/// The page a chat's open paints first: about a screenful, newest kept. The open page refolded in full on
+/// every open, 400 records and 73 KiB for a 300-turn chat, and that refold was most of attach_to_latest
+/// on the small chat (2.00x calibration, goal chat-attach-p95); the god chat's 112 KiB of tool output
+/// cost the same on a slower runner. A fixed page makes the open cost the same at any chat size. What
+/// the open page held past it comes back in the older page read once the first one painted
+/// (`backfillOpen`), and the reader's scroll up reads on from there as before. A reconnect's forward
+/// page still asks OPEN_PAGE_BYTES: it must bring every record the pane missed.
+export const FIRST_PAGE_BYTES = 16 * 1024;
+export const FIRST_PAGE_RECORDS = 64;
+/// How long after the first page painted its backfill waits for an idle main thread, at most.
+const BACKFILL_IDLE_MS = 600;
 const OLDER_PAGE_BYTES = 1024 * 1024;
 /// An older ask the reader is not scrolling up for (`loadOlder`'s `rising` false: an open filling
 /// the view, a chat at rest within OLDER_AHEAD_VIEWPORTS of its loaded top) reads the page it read
@@ -6751,7 +6762,9 @@ export class AcpmuxDirectClient {
           visible,
           attending,
           local: guess ? guess.local : this.localOrigin,
-          maxBytes: OPEN_PAGE_BYTES,
+          ...(forward && afterSeq !== undefined && afterSeq > 0
+            ? { maxBytes: OPEN_PAGE_BYTES }
+            : { maxBytes: FIRST_PAGE_BYTES, limit: FIRST_PAGE_RECORDS }),
           afterSeq: forward ? afterSeq : undefined,
         }),
       );
@@ -7411,7 +7424,28 @@ export class AcpmuxDirectClient {
       if (!current()) return [];
     }
     this.emit("attached");
+    // A reconnect's laid forward page adds to rows already held: no first page to backfill under.
+    if (!forward?.laid) this.backfillOpen(sessionId, generation);
     return page;
+  }
+
+  /// Reads the older page under an open's first page (FIRST_PAGE_BYTES) once it painted, on an idle main
+  /// thread, so the history the open page used to hold is held again a moment later, read in the
+  /// background instead of before the first frame. One read, the at-rest page (OLDER_REST_PAGE_BYTES,
+  /// more than the old open page); `loadOlder` keeps the reader's place as it does for a scroll up.
+  private backfillOpen(sessionId: string, generation: number): void {
+    if (!this.seqHistoryLeft()) return;
+    const run = () => {
+      if (this.closed || this.selectedSessionId !== sessionId || generation !== this.selectionGeneration) return;
+      if (!this.seqHistoryLeft()) return;
+      this.loadOlder(undefined, false, false).catch(ignore);
+    };
+    const idle = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number })
+      .requestIdleCallback;
+    // After the frame the first page paints in, then when the main thread is idle.
+    const later = () => (idle ? idle(run, { timeout: BACKFILL_IDLE_MS }) : setTimeout(run, 0));
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(later);
+    else setTimeout(later, 0);
   }
 
   /// A chat opened with nothing of it drawn yet (no kept tail, no Mac's copy) takes its listed row as
