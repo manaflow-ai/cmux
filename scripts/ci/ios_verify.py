@@ -9,6 +9,8 @@
 2. Select. cmux-next-ios/FlowSuite/select_flows.py picks the flows the diff can affect (flows.json).
 3. Run, in parallel, on the simulator fleet: two shards by default, placed by the controller. Explicit --workers
    (or env CMUX_IOS_VERIFY_WORKERS; never cosmic-gray or air-blue) selects worker hints, one shard per worker.
+   A hint a reservation lease holds (read up front from `cmux-ci lease list`, or the controller's refusal) falls
+   to the next named worker, then to unpinned placement; --pin-strict never falls back.
    Each `cmux-ci run --class simulator` runs `test only=KIT ui=UI video` against scripts/ci/cmux-next-ios-sim.sh,
    reusing cached DerivedData, FFI/cargo cache and a slim simulator (--sim-features none); `pair-e2e` (a tagged DEBUG Mac pairs by QR, drops and
    reconnects) when a selected flow has "pair_e2e": true; the flows' `scripts` here. A flow's macOS `swift` tests
@@ -147,11 +149,18 @@ def delegated(selection: dict) -> list[dict]:
 # ---------- run ----------
 
 def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
-    """Identify one simulator submission, keeping its head, shard and worker visible in fleet logs."""
+    """Identify one simulator submission by its work, keeping its head and shard visible in fleet logs.
+
+    The worker is part of the key only under --pin-strict, where the host is the evidence: the same work
+    sent to cmux22 and aws-m4pro-4 is one step, and the fleet's idempotency key dedupes it instead of
+    queueing it twice (ios-sim-queue red, 11-27: pairs c71f2d2b1a45/dc356492a3bf, 7f3a4f1e9b47/45c3414ad5f8).
+    The digest leaves the head out (the key's full-sha head field carries it), so a newer head's step matches the older
+    queued one "commits aside" and cmux-ci's supersede replaces it rather than queueing both."""
     shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
-    workload = json.dumps([head, SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    workload = json.dumps([SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
     digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
-    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker'] or 'auto'}-{digest}"
+    pinned = f"-{step['worker']}" if strict else ""
+    return f"ios-verify-{pr}-{head}-{step['mode']}-{shard}{pinned}-{digest}"
 
 
 def stream(cmd: list[str], tag: str) -> tuple[int, str]:
@@ -166,7 +175,57 @@ def stream(cmd: list[str], tag: str) -> tuple[int, str]:
     return p.wait(), "".join(lines)
 
 
-def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
+# The controller refuses a step pinned (--target-worker) to a host a fleet registry reservation lease holds for another
+# account: "fleet registry reservation lease-...: nothing is moved to or tested on it ... omit target_worker so the job
+# places on the rest of the fleet". A worker hint was then a FAIL unrelated to the PR (cmux/ios-fast red on a lease).
+LEASE_REFUSAL = re.compile(r"reservation lease|omit target_worker", re.I)
+
+
+def short(host: str | None) -> str:
+    return (host or "").split(".")[0]
+
+
+def leased_hosts() -> set[str]:
+    """Short names of the hosts an active fleet lease holds (`cmux-ci lease list --json --active`), or an empty set
+    when the controller cannot say: the refusal check in run_step still catches a lease this read missed."""
+    try:
+        p = subprocess.run(["cmux-ci", "lease", "list", "--json", "--active"], capture_output=True, text=True,
+                           timeout=60)
+        rows = (json.loads(p.stdout or "{}").get("leases") or []) if p.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        return set()
+    return {short(h) for r in rows if isinstance(r, dict) for h in (r.get("hosts") or []) if h}
+
+
+def placements_for(step: dict, workers: list[str], strict: bool, leased: set[str]) -> list[str | None]:
+    """Where STEP may run, in order. Under --pin-strict, only its named worker (the host is the evidence). Otherwise
+    its worker hint, then the other named workers, skipping any a lease holds, then unpinned fleet placement."""
+    if strict or not step["worker"]:
+        return [step["worker"]]
+    order = [step["worker"], *(w for w in workers if w != step["worker"])]
+    return [w for w in order if short(w) not in leased] + [None]
+
+
+def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1",
+             workers: list[str] | None = None, leased: set[str] | None = None) -> dict:
+    """Run STEP on the first placement the controller takes. A placement refused for a reservation lease (and only
+    that refusal) moves to the next; under --pin-strict the refusal is the result."""
+    refused = []
+    for where in placements_for(step, workers or [], strict, leased or set()):
+        # A fallback gets its own key: off --pin-strict the key leaves the worker out, so the refused step's key
+        # would dedupe the retry back onto the refusal.
+        tries = attempt if not refused else f"{attempt}-fallback{len(refused)}"
+        run = dispatch_step({**step, "worker": where}, head, pr, strict, tries)
+        if strict or where is None or run["result"] == "pass" or not LEASE_REFUSAL.search(run["tail"]):
+            run["refused_workers"] = refused
+            return run
+        print(f"ios verify: {step['name']}: {where} is held by a reservation lease; trying the next placement",
+              file=sys.stderr, flush=True)
+        refused.append(where)
+    return run
+
+
+def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
            "--key", step_key(step, head, pr, strict, attempt),
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
@@ -188,9 +247,26 @@ def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -
             "exit": code, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
 
 
+# Where a flow's `scripts` run, and with which environment. By default the checkout this tool runs from (a person's
+# head checkout). --scripts-at puts them in another tree: the automatic run (.github/workflows/cmux-next-ios-verify-
+# auto.yml) runs this tool from the protected branch, so the head's scripts run in a worktree of the head, with no
+# token in their environment (SCRUBBED): head code never sees the token that posts the record.
+SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "TOKENS", "GH_TOKEN_SPARES", "CI_POOL_GH_TOKEN", "CI_POOL_GH_TOKEN_SPARES",
+            "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+SCRIPTS_AT: Path | None = None
+
+
 def run_script(script: str) -> dict:
     t0 = time.monotonic()
-    p = subprocess.run(shlex.split(script), capture_output=True, text=True, cwd=REPO_ROOT)
+    cwd, env = REPO_ROOT, None
+    if SCRIPTS_AT is not None:
+        cwd, env = SCRIPTS_AT, {k: v for k, v in os.environ.items() if k not in SCRUBBED}
+    try:
+        p = subprocess.run(shlex.split(script), capture_output=True, text=True, cwd=cwd, env=env)
+    except FileNotFoundError as e:
+        # A tool this machine lacks (cargo on a Linux runner without Rust) cannot judge the script: skipped, as a
+        # macOS-only helper's exit 2 is, never a pass. pr-pipeline's own jobs build the same code.
+        p = subprocess.CompletedProcess(script, 2, "", f"skipped: {e.filename} only where it is installed")
     # exit 2 from a macOS-only helper on Linux (tagged-sim.sh: "xcrun not found") is skipped, not passed.
     result = "pass" if p.returncode == 0 else ("skipped" if p.returncode == 2 and "only" in p.stderr else "fail")
     return {"name": f"script: {script}", "mode": "script", "worker": os.uname().nodename, "args": [script],
@@ -398,7 +474,7 @@ def public_runs(runs: list[dict]) -> list[dict]:
     """RUNS as the posted record holds them: no output tail and no worker. The record is PR text, and a public repo's
     PR text names no fleet host (public-body-guard refused the proof on cmux#61688 for naming two); no gate reads the
     worker, and the step id still leads to it. The worker stays in this run's stderr."""
-    return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
+    return [{k: v for k, v in r.items() if k not in ("tail", "worker", "refused_workers")} for r in runs]
 
 
 def scrub_hosts(body: str, hosts: list[str]) -> str:
@@ -458,7 +534,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
+    ap.add_argument("--scripts-at", help="run the flows' scripts in this tree (a head worktree), with no token in "
+                    "their environment")
     a = ap.parse_args(argv)
+    if a.scripts_at:
+        global SCRIPTS_AT
+        SCRIPTS_AT = Path(a.scripts_at).resolve()
     t_start = time.monotonic()
     workers = workers_from(a.workers)
     if a.pin_strict and not workers:
@@ -486,8 +567,10 @@ def main(argv: list[str] | None = None) -> int:
         if not selection["ios"]:
             print("not iOS-affecting: cmux/ios-fast passes without a proof", file=sys.stderr)
         return 0
+    leased = set() if a.pin_strict or not workers else leased_hosts()
     with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt) for s in steps]
+        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
+                for s in steps]
         futs += [pool.submit(run_script, s) for s in selection["scripts"]]
         runs = [f.result() for f in futs]
     runs += delegated(selection)
@@ -524,7 +607,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
     body = scrub_hosts(proof_record.render(record, summary_md(record)),
                        [*workers, *LEGACY_WORKERS, *FORBIDDEN_WORKERS, os.uname().nodename,
-                        *(r.get("worker", "") for r in runs)])
+                        *(r.get("worker") or "" for r in runs),
+                        *(w for r in runs for w in r.get("refused_workers") or [])])
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
     if not a.no_post:
