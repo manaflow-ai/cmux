@@ -148,6 +148,20 @@ class TargetsOfTheMatches(unittest.TestCase):
         self.assertEqual(run(self.box.root), ["--workspace"])
 
 
+    def test_a_crate_with_its_own_workspace_or_excluded_is_not_named(self) -> None:
+        # cmux-next-linux (#64481) is its own workspace: `-p cmux-next-linux` failed every window's daemon tests.
+        box = self.box
+        box.write("cmux-tui/Cargo.toml", '[workspace]\nmembers = ["crates/a"]\nexclude = [\n    "crates/own",\n    "crates/gone",\n]\n')
+        box.crate("a")
+        box.write("cmux-tui/crates/a/src/lib.rs", "#[test] fn cmux_next_lib() {}\n")
+        box.crate("own", "\n[workspace]\n")
+        box.write("cmux-tui/crates/own/src/main.rs", "#[test] fn cmux_next_own() {}\n")
+        box.crate("gone")
+        box.write("cmux-tui/crates/gone/src/lib.rs", "#[test] fn cmux_next_gone() {}\n")
+        box.commit()
+        self.assertEqual(run(box.root), ["-p", "a", "--bins", "--lib"])
+
+
 class ThisRepository(unittest.TestCase):
     def test_every_named_test_target_exists_in_a_named_member(self) -> None:
         args = run(ROOT)
@@ -169,6 +183,15 @@ class ThisRepository(unittest.TestCase):
         self.assertNotIn("hub_integration", tests)
         # cmux-tui's integration tests are its one `it` binary (autotests = false, #56677).
         self.assertIn("it", tests)
+        # Every named package is a member of the cmux-tui workspace (cmux-next-linux is its own, #64481).
+        names = pairs(args, "-p")
+        self.assertNotIn("cmux-next-linux", names)
+        meta = subprocess.run(["cargo", "metadata", "--no-deps", "--format-version", "1", "--offline"],
+                              cwd=ROOT / "cmux-tui", capture_output=True, text=True)
+        if meta.returncode == 0:
+            import json
+            members = {p["name"] for p in json.loads(meta.stdout)["packages"]}
+            self.assertLessEqual(names, members)
 
 
 if __name__ == "__main__":

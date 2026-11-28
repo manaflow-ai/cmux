@@ -54,6 +54,14 @@ declared_test() {
   (( gathers == 1 )) && printf '%s\n' "$gather"
   return 0
 }
+# True when the root manifest's `exclude = [...]` names DIR (a member directory relative to cmux-tui/).
+excluded() {
+  awk -v want="$1" '
+    /^exclude *= *\[/ { inside = 1 }
+    inside { line = $0; while (match(line, /"[^"]*"/)) { v = substr(line, RSTART + 1, RLENGTH - 2); sub(/^\.\//, "", v); if (v == want) found = 1; line = substr(line, RSTART + RLENGTH) } }
+    inside && /\]/ { inside = 0 }
+    END { exit found ? 0 : 1 }' Cargo.toml
+}
 packages=()
 targets=()
 placed=1
@@ -66,6 +74,11 @@ while IFS= read -r file; do
   if [[ "$dir" != */* && ! -f "$dir/Cargo.toml" ]] || ! grep -q '^\[package\]' "$dir/Cargo.toml" 2>/dev/null; then
     echo "--workspace"; exit 0
   fi
+  # A crate that is its own workspace (its own [workspace] table, like cmux-next-linux and cmux-rd-host, which link
+  # GTK or other libraries the cmux-tui build lacks) or that the root excludes is no member here: `cargo test -p` of
+  # it fails "package ID specification ... did not match any packages", and so did every window's daemon tests from
+  # #64481 (cmux-next-linux, 2026-11-28 14:44Z) on, so no tree was marked daemon-tested. Its tests are its own build's.
+  if grep -q '^\[workspace\]' "$dir/Cargo.toml" || excluded "$dir"; then continue; fi
   name="$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' "$dir/Cargo.toml" | head -n 1)"
   [[ -n "$name" ]] || { echo "--workspace"; exit 0; }
   packages+=("-p" "$name")
