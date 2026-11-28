@@ -15,7 +15,7 @@
 // it, and on the row's hover or focus Stop takes the time's place (sessionInfo.css). The panel's body
 // scrolls, not the section; nothing is cut to a few rows. A command that starts while the list is drawn
 // drops in at the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
-import { useContext, useState } from "react";
+import { memo, useContext, useMemo, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { OpenBackgroundTasks } from "../backgroundTasks/openBackgroundTasks";
 import { formatDuration, spanDuration } from "../conversation/turns";
@@ -33,6 +33,7 @@ import { useFoldMotion } from "./foldMotion";
 import { COMMAND_STATE } from "./tasksSectionModel";
 import { WindowedRows } from "./WindowedRows";
 import { Clock } from "../../../ui/Typography";
+import { sameValue } from "./sameValue";
 import { WithFacts } from "../chips/FactsHoverCard";
 
 const ROW_ICON = rowIconSize(12);
@@ -61,118 +62,55 @@ export function TasksSection({
 }) {
   const t = useT();
   const language = usePaneLanguage();
-  const openTasks = useContext(OpenBackgroundTasks);
   const [showFinished, setShowFinished] = useState(false);
   // The finished row opens its list as one motion with the sections under it (foldMotion.ts).
   const finishedFold = useFoldMotion<HTMLDivElement>(showFinished, () => 0);
-  const { running, finished } = splitCommands(commands);
-  const now = useNow(running.length > 0);
+  // Split and sorted when the commands change, never on the second's tick: a running command's time
+  // ticks in its own leaf (CommandTime), so the clock draws neither this section nor its rows.
+  const { running, finished } = useMemo(() => splitCommands(commands), [commands]);
   // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
   const scheduledNow = useScheduledClock(scheduled);
-  const { active, finished: ended } = splitScheduled(scheduled, Math.max(now, scheduledNow));
+  const { active, finished: ended } = useMemo(() => splitScheduled(scheduled, scheduledNow), [scheduled, scheduledNow]);
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
   const { arrived, played } = useArrivals(commands.map(arrivalKey));
-  const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
-    const toolCallId = command.toolCallId;
-    // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
-    // elsewhere; with neither, the row is not a button and says why in its tooltip and to VoiceOver,
-    // so the command keeps the row (as text the reason squeezed "bun test …" to "bun t…",
-    // cmuxterm-hq#19495).
-    const shows = !!toolCallId && !!onShowCall && (calls?.has(toolCallId) ?? false);
-    const why: StringKey | undefined = !toolCallId
-      ? "sessionInfo.tasks.noTerminal.noCall"
-      : local || shows
-        ? undefined
-        : "sessionInfo.tasks.noTerminal.remote";
-    return (
-      // Keyed by the call that started it: when the registry lists a command only the transcript
-      // knew, its id turns into the registry's, and a key by id remounted the row (Leo: "why does
-      // it FLICKER").
-      <li
-        key={arrivalKey(command)}
-        className="acpmux-session-info-task acpmux-session-info-task--command"
-        data-state={command.state}
-        data-closed={why !== undefined ? "" : undefined}
-        // On the row, not the button: a disabled button takes no hover, so its own tooltip never shows.
-        title={why && t(why)}
-        data-enter={enters ? "top" : undefined}
-        onAnimationEnd={
-          enters ? (event) => event.target === event.currentTarget && played(arrivalKey(command)) : undefined
-        }
-      >
-        <button
-          type="button"
-          className="acpmux-session-info-task__open"
-          disabled={why !== undefined}
-          aria-description={why && t(why)}
-          onClick={() => {
-            if (local && openTasks && toolCallId) openTasks(toolCallId);
-            else void openCommand(toolCallId, { local, showCall: onShowCall });
-          }}
-        >
-          <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
-          <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && (
-            <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />
-          )}
-          {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
-        </button>
-        {command.state === "running" && command.processId && onStop && (
-          <StopButton id={command.processId} name={command.command} stop={onStop} solid />
-        )}
-      </li>
-    );
-  };
-  const scheduledRow = (entry: ScheduledEntry) => {
-    const trailing = scheduledTrailing(t, language, entry);
-    const ended = entry.status.state !== "scheduled";
-    // A wakeup or cron job is the call that made it (sessionSummary `scheduled`, keyed by the call):
-    // while the loaded transcript holds that call, a click shows it, and the row lights on hover as
-    // a command's does (Leo, 2026-11-06: the "Fallback heartbeat ... doesn't get highlighted in the
-    // same way that the other ones do"). With no call to show it stays plain text, as a command
-    // with nothing to open does.
-    const call = entry.item.id;
-    const shows = !!onShowCall && (calls?.has(call) ?? false);
-    const body = (
-      <>
-        <Icon name={TASK_ICONS[entry.item.kind].web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
-        <span className="acpmux-session-info-task__command">{entry.item.text}</span>
-        {trailing !== undefined && (
-          <span className={ended ? "acpmux-session-info-task__state" : "acpmux-session-info-task__time"}>
-            {trailing}
-          </span>
-        )}
-      </>
-    );
-    return (
-      <WithFacts
-        key={`scheduled:${entry.item.id}`}
-        facts={[{ value: entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text }]}
-      >
-        {(facts) => (
-          <li
-            {...facts}
-            className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
-            data-kind={entry.item.kind}
-            data-state={entry.status.state}
-          >
-            {shows ? (
-              <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall(call)}>
-                {body}
-              </button>
-            ) : (
-              body
-            )}
-          </li>
-        )}
-      </WithFacts>
-    );
-  };
+  /// Whether a click on a row shows the call that started it: the loaded transcript holds that call.
+  const shows = (call: string | undefined) => !!call && !!onShowCall && (calls?.has(call) ?? false);
+  const row = (command: BackgroundCommand, time: string | number | undefined, state?: string, enters = false) => (
+    // Keyed by the call that started it: when the registry lists a command only the transcript
+    // knew, its id turns into the registry's, and a key by id remounted the row (Leo: "why does
+    // it FLICKER").
+    <CommandRow
+      key={arrivalKey(command)}
+      command={command}
+      time={time}
+      state={state}
+      enters={enters}
+      local={local}
+      shows={shows(command.toolCallId)}
+      onStop={onStop}
+      onShowCall={onShowCall}
+      onPlayed={played}
+    />
+  );
+  const scheduledRow = (entry: ScheduledEntry) => (
+    <ScheduledRow
+      key={`scheduled:${entry.item.id}`}
+      item={entry.item}
+      state={entry.status.state}
+      trailing={scheduledTrailing(t, language, entry)}
+      shows={shows(entry.item.id)}
+      onShowCall={onShowCall}
+    />
+  );
   // The ended commands and scheduled items as one list, latest first.
-  const finishedRows = [
-    ...finished.map((command) => ({ at: command.endedAt ?? command.startedAt, command })),
-    ...ended.map((entry) => ({ at: entry.status.endedAt, entry })),
-  ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity));
+  const finishedRows = useMemo(
+    () =>
+      [
+        ...finished.map((command) => ({ at: command.endedAt ?? command.startedAt, command })),
+        ...ended.map((entry) => ({ at: entry.status.endedAt, entry })),
+      ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity)),
+    [finished, ended],
+  );
   return (
     <div data-section="tasks">
       {(running.length > 0 || active.length > 0) && (
@@ -180,10 +118,9 @@ export function TasksSection({
           {running.map((command) =>
             row(
               command,
-              // A task only the transcript knows may not say when it started.
-              command.startedAt !== undefined
-                ? runningTime(Math.max(0, now - command.startedAt))
-                : t(COMMAND_STATE.running),
+              // Its start, which its time counts from; a task only the transcript knows may not say
+              // when it started.
+              command.startedAt ?? t(COMMAND_STATE.running),
               undefined,
               arrived.has(arrivalKey(command)),
             ),
@@ -223,6 +160,142 @@ export function TasksSection({
     </div>
   );
 }
+
+/// A command's row, its own memo boundary: the clock never draws it (a running one's time is its own
+/// leaf, CommandTime), and a change to another command, a wakeup or the list's scroll leaves it alone.
+const CommandRow = memo(function CommandRow({
+  command,
+  time,
+  state,
+  enters,
+  local,
+  shows,
+  onStop,
+  onShowCall,
+  onPlayed,
+}: {
+  command: BackgroundCommand;
+  /// What its time says: words, or (a number) the start a running one's time counts from.
+  time: string | number | undefined;
+  state?: string;
+  enters: boolean;
+  local: boolean;
+  /// The loaded transcript holds the call that started it.
+  shows: boolean;
+  onStop?: (id: string) => Promise<unknown>;
+  onShowCall?: (toolCallId: string) => boolean;
+  /// Its arrival played (useArrivals `played`), by its arrival key.
+  onPlayed: (key: string) => void;
+}) {
+  const t = useT();
+  const openTasks = useContext(OpenBackgroundTasks);
+  const toolCallId = command.toolCallId;
+  // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
+  // elsewhere; with neither, the row is not a button and its tooltip says why.
+  const why: StringKey | undefined = !toolCallId
+    ? "sessionInfo.tasks.noTerminal.noCall"
+    : local || shows
+      ? undefined
+      : "sessionInfo.tasks.noTerminal.remote";
+  return (
+    <li
+      className="acpmux-session-info-task acpmux-session-info-task--command"
+      data-state={command.state}
+      data-closed={why !== undefined ? "" : undefined}
+      // On the row, not the button: a disabled button takes no hover, so its own tooltip never shows.
+      title={why && t(why)}
+      data-enter={enters ? "top" : undefined}
+      onAnimationEnd={
+        enters ? (event) => event.target === event.currentTarget && onPlayed(arrivalKey(command)) : undefined
+      }
+    >
+      <button
+        type="button"
+        className="acpmux-session-info-task__open"
+        disabled={why !== undefined}
+        aria-description={why && t(why)}
+        onClick={() => {
+          if (local && openTasks && toolCallId) openTasks(toolCallId);
+          else void openCommand(toolCallId, { local, showCall: onShowCall });
+        }}
+      >
+        <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
+        <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
+        {typeof time === "number" ? (
+          <CommandTime since={time} />
+        ) : (
+          time !== undefined && (
+            <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />
+          )
+        )}
+        {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
+      </button>
+      {command.state === "running" && command.processId && onStop && (
+        <StopButton id={command.processId} name={command.command} stop={onStop} solid />
+      )}
+    </li>
+  );
+}, sameValue);
+
+/// How long a running command has run, from `since` (the session's clock): the one part of its row
+/// the second's clock draws. `now` pins it (a gallery, a test).
+export function CommandTime({ since, now: fixed }: { since: number; now?: number }) {
+  const own = useNow(fixed === undefined);
+  const time = runningTime(Math.max(0, (fixed ?? own) - since));
+  return <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />;
+}
+
+/// A wakeup's or cron job's row, its own memo boundary with the words it draws.
+const ScheduledRow = memo(function ScheduledRow({
+  item,
+  state,
+  trailing,
+  shows,
+  onShowCall,
+}: {
+  item: ScheduledEntry["item"];
+  state: ScheduledEntry["status"]["state"];
+  trailing: string | undefined;
+  shows: boolean;
+  onShowCall?: (toolCallId: string) => boolean;
+}) {
+  const ended = state !== "scheduled";
+  // A wakeup or cron job is the call that made it (sessionSummary `scheduled`, keyed by the call):
+  // while the loaded transcript holds that call, a click shows it, and the row lights on hover as
+  // a command's does (Leo, 2026-11-06: the "Fallback heartbeat ... doesn't get highlighted in the
+  // same way that the other ones do"). With no call to show it stays plain text, as a command
+  // with nothing to open does.
+  const call = item.id;
+  const body = (
+    <>
+      <Icon name={TASK_ICONS[item.kind].web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
+      <span className="acpmux-session-info-task__command">{item.text}</span>
+      {trailing !== undefined && (
+        <span className={ended ? "acpmux-session-info-task__state" : "acpmux-session-info-task__time"}>{trailing}</span>
+      )}
+    </>
+  );
+  return (
+    <WithFacts facts={[{ value: item.cron && !ended ? `${item.text} (${item.cron})` : item.text }]}>
+      {(facts) => (
+        <li
+          {...facts}
+          className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
+          data-kind={item.kind}
+          data-state={state}
+        >
+          {shows ? (
+            <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall?.(call)}>
+              {body}
+            </button>
+          ) : (
+            body
+          )}
+        </li>
+      )}
+    </WithFacts>
+  );
+}, sameValue);
 
 /// Stop: off once sent, until the registry's update ends the row; when acpmux or the harness
 /// refuses, it says so and can be tried again (as a subagent's Stop, SubagentGroup.tsx).

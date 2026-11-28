@@ -3,7 +3,7 @@
 // and a chevron; opened, a bordered list with a row per subagent (SUBAGENT_ROW rows below it).
 // Every line has a fixed height (model.ts), so a running clock or a changing status never moves
 // the transcript.
-import { useContext, useState } from "react";
+import { memo, useContext, useState } from "react";
 import { Icon } from "../icons/Icon";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
@@ -28,11 +28,11 @@ import {
   SubagentStopContext,
   running,
   STATE_LABEL,
-  subagentTime,
   ticking,
   groupElapsed,
   useNow,
   STACK,
+  subagentTime,
 } from "./subagentGroupModel";
 import { Clock } from "../../../ui/Typography";
 import { intl } from "../../../ui/intl";
@@ -115,7 +115,8 @@ export function SubagentGroupHeader({
 /// rows. A click opens its own view; a running one has a stop button beside it. Its kind (Explore,
 /// general-purpose) is no subtitle beside the name (Leo, 2026-10-31: "a lot of these subtitles are
 /// bad"): the line's tooltip keeps it.
-export function SubagentListRow({ row }: { row: AcpmuxRow }) {
+/// Memoized on its row: a list drawn again with the same rows (SubagentsTab.tsx keeps them) draws none.
+export const SubagentListRow = memo(function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const language = usePaneLanguage();
   const nav = useContext(SubagentNavContext);
@@ -190,7 +191,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <StopButton agent={agent} stop={stop} />
     </div>
   );
-}
+});
 
 /// A running subagent's stop button. It stays off while Claude has the request (and after Claude
 /// takes it, until the subagent ends); when acpmux or Claude refuses, it says so and can be tried

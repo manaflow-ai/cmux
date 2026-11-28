@@ -41,6 +41,16 @@ const text = (html: string) =>
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+/// A row button's accessible name: its aria-labelledby elements' text, joined by spaces (the words
+/// are the row's, the time its clock leaf's), else its aria-label.
+const accessibleName = (button: Element | null | undefined) => {
+  const ids = button?.getAttribute("aria-labelledby");
+  if (!ids) return button?.getAttribute("aria-label") ?? undefined;
+  return ids
+    .split(/\s+/)
+    .map((id) => button!.ownerDocument.getElementById(id)?.textContent?.trim() ?? "")
+    .join(" ");
+};
 
 test("the adapter derives each phase's state and counts, and the model's name", () => {
   const [workflow] = summaries("running");
@@ -187,9 +197,9 @@ test("every workflow row exposes its own model and effort, state and duration to
         />,
       ),
     );
-    expect(
-      document.window.document.querySelector("button.acpmux-workflow-agent__button")?.getAttribute("aria-label"),
-    ).toBe("punchy, Model: Sonnet 5.5 · high, Done, 7s");
+    expect(accessibleName(document.window.document.querySelector("button.acpmux-workflow-agent__button"))).toBe(
+      "punchy, Model: Sonnet 5.5 · high, Done, 7s",
+    );
     document.window.close();
     const plain = new JSDOM(
       renderToStaticMarkup(<WorkflowAgentRow workflow={workflow} agent={agent} now={NOW} variant={variant} />),
@@ -569,7 +579,7 @@ test("failed workflow agents show their error instead of stale output in every r
       const message = document.window.document.querySelector(".acpmux-workflow-agent__doing");
       expect(message?.textContent).toBe(agent.error);
       expect(message?.getAttribute("title")).toBeNull();
-      expect(document.window.document.querySelector("button")?.getAttribute("aria-label")).toContain(agent.error);
+      expect(accessibleName(document.window.document.querySelector("button"))).toContain(agent.error);
       expect(document.window.document.body.textContent).not.toContain("Earlier reply");
       document.window.close();
     }

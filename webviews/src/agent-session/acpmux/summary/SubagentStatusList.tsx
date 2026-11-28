@@ -6,7 +6,7 @@
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
 // chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
-import { useContext, memo } from "react";
+import { memo, useContext } from "react";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 
 import { formatDuration } from "../conversation/turns";
@@ -17,6 +17,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
 import { type Subagent } from "../subagents/subagentFold";
+import { sameAgentRowProps } from "../subagents/subagentLook";
 
 import { retrying, retryLabel, sessionRetry, sessionRetryKey } from "../subagents/retryState";
 import { WaitSpinner } from "../conversation/WaitSpinner";
@@ -98,10 +99,7 @@ export function SubagentStatusList({
   // change of the setting draws them again.
   const senderBadge = useSenderIconLook().badge;
   const t = useT();
-  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``).
-  const connectionQuiet = useConnectionQuietKeys();
   const chatHarness = useContext(SubagentHarnessContext);
-  const now = useNow(agents.some(ticking));
   const title = t("summary.subagents");
   const live =
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
@@ -112,36 +110,20 @@ export function SubagentStatusList({
   // coordinator's card drew every subagent its chat ever ran (chat-100k-flat CASES=coordinator: 2,386
   // card body elements at 20k records, 11,772 at 100k).
   const lines = ordered(agents, waiting);
-  const agentRow = ({ agent, depth }: { agent: Subagent; depth: number }) => {
-    const status = subagentStatus(agent, waiting);
-    return (
-      <li key={agent.id}>
-        {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
-        <AgentLine
-          name={agent.name}
-          icon={SUBAGENT_FALLBACK}
-          mark={foreignHarness(agent.harness, chatHarness, senderBadge)}
-          status={status}
-          state={subagentStateText(t, agent, waiting, connectionQuiet)}
-          working={Boolean(retrying(agent))}
-          time={formatDuration(elapsed(agent, now))}
-          iconSize={ROW_ICON}
-          depth={depth}
-          current={agent.id === current}
-          // Its kind is no subtitle on the line (Leo, 2026-10-31: "a lot of these subtitles
-          // are bad"): the tooltip keeps it under its task.
-          title={
-            [agent.task, agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined]
-              .filter(Boolean)
-              .join("\n") || undefined
-          }
-          tone={agentTone(agent.id)}
-          onOpen={onOpen ? () => onOpen(agent.id) : undefined}
-          after={resume && <ResumeControl agent={agent} actions={resume} />}
-        />
-      </li>
-    );
-  };
+  // Each row is its own memo boundary (SubagentStatusRow): a snapshot that only brings new objects,
+  // or the page clock, draws no row.
+  const agentRow = ({ agent, depth }: { agent: Subagent; depth: number }) => (
+    <SubagentStatusRow
+      key={agent.id}
+      agent={agent}
+      depth={depth}
+      waits={waiting.has(agent.id)}
+      current={agent.id === current}
+      mark={foreignHarness(agent.harness, chatHarness, senderBadge)}
+      onOpen={onOpen}
+      resume={resume}
+    />
+  );
   // The running ones are their mark and their number, no word (LiveCount.tsx).
   const parts = counts?.length ? counts : [liveCount(live, t("summary.subagents.running", { n: live }))];
   const shown = parts.filter((part): part is CountPart => part !== false);
@@ -190,6 +172,64 @@ export function SubagentStatusList({
   );
 }
 
+/// A subagent's row: the tray's own line (subagents/AgentLine.tsx), so a subagent reads the same here
+/// and above the composer. Memoized on the fields of its agent it draws and its plain values
+/// (subagentLook.ts), so a snapshot that only brings new objects draws no row; it keeps its own
+/// clock, ticking only while its time moves, so a tick draws the running rows and no ended one.
+const SubagentStatusRow = memo(function SubagentStatusRow({
+  agent,
+  depth,
+  waits,
+  current,
+  mark,
+  onOpen,
+  resume,
+}: {
+  agent: Subagent;
+  depth: number;
+  /// It waits on the person (the list's `waiting` holds it).
+  waits: boolean;
+  current: boolean;
+  mark?: string;
+  onOpen?: (id: string) => void;
+  resume?: ResumeActions;
+}) {
+  const t = useT();
+  const now = useNow(ticking(agent));
+  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``), on the
+  // row's own clock: the hook hands back a new function each render, so no prop of the memo carries it.
+  const connectionQuiet = useConnectionQuietKeys();
+  const waiting = waits ? new Set([agent.id]) : NO_WAITING;
+  return (
+    <li>
+      <AgentLine
+        name={agent.name}
+        icon={SUBAGENT_FALLBACK}
+        mark={mark}
+        status={subagentStatus(agent, waiting)}
+        state={subagentStateText(t, agent, waiting, connectionQuiet)}
+        working={Boolean(retrying(agent))}
+        time={formatDuration(elapsed(agent, now))}
+        iconSize={ROW_ICON}
+        depth={depth}
+        current={current}
+        // Its kind is no subtitle on the line (Leo, 2026-10-31: "a lot of these subtitles are bad"):
+        // the tooltip keeps it under its task.
+        title={
+          [agent.task, agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined]
+            .filter(Boolean)
+            .join("\n") || undefined
+        }
+        tone={agentTone(agent.id)}
+        onOpen={onOpen ? () => onOpen(agent.id) : undefined}
+        after={resume && <ResumeControl agent={agent} actions={resume} />}
+      />
+    </li>
+  );
+}, sameAgentRowProps);
+
+const NO_WAITING: ReadonlySet<string> = new Set();
+
 /// The switch for opening new subagents in panes, drawn again only when its setting or label changes.
 /// The list above re-renders on the page clock while a subagent runs, and React 19 writes an input's
 /// `name` and `type` on every render of it (ReactDOMInput `updateInput`), so drawn inline it took
@@ -215,7 +255,13 @@ const AutoOpenSwitch = memo(function AutoOpenSwitch({
 
 /// A sub-session's row: its name (and what it does now while it works, or what it waits on the
 /// person for), its unread dot, how many messages wait for it, and its state.
-function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOpen?: (sessionId: string) => void }) {
+const SubsessionStatusRow = memo(function SubsessionStatusRow({
+  session,
+  onOpen,
+}: {
+  session: SubsessionRow;
+  onOpen?: (sessionId: string) => void;
+}) {
   const t = useT();
   // While acpmux retries its failed turn, it works again (subagents/retryState.ts ``sessionRetry``).
   const phase = sessionRetry(session);
@@ -268,4 +314,4 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
       </span>
     </button>
   );
-}
+});

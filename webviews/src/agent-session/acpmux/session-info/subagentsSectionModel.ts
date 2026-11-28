@@ -1,8 +1,12 @@
 import { type Translate } from "../i18n";
 import type { StartedSession } from "../started/startedSessions";
-import type { Subagent } from "../subagents/subagentFold";
+import { nestAgents } from "../subagents/agentsPillModel";
+import { IDLE_AFTER_MS } from "../subagents/idle";
+import { retrying } from "../subagents/retryState";
+import { awaitsOwnWork, type Subagent } from "../subagents/subagentFold";
+import { running } from "../subagents/subagentGroupModel";
 import { subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
-import { sessionStatus } from "./childSessionRowsModel";
+import { orderedSessions, sessionStatus } from "./childSessionRowsModel";
 import { countParts, countText, live, type CountPart } from "../summary/LiveCount";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
@@ -52,6 +56,75 @@ export function subagentCountParts(
     t,
     { words: { queued: (n) => t("sessionInfo.subagents.limit.queued", { n }) } },
   );
+}
+
+/// One line of the section in its place: a subagent (nested under its parent at `depth`) or a chat
+/// the agent started, with the status it is drawn with.
+export type SubagentEntry =
+  | { agent: Subagent; depth: number; status: SubagentStatus; session?: undefined }
+  | { session: StartedSession; status: SubagentStatus; agent?: undefined; depth?: undefined };
+
+const isLive = (status: SubagentStatus) => status === "running" || status === "waiting" || status === "idle";
+/// The ended list's order: a failed one first, then a stopped one, then the done ones.
+const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3, idle: 3 };
+
+/// The section's two lists at `now`: the live ones (the chats waiting on the person, then the running
+/// subagents in the tray's order, oldest first, a nested one under its parent and among siblings a
+/// waiting one first, then the running chats) and the ended ones (failed, stopped, then done, the
+/// latest first). A pass over every item: SubagentsSection runs it only when the items change or
+/// `now` crosses `nextSubagentStatusChange`, never on the second's tick.
+export function splitSubagentLines(
+  agents: readonly Subagent[],
+  waiting: ReadonlySet<string>,
+  sessions: readonly StartedSession[],
+  now: number,
+): { running: SubagentEntry[]; ended: SubagentEntry[] } {
+  const statuses = new Map(agents.map((agent) => [agent, subagentStatus(agent, waiting, now)]));
+  const statusOf = (agent: Subagent) => statuses.get(agent)!;
+  const waitsFirst = (a: Subagent, b: Subagent) =>
+    Number(subagentStatus(b, waiting) === "waiting") - Number(subagentStatus(a, waiting) === "waiting") ||
+    a.startedAt - b.startedAt;
+  const runningAgents = nestAgents(agents.filter((agent) => isLive(statusOf(agent))).sort(waitsFirst)).map(
+    ({ agent, depth }): SubagentEntry => ({ agent, depth, status: statusOf(agent) }),
+  );
+  const children = orderedSessions(sessions).map((session): SubagentEntry => ({
+    session,
+    status: sessionStatus(session),
+  }));
+  const at = (entry: SubagentEntry) =>
+    entry.agent ? (entry.agent.endedAt ?? entry.agent.startedAt) : (entry.session.createdAt ?? 0);
+  return {
+    running: [
+      ...children.filter((child) => child.status === "waiting"),
+      ...runningAgents,
+      ...children.filter((child) => child.status === "running"),
+    ],
+    ended: [
+      ...agents
+        .filter((agent) => !isLive(statusOf(agent)))
+        .map((agent): SubagentEntry => ({ agent, depth: 0, status: statusOf(agent) })),
+      ...children.filter((child) => !isLive(child.status)),
+    ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || at(b) - at(a)),
+  };
+}
+
+/// The next session time after `now` at which a subagent's status changes by the clock alone: a
+/// running one with no call open turns idle IDLE_AFTER_MS after it went quiet
+/// (subagentStatusListModel.ts `isIdle`). Undefined while none will. Nothing else in the section moves
+/// with the clock but the times on its lines, which tick in leaves of their own.
+export function nextSubagentStatusChange(
+  agents: readonly Subagent[],
+  waiting: ReadonlySet<string>,
+  now: number,
+): number | undefined {
+  let next: number | undefined;
+  for (const agent of agents) {
+    if (awaitsOwnWork(agent) || !running(agent) || waiting.has(agent.id) || agent.quietSince === undefined) continue;
+    if (retrying(agent)) continue;
+    const idleAt = agent.quietSince + IDLE_AFTER_MS;
+    if (idleAt > now && (next === undefined || idleAt < next)) next = idleAt;
+  }
+  return next;
 }
 
 /// The order every subagent count line reads in: what needs the person first (waiting, then

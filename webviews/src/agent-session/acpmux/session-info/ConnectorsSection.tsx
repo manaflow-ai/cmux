@@ -3,7 +3,7 @@
 // its Reconnect button asks Claude Code to connect it again; the row then reads connected when
 // acpmux says so. Without that, "Needs reconnect" is plain text: nothing here looks clickable that
 // is not.
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useConnectionQuiet } from "../../../ui/lasting";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -11,6 +11,7 @@ import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSnapshot } from "../model";
 import { IMessageConnector } from "./IMessageConnector";
 import type { IMessageView } from "./imessage";
+import { sameValue } from "./sameValue";
 
 type McpServer = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]>[number];
 
@@ -26,28 +27,41 @@ export function ConnectorsSection({
   onReconnect?: (server: string) => Promise<unknown>;
   imessage?: IMessageView;
 }) {
-  const t = useT();
   return (
     <ul className="acpmux-session-info-list">
       {imessage && <IMessageConnector view={imessage} />}
       {servers.map((server) => (
-        <li key={server.name} className="acpmux-session-info-row">
-          <Icon name="extension" size={ROW_ICON} row />
-          <span className="acpmux-session-info-row__name">{server.name}</span>
-          {server.status === "failed" && onReconnect ? (
-            <ReconnectButton name={server.name} reconnect={onReconnect} />
-          ) : server.status === "pending" ? (
-            <PendingState />
-          ) : (
-            <span className="acpmux-session-info-row__end" data-state={server.status}>
-              {t(server.status === "failed" ? "sessionInfo.connectors.needsReconnect" : "composer.envConnected")}
-            </span>
-          )}
-        </li>
+        <ConnectorRow key={server.name} server={server} onReconnect={onReconnect} />
       ))}
     </ul>
   );
 }
+
+/// One server's row, its own memo boundary: another server's change of state draws it again not at all.
+const ConnectorRow = memo(function ConnectorRow({
+  server,
+  onReconnect,
+}: {
+  server: McpServer;
+  onReconnect?: (server: string) => Promise<unknown>;
+}) {
+  const t = useT();
+  return (
+    <li className="acpmux-session-info-row">
+      <Icon name="extension" size={ROW_ICON} row />
+      <span className="acpmux-session-info-row__name">{server.name}</span>
+      {server.status === "failed" && onReconnect ? (
+        <ReconnectButton name={server.name} reconnect={onReconnect} />
+      ) : server.status === "pending" ? (
+        <PendingState />
+      ) : (
+        <span className="acpmux-session-info-row__end" data-state={server.status}>
+          {t(server.status === "failed" ? "sessionInfo.connectors.needsReconnect" : "composer.envConnected")}
+        </span>
+      )}
+    </li>
+  );
+}, sameValue);
 
 /// A server the harness is still connecting: its row's end says Connecting only once that has lasted the
 /// shared bound (lasting.ts `CONNECTION_QUIET_MS`), so a server that comes up in a few seconds never shows
