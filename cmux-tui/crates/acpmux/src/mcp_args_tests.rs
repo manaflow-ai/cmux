@@ -105,12 +105,113 @@ fn the_result_tells_each_rename_in_one_line() {
     ];
     let mut result =
         json!({"content": [{"type": "text", "text": "Sent."}], "structuredContent": {}});
-    tell(&mut result, &renamed);
+    tell(&mut result, &renamed, &[]);
     let line =
         "(read argument session as sessionId, message as text; the schema's names are canonical)";
     assert_eq!(result["content"][1]["text"], line);
     assert_eq!(result["structuredContent"]["argumentsRead"], line);
     let mut untouched = json!({"content": []});
-    tell(&mut untouched, &[]);
+    tell(&mut untouched, &[], &[]);
     assert_eq!(untouched, json!({"content": []}));
+}
+
+fn read_values(tools: &Value, name: &str, arguments: Value) -> (Value, Vec<Reread>) {
+    let mut params = json!({"name": name, "arguments": arguments});
+    normalize(tools, &mut params);
+    let reread = values(tools, &mut params);
+    (params["arguments"].clone(), reread)
+}
+
+#[test]
+fn a_filter_word_that_means_every_one_of_them_is_no_filter() {
+    // The round trip this saves: `bg_list {"state": "all"}` refused with "state is one of
+    // running, exited, stopped, killed, lost, ok, failed" (2026-11-22). `all` is no filter.
+    let tools = crate::acpmux_mcp::tools();
+    for word in ["all", "ALL", "any", "every", "*", "everything"] {
+        let (args, reread) = read_values(&tools, "bg_list", json!({"state": word, "limit": 30}));
+        assert_eq!(args, json!({"limit": 30}), "state {word:?} still filters");
+        assert_eq!(
+            reread,
+            vec![Reread { key: "state".into(), given: word.into(), read_as: None }],
+            "state {word:?}"
+        );
+    }
+    // And through the key synonym the same call used: `status` reads as `state`, then `all` drops.
+    let (args, _) = read_values(&tools, "bg_list", json!({"status": "all"}));
+    assert_eq!(args, json!({}));
+    // The line says both.
+    let mut params = json!({"name": "bg_list", "arguments": {"status": "all"}});
+    let renamed = normalize(&tools, &mut params);
+    let reread = values(&tools, &mut params);
+    assert_eq!(
+        line(&renamed, &reread).as_deref(),
+        Some(
+            "(read argument status as state, state \"all\" as every one of them (no filter); \
+the schema's names are canonical)"
+        )
+    );
+}
+
+#[test]
+fn a_value_the_schema_lists_under_another_spelling_is_read_as_it() {
+    let tools = crate::acpmux_mcp::tools();
+    let (args, reread) = read_values(&tools, "search", json!({"query": "q", "role": "Assistant"}));
+    assert_eq!(args, json!({"query": "q", "role": "assistant"}));
+    assert_eq!(
+        reread,
+        vec![Reread {
+            key: "role".into(),
+            given: "Assistant".into(),
+            read_as: Some("assistant".into())
+        }]
+    );
+    // A near miss too (one tool's own reader already did this for its own key; now every tool's).
+    let (args, _) = read_values(&tools, "bg_list", json!({"state": "runnning"}));
+    assert_eq!(args, json!({"state": "running"}));
+    // A list of listed values is read entry by entry.
+    let (args, _) = read_values(&tools, "watch_add", json!({"sessions": ["a"], "until": "Done"}));
+    assert_eq!(args, json!({"sessions": ["a"], "until": ["done"]}));
+}
+
+#[test]
+fn a_required_value_and_an_unknown_one_are_left_for_the_tool_to_judge() {
+    let tools = crate::acpmux_mcp::tools();
+    // goal_update requires status: dropping it would leave the tool nothing to do.
+    let (args, reread) = read_values(&tools, "goal_update", json!({"status": "all"}));
+    assert_eq!(args, json!({"status": "all"}));
+    assert!(reread.is_empty());
+    // A value no listed one is close to stays as it was: the tool refuses it, saying its own words.
+    let (args, reread) = read_values(&tools, "send", json!({"to": "lane", "class": "urgent"}));
+    assert_eq!(args, json!({"to": "lane", "class": "urgent"}));
+    assert!(reread.is_empty());
+    // Every tool's canonical call is left as it is, value for value.
+    for tool in crate::mcp_hint::names(&tools) {
+        let props = tools.as_array().unwrap().iter().find(|t| t["name"] == tool).unwrap()
+            ["inputSchema"]["properties"]
+            .clone();
+        let args: Map<String, Value> = props
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, p)| {
+                let (listed, per_entry) = match p.get("enum") {
+                    Some(e) => (e.clone(), false),
+                    None => (
+                        p.get("items").and_then(|i| i.get("enum")).cloned().unwrap_or(json!([])),
+                        true,
+                    ),
+                };
+                let one = listed.as_array().and_then(|a| a.first()).cloned();
+                let value = match (one, per_entry) {
+                    (Some(v), true) => json!([v]),
+                    (Some(v), false) => v,
+                    (None, _) => json!("v"),
+                };
+                (k.clone(), value)
+            })
+            .collect();
+        let (got, reread) = read_values(&tools, tool, Value::Object(args.clone()));
+        assert_eq!(got, Value::Object(args), "{tool}");
+        assert!(reread.is_empty(), "{tool}: {reread:?}");
+    }
 }

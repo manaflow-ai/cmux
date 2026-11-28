@@ -12,6 +12,13 @@
 //!
 //! A listed key the call already gives is never overwritten, and a key with no match is left
 //! as it was, for the tool to judge. Each rename is told in one line added to the result.
+//!
+//! [`values`] does the same for the *values* a schema lists (`"enum"`). A value the schema does
+//! not list is read as the listed value it spells with other case or separators, else as the one
+//! [`crate::mcp_hint::nearest`] finds close to it; a word that means every one of them ([`EVERY`])
+//! drops a key the schema does not require, because `{"state": "all"}` to a filter is no filter,
+//! not a refusal. `bg_list {"state": "all"}` cost a round trip on 2026-11-22 for exactly that.
+//! A value with no match is left as it was: the tool still gets to refuse it.
 
 use serde_json::{Map, Value, json};
 
@@ -28,6 +35,20 @@ const GROUPS: &[&[&str]] = &[
     &["pr", "number", "prNumber", "pr_number"],
     &["run", "runId", "run_id"],
 ];
+
+/// Words that mean every one of the values a schema lists, so a filter with one of them is no
+/// filter. Not `none`: for a filter that reads as "nothing matches" to one caller and "no filter"
+/// to another, the tool should say what it did, so it is left to the tool.
+const EVERY: &[&str] = &["all", "any", "every", "everything", "anything", "*", "-", "unset"];
+
+/// One value read: the key, the value the call gave, and the listed value it was read as --
+/// `None` when the key was dropped because the value meant every one of them.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Reread {
+    pub key: String,
+    pub given: String,
+    pub read_as: Option<String>,
+}
 
 /// One rename: the key the call gave and the listed key it was read as.
 #[derive(Debug, PartialEq, Eq)]
@@ -70,6 +91,115 @@ fn canonical<'a>(key: &str, listed: &'a Map<String, Value>, taken: &[&str]) -> O
     crate::mcp_hint::nearest(key, listed.keys().filter(free).map(String::as_str))
 }
 
+/// The schema of tool `name` in a `tools/list` array.
+fn schema<'a>(tools: &'a Value, name: &str) -> Option<&'a Value> {
+    tools
+        .as_array()?
+        .iter()
+        .find(|tool| tool.get("name").and_then(Value::as_str) == Some(name))?
+        .get("inputSchema")
+}
+
+/// The values `property` lists, for itself or for its entries.
+fn listed_values(property: &Value) -> (Vec<&str>, bool) {
+    // A nested fn, not a closure: the strings borrow from the value given, and a closure cannot
+    // say that its input and its output share one lifetime (rustc: "lifetime may not live long
+    // enough").
+    fn of(v: &Value) -> Vec<&str> {
+        v.as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default()
+    }
+    match property.get("enum") {
+        Some(e) => (of(e), false),
+        None => {
+            (property.get("items").and_then(|i| i.get("enum")).map(of).unwrap_or_default(), true)
+        }
+    }
+}
+
+/// The listed value `given` stands for: its own spelling with other case or separators, else the
+/// one a near miss names. `None` leaves it for the tool to judge.
+fn listed_value<'a>(given: &str, values: &[&'a str]) -> Option<&'a str> {
+    let wanted = folded(given);
+    values
+        .iter()
+        .copied()
+        .find(|v| folded(v) == wanted)
+        .or_else(|| crate::mcp_hint::nearest(given, values.iter().copied()))
+}
+
+/// Reads the values of `params.arguments` against the values tool `params.name`'s schema lists
+/// (see the module), and returns what it read. Run it after [`normalize`], so a key renamed to a
+/// listed one has its value read too.
+pub fn values(tools: &Value, params: &mut Value) -> Vec<Reread> {
+    let name = params.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let Some(schema) = schema(tools, &name) else { return Vec::new() };
+    let Some(listed) = schema.get("properties").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let keys: Vec<String> = listed.keys().cloned().collect();
+    let Some(args) = params.get_mut("arguments").and_then(Value::as_object_mut) else {
+        return Vec::new();
+    };
+    let mut reread = Vec::new();
+    for key in keys {
+        let (values, per_entry) = listed_values(&listed[&key]);
+        if values.is_empty() {
+            continue;
+        }
+        let Some(given) = args.get(&key).cloned() else { continue };
+        let entries: Vec<&Value> = match (&given, per_entry) {
+            (Value::Array(a), true) => a.iter().collect(),
+            (one, _) => vec![one],
+        };
+        if entries.iter().all(|e| e.as_str().is_some_and(|s| values.contains(&s))) {
+            continue;
+        }
+        // Every one of them: no filter, unless the tool needs the key to act at all.
+        if entries.len() == 1 {
+            let one = entries[0].as_str().unwrap_or_default().trim().to_owned();
+            if EVERY.contains(&one.to_ascii_lowercase().as_str())
+                && !required.contains(&key.as_str())
+            {
+                args.remove(&key);
+                reread.push(Reread { key, given: one, read_as: None });
+                continue;
+            }
+        }
+        let mut read: Vec<Value> = Vec::new();
+        let mut told: Vec<(String, String)> = Vec::new();
+        for entry in &entries {
+            let Some(text) = entry.as_str() else {
+                read.push((*entry).clone());
+                continue;
+            };
+            match listed_value(text, &values) {
+                Some(v) if v != text => {
+                    told.push((text.to_owned(), v.to_owned()));
+                    read.push(json!(v));
+                }
+                _ => read.push((*entry).clone()),
+            }
+        }
+        if told.is_empty() {
+            continue;
+        }
+        let whole = match (&given, per_entry) {
+            (Value::Array(_), true) => Value::Array(read),
+            _ => read.into_iter().next().unwrap_or(Value::Null),
+        };
+        args.insert(key.clone(), whole);
+        for (given, read_as) in told {
+            reread.push(Reread { key: key.clone(), given, read_as: Some(read_as) });
+        }
+    }
+    reread
+}
+
 /// Renames the keys of `params.arguments` that tool `params.name`'s schema in `tools` does not
 /// list (see the module), and returns what it renamed. A value given for a list as one string
 /// becomes a list of it.
@@ -97,19 +227,24 @@ pub fn normalize(tools: &Value, params: &mut Value) -> Vec<Renamed> {
     renamed
 }
 
-/// The one line that tells a call's renames: `(read argument session as name)`.
-pub fn line(renamed: &[Renamed]) -> Option<String> {
-    if renamed.is_empty() {
+/// The one line that tells a call's renames and value reads: `(read argument session as name)`,
+/// `(read argument state "all" as every state)`.
+pub fn line(renamed: &[Renamed], reread: &[Reread]) -> Option<String> {
+    if renamed.is_empty() && reread.is_empty() {
         return None;
     }
-    let each: Vec<String> =
+    let mut each: Vec<String> =
         renamed.iter().map(|r| format!("{} as {}", r.given, r.canonical)).collect();
+    each.extend(reread.iter().map(|r| match &r.read_as {
+        Some(v) => format!("{} {:?} as {v:?}", r.key, r.given),
+        None => format!("{} {:?} as every one of them (no filter)", r.key, r.given),
+    }));
     Some(format!("(read argument {}; the schema's names are canonical)", each.join(", ")))
 }
 
 /// Adds [`line`] to a tool result's content, as its last text.
-pub fn tell(result: &mut Value, renamed: &[Renamed]) {
-    let Some(text) = line(renamed) else { return };
+pub fn tell(result: &mut Value, renamed: &[Renamed], reread: &[Reread]) {
+    let Some(text) = line(renamed, reread) else { return };
     // Claude Code shows the structured result, not the text, when there is one.
     if let Some(structured) = result.get_mut("structuredContent").and_then(Value::as_object_mut) {
         structured.insert("argumentsRead".to_owned(), json!(text));
