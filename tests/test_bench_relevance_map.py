@@ -80,6 +80,21 @@ class RelevanceIndexTest(unittest.TestCase):
             bad = [p for p in paths if not same(self.index.match(p), self.scan.match(p))]
             self.assertFalse(bad[:10], f"seed {seed}: the prefix index and the scan disagree")
 
+    def test_matcher_and_suffix_agree_with_the_regex(self):
+        """The index's shortcuts (a bare path matched by prefix, a literal-suffix compare before the regex) against
+        pattern_of's regex, on globs and paths drawn from the characters that decide them: `**/` matching nothing,
+        `[` taken literally, a bare folder against its sibling `a/bc`."""
+        rng = random.Random(11)
+        globs = ["**/Cargo.toml", "a/b", "a/b/", "**/*.rs", "a/*/c", "x[1]", "a/**", "?b", "**"]
+        globs += ["".join(rng.choice(["a", "b", "/", "*", "**", "?", ".rs", "[", "**/", "Cargo.toml"])
+                          for _ in range(rng.randint(1, 5))) for _ in range(600)]
+        paths = ["Cargo.toml", "a/Cargo.toml", "x.rs", "a/b", "a/bc", "a/b/c", "x[1]", "ab"]
+        paths += ["".join(rng.choice(["a", "b", "/", "x", ".rs", "Cargo.toml", "[", "."])
+                          for _ in range(rng.randint(1, 6))) for _ in range(300)]
+        bad = [(g, p) for g in globs for p in paths
+               if bool(re.match(rel.pattern_of(g), p)) != (p.endswith(rel.literal_suffix(g)) and bool(rel.matcher(g).match(p)))]
+        self.assertFalse(bad[:10], "the index's matcher or suffix compare disagrees with the glob's regex")
+
     def test_specificity_and_bare_paths(self):
         rules = rel.parse('''
 [[area]]
