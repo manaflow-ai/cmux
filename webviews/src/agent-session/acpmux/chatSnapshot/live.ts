@@ -12,8 +12,8 @@ import {
   SNAPSHOT_LIVE_GLOBAL,
   SNAPSHOT_MISS_GLOBAL,
   SNAPSHOT_SHOWN_GLOBAL,
-  TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE,
   type SnapshotLive,
+  TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE,
 } from "./shared";
 import { watchLaunchSettle } from "../launchSettle";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
@@ -50,6 +50,27 @@ function liveSide(): SnapshotLive {
 /// Whether the boot script drew a snapshot this document still shows.
 export function showsChatSnapshot(): boolean {
   return !!shown() && typeof document !== "undefined" && !!document.querySelector(SNAPSHOT_HOST_TAG);
+}
+
+/// How far the drawn copy's bottom stack (`.acpmux-dock`) reaches over its transcript's view, in px:
+/// 0 when no copy shows. The copy draws the stack as the chat last showed it (a queued prompt with
+/// it); the live page's first frame may draw it shorter, its queue waiting for acpmux's list
+/// (direct.ts `drawTailWhileConnecting`), so the transcript keeps this room under its last row until
+/// that state comes (VirtualTranscript `copyHold`). `notices` selects, under the stack, the notices
+/// that lie over the transcript's foot (noticeSlotModel.ts `DOCK_NOTICE`): their height is returned
+/// apart, as the transcript takes it apart. One layout read, at the transcript's mount.
+export function chatSnapshotDock(notices: string): { space: number; notice: number } {
+  const none = { space: 0, notice: 0 };
+  if (!showsChatSnapshot()) return none;
+  const root = document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot;
+  const dock = root?.querySelector(".acpmux-dock");
+  const box = dock?.getBoundingClientRect();
+  const view = root?.querySelector(".acpmux-scroll")?.getBoundingClientRect();
+  if (!dock || !box || !view || box.height <= 0) return none;
+  const space = Math.max(0, Math.min(box.height, view.bottom - box.top));
+  let notice = 0;
+  if (space > 0) for (const line of dock.querySelectorAll(notices)) notice += line.getBoundingClientRect().height;
+  return { space, notice };
 }
 
 /// What the composer in an element shows, or undefined when it has no prompt (its editor's root; the
