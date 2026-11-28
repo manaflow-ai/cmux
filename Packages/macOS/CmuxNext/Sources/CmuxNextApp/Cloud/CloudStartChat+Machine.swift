@@ -117,7 +117,7 @@ extension CloudStartChat {
             async let routeAhead: String? = { @MainActor in if let pinMachine { await CloudMachineRoute(api: cloud.machineAPI, machineID: pinMachine).report() } else { nil } }()
             let shown = machines.session(id ?? ""); shown?.waking = asker?.waking; defer { shown?.waking = nil } // the card's "Waking machine" while it settles
             let session: CloudMachineSession
-            do { session = try await CloudMove(services: services).machine(invocation, pick: pick) } catch { _ = try? await pinned; _ = await routeAhead; throw CloudStartReuse.marked(error, machine: plan.fallsBack && start.machine == nil ? id : nil) }
+            do { session = try await CloudMove(services: services).machine(invocation, pick: pick) } catch { _ = try? await pinned; _ = await routeAhead; throw error }
             try await pinned
             timeline?.mark("machine.connect")
             let machineID = session.machineID, readAhead = session.machineID == pinMachine ? await routeAhead : nil
@@ -155,8 +155,8 @@ extension CloudStartChat {
                 requiresCredentialCapability: endpoint) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
             timeline?.mark("machine.route")
             return (session, plan, choice.claudeAuth == .team && connection == nil ? .team : nil)
-        } } } catch where CloudStartReuse.unreached(error, machine: plan.fallsBack && start.machine == nil ? id : nil) != nil { // a reused machine that never connected or resumed: planned again without it (a new one, or another of the person's)
-            return try await machine(for: start, from: origin, cli: cli, invocation: invocation, direct: direct, unreachable: unreachable + [CloudStartReuse.logged(error, machine: id, cloud.logger)], pick: pick) } catch { throw CloudStartReuse.shown(error) }
+        } } } catch let failure as CloudMove.Failure where plan.fallsBack && start.machine == nil && failure.retry?.machineID != nil && failure.retry?.machineID == id && !Task.isCancelled { // Rust's `falls_back`: the automatic pick's reused machine (paused, stuck starting) never connected or resumed, so it plans again without it (a new one, or another of the person's)
+            cloud.logger.info("cloud start chat: reused machine \(id ?? "", privacy: .public) did not connect; planning without it"); return try await machine(for: start, from: origin, cli: cli, invocation: invocation, direct: direct, unreachable: unreachable + [id ?? ""], pick: pick) }
     }
 
     /// A current daemon can report that an endpoint's runner is missing from this machine.
