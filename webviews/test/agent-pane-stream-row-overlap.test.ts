@@ -293,6 +293,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
   };
   type Report = {
     frames: number;
+    drivenFrames: number;
     /// Frames where one row's text draws over the next row's text (what the reader sees).
     overlapFrames: number;
     /// Frames where two rows' boxes cross by more than 1px (a reply's action-row room under a live
@@ -303,7 +304,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     /// Pairs whose text still crosses once the turn has settled (layout, not motion).
     rest: Overlap[];
     examples: Overlap[];
-    painted: {
+    observer?: {
       frames: number;
       overlapFrames: number;
       maxInk: number;
@@ -314,10 +315,10 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     };
   };
 
-  /// Samples observer-time geometry and the same frame after paint without weakening the observer assertion.
+  /// Samples painted geometry; optional observer diagnostics expose states that can heal before paint.
   /// Clipping can reorder ink or hide intervening rows, so box adjacency alone misses collisions.
-  const sample = (page: Page) =>
-    page.evaluate(() => {
+  const sample = (page: Page, diagnoseObserver = false) =>
+    page.evaluate((diagnoseObserver) => {
       type Pair = {
         t: number;
         frame?: number;
@@ -332,12 +333,16 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         __frames: number;
         __paintedOverlaps: Pair[];
         __paintedFrames: Set<number>;
+        __drivenFrames: number;
+        __observerEnabled: boolean;
         __stop: () => void;
       };
       w.__overlaps = [];
       w.__frames = 0;
       w.__paintedOverlaps = [];
       w.__paintedFrames = new Set();
+      w.__drivenFrames = 0;
+      w.__observerEnabled = diagnoseObserver;
       let drivenFrame = -1;
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const probe = document.createElement("div");
@@ -494,24 +499,27 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         }
       };
       (w as unknown as { __read: (frame: number) => void }).__read = read;
-      const observer = new ResizeObserver(() => read(performance.now()));
-      observer.observe(probe);
+      const observer = diagnoseObserver ? new ResizeObserver(() => read(performance.now())) : undefined;
+      observer?.observe(probe);
       const stopFrames = window.cmuxAfterPaint(
         (frame) => read(frame, true),
         (frame) => {
           drivenFrame = frame;
-          wide = !wide;
-          probe.style.width = wide ? "2px" : "1px";
+          w.__drivenFrames += 1;
+          if (diagnoseObserver) {
+            wide = !wide;
+            probe.style.width = wide ? "2px" : "1px";
+          }
         },
       );
       w.__stop = () => {
         stopFrames();
-        observer.disconnect();
+        observer?.disconnect();
         probe.remove();
       };
-    });
-  const stop = (page: Page): Promise<Report> =>
-    page.evaluate(() => {
+    }, diagnoseObserver);
+  const stop = async (page: Page): Promise<Report> => {
+    const report = await page.evaluate(() => {
       type Pair = {
         t: number;
         frame?: number;
@@ -526,6 +534,8 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         __frames: number;
         __paintedOverlaps: Pair[];
         __paintedFrames: Set<number>;
+        __drivenFrames: number;
+        __observerEnabled: boolean;
         __stop: () => void;
       };
       w.__stop();
@@ -538,26 +548,29 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
       const paintedFrames = new Set(paintedInk.map((pair) => pair.frame));
       const observerFrames = new Set(inked.map((pair) => pair.frame!));
       return {
-        painted: {
-          frames: w.__paintedFrames.size,
-          overlapFrames: paintedFrames.size,
-          maxInk: Math.max(0, ...paintedInk.map((pair) => pair.ink)),
-          examples: paintedInk.slice(0, 8),
-          sharedObserverFrames: [...observerFrames].filter((frame) => paintedFrames.has(frame)).length,
-          observerOnlyFrames: [...observerFrames].filter(
-            (frame) => w.__paintedFrames.has(frame) && !paintedFrames.has(frame),
-          ).length,
-          unpairedObserverFrames: [...observerFrames].filter((frame) => !w.__paintedFrames.has(frame)).length,
-        },
-        frames: w.__frames,
+        observer: w.__observerEnabled
+          ? {
+              frames: w.__frames,
+              overlapFrames: observerFrames.size,
+              maxInk: Math.max(0, ...inked.map((pair) => pair.ink)),
+              examples: inked.slice(0, 8),
+              sharedObserverFrames: [...observerFrames].filter((frame) => paintedFrames.has(frame)).length,
+              observerOnlyFrames: [...observerFrames].filter(
+                (frame) => w.__paintedFrames.has(frame) && !paintedFrames.has(frame),
+              ).length,
+              unpairedObserverFrames: [...observerFrames].filter((frame) => !w.__paintedFrames.has(frame)).length,
+            }
+          : undefined,
+        frames: w.__paintedFrames.size,
+        drivenFrames: w.__drivenFrames,
         rest,
-        overlapFrames: new Set(inked.map((pair) => pair.t)).size,
-        boxFrames: new Set(w.__overlaps.filter((pair) => pair.box > 1).map((pair) => pair.t)).size,
-        maxBox: Math.max(0, ...w.__overlaps.map((pair) => pair.box)),
-        maxInk: Math.max(0, ...inked.map((pair) => pair.ink)),
+        overlapFrames: paintedFrames.size,
+        boxFrames: new Set(w.__paintedOverlaps.filter((pair) => pair.box > 1).map((pair) => pair.t)).size,
+        maxBox: Math.max(0, ...w.__paintedOverlaps.map((pair) => pair.box)),
+        maxInk: Math.max(0, ...paintedInk.map((pair) => pair.ink)),
         // The worst frame of each pair of rows, so one long overlap does not hide another.
         examples: [
-          ...inked
+          ...paintedInk
             .reduce((worst, pair) => {
               const key = `${pair.upper}|${pair.lower}`;
               if ((worst.get(key)?.ink ?? -1) < pair.ink) worst.set(key, pair);
@@ -566,6 +579,104 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
             .values(),
         ].slice(0, 8),
       };
+    });
+    expect(report.frames, "the sampler must read painted frames").toBeGreaterThan(0);
+    // Callback coverage alone does not prove distinct geometry: the one-frame control below
+    // also checks that a collision repaired on the next frame is observed.
+    expect(report.frames, "painted read callbacks must cover driven frames").toBeGreaterThanOrEqual(
+      report.drivenFrames - 2,
+    );
+    return report;
+  };
+
+  for (const [name] of engines)
+    test(`${name}: overlap detector distinguishes observer transients from painted collisions`, async () => {
+      const page = await browsers.get(name)!.newPage();
+      await installPaintedFrames(page);
+      try {
+        for (const heal of [true, false]) {
+          await page.setContent(`<style>
+            body { margin: 0; }
+            .acpmux-scroll { height: 300px; }
+            .acpmux-row { position: absolute; left: 0; width: 200px; height: 24px; font: 20px/24px Arial; }
+          </style><div class="acpmux-scroll"><div class="acpmux-thread">
+            <div class="acpmux-row" style="top:0">First words</div>
+            <div class="acpmux-row" id="lower" style="top:24px">Next words</div>
+          </div></div><div id="repair-probe" style="width:1px;height:1px"></div>`);
+          await sample(page, true);
+          await page.evaluate(async (heal) => {
+            const lower = document.getElementById("lower")!;
+            const probe = document.getElementById("repair-probe")!;
+            let armed = false;
+            // Constructed after the sampler: its callback sees the transient overlap first,
+            // then this observer repairs the geometry before the same frame paints.
+            const repair = new ResizeObserver(() => {
+              if (armed && heal) lower.style.top = "24px";
+            });
+            repair.observe(probe);
+            await window.cmuxPaintFrame(() => {
+              armed = true;
+              lower.style.top = "0px";
+              probe.style.width = "2px";
+            });
+            await window.cmuxPaintFrame();
+            repair.disconnect();
+          }, heal);
+          const report = await stop(page);
+          console.log(`OVERLAP_PHASE_CONTROL ${JSON.stringify({ engine: name, heal, report })}`);
+          expect(report.observer!.overlapFrames).toBeGreaterThan(0);
+          expect(report.frames).toBeGreaterThan(0);
+          if (heal) {
+            expect(report.observer!.observerOnlyFrames).toBeGreaterThan(0);
+            expect(report.overlapFrames).toBe(0);
+          } else {
+            expect(report.overlapFrames).toBeGreaterThan(0);
+            expect(report.maxInk).toBeGreaterThan(10);
+          }
+        }
+      } finally {
+        await page.close();
+      }
+    });
+
+  for (const [name] of engines)
+    test(`${name}: overlap detector catches one painted collision repaired on the next frame`, async () => {
+      const page = await browsers.get(name)!.newPage();
+      await installPaintedFrames(page);
+      try {
+        for (const busy of [0, 45]) {
+          await page.setContent(`<style>
+            body { margin: 0; }
+            .acpmux-scroll { height: 300px; }
+            .acpmux-row { position: absolute; left: 0; width: 200px; height: 24px; font: 20px/24px Arial; }
+          </style><div class="acpmux-scroll"><div class="acpmux-thread">
+            <div class="acpmux-row" style="top:0">First words</div>
+            <div class="acpmux-row" id="lower" style="top:24px">Next words</div>
+          </div></div>`);
+          await sample(page);
+          await page.evaluate(async (busy) => {
+            const lower = document.getElementById("lower")!;
+            await window.cmuxPaintFrame(() => {
+              lower.style.top = "0px";
+              requestAnimationFrame(() => {
+                lower.style.top = "24px";
+              });
+              const until = performance.now() + busy;
+              while (performance.now() < until) {
+                /* A loaded frame still must be sampled before the following frame repairs it. */
+              }
+            });
+            await window.cmuxPaintFrame();
+          }, busy);
+          const report = await stop(page);
+          console.log(`OVERLAP_ONE_FRAME_CONTROL ${JSON.stringify({ engine: name, busy, report })}`);
+          expect(report.overlapFrames).toBeGreaterThan(0);
+          expect(report.maxInk).toBeGreaterThan(10);
+          expect(report.rest).toEqual([]);
+        }
+      } finally {
+        await page.close();
+      }
     });
 
   for (const [name] of engines)
@@ -579,6 +690,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
           .acpmux-row { position: absolute; left: 0; width: 200px; font: 20px/24px Arial; }
         </style><div class="acpmux-scroll"><div class="acpmux-thread">${rows}</div></div>`);
         await sample(page);
+        await page.evaluate(() => window.cmuxPaintFrame());
         return stop(page);
       };
       try {
