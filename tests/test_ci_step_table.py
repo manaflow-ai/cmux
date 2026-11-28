@@ -126,6 +126,22 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertTrue(steps[name].nightly)
                 self.assertEqual(ci_steps.nightly_gate_steps(ci_steps.load(), paths), [name])
 
+    def test_a_storage_key_change_runs_the_persisted_formats_registry_on_the_pr_and_the_landing_head(self) -> None:
+        # cmux#57474 (cmux.acpmux.modelPickerOrder), #62806 (two newTab keys) and #54956 added a webviews storage key
+        # with no [[storage_key]] entry and went red only on the feat-cmux-next push: under --pr-scope only the
+        # checker's own files routed the step.
+        t = ci_steps.load()
+        for paths in (["webviews/src/agent-session/acpmux/newtab/projectListStore.ts"],
+                      ["cmux-tui/crates/acpmux/src/store.rs"],
+                      ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift"]):
+            with self.subTest(paths=paths):
+                self.assertIn("persisted-formats", ci_steps.route(t, paths, pr_scope=True)["linux"])
+                self.assertIn("persisted-formats", ci_steps.nightly_gate_steps(t, paths))
+        self.assertNotIn("persisted-formats", ci_steps.route(t, ["docs/x.md"], pr_scope=True).get("linux", []))
+        run = t.steps["persisted-formats"].run
+        self.assertIn("new_red_only.sh", run)
+        self.assertIn("scripts/ci/new_red_only.sh", t.steps["persisted-formats"].inputs)
+
     def test_a_landing_head_runs_only_the_nightly_steps_it_routes(self) -> None:
         start, why, (jobs, only) = self.landing(["cmux-tui/Cargo.lock", "web/app/page.tsx"])
         self.assertIn("pr-pipeline.yml", start)
