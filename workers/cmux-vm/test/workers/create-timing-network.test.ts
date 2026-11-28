@@ -324,6 +324,11 @@ describe("the vm_create and vm_start lines", () => {
       // Where the rest of totalMs went: entry to proven ownership, and a budgeted key's running/spend check.
       for (const field of ["ownMs", "gateMs"]) expect(Number(line[field]), field).toBeGreaterThanOrEqual(0);
       expect(Number(line["totalMs"])).toBeGreaterThanOrEqual(Number(line["ownMs"]) + Number(line["gateMs"]) + Number(line["startMs"]));
+      // ownMs's two halves, which run at once: the rate spend and the ownership read; neither outlasts ownMs.
+      for (const field of ["rateMs", "ownReadMs"]) {
+        expect(Number(line[field]), field).toBeGreaterThanOrEqual(0);
+        expect(Number(line[field]), field).toBeLessThanOrEqual(Number(line["ownMs"]));
+      }
       expect(line).not.toHaveProperty("enteredAt");
     }
   });
