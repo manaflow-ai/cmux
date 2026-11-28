@@ -43,6 +43,10 @@ def reads_secret_prefix(value: object, *prefixes: str) -> bool:
     return workflow_jobs.ALL_SECRETS in names or any(name.startswith(prefixes) for name in names)
 
 
+# The nightly seeds the caches; its compilation-cache refreshers run in a workflow it calls (size budget).
+NIGHTLY_WORKFLOWS = ("nightly.yml", "nightly-compilation-cache.yml")
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -55,7 +59,8 @@ def main() -> int:
 
     seeded = {
         (step["with"]["key"], step["with"]["path"])
-        for _, step in cache_steps("nightly.yml")
+        for workflow_name in NIGHTLY_WORKFLOWS
+        for _, step in cache_steps(workflow_name)
         if not step["uses"].startswith(RESTORE)
     }
     for job_name, step in ci_steps:
@@ -71,7 +76,7 @@ def main() -> int:
     # its offline resolve (test-e2e.yml, run 36134675453). Every other reader
     # restores the store nightly.yml writes, through cache-restore.
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
-        if path.name == "nightly.yml":
+        if path.name in NIGHTLY_WORKFLOWS:
             continue
         workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
         for job_name, step in cache_steps(path.name):
@@ -138,12 +143,13 @@ def main() -> int:
         if "CF_R2_" in ci_text or reads_secret_prefix(ci_text, "CI_CACHE_R2_") \
                 or any(reads_secret_prefix(job, "CI_CACHE_R2_") for job in ci_jobs.values()):
             failures.append(f"{workflow_name} must not reference the R2 bucket credentials")
-    for job_name, step in cache_steps("nightly.yml"):
-        for name, value in (step.get("env") or {}).items():
-            if reads_secret_prefix(value, "CF_R2_"):
-                failures.append(f"nightly.yml {job_name}: cache writes must use dedicated CI_CACHE_R2_* credentials, never release credentials")
-            if reads_secret_prefix(value, "CI_CACHE_R2_") and "== 'r2' &&" not in str(value):
-                failures.append(f"nightly.yml {job_name}: {name} must be empty unless the run saves to R2")
+    for workflow_name in NIGHTLY_WORKFLOWS:
+        for job_name, step in cache_steps(workflow_name):
+            for name, value in (step.get("env") or {}).items():
+                if reads_secret_prefix(value, "CF_R2_"):
+                    failures.append(f"{workflow_name} {job_name}: cache writes must use dedicated CI_CACHE_R2_* credentials, never release credentials")
+                if reads_secret_prefix(value, "CI_CACHE_R2_") and "== 'r2' &&" not in str(value):
+                    failures.append(f"{workflow_name} {job_name}: {name} must be empty unless the run saves to R2")
 
     # The write credentials live in the ci-cache-writer environment, whose
     # deployment branches are limited to main. Every job that names them must
@@ -230,7 +236,8 @@ def main() -> int:
     outputs = json.loads(result.stdout)
     if outputs.get("should_build") != "false" or outputs.get("should_publish") != "false":
         failures.append("manual cache-only dispatch must neither build nor publish an app")
-    for job in ("refresh-compilation-cache", "refresh-test-compilation-cache"):
+    # One nightly job calls both refreshers (nightly-compilation-cache.yml), so its condition gates them both.
+    for job in ("refresh-compilation-caches",):
         if "inputs.seed_only" not in nightly["jobs"][job]["if"]:
             failures.append(f"{job} must allow manual cache seeding")
         # Owned pools serve pull requests, so the scheduled Blacksmith warmers
