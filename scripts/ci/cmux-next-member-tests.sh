@@ -86,9 +86,14 @@ channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # cmux-next-daemon-tests' env, word for word: the saved target's fingerprints hold it.
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
-export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
+export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0
+# Two rustc at once, when the slot's memory holds 16 GiB for each: at a fixed -j2 a 24 GiB pool slot had both the
+# acpmux and cmux-tui-core rustc SIGKILLed (PR pipeline runs 46151362183, 46159118214). The job count is not part of
+# a fingerprint, so the saved target stays fresh.
+CARGO_BUILD_JOBS="$(env -u CARGO_BUILD_JOBS bash ../scripts/ci/cargo-mem-jobs.sh --gib-per-job "${CMUX_DAEMON_GIB_PER_RUSTC:-16}" --max 2)"
+export CARGO_BUILD_JOBS
 # The workspace's heaviest rustc compile one at a time (scripts/ci/cargo-giant-lock.sh, as cargo-groups.sh does when
-# capped). CARGO_BUILD_JOBS=2 still let acpmux (over 10.6 GB at opt-level 0) and cmux-tui-core (5.3 GB), or cmux-tui's
+# capped). Even two jobs let acpmux (over 10.6 GB at opt-level 0) and cmux-tui-core (5.3 GB), or cmux-tui's
 # lib started on acpmux's metadata, compile at once, and the kernel SIGKILLed acpmux's rustc on the 14-16 GiB pr pipeline
 # / linux runners: cmux-next-idle-wakeups in runs 46170006062 (both attempts) and 46174703227 (cmux#64797, cmux#64815).
 # A wrapper leaves flags and outputs as they were, so the saved target's fingerprints still hold. CARGO_GROUPS_GIANTS
@@ -116,6 +121,10 @@ for attempt in 1 2 3; do
   status=${PIPESTATUS[0]}
   set -e
   if [ "$status" -ne 0 ] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then break; fi
+  if [ "$status" -eq 137 ] || { [ "$status" -ne 0 ] && grep -q 'signal: 9, SIGKILL' "$log"; }; then
+    echo "::error::the runner killed cargo, rustc or a test (SIGKILL, exit $status; out of memory is the usual cause, not confirmed here) at CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS; not a test failure of $member"
+    break
+  fi
   if [ "$status" -eq 0 ]; then
     grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log" && break
     echo "::error::cargo test ran no cmux_next_ test of $member (the filter matched nothing)"
