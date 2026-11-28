@@ -10425,6 +10425,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/github/read": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/github_action": {
       "/*untyped*": {
         "ty": "json",
@@ -34770,6 +34776,12 @@
       }
     },
     "response:_acpmux/github/pr_wait": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/github/read": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

@@ -47,6 +47,11 @@ pub const PAGE_SHARED_STALL_LADDER: &[RepairAction] = &[RepairAction::RestartRen
 /// hung page of its own). Only while a stall lasts.
 pub const PAGE_SHARED_RECHECK_MS: u64 = 5_000;
 
+/// The host's timer firing this late past its deadline means the host (its main thread, the Mac)
+/// ran nothing for that long: no beat could reach the model, so the lateness is moved off every
+/// part's silence clock instead of read as the parts' silence (`Health::forgive`). Two beats.
+pub const OBSERVER_LATE_MS: u64 = 2 * PAGE_BEAT_MS;
+
 /// A renderer reported unresponsive this long is `stuck`.
 pub const RENDERER_STUCK_MS: u64 = 5_000;
 pub const RENDERER_LADDER: &[RepairAction] = &[RepairAction::RestartRenderer];
