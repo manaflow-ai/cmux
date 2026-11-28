@@ -212,6 +212,8 @@ pub async fn serve_with_upload_timeout(
         "tabs" => {
             let tabs = &*crate::tab_snapshots::TABS;
             let socket = Some(config.daemon_socket());
+            // Agent tabs' last turns come from this acpmux (`tab_agent_screen`).
+            tabs.set_acpmux(Some(config.acpmux.clone()));
             crate::tab_snapshots::serve(tabs, socket, peer.session_exposure.clone(), &sender, receiver).await
         }
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
@@ -959,8 +961,13 @@ async fn splice(
                 }
                 None => return,
             };
+            // Only the new bytes are scanned: the bytes held from earlier chunks have no
+            // newline, so a long line in many chunks costs one pass, not one per chunk.
+            let mut from = pending.len();
             pending.extend_from_slice(&bytes);
-            while let Some(newline) = pending.iter().position(|&b| b == b'\n') {
+            while let Some(at) = pending[from..].iter().position(|&b| b == b'\n') {
+                let newline = from + at;
+                from = 0;
                 let mut line: Vec<u8> = pending.drain(..=newline).collect();
                 line.pop();
                 if line.last() == Some(&b'\r') {
@@ -1768,7 +1775,11 @@ async fn current_mode(
 
 /// Resolve aliases over a fresh trusted side socket. A fresh request id and
 /// socket prevent a timed-out info reply from authorizing another target.
-async fn trusted_session_query(target: &AcpmuxTarget, method: &str, params: Value) -> Option<Value> {
+pub(crate) async fn trusted_session_query(
+    target: &AcpmuxTarget,
+    method: &str,
+    params: Value,
+) -> Option<Value> {
     let query = async {
         let mut socket = connect_acpmux(target).await.ok()?;
         let id = uuid::Uuid::new_v4().to_string();

@@ -32,12 +32,15 @@ tree_used=exact
 # fallback tree, or CMUX_TUI_TREE_CLIENT_FALLBACK=off, it waits for the tip's tree as before.
 fallback_wait="${CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS:-1500}"
 [[ "$fallback_wait" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
+# This step runs on the signing Mac: with a fallback tree in hand, two unreadable runs answers in a row
+# (about 5 min) bundle it rather than hold that Mac for the whole bound (await-tree-client.sh's notes).
+unreadable_checks="${CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS:-2}"
 if [[ "$TREE_PENDING" == true ]]; then
   read -r -a c <<<"$TREE_CANDIDATES"
   fallback_commit="" fallback_key=""
   read -r fallback_commit fallback_key _ <<<"${TREE_FALLBACK:-}" || true
   if [[ "${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}" != off && "$fallback_commit" =~ ^[0-9a-f]{40}$ && "$fallback_key" =~ ^[0-9a-f]{40}$ ]]; then
-    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
+    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
       echo "::notice title=cmux-tui client::exact tree $CMUX_TUI_CLIENT_KEY of the build commit, from ${cmux_tui_commit:0:12}"
     else
       cmux_tui_commit="$fallback_commit" client_key="$fallback_key" tree_used=fallback
