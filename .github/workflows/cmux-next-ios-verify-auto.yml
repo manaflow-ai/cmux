@@ -81,11 +81,16 @@ jobs:
           done
           echo "::warning title=cmux ios verify (auto)::dispatch refused 3 times; run \`cmux ios verify --pr $PR\` by hand"
 
-  verify:
+  # The id ends in -fleet: the gateway runner's job-started hook takes any job id ending in -fleet and refuses others.
+  verify-fleet:
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     name: cmux ios verify
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' }}
-    runs-on: cmux-linux
+    # The fleet controller is tailnet-only and the cmux-linux pool's VMs are not on the tailnet ("runner NAME has no route
+    # to the controller": 28 of 30 dispatched runs 2026-11-28 16:02-16:10Z, e.g. 46163617721), so a job that fetches the
+    # fleet client runs on the gateway runner. tests/test_ci_gateway_jobs_on_linux.py fails a fleet-client job that
+    # names only cmux-linux.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # Two simulator shards in parallel (their own bounds in ios_verify.py), plus queue time for a simulator worker.
     timeout-minutes: 150
     permissions:
@@ -174,7 +179,7 @@ jobs:
           set -euo pipefail
           # The token goes on this one fetch's command line, never into .git/config: the head's scripts run in a
           # worktree that shares it.
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=$auth" fetch -q --filter=blob:none origin "$SHA"
           git -c "http.https://github.com/.extraheader=$auth" worktree add -q --detach "$RUNNER_TEMP/ios-verify-head" "$SHA"
       - uses: ./.github/actions/fleet-client
