@@ -1,0 +1,65 @@
+name: Claude login pool
+description: >-
+  Reach the sr2 Claude login pool (100.120.48.119:4016) over the tailnet, so a job's Claude calls spread across the
+  pool's logins instead of the one shared CLAUDE_CODE_OAUTH_TOKEN (at its weekly cap, every job that shares it fails or
+  skips). The job joins as an ephemeral tag:ci node when oauth-client-id is set; the tailnet policy admits tag:ci to the
+  pool host on tcp:4016 (cmuxterm-hq skills/infra/tsadmin/acl.manaflow.hujson). A runner that already runs Tailscale is
+  never re-joined (its own node would be logged out); it only probes. base-url is '' whenever the pool is unreachable,
+  so the caller keeps its token. Callers mark this step continue-on-error: it never decides a job's result.
+  Leo, 2026-11-27: "let CI reach the Claude login pool. Add one tailnet policy rule: `tag:ci` can reach the pool host
+  on `:4016` only."
+inputs:
+  oauth-client-id:
+    description: Tailscale OIDC (workload identity) client that may mint tag:ci nodes; empty skips the join.
+    required: false
+    default: ""
+  audience:
+    description: The OIDC client's audience.
+    required: false
+    default: ""
+  pool-url:
+    description: The pool's Anthropic-compatible base URL (the gateway ignores the auth token).
+    required: false
+    default: http://100.120.48.119:4016
+outputs:
+  base-url:
+    description: pool-url when its health answered from this runner, else empty.
+    value: ${{ steps.probe.outputs.base-url }}
+runs:
+  using: composite
+  steps:
+    - name: Check for a Tailscale already on this runner
+      id: fresh
+      shell: bash
+      run: |
+        if pgrep -x tailscaled >/dev/null 2>&1 || pgrep -f 'Tailscale.app|io.tailscale.ipn|IPNExtension' >/dev/null 2>&1; then
+          echo "join=false" >> "$GITHUB_OUTPUT"; echo "probe=true" >> "$GITHUB_OUTPUT"
+          echo "runner already runs Tailscale: no join, probing the pool through it"
+        elif [ -n "$CLIENT_ID" ]; then
+          echo "join=true" >> "$GITHUB_OUTPUT"; echo "probe=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "join=false" >> "$GITHUB_OUTPUT"; echo "probe=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::Claude login pool: no tailnet client (vars.TS_CI_OIDC_CLIENT_ID unset); this job uses CLAUDE_CODE_OAUTH_TOKEN"
+        fi
+      env:
+        CLIENT_ID: ${{ inputs.oauth-client-id }}
+    - name: Join tailnet as tag:ci
+      if: steps.fresh.outputs.join == 'true'
+      uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+      with:
+        oauth-client-id: ${{ inputs.oauth-client-id }}
+        audience: ${{ inputs.audience }}
+        tags: tag:ci
+    - name: Probe the pool
+      id: probe
+      if: steps.fresh.outputs.probe == 'true'
+      shell: bash
+      env:
+        POOL_URL: ${{ inputs.pool-url }}
+      run: |
+        if curl -fsS --connect-timeout 5 --max-time 10 -o /dev/null "$POOL_URL/_subrouter/health"; then
+          echo "base-url=$POOL_URL" >> "$GITHUB_OUTPUT"
+          echo "::notice::Claude login pool: $POOL_URL answers; Claude goes through the pool"
+        else
+          echo "::notice::Claude login pool: $POOL_URL did not answer from this runner; this job uses CLAUDE_CODE_OAUTH_TOKEN"
+        fi

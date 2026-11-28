@@ -124,6 +124,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      id-token: write # The tailnet join for the Claude login pool (.github/actions/claude-pool).
     outputs:
       limited: ${{ steps.ask.outputs.limited }}
     steps:
@@ -131,14 +132,32 @@ jobs:
         with:
           name: localization-packet
           path: ${{ runner.temp }}/packet
+      - name: Checkout the Claude login pool action
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .claude-pool
+          sparse-checkout: .github/actions/claude-pool
+          persist-credentials: false
+      # The pool's logins instead of the one shared token when the pool answers; '' keeps the token.
+      - name: Reach the Claude login pool
+        id: pool
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./.claude-pool/.github/actions/claude-pool
+        with:
+          oauth-client-id: ${{ vars.TS_CI_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_CI_OIDC_AUDIENCE }}
       # No tools: the rows are the whole input, structured translations the whole output.
       - name: Ask for the translations
         id: ask
         timeout-minutes: 25
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_POOL_URL: ${{ steps.pool.outputs.base-url }}
         run: |
           set -euo pipefail
+          if [ -n "${CLAUDE_POOL_URL:-}" ]; then export ANTHROPIC_BASE_URL="$CLAUDE_POOL_URL" ANTHROPIC_AUTH_TOKEN=subrouter2; unset CLAUDE_CODE_OAUTH_TOKEN; fi
           npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
           schema='{"type":"object","properties":{"translations":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"value":{},"localization":{"type":"object"}},"required":["id"]}}},"required":["translations"]}'
           mkdir -p "$RUNNER_TEMP/empty"
