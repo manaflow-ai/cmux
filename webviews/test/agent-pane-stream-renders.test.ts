@@ -115,8 +115,11 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
         expect(report.transcript, "transcript renders during usage updates").toBeLessThanOrEqual(STRUCTURAL);
         return;
       }
-      // The streaming row drew the stream.
-      expect(busiest[1]).toBeGreaterThan(20);
+      // The streaming row drew the stream. A thought streams under the running turn's closed "Working
+      // for" (the default, fold shut), where no row draws it and only the live line hears it (#60680,
+      // drawnRows.ts `hiddenUnderFold`): no row may draw it then, nor the pane past its structure.
+      if (kind === "thought") expect(busiest[1]).toBeLessThanOrEqual(STRUCTURAL);
+      else expect(busiest[1]).toBeGreaterThan(20);
       // The transcript renders when a row's height changes (a new line, which the reply's reveal
       // moves frame by frame), never for the chunk itself: before, each chunk rendered it about twice
       // (bench/delta-renders.bench.ts: 1.9 to 2.2 per chunk), once to copy its rows.

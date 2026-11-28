@@ -128,6 +128,24 @@ test("thought fast path draws the pane once a hidden thought gives an empty Work
   expect(thoughtOnly(previous, next)).toBeUndefined();
 });
 
+test("thought fast path keeps the chunks after a thought left the quiet rule on its row, under a fold still marked empty", () => {
+  // The header can stay `foldEmpty` after the pane drew for the crossing chunk; the next chunks of a
+  // thought already past the rule change nothing the header shows, so they draw no pane each.
+  const beforeThought: AcpmuxActivity = {
+    kind: "thought",
+    text: `Read ${"the helper ".repeat(20)}`,
+    startedAt: 1,
+    endedAt: 2,
+  };
+  const afterThought: AcpmuxActivity = { ...beforeThought, text: `${beforeThought.text} and its test`, endedAt: 3 };
+  const previous = snapshot([prompt, row("activity-folded", beforeThought, 1)]);
+  const next = snapshot([prompt, row("activity-folded", afterThought, 2)]);
+  markOneRowChange(next.rows, previous.rows, 1);
+  drewThoughts([prompt, { ...header(false), foldEmpty: true }, line]);
+
+  expect(thoughtOnly(previous, next)).toEqual({ id: "activity-folded", before: beforeThought, after: afterThought });
+});
+
 test("thought fast path draws the pane for a hidden row of an earlier turn", () => {
   const steer: AcpmuxRow = { id: "user-2", version: 1, at: 2, kind: "user" };
   const { previous, next } = hiddenChange([steer]);
