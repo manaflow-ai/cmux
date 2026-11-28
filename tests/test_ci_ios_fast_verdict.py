@@ -708,12 +708,25 @@ class WorkflowTest(unittest.TestCase):
         subprocess.run(["bash", "-n", str(ROOT / "scripts/ci/ios_fast_verdict.sh")], check=True)
 
     def test_the_kit_tests_are_bounded(self) -> None:
-        # Run 46154061623: a hung kit test held the verdict 1962 s, to near the job's 40 min ceiling.
+        # A hung kit test is named by the stall window; the total bound is a backstop under the job's ceiling.
         text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
         run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
         self.assertIn("hung_test_watchdog.py", run)
-        self.assertIn('--timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-900}"', run)
+        self.assertIn('--stall-seconds "${IOS_FAST_TEST_STALL_SECONDS:-300}"', run)
+        self.assertIn('--timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-2100}"', run)
         self.assertLess(run.index("hung_test_watchdog.py"), run.index("xcodebuild test-without-building"))
+
+    def test_the_watchdog_sees_each_test(self) -> None:
+        # Runs 46183201681 and 46183241499 (cmux#65273, two Macs): with -quiet the watchdog saw only "Testing started",
+        # and the 900 s total killed CmuxMobileLiveTests (1962 s healthy, run 46154061623) as "no test was in flight".
+        text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
+        run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
+        line = run[run.index("xcodebuild test-without-building"):].split("\n", 1)[0]
+        self.assertNotIn('"${common[@]}"', line)
+        self.assertIn('"${loud[@]}"', line)
+        self.assertIn('[[ "$arg" == -quiet ]] || loud+=("$arg")', run)
+        # The total bound fits under the job's ceiling with the setup and the kit build before it.
+        self.assertLess(2100 + 300, self.jobs["ios-fast"]["timeout-minutes"] * 60 + 1)
 
     def test_the_kit_build_is_outside_the_test_bound(self) -> None:
         # cmux#59376 run 46168068598: the bound covered the build too; the kit was still compiling at 900 s.

@@ -88,13 +88,20 @@ kit() {
     # run 46168068598: SWBBuildService still compiling at 900 s, "no test was in flight"). The job's ceiling bounds it.
     (cd cmux-next-ios/CmuxMobileKit && xcodebuild build-for-testing "${common[@]}" "${only[@]}") || status=1
     phase "kit build for testing ($tests)" $((SECONDS - t))
-    # A bound on the test run only: a hung test (no Swift Testing time limit) used to hold the verdict to the
-    # job's 40 min ceiling (run 46154061623: 1962 s of tests, healthy runs execute 200 to 260 s). Past the bound the
-    # watchdog samples the test processes, kills the run and names it timed out, so a red head reads red in 15 min.
+    # The test run, watched for a hang. A hung test (no Swift Testing time limit) shows as no test starting or
+    # finishing for the stall window: the watchdog names the tests still open, samples, kills the run, fails it.
+    # The test run is not -quiet, so the watchdog sees each test's lines: with -quiet it saw only "Testing started"
+    # and could tell a long suite from a hang by the clock alone. CmuxMobileLiveTests is long, not hung: about
+    # 1193 cases in 1962 s on a 6-vCPU Mac (run 46154061623, which finished), so the old 900 s total killed every
+    # plan with it at "Testing started", "no test was in flight" (runs 46183201681, 46183241499 on two Macs).
+    # The total bound stays as a backstop under the job's 40 min ceiling; the stall window catches the hang.
+    loud=()
+    for arg in "${common[@]}"; do [[ "$arg" == -quiet ]] || loud+=("$arg"); done
     (( status )) || (cd cmux-next-ios/CmuxMobileKit && python3 -I "$GITHUB_WORKSPACE_ROOT/scripts/ci/hung_test_watchdog.py" \
-      --timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-900}" --label "iOS fast verdict kit tests ($tests)" -- \
-      xcodebuild test-without-building "${common[@]}" "${only[@]}" -resultBundlePath "$bundle") || status=1
-    # -quiet drops Swift Testing's output: the counts and every failure from the result bundle.
+      --stall-seconds "${IOS_FAST_TEST_STALL_SECONDS:-300}" --timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-2100}" \
+      --label "iOS fast verdict kit tests ($tests)" -- \
+      xcodebuild test-without-building "${loud[@]}" "${only[@]}" -resultBundlePath "$bundle") || status=1
+    # The counts and every failure, from the result bundle (the build ran -quiet; the log's test lines are long).
     xcrun xcresulttool get test-results tests --path "$bundle" --compact 2>/dev/null | python3 -I -c '
 import json, sys
 counts = {}
