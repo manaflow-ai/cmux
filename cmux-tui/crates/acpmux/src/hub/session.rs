@@ -717,17 +717,29 @@ impl Session {
     /// first reads it here, once. Before its log is read a chat's inbox holds what came since, as
     /// before: a reader of many chats (`turn_coming`) never reads their logs.
     pub(super) fn inbox(&self) -> std::sync::MutexGuard<'_, super::inbox::Inbox> {
-        if !self.inbox_loaded.load(Ordering::Acquire) && self.log_loaded.load(Ordering::SeqCst) {
+        if !self.inbox_loaded.load(Ordering::Acquire)
+            && self.log_loaded.load(Ordering::SeqCst)
+            && !self.inbox_restoring_here()
+        {
             let _loading = self.inbox_load.lock().unwrap_or_else(|e| e.into_inner());
             if !self.inbox_loaded.load(Ordering::Acquire) {
                 // No hub to read it with: its log load restored it (`Hub::load_session_log`).
                 if let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) {
+                    let _mark = RestoringInbox::mark(self);
                     hub.restore_inbox(self);
                     self.inbox_loaded.store(true, Ordering::Release);
                 }
             }
         }
         self.inbox_state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Whether this thread is inside this chat's lazy inbox load (`Session::inbox`): what the
+    /// restore calls (the aged archive, the deadline review) reads the inbox it is filling, and
+    /// must not take `inbox_load` again (a std mutex does not re-enter: every daemon since
+    /// 13fcff27 wedged at its first restore, update rolled back `noAnswer`).
+    fn inbox_restoring_here(&self) -> bool {
+        RESTORING_INBOX.with(|r| r.get() == self as *const Self as usize)
     }
 
     /// The fencing epoch currently held by this session owner.
@@ -1438,5 +1450,25 @@ mod preview_tests {
         let long = format!("a{}{secret} b", " ".repeat(400_000));
         assert_eq!(preview_head(&long, 200).len(), long.len());
         assert!(!masked_preview(&long, 200).contains(&secret));
+    }
+}
+
+thread_local! {
+    /// The chat whose inbox this thread restores now (its address; 0: none).
+    static RESTORING_INBOX: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Marks this thread as restoring `session`'s inbox until dropped (`Session::inbox`).
+struct RestoringInbox(usize);
+
+impl RestoringInbox {
+    fn mark(session: &Session) -> Self {
+        Self(RESTORING_INBOX.with(|r| r.replace(session as *const Session as usize)))
+    }
+}
+
+impl Drop for RestoringInbox {
+    fn drop(&mut self) {
+        RESTORING_INBOX.with(|r| r.set(self.0));
     }
 }
