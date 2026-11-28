@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
 @testable import CmuxNextServer
@@ -49,6 +50,52 @@ import Testing
         #expect(spec.cancelButton?.id == MachineStorageCard.doneID)
     }
 
+    @Test func theCardShowsCacheRowsAndDaemonVerdicts() throws {
+        let reply = try JSONDecoder().decode(WorktreeCareReportReply.self, from: Self.fixture())
+        var state = MachineStorageState()
+        state.measured(reply)
+        let spec = MachineStorageCard.spec(state)
+        let rows = [
+            CmuxDialogListRow(title: "/Users/me/Library/Developer/Xcode/DerivedData/OldApp", detail: [
+                MachineStorageStrings.reclaimable, MachineStorageCard.bytes(2_147_483_648), "unused for 192 h",
+            ].joined(separator: " · ")),
+            CmuxDialogListRow(title: "/Users/me/Library/Developer/Xcode/DerivedData/Unreadable", detail: [
+                MachineStorageStrings.cacheKept, "its last use could not be read",
+            ].joined(separator: " · ")),
+        ]
+        #expect(spec.fields.contains(.readOnlyList(label: MachineStorageStrings.cacheDetails, rows: rows)))
+
+        let card = CmuxDialogView(dialog: .standalone(spec, onPress: { _ in }))
+        card.frame.size = card.fittingSize
+        card.layoutSubtreeIfNeeded()
+        let table = try #require(Self.views(in: card).compactMap { $0 as? NSTableView }.first)
+        #expect(table.numberOfRows == rows.count)
+        for (index, row) in rows.enumerated() {
+            let cell = try #require(table.view(atColumn: 0, row: index, makeIfNecessary: true))
+            let labels = Self.views(in: cell).compactMap { $0 as? ThemedLabel }
+            #expect(labels.map(\.stringValue) == [row.title, row.detail])
+        }
+    }
+
+    @Test func theCardAcceptsOlderReportsAndEmptyCacheLists() throws {
+        var object = try #require(try JSONSerialization.jsonObject(with: Self.fixture()) as? [String: Any])
+        var report = try #require(object["report"] as? [String: Any])
+        report.removeValue(forKey: "caches")
+        object["report"] = report
+        let older = try JSONDecoder().decode(WorktreeCareReportReply.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(older.report.caches == nil)
+
+        report["caches"] = ["items": []]
+        object["report"] = report
+        let empty = try JSONDecoder().decode(WorktreeCareReportReply.self, from: JSONSerialization.data(withJSONObject: object))
+        var state = MachineStorageState()
+        state.measured(older)
+        let olderSpec = MachineStorageCard.spec(state)
+        state.measured(empty)
+        #expect(MachineStorageCard.spec(state) == olderSpec)
+        #expect(!olderSpec.fields.contains { if case .readOnlyList = $0 { true } else { false } })
+    }
+
     /// No pass that acted since the daemon started (`last: null`) and automatic cleanup off: the
     /// card says so rather than leaving the lines out.
     @Test func noLastPassAndAutomaticOffAreSaid() throws {
@@ -82,6 +129,13 @@ import Testing
         await popover.settle()
         #expect(calls.reports == 1)
         #expect(MachineStorageCard.spec(popover.state).buttons.last?.isEnabled == true)
+        let view = try #require(popover.panel?.dialogView)
+        let table = try #require(Self.views(in: view).compactMap { $0 as? NSTableView }.first)
+        view.focusInitial()
+        #expect(view.dialog.handle(.tab, modifiers: []))
+        #expect(table.window?.firstResponder === table)
+        #expect(view.dialog.handle(.tab, modifiers: [.shift]))
+        #expect(table.window?.firstResponder !== table)
 
         popover.pressed(MachineStorageCard.cleanID)
         #expect(popover.state.phase == .cleaning)
@@ -125,5 +179,9 @@ import Testing
     @MainActor final class Calls {
         var reports = 0
         var cleans = 0
+    }
+
+    private static func views(in root: NSView) -> [NSView] {
+        root.subviews.flatMap { [$0] + views(in: $0) }
     }
 }

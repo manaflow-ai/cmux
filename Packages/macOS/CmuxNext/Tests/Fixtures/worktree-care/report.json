@@ -40,6 +40,24 @@
     ],
     "freed": 0,
     "reclaimable": 5368709120,
+    "caches": {
+      "applied": false,
+      "items": [
+        {
+          "family": "xcode-derived-data",
+          "path": "/Users/me/Library/Developer/Xcode/DerivedData/OldApp",
+          "verdict": { "action": "reclaim", "reason": "unused for 192 h" },
+          "bytes": 2147483648
+        },
+        {
+          "family": "xcode-derived-data",
+          "path": "/Users/me/Library/Developer/Xcode/DerivedData/Unreadable",
+          "verdict": { "action": "keep", "reason": "its last use could not be read" }
+        }
+      ],
+      "reclaimable": 2147483648,
+      "freed": 0
+    },
     "errors": [],
     "expired": [],
     "autoCleanup": true,
