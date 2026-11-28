@@ -71,26 +71,26 @@ pub fn matches(pattern: &str, path: &str) -> bool {
 }
 
 fn glob(pattern: &[&str], path: &[&str]) -> bool {
-    match (pattern.first(), path.first()) {
-        (None, None) => true,
-        (Some(&"**"), _) => {
-            glob(&pattern[1..], path) || (!path.is_empty() && glob(pattern, &path[1..]))
+    match (pattern, path) {
+        ([], []) => true,
+        (["**", rest @ ..], _) => {
+            glob(rest, path) || path.split_first().is_some_and(|(_, tail)| glob(pattern, tail))
         }
-        (Some(part), Some(name)) => {
-            part_matches(part.as_bytes(), name.as_bytes()) && glob(&pattern[1..], &path[1..])
+        ([part, rest @ ..], [name, tail @ ..]) => {
+            part_matches(part.as_bytes(), name.as_bytes()) && glob(rest, tail)
         }
         _ => false,
     }
 }
 
 fn part_matches(pattern: &[u8], name: &[u8]) -> bool {
-    match (pattern.first(), name.first()) {
-        (None, None) => true,
-        (Some(b'*'), _) => {
-            part_matches(&pattern[1..], name)
-                || (!name.is_empty() && part_matches(pattern, &name[1..]))
+    match (pattern, name) {
+        ([], []) => true,
+        ([b'*', rest @ ..], _) => {
+            part_matches(rest, name)
+                || name.split_first().is_some_and(|(_, tail)| part_matches(pattern, tail))
         }
-        (Some(p), Some(n)) => p == n && part_matches(&pattern[1..], &name[1..]),
+        ([p, rest @ ..], [n, tail @ ..]) => p == n && part_matches(rest, tail),
         _ => false,
     }
 }
@@ -477,5 +477,54 @@ impl Projected {
 }
 
 #[cfg(test)]
-#[path = "remote_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glob_tails_handle_empty_and_repeated_wildcards() {
+        assert!(glob(&[], &[]));
+        assert!(!glob(&[], &["file"]));
+        assert!(!glob(&["file"], &[]));
+        assert!(glob(&["**", "**"], &[]));
+        assert!(glob(&["**", "file"], &["a", "b", "file"]));
+        assert!(!glob(&["**", "file"], &["a", "b"]));
+        assert!(part_matches(b"**", b""));
+        assert!(part_matches(b"a**b", b"ab"));
+        assert!(!part_matches(b"a*b", b"a"));
+        assert!(matches("**/é*.rs", "src/étude.rs"));
+    }
+
+    #[test]
+    fn patterns_are_paths_folders_or_globs() {
+        assert!(matches("src/click", "src/click/core.py"));
+        assert!(matches("src/click/", "src/click/core.py"));
+        assert!(matches("src/click/**", "src/click/a/b.py"));
+        assert!(matches("pyproject.toml", "pyproject.toml"));
+        assert!(!matches("src/click", "src/clickety.py"));
+        assert!(matches("tests/test_*.py", "tests/test_utils.py"));
+        assert!(!matches("tests/test_*.py", "tests/sub/test_utils.py"));
+        assert!(matches("**/conftest.py", "conftest.py"));
+        assert!(matches("**/conftest.py", "tests/a/conftest.py"));
+        assert!(!matches("*.py", "a/b.py"));
+    }
+
+    #[test]
+    fn paths_stay_inside_the_repository() {
+        for ok in ["a", "a/b.py", "docs/x y.md"] {
+            assert!(check_path(ok).is_ok(), "{ok}");
+        }
+        for bad in
+            ["", "/etc/passwd", "a/../b", "../a", "a//b", "a/", ".git/config", "a/.git/x", "./a"]
+        {
+            assert!(check_path(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn links_that_leave_the_folder_are_not_projected() {
+        assert!(link_stays_inside("a/b", b"c"));
+        assert!(link_stays_inside("a/b", b"../d"));
+        assert!(!link_stays_inside("a/b", b"../../d"));
+        assert!(!link_stays_inside("a", b"/etc/passwd"));
+    }
+}

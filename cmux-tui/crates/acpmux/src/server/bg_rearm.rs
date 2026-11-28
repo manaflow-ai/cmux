@@ -89,6 +89,9 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
                         crate::session_budget::TaskClass::Task,
                     )
                     .await?;
+                // The row of the task it was came with the chat's log: it ends here and gives its
+                // call to the new task, so the chat lists the call once (`hub/bg_registry.rs`).
+                hub.bg_moved(&session, &from);
                 rearmed.push(json!({"from": from, "id": started.get("id")}));
             }
             Ok(json!({"version": VERSION, "rearmed": rearmed, "expired": expired}))
