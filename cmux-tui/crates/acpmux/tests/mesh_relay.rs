@@ -582,6 +582,11 @@ async fn a_relayed_steer_that_names_no_sender_runs_in_an_idle_chat() {
     bare.body = "offload probe count msg-000001".into();
     fake.lease(bare);
     fake.until("the ack", |s| !s.acked("msg-bare").is_empty()).await;
+    // The ack says how the chat took it, so the sender's record tells an inbox hold from a turn.
+    let ack = fake.with(|s| s.acked("msg-bare").remove(0));
+    assert_eq!(ack.state, AckState::Delivered, "{ack:?}");
+    let detail = ack.detail.clone().unwrap_or_default();
+    assert!(!detail.is_empty() && !detail.contains("held"), "{ack:?}");
     let info = settled_turns(&mut local, &session, 2).await;
     assert_eq!(info.pointer("/result/turnCount"), Some(&json!(2)), "never ran: {info}");
     relay.stop().await;
