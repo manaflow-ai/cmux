@@ -2,8 +2,8 @@
 //! transcript (`_acpmux/native_history`), back to its first, each once.
 
 use super::super::Hub;
-use super::{fit_reply, handle, native_seq, page_reply, result_bytes};
-use crate::adopt_replay::{ClaudePage, PastTurn};
+use super::{fit_reply, handle, native_seq, page_reply, result_bytes, turn_records};
+use crate::adopt_replay::{ClaudePage, LineOrigin, PastHarness, PastTurn};
 use crate::adopt_tools::PastTool;
 use crate::rpc::MAX_MESSAGE_BYTES;
 use serde_json::{Value, json};
@@ -546,4 +546,64 @@ async fn bench_older_native_page_of_a_400_mb_transcript() {
         sorted.last().unwrap(),
     );
     let _ = std::fs::remove_dir_all(home);
+}
+
+/// A line Claude Code wrote into a turn (a task notification, a peer's message) replays where it
+/// came, among the calls, as a steered-in user row marked with its origin (`_meta.lineOrigin`):
+/// the pane folds it as the turn's work by that mark, never by its text.
+#[test]
+fn a_harness_line_replays_in_place_marked_with_its_origin() {
+    let tool = |id: &str| PastTool {
+        id: id.into(),
+        call: json!({"kind": "execute", "title": id}),
+        done: json!({"status": "completed"}),
+        started_at: Some(2),
+        ended_at: Some(3),
+        proposed: None,
+    };
+    let line = |origin, after_tools| PastHarness {
+        origin,
+        text: format!("{origin:?}"),
+        at: Some(4),
+        after_tools,
+    };
+    let turn = PastTurn {
+        prompt: "go".into(),
+        prompt_at: Some(1),
+        answer: "done".into(),
+        answer_at: Some(5),
+        tools: vec![tool("c1"), tool("c2")],
+        harness: vec![line(LineOrigin::TaskNotification, 1), line(LineOrigin::Peer, 2)],
+    };
+    let records = turn_records(&turn, "sid", "t", "p");
+    let shape: Vec<String> = records
+        .iter()
+        .map(|r| match r.msg.pointer("/_meta/lineOrigin").and_then(Value::as_str) {
+            Some(origin) => format!("{}:{origin}", r.kind),
+            None => r.kind.to_owned(),
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            "turn_started",
+            "user_message",
+            "tool_call",
+            "tool_call_update",
+            "user_message:task-notification",
+            "tool_call",
+            "tool_call_update",
+            "user_message:peer",
+            "agent_message_chunk",
+            "turn_end",
+            "turn_result",
+        ]
+    );
+    let note = &records[4].msg;
+    assert_eq!(note["steer"], json!(true));
+    assert_eq!(note["turnId"], json!("t"));
+    assert_eq!(note["promptId"], json!("p-harness-0"));
+    assert_eq!(records[7].msg["promptId"], json!("p-harness-1"));
+    assert!(crate::adopt_replay::harness_row(note));
+    assert!(!crate::adopt_replay::harness_row(&records[1].msg));
 }

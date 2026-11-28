@@ -116,6 +116,10 @@ pub struct Source {
     pub argv: Option<Vec<String>>,
     /// The env its harness starts with (profile, preset, chat store, the chat's own).
     pub env: BTreeMap<String, String>,
+    /// No turn ran on this chat here and it carries no conversation from elsewhere (not
+    /// adopted, watched, resumed or forked): its harness has written no transcript yet, so
+    /// none found means it spent nothing, not that it went unmeasured.
+    pub unprompted: bool,
 }
 
 impl Source {
