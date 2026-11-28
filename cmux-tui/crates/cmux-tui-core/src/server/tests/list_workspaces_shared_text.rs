@@ -216,9 +216,16 @@ fn the_readers_of_one_build_share_one_text_for_each_tab_projection() {
 /// serialized by the connection's writer.
 fn value_path_reply(mux: &Arc<Mux>, connection: &Connection, id: Option<Value>) -> String {
     let lines_written = connection.writer.lines_written();
-    let data =
-        cmd_workspaces::list_workspaces(mux, connection.client, lines_written, None, None, None)
-            .unwrap();
+    let data = cmd_workspaces::list_workspaces(
+        mux,
+        connection.client,
+        lines_written,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
     let response = Response {
         id,
         ok: true,

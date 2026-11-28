@@ -260,7 +260,7 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces { known, limit, after, since } => match since {
+        Command::ListWorkspaces { known, limit, after, since, rows } => match since {
             Some(since) => {
                 cmd_workspaces::list_workspaces_delta(mux, client, writer.lines_written(), &since)
             }
@@ -271,6 +271,7 @@ fn dispatch_command(
                 known.as_ref(),
                 limit,
                 after,
+                rows.as_deref(),
             ),
         },
         Command::GetFrontendProjection { frontend, scope, subject_key } => {

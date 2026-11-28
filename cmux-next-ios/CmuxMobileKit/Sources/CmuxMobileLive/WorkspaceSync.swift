@@ -128,6 +128,7 @@ public final class WorkspaceSync {
         }
         let prepared = await Self.prepare(channel, deviceID: deviceID, deviceName: deviceName,
                                           firstWindow: ListFirstWindow.honors(macID, defaults: firstWindowDefaults),
+                                          slimRows: ListFirstWindow.honorsSlim(macID, defaults: firstWindowDefaults),
                                           macID: macID)
         guard connectionSerial == serial, !Task.isCancelled else {
             prepared.replies.cancel()
@@ -177,9 +178,11 @@ public final class WorkspaceSync {
     /// wait for the answers (a Mac that pairs holds them until `auth` passes).
     /// With `firstWindow` (the Mac advertised `list-workspaces-page-v1` last time) the list
     /// is the first window only (`ListFirstWindow`); the whole tree follows after it is drawn.
+    /// With `slimRows` (the Mac advertised `list-workspaces-slim-v1` too) its rows are slim.
     public nonisolated static func prepare(
         _ channel: any LinkChannel, deviceID: String, deviceName: String,
         firstWindow: Bool = false,
+        slimRows: Bool = false,
         macID: String? = nil,
         authorizationTimeout: Duration = LinkPairing.authorizationTimeout,
         replyTimeout: Duration = DaemonClient.defaultDeadline,
@@ -191,7 +194,7 @@ public final class WorkspaceSync {
         // tree, no first window) (Leo, 2026-11-24: "deltas can be sipped and maintained").
         let held = sendsKnown ? macID.flatMap { id in heldKnown.withLock { $0[id] } } : nil
         let listParams = held.map { Self.listParams(known: $0, sendsKnown: true) }
-            ?? Self.setupListParams(sendsKnown: sendsKnown, firstWindow: firstWindow)
+            ?? Self.setupListParams(sendsKnown: sendsKnown, firstWindow: firstWindow, slim: slimRows)
         let client = DaemonClient(channel: channel, orderedEvents: true)
         await client.start()
         let replies = Task.detached { () -> [Result<DaemonClient.ReceivedLine, any Error>] in
@@ -288,7 +291,7 @@ public final class WorkspaceSync {
             identity = setup.identity
             listsKnown = setup.listsKnown
             Self.setupSendsKnown.withLock { $0 = setup.listsKnown }
-            ListFirstWindow.note(macID, honors: setup.pages, defaults: firstWindowDefaults)
+            ListFirstWindow.note(macID, honors: setup.pages, slim: setup.slim, defaults: firstWindowDefaults)
             // A reconnect's list counts a prompt only by its own time (a turn already running
             // when the link came back is not a new prompt at the moment it is seen).
             for (surface, state) in setup.agents.bySurface where state.updatedAt != nil {
@@ -313,7 +316,7 @@ public final class WorkspaceSync {
                 // Sent `known` or `limit` on the last Mac's word and this one refused it: list
                 // again with only what this connection's `identify` advertised.
                 snapshot = try await client.requestOrdered("list-workspaces", params: Self.setupListParams(
-                    sendsKnown: setup.listsKnown, firstWindow: setup.pages))
+                    sendsKnown: setup.listsKnown, firstWindow: setup.pages, slim: setup.slim))
                 guard self.client === client, !Task.isCancelled else {
                     await closeFailedClient(client)
                     return
@@ -602,7 +605,7 @@ public final class WorkspaceSync {
         }
     }
 
-    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool, pages: Bool) {
+    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool, pages: Bool, slim: Bool) {
         _ = try check(replies[0].get())
         let identify = try check(replies[1].get())["data"] as? [String: Any]
         _ = try check(replies[2].get())
@@ -614,7 +617,8 @@ public final class WorkspaceSync {
         }
         let identity = identify.map { "\($0["app"] as? String ?? "cmux-tui") \($0["version"] as? String ?? "") protocol \($0["protocol"] as? Int ?? 0)" }
         let capabilities = identify?["capabilities"] as? [String] ?? []
-        return (identity, agents, capabilities.contains(Self.knownCapability), capabilities.contains(ListFirstWindow.capability))
+        return (identity, agents, capabilities.contains(Self.knownCapability), capabilities.contains(ListFirstWindow.capability),
+                capabilities.contains(ListFirstWindow.slimCapability))
     }
 
     public func refresh() async {
@@ -765,8 +769,8 @@ public final class WorkspaceSync {
     /// The setup batch's `list-workspaces` params: `known` (`{}`) when the daemon takes it, and
     /// the first window's `limit` when it takes that (`ListFirstWindow`). A first window carries
     /// no `tree_revision`, so the `refresh()` after it sends `known: {}` and gets the whole tree.
-    nonisolated static func setupListParams(sendsKnown: Bool, firstWindow: Bool) -> [String: Any] {
-        listParams(known: nil, sendsKnown: sendsKnown).merging(ListFirstWindow.params(honors: firstWindow)) { $1 }
+    nonisolated static func setupListParams(sendsKnown: Bool, firstWindow: Bool, slim: Bool = false) -> [String: Any] {
+        listParams(known: nil, sendsKnown: sendsKnown).merging(ListFirstWindow.params(honors: firstWindow, slim: slim)) { $1 }
     }
 
     /// Whether `reply` is the daemon's `{"unchanged": true}` answer to a `known` (the held

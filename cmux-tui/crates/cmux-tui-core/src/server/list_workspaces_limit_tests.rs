@@ -221,3 +221,142 @@ fn the_first_window_costs_the_same_at_every_scale() {
     );
     mux.shutdown();
 }
+
+/// The full rows and the slim rows (`list-workspaces-slim-v1`) of the same page, as the phone
+/// asks for them (`rows: "slim"` with `limit`).
+fn slim_and_full(mux: &Arc<Mux>, request: Value) -> (Value, Value) {
+    let full = run(mux, request.clone());
+    let mut slim_request = request;
+    slim_request.set("rows", json!("slim"));
+    (run(mux, slim_request), full)
+}
+
+/// A slim page lists the same workspaces in the same order as the full page, each row with
+/// what Home and the Workspaces list draw (title, color, unread, kind, the tabs' surfaces,
+/// kinds, directories and branches) and none of the layouts and ids the whole tree carries.
+#[test]
+fn a_slim_page_lists_the_same_rows_with_only_what_home_draws() {
+    let mux = Mux::new_for_test("limit-slim", SurfaceOptions::default());
+    for index in 0..5 {
+        run(
+            &mux,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "name": format!("slim-{index}"),
+                   "new_workspace": true}),
+        );
+    }
+    let (slim, full) = slim_and_full(&mux, json!({"cmd": "list-workspaces", "limit": 3}));
+    assert_eq!(ids(&slim), ids(&full));
+    assert_eq!(slim["rows"], json!("slim"), "{slim}");
+    assert!(full.get("rows").is_none(), "a full page says slim: {full}");
+    for key in ["total", "next", "registry_id", "generation", "workspace_revision", "pane_revision"]
+    {
+        assert_eq!(slim[key], full[key], "{key}");
+    }
+    let (slim_rows, full_rows) =
+        (slim["workspaces"].as_array().unwrap(), full["workspaces"].as_array().unwrap());
+    for (slim_row, full_row) in slim_rows.iter().zip(full_rows) {
+        for key in ["id", "resource_id", "key", "name", "kind", "unread_count", "active"] {
+            assert_eq!(slim_row.get(key), full_row.get(key).filter(|value| !value.is_null()));
+        }
+        assert!(slim_row.get("screen_groups").is_none() && slim_row.get("short_id").is_none());
+        let surfaces = |row: &Value| {
+            let mut out = Vec::new();
+            for screen in row["screens"].as_array().unwrap() {
+                for pane in screen["panes"].as_array().unwrap() {
+                    for tab in pane["tabs"].as_array().unwrap() {
+                        out.push((tab["surface"].clone(), tab["kind"].clone(), tab["cwd"].clone()));
+                    }
+                }
+            }
+            out
+        };
+        assert!(!surfaces(full_row).is_empty());
+        assert_eq!(surfaces(slim_row), surfaces(full_row));
+        let screen = &slim_row["screens"][0];
+        assert_eq!(screen["active_pane"], full_row["screens"][0]["active_pane"]);
+        assert!(screen.get("layout").is_none() && screen.get("resource_id").is_none(), "{screen}");
+        let tab = &screen["panes"][0]["tabs"][0];
+        for gone in ["terminal_id", "tab_resource_id", "content_resource_id", "size", "short_id"] {
+            assert!(tab.get(gone).is_none(), "{gone}: {tab}");
+        }
+        assert!(slim_row.to_string().len() * 2 < full_row.to_string().len(), "{slim_row}");
+    }
+    // Without `limit`, `rows` changes nothing: the whole tree, byte for byte.
+    let whole = run(&mux, json!({"cmd": "list-workspaces"}));
+    let asked = run(&mux, json!({"cmd": "list-workspaces", "rows": "slim"}));
+    assert_eq!(asked["workspaces"], whole["workspaces"]);
+    assert!(asked.get("rows").is_none());
+    mux.shutdown();
+}
+
+/// A slim page is never a tree to hold, even when it holds every workspace: it carries no
+/// `tree_revision`, so the phone's whole-tree refresh after it reads the whole tree.
+#[test]
+fn a_slim_page_gives_no_revision_to_hold() {
+    let mux = five_workspaces("limit-slim-known");
+    let page =
+        run(&mux, json!({"cmd": "list-workspaces", "known": {}, "limit": 50, "rows": "slim"}));
+    assert_eq!(page["workspaces"].as_array().unwrap().len(), 5);
+    assert!(page.get("tree_revision").is_none(), "a slim page handed out a revision: {page}");
+    let identify = run(&mux, json!({"cmd": "identify"}));
+    assert!(
+        identify["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == LIST_WORKSPACES_SLIM_CAPABILITY),
+        "{identify}"
+    );
+    mux.shutdown();
+}
+
+/// How many workspaces the phone's first window (`limit` 40, 64 KiB of rows) holds with full
+/// and with slim rows at 50, 200 and 1,000 workspaces (one `/bin/cat` terminal each), and its
+/// bytes and daemon time. Slim rows fit the whole window at every scale; prints the numbers
+/// for the PR's table.
+#[test]
+fn the_slim_first_window_holds_every_row_it_asks_for_at_every_scale() {
+    let mux = Mux::new_for_test("slim-window-scale", SurfaceOptions::default());
+    let mut have = 0;
+    let mut slim_bytes = Vec::new();
+    for scale in [50, 200, 1_000] {
+        for index in have..scale {
+            run(
+                &mux,
+                json!({"cmd": "run", "argv": ["/bin/cat"], "name": format!("open-path-{index}"),
+                       "cwd": "/tmp", "new_workspace": true}),
+            );
+        }
+        have = scale;
+        let timed = |request: Value| {
+            let mut best = (0usize, 0usize, f64::MAX);
+            for _ in 0..5 {
+                let started = Instant::now();
+                let reply = run(&mux, request.clone());
+                let ms = started.elapsed().as_secs_f64() * 1000.0;
+                let rows = reply["workspaces"].as_array().map_or(0, Vec::len);
+                best = (rows, reply.to_string().len(), best.2.min(ms));
+            }
+            best
+        };
+        let (full_rows, full, full_ms) = timed(json!({"cmd": "list-workspaces", "limit": 40}));
+        let (slim_rows, slim, slim_ms) =
+            timed(json!({"cmd": "list-workspaces", "limit": 40, "rows": "slim"}));
+        // What 64 KiB holds at most, with no `limit` of rows.
+        let (full_cap, _, _) = timed(json!({"cmd": "list-workspaces", "limit": 100_000}));
+        let (slim_cap, _, _) =
+            timed(json!({"cmd": "list-workspaces", "limit": 100_000, "rows": "slim"}));
+        println!(
+            "SLIM-WINDOW scale={scale} full_rows={full_rows} full_bytes={full} \
+             full_ms={full_ms:.2} slim_rows={slim_rows} slim_bytes={slim} slim_ms={slim_ms:.2} \
+             full_rows_in_64k={full_cap} slim_rows_in_64k={slim_cap}"
+        );
+        assert_eq!(slim_rows, 40, "scale {scale}");
+        assert!(slim < full, "scale {scale}: slim {slim} full {full}");
+        assert!(slim_cap >= full_cap, "scale {scale}: {slim_cap} < {full_cap}");
+        slim_bytes.push(slim);
+    }
+    // Past the window only `total`'s digits (and a few longer ids) may grow it.
+    assert!(slim_bytes[2] <= slim_bytes[1] + slim_bytes[1] / 50, "slim window: {slim_bytes:?}");
+    mux.shutdown();
+}

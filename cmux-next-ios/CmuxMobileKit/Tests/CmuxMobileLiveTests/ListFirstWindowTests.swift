@@ -76,12 +76,52 @@ import Testing
         again.finish()
     }
 
+    /// A Mac that also advertised `list-workspaces-slim-v1` is asked for slim rows: the first
+    /// window holds every row it asks for, it draws first, and the whole tree (no `rows`)
+    /// follows even when the slim page held every workspace.
+    @Test func aSlimMacGetsSlimRowsAndTheWholeTreeFollows() async throws {
+        let defaults = defaults()
+        for count in [10, 200] {
+            let first = PagingDaemonChannel(workspaces: count, advertisesPages: true, advertisesSlim: true)
+            let cold = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+            cold.firstWindowDefaults = defaults
+            await cold.bind(first, macID: "slim-\(count)")
+            #expect(first.rowsSent.first == .some(nil), "a Mac not yet seen got slim rows")
+            #expect(ListFirstWindow.honorsSlim("slim-\(count)", defaults: defaults))
+            await cold.bind(nil, macID: "slim-\(count)")
+            first.finish()
+
+            let channel = PagingDaemonChannel(workspaces: count, advertisesPages: true, advertisesSlim: true)
+            let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+            sync.firstWindowDefaults = defaults
+            var drawn: [Int] = []
+            sync.onTree = { drawn.append($0.workspaces.count) }
+            await sync.bind(channel, macID: "slim-\(count)")
+            #expect(channel.limitsSent.first == .some(ListFirstWindow.limit))
+            #expect(channel.rowsSent.first == .some("slim"))
+            #expect(drawn.first == min(count, ListFirstWindow.limit), "first content: \(drawn)")
+            // A slim row still draws its front tab's directory.
+            #expect(sync.tree?.workspaces.first?.directory.isEmpty == false)
+            let whole = try await sync.listNow()
+            #expect(whole.workspaces.count == count)
+            #expect(whole.workspaces.first?.layout != nil)
+            #expect(channel.rowsSent.dropFirst().allSatisfy { $0 == nil }, "\(channel.rowsSent)")
+            await sync.bind(nil, macID: "slim-\(count)")
+            channel.finish()
+        }
+    }
+
     @Test func aPartialPageIsDrawnOverTheRowsAlreadyHeld() {
         #expect(ListFirstWindow.isPartial(Data(#"{"ok":true,"data":{"total":5,"workspaces":[{}]}}"#.utf8)))
         #expect(!ListFirstWindow.isPartial(Data(#"{"ok":true,"data":{"total":1,"workspaces":[{}]}}"#.utf8)))
         #expect(!ListFirstWindow.isPartial(Data(#"{"ok":true,"data":{"workspaces":[{}]}}"#.utf8)))
         #expect(ListFirstWindow.params(honors: false).isEmpty)
         #expect(ListFirstWindow.params(honors: true)["limit"] as? Int == ListFirstWindow.limit)
+        #expect(ListFirstWindow.params(honors: true)["rows"] == nil)
+        #expect(ListFirstWindow.params(honors: true, slim: true)["rows"] as? String == "slim")
+        #expect(ListFirstWindow.params(honors: false, slim: true).isEmpty)
+        // A slim page is never the whole tree, even when it holds every workspace.
+        #expect(ListFirstWindow.isPartial(Data(#"{"ok":true,"data":{"total":1,"rows":"slim","workspaces":[{}]}}"#.utf8)))
     }
 }
 
@@ -90,21 +130,29 @@ import Testing
 private final class PagingDaemonChannel: LinkChannel, @unchecked Sendable {
     let id: UInt32 = 1
     private let advertisesPages: Bool
+    private let advertisesSlim: Bool
     private let rows: [String]
+    private let slimRows: [String]
     private let lock = NSLock()
     private var inbox: [Data] = []
     private var waiter: CheckedContinuation<Data?, Never>?
     private var closed = false
     private var limits: [Int?] = []
+    private var rowKinds: [String?] = []
     private var bytes: [Int] = []
 
     var limitsSent: [Int?] { lock.withLock { limits } }
+    var rowsSent: [String?] { lock.withLock { rowKinds } }
     var replyBytes: [Int] { lock.withLock { bytes } }
 
-    init(workspaces: Int, advertisesPages: Bool) {
+    init(workspaces: Int, advertisesPages: Bool, advertisesSlim: Bool = false) {
         self.advertisesPages = advertisesPages
-        rows = (0..<workspaces).map { index in
+        self.advertisesSlim = advertisesSlim
+        slimRows = (0..<workspaces).map { index in
             #"{"id":\#(index + 1),"key":"ws\#(index)","name":"Workspace \#(index)","screens":[{"id":\#(index + 1),"active":true,"panes":[{"id":\#(index + 1),"tabs":[{"surface":\#(index + 1),"kind":"pty","title":"zsh","cwd":"/Users/leo/projects/repo","git_branch":"main"}]}]}]}"#
+        }
+        rows = (0..<workspaces).map { index in
+            #"{"id":\#(index + 1),"key":"ws\#(index)","name":"Workspace \#(index)","screens":[{"id":\#(index + 1),"active":true,"panes":[{"id":\#(index + 1),"tabs":[{"surface":\#(index + 1),"kind":"pty","title":"zsh","cwd":"/Users/leo/projects/repo","git_branch":"main"}]}],"active_pane":\#(index + 1),"layout":{"type":"leaf","pane":\#(index + 1)}}]}"#
         }
     }
 
@@ -118,19 +166,27 @@ private final class PagingDaemonChannel: LinkChannel, @unchecked Sendable {
             }
             switch request["cmd"] as? String {
             case "identify":
-                let capabilities = advertisesPages ? #"["list-workspaces-limit-v1","list-workspaces-page-v1"]"# : "[]"
+                let capabilities = advertisesPages
+                    ? (advertisesSlim ? #"["list-workspaces-limit-v1","list-workspaces-page-v1","list-workspaces-slim-v1"]"#
+                        : #"["list-workspaces-limit-v1","list-workspaces-page-v1"]"#)
+                    : "[]"
                 push(id: id, body: #"{"ok":true,"data":{"app":"cmux-tui","version":"test","protocol":12,"capabilities":\#(capabilities)}}"#)
             case "list-agents":
                 push(id: id, body: #"{"ok":true,"data":{"agents":[]}}"#)
             case "list-workspaces":
                 let limit = request["limit"] as? Int
-                lock.withLock { limits.append(limit) }
+                let slim = limit != nil && request["rows"] as? String == "slim"
+                lock.withLock {
+                    limits.append(limit)
+                    rowKinds.append(request["rows"] as? String)
+                }
                 let identity = #""registry_id":"r","generation":"g","workspace_revision":1,"pane_revision":1,"terminal_revision":1"#
                 let body: String
                 if let limit {
-                    let page = rows.prefix(limit).joined(separator: ",")
+                    let page = (slim ? slimRows : rows).prefix(limit).joined(separator: ",")
                     let next = limit < rows.count ? #","next":\#(limit)"# : ""
-                    body = #"{"ok":true,"data":{\#(identity),"total":\#(rows.count)\#(next),"workspaces":[\#(page)]}}"#
+                    let kind = slim ? #","rows":"slim""# : ""
+                    body = #"{"ok":true,"data":{\#(identity),"total":\#(rows.count)\#(next)\#(kind),"workspaces":[\#(page)]}}"#
                 } else {
                     body = #"{"ok":true,"data":{\#(identity),"workspaces":[\#(rows.joined(separator: ","))]}}"#
                 }

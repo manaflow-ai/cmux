@@ -23,6 +23,11 @@ pub const LIST_WORKSPACES_PAGE_CAPABILITY: &str = "list-workspaces-page-v1";
 /// The rows one `limit` page carries at most, in bytes (at least one row): well under the
 /// 4 MiB frame cap (handbook: whole-list-reply-near-frame-cap).
 pub const LIST_WORKSPACES_PAGE_BYTES: usize = 64 * 1024;
+/// `rows: "slim"` on `list-workspaces` with `limit`: each row of the page carries only what a
+/// phone's Home and Workspaces rows draw (`tree_json::slim_workspace_row`), so the first
+/// window holds every row a phone screen shows. A slim page never carries `tree_revision`
+/// and always says `rows: "slim"`; the whole tree follows from a request without it.
+pub const LIST_WORKSPACES_SLIM_CAPABILITY: &str = "list-workspaces-slim-v1";
 
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.
@@ -54,10 +59,11 @@ pub(super) fn list_workspaces_reply_since(
     known: &cmd_workspaces::KnownTree,
     limit: Option<usize>,
     after: usize,
+    slim: bool,
     remote_view: Option<&incognito_remote::Hidden>,
 ) -> anyhow::Result<Value> {
     if let Some(hidden) = remote_view {
-        return list_workspaces_reply_seen(mux, known, limit, after, hidden);
+        return list_workspaces_reply_seen(mux, known, limit, after, slim, hidden);
     }
     // A branch switch reaches the cache from the watch of its HEAD file; a HEAD the watch can
     // miss goes to the background refresh past its lifetime (git_heads.rs), and one that moved
@@ -93,7 +99,7 @@ pub(super) fn list_workspaces_reply_since(
         }));
     }
     if let Some(limit) = limit {
-        let (mut reply, whole) = list_workspaces_reply_first(mux, limit, after, None)?;
+        let (mut reply, whole) = list_workspaces_reply_first(mux, limit, after, slim, None)?;
         // A part of the tree is not a tree to hold: only a whole one gets the revision
         // a later `known` sends back.
         if whole {
@@ -114,11 +120,13 @@ pub(super) fn list_workspaces_reply_since(
 /// skips that many first; a page that is not the last carries `next`, the `after` of the page
 /// that follows. True with it when the reply holds every workspace. With `hidden` (a remote
 /// device, #31210), the workspaces it must not see are left out before the page is taken and
-/// before `total` counts.
+/// before `total` counts. With `slim` (`list-workspaces-slim-v1`) the rows are slim, the reply
+/// says `rows: "slim"`, and it is never whole: a slim tree is not a tree to hold.
 pub(super) fn list_workspaces_reply_first(
     mux: &Mux,
     limit: usize,
     after: usize,
+    slim: bool,
     hidden: Option<&incognito_remote::Hidden>,
 ) -> anyhow::Result<(Value, bool)> {
     let order = SidebarOrder::read(mux)?;
@@ -131,12 +139,16 @@ pub(super) fn list_workspaces_reply_first(
             &page,
             total,
             LIST_WORKSPACES_PAGE_BYTES,
+            slim,
         );
         let next = after.saturating_add(taken);
         if next < total {
             reply.set("next", json!(next));
         }
-        (reply, after == 0 && taken == total)
+        if slim {
+            reply.set("rows", json!("slim"));
+        }
+        (reply, !slim && after == 0 && taken == total)
     });
     let (registry_id, generation) = mux.registry_identity();
     reply.set("registry_id", json!(registry_id));
@@ -243,6 +255,7 @@ fn list_workspaces_reply_seen(
     known: &cmd_workspaces::KnownTree,
     limit: Option<usize>,
     after: usize,
+    slim: bool,
     hidden: &incognito_remote::Hidden,
 ) -> anyhow::Result<Value> {
     use std::hash::{Hash, Hasher};
@@ -290,7 +303,7 @@ fn list_workspaces_reply_seen(
         return Ok(reply);
     }
     if let Some(limit) = limit {
-        let (mut page, whole) = list_workspaces_reply_first(mux, limit, after, Some(hidden))?;
+        let (mut page, whole) = list_workspaces_reply_first(mux, limit, after, slim, Some(hidden))?;
         if whole && mux.tree_revision() == daemon_revision {
             page.set("tree_revision", json!(tree_revision));
         }
