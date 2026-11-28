@@ -88,8 +88,12 @@ extension UpdaterService {
     /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits. A pulled
     /// build whose installer this app does not hold (Sparkle's silent cycle still resuming) cannot
     /// be cancelled: the quit proceeds and says so.
+    ///
+    /// Every decided quit stops the staged build's pre-warm first (cmux#63767): its processes outlive the app, and
+    /// Sparkle installs (or the cancel below removes) the staged copy they run from as the app exits.
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
+        stopPrewarm(" for the quit")
         syncFlowPhase()
         if case .downloading(let transfer) = flow.phase,
            transfer.stage != .preparing,
@@ -103,13 +107,13 @@ extension UpdaterService {
             // A rollback's quit: a staged update would install over the build just put in place
             // and relaunch forward (cmux#41013 review F2). One staged after the swap is cancelled.
             if let staged = stagedBuild(), !staged.isEmpty {
-                log.append(cancelStaged() ? "quit: a rollback quits, cancelled the staged update \(staged)"
+                log.append(cancelStagedUpdate() ? "quit: a rollback quits, cancelled the staged update \(staged)"
                                           : "quit: a rollback quits, but the staged update \(staged) could not be cancelled")
             }
             return .cancelPendingInstall
         }
         if action == .proceed, stagedPulledHeld {
-            if cancelStaged() {
+            if cancelStagedUpdate() {
                 log.append("quit: the staged build was pulled, cancelled it instead of installing on quit")
                 action = .cancelPendingInstall
             } else {
@@ -117,7 +121,7 @@ extension UpdaterService {
             }
         } else if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
-            _ = cancelStaged()
+            _ = cancelStagedUpdate()
         }
         return action
     }
@@ -363,7 +367,7 @@ extension UpdaterService {
     func applyDownloadPolicy() {
         let required = requiredMinimumVersion != nil
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
-        let downloads = (required || !downloadHeldForDeltas) && UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
+        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained || networkPending,
                                                                    expensive: network.expensive || networkPending)
         // The tip app reads its feed every few minutes only where found updates download by

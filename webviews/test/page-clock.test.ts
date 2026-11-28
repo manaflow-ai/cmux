@@ -1,6 +1,8 @@
 import { afterEach, expect, jest, test } from "bun:test";
-import { pageClocks, subscribePageDeadline, visibleInterval } from "../src/ui/pageClock";
-import { pageLoops } from "../src/ui/pageLoops";
+import { importWithDom } from "./support/importWithDom";
+
+const { pageClocks, subscribePageDeadline, visibleInterval } = await importWithDom(() => import("../src/ui/pageClock"));
+const { pageLoops } = await importWithDom(() => import("../src/ui/pageLoops"));
 
 type FakeDocument = Document & { show(state: DocumentVisibilityState): void };
 const original = Object.getOwnPropertyDescriptor(globalThis, "document");

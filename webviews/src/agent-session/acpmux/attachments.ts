@@ -13,6 +13,7 @@ import {
   type previewForFile,
 } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
+import { pastedPlainText } from "./pasteText";
 import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
@@ -652,7 +653,7 @@ export function promptBlocks(
 /// A file or folder on this computer that a link chip names (``linkAttachment``).
 export type LinkItem = { path: string; folder: boolean };
 /// The host's paths for a gesture's files, by index: a file it named no path for has none.
-export type KnownPaths = readonly (LinkItem | undefined)[];
+export type KnownPaths = readonly (LinkItem | undefined)[] & { dropId?: string };
 
 /// How files came in from the person's own gesture, for the host's record of where they are
 /// (`chat.attach.dropped`): a drop on the page, a paste, or the person's pick in the composer's
@@ -873,11 +874,14 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 /// Whether a paste of files carries no text but their own names: files copied in a file manager
 /// also put each one's name (or path, or a file: URL list) on the clipboard as text, which the
 /// field must not take as a prompt. As the Home channel's composer decides (home-channels/Composer.tsx).
+/// Text WebKit withheld for the files beside it but kept in the HTML (a copy of text with an image
+/// in it, issue 59851) is the person's own: the paste carries more than the files.
 export function pasteIsOnlyFileNames(transfer: DataTransfer): boolean {
   if (transfer.files.length === 0) return false;
   const text = transfer.getData("text/plain");
+  if (!text) return !pastedPlainText(transfer).trim();
   const names = [...transfer.files].map((file) => file.name);
-  return !text || [...transfer.types].includes("text/uri-list") || names.some((name) => text.includes(name));
+  return [...transfer.types].includes("text/uri-list") || names.some((name) => text.includes(name));
 }
 
 /// Smaller than this is a page's spacer or icon, not an image someone copied.

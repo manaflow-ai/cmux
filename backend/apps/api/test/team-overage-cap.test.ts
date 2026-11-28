@@ -159,6 +159,37 @@ describe("the team spending cap (UsageMeterDO.teamCap)", () => {
     expect(await meter.reserveUser(team, "user_a", "lock-2", 1 * M, 500 * M, undefined, "per_team", false, "v2")).toEqual({ ok: true })
   })
 
+  it("an overage cap (RFD 0080 piece 8): the pool plus the overage, null = the pool; exactly one of cap_usd and overage_usd", async () => {
+    const { t, team } = await paidPerson("team-cap-overage")
+    const meter = stub(team)
+    const op = (params: unknown) => post("/v1/ops", t, { op: "usage.cap.set", params, idempotency_key: crypto.randomUUID(), origin: "cli" })
+    // No billing period yet: an overage cap is the overage alone; null is no cap.
+    expect((await op({ overage_usd: 15 })).value).toMatchObject({ team_cap_usd: null, overage_usd: 15 })
+    expect(await meter.teamCap(team, false, "v1")).toMatchObject({ cap_usd: 15, overage_usd: 15 })
+    expect((await meter.teamCap(team, false, "v1")).included_usd).toBeUndefined()
+    await markBillable(team, "per_seat", 2, 10, 10_000)
+    // Pool 2 x 10 = 20; overage 15 -> cap 35, and the read shows the pool the card subtracts.
+    expect(await meter.teamCap(team, false, "v1")).toMatchObject({ cap_usd: 35, included_usd: 20, overage_usd: 15 })
+    // Overage off: the cap is the pool.
+    expect((await op({ overage_usd: null })).ok).toBe(true)
+    expect(await meter.teamCap(team, false, "v1")).toMatchObject({ cap_usd: 20, included_usd: 20, overage_usd: null })
+    // The model router stops at the pool too.
+    await meter.record(team, [modelFact(19.5)])
+    expect(await meter.reserveUser(team, "user_a", "over-1", 1 * M, 500 * M, undefined, "per_team", false, "v1")).toMatchObject({ ok: false, team_cap: true, cap_usd: 20 })
+    // v2's raise lock holds an overage cap like any other: 4 pools = 80.
+    expect((await op({ overage_usd: 1_000 })).ok).toBe(true)
+    expect(await meter.teamCap(team, false, "v2")).toMatchObject({ cap_usd: 80, raise_locked: true, overage_usd: 1_000 })
+    // Both keys, or neither: refused, the state kept.
+    expect((await op({ cap_usd: 50, overage_usd: 5 })).ok).toBe(false)
+    expect((await op({})).ok).toBe(false)
+    expect(await meter.teamCap(team, false, "v1")).toMatchObject({ cap_usd: 1_020, overage_usd: 1_000 })
+    // A total cap clears overage mode.
+    await setCap(t, 50)
+    const total = await meter.teamCap(team, false, "v1")
+    expect(total).toMatchObject({ cap_usd: 50, included_usd: 20 })
+    expect(total.overage_usd).toBeUndefined()
+  })
+
   it("the lock's size is env config: an integer of 2 to 1000 pools, else 4", () => {
     expect(teamCapUnpaidMaxPools(undefined)).toBe(4)
     expect(teamCapUnpaidMaxPools("10")).toBe(10)
