@@ -335,6 +335,7 @@ about = "Packages/Shared/CmuxAgentCursor is the pinned upstream copy, unedited"
 inputs = [
   "Packages/Shared/CmuxAgentCursor/**",
   "scripts/cmux_agent_cursor_vendor.py",
+  "scripts/cmux-agent-cursor-*.patch",
   "tests/test_vendored_cmux_agent_cursor.py",
   "tests/git_fixture_env.py",
 ]
