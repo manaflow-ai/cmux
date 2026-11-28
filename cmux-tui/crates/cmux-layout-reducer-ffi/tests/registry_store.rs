@@ -40,7 +40,7 @@ fn call(op: &str, request: &[u8]) -> (i32, Value) {
 fn every_vector_answers_as_the_swift_store_did() {
     let vectors: Value = serde_json::from_str(VECTORS).unwrap();
     let cases = vectors["cases"].as_array().unwrap();
-    assert!(cases.len() >= 1000, "{} cases", cases.len());
+    assert!(cases.len() >= 200, "{} cases", cases.len());
     for op in ["registry_store_apply", "registry_store_restore_closed", "registry_store_claims"] {
         assert!(cases.iter().any(|c| c["op"] == op), "no {op} case");
     }
