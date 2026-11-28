@@ -422,6 +422,11 @@ impl Hub {
                     credential: None,
                     create_key: None,
                     placed_by: None,
+                    // Its chat's class (a Cloud chat the person started: `interactive`).
+                    priority: meta
+                        .tags
+                        .get(crate::subrouter_priority::TAG)
+                        .map(|t| t.value.clone()),
                 };
                 let side = match with_inline_creation(
                     self.clone(),
