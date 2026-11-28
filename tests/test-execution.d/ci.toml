@@ -124,6 +124,10 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Pins that scripts/ci/chat-probe.sh passes its prompt to acpmux after -- (a prompt like --cwd=/etc stays text); run python3 tests/test_ci_chat_probe_args.py after changing that script (under 1 s, no build)."
 
 [[test]]
+path = "tests/test_ci_check_huge_files.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_check_repo_variables.py"
 lane = "linux-guard"
 
@@ -198,11 +202,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_compile_test_plan.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_router_web_exact.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_web_exact.py"
 
 [[test]]
 path = "tests/test_ci_daemon_pr_crate_steps.py"
@@ -450,6 +449,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ios_kit_base_red.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_launch_tti_intent.py"
 lane = "linux-guard"
 
 [[test]]
@@ -989,6 +992,11 @@ path = "tests/test_ci_router_checkout_mirror.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_router_web_exact.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_web_exact.py"
+
+[[test]]
 path = "tests/test_ci_run_guards.py"
 lane = "linux-guard"
 
@@ -1122,11 +1130,19 @@ path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_sparse_cargo_path_deps.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_sparse_checkout_imports.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_spec_checks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_standalone_files.py"
 lane = "linux-guard"
 
 [[test]]

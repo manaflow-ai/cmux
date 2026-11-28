@@ -1,9 +1,12 @@
-//! `_acpmux/customize_run`: the Try it on, Keep and Revert buttons of a wrap-up card
+//! `_acpmux/customize_run`: the Try it on, Keep, Revert and Go buttons of a wrap-up card
 //! (`wrap_up` actions of the form `{label, run}`, `acpmux_mcp_wrap_up.rs`). The page never names a
-//! command: it sends one of three typed requests, which this turns into the argv of
-//! `cmux customize try TARGET [--minutes N]`, `cmux customize keep` or `cmux customize revert`,
-//! run without a shell. The card's own Share button sends a fourth, `{customize: "share", target}`
-//! ([`share_plan`]): the line that puts the same target on another cmux. Every field is checked against a short allowlist first, so a call cannot
+//! command: it sends one of four typed requests, which this turns into the argv of
+//! `cmux customize try TARGET [--minutes N]`, `cmux customize keep`, `cmux customize revert` or
+//! `cmux customize go pr:N` (the PR tried on is merge-ready at the head the person saw), run
+//! without a shell. Leo, 2026-11-25: "have that one click merge ready, or like one click readiness
+//! to merge, like the go button for that to happen". The card's own Share button sends a fifth,
+//! `{customize: "share", target}` ([`share_plan`]): the line that puts the same target on another
+//! cmux. Every field is checked against a short allowlist first, so a call cannot
 //! carry a flag or a second command. Leo, 2026-11-24: "A MOTHERFUCKING THING AT TURN END OF A WAY
 //! TO TRY ON THE CUSTOMIZATION. FUCKING BOOM. AND A WAY TO SAVE IT OR SHARE IT."
 
@@ -45,6 +48,15 @@ pub(crate) fn argv(run: &Value) -> Result<Vec<String>, String> {
     let mut out = vec!["customize".to_owned(), verb.to_owned()];
     match verb {
         "keep" | "revert" => {}
+        "go" => {
+            let target = run.get("target").and_then(Value::as_str).unwrap_or_default();
+            match target.split_once(':') {
+                Some(("pr", n)) if valid_target(target) && n.len() <= 9 => {
+                    out.push(target.to_owned());
+                }
+                _ => return Err("go takes the PR tried on: pr:N".into()),
+            }
+        }
         "try" => {
             let target = run.get("target").and_then(Value::as_str).unwrap_or_default();
             if !valid_target(target) {
@@ -61,7 +73,7 @@ pub(crate) fn argv(run: &Value) -> Result<Vec<String>, String> {
                 out.extend(["--minutes".to_owned(), minutes.to_string()]);
             }
         }
-        _ => return Err("customize is try, keep or revert".into()),
+        _ => return Err("customize is try, keep, revert or go".into()),
     }
     Ok(out)
 }
