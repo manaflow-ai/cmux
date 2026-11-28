@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   addCloudPreviewPort,
+  cloudPreviewContextsKept,
   cloudPreviewPorts,
   dropCloudPreviewPorts,
   installCloudPreviewPortHook,
@@ -191,6 +192,16 @@ describe("Cloud preview port cards", () => {
     turn("turn-c");
     expect(addCloudPreviewPort({ port: 3000, process: "vite" })).toBe(true);
     expect(cloudPreviewPorts()).toEqual([{ port: 3000, process: "vite" }]);
+  });
+
+  test("a long chat with no ports keeps no per-turn sets (memory flat in transcript length)", () => {
+    for (let i = 0; i < 5000; i++)
+      setCloudPreviewContext({ machineID: "machine-a", sessionId: "chat-a", turnId: `turn-${i}`, active: i % 2 === 1 });
+    expect(cloudPreviewContextsKept()).toBe(0);
+    expect(addCloudPreviewPort({ port: 3000, process: "vite" })).toBe(true);
+    setCloudPreviewContext({ machineID: "machine-a", sessionId: "chat-a", turnId: "turn-next", active: true });
+    expect(addCloudPreviewPort({ port: 3000, process: "vite" })).toBe(false);
+    expect(cloudPreviewContextsKept()).toBe(3);
   });
 
   test("notifies the pane when closed ports or a new turn remove cards", () => {
