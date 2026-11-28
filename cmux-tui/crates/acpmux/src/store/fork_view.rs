@@ -239,6 +239,25 @@ impl ForkView {
         Held::Exclusive(self.dropping.write().unwrap_or_else(|e| e.into_inner()))
     }
 
+    /// [`Self::exclusive`] if `dropping` is free now, else None: never waits. A writer that
+    /// waits behind a long read holds every read after it (macOS queues new readers behind a
+    /// waiting writer, `worker_lock.rs`), and every chat's log read goes through here: an
+    /// export's history pack held a read for minutes on a Mac at load 105, a cold archive's
+    /// commit queued behind it, and for 5 min every delivery, `events` page and inbox read
+    /// queued behind that commit (2026-11-27).
+    fn try_exclusive(&self) -> Option<Held<'_>> {
+        if HELD.with(|h| h.replace(true)) {
+            return Some(Held::Nested);
+        }
+        match self.dropping.try_write() {
+            Some(guard) => Some(Held::Exclusive(guard)),
+            None => {
+                HELD.with(|h| h.set(false));
+                None
+            }
+        }
+    }
+
     /// The history `id` references, if any. A meta that cannot be read is an error, never taken
     /// for one that names none: a read of a fork of a fork would then show only that chat's own
     /// records, and a copy made from it (an export, a write of the history) would keep that for
@@ -640,7 +659,18 @@ impl Store for ForkView {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.back(id, after, before, skip, visit, false)
+        self.back(id, after, before, skip, None, visit, false)
+    }
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.back(id, after, before, skip, Some(may_match), visit, false)
     }
     fn scan_back_indexed(
         &self,
@@ -650,7 +680,7 @@ impl Store for ForkView {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.back(id, after, before, skip, visit, true)
+        self.back(id, after, before, skip, None, visit, true)
     }
     /// A fork's view joins two logs: it keeps no restore point, and its load reads it whole.
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
@@ -950,8 +980,12 @@ impl Store for ForkView {
     /// the two moved `events/` into the archive, so the write made a new `events/` with the
     /// history alone and the fork's own turns stayed in an archive never read again (third review
     /// of #39141, F2). After a write, the commit finds the log changed and refuses.
+    ///
+    /// The archive is background work a later pass does again, so it never waits for `dropping`:
+    /// held by anyone (a read, a write), the commit leaves the log as it is (false) and the
+    /// staged archive is removed ([`Self::try_exclusive`]).
     fn commit_cold(&self, id: &str, staged: StagedCold) -> Result<bool> {
-        let _dropping = self.exclusive();
+        let Some(_dropping) = self.try_exclusive() else { return Ok(false) };
         self.inner.commit_cold(id, staged)
     }
     fn rehydrate(&self, id: &str) -> Result<bool> {
@@ -1106,37 +1140,50 @@ impl ForkView {
         after: u64,
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: Option<&dyn Fn(&[u8], &[u8], &[u8]) -> bool>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        if indexed {
-            self.inner.scan_back_indexed(id, after, before, skip, visit)
-        } else {
-            self.inner.scan_back(id, after, before, skip, visit)
+        match may_match {
+            _ if indexed => self.inner.scan_back_indexed(id, after, before, skip, visit),
+            Some(may_match) => {
+                self.inner.scan_back_matching(id, after, before, skip, may_match, visit)
+            }
+            None => self.inner.scan_back(id, after, before, skip, visit),
         }
     }
 
-    /// `scan_back` (`indexed`: `scan_back_indexed`): the fork's own records, then its chat's
-    /// history before the fork point.
+    /// `scan_back` (`indexed`: `scan_back_indexed`; `may_match`: `scan_back_matching`): the fork's
+    /// own records, then its chat's history before the fork point.
+    #[allow(clippy::too_many_arguments)]
     fn back(
         &self,
         id: &str,
         after: u64,
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: Option<&dyn Fn(&[u8], &[u8], &[u8]) -> bool>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
         indexed: bool,
     ) -> Result<()> {
         let _held = self.shared();
 
         let Some(r) = self.reference(id)? else {
-            return self.inner_back(indexed, id, after, before, skip, visit);
+            return self.inner_back(indexed, id, after, before, skip, may_match, visit);
         };
         let mut going = true;
         if before > r.through_seq + 1 {
-            self.inner_back(indexed, id, after.max(r.through_seq), before, skip, &mut |rec| {
-                going = visit(rec);
-                going
-            })?;
+            self.inner_back(
+                indexed,
+                id,
+                after.max(r.through_seq),
+                before,
+                skip,
+                may_match,
+                &mut |rec| {
+                    going = visit(rec);
+                    going
+                },
+            )?;
         }
         if !going || after >= r.through_seq {
             return Ok(());
@@ -1149,6 +1196,7 @@ impl ForkView {
             after,
             before.min(r.through_seq + 1),
             &skip_other,
+            may_match,
             &mut |rec| !is_history(&rec.kind) || visit(rec),
             indexed,
         )

@@ -391,6 +391,9 @@ function resolveTeamNetwork(input: {
     if (result.memberIds.length <= 1) return { network: null, fallbackReason: "solo_team" as const };
     // No members-reach-each-other rule: each team VM admits the team network
     // itself, so tunnels reach team VMs but not each other's Macs.
+    // Team networks keep the platform's derived /24 until a collision-safe
+    // allocator exists (review on #63710): a hashed /20 pool can hand two
+    // teams one CIDR, and a member enrolled in both would route both.
     const network = yield* input.providers.ensureNetwork(input.provider, {
       slug,
       displayName: slug,
