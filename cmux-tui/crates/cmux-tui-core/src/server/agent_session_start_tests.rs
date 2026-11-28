@@ -245,6 +245,36 @@ fn a_bare_start_refusal_names_its_step() {
     assert_eq!(timings.refusal_data(Refusal::NeedsKeyedStart, Some(keyed.clone())), Some(keyed));
 }
 
+/// A start that lost acpmux (`unavailable`: the link closed, or acpmux was not back within the
+/// reconnect wait) or waited it out (`timeout`) names the phase as `data.step` and as a reason
+/// code the app prints beside the refusal's code, so the 2026-11-28T11:45Z production row, which
+/// read only "refused to start the agent chat (agent_session.unavailable)", says where.
+#[test]
+fn a_start_that_lost_acpmux_names_its_step() {
+    let mut timings = super::StartTimings::default();
+    assert_eq!(timings.refusal_data(Refusal::Unavailable, None), None);
+    timings.at("catalog");
+    assert_eq!(
+        timings.refusal_data(Refusal::Unavailable, None),
+        Some(json!({"step": "catalog", "reason": "acpmux_closed.catalog"}))
+    );
+    timings.at("session_new");
+    assert_eq!(
+        timings.refusal_data(Refusal::Timeout, None),
+        Some(json!({"step": "session_new", "reason": "acpmux_timeout.session_new"}))
+    );
+    let own = json!({"reason": "route.unavailable"});
+    assert_eq!(
+        timings.refusal_data(Refusal::Unavailable, Some(own)),
+        Some(json!({"step": "session_new", "reason": "route.unavailable"}))
+    );
+    let lost = timings.refusal_data(Refusal::Timeout, None).unwrap();
+    assert_eq!(
+        super::super::refusal_text(Refusal::Timeout, &lost),
+        "acpmux did not answer in time at session_new"
+    );
+}
+
 /// An agent the machine's acpmux catalog does not have (pi on a Cloud machine, whose image
 /// ships `pi` but not the `pi-acp` adapter acpmux runs it through) is refused as
 /// `harness_missing` naming it, never `not_asking`, which said the agent cannot ask first

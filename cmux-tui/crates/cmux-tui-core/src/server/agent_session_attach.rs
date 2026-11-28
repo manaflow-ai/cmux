@@ -2044,7 +2044,8 @@ fn refuse_with_data(
 /// The text of `refusal` with `data`: the generic `refused` names `data.reason` (acpmux's code)
 /// and a bad request `data.field` (the param, [`bad_field`]), so a reader of the error alone sees
 /// why; every other refusal's text is its own. A start's `refused` also names `data.step`, the
-/// phase acpmux refused in (`agent_session_start` `StartTimings::at`).
+/// phase acpmux refused in (`agent_session_start` `StartTimings::at`), as do a start's
+/// `unavailable` and `timeout` (the phase that lost acpmux).
 fn refusal_text(refusal: Refusal, data: &Value) -> String {
     let text = |key: &str| data.get(key).and_then(Value::as_str);
     match (refusal, text("reason"), text("field")) {
@@ -2059,6 +2060,10 @@ fn refusal_text(refusal: Refusal, data: &Value) -> String {
             out
         }
         (Refusal::BadRequest, _, Some(field)) => format!("{} (field: {field})", refusal.message()),
+        // A start that lost acpmux names the phase it lost it in.
+        (Refusal::Unavailable | Refusal::Timeout, _, _) if text("step").is_some() => {
+            format!("{} at {}", refusal.message(), text("step").unwrap_or_default())
+        }
         _ => refusal.message().to_string(),
     }
 }
