@@ -37,6 +37,11 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              full tier or not, skips it;
   land_affected
              true to consider the callee's paths on the affected landing tier as well as the full tier;
+  land_ask_only
+             with land_affected: on the affected landing tier it starts only on the land handoff (the `labeled`
+             event adding ready-to-land or full-ci, which land-judge pulses at the head it lands) and the merge
+             train's tip, not on each push or base merge of a labelled PR. $CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts
+             it on every landing head again (land_ask_only_on);
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
@@ -103,6 +108,19 @@ def full_ci_only_jobs() -> tuple[str, ...]:
 def handoff_label_skip() -> bool:
     """Whether a land_handoff_only callee skips the label handoff ($CI_MC_HANDOFF_LABEL_SKIP, on unless 0)."""
     return os.environ.get("CI_MC_HANDOFF_LABEL_SKIP", "1").strip() != "0"
+
+
+# A land_ask_only callee (nightly-pr-build.yml, the two "nightly app compile" Mac stubs) runs on the affected
+# landing tier only when land asks: the handoff label and the merge train's tip. 15-21Z 2026-11-27 they were the
+# 2nd and 3rd largest jobs (arm64 17.9, x86_64 17.5 runner-min per merged PR); 80% of their 11,896 runner-min was on
+# PRs that had not merged by 21Z, 56% on base-merge heads of labelled PRs, 25% on pushes after the label, and 31%
+# repeated an input key already compiled. Leo, 2026-11-27: "whatever we need to cut, we cut. whatever we can
+# reuse, we reuse." The repository variable CI_NIGHTLY_PR_BUILD_AT_LAND=0 turns this off (passed in by pr-router.yml).
+
+
+def land_ask_only_on() -> bool:
+    """Whether a land_ask_only callee waits for land's ask ($CI_NIGHTLY_PR_BUILD_AT_LAND, on unless 0)."""
+    return os.environ.get("CI_NIGHTLY_PR_BUILD_AT_LAND", "1").strip() != "0"
 
 
 def full_ci_kept(event: dict) -> bool:
@@ -250,6 +268,12 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if config.get("land_handoff_only") and handoff and not land_update and handoff_label_skip():
             why[name] = (f"label handoff: the merge train's tip ({TRAIN_TIP}) and land's update-branch head build the "
                          f"tree a merge takes; $CI_MC_HANDOFF_LABEL_SKIP=0 builds here too")
+            continue
+        if (config.get("land_ask_only") and landing_affected and not handoff and not train_tip
+                and land_ask_only_on()):
+            why[name] = (f"{head_tier.LAND_AFFECTED_REASON}: starts when land asks ({head_tier.LAND_LABEL} or "
+                         f"{FULL_CI} added at this head) or on the merge train's tip ({TRAIN_TIP}), not on each push; "
+                         f"$CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts it here too")
             continue
         if added and added in config.get("labels", []):
             start.append(name)

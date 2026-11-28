@@ -22,6 +22,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2498,15 +2499,31 @@ class WebviewsChecksGate(unittest.TestCase):
 
 
 class DeepenFallbackTests(unittest.TestCase):
-    """GitHub's pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038)."""
+    """pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038), and on #61818 both
+    filters in this runner's local-links repack, with an alternate store borrowed (job 140700979838)."""
 
-    def run_deepen_fetch(self, failures: dict[str, str]):
+    BUG = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
+    LOCAL = BUG + "\nfatal: could not finish pack-objects to repack local links\nfatal: index-pack failed"
+
+    def run_deepen_fetch(self, failures: dict[str, str], alternates: str | None = None, aside_failures=None):
         module = load(SCRIPT)
         calls = []
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        info = tmp / "objects/info"
+        info.mkdir(parents=True)
+        alt = info / "alternates"
+        if alternates is not None:
+            alt.write_text(alternates)
+        self.alternates_seen = []
 
         def fake_git(repo, *args, check=True):
+            if args[0] == "rev-parse":
+                return subprocess.CompletedProcess(args, 0, f"{alt}\n", "")
             calls.append(args)
-            stderr = next((err for flag, err in failures.items() if flag in args), "")
+            self.alternates_seen.append(alt.exists())
+            table = failures if alt.exists() or aside_failures is None else aside_failures
+            stderr = next((err for flag, err in table.items() if flag in args), "")
             code = 128 if stderr else 0
             if check and code:
                 raise SystemExit(f"fast-gates: git {' '.join(args)} failed: {stderr}")
@@ -2514,14 +2531,33 @@ class DeepenFallbackTests(unittest.TestCase):
 
         module.git = fake_git
         module.log = lambda message: None
-        module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        try:
+            module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        finally:
+            self.alternates_after = alt.read_text() if alt.exists() else None
         return calls
 
     def test_a_pack_objects_abort_retries_with_blob_none(self):
-        bug = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
-        calls = self.run_deepen_fetch({"--filter=tree:0": bug})
-        self.assertEqual([c[3] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.BUG})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
         self.assertTrue(all("--deepen=32" in c for c in calls))
+
+    def test_a_local_links_abort_retries_without_the_alternate_store_and_puts_it_back(self):
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL, "--filter=blob:none": self.LOCAL},
+                                      alternates="/mirror/objects\n", aside_failures={})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=tree:0"])
+        self.assertEqual(self.alternates_seen, [True, False])
+        self.assertEqual(self.alternates_after, "/mirror/objects\n")
+
+    def test_the_alternate_store_comes_back_when_the_retry_fails(self):
+        with self.assertRaises(SystemExit):
+            self.run_deepen_fetch({"--filter=tree:0": self.LOCAL}, alternates="/mirror/objects\n",
+                                  aside_failures={"--filter=tree:0": "fatal: could not read from remote repository"})
+        self.assertEqual(self.alternates_after, "/mirror/objects\n")
+
+    def test_a_local_links_abort_without_an_alternate_store_tries_blob_none(self):
+        calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL})
+        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
 
     def test_a_clean_deepen_fetches_once(self):
         self.assertEqual(len(self.run_deepen_fetch({})), 1)

@@ -1391,6 +1391,8 @@ export type AcpmuxSnapshot = {
   peers?: string[];
   /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).
   peerKinds?: Record<string, "ssh" | "cloud">;
+  /// The workspace registry ID of each peer leased by a Cloud link.
+  peerCloudRegistries?: Record<string, string>;
   /// Whether each peer is connected, as `_acpmux/status` last said (environments.ts).
   peerConnected?: Record<string, boolean>;
   /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
@@ -1689,6 +1691,7 @@ export type AcpmuxSnapshot = {
     pickable?: boolean;
     /** The declared launcher or route kind; routers cannot represent a harness family. */
     kind?: string;
+    endpoint?: true;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
     /** `_acpmux/harnesses` `icon`: the profile's own icon value (a brand id, an emoji, an SF

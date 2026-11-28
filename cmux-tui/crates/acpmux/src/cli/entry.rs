@@ -153,6 +153,9 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == "__remote-sandbox-keeper") {
         crate::linux_sandbox::keeper::main(args.into_iter().skip(1).collect());
     }
+    if args.first().is_some_and(|arg| arg == crate::subscriptions::grok_hook::ARG) {
+        return crate::subscriptions::grok_hook::run(args.get(1).and_then(|arg| arg.to_str()));
+    }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }

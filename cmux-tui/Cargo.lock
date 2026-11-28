@@ -131,6 +131,7 @@ dependencies = [
  "rusqlite",
  "rustls",
  "schemars 1.2.2",
+ "security-framework",
  "serde",
  "serde_json",
  "sha1",

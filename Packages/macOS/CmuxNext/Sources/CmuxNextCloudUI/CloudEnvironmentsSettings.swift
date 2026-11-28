@@ -1,3 +1,4 @@
+import CmuxNextCloud
 public import Foundation
 public import Observation
 
@@ -27,6 +28,8 @@ public final class CloudEnvironmentsSettings {
     public struct State: Encodable, Equatable, Sendable {
         /// False on the classic Cloud path or while signed out: the card explains instead.
         public var available = false
+        /// The Cloud app server does not serve environments in this version.
+        public var unsupported = false
         public var loading = false
         public var environments: [CloudEnvironmentRow] = []
         /// The last refresh's failure.
@@ -129,9 +132,12 @@ public final class CloudEnvironmentsSettings {
         do {
             let answer = try JSONDecoder().decode(ListAnswer.self, from: try await list())
             state = State(available: true, environments: answer.environments)
+        } catch let failure as CloudAppOpFailure
+            where failure.code == "cmux.cloud.unsupported" || failure.code == "cmux.cloud.unknown_op"
+                || failure.message == "cloud.environment.list is not available yet" {
+            state = State(unsupported: true)
         } catch {
-            state.available = true
-            state.error = String(describing: error)
+            state = State(available: true, environments: state.environments, error: String(describing: error))
             throw error
         }
     }

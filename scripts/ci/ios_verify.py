@@ -366,6 +366,16 @@ def public_runs(runs: list[dict]) -> list[dict]:
     return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
 
 
+def scrub_hosts(body: str, hosts: list[str]) -> str:
+    """BODY with every fleet host in HOSTS (and its short name) said as `a fleet worker`. The posted proof is PR text,
+    and a public repo's PR text names no fleet host (public-body-guard refused it on cmux#61688, #57488, #57672): this
+    covers any field a host reaches, not only the run worker public_runs drops. The gate reads no host."""
+    names = {n for h in hosts if h for n in (h, h.split(".")[0]) if len(n) >= 3}
+    for n in sorted(names, key=len, reverse=True):
+        body = re.sub(rf"(?<![\w.-]){re.escape(n)}(?![\w-])", "a fleet worker", body)
+    return body
+
+
 def summary_md(record: dict) -> str:
     t = record["timing"]
     lines = [f"**`cmux ios verify`** at `{record['head_sha'][:10]}`: **{record['verdict']}**"
@@ -474,7 +484,9 @@ def main(argv: list[str] | None = None) -> int:
     for r in runs:
         if r["result"] in ("fail", "error"):
             print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
-    body = proof_record.render(record, summary_md(record))
+    body = scrub_hosts(proof_record.render(record, summary_md(record)),
+                       [*workers, *DEFAULT_WORKERS.split(","), *FORBIDDEN_WORKERS, os.uname().nodename,
+                        *(r.get("worker", "") for r in runs)])
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
     if not a.no_post:

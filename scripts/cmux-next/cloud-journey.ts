@@ -76,6 +76,10 @@
  * auto, the default, the server's choice). The summary and the probe row carry ready_ms, create machine to agent
  * running (create, running, first exec, login copy, start agent), when every one of those passed.
  *
+ * --machine-provider NAME puts `provider: NAME` on the chat machine's create: `own-host` boots it on our own
+ * Firecracker hosts (cmux-platform ownhost/, cmuxterm-hq RFD 0073) for a team the deployment's CLOUD_OWN_HOST_TEAMS
+ * names. It implies --seed none (a copy boots on its snapshot's provider). Absent: the deployment's default provider.
+ *
  * --gateway CMUX_BIN: the chat machine holds no login at all (Leo, 2026-11-07: "VMs stop holding tokens"). A second
  * machine becomes the team's inference gateway: the person's own subscription proxy runs on it (--gateway-upstream URL,
  * or by default the shared model stub with the journey's nonce, as `stub`), and CMUX_BIN runs `cmux inference setup
@@ -5413,8 +5417,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (autocloudTui && !cmux) throw new Error("--autocloud-tui needs --cmux PATH: cmux-autocloud dials with that cmux");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
-  const seed = argValue("--seed", argv) ?? "auto";
+  const machineProvider = argValue("--machine-provider", argv);
+  if (machineProvider !== undefined && !/^[a-z][a-z0-9-]{0,31}$/.test(machineProvider)) throw new Error(`--machine-provider ${machineProvider}: a provider name such as own-host`);
+  const seed = argValue("--seed", argv) ?? (machineProvider ? "none" : "auto");
   if (seed !== "none" && seed !== "auto") throw new Error(`--seed ${seed}: none or auto`);
+  if (machineProvider && seed !== "none") throw new Error("--machine-provider needs --seed none: a copy boots on its snapshot's provider");
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
@@ -6079,7 +6086,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (n) J.firstText.reset();
             J.firstText.mark("create");
             createSentAt = Date.now();
-            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
+            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}), ...(machineProvider ? { provider: machineProvider } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
           });
           const v = room.value;
           if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);

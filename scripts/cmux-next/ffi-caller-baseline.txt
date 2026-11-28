@@ -162,13 +162,6 @@ cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_f
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_focus_set_topology
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_layout_reducer_ffi_abi_version
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_classic_highlight
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_dock
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_rects
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_screen_free
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_screen_new
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_target
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_target_in_content
-cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_zone
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_zone_edge
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_edge_drop_zone
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_edge_opposite
