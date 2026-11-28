@@ -92,5 +92,5 @@ fn no_common_version_closes_without_host_hello() {
     write_frame(&mut client, &frame).unwrap();
     let error = server.join().unwrap().unwrap_err().to_string();
     assert!(error.contains(VERSION_INCOMPATIBLE), "{error}");
-    assert!(read_frame(&mut client).map(|frame| frame.is_none()).unwrap_or(true));
+    assert!(read_required_frame(&mut client, "host hello").is_err());
 }
