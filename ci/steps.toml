@@ -981,6 +981,98 @@ python3 -I tests/test_ci_persisted_formats.py || status=1
 exit "$status"
 '''
 
+# The cmux-next.yml `checks` job's guards that turned the feat-cmux-next tip red after their changes merged green
+# (base tier run 46080642938, 2026-11-27: state roots, the FFI caller ratchet, the base-red classifier's workflow
+# classification, the dev landing workflow contract and the pin-mode bundle script tests). That job skips a pull
+# request into feat-cmux-next, so each red was seen only on the tip. These run on the pull request whose diff
+# touches their inputs. scripts/ci/new_red_only.sh fails only a red the change adds: one the base already has warns.
+# Each was timed on a loaded 8 vCPU lane host (load 12-25), so an idle runner takes less: state roots 56 s, the FFI
+# ratchet 52 s, the classifier's class 21 s, the landing contract 2.5 s, the three bundle tests 5 s together.
+[step.next-state-roots]
+job = "linux"
+timeout = 300
+title = "No literal state roots (cmux NEXT)"
+about = "check-state-roots.sh: no new literal state root and no new Classic path or id in cmux NEXT code (the cmux-next.yml checks step of the same name), red only when this change adds it"
+inputs = [
+  "Packages/macOS/**",
+  "cmux-tui/crates/**",
+  "webviews/**",
+  "scripts/cmux-next/**",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "No literal state roots" -- bash scripts/cmux-next/check-state-roots.sh .
+'''
+
+[step.next-ffi-caller-ratchet]
+job = "linux"
+timeout = 300
+title = "Every exported FFI function has a Swift caller"
+about = "ffi_caller_ratchet.py: no new cmux-tui C header export without a Swift caller, and the baseline only shrinks, red only when this change adds it"
+inputs = [
+  "cmux-tui/crates/*/include/**",
+  "Packages/**/*.swift",
+  "Packages/macOS/CmuxNext/app-ffi-pin.json",
+  "scripts/cmux-next/ffi-caller-baseline.txt",
+  "scripts/cmux-next/ffi_caller_ratchet.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "FFI caller ratchet" -- python3 -I scripts/cmux-next/ffi_caller_ratchet.py
+'''
+
+[step.next-base-red-classifier]
+job = "linux"
+timeout = 300
+title = "Every workflow is classified for the base-red classifier"
+about = "test_base_red_excuse.py's GuardJobsFollowTheWorkflows: every pull request workflow is a guard or named not one, red only when this change adds it"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/base_red_excuse.py",
+  "scripts/ci/base_red_guard_jobs.json",
+  "tests/test_base_red_excuse.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "Base-red classifier" -- python3 -m unittest tests.test_base_red_excuse.GuardJobsFollowTheWorkflows
+'''
+
+[step.next-dev-landing-workflow]
+job = "linux"
+timeout = 120
+title = "cmux NEXT dev landing workflow contract"
+about = "test_cmux_next_dev_landing_workflow.py: the dev daily and landing jobs keep their runner placement and cache order, red only when this change adds it"
+inputs = [
+  ".github/workflows/cmux-next*.yml",
+  "tests/test_cmux_next_dev_landing_workflow.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "Dev landing workflow" -- python3 tests/test_cmux_next_dev_landing_workflow.py
+'''
+
+[step.next-bundle-pin-tests]
+job = "linux"
+timeout = 180
+title = "cmux-tui bundle pin-mode script tests"
+about = "the bundle-cmux-tui pin-mode, launch pre-read and screen-detection script tests (their fixtures copy every helper the bundle script calls), red only when this change adds it"
+inputs = [
+  "scripts/cmux-next/bundle-*.sh",
+  "scripts/cmux-next/link-folded-hosts.sh",
+  "scripts/cmux-next/write-cmux-tui-build-stamp.sh",
+  "scripts/cmux-next/tests/bundle-cmux-tui-*.test.sh",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+status=0
+for t in scripts/cmux-next/tests/bundle-cmux-tui-launch-preread.test.sh \
+  scripts/cmux-next/tests/bundle-cmux-tui-pin-no-fallback.test.sh \
+  scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh; do
+  scripts/ci/new_red_only.sh "$(basename "$t")" -- bash "$t" || status=1
+done
+exit "$status"
+'''
+
 # ci-web.yml's web-typecheck job, which a feat-cmux-next pull request reached through ci.yml's `web` call when
 # web_subareas.py routed its `typecheck` subarea: a TS/JS/JSON file under web/, web/bun.lock, or ci-web.yml and
 # web_subareas.py themselves. The job keeps pushes, dispatch, the post-merge batch and pull requests into other
@@ -1372,6 +1464,7 @@ if want tt-asc-developer-id-app; then python3 tests/test_asc_developer_id_app.py
 if want tt-fixture-dates-2101; then CMUX_NOW_EPOCH=4133980800 python3 tests/test_asc_developer_id_app.py && CMUX_NOW_EPOCH=4133980800 python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py || status=1; fi
 if want tt-cmux-now-epoch; then python3 -I tests/test_cmux_now_epoch.py || status=1; fi
 if want tt-tooling-tests-batch; then python3 tests/test_ci_tooling_tests_batch.py || status=1; fi
+if want tt-pool-checkout-reuse-sparse; then python3 tests/test_ci_pool_checkout_reuse_sparse.py || status=1; fi
 if want tt-cmux-tui-republish; then python3 tests/test_cmux_tui_republish_same_commit.py || status=1; fi
 if want tt-verify-cmux-tui-hosted; then python3 tests/test_verify_cmux_tui_hosted.py || status=1; fi
 if want tt-crash-ratchet; then python3 tests/test_crash_ratchet_compare.py || status=1; fi
