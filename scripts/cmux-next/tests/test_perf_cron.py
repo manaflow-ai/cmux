@@ -3,7 +3,7 @@
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23,
 since lifted)."""
-import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, subprocess, tempfile, threading, time, unittest, urllib.error, urllib.request
+import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, re, subprocess, tempfile, threading, time, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -293,6 +293,18 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(cron.part_order(state, ["build", "motion", "sidebar", "fresh", "chat-anim"], t),
                          ["build", "fresh", "chat-anim", "sidebar", "motion"],
                          "only a part with no row anywhere goes before the goal's part")
+
+    def test_chat_snappy_feeds_snappy_enter_paint(self):
+        # snappy-enter-paint: NOW's chat_snappy_send_paint_p95_ms read one run (e7e5eceb, 2026-11-25) for 2 days while
+        # chat-snappy sat behind every stale Mac part.
+        part = cron.PART_BY_NAME["chat-snappy"]
+        self.assertEqual(part.get("goal"), "snappy-enter-paint")
+        self.assertTrue(re.match(part["goal_rows"], "chat_snappy.none.send_paint@cmux20-bench"))
+        self.assertFalse(re.match(part["goal_rows"], "chat_snappy.offline.send_paint@cmux20-bench"))
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"chat-snappy": {"at": cron.iso(at(1))}, "motion": {"at": cron.iso(T0)}}
+        t = at(cron.PART_STALE_HOURS + 2)
+        self.assertEqual(cron.part_order(state, ["build", "motion", "chat-snappy"], t)[:2], ["build", "chat-snappy"])
 
     def test_memory_agents_goes_right_after_the_build_once_due(self):
         # memory-per-chat: the part feeds NOW's chat_memory_vs_empty_ratio; without a goal it sat behind every stale
@@ -5088,7 +5100,8 @@ class StalePartFirstTests(unittest.TestCase):
             for name in ALL if name != "build"}
         # Each stored part carried its goal's rows (goal_rows_missing), so only the stored date makes one due.
         state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"]),
-                              "hot_swap.mac.focused_pane.p95_ms@h": dict(state["part_stored"]["hot-swap"])}
+                              "hot_swap.mac.focused_pane.p95_ms@h": dict(state["part_stored"]["hot-swap"]),
+                              "chat_snappy.none.send_paint@h": dict(state["part_stored"]["chat-snappy"])}
         return state, now
 
     def test_a_part_past_the_bound_runs_before_a_yielding_one(self):

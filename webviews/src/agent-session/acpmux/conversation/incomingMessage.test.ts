@@ -1181,3 +1181,52 @@ test("acpmux's turn cap notice and inbox digest draw as acpmux's message, never 
     expect(incomingPrompt(text, {})).toBeUndefined();
   }
 });
+
+// acpmux marks a line Claude Code wrote into a turn with its `origin.kind` (adopt_replay.rs
+// `LineOrigin`, `_meta.lineOrigin`): the mark decides, never the text. Leo, 2026-11-24: "we can
+// indeed treat them as tool calls, even though they're bursted at the end/start of turns".
+test("a line marked a task notification is its summary, by the mark, whatever its client", () => {
+  const marked = (client: string) => ({ client, _meta: { lineOrigin: "task-notification" } });
+  const note =
+    "<task-notification><task-id>a1</task-id><status>completed</status><summary>Agent done</summary></task-notification>";
+  for (const client of ["adopt", "watch", "acpmux"])
+    expect(incomingPrompt(note, marked(client))).toEqual({
+      kind: "notice",
+      text: "Agent done",
+      lineOrigin: "task-notification",
+    });
+  // Text after the envelope does not make it the person's prompt: the mark says whose it is.
+  expect(incomingPrompt(`${note}\nNow ship it`, marked("adopt"))).toEqual({
+    kind: "notice",
+    text: "Agent done",
+    lineOrigin: "task-notification",
+  });
+  // Words in no envelope still read as the notification's line.
+  expect(incomingPrompt("Background command finished", marked("adopt"))).toEqual({
+    kind: "notice",
+    text: "Background command finished",
+    lineOrigin: "task-notification",
+  });
+  expect(incomingPrompt("<system-reminder>r</system-reminder>", marked("adopt"))).toEqual({ kind: "hidden" });
+});
+
+test("a line marked a peer's is that session's message, by the mark", () => {
+  const peer = { client: "adopt", _meta: { lineOrigin: "peer" } };
+  const text =
+    'Another Claude session sent a message:\n<cross-session-message from="s2" name="coord">Merged #1</cross-session-message>';
+  expect(incomingPrompt(text, peer)).toEqual({
+    kind: "message",
+    message: { name: "coord", text: "Merged #1", lineOrigin: "peer", raw: text },
+  });
+  expect(incomingPrompt("plain words", peer)).toMatchObject({
+    kind: "message",
+    message: { text: "plain words", lineOrigin: "peer" },
+  });
+});
+
+test("an unmarked or person-marked line keeps the text rules; an unknown mark is ignored", () => {
+  const note = "<task-notification><summary>Build finished</summary></task-notification>";
+  expect(incomingPrompt(note, { client: "adopt" })).toEqual({ kind: "notice", text: "Build finished" });
+  expect(incomingPrompt("Fix the grid", { client: "adopt", _meta: { lineOrigin: "person" } })).toBeUndefined();
+  expect(incomingPrompt("Fix the grid", { client: "adopt", _meta: { lineOrigin: "channel" } })).toBeUndefined();
+});

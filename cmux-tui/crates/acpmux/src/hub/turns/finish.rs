@@ -196,6 +196,21 @@ impl Hub {
         // person's terminal signs in, and the fix (`claude_auth.rs`).
         let mut signed_out = false;
         let cloud_host = result.is_err() && self.config.read().await.cloud_host;
+        let claude_cloud_token_rejected = cloud_host
+            && result.as_ref().err().is_some_and(|error| {
+                let rejected = error.code == 401
+                    || crate::turn_errors::has_status(&error.message, "401")
+                    || crate::claude_auth::is_revoked_token(&error.message)
+                    || crate::claude_auth::is_expired_credential(&error.message);
+                rejected
+                    && !crate::turn_errors::says_unreachable(&error.message)
+                    && session
+                        .credential
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .as_ref()
+                        .is_some_and(crate::agent_credentials::AgentCredential::uses_claude_subscription_token)
+            });
         // On a Cloud machine, the card's third way in: cmux's gateway, when the image says the
         // machine's team has an account for Claude there (`agent_login::Machine::gateway_access`).
         // Asked only for a sign-in failure it explains.
@@ -242,7 +257,7 @@ impl Hub {
                 && crate::agent_login::gateway_fallback_on()
                 && crate::claude_auth::spawned(&session.id)
                     .is_some_and(|s| !crate::claude_auth::find(&s.env).signed_in())
-                && self.use_gateway_now(session);
+                && self.use_gateway_now(session).await;
             e.message = if route_arrived {
                 tracing::info!(session = %session.id, "Claude started before this machine's model route resolved: the agent restarts on it");
                 self.restart_agent_after_turn(session);
@@ -381,6 +396,8 @@ impl Hub {
                     if status == "completed" {
                         self.continue_goal(session, spent);
                     }
+                    // A Codex chat's open goal left idle is nudged, then told (`goal_watch.rs`).
+                    self.goal_turn_ended(session, prompt_id, status == "completed");
                     // The chat works again: agent messages a failed turn held go in (`digest.rs`).
                     // Not while a person's Stop that came after this turn began holds them
                     // (`cancel.rs`): only a turn begun under that hold, or a resume, ends it.
@@ -398,6 +415,7 @@ impl Hub {
                     }
                     self.append(session, "mux", "turn_error", record);
                     self.note_model_refusal(session, &e.message);
+                    self.goal_turn_ended(session, prompt_id, false);
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }
@@ -410,6 +428,26 @@ impl Hub {
                             o.extend(info.clone());
                         }
                         o.extend(crate::recovery::fields(e));
+                        if claude_cloud_token_rejected {
+                            o.insert("errorCode".into(), json!("claude_cloud_token_rejected"));
+                        } else if crate::turn_errors::model_not_available(&e.message) {
+                            o.insert("errorCode".into(), json!("model_not_found"));
+                        } else if turn == 1
+                            && crate::turn_errors::has_status(
+                                &e.message.to_ascii_lowercase(),
+                                "403",
+                            )
+                            && session
+                                .launch_env
+                                .lock()
+                                .unwrap_or_else(|p| p.into_inner())
+                                .as_ref()
+                                .is_some_and(|env| {
+                                    env.contains_key(crate::subscriptions::grok_hook::COMMAND)
+                                })
+                        {
+                            o.insert("errorCode".into(), json!("subscription.no_supergrok_access"));
+                        }
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
                         }
@@ -616,10 +654,10 @@ impl Hub {
     /// Waits until the inbound loop handled every agent message queued before
     /// now. Bounded: a loop that is gone (closed channel) or stuck never holds
     /// a turn's settlement past the bound.
-    pub(in crate::hub) async fn drain_inbound(session: &Session) {
+    pub(in crate::hub) async fn drain_inbound(session: &Session) -> bool {
         // No channel yet: nothing was ever sent to the chat, so nothing is left to handle.
         let Some(channel) = session.inbound.get() else {
-            return;
+            return true;
         };
         let (done, handled) = tokio::sync::oneshot::channel();
         let queued = tokio::time::timeout(
@@ -627,9 +665,11 @@ impl Hub {
             channel.tx.send(crate::agent::Inbound::Barrier(done)),
         )
         .await;
-        if matches!(queued, Ok(Ok(()))) {
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handled).await;
-        }
+        matches!(queued, Ok(Ok(())))
+            && matches!(
+                tokio::time::timeout(std::time::Duration::from_secs(5), handled).await,
+                Ok(Ok(()))
+            )
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
@@ -642,6 +682,12 @@ impl Hub {
         let trigger = turn_result.get("trigger") == Some(&Value::Bool(true));
         let mut meta = session.meta.lock().unwrap();
         let failed = meta.last_turn.as_ref().is_some_and(|t| t["status"] == "failed");
+        if !trigger
+            && last["errorCode"] == "claude_cloud_token_rejected"
+            && meta.claude_token_recovery.is_none()
+        {
+            meta.claude_token_recovery = Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
+        }
         if !trigger || (failed && last["status"] == "completed") {
             meta.last_turn = Some(last);
         }
