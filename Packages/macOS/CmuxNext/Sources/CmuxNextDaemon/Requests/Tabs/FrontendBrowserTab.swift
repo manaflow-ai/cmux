@@ -4,9 +4,8 @@ public enum BrowserEngine: String, Sendable, Hashable, Codable {
     case webkit, cef
 }
 
-/// Browser tab the app renders itself (`frontend-browser-tabs-v1`). The
-/// daemon persists and restores it but never attaches or renders it.
-public struct NewFrontendBrowserTabRequest: DaemonRequest {
+/// `new-frontend-browser-tab` (generated, swift_app bindings.json): what the daemon answers.
+extension NewFrontendBrowserTabRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var surface: SurfaceID
         public var tabResourceID: ResourceID?
@@ -16,48 +15,6 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
             case tabResourceID = "tab_resource_id"
             case contentResourceID = "content_resource_id"
         }
-    }
-    public static let command = "new-frontend-browser-tab"
-    public static let requiredCapability: String? = DaemonCapability.frontendBrowserTabs.rawValue
-    public var url: String
-    public var engine: BrowserEngine
-    public var pane: PaneID?
-    /// `frontend-browser-tab-workspace-v1`, instead of `pane`: the tab goes in this workspace's pane, or in a
-    /// first pane the daemon makes when it has none, so no terminal is needed to host it.
-    public var workspace: WorkspaceHandle?
-    public var title: String?
-    public var faviconURL: String?
-    public var profileID: String?
-    public var cols: Int?
-    public var rows: Int?
-    /// `frontend-browser-activate-v1`: `false` keeps the pane's active tab (an automation's
-    /// background tab); nil (omitted) makes the new tab active.
-    public var activate: Bool?
-    /// `frontend-browser-insert-after-v1`: the new tab goes right after this
-    /// tab of the pane (a link's opener, or its last child) instead of at the end.
-    public var after: SurfaceID?
-    /// `frontend-browser-tab-keys-v1`: a request with the same key answers
-    /// the tab the first one made (`replayed`), so a retry never makes two.
-    public var idempotencyKey: String?
-    /// `frontend-browser-tab-split-v1`, with `pane`: the tab opens in a new pane split from it, in
-    /// one daemon commit and one `pane-added` delta; `pane` never lists it (a link opened to the right).
-    public var split: ConversationTabSplit?
-
-    public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, workspace: WorkspaceHandle? = nil, title: String? = nil, faviconURL: String? = nil,
-                profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil, after: SurfaceID? = nil,
-                split: ConversationTabSplit? = nil) {
-        self.url = url
-        self.engine = engine
-        self.pane = pane
-        self.workspace = workspace
-        self.title = title
-        self.faviconURL = faviconURL
-        self.profileID = profileID
-        self.cols = size?.cols
-        self.rows = size?.rows
-        self.activate = activate
-        self.after = after
-        self.split = split
     }
 }
 

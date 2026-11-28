@@ -37,6 +37,10 @@ Wire rules (the same JSON the hand-written types sent):
   optional schema fields flat (`TYPE.encode(to:)`, as `SpawnOptions` does): the top-level `spreads` names
   each such type's wire fields and its default, and the request sends the ones its schema has through the
   property, placed by `"PROPERTY"` in `order`;
+- `init: {params, set}` on a request gives its init parameters that are not properties (`params`, each a
+  `type`, optional `default` and `label`, placed by its name in `order`, else last) and sets fields from
+  Swift expressions on them (`set`, wire name to expression; such a field is no init parameter): a
+  `RemoteTerminalRef` or `CellSize` the caller hands over whole, encoded as the fields it fills;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
 
 Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
@@ -100,8 +104,11 @@ _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation",
-    "workspace_ref", "one_of", "omit", "spread",
+    "workspace_ref", "one_of", "omit", "spread", "init",
 })
+# A request init's parameters that are not properties, and the fields it sets from Swift expressions on them.
+_INIT_KEYS = frozenset({"params", "set"})
+_PARAM_KEYS = frozenset({"type", "default", "label"})
 # A hand-written Swift type a request property encodes flat (`spreads`): the wire fields it writes, its default.
 _SPREAD_KEYS = frozenset({"fields", "default", "doc"})
 # A request property of a hand-written Swift enum (`one_of`): each case carries one optional schema field, and
@@ -288,6 +295,11 @@ class _Field:
     spread: str | None = None
     # A `one_of` enum: (Swift case, wire key) pairs; the value of the case it holds goes under that key.
     cases: list[tuple[str, str]] | None = None
+    # An init parameter that is no property (request `init.params`), with its argument label.
+    init_only: bool = False
+    label: str | None = None
+    # The Swift expression the init sets this field from (request `init.set`); it is no init parameter.
+    assigned: str | None = None
 
     @property
     def custom_read(self) -> bool:
@@ -303,7 +315,8 @@ class _Field:
         default = self.default
         if default is None:
             default = ".unchanged" if self.update else "nil" if self.optional else None
-        return f"{self.name}: {self.declared_type}" + ("" if default is None else f" = {default}")
+        label = "" if self.label is None else f"{self.label} "
+        return f"{label}{self.name}: {self.declared_type}" + ("" if default is None else f" = {default}")
 
     def encode_line(self) -> str:
         if self.spread is not None:
@@ -724,7 +737,34 @@ class _Renderer:
             taken.update(cases)
             if any(wire in order for wire in cases):
                 raise BindingError(f"{command}.one_of.{token}: order names the property {token}, not its cases")
-        places = {token: order.index(token) for token in [*(token for token, _ in spreads), *one_of] if token in order}
+        init = _check_keys(f"{command}.init", binding.get("init", {}), _INIT_KEYS)
+        params, assigned = init.get("params", {}), init.get("set", {})
+        if not isinstance(params, Mapping) or not isinstance(assigned, Mapping) or (init and not assigned):
+            raise BindingError(f"{command}.init: params maps a name to its type, set a field to a Swift expression")
+        for token, spec in params.items():
+            spec = _check_keys(f"{command}.init.params.{token}", spec, _PARAM_KEYS)
+            label = spec.get("label")
+            if (not _IDENTIFIER.fullmatch(token) or token in _KEYWORDS or not isinstance(spec.get("type"), str)
+                    or not spec["type"] or not isinstance(spec.get("default", ""), str)
+                    or label is not None and (not isinstance(label, str) or not _IDENTIFIER.fullmatch(label))):
+                raise BindingError(
+                    f"{command}.init.params.{token}: a parameter is a Swift name with a type, an optional"
+                    " default and an optional label (`_`)"
+                )
+            if not any(re.search(rf"\b{token}\b", str(expression)) for expression in assigned.values()):
+                raise BindingError(f"{command}.init.params.{token}: no set expression reads it")
+            spreads.append((token, _Field(
+                wire=token, name=token, swift_type=spec["type"], optional=False, always_encoded=False, doc=[],
+                default=spec.get("default"), on_wire=False, init_only=True, label=label,
+            )))
+        for wire, expression in assigned.items():
+            if not isinstance(expression, str) or not expression:
+                raise BindingError(f"{command}.init.set.{wire}: set gives a Swift expression")
+            if wire in order:
+                raise BindingError(f"{command}.init.set.{wire}: the init sets it, so it is no parameter; drop it from order")
+        places = {
+            token: order.index(token) for token in [*(token for token, _ in spreads), *one_of] if token in order
+        }
         order = [item for item in order if item not in places]
         fields = self.fields(command, schema_fields, binding.get("fields", {}), order, nested)
         for token, spec in one_of.items():
@@ -748,7 +788,14 @@ class _Renderer:
                 raise BindingError(f"{command}: a field is already named {token}")
         for token, spread in sorted(spreads, key=lambda pair: places.get(pair[0], len(order) + len(spreads))):
             fields.insert(min(places.get(token, len(fields)), len(fields)), spread)
-        keyed = [item for item in fields if item.spread is None]
+        by_wire = {item.wire: item for item in fields if not item.init_only}
+        for wire, expression in assigned.items():
+            item = by_wire.get(wire)
+            if item is None or item.spread is not None or item.cases is not None or wire not in request["fields"]:
+                raise BindingError(f"{command}.init.set.{wire}: set names a field of the request's schema")
+            item.assigned = expression
+        properties = [item for item in fields if not item.init_only]
+        keyed = [item for item in properties if item.spread is None]
         if len({key for item in keyed for key in item.coding_keys()}) != sum(len(item.coding_keys()) for item in keyed):
             raise BindingError(f"{command}: two fields encode under the same key")
         response = self.response_binding(command, schema["result"], binding)
@@ -763,23 +810,23 @@ class _Renderer:
             out.append(f"    public static let requiredCapability: String? = {json.dumps(schema['capability'])}")
         for enum in nested:
             out += ["", *enum.lines("    ")]
-        if fields:
+        if properties:
             out.append("")
-        for item in fields:
+        for item in properties:
             out += _doc(item.doc, "    ")
             out.append(f"    public var {item.name}: {item.declared_type}")
-        out += ["", f"    public init({', '.join(item.parameter() for item in fields)}) {{"]
-        out += [f"        self.{item.name} = {item.name}" for item in fields]
+        out += ["", f"    public init({', '.join(item.parameter() for item in fields if item.assigned is None)}) {{"]
+        out += [f"        self.{item.name} = {item.name if item.assigned is None else item.assigned}" for item in properties]
         out.append("    }")
         if keyed:
             out += ["", "    enum CodingKeys: String, CodingKey {"]
             out += [f"        {key}" for item in keyed for key in item.coding_keys()]
             out.append("    }")
-        if fields:
+        if properties:
             out += ["", "    public func encode(to encoder: any Encoder) throws {"]
             if keyed:
                 out.append("        var container = encoder.container(keyedBy: CodingKeys.self)")
-            out += [item.encode_line() for item in [*keyed, *(item for item in fields if item.spread is not None)]]
+            out += [item.encode_line() for item in [*keyed, *(item for item in properties if item.spread is not None)]]
             out.append("    }")
         if response == GENERATE:
             out += ["", *self.response(command, schema["result"], binding)]

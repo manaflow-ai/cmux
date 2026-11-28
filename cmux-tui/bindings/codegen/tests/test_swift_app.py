@@ -612,6 +612,69 @@ class SpreadTests(unittest.TestCase):
                 self.source(binding, spreads)
 
 
+class InitTests(unittest.TestCase):
+    """Request `init`: parameters that are no property (`params`) and fields the init sets from Swift expressions
+    on them (`set`), as `NewRemoteTerminalTabRequest(_ ref:size:)` fills its session and size fields."""
+
+    INIT = {
+        "params": {"size": {"type": "CellSize?", "default": "nil"}},
+        "set": {"cols": "size?.cols", "rows": "size?.rows"},
+    }
+
+    def source(self, binding: dict[str, Any] | None = None) -> str:
+        document = layout_document()
+        request = document["commands"]["swap-pane"]["request"]["fields"]
+        request["cols"] = _field({"kind": "scalar", "name": "uint16"}, required=False, nullable=True)
+        request["rows"] = _field({"kind": "scalar", "name": "uint16"}, required=False, nullable=True)
+        bindings = layout_bindings()
+        swap = bindings["families"]["Layout"]["requests"]["swap-pane"]
+        swap.update({"order": ["pane", "size", "dir", "target"], "init": self.INIT,
+                     "fields": {**swap.get("fields", {}), "cols": {"type": "Int"}, "rows": {"type": "Int"}}})
+        swap.update(binding or {})
+        return rendered(document, bindings)["Layout/SwapPaneRequest.generated.swift"]
+
+    def test_a_parameter_sets_the_fields_and_is_no_property(self) -> None:
+        source = self.source()
+        self.assertIn("    public init(pane: PaneID, size: CellSize? = nil, dir: PaneDirection? = nil,"
+                      " target: PaneID? = nil) {\n", source)
+        self.assertIn("        self.cols = size?.cols\n", source)
+        self.assertIn("        self.rows = size?.rows\n", source)
+        self.assertIn("    public var cols: Int?\n", source)
+        self.assertIn("try container.encodeIfPresent(cols, forKey: .cols)", source)
+        self.assertNotIn("var size", source)
+        self.assertNotIn("case size", source)
+        self.assertNotIn("size, forKey", source)
+        self.assertEqual(source.count("{"), source.count("}"))
+
+    def test_a_label_and_a_set_with_no_parameter(self) -> None:
+        source = self.source({"order": ["size", "pane"], "init": {
+            "params": {"size": {"type": "CellSize", "label": "_"}},
+            "set": {"cols": "size.cols", "rows": "nil"},
+        }})
+        self.assertIn("    public init(_ size: CellSize, pane: PaneID, dir: PaneDirection? = nil, target: PaneID? = nil) {",
+                      source)
+        self.assertIn("        self.rows = nil\n", source)
+
+    def test_an_init_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases: dict[str, dict[str, Any]] = {
+            "an unknown init key": {"init": {**self.INIT, "nope": 1}},
+            "an unknown parameter key": {"init": {**self.INIT, "params": {"size": {"type": "CellSize", "nope": 1}}}},
+            "a parameter with no type": {"init": {**self.INIT, "params": {"size": {"default": "nil"}}}},
+            "a parameter that is a keyword": {"init": {"params": {"self": {"type": "Int"}}, "set": {"cols": "self"}}},
+            "a parameter no expression reads": {"init": {**self.INIT, "params": {"size": {"type": "CellSize?"},
+                                                                               "more": {"type": "Int"}}}},
+            "a parameter a field already names": {"order": ["pane", "dir"], "init": {
+                "params": {"target": {"type": "Int"}}, "set": {"cols": "target"}}},
+            "a set field the order names": {"order": ["pane", "size", "cols"]},
+            "a set field the schema lacks": {"init": {**self.INIT, "set": {"nope": "size?.cols"}}},
+            "a set expression that is empty": {"init": {**self.INIT, "set": {"cols": ""}}},
+            "params with no set": {"init": {"params": self.INIT["params"]}},
+        }
+        for name, binding in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(binding)
+
+
 class DecimalTests(unittest.TestCase):
     """`encode: decimal`: a UInt64 the wire carries as a decimal string."""
 

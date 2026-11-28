@@ -13,7 +13,8 @@
     "RowHeight": "RowHeightValue",
     "ConversationSummary": "ConversationSummary",
     "ConversationPart": "ConversationPart",
-    "ConversationReactionKind": "ConversationReactionKind"
+    "ConversationReactionKind": "ConversationReactionKind",
+    "ConversationTabSplit": "ConversationTabSplit"
   },
   "spreads": {
     "SpawnOptions": {
@@ -2116,7 +2117,7 @@
       }
     },
     "Tabs": {
-      "$comment": "Hand-written still: set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), create-terminal {detached} (constant fields), new-frontend-browser-tab, new-remote-terminal-tab and terminal-resources (their inits do work), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
+      "$comment": "Hand-written still: set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), create-terminal {detached} (constant fields), terminal-resources (a filter init over private(set) fields), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
       "requests": {
         "close-surface": {
           "name": "CloseTabRequest",
@@ -2339,6 +2340,122 @@
             }
           },
           "response": "CloseTabsResult"
+        },
+        "new-remote-terminal-tab": {
+          "name": "NewRemoteTerminalTabRequest",
+          "doc": [
+            "`new-remote-terminal-tab`: a remote-terminal tab in `pane` (default: the",
+            "active pane of the active workspace)."
+          ],
+          "order": [
+            "ref",
+            "pane",
+            "title",
+            "size"
+          ],
+          "init": {
+            "params": {
+              "ref": {
+                "type": "RemoteTerminalRef",
+                "label": "_"
+              },
+              "size": {
+                "type": "CellSize?",
+                "default": "nil"
+              }
+            },
+            "set": {
+              "session_id": "ref.sessionID",
+              "terminal_id": "ref.terminalID",
+              "session_name": "ref.sessionName",
+              "cols": "size?.cols",
+              "rows": "size?.rows"
+            }
+          },
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "cols": {
+              "type": "Int"
+            },
+            "rows": {
+              "type": "Int"
+            }
+          },
+          "response": "hand-written"
+        },
+        "new-frontend-browser-tab": {
+          "name": "NewFrontendBrowserTabRequest",
+          "doc": [
+            "Browser tab the app renders itself (`frontend-browser-tabs-v1`). The",
+            "daemon persists and restores it but never attaches or renders it."
+          ],
+          "order": [
+            "url",
+            "engine",
+            "pane",
+            "workspace",
+            "title",
+            "favicon_url",
+            "profile_id",
+            "size",
+            "activate",
+            "after",
+            "split"
+          ],
+          "omit": [
+            "owner",
+            "place",
+            "transaction"
+          ],
+          "init": {
+            "params": {
+              "size": {
+                "type": "CellSize?",
+                "default": "nil"
+              }
+            },
+            "set": {
+              "cols": "size?.cols",
+              "rows": "size?.rows",
+              "idempotency_key": "nil"
+            }
+          },
+          "fields": {
+            "engine": {
+              "type": "BrowserEngine"
+            },
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "cols": {
+              "type": "Int"
+            },
+            "rows": {
+              "type": "Int"
+            },
+            "activate": {
+              "doc": [
+                "`frontend-browser-activate-v1`: `false` keeps the pane's active tab (an automation's",
+                "background tab); nil (omitted) makes the new tab active."
+              ]
+            },
+            "after": {
+              "type": "SurfaceID",
+              "doc": [
+                "`frontend-browser-insert-after-v1`: the new tab goes right after this",
+                "tab of the pane (a link's opener, or its last child) instead of at the end."
+              ]
+            },
+            "idempotency_key": {
+              "doc": [
+                "`frontend-browser-tab-keys-v1`: a request with the same key answers",
+                "the tab the first one made (`replayed`), so a retry never makes two. `send(on:)` sets it."
+              ]
+            }
+          },
+          "response": "hand-written"
         }
       },
       "enums": {
