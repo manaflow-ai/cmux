@@ -16,7 +16,7 @@ struct TabFocusRevealsStripTabsTests {
     @Test func tabFocusSelectsAnAppOnlyMacScreenTab() async throws {
         try await AppHarnessWindows.withApp { services, _ in
             let model = try MoveToNewWindowTests.firstPane(services)
-            let pane = try #require(services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.pane === model } }.first)
+            let pane = try #require(services.paneController(for: model), "setup: the first pane has no controller")
             let record = try #require(MacScreenRecord(url: URL(string: "cmux://mac-screen?device=0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff")!))
             let key = services.macScreenTabs.open(record, in: pane, focus: false, byPerson: false)
             try await PinnedPageTests.until({ pane.stripModel.tab(StripTabID(key)) != nil })
