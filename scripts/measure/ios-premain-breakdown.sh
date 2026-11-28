@@ -76,6 +76,51 @@ if [[ -n "$ffi_lib" ]]; then
   { ls -l "$ffi_lib"; lipo -info "$ffi_lib"; } >>"$out/premain-rust-lib.txt" 2>&1
   floor_arm floor-rust --force-load "$ffi_lib"
 fi
+# The app's entitlements: Xcode puts a simulator build's in __TEXT,__entitlements (the code signature may hold none).
+python3 -I - "$app/$exe0" "$work/app-ent.plist" <<'PY' || true
+import re, subprocess, sys
+exe, dest = sys.argv[1:]
+lc = subprocess.run(["otool", "-l", exe], capture_output=True, text=True).stdout
+m = re.search(r"sectname __entitlements\n\s+segname __TEXT\n\s+addr 0x[0-9a-f]+\n\s+size (0x[0-9a-f]+)\n\s+offset (\d+)", lc)
+data = b""
+if m:
+    with open(exe, "rb") as f:
+        f.seek(int(m.group(2)))
+        data = f.read(int(m.group(1), 16))
+if b"<plist" not in data:
+    data = subprocess.run(["codesign", "-d", "--entitlements", "-", "--xml", exe], capture_output=True).stdout
+if b"<plist" in data:
+    open(dest, "wb").write(data[data.index(b"<?xml") if b"<?xml" in data else data.index(b"<plist"):].rstrip(b"\0"))
+PY
+if [[ -s "$work/app-ent.plist" ]]; then
+  cp "$work/app-ent.plist" "$out/premain-app-entitlements.plist"
+  floor_arm floor-ent --ent "$work/app-ent.plist"
+else
+  echo "app entitlements: none found" | tee "$out/premain-app-entitlements.plist"
+fi
+# The app's own load commands (system frameworks, /usr/lib and Swift dylibs), loaded by the floor.
+otool -L "$app/$exe0" | tail -n +2 | sed -E 's/^[[:space:]]+//; s/ \(compatibility.*$//' >"$work/app-loads.txt"
+floor_arm floor-dylibs --needed-from "$work/app-loads.txt"
+cp "$work/floor-dylibs/needed-used.txt" "$out/premain-floor-dylibs-used.txt" 2>/dev/null || true
+cp "$work/floor-dylibs/needed-skipped.txt" "$out/premain-floor-dylibs-skipped.txt" 2>/dev/null || true
+# The app's bundle (Info.plist, embedded frameworks, extensions, resources, assets, signature) with the floor's
+# executable in place of its own, signed with the app's entitlements: near the app's main, the cost is the
+# bundle's or the spawn's; near the floor's, it is the executable's.
+echo "== premain: app-shell"
+shell_exe="$(ls "$work"/floor-ent/*.app/CmuxLaunchFloorEnt "$work"/floor/*.app/CmuxLaunchFloor 2>/dev/null | head -1)"
+if [[ -n "$shell_exe" ]]; then
+  mkdir -p "$work/app-shell"
+  cp -R "$app" "$work/app-shell/"
+  shell_app="$work/app-shell/$(basename "$app")"
+  cp "$shell_exe" "$shell_app/$exe0"
+  if [[ -s "$work/app-ent.plist" ]]; then
+    codesign --force --sign - --entitlements "$work/app-ent.plist" "$shell_app" >"$out/premain-app-shell-build.err" 2>&1
+  else
+    codesign --force --sign - "$shell_app" >"$out/premain-app-shell-build.err" 2>&1
+  fi
+  bounded 600 bash "$measure/ios-first-connect-simctl.sh" --app "$shell_app" --runs 10 --out "$out" --tag app-shell \
+    >"$out/premain-app-shell.log" 2>&1 || echo "app-shell arm failed: see premain-app-shell.log" >&2
+fi
 
 # 2. Inventory.
 echo "== premain: inventory"
@@ -206,6 +251,28 @@ else
   echo "sample launch failed: $line" >&2
 fi
 
+# 3b. One warm launch with dyld's library log, each line stamped with ms since the `simctl launch` call, beside
+# the launch's own marks: when dyld starts printing, when it stops, and when `main` runs.
+echo "== premain: dyld log"
+SIMCTL_CHILD_DYLD_PRINT_LIBRARIES=1 SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 \
+  bounded 20 xcrun simctl launch --console-pty "$udid" "$bundle" -cmuxMobile.setupComplete YES 2>&1 |
+  perl -MTime::HiRes=time -ne 'BEGIN { $t0 = time; $| = 1 } printf "%8.1f %s", (time - $t0) * 1000, $_' \
+  >"$out/premain-dyld-libraries.txt" || true
+xcrun simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
+sleep 1
+python3 -I - "$out/premain-dyld-libraries.txt" <<'PY' || true
+import re, sys
+rows = [l.rstrip("\n") for l in open(sys.argv[1], errors="replace")]
+dy = [(float(l.split(None, 1)[0]), l.split(None, 1)[1]) for l in rows
+      if re.match(r"\s*[\d.]+ .*dyld", l) and len(l.split(None, 1)) == 2]
+print(f"dyld log: {len(rows)} lines, {len(dy)} dyld lines" +
+      (f", first at {dy[0][0]:.0f} ms, last at {dy[-1][0]:.0f} ms after the simctl call" if dy else ""))
+if dy:
+    gaps = sorted(((dy[i + 1][0] - dy[i][0], dy[i + 1][1][:160]) for i in range(len(dy) - 1)), reverse=True)[:8]
+    for g, what in gaps:
+        print(f"dyld gap {g:.0f} ms before: {what}")
+PY
+
 mkdir -p "$out/premain-trace"
 # The selected Xcode can be a release candidate whose Instruments does not load on the runner's macOS
 # (Xcode 27.2 RC: `Symbol not found ... libswiftos.dylib`); record with the newest stable Xcode on the image
@@ -299,7 +366,10 @@ line = {}
 for name, key in (("simctl-first-connect.json", "app"), ("simctl-first-connect-floor.json", "floor"),
                   ("simctl-first-connect-floor-webrtc.json", "floor_webrtc"),
                   ("simctl-first-connect-floor-pad.json", "floor_pad"),
-                  ("simctl-first-connect-floor-rust.json", "floor_rust")):
+                  ("simctl-first-connect-floor-rust.json", "floor_rust"),
+                  ("simctl-first-connect-floor-ent.json", "floor_ent"),
+                  ("simctl-first-connect-floor-dylibs.json", "floor_dylibs"),
+                  ("simctl-first-connect-app-shell.json", "app_shell")):
     p = o / name
     if p.exists():
         d = json.loads(p.read_text())
@@ -307,7 +377,8 @@ for name, key in (("simctl-first-connect.json", "app"), ("simctl-first-connect-f
                      if m in d["marks"]}
         line[key]["spawn_lead_p90"] = d.get("spawn", {}).get("process_start_minus_simctl_call_ms", {}).get("p90")
 f = line.get("floor", {}).get("main")
-for k, label in (("floor_webrtc", "webrtc"), ("floor_pad", "text_size"), ("floor_rust", "rust_staticlib")):
+for k, label in (("floor_webrtc", "webrtc"), ("floor_pad", "text_size"), ("floor_rust", "rust_staticlib"),
+                 ("floor_ent", "entitlements"), ("floor_dylibs", "system_dylibs"), ("app_shell", "app_bundle")):
     w = line.get(k, {}).get("main")
     if f is not None and w is not None:
         line[f"{label}_premain_ms_p90"] = w - f

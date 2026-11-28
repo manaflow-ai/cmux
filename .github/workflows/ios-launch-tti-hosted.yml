@@ -46,7 +46,7 @@ jobs:
     name: launch TTI (${{ matrix.leg }})
     if: ${{ github.event_name != 'pull_request' || (github.event.action == 'labeled' && github.event.label.name == 'launch-tti') || (github.event.action != 'labeled' && (contains(github.event.pull_request.labels.*.name, 'launch-tti') || contains(github.event.pull_request.title, '[measure') || contains(github.event.pull_request.title, 'launch tti') || contains(github.event.pull_request.title, 'hosted tti'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 90
+    timeout-minutes: 110
     strategy:
       fail-fast: false
       matrix:
@@ -165,7 +165,7 @@ jobs:
       # exported to its tables. (scripts/measure/ios-premain-breakdown.sh)
       - name: Pre-main breakdown (floor, inventory, App Launch trace)
         if: ${{ !cancelled() }}
-        timeout-minutes: 35
+        timeout-minutes: 45
         run: |
           set -uo pipefail
           bash "$RUNNER_TEMP/measure/ios-premain-breakdown.sh" --measure-dir "$RUNNER_TEMP/measure" --out artifacts/ios-sim \
@@ -195,6 +195,12 @@ jobs:
             artifacts/ios-sim/simctl-launch-marks-floor-pad.ndjson
             artifacts/ios-sim/simctl-first-connect-floor-rust.json
             artifacts/ios-sim/simctl-launch-marks-floor-rust.ndjson
+            artifacts/ios-sim/simctl-first-connect-floor-ent.json
+            artifacts/ios-sim/simctl-launch-marks-floor-ent.ndjson
+            artifacts/ios-sim/simctl-first-connect-floor-dylibs.json
+            artifacts/ios-sim/simctl-launch-marks-floor-dylibs.ndjson
+            artifacts/ios-sim/simctl-first-connect-app-shell.json
+            artifacts/ios-sim/simctl-launch-marks-app-shell.ndjson
             artifacts/ios-sim/premain*
             artifacts/ios-sim/premain-trace/
             artifacts/ios-sim/simctl-launch-cold.png
