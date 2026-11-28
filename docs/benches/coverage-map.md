@@ -254,13 +254,14 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/inline-text-hasmarks.bench.ts` | inline text marks | no |
 | `webviews/bench/subsession-reply-height.bench.ts` | subsession reply height | no |
 | `webviews/bench/terminal-history-offscreen.bench.ts` | terminal history, offscreen turns | no |
+| `webviews/bench/renderer-idle-growth.bench.ts` | renderer idle memory growth (RFD 0062) | no |
+| `webviews/bench/webkit-push-growth.bench.ts` | WebKit growth per pushed script (RFD 0062) | no |
 | `webviews/bench/cloud-*.bench.ts` | cloud feed | no |
 | `webviews/bench/cloud-page-first-row.bench.tsx` | cloud page | no |
 | `webviews/bench/daemon-gate-relink.bench.tsx` | daemon relink | no |
 | `webviews/bench/diff-*.bench.ts*` | diff viewer | no (perf cron) |
-| `webviews/bench/diff-stream.bench.ts` (`diff-stream`) | diff stream, the Diff view area's `run` | via `for-paths --run` |
-| `webviews/test/diff-find-scale.test.ts` (`diff-find-scale`) | diff find op counts, oracle, budgets | webviews tests |
-| `webviews/bench/model-picker-search.bench.ts` (`model-picker-search`) | model picker keystroke at 5,000 models | via `for-paths --run` |
+| `webviews/bench/diff-stream.bench.ts` | diff stream (`diff-stream`), the Diff view area's `run`; its find op counts, oracle and budgets are the test `webviews/test/diff-find-scale.test.ts` (`diff-find-scale`, run in webviews tests) | via `for-paths --run` |
+| `webviews/bench/model-picker-search.bench.ts` | model picker keystroke at 5,000 models (`model-picker-search`) | via `for-paths --run` |
 | `webviews/bench/new-tab-*.bench.ts*` | new tab | no |
 | `webviews/bench/*-visible-only.bench.ts` | page virtualization | no |
 | `webviews/bench/apps-catalog-*.bench.ts` | apps catalog | no |
@@ -300,3 +301,16 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/scene-lazy-stack-*.bench.ts` | scenes | no |
 | `webviews/bench/forum-search.bench.ts` | forum search typing | no |
 | `webviews/bench/github-*.bench.ts*` | GitHub page | no |
+
+## Agent tooling benches (leo-workspace)
+
+Agents run these tools on every task, so a slow lookup costs every lane. These benches live in
+teamleaderleo/leo-workspace, not this tree, so `tests/test_bench_coverage_map.py` does not check this
+section. Budget: a warm query under 300 ms, an update under 2 s after one doc changes, and flat at 10x
+docs (the ds&a fan-out brief). Each one's correctness test sits beside it.
+
+| bench | tool | scale | result | budget met | test |
+|---|---|---|---|---|---|
+| `tools/bench_agent_memory_search.py` | `tools/agent-memory search` | 13k sources | p50 1.7 s → 6 ms (leo-workspace#13282) | yes | `tools/test_agent_memory.py` |
+| `tools/bench_agent_memory_fingerprint.py` | `agent-memory` staleness fingerprint | 13k sources | 3.6 s → 0.69 s (leo-workspace#13291) | yes (runs in a throttled child, off the query path) | `tools/test_agent_memory.py` |
+| `tools/bench_rfd_update.py` | `tools/rfd find` and `rfd update` | 336 and 3,360 docs | at 3,360 docs: query 1,505 → 430 ms; update 6,605 → 1,916 ms, p95 2,492 ms (leo-workspace#13340) | no: the query at 10x and the update p95 are over budget, tracked in leo-workspace#13352 | `tools/test_rfd.py` |
