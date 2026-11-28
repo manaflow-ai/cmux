@@ -119,7 +119,9 @@ jobs:
       deployment: false
     needs: resolve-ref
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # DO NOT MERGE (proof arm only, cmux#63849): room for the 40-minute owned-Mac wait below;
+    # at 5 the job's own timeout cancelled the wait (runs 46108012270, 46112409570).
+    timeout-minutes: 45
     outputs:
       run: ${{ steps.decide.outputs.run }}
       tag: ${{ steps.tag.outputs.tag }}
