@@ -18763,6 +18763,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "nightly-next-update-e2e.yml",
             # The chat-size ladder (#63929): the 1 MB and 1 GB chats' ratio, base vs head in one job (advisory).
             "chat-size-ladder.yml",
+            # iOS product UI on a fleet simulator: the gesture-conflict suite (#52373) and the composer and terminal
+            # keyboard screenshot loop (#62182).
+            "cmux-next-ios-gestures.yml", "ios-sim-screenshot-loop.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
             # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
             "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",
