@@ -251,6 +251,24 @@ paths = ["cmux-tui/crates/ghostty-vt", "cmux-tui/crates/cmux-terminal-find", "cm
 benches = ["terminal-throughput-quick"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p ghostty-vt history_", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-terminal-find -p cmux-terminal-projection"]
 
+# coverage-map.md's row 8 (cmux#62415). The crate itself stays Terminal core's (that area is first in file order);
+# the scrollback read files route here.
+[[area]]
+name = "Terminal scrollback reads (daemon `read-scrollback`, find, projection parity)"
+paths = ["cmux-tui/crates/ghostty-vt", "cmux-tui/crates/ghostty-vt/src/styled_history_tests.rs", "cmux-tui/crates/ghostty-vt/src/screen_row_text_tests.rs", "cmux-tui/crates/ghostty-vt/src/terminal_screen_text.rs"]
+benches = ["styled_history_page_bench", "screen_row_text_bench"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p ghostty-vt a_long_history_page_looks_up_each_page_not_each_row"]
+budget = "under 1,024 row lookups per 8,192-row page (a_long_history_page_looks_up_each_page_not_each_row)"
+
+[[area]]
+name = "Terminal scrollback reads (daemon `read-scrollback`, find, projection parity)"
+# coverage-map.md's row from #62415. Same path as Terminal core (Rust), filed after it, so that area still routes
+# ghostty-vt paths; this one keeps the row joined and names the lookup-count budget its tests assert.
+paths = ["cmux-tui/crates/ghostty-vt"]
+benches = []
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p ghostty-vt a_long_history_page_looks_up_each_page_not_each_row"]
+budget = "under 1,024 row lookups per 8,192-row scrollback page"
+
 [[area]]
 name = "Palette and omnibar"
 paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextPalette"]
@@ -264,12 +282,16 @@ name = "iOS workspace sync and live link"
 paths = ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive"]
 situations = ["main-thread"]
 benches = ["WorkspaceSyncPerformanceTests", "LinkSmoothnessBenchTests", "CloseTabRoundTripBench", "ResumeLiveBenchTests", "ResumeMatrixBenchTests", "TerminalLoadBench", "TranscriptReadFirstR1Bench", "mobile-flows"]
+tests = ["swift test --package-path cmux-next-ios/CmuxMobileKit --filter 'AcpmuxHubCatchUpTests|CloseTabRoundTripBench|WorkspaceSyncKnownTests'"]
+budget = "counts, not time: a catch-up chat list applies whole (2 rows in, 2 rows held: AcpmuxHubCatchUpTests); 1 round trip per tab close, 3 before (CloseTabRoundTripBench); 0 whole-tree reads on an unchanged same-Mac redial at 1,000 workspaces: 374 list bytes, not the 232,191-byte tree (WorkspaceSyncKnownTests)"
 
 [[area]]
 name = "iOS terminal"
 paths = ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal"]
 situations = ["main-thread"]
-benches = ["TerminalHistoryWindowBench", "TerminalScrollBenchUITests"]
+benches = ["TerminalHistoryWindowBench", "TerminalScrollBenchUITests", "phone-speed"]
+tests = ["cargo run --release --locked --manifest-path scripts/bench/phone-speed/Cargo.toml -- check"]
+budget = "phone-speed-icount: Callgrind Ir per 10 operations within 10% of scripts/bench/phone-speed/baseline.tsv (echo-100 7,369,231; stream-100 7,863,191; rotate-100 46,123,281), and 10,000 lines of scrollback at most 1.2x 100 lines"
 
 [[area]]
 name = "Cloud relay and sync"
@@ -402,6 +424,24 @@ tests = [
   "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-host-core",
 ]
 budget = "turn end on the Mac to the banner on the phone at most 5,000 ms p95; ceiling 800 ms"
+
+[[area]]
+name = "Tab strip and tab names"
+# The strip (CmuxNextTabs) and the titles tabs show live outside CmuxNextPages, so a lane on tab names or the
+# strip had no area. Budgets are the counts TabStripRowPasses gives the work tests, not wall time.
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextTabs",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabTitleResolver.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatTabTitle.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/SubagentTabTitles.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry+TabStripMenu.swift",
+]
+situations = ["main-thread", "visible-ui"]
+benches = ["TabStripSelectionBench", "TabStripFollowsPaneTickBench", "TabSwitchPathBench"]
+tests = [
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'TabSwitchWorkBudgetTests|TabCloseEchoWorkTests|TabStripResizeFrameWorkTests|TabTitle|CompactTabStripTests|TabStripActivationRecolorTests|TabStripMenuTests'",
+]
+budget = "a switch between tabs that show walks 0 rows (0 occlusion, separator or frame passes) at 2, 10 and 30 tabs; a close's echoes walk 0 rows; a key resize that moves no slot edge writes 0 cells"
 
 [[area]]
 name = "Update flow"
