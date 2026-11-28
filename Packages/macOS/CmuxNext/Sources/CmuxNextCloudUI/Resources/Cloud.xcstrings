@@ -12930,7 +12930,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This chat stays on your Mac because Move to Cloud can't carry its model connection. Choose a different connection and try again."
+            "value": "This chat stays on your Mac because Move to Cloud can't carry its model connection. Choose a connection Cloud can carry to move it."
           }
         },
         "ar": {
