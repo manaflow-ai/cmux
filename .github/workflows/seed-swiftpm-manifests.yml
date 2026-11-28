@@ -32,7 +32,10 @@ concurrency:
 
 jobs:
   seed:
-    if: github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main'
+    # Skipped while RUNNER_POOLS marks the label dead (runner_pools.py `_dead`): nothing waits on a seed, the next
+    # tick makes another, and a job queued on a label with no runner holds the run for hours (run 46145996688,
+    # 2026-11-28, 70+ min). cloud_overflow_switch.py --rescue-dead re-runs a stuck scheduled run; the re-run skips.
+    if: github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main' && !contains(toJSON(fromJSON(vars.RUNNER_POOLS || '{}')._dead), 'blacksmith-6vcpu-macos-15')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || contains(fromJSON('["blacksmith-6vcpu-macos-15"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 20

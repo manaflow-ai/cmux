@@ -15,6 +15,12 @@ description: >-
   e.g. CI_POOL_TOKEN_1/2) gets that token when its installation has at least
   pool-floor calls left, and then neither App is minted: the reads move off
   the routing App's 5,000 (spent to 0 every hour on 2026-11-25..27).
+  Past the pool, cmux-bot is picked whenever it has route-floor calls left:
+  glaeda-route's installation is the build controller's, which mints JIT
+  runners from it, so a read lands there only when cmux-bot is nearly spent
+  and glaeda-route has more. Picking the fuller of the two drained the
+  controller's pool to cmux-bot's level (2026-11-28 14:2xZ: 3803 of 5,000 at
+  86 a minute, gh-app-autoscale).
 
 # The job's checkout needs .github/actions/app-token-spread (a sparse checkout of
 # that one path at github.sha is enough). Only for read-only permissions: a
@@ -80,6 +86,13 @@ inputs:
     default: ""
   pool-floor:
     description: A pool token is picked before any mint when its core remaining is at least this.
+    required: false
+    default: "500"
+  route-floor:
+    description: >-
+      cmux-bot is picked while its core remaining is at least this (or unread);
+      below it, the fuller of the two wins. glaeda-route alone is used when
+      cmux-bot did not mint.
     required: false
     default: "500"
   probe:
@@ -199,6 +212,7 @@ runs:
         POOL_TOKEN: ${{ steps.pool.outputs.token }}
         POOL_APP: ${{ steps.pool.outputs.app }}
         POOL_LEFT: ${{ steps.pool.outputs.remaining }}
+        ROUTE_FLOOR: ${{ inputs.route-floor }}
         PROBE: ${{ github.workflow }}/${{ inputs.probe || github.job }}
       run: |
         # GET /rate_limit is free: it does not count against the installation's budget.
@@ -227,13 +241,16 @@ runs:
         route="$(remaining "$ROUTE_TOKEN")"
         bot="$(remaining "$BOT_TOKEN")"
         app="" token="" left=""
-        # An unread budget (-1) ranks just above a spent one (0); glaeda-route wins a tie,
-        # and when neither budget was read: today's pick.
-        rank() { if [ "$1" = -1 ]; then echo 1; else echo "$1"; fi; }
-        if [ "$route" != none ] && { [ "$bot" = none ] || [ "$(rank "$route")" -ge "$(rank "$bot")" ]; }; then
-          app=glaeda-route token="$ROUTE_TOKEN" left="$route"
-        elif [ "$bot" != none ]; then
+        # glaeda-route's installation is the build controller's (JIT runner mints), so
+        # cmux-bot wins while it has ROUTE_FLOOR left or its budget is unread (-1); below
+        # the floor the fuller wins, cmux-bot on a tie; an unread glaeda-route (-1) ranks
+        # just above a spent cmux-bot (0).
+        floor="${ROUTE_FLOOR:-500}"
+        route_rank="$route"; [ "$route_rank" != -1 ] || route_rank=1
+        if [ "$bot" != none ] && { [ "$route" = none ] || [ "$bot" = -1 ] || [ "$bot" -ge "$floor" ] || [ "$bot" -ge "$route_rank" ]; }; then
           app=cmux-bot token="$BOT_TOKEN" left="$bot"
+        elif [ "$route" != none ]; then
+          app=glaeda-route token="$ROUTE_TOKEN" left="$route"
         fi
         echo "app-budget $PROBE picked=${app:-none} glaeda-route=$route cmux-bot=$bot at=$(date +%s)"
         {
