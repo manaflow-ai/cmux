@@ -363,7 +363,11 @@ def wakers_start(tids, seconds):
     to userspace (a futex sleep the kernel restarts) shows here and nowhere else. Read it with `wakers_read`."""
     if not tids or not shutil.which("bpftrace"):
         return None
-    cond = " || ".join(f"args->pid == {int(t)}" for t in tids)
+    tids = sorted(int(t) for t in tids)
+    # A long || chain fails the verifier (the default arm at day 1 has many threads): past 32 tids, the tid range,
+    # and `wakers_read` keeps only the tui's own.
+    cond = (" || ".join(f"args->pid == {t}" for t in tids) if len(tids) <= 32
+            else f"args->pid >= {tids[0]} && args->pid <= {tids[-1]}")
     # sched_waking fires in the waker's own context (sched_wakeup can run later, from the target CPU's IPI).
     prog = ("tracepoint:sched:sched_waking /" + cond + "/ { @w[args->pid, comm, kstack(8), ustack(4)] = count(); } "
             "tracepoint:signal:signal_generate /" + cond + "/ { @s[args->pid, args->sig, comm] = count(); } "
@@ -375,8 +379,9 @@ def wakers_start(tids, seconds):
         return None
 
 
-def wakers_read(proc, timeout=60):
-    """`wakers_start`'s counts by (woken tid, waker, stack); {} with no bpftrace."""
+def wakers_read(proc, keep=(), timeout=60):
+    """`wakers_start`'s counts by (woken tid, waker, stack), only for the tids in `keep` when given; {} with no
+    bpftrace."""
     if proc is None:
         return {}
     try:
@@ -386,9 +391,13 @@ def wakers_read(proc, timeout=60):
         out, err = proc.communicate()
         err = f"{exc} {err}"
     found = {}
-    for block in out.split("@")[1:]:
+    # Each map line starts "@" at a line start; a ustack symbol can hold "@" too (C++/Rust demangled names).
+    for block in ("\n" + out).split("\n@")[1:]:
         head, _, count = block.rpartition("]:")
         key = " ".join(x.strip() for x in head.split("\n") if x.strip()).replace("  ", " ")
+        tid = re.match(r"\w+\[(\d+)", key)
+        if keep and tid and int(tid.group(1)) not in keep:
+            continue
         try:
             found[key[:400]] = int(count.strip().split()[0])
         except (ValueError, IndexError):
@@ -414,7 +423,7 @@ def idle_window(top, seconds, disks):
     time.sleep(seconds)  # sleep-ok: the idle window itself, the span CPU and wakeups are measured over
     after = snapshot(top)
     threads = thread_delta(tui_threads, thread_detail(top.get("tui")))
-    woken_by = wakers_read(tracer)
+    woken_by = wakers_read(tracer, {int(t) for t in tui_threads})
     # The second window: each thread's futex state, read every 20 ms, and the wakes those reads make (INFINITE-SAMPLED
     # is the sampled one, to compare with the window above).
     quiet_at = thread_detail(top.get("tui"))
@@ -1110,11 +1119,51 @@ def settle(args, top):
         same = same + 1 if now == last else 1
         last = now
         if same >= reads:
-            return
+            break
         if time.monotonic() >= deadline:
             log(f"settle: the process trees did not hold still for {args.settle} s within {bound:g} s; sampling anyway")
-            return
+            break
         time.sleep(0.25)  # the poll interval of the process trees
+    settle_io(args, top)
+
+
+def tui_io_state(tui):
+    """The tui's I/O counters and how many of its threads wait in the kernel (D: an fsync, a page write-back).
+    Only /proc/<pid>/io and /proc/<tid>/stat: neither wakes a thread (/proc/<tid>/syscall did)."""
+    try:
+        with open(f"/proc/{tui}/io") as f:
+            io = tuple(line.strip() for line in f if line.split(":")[0] in ("syscw", "write_bytes", "rchar", "wchar"))
+        waiting = 0
+        for tid in os.listdir(f"/proc/{tui}/task"):
+            try:
+                with open(f"/proc/{tui}/task/{tid}/stat") as f:
+                    waiting += f.read().rsplit(")", 1)[1].split()[0] == "D"
+            except OSError:
+                pass
+        return io, waiting
+    except (OSError, TypeError):
+        return None, 0
+
+
+def settle_io(args, top):
+    """Then the durability work that parking or closing started: a pass that fsyncs ~n parked snapshots and the
+    registry WAL wakes its thread once per I/O completion (jbd2 commit, page write-back), so a window opened while
+    it drains counts a one-off O(n) burst as idle wakeups. Wait until the tui writes nothing and no thread waits in
+    the kernel for 3 s, bounded by 180 s; INFINITE-SETTLE logs the drain, so the burst stays visible, not hidden."""
+    tui = top.get("tui")
+    start = time.monotonic()
+    deadline, last, same, reads = start + 180.0, None, 0, 12
+    while True:
+        io, waiting = tui_io_state(tui)
+        same = same + 1 if io is not None and io == last and not waiting else 0
+        last = io
+        if io is None or same >= reads:
+            log(f"INFINITE-SETTLE io_drain_s={time.monotonic() - start:.1f} bounded=no")
+            return
+        if time.monotonic() >= deadline:
+            log(f"INFINITE-SETTLE io_drain_s={time.monotonic() - start:.1f} bounded=yes waiting={waiting}")
+            return
+        time.sleep(0.25)  # the poll interval of the tui's I/O counters
 
 
 def dhat_mark(day):
