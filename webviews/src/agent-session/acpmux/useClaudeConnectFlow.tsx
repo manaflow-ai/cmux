@@ -3,6 +3,7 @@ import {
   CLAUDE_CONNECT_BRAND,
   CODEX_CONNECT_BRAND,
   CONNECT_IDLE,
+  connectFlowStep,
   useClaudeConnect,
   type ClaudeConnectRowProps,
 } from "./claudeConnect";
@@ -20,14 +21,12 @@ export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; card: Rea
   const progress = host?.progress ?? CONNECT_IDLE;
   // A sign-in that ran and ended with no error saved the connection: Connected until the host's
   // `needed` turns false (the row and card go); a later need (it was removed) starts over.
-  if (openBrand && progress.phase !== null && !ran) setRan(true);
-  if (ran && progress.phase === null && progress.error === null && !saved) setSaved(true);
+  // One idempotent step (test/render-phase-set-pairs.test.ts): each state is set once, to a fixed point.
   const brands = host?.brands ?? [CLAUDE_CONNECT_BRAND];
-  if ((saved || openBrand || ran) && (!host?.needed || (openBrand && !brands.includes(openBrand)))) {
-    setSaved(false);
-    setOpenBrand(undefined);
-    setRan(false);
-  }
+  const next = connectFlowStep({ openBrand, saved, ran }, { ...progress, needed: !!host?.needed, brands });
+  if (next.ran !== ran) setRan(next.ran);
+  if (next.saved !== saved) setSaved(next.saved);
+  if (next.openBrand !== openBrand) setOpenBrand(next.openBrand);
   const begin = host?.begin;
   const row: ClaudeConnectRowProps | undefined = host?.needed
     ? {
