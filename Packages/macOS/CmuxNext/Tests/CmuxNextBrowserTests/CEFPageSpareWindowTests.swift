@@ -36,9 +36,8 @@ extension CEFSparePageSuites {
         }
 
         /// The first page builds its window; every later page takes the spare window made at the idle moment
-        /// before it: across N pages the open itself never calls `create_window` again, nor `tab_add`
-        /// (cmuxterm-hq#27488: it held main 2.0-4.6 s in Chromium's new-browser setup): each page takes the
-        /// spare's placeholder browser, made with no URL, thaws it and loads its own address there.
+        /// before it: across N pages the open itself never calls `create_window` again, each joins with one
+        /// `tab_add` anchored on the spare's placeholder, and the placeholder closes on the next turn.
         @Test func pagesAfterTheFirstJoinTheSpareWindowAndCreateNoWindow() async throws {
             let (runtime, root) = try Rig.runtime()
             defer { Rig.tearDown(runtime, root) }
@@ -58,10 +57,8 @@ extension CEFSparePageSuites {
             var openCreates: [Int] = []
             for index in 1...4 {
                 needed.value = 0
-                SpareSpy.createdURLs = []
                 #expect(pages.prepare(runtime: runtime), "the idle moment makes the pages' spare window")
                 let spare = try #require(pages.host)
-                #expect(SpareSpy.createdURLs == [""], "its placeholder has no URL, so no history entry")
                 #expect(spare.key.offTheRecord && spare.key.profile == profile, "of the pages' store")
                 let placeholder = Int32(100 + index)
                 try Self.windowArrives(runtime, spare, browser: placeholder, window: Int32(50 + index))
@@ -72,16 +69,10 @@ extension CEFSparePageSuites {
                 openCreates.append(SpareSpy.createWindowCalls)
                 #expect(host === spare, "page \(index + 1) takes the spare window")
                 #expect(pages.host == nil, "which is no spare any more")
-                #expect(SpareSpy.added.isEmpty, "no tab_add: no new browser on the open")
-                #expect(tab.browserID == placeholder, "the page takes the placeholder's browser")
-                #expect(runtime.tabsByBrowser[placeholder] === tab)
-                #expect(host.placeholder == nil && !host.adoptablePlaceholder)
-                let thaw = SpareSpy.log.firstIndex(of: "thaw \(placeholder) devtools")
-                #expect(thaw != nil, "the frozen placeholder thaws")
-                if let load = SpareSpy.log.firstIndex(of: "load \(placeholder)") { #expect(thaw.map { $0 < load } == true) }
-                #expect(SpareSpy.loads.allSatisfy { $0.browser == placeholder }, "its address loads in that browser")
-                for _ in 0..<20 { await Task.yield() }
-                #expect(!SpareSpy.closed.contains(placeholder), "the page's browser stays open")
+                #expect(SpareSpy.added.map(\.anchor) == [placeholder], "it joins with tab_add")
+                #expect(tab.browserID == SpareSpy.added.first?.browser && tab.browserID != nil)
+                for _ in 0..<20 where !SpareSpy.closed.contains(placeholder) { await Task.yield() }
+                #expect(SpareSpy.closed.contains(placeholder), "the placeholder closes on the next turn")
                 #expect(host.tabs.map(\.id) == [tab.id], "the window holds the page alone")
             }
             #expect(openCreates == [0, 0, 0, 0], "no page after the first calls create_window on its open")
@@ -119,8 +110,7 @@ extension CEFSparePageSuites {
             let (pageHost, _) = Self.openPage(runtime, profile)
             #expect(pageHost === pageSpare, "a page takes the pages' spare")
             #expect(runtime.spareWindow.host === webSpare, "never the web tabs' one")
-            #expect(SpareSpy.added.isEmpty, "the page takes the pages' placeholder browser")
-            #expect(pageHost.tabs.first?.browserID == 101)
+            #expect(SpareSpy.added.last?.anchor == 101)
         }
 
         /// A page whose open ended before it joined (it closed): the window is the pages' spare again,
