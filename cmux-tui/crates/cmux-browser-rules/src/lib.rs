@@ -27,6 +27,8 @@
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
+//! - [`restored_history`]: where a relaunched tab's saved back/forward entries sit around the
+//!   engine's own list (`BrowserRestoredHistory`).
 //! - [`link_routes`]: which URLs only a Chromium tab shows, the New Tab page, which sign-in tab to
 //!   close and a popup's requested size (`ChromiumInternalURL`, `BrowserNewTabPage`, `SignInPageTab`,
 //!   `BrowserPopupRequest`).
@@ -53,6 +55,7 @@ pub mod load_waits;
 pub mod ops;
 pub mod page_events;
 pub mod password_fill;
+pub mod restored_history;
 pub mod tab_state;
 pub mod tab_watcher;
 pub mod url_filter;
@@ -87,6 +90,8 @@ mod load_waits_tests;
 mod page_events_tests;
 #[cfg(test)]
 mod password_fill_tests;
+#[cfg(test)]
+mod restored_history_tests;
 #[cfg(test)]
 mod tab_state_tests;
 #[cfg(test)]
