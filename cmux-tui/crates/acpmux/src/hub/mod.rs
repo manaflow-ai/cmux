@@ -94,8 +94,6 @@ mod control_asks;
 pub(crate) mod create_key;
 pub mod created_by;
 mod credentials;
-#[cfg(test)]
-mod credentials_resume_tests;
 mod cursor_ext;
 pub(crate) mod dead_letters;
 pub(crate) mod desktop_bridge;

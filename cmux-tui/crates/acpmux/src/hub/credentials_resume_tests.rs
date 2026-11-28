@@ -4,9 +4,9 @@
 //! which lived only in memory. The owner's Mac sends it again when its link to the machine comes
 //! back (`agent/credentials.update`); until then a turn waits for it, then names why it cannot run.
 
-use super::*;
 use crate::agent_credentials::{AgentCredential, CLAUDE_OAUTH};
 use crate::config::{Config, StoreMode};
+use crate::hub::*;
 use std::path::Path;
 use std::time::Duration;
 

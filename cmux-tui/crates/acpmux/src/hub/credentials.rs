@@ -622,3 +622,7 @@ impl Hub {
 #[cfg(test)]
 #[path = "credentials_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "credentials_resume_tests.rs"]
+mod resume_tests;
