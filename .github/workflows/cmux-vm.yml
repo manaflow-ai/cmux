@@ -817,6 +817,9 @@ jobs:
     # journey step fails the job, which journey-production also requires to succeed.
     outputs:
       deployed: ${{ steps.deploy.outcome == 'success' && steps.smoke.outcome != 'failure' && 'success' || 'no' }}
+      # The Worker deploy step's own outcome ("" or skipped when a step before it failed, as the ordering gate's 53300
+      # did on 2026-11-28): image-roll-settle deploys such a roll again instead of rolling it back.
+      worker_deploy: ${{ steps.deploy.outcome }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -1203,7 +1206,7 @@ jobs:
   # roll "), and after each production deploy of a rollback (subject "cmux-vm: image rollback ", or the
   # deploy-production dispatch with image_rollback this job sends). `auto-roll.ts settle` decides:
   #   roll      green (the product create booted the image) records it. A deploy that never ran (skipped: its
-  #             check failed first) dispatches deploy-production again with image_roll_redeploy, at most
+  #             check failed first; or failed before its Worker deploy step, as the ordering gate's 53300 did) dispatches deploy-production again with image_roll_redeploy, at most
   #             ROLLBACK_DEPLOYS deploys. Anything else (failed, cancelled, timed out) lands a rollback commit that takes the image out of both lists
   #             (image-roll-push.sh rollback), first or not, so a newer roll's own rollback can never bring it
   #             back; only an image already gone from both lists needs nothing. A cancel proves nothing: the
@@ -1278,6 +1281,7 @@ jobs:
           PRODUCT: ${{ needs.smoke-production.outputs.product }}
           BOOT: ${{ needs.smoke-production.outputs.boot_image }}
           SMOKE_RAN: ${{ needs.smoke-production.outputs.ran }}
+          WORKER_DEPLOY: ${{ needs.deploy-production.outputs.worker_deploy }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = push ]; then
@@ -1298,7 +1302,7 @@ jobs:
           git fetch -q --depth 1 origin "$GITHUB_SHA" || true
           git show "${GITHUB_SHA}:workers/cmux-vm/wrangler.jsonc" > "$RUNNER_TEMP/deployed-wrangler.jsonc"
           bun images/cmux-vm/auto-roll.ts settle --kind "$kind" --image "$image" --deploy "$DEPLOY" --product "$PRODUCT" \
-            --boot-image "$BOOT" --smoke-ran "$SMOKE_RAN" --attempt "$attempt" --deployed-wrangler "$RUNNER_TEMP/deployed-wrangler.jsonc" > "$RUNNER_TEMP/settle.json"
+            --boot-image "$BOOT" --smoke-ran "$SMOKE_RAN" --worker-deploy "$WORKER_DEPLOY" --attempt "$attempt" --deployed-wrangler "$RUNNER_TEMP/deployed-wrangler.jsonc" > "$RUNNER_TEMP/settle.json"
           cat "$RUNNER_TEMP/settle.json"
           outcome="$(jq -r .outcome "$RUNNER_TEMP/settle.json")"
           { echo "outcome=$outcome"; echo "next=$(jq -r .nextAttempt "$RUNNER_TEMP/settle.json")"; } >> "$GITHUB_OUTPUT"
