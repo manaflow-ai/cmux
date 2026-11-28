@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "prompt.failure.claudeLoginBusy" : {
+      "comment" : "Agent pane: a Claude prompt refused while a login switch waits for background work",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تنتقل هذه المحادثة إلى تسجيل الدخول إلى Claude على هذا الجهاز. أعد الإرسال بعد انتهاء العمل في الخلفية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovaj razgovor prelazi na Claude prijavu na ovoj mašini. Pošalji ponovo kada se završi rad u pozadini."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne chat skifter til denne maskines Claude-login. Send igen, når baggrundsarbejdet er færdigt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Chat wechselt zur Claude-Anmeldung auf diesem Rechner. Sende deine Nachricht erneut, sobald die Hintergrundarbeit abgeschlossen ist."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This chat is moving to this machine's Claude sign-in. Send again when its background work ends."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este chat pasará a usar la sesión de Claude de esta máquina. Vuelve a enviar el mensaje cuando termine el trabajo en segundo plano."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette conversation va utiliser la connexion à Claude de cette machine. Renvoyez votre message quand les tâches en arrière-plan seront terminées."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa chat sta passando all’accesso a Claude di questa macchina. Invia di nuovo il messaggio quando le attività in background sono terminate."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このチャットは、このマシンの Claude サインインに切り替わります。バックグラウンドの処理が終わってから、もう一度送信してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជជែកនេះកំពុងប្ដូរទៅប្រើការចូល Claude របស់ម៉ាស៊ីននេះ។ សូមផ្ញើម្ដងទៀតពេលការងារផ្ទៃខាងក្រោយបានបញ្ចប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 채팅은 이 머신의 Claude 로그인으로 전환됩니다. 백그라운드 작업이 끝나면 다시 보내세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne chatten går over til Claude-innloggingen på denne maskinen. Send på nytt når bakgrunnsarbeidet er ferdig."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ten czat przełącza się na logowanie do Claude na tej maszynie. Wyślij wiadomość ponownie, gdy zakończy się praca w tle."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este chat está mudando para o login do Claude nesta máquina. Envie a mensagem de novo quando o trabalho em segundo plano terminar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот чат переключается на учётную запись Claude на этой машине. Отправьте сообщение снова, когда фоновые задачи завершатся."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แชทนี้กำลังเปลี่ยนไปใช้การลงชื่อเข้าใช้ Claude ของเครื่องนี้ ส่งอีกครั้งเมื่องานเบื้องหลังเสร็จสิ้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sohbet, bu makinedeki Claude oturumuna geçiyor. Arka plandaki işler bitince yeniden gönderin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цей чат переходить на обліковий запис Claude на цій машині. Надішліть повідомлення знову після завершення фонових завдань."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuộc trò chuyện này đang chuyển sang phiên đăng nhập Claude trên máy này. Hãy gửi lại khi tác vụ chạy nền kết thúc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此聊天正在切换到这台机器的 Claude 登录。请在后台任务结束后重新发送。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此對話正在切換至這台機器的 Claude 登入。請在背景工作結束後重新傳送。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

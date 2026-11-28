@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Restore one historical nightly-next notes pair without rebuilding a release.
 
-The caller supplies the signed notes pair from the original release artifact and
-a provenance record from the publishing run.  This tool only writes the pair
+The caller supplies provenance for the original publication and signing artifacts.
+An optional local pair must match the archived bytes.  This tool only writes the pair
 under ``nightly-next/notes/`` through the existing release uploader.  Every
 write is create-only, so a different object is a hard failure.
 
@@ -107,13 +107,8 @@ def verify(notes: bytes, signature: bytes, name: str, public_key: str) -> None:
             fail(f"signature verification failed: {result.stderr.strip() or result.stdout.strip()}")
 
 
-def validate(notes: Path, signature: Path, provenance: dict, public_key: str) -> tuple[str, bytes, bytes]:
-    try:
-        notes_bytes = notes.read_bytes()
-        signature_bytes = signature.read_bytes()
-    except OSError as error:
-        fail(f"both notes JSON and notes JSON.sig are required; unsigned records need release-owner signing ({error})")
-    verify(notes_bytes, signature_bytes, notes.name, public_key)
+def validate(notes_bytes: bytes, signature_bytes: bytes, provenance: dict, public_key: str) -> None:
+    verify(notes_bytes, signature_bytes, f"{provenance['build']}.json", public_key)
     try:
         value = json.loads(notes_bytes.decode("utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -129,7 +124,6 @@ def validate(notes: Path, signature: Path, provenance: dict, public_key: str) ->
         fail(f"notes SHA-256 {notes_sha256} does not match provenance {provenance['notes_sha256']}")
     if provenance["signature_sha256"] != signature_sha256:
         fail(f"signature SHA-256 {signature_sha256} does not match provenance {provenance['signature_sha256']}")
-    return build, notes_bytes, signature_bytes
 
 
 def verify_withdrawal_status(build: str) -> None:
@@ -197,8 +191,8 @@ def _check_artifact_metadata(artifact: dict, *, artifact_id: str, expected_name:
         fail("source artifact is not attached to the recorded artifact run and source SHA")
 
 
-def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: bytes) -> None:
-    """Bind the local pair to the original nightly run and its immutable artifact."""
+def verified_artifact_pair(provenance: dict) -> tuple[bytes, bytes]:
+    """Read the signed pair from the verified original artifact."""
     required = ("artifact_run", "artifact_attempt", "artifact_id", "artifact_sha256", "artifact_name")
     missing = [key for key in required if key not in provenance]
     if missing:
@@ -229,7 +223,7 @@ def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: 
         fail(f"original source run failed trusted checks: {', '.join(failed)}")
     if run.get("status") != "completed":
         fail("original source run is not completed")
-    source_jobs = _gh_json(f"repos/{repository}/actions/runs/{provenance['source_run']}/jobs?filter=latest&per_page=100")
+    source_jobs = _gh_json(f"{run_path}/jobs?per_page=100")
     if not any(job.get("name") in {"nightly-next-one", "publish-nightly"}
                and job.get("conclusion") == "success" for job in source_jobs.get("jobs", [])):
         fail("original source run has no successful nightly publication job")
@@ -281,7 +275,7 @@ def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: 
     failed = [name for name, ok in tail_checks.items() if not ok]
     if failed:
         fail(f"published tail failed trusted checks: {', '.join(failed)}")
-    tail_jobs = _gh_json(f"repos/{repository}/actions/runs/{artifact_run}/jobs?filter=latest&per_page=100")
+    tail_jobs = _gh_json(f"repos/{repository}/actions/runs/{artifact_run}/attempts/{artifact_attempt}/jobs?per_page=100")
     if not any(job.get("name") == "sign-release-notes" and job.get("conclusion") == "success"
                for job in tail_jobs.get("jobs", [])):
         fail("published tail has no successful sign-release-notes job")
@@ -296,21 +290,19 @@ def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: 
     )
     try:
         with zipfile.ZipFile(io.BytesIO(_download_artifact(repository, artifact_id, str(provenance["artifact_sha256"])))) as bundle:
-            names = set(bundle.namelist())
-            build = str(provenance["build"])
-            expected = {f"{build}.json", f"{build}.json.sig"}
-            if not expected <= names:
-                fail("source artifact does not contain the signed notes pair")
-            if bundle.read(f"{build}.json") != notes_bytes or bundle.read(f"{build}.json.sig") != signature_bytes:
-                fail("local notes pair does not match the original signed artifact")
+            name = f"{provenance['build']}.json"
+            members = bundle.namelist()
+            if any(members.count(key) != 1 for key in (name, name + ".sig")):
+                fail("source artifact must contain exactly one copy of each signed notes object")
+            return bundle.read(name), bundle.read(name + ".sig")
     except (OSError, zipfile.BadZipFile, KeyError) as error:
         fail(f"invalid source artifact: {error}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--notes", required=True, type=Path)
-    parser.add_argument("--signature", required=True, type=Path)
+    parser.add_argument("--notes", type=Path, help="optional local copy to compare with the signed artifact")
+    parser.add_argument("--signature", type=Path, help="detached signature for the optional local copy")
     parser.add_argument("--provenance", required=True, type=Path)
     parser.add_argument("--public-key", help="dry-run fixture key; production always uses the pinned key")
     parser.add_argument("--endpoint-url", help=argparse.SUPPRESS)
@@ -323,9 +315,22 @@ def main() -> int:
     if not args.dry_run and (args.endpoint_url or args.bucket):
         fail("production endpoint and bucket are fixed by the release-owner environment")
     public_key = args.public_key or CONTENT_PUBLIC_KEY
-    build, notes_bytes, signature_bytes = validate(args.notes, args.signature, provenance, public_key)
+    if bool(args.notes) != bool(args.signature):
+        parser.error("--notes and --signature must be supplied together")
+    build = str(provenance["build"])
+    local_pair = None
+    if args.notes:
+        try:
+            local_pair = args.notes.read_bytes(), args.signature.read_bytes()
+        except OSError as error:
+            fail(f"both notes JSON and notes JSON.sig are required; unsigned records need release-owner signing ({error})")
+        validate(*local_pair, provenance, public_key)
     verify_withdrawal_status(build)
-    verify_source_record(provenance, notes_bytes, signature_bytes)
+    notes_bytes, signature_bytes = verified_artifact_pair(provenance)
+    if local_pair is None:
+        validate(notes_bytes, signature_bytes, provenance, public_key)
+    elif local_pair != (notes_bytes, signature_bytes):
+        fail("local notes pair does not match the original signed artifact")
     if not args.dry_run:
         if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("GITHUB_REF") != "refs/heads/nightly-next":
             fail("upload requires the protected nightly-next GitHub Actions environment")
@@ -340,13 +345,11 @@ def main() -> int:
             fail("R2_ENDPOINT must be the protected Cloudflare R2 endpoint")
     else:
         endpoint_url = ""
-    files = ((args.notes, f"{PREFIX}{build}.json", "application/json", digest(notes_bytes)),
-             (args.signature, f"{PREFIX}{build}.json.sig", "text/plain", digest(signature_bytes)))
     print(json.dumps({"build": build, "source_run": str(provenance["source_run"]),
                       "source_attempt": str(provenance["source_attempt"]),
                       "source_sha": provenance["source_sha"], "notes_sha256": digest(notes_bytes),
                       "signature_sha256": digest(signature_bytes),
-                      "withdrawn": False, "objects": [key for _, key, _, _ in files],
+                      "withdrawn": False, "objects": [f"{PREFIX}{build}.json", f"{PREFIX}{build}.json.sig"],
                       "create_only": True, "dry_run": args.dry_run,
                       "withdrawal_checked": True, "source_record_checked": True}, sort_keys=True))
     if args.dry_run:
@@ -358,8 +361,8 @@ def main() -> int:
                   (Path(scratch) / f"{build}.json.sig", f"{PREFIX}{build}.json.sig", "text/plain", signature_bytes))
         for path, _, _, content in staged:
             path.write_bytes(content)
-    # Check both immutable keys before writing either one.  The uploader repeats
-    # this check on every write to close the race between preflight and PUT.
+        # Check both immutable keys before writing either one. The uploader repeats
+        # this check on each write.
         for path, key, content_type, content in staged:
             subprocess.run([sys.executable, str(UPLOADER), "--file", str(path),
                         "--endpoint-url", endpoint_url, "--bucket", R2_BUCKET,
@@ -374,6 +377,13 @@ def main() -> int:
                         "--key", key, "--content-type", content_type,
                         "--cache-control", "no-cache, no-store, must-revalidate", "--write-once"],
                         check=True)
+        for path, _, _, content in staged:
+            url = f"{PUBLIC_FEED_BASE}/notes/{path.name}"
+            request = urllib.request.Request(url, headers={"User-Agent": "fleet-reconciler-now/1"})
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if response.read(len(content) + 1) != content:
+                    fail(f"public readback differs from signed artifact at {url}")
+            print(f"{digest(content)}  {url}")
     return 0
 
 
