@@ -839,6 +839,16 @@ class ExportedPane:
 
 
 @dataclass(frozen=True)
+class FloatingPane:
+    __cmux_schema_path__: ClassVar[str] = 'types/FloatingPane'
+    pane: Id
+    h: float
+    w: float
+    x: float
+    y: float
+
+
+@dataclass(frozen=True)
 class FocusDirectionResult:
     __cmux_schema_path__: ClassVar[str] = 'types/FocusDirectionResult'
     pane: Id
@@ -1617,7 +1627,7 @@ class Screen:
     zoomed_pane: Union[Id, None]
     color: Union[str, None, MissingType] = field(default=MISSING)
     columns: Union[List[LayoutColumnNode], MissingType] = field(default=MISSING)
-    floating: Union[JsonValue, MissingType] = field(default=MISSING)
+    floating: Union[List[FloatingPane], MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     hidden_dividers: Union[List[Id], MissingType] = field(default=MISSING)
     icon: Union[str, None, MissingType] = field(default=MISSING)
@@ -7076,6 +7086,7 @@ __all__ = [
     'EmptyResult',
     'ExportLayoutResult',
     'ExportedPane',
+    'FloatingPane',
     'FocusDirectionResult',
     'FrontendJournalEventFocus',
     'FrontendJournalEventResize',
