@@ -7,19 +7,25 @@ use cmux_egress::capture;
 
 use super::{Fetched, fetch};
 
-const HOST: &str = "pieces-seeded.cmux.dev";
+const HOST: &str = "files.cmux.com";
 
 #[test]
 fn the_switch_fetch_carries_only_its_etag_and_no_credential() {
     capture::install().unwrap();
     let etag = "\"SEEDwebPiecesEtag-3e88\"";
-    let url = format!("https://{HOST}/seeded/switch.json");
+    let url = format!("https://{HOST}/cmux-next-web/ota/pieces-seeded.json");
     let got = fetch(&url, Some(etag));
-    assert!(matches!(got, Fetched::Body(..)), "the capture server answers 200");
-    let sent = capture::requests_to(HOST);
+    assert!(matches!(got, Fetched::Body(..)), "the capture server answers 200: {got:?}");
+    let sent: Vec<_> = capture::requests_to(HOST)
+        .into_iter()
+        .filter(|r| r.target.ends_with("pieces-seeded.json"))
+        .collect();
     assert_eq!(sent.len(), 1, "one request, no retry: {sent:?}");
     let request = &sent[0];
-    assert_eq!((request.method.as_str(), request.target.as_str()), ("GET", "/seeded/switch.json"));
+    assert_eq!(
+        (request.method.as_str(), request.target.as_str()),
+        ("GET", "/cmux-next-web/ota/pieces-seeded.json")
+    );
     assert!(request.body.is_empty(), "{request:?}");
     assert_eq!(capture::leaks("SEEDwebPiecesEtag-3e88").len(), 1);
     assert!(capture::leaks("SEEDwebPiecesEtag-3e88")[0].ends_with(": header if-none-match"));
