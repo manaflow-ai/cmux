@@ -226,7 +226,7 @@ import Testing
         #expect(id == "s7")
         let observedAt = ContinuousClock.now
         let enteredAt = try #require(reattach.lastEnteredAt)
-        print("reattach first drop: drop_to_entry=\(enteredAt - droppedAt) entry_to_observer=\(observedAt - enteredAt)")
+        Attachment.record("reattach first drop: drop_to_entry=\(enteredAt - droppedAt) entry_to_observer=\(observedAt - enteredAt)", named: "reattach-first-drop.txt")
         // The first try goes at once: the drop is already known (conn-quiet, 2026-11-14).
         #expect(observedAt - droppedAt < .milliseconds(500))
         #expect(viewer.phase == .streaming(sessionID: "s7", scope: .full))
@@ -298,6 +298,9 @@ import Testing
     /// (`drop_to_reattach_ms p50/p95`). Builds at base too, where every drop waited 1 s.
     @Test func dropToReattachIsUnder250MillisecondsAtP95() async throws {
         var samples: [Double] = []
+        var timingReport: [String] = []
+        // Xcode may omit stdout; the simulator step exports these attachments on failure too.
+        defer { Attachment.record(timingReport.joined(separator: "\n"), named: "reattach-timing.txt") }
         // One drop per viewer: each is the first drop of a stream (a stream that came up and
         // dropped starts its backoff over; the tests' streams never come up on their own).
         for _ in 0 ..< 8 {
@@ -317,13 +320,13 @@ import Testing
             let observedAt = ContinuousClock.now
             let enteredAt = try #require(reattach.lastEnteredAt)
             let elapsed = observedAt - droppedAt
-            print("reattach sample \(samples.count): drop_to_entry=\(enteredAt - droppedAt) entry_to_observer=\(observedAt - enteredAt)")
+            timingReport.append("reattach sample \(samples.count): drop_to_entry=\(enteredAt - droppedAt) entry_to_observer=\(observedAt - enteredAt)")
             samples.append(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
             viewer.close(reason: .viewerDisconnected)
         }
         samples.sort()
         let p50 = samples[samples.count / 2], p95 = samples[samples.count - 1]
-        print("conn-quiet drop_to_reattach_ms p50=\(Int(p50)) p95=\(Int(p95)) n=\(samples.count)")
+        timingReport.append("conn-quiet drop_to_reattach_ms p50=\(Int(p50)) p95=\(Int(p95)) n=\(samples.count)")
         #expect(p95 < 250)
     }
 
