@@ -258,7 +258,7 @@ pub(crate) fn resolve_resource_selectors(
     // Every request that resolved before selects the same object
     // (`cmux.protocol/2` takes additions only), so the id forms come in
     // three steps (id_forms.rs):
-    // 1. prefixes (`pane_3f`) and a tab or pane id as a terminal: they were
+    // 1. prefixes (`pane_3f0a`) and a tab or pane id as a terminal: they were
     //    never names, so they become full ids first;
     // 2. full ids and names, as before, then a name in the whole session
     //    (name_scope.rs);

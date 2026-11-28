@@ -654,11 +654,11 @@ fn w5p_shared_names_and_shared_prefixes_keep_their_old_answers() {
         assert_eq!(error.code, "validation.invalid", "{shared}: {error:?}");
         assert!(error.message.contains("at least 4 hex digits"), "{}", error.message);
     }
-    let four = one.get(..8).unwrap().to_owned();
-    if tabs.iter().filter(|id| id.starts_with(four.as_str())).count() == 1 {
-        let (_, tab, _) = w5p_resolve(&mux, "tab", &four).unwrap();
-        assert_eq!(tab.as_deref(), Some(one.as_str()), "{four}");
-    }
+    // A long prefix (31 of the 32 digits) is unique among 17 random ids and
+    // selects its tab; the 4-digit case is in resource_selector/id_forms/tests.rs.
+    let long = one.get(..one.len() - 1).unwrap().to_owned();
+    let (_, tab, _) = w5p_resolve(&mux, "tab", &long).unwrap();
+    assert_eq!(tab.as_deref(), Some(one.as_str()), "{long}");
     // A prefix of no object is not found (32 prefixes, 20 tabs).
     let missing = (0..16u8)
         .flat_map(|first| (0..2u8).map(move |second| format!("tab_{first:x}{second:x}00")))
@@ -668,4 +668,32 @@ fn w5p_shared_names_and_shared_prefixes_keep_their_old_answers() {
     assert_eq!(error.code, "selector.not_found", "{missing}: {error:?}");
     assert!(error.message.contains("32 hex digits"), "{}", error.message);
     assert!(error.message.contains("cmux tab list"), "{}", error.message);
+}
+
+/// W5-P review: a parent named with 32 hex digits (a name, since no object
+/// has that id) does not stop the child's `focused` from being `current`.
+/// The bare-id pass left the whole request unexpanded when one slot matched
+/// no id, so `tab focused` under that workspace was not found.
+#[test]
+fn w5p_a_hex_named_parent_keeps_focused_for_its_child() {
+    let mux = test_mux();
+    let name = "0123456789abcdef0123456789abcdef";
+    let root = mux.new_workspace(Some(name.into()), None).unwrap();
+    let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
+    assert!(mux.focus_pane(root_pane));
+    let root_tab =
+        mux.with_state(|state| state.resource_indexes.tab_ids.get(&root.id).map(|t| t.to_string()));
+    // The CLI shape: `--workspace <name> tab focused` puts `current` above
+    // the tab.
+    let selectors = crate::ResourceSelectors {
+        workspace: Some(name.into()),
+        screen: Some("current".into()),
+        pane: Some("current".into()),
+        tab: Some("focused".into()),
+        ..Mux::ordinary_resource_selectors()
+    };
+    let path = mux
+        .resolve_resource_path(crate::ResourceTarget::Tab, &selectors)
+        .unwrap_or_else(|error| panic!("workspace {name}, tab focused: {error:?}"));
+    assert_eq!(path.tab.map(|tab| tab.to_string()), root_tab);
 }

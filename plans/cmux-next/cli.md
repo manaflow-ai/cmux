@@ -225,8 +225,8 @@ records) or `cmux window list` for app windows.
 | Old form | New form |
 | --- | --- |
 | `workspace:N`, `--workspace workspace:N` | `ws_<32 hex>` or a unique prefix, as the selector (`cmux workspace ws_1a2b update …`); `current` for the session's focused workspace |
-| `pane:N`, `--pane`/`--panel pane:N` | `pane_…` or a unique prefix (`cmux pane pane_9f split --right`) |
-| `surface:N`, `tab:N`, `--surface …` | `tab_…` for the tab, `term_…` for its terminal (`cmux terminal term_77 write --text …`) |
+| `pane:N`, `--pane`/`--panel pane:N` | `pane_…` or a unique prefix (`cmux pane pane_9f0c split --right`) |
+| `surface:N`, `tab:N`, `--surface …` | `tab_…` for the tab, `term_…` for its terminal (`cmux terminal term_77a1 write --text …`) |
 | the caller's own terminal (`--surface` default) | `$CMUX_TUI_TERMINAL_ID` (set in every cmux terminal); `current` is the session's focused object |
 | `window:N`, `--window …` | the app window id from `cmux window list` (`win_…` once window ids are typed, Remaining 1) |
 | `build-box:workspace:N` | `--session build-box` with a public id, or the qualified form `build-box:ws_…` once qualified ids land (Remaining 12) |
