@@ -4202,6 +4202,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "bytes",
+ "cmux-scope",
  "http",
  "http-body-util",
  "hyper",
@@ -4209,6 +4210,8 @@ dependencies = [
  "rcgen",
  "rustls",
  "rustls-native-certs",
+ "serde",
+ "serde_json",
  "time",
  "tokio",
  "tokio-rustls",
