@@ -21,12 +21,17 @@ Subcommands, all through the public App Store Connect API with the CI key
 
   plan   Read every listed subscription and print what is missing and what
          `apply` would write. Writes nothing. The default.
-  apply  Write only what `plan` prints: create a missing localization, upload a
-         missing review screenshot or promotional image. Idempotent: anything
-         present is left alone, so a second run writes nothing.
+  apply  Write only what `plan` prints: create a missing localization, rename
+         one whose name or description differs from records.json, upload a
+         missing review screenshot or promotional image, and replace one whose
+         upload never completed (delete the stuck asset, then upload again).
+         Idempotent: anything complete and matching is left alone, so a second
+         run writes nothing.
 
-Never written: prices, availability, territories, submissions, deletions, or
-anything on a subscription records.json does not list. A missing price or
+Never written: prices, availability, territories, submissions, or anything on a
+subscription records.json does not list. The only deletion is a listed
+subscription's own stuck review screenshot or promotional image, which App
+Store Connect never finishes and never lets a new upload sit beside. A missing price or
 availability is printed as a person's step (it is money). A subscription that
 is READY_TO_SUBMIT is complete; it goes to App Review with the next app version
 submission, which is a person's step too.
@@ -147,6 +152,7 @@ def read_state(api: Api, sub: dict) -> dict:
         "reviewScreenshot": shot,
         "images": images,
         "locales": {(loc.get("attributes") or {}).get("locale") for loc in locs},
+        "localizations": {(loc.get("attributes") or {}).get("locale"): loc for loc in locs},
         "hasPrice": bool(prices),
         "hasAvailability": bool(availability),
     }
@@ -159,10 +165,10 @@ def plan_for(listed: dict, state: dict, root: Path = RECORDS_DIR) -> tuple[list[
     person: list[str] = []
     waiting: list[str] = []
 
-    def upload(kind: str) -> None:
+    def upload(kind: str, stuck: list[str] | None = None) -> None:
         name = listed[kind]
         if (root / name).is_file():
-            writes.append({"kind": kind, "file": name})
+            writes.append({"kind": kind, "file": name, "replace": stuck or []})
         else:
             waiting.append(f"{kind} {name} is not checked in under AppStoreReview/subscriptions/")
 
@@ -170,16 +176,20 @@ def plan_for(listed: dict, state: dict, root: Path = RECORDS_DIR) -> tuple[list[
     if shot is None:
         upload("reviewScreenshot")
     elif not asset_done(shot):
-        person.append("its App Review screenshot upload never completed; replace it in App Store Connect")
+        upload("reviewScreenshot", [shot["id"]])
     if not any(asset_done(image) for image in state["images"]):
-        if state["images"]:
-            person.append("its promotional image upload never completed; replace it in App Store Connect")
-        else:
-            upload("promotionalImage")
+        upload("promotionalImage", [image["id"] for image in state["images"]])
+    localizations = state.get("localizations") or {}
     for locale, text in sorted((listed.get("localizations") or {}).items()):
+        name, description = text["name"], text.get("description", "")
+        loc = localizations.get(locale)
         if locale not in state["locales"]:
-            writes.append({"kind": "localization", "locale": locale, "name": text["name"],
-                           "description": text.get("description", "")})
+            writes.append({"kind": "localization", "locale": locale, "name": name, "description": description})
+        elif loc is not None:
+            have = loc.get("attributes") or {}
+            if have.get("name") != name or (description and have.get("description") != description):
+                writes.append({"kind": "localizationUpdate", "id": loc["id"], "locale": locale, "name": name,
+                               "description": description, "was": have.get("name")})
     if not state["hasPrice"]:
         person.append("no price (set it in App Store Connect; prices are never written here)")
     if not state["hasAvailability"]:
@@ -214,11 +224,22 @@ def upload_asset(api: Api, kind: str, sid: str, path: Path) -> str:
     return created["id"]
 
 
+ASSET_TYPES = {"reviewScreenshot": "subscriptionAppStoreReviewScreenshots", "promotionalImage": "subscriptionImages"}
+
+
 def apply_write(api: Api, sid: str, write: dict, root: Path = RECORDS_DIR) -> str:
-    if write["kind"] == "reviewScreenshot":
-        return upload_asset(api, "subscriptionAppStoreReviewScreenshots", sid, root / write["file"])
-    if write["kind"] == "promotionalImage":
-        return upload_asset(api, "subscriptionImages", sid, root / write["file"])
+    if write["kind"] in ASSET_TYPES:
+        kind = ASSET_TYPES[write["kind"]]
+        for stuck in write.get("replace") or []:
+            api.request("DELETE", f"/v1/{kind}/{stuck}")
+        return upload_asset(api, kind, sid, root / write["file"])
+    if write["kind"] == "localizationUpdate":
+        attributes = {"name": write["name"]}
+        if write["description"]:
+            attributes["description"] = write["description"]
+        api.request("PATCH", f"/v1/subscriptionLocalizations/{write['id']}", {"data": {
+            "type": "subscriptionLocalizations", "id": write["id"], "attributes": attributes}})
+        return write["id"]
     if write["kind"] == "localization":
         attributes = {"locale": write["locale"], "name": write["name"]}
         if write["description"]:
@@ -233,6 +254,10 @@ def apply_write(api: Api, sid: str, write: dict, root: Path = RECORDS_DIR) -> st
 def describe(write: dict) -> str:
     if write["kind"] == "localization":
         return f"create localization {write['locale']} ({write['name']!r})"
+    if write["kind"] == "localizationUpdate":
+        return f"rename localization {write['locale']} ({write['was']!r} -> {write['name']!r})"
+    if write.get("replace"):
+        return f"replace stuck {write['kind']} with {write['file']} (delete {', '.join(write['replace'])})"
     return f"upload {write['kind']} {write['file']}"
 
 

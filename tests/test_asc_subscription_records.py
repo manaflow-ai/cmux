@@ -84,6 +84,10 @@ class FakeAsc:
                 fake.requests.append(("PATCH", self.path, body))
                 self._send(*fake.patch(self.path, body))
 
+            def do_DELETE(self):
+                fake.requests.append(("DELETE", self.path, None))
+                self._send(*fake.delete(self.path))
+
             def do_PUT(self):
                 fake.uploads[self.path] = self._body()
                 fake.requests.append(("PUT", self.path, None))
@@ -98,7 +102,7 @@ class FakeAsc:
         done = {"assetDeliveryState": {"state": "COMPLETE"}}
         return {"id": sid, "state": state, "shot": {"id": f"shot-{sid}", "attributes": done} if shot else None,
                 "images": [{"id": f"img-{sid}", "attributes": done}] if image else [],
-                "locales": ["en-US"] if locale else [], "price": price}
+                "locales": ["en-US"] if locale else [], "names": {}, "price": price}
 
     def by_id(self, sid):
         return next(s for s in self.subs.values() if s["id"] == sid)
@@ -121,7 +125,9 @@ class FakeAsc:
             if leaf == "images":
                 return 200, {"data": sub["images"]}
             if leaf == "subscriptionLocalizations":
-                return 200, {"data": [{"id": f"loc-{l}", "attributes": {"locale": l}} for l in sub["locales"]]}
+                return 200, {"data": [{"id": f"loc-{sub['id']}-{l}",
+                                       "attributes": {"locale": l, **sub["names"].get(l, {})}}
+                                      for l in sub["locales"]]}
             if leaf == "prices":
                 return 200, {"data": [{"id": "price-1"}] if sub["price"] else []}
             if leaf == "subscriptionAvailability":
@@ -133,7 +139,9 @@ class FakeAsc:
         sid = data["relationships"]["subscription"]["data"]["id"]
         sub = self.by_id(sid)
         if path == "/v1/subscriptionLocalizations":
-            sub["locales"].append(data["attributes"]["locale"])
+            attrs = data["attributes"]
+            sub["locales"].append(attrs["locale"])
+            sub["names"][attrs["locale"]] = {k: v for k, v in attrs.items() if k in ("name", "description")}
             return 201, {"data": {"id": f"loc-new-{sid}"}}
         if path in ("/v1/subscriptionAppStoreReviewScreenshots", "/v1/subscriptionImages"):
             asset_id = f"{path.rsplit('/', 1)[1]}-{sid}"
@@ -148,7 +156,25 @@ class FakeAsc:
                  "requestHeaders": [{"name": "Content-Type", "value": "image/png"}]}]}}}
         return 404, {"errors": [{"code": "NOT_FOUND"}]}
 
+    def delete(self, path):
+        for sub in self.subs.values():
+            if sub["shot"] and path == f"/v1/subscriptionAppStoreReviewScreenshots/{sub['shot']['id']}":
+                sub["shot"] = None
+                return 204, None
+            for image in list(sub["images"]):
+                if path == f"/v1/subscriptionImages/{image['id']}":
+                    sub["images"].remove(image)
+                    return 204, None
+        return 404, {"errors": [{"code": "NOT_FOUND"}]}
+
     def patch(self, path, body):
+        if path.startswith("/v1/subscriptionLocalizations/"):
+            for sub in self.subs.values():
+                for locale in sub["locales"]:
+                    if path.endswith(f"/loc-{sub['id']}-{locale}"):
+                        sub["names"][locale] = dict(body["data"]["attributes"])
+                        return 200, {"data": {"id": body["data"]["id"]}}
+            return 404, {"errors": [{"code": "NOT_FOUND"}]}
         for sub in self.subs.values():
             for asset in [sub["shot"], *sub["images"]]:
                 if asset and path.endswith("/" + asset["id"]) and body["data"]["attributes"].get("uploaded"):
@@ -244,6 +270,41 @@ class RecordsTests(unittest.TestCase):
         self.assertIn("1024x1024 RGB with no alpha", out)
         self.assertEqual(self.fake.requests, [])
 
+    def test_a_stuck_upload_is_deleted_and_uploaded_again_once(self) -> None:
+        stuck = {"assetDeliveryState": {"state": "AWAITING_UPLOAD"}}
+        plus = self.fake.subs["com.cmux.app.next_plus.monthly"]
+        plus["images"] = [{"id": "img-stuck", "attributes": stuck}]
+        plus["shot"] = {"id": "shot-stuck", "attributes": stuck}
+        code, out = self.main()
+        self.assertEqual(code, 0, out)
+        self.assertIn("plan: replace stuck promotionalImage with promo-plus.png (delete img-stuck)", out)
+        self.assertNotIn("person: its", out)
+        self.assertEqual(self.writes(), [])
+        code, out = self.main("apply")
+        self.assertEqual(code, 0, out)
+        deletes = [r[1] for r in self.writes() if r[0] == "DELETE"]
+        self.assertEqual(sorted(deletes), ["/v1/subscriptionAppStoreReviewScreenshots/shot-stuck",
+                                           "/v1/subscriptionImages/img-stuck"])
+        self.assertEqual([i["attributes"]["assetDeliveryState"]["state"] for i in plus["images"]], ["COMPLETE"])
+        self.assertEqual(plus["shot"]["attributes"]["assetDeliveryState"]["state"], "COMPLETE")
+        before = len(self.writes())
+        code, out = self.main("apply")
+        self.assertEqual(len(self.writes()), before, "a second apply wrote again")
+
+    def test_a_renamed_localization_is_patched_once(self) -> None:
+        self.main("apply")
+        self.body["subscriptions"][0]["localizations"]["en-US"]["name"] = "Go"
+        self.write_records()
+        code, out = self.main("apply")
+        self.assertEqual(code, 0, out)
+        self.assertIn("wrote: rename localization en-US ('cmux Plus' -> 'Go')", out)
+        patches = [r for r in self.writes() if r[0] == "PATCH" and "Localizations" in r[1]]
+        self.assertEqual(len(patches), 1)
+        self.assertEqual(self.fake.subs["com.cmux.app.next_plus.monthly"]["names"]["en-US"]["name"], "Go")
+        before = len(self.writes())
+        self.main("apply")
+        self.assertEqual(len(self.writes()), before, "a second apply renamed again")
+
     def test_retired_and_listed_is_refused(self) -> None:
         self.body["retired"].append({"productId": "com.cmux.app.next_plus.monthly", "why": "x"})
         self.write_records()
@@ -260,6 +321,12 @@ class CheckedInTests(unittest.TestCase):
         self.assertEqual(len(set(promos)), len(promos), "each subscription needs its own promotional image")
         for name in promos:
             self.assertEqual(records.png_info(records.RECORDS_DIR / name), (1024, 1024, 2), name)
+
+    def test_checked_in_names_are_the_plan_names(self) -> None:
+        names = {sub["productId"]: sub["localizations"]["en-US"]["name"]
+                 for sub in records.load_records()["subscriptions"]}
+        self.assertEqual(names, {"com.cmux.app.next_plus.monthly": "Go", "com.cmux.app.next_pro.monthly": "Pro",
+                                 "com.cmux.app.next_max.monthly": "Max"})
 
     def test_retired_ids_match_the_gate(self) -> None:
         retired = {r["id"]: r["productId"] for r in records.load_records()["retired"]}
