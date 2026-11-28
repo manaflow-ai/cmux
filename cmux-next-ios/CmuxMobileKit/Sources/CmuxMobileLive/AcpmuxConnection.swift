@@ -24,6 +24,11 @@ public actor AcpmuxConnection {
         /// real refusal by them and `reason`; Swift only carries them.
         public var origin: String? = nil
         public var dataCode: String? = nil
+        /// `error.data.errorKind` (`version.incompatible`) and `error.data.details.update`, the
+        /// side acpmux says to update (`peer`: this phone; `self`: the Mac), for ``AcpmuxHub``'s
+        /// ABI check (hq RFD 0224).
+        public var errorKind: String? = nil
+        public var update: String? = nil
         /// `error.data.details`: a refusal's own facts (a Cloud start's `seed.needs_github`:
         /// `repo`, `githubLogin`, `githubUser`).
         public var details: JSONValue? = nil
@@ -413,6 +418,8 @@ public actor AcpmuxConnection {
                     retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) },
                     origin: error["data"]?["origin"]?.stringValue,
                     dataCode: error["data"]?["code"]?.stringValue,
+                    errorKind: error["data"]?["errorKind"]?.stringValue,
+                    update: error["data"]?["details"]?["update"]?.stringValue,
                     details: error["data"]?["details"]
                 ))
             } else {
