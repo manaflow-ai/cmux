@@ -160,3 +160,14 @@ fn shapes() {
     assert!(!secret_shaped("ACPMUX_LAUNCH_CREDENTIAL", b"CLAUDE_CODE_OAUTH_TOKEN"));
     assert!(!secret_shaped("PATH", b"/usr/bin"));
 }
+
+#[test]
+fn the_vault_audit_recognizes_every_launch_credential_name() {
+    let b = scratch();
+    let env: Vec<_> = crate::agent_credentials::NAMES.iter().map(|name| (*name, VALUE)).collect();
+    let report = audit(&b.roots, || Ok(vec![proc(11, "agent", &env)])).unwrap();
+    assert!(report.green(), "{:?}", report.items);
+    for (name, _) in env {
+        assert!(whats(&report, Class::Login).contains(&format!("env:{name}")));
+    }
+}
