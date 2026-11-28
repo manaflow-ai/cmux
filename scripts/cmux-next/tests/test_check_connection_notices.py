@@ -318,6 +318,26 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 1, "only the outcome's words are exempt, not any unit named failed*")
 
+    def test_an_outcome_helper_drawn_by_a_form_stays_an_outcome(self):
+        """A sign-in's failure words (`deviceFailureText`, cmux#54956) drawn by its form: still the outcome of what the
+        person started, not a state on the form; the same words from a plain helper move to the form and fail."""
+        helper = """
+            export function NAME(code: string) {
+              return code === "other" ? "Disconnect it there before reconnecting here." : "";
+            }
+            export function DeviceForm({ code }: { code: string }) {
+              return <p>{NAME(code)}</p>;
+            }
+        """
+        tree = Tree(self)
+        tree.write(f"{WEB}/DeviceForm.tsx", helper.replace("NAME", "deviceFailureText"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/DeviceForm.tsx", helper.replace("NAME", "deviceWords"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("DeviceForm shows a connection state", out)
+
     def test_a_view_drawing_its_own_button_component_carries_the_action(self):
         tree = Tree(self)
         tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
@@ -531,6 +551,26 @@ class NativeShapes(unittest.TestCase):
         tree.write(f"{MAC}/WorkspaceVerbStrings.swift", SWIFT_REFUSAL)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
+
+    def test_an_extension_of_a_nested_failure_type_is_that_failure_type(self):
+        """`extension CloudAgentCredentials.Failure`'s notice is the refusal's words (cmux#54956), not its outer type's;
+        an extension of any other nested type still reads as the outer type."""
+        source = """
+            import Foundation
+            extension CloudAgentCredentials.NESTED {
+                func notice() -> String {
+                    return "This connection is offline. Try again when you are connected."
+                }
+            }
+        """
+        tree = Tree(self)
+        tree.write(f"{MAC}/CloudModelConnectionNotice.swift", source.replace("NESTED", "Failure"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{MAC}/CloudModelConnectionNotice.swift", source.replace("NESTED", "Status"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("CloudAgentCredentials shows a connection state", out)
 
     def test_a_quiet_hold_at_the_bound_passes_and_a_short_one_does_not(self):
         """cmux#43311 added QuietHold (CmuxNextWakeups): a hold for the bound is a gate; a shorter literal is not."""

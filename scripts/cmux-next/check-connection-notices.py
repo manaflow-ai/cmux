@@ -329,7 +329,13 @@ def units_of(path: str, source: str) -> list[tuple[str, int, int]]:
         m = top.match(line)
         if m:
             name = next(g for g in m.groups() if g)
-            starts.append((i, name.split(".")[0] if path.endswith(".swift") else name))
+            if path.endswith(".swift"):
+                # `extension CloudAgentCredentials.Failure` is the failure type's own words (the outcome of what
+                # the person did, ERROR_TYPE), not its outer type's: read as `CloudAgentCredentials`, its refusal
+                # copy failed the check (cmux#54956's model-connection notice).
+                outer, _, last = name.rpartition(".")
+                name = name if outer and ERROR_TYPE.search(last) else name.split(".")[0]
+            starts.append((i, name))
     spans = []
     for n, (i, name) in enumerate(starts):
         end = starts[n + 1][0] - 1 if n + 1 < len(starts) else len(lines) - 1
@@ -545,6 +551,10 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
         moved = False
         for unit in list(units.values()):
             if not unit.hits or unit.ok or not is_provider(unit):
+                continue
+            if ERROR_TYPE.search(unit.name) or OUTCOME_UNIT.search(unit.name):
+                # An outcome's words (`deviceFailureText`, the reason a sign-in the person started did not go
+                # through) stay an outcome wherever they are drawn: moved to the form, they failed it (cmux#54956).
                 continue
             members = {member_at(unit, h.index) for h in unit.hits}
             # A label table or strings type passes its words on through two hops; a helper function through one,

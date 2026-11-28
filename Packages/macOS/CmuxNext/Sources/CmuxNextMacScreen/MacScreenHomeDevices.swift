@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextDevices
 import Foundation
 
@@ -144,7 +145,7 @@ struct MacScreenHomeSnapshot: Equatable {
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                                  hubNote: registered ? nil : Self.shownHubNote(hub.status, home: home))
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -166,6 +167,21 @@ struct MacScreenHomeSnapshot: Equatable {
         case let .failed(reason, detail):
             return reason.words(detail: detail)
         }
+    }
+
+    /// How long This Mac's "Connecting this Mac to the device hub…" waits before it shows: the shared connection
+    /// bound, so a hub socket that registers in a few seconds says nothing (the switch only waits, busy).
+    static let hubJoinQuiet = NoticeTiming.connectionQuiet
+
+    /// The hub note the page draws: a failure at once (it says why), connecting only once it has lasted
+    /// ``hubJoinQuiet`` (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up").
+    @MainActor
+    static func shownHubNote(_ status: DeviceHub.Status, home: MacScreenHomeView) -> String? {
+        if case .failed = status {
+            home.hubJoinLasted(false)
+            return hubNote(status)
+        }
+        return home.hubJoinLasted(true) ? hubNote(status) : nil
     }
 
     /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register.

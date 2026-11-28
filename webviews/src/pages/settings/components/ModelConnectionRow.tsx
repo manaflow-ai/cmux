@@ -193,7 +193,7 @@ export function ModelConnectionRow({
         status={status}
         warning={warning}
         loading={connecting || checking}
-        checking={checking}
+        loadingLabel={t(checking ? "settingsWindow.models.status.checking" : "settingsWindow.models.status.connecting")}
       >
         {cloud && apiKey && !connection.enabled && (
           <Button
@@ -398,7 +398,7 @@ export function ModelRow({
   status,
   warning,
   loading,
-  checking,
+  loadingLabel,
   children,
 }: {
   mark: CatalogProvider["mark"];
@@ -409,12 +409,12 @@ export function ModelRow({
   status?: string;
   warning?: string;
   loading?: boolean;
-  checking?: boolean;
+  /// What the spinner says while `loading`: the row that draws it names its own state (connecting after the
+  /// person's Connect, checking after Check access), beside that row's buttons.
+  loadingLabel?: string;
   children?: ReactNode;
 }) {
-  const iconLabel = loading
-    ? t(checking ? "settingsWindow.models.status.checking" : "settingsWindow.models.status.connecting")
-    : warning;
+  const iconLabel = loading ? loadingLabel : warning;
   return (
     <div className="row-main">
       <ModelProviderMark mark={mark} />
