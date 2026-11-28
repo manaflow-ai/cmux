@@ -4402,7 +4402,7 @@ jobs:
     # It fetches the Mac-built x86_64 objects, which only main builds (CMUX_TUI_DARWIN_X86_64).
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     # 32 vCPU: the shadow builds both macOS targets of every binary.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-gcp-lane-build-x64' }} # host pin: the darwin cross build lane (was vars.LINUX_RUNNER_DARWIN_CROSS)
     timeout-minutes: 60
     continue-on-error: true
     permissions:
