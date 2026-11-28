@@ -13316,127 +13316,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac's Chief was not running. It is starting now; try again in a moment."
+            "value": "This Mac's Chief didn't start in time, so the change wasn't saved."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac の Chief は動いていませんでした。いま開始しています。少し待ってからもう一度お試しください。"
+            "value": "この Mac の Chief が時間内に起動しなかったため、変更は保存されませんでした。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يكن الـ Chief على هذا الـ Mac يعمل. يجري تشغيله الآن؛ حاول مرة أخرى بعد لحظات."
+            "value": "لم يبدأ الـ Chief على هذا الـ Mac في الوقت المناسب، لذلك لم يُحفظ التغيير."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief na ovom Macu nije radio. Sada se pokreće; pokušajte ponovo za trenutak."
+            "value": "Chief na ovom Macu se nije pokrenuo na vrijeme, pa promjena nije sačuvana."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne Macs Chief kørte ikke. Den starter nu; prøv igen om et øjeblik."
+            "value": "Denne Macs Chief startede ikke i tide, så ændringen blev ikke gemt."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Chief dieses Macs lief nicht. Er startet jetzt; versuche es gleich noch einmal."
+            "value": "Der Chief dieses Macs ist nicht rechtzeitig gestartet, daher wurde die Änderung nicht gespeichert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El Chief de este Mac no se estaba ejecutando. Se está iniciando ahora; inténtalo de nuevo en un momento."
+            "value": "El Chief de este Mac no se inició a tiempo, así que el cambio no se guardó."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le Chief de ce Mac ne fonctionnait pas. Il démarre maintenant ; réessayez dans un instant."
+            "value": "Le Chief de ce Mac n'a pas démarré à temps : la modification n'a pas été enregistrée."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il Chief di questo Mac non era in esecuzione. Si sta avviando ora; riprova tra un momento."
+            "value": "Il Chief di questo Mac non si è avviato in tempo, quindi la modifica non è stata salvata."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief នៅលើ Mac នេះមិនបានដំណើរការទេ។ វាកំពុងចាប់ផ្ដើមឥឡូវនេះ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+            "value": "Chief នៅលើ Mac នេះមិនបានចាប់ផ្ដើមទាន់ពេលទេ ដូច្នេះការផ្លាស់ប្ដូរមិនត្រូវបានរក្សាទុកទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 Chief가 실행 중이 아니었습니다. 지금 시작하는 중이니 잠시 후 다시 시도하세요."
+            "value": "이 Mac의 Chief가 제때 시작되지 않아 변경 사항이 저장되지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief på denne Macen kjørte ikke. Den starter nå; prøv igjen om et øyeblikk."
+            "value": "Chief på denne Macen startet ikke i tide, så endringen ble ikke lagret."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief na tym Macu nie działał. Uruchamia się teraz; spróbuj ponownie za chwilę."
+            "value": "Chief na tym Macu nie uruchomił się na czas, więc zmiana nie została zapisana."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Chief deste Mac não estava em execução. Ele está iniciando agora; tente de novo em instantes."
+            "value": "O Chief deste Mac não iniciou a tempo, então a alteração não foi salva."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief на этом Mac не был запущен. Сейчас он запускается; повторите попытку через минуту."
+            "value": "Chief на этом Mac не запустился вовремя, поэтому изменение не сохранено."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief ของ Mac เครื่องนี้ไม่ได้ทำงานอยู่ กำลังเริ่มต้นตอนนี้ ลองอีกครั้งในอีกสักครู่"
+            "value": "Chief ของ Mac เครื่องนี้เริ่มต้นไม่ทันเวลา จึงไม่ได้บันทึกการเปลี่ยนแปลง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu Mac'in Chief'i çalışmıyordu. Şimdi başlatılıyor; birazdan yeniden deneyin."
+            "value": "Bu Mac'in Chief'i zamanında başlamadı, bu yüzden değişiklik kaydedilmedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief на цьому Mac не був запущений. Зараз він запускається; спробуйте ще раз за мить."
+            "value": "Chief на цьому Mac не запустився вчасно, тому зміну не збережено."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief của máy Mac này không chạy. Nó đang khởi động; hãy thử lại sau giây lát."
+            "value": "Chief của máy Mac này không khởi động kịp, nên thay đổi chưa được lưu."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 的 Chief 未在运行。现在正在启动，请稍后再试。"
+            "value": "此 Mac 的 Chief 未能及时启动，因此更改未保存。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 的 Chief 未在執行。現在正在啟動，請稍後再試。"
+            "value": "此 Mac 的 Chief 未能及時啟動，因此變更未儲存。"
           }
         }
       }
@@ -21737,127 +21737,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "None yet. Ask the Chief, for example: “Every morning at 9, summarize my open PRs.”"
+            "value": "None yet. Ask the Chief: “Every morning, summarize my PRs.”"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا شيء بعد. اطلب من الرئيس، مثلًا: «كل صباح الساعة 9، لخّص طلبات الدمج المفتوحة لدي.»"
+            "value": "لا شيء بعد. اطلب من Chief: «كل صباح، لخّص طلبات الدمج الخاصة بي.»"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Još ništa. Zamolite Chiefa, na primjer: „Svako jutro u 9 sažmi moje otvorene PR-ove.“"
+            "value": "Još ništa. Pitaj Chiefa: „Svako jutro sažmi moje PR-ove.”"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen endnu. Bed Chief om det, for eksempel: “Opsummer mine åbne PR’er hver morgen kl. 9.”"
+            "value": "Ingen endnu. Spørg Chief: “Opsummer mine PR’er hver morgen.”"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch keine. Bitte den Chief zum Beispiel: „Fasse jeden Morgen um 9 meine offenen PRs zusammen.“"
+            "value": "Noch keine. Bitte den Chief: „Fasse jeden Morgen meine PRs zusammen.“"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todavía ninguna. Pídeselo al Chief, por ejemplo: «Cada mañana a las 9, resume mis PR abiertas»."
+            "value": "Ninguna todavía. Pide al Chief: «Cada mañana, resume mis PR»."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune pour l’instant. Demandez au Chief, par exemple : « Chaque matin à 9 h, résume mes PR ouvertes. »"
+            "value": "Aucune pour l’instant. Demandez au Chief : « Chaque matin, résume mes PR. »"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ancora nessuna. Chiedi al Chief, per esempio: “Ogni mattina alle 9, riassumi le mie PR aperte.”"
+            "value": "Nessuna per ora. Chiedi al Chief: «Ogni mattina, riassumi le mie PR.»"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "まだありません。Chief に頼んでください。例:「毎朝9時に、開いている PR を要約して」"
+            "value": "まだありません。Chief に頼んでください:「毎朝、私の PR を要約して」"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនទាន់មាននៅឡើយ។ សូមសួរ Chief ឧទាហរណ៍៖ “រៀងរាល់ព្រឹកម៉ោង 9 សូមសង្ខេប PR ដែលកំពុងបើករបស់ខ្ញុំ។”"
+            "value": "មិនទាន់មានទេ។ សួរ Chief៖ «រៀងរាល់ព្រឹក សង្ខេប PR របស់ខ្ញុំ។»"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 없습니다. Chief에게 요청하세요. 예: “매일 아침 9시에 열린 PR을 요약해 줘.”"
+            "value": "아직 없습니다. Chief에게 요청하세요: “매일 아침 내 PR을 요약해 줘.”"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen ennå. Be Chief om det, for eksempel: «Oppsummer de åpne PR-ene mine hver morgen kl. 9.»"
+            "value": "Ingen ennå. Be Chief: «Oppsummer PR-ene mine hver morgen.»"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jeszcze brak. Poproś Chiefa, na przykład: „Codziennie o 9 rano podsumuj moje otwarte PR-y.”"
+            "value": "Jeszcze brak. Poproś Chiefa: „Każdego ranka podsumuj moje PR-y.”"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhuma ainda. Peça ao Chief, por exemplo: “Toda manhã às 9, resuma meus PRs abertos.”"
+            "value": "Nenhuma ainda. Peça ao Chief: “Toda manhã, resuma meus PRs.”"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пока нет. Попросите Chief, например: «Каждое утро в 9 кратко описывай мои открытые PR»."
+            "value": "Пока нет. Попросите Chief: «Каждое утро кратко описывай мои PR»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ยังไม่มี ลองขอ Chief เช่น “ทุกเช้าเวลา 9 โมง สรุป PR ที่ยังเปิดอยู่ของฉัน”"
+            "value": "ยังไม่มี ขอ Chief ว่า “ทุกเช้า สรุป PR ของฉัน”"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Henüz yok. Chief’ten isteyin, örneğin: “Her sabah 9’da açık PR’lerimi özetle.”"
+            "value": "Henüz yok. Chief'e sorun: “Her sabah PR'larımı özetle.”"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поки немає. Попросіть Chief, наприклад: «Щоранку о 9 підсумовуй мої відкриті PR»."
+            "value": "Поки немає. Попросіть Chief: «Щоранку підсумовуй мої PR»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chưa có. Hãy nhờ Chief, ví dụ: “Mỗi sáng lúc 9 giờ, tóm tắt các PR đang mở của tôi.”"
+            "value": "Chưa có. Hãy nhờ Chief: “Mỗi sáng, tóm tắt các PR của tôi.”"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "还没有。可以让 Chief 帮你，例如：“每天早上 9 点，总结我未合并的 PR。”"
+            "value": "还没有。请让 Chief：“每天早上总结我的 PR。”"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "還沒有。可以請 Chief 幫你，例如：「每天早上 9 點，摘要我未合併的 PR。」"
+            "value": "還沒有。請讓 Chief：「每天早上總結我的 PR。」"
           }
         }
       }

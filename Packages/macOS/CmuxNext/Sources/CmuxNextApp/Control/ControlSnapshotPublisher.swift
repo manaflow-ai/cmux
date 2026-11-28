@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFocusUI
 import Observation
 import os
 
@@ -218,11 +219,10 @@ final class ControlSnapshotPublisher {
             let members = cache?.memo("order:" + controller.state.id, key: [joined, [String(model.observedSectionsRevision)]],
                                       build: ordered) ?? ordered()
             var info = ControlWindowInfo(id: controller.state.id, workspaceID: controller.state.workspaceID, workspaceIDs: members,
-                                         isKey: controller.window?.isKeyWindow ?? false, isVisible: controller.window?.isVisible ?? false,
+                                         isKey: controller.window?.holdsKeyboard(key: NSApp.keyWindow) ?? false, isVisible: controller.window?.isVisible ?? false,
                                          focusedPaneID: controller.focusedPane?.pane.id)
-            // What the user sees: windows kept off screen until a machine
-            // reports one of their workspaces are hidden, and the count is
-            // the sidebar's (current room, reported by a machine).
+            // What the user sees: windows kept off screen until a machine reports one of their workspaces are hidden,
+            // and the count is the sidebar's (current room, reported by a machine).
             info.isHidden = windows.awaitingContent[controller.state.id] != nil
             // Kept between publishes (rooms, pins and per-workspace reads stay
             // out of the publisher's own tracking): O(windows) when unchanged.

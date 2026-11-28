@@ -291,6 +291,7 @@ export class PermissionGroupClient {
         this.state = {
           ...this.state,
           uncertain: true,
+          // retry-prompt-ok: names the person's permission decision, re-sent only by Check and retry.
           error: this.state.error ?? translate("permission.error.awaitingRetry"),
         };
       }
@@ -352,6 +353,7 @@ export class PermissionGroupClient {
         // The daemon may have committed before a malformed reply reached the page.
         throw new PermissionRpcError({
           code: "mutation.indeterminate",
+          // retry-prompt-ok: names the person's permission decision, re-sent only by Check and retry.
           message: translate("permission.error.answerUncertain"),
           origin: "session_host",
         });
@@ -359,6 +361,7 @@ export class PermissionGroupClient {
       if (receipt.group.sessionId !== pending.sessionId || receipt.group.groupId !== pending.groupId)
         throw new PermissionRpcError({
           code: "mutation.indeterminate",
+          // retry-prompt-ok: names the person's permission decision, re-sent only by Check and retry.
           message: translate("permission.error.wrongGroup"),
           origin: "session_host",
         });
@@ -388,6 +391,7 @@ export class PermissionGroupClient {
     const sessionId = this.requireAuthoritative();
     const generation = this.generation;
     if (this.state.uncertain)
+      // retry-prompt-ok: names the person's permission decision, re-sent only by Check and retry.
       throw localError("operation.failed", translate("permission.error.readResult"), "uncertain");
     if (!Number.isSafeInteger(revision) || revision < 0)
       throw localError("validation.invalid", translate("permission.error.invalidRevision"));
@@ -412,6 +416,7 @@ export class PermissionGroupClient {
             decision: existing.decision,
           }) !== stable(body)
         )
+          // retry-prompt-ok: names the person's permission decision, re-sent only by Check and retry.
           throw localError("idempotency.conflict", translate("permission.error.awaitingRetry"));
         pending = existing;
       } else {
@@ -447,6 +452,7 @@ export class PermissionGroupClient {
         await this.sendRevoke(generation, true);
         return;
       }
+      // retry-prompt-ok: names the person's permission decision, re-sent only by Check and retry.
       if (!pending) throw localError("validation.invalid", translate("permission.error.noRetry"));
       await this.refresh();
       if (generation !== this.generation || sessionId !== this.sessionId) throw this.selectionChanged();
@@ -475,6 +481,7 @@ export class PermissionGroupClient {
         if (generation !== this.generation || sessionId !== this.sessionId) throw this.selectionChanged();
         const error = new PermissionRpcError({
           code: "revision.conflict",
+          // retry-prompt-ok: names the person's permission decision, re-sent only by Check and retry.
           message: translate("permission.error.groupChanged"),
           data: { reason: "stale_revision", group },
         });

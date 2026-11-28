@@ -588,11 +588,16 @@ fn a_pull_brings_back_the_machines_edits_and_commits_but_never_its_hooks() {
     assert_eq!(again["fast_forwarded"], false, "{again}");
 }
 
+/// RFD 0066 piece 8: Bring Back applies what merges. One conflict and two clean edits: the two
+/// are written, the conflict keeps this Mac's version with the machine's merge beside it, and the
+/// answer names all three. When both sides committed, the machine's commit is kept as a ref of
+/// ours outside `refs/heads` and the branch stays.
 #[test]
-fn a_pull_with_changes_on_both_sides_changes_nothing_and_names_them() {
+fn a_pull_with_one_conflict_writes_the_clean_files_and_keeps_the_machines_commit() {
     let (_root, _sockets, repo, remote, socket) = pushed_repo();
     std::fs::write(remote.join("notes.txt"), "notes\nfrom the machine\n").unwrap();
     std::fs::write(remote.join("other.txt"), "other\nfrom the machine\n").unwrap();
+    std::fs::write(remote.join("src/a.txt"), "one\nfrom the machine\n").unwrap();
     std::fs::write(repo.join("notes.txt"), "notes\nfrom the mac\n").unwrap();
     let head = git(&repo, &["rev-parse", "HEAD"]);
 
@@ -600,21 +605,52 @@ fn a_pull_with_changes_on_both_sides_changes_nothing_and_names_them() {
     assert!(!ok, "{answer}");
     assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
     assert_eq!(answer["conflicts"], serde_json::json!(["notes.txt"]), "{answer}");
+    assert_eq!(answer["conflicted_files"], serde_json::json!(["notes.txt"]), "{answer}");
+    assert_eq!(answer["written_files"], serde_json::json!(["other.txt", "src/a.txt"]), "{answer}");
+    assert_eq!(answer["written"], 2, "{answer}");
+    assert_eq!(
+        answer["merge_files"],
+        serde_json::json!(["notes.txt.cmux-sync-conflict"]),
+        "{answer}"
+    );
     assert_eq!(std::fs::read_to_string(repo.join("notes.txt")).unwrap(), "notes\nfrom the mac\n");
-    assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n", "half applied");
+    let beside = std::fs::read_to_string(repo.join("notes.txt.cmux-sync-conflict")).unwrap();
+    assert!(beside.contains("from the machine") && beside.contains("from the mac"), "{beside}");
+    assert_eq!(
+        std::fs::read_to_string(repo.join("other.txt")).unwrap(),
+        "other\nfrom the machine\n"
+    );
+    assert_eq!(std::fs::read_to_string(repo.join("src/a.txt")).unwrap(), "one\nfrom the machine\n");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head, "nothing was committed on the machine");
 
-    // Both sides commit: the branch is a conflict too, and stays here.
+    // Again: the clean files are settled, the conflict is still named, its merge file the same.
+    let (ok, again) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{again}");
+    assert_eq!(again["conflicted_files"], serde_json::json!(["notes.txt"]), "{again}");
+    assert_eq!(again["written"], 0, "{again}");
+    assert_eq!(
+        again["merge_files"],
+        serde_json::json!(["notes.txt.cmux-sync-conflict"]),
+        "{again}"
+    );
+
+    // Both sides commit: the branch stays, and the machine's commit is kept as a ref of ours.
+    std::fs::remove_file(repo.join("notes.txt.cmux-sync-conflict")).unwrap();
     git(&remote, &["commit", "-q", "-am", "there"]);
     git(&repo, &["commit", "-q", "-am", "here"]);
     let here = git(&repo, &["rev-parse", "HEAD"]);
-    assert_ne!(here, head);
     let (ok, answer) = pull(&socket, &repo, &remote);
     assert!(!ok, "{answer}");
-    let conflicts = answer["conflicts"].as_array().cloned().unwrap_or_default();
+    let conflicts = answer["conflicted_files"].as_array().cloned().unwrap_or_default();
     assert!(conflicts.contains(&serde_json::json!(".git/HEAD")), "{answer}");
     assert!(conflicts.contains(&serde_json::json!("notes.txt")), "{answer}");
     assert_eq!(git(&repo, &["rev-parse", "HEAD"]), here, "the branch moved");
-    assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n", "half applied");
+    let there = git(&remote, &["rev-parse", "HEAD"]);
+    assert_eq!(answer["kept_refs"][0]["ref"], "refs/cmux/bring-back/app", "{answer}");
+    assert_eq!(answer["kept_refs"][0]["commit"], there.trim(), "{answer}");
+    assert_eq!(git(&repo, &["rev-parse", "refs/cmux/bring-back/app"]), there);
+    assert_eq!(git(&repo, &["log", "-1", "--format=%s", "refs/cmux/bring-back/app"]), "there\n");
+    assert!(!git(&repo, &["branch", "--list"]).contains("bring-back"), "a branch was made");
 }
 
 /// Every path below `dir`, relative to it, folders included.
@@ -1622,7 +1658,7 @@ fn serve_fs_counted(
 
 /// A push of a repository with many loose objects through a link with a
 /// round trip of `CMUX_SYNC_BENCH_RTT_MS` (default 20): prints its wall
-/// time, requests, `fs.write`s and bytes sent. `cargo test --test link_sync
+/// time, requests, `fs.write`s and bytes sent. `cargo test --test it
 /// -- --ignored --nocapture loose_object_push_bench`.
 #[test]
 #[ignore = "a benchmark"]

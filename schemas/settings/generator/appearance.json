@@ -12,6 +12,8 @@
     "lookMotion": ["lookMotion", null],
     "panes": ["panes", null],
     "focusRing": ["focusRing", null],
-    "menuLook": ["menuLook", null]
+    "menuLook": ["menuLook", null],
+    "agentSignature": ["agentSignature", null],
+    "themeFlourishes": ["themeFlourishes", "ThemeFlourishSetting"]
   }
 }

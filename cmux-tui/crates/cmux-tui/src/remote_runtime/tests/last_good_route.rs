@@ -2,6 +2,7 @@
 //! attempt, and `--upgrade` keeps SSH first.
 
 use super::*;
+use std::sync::atomic::AtomicU32;
 
 /// The default attempt budget: what a black-holed route costs before the next is tried.
 fn default_attempt_budget() -> Duration {
@@ -201,6 +202,9 @@ fn a_remembered_route_no_longer_a_candidate_or_stale_is_ignored() {
     let mut file: serde_json::Value = serde_json::from_str(&text).unwrap();
     for entry in file["daemons"].as_object_mut().unwrap().values_mut() {
         entry["at"] = serde_json::json!(1_000);
+        for network in entry["networks"].as_object_mut().into_iter().flat_map(|n| n.values_mut()) {
+            network["at"] = serde_json::json!(1_000);
+        }
     }
     fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
     assert_eq!(
@@ -346,7 +350,114 @@ async fn the_runtime_attempt_remembers_the_route_that_connected() {
         connection.close().await.unwrap();
     }
     assert_eq!(calls.load(Ordering::Acquire), 1, "the repeat launch dialed the stalled route");
+    // Each leg's outcome is counted in the file: the Unix route won both launches; the stalled
+    // route lost once (timed out, or outrun) and was never dialed again.
+    let file: serde_json::Value = serde_json::from_slice(
+        &fs::read(options.state_dir.join(route_last_good::FILE_NAME)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(file["legs"]["unix"]["won"], 2, "{file}");
+    let stalled = file["legs"]["hanging-startup"].as_object().unwrap();
+    assert_eq!(stalled.values().map(|count| count.as_u64().unwrap()).sum::<u64>(), 1, "{file}");
+    assert!(stalled.get("won").is_none(), "{file}");
     server.shutdown().await.unwrap();
+}
+
+/// A network the test switches by hand (its fingerprint, from a v4 source of that number).
+fn switchable(
+    start: u32,
+) -> (
+    Arc<AtomicU32>,
+    impl Fn() -> Option<cmux_braid_path::Fingerprint> + Send + Sync + Clone + 'static,
+) {
+    let network = Arc::new(AtomicU32::new(start));
+    let read = network.clone();
+    let probe =
+        move || cmux_braid_path::Fingerprint::of(Some(read.load(Ordering::Acquire).into()), None);
+    (network, probe)
+}
+
+/// Each network keeps its own winner: the route that won at home leads at home, not on the
+/// café's network, and an entry written with no network is read on any network as the latest.
+#[test]
+fn each_network_remembers_its_own_route() {
+    let state = tempfile::tempdir().unwrap();
+    let routes = vec![test_route("wss://a.example/v1/link"), test_route("wss://b.example/v1/link")];
+    let open = |network: &str| {
+        LastGoodRoute::open_on(Some(state.path()), Some(DAEMON), Some(network.to_owned())).unwrap()
+    };
+
+    // An entry with no network (offline, or an older client): only a latest.
+    LastGoodRoute::open_on(Some(state.path()), Some(DAEMON), None)
+        .unwrap()
+        .connected(&routes[0].endpoint);
+    assert_eq!(open("1").first(&routes, false), Some(0), "a latest is read on any network");
+
+    open("1").connected(&routes[1].endpoint);
+    assert_eq!(open("1").first(&routes, false), Some(1));
+    assert_eq!(open("2").first(&routes, false), Some(1), "a network never seen takes the latest");
+    open("2").connected(&routes[0].endpoint);
+    assert_eq!(open("1").first(&routes, false), Some(1), "home keeps its winner");
+    assert_eq!(open("2").first(&routes, false), Some(0), "the café keeps its own");
+}
+
+/// A route that failed on this network is dialed after every other route (not skipped), until
+/// it connects again or the network changes.
+#[tokio::test(start_paused = true)]
+async fn a_broken_route_is_dialed_last_until_it_connects_or_the_network_changes() {
+    let state = tempfile::tempdir().unwrap();
+    let routes = vec![
+        test_route("wss://a.example/v1/link"),
+        test_route("wss://b.example/v1/link"),
+        test_route("wss://c.example/v1/link"),
+    ];
+    let (network, probe) = switchable(1);
+    let memory =
+        LastGoodRoute::open_on(Some(state.path()), Some(DAEMON), None).unwrap().watching(probe);
+    assert_eq!(memory.late(&routes), 0);
+    memory.failed(&routes[0].endpoint);
+    assert_eq!(memory.late(&routes), 0b001);
+
+    // Every route fails: the broken one is still dialed, last.
+    let attempt = TimedAttempt::new(vec![Duration::from_millis(10); 3], vec![false; 3]);
+    let _ = select_initial_route_from(
+        &routes,
+        RouteOrder::serial(None).with_late(memory.late(&routes)),
+        SessionId([27; 16]),
+        LanePolicy::Single,
+        AuthKind::Enrolled,
+        false,
+        &attempt,
+    )
+    .await;
+    assert_eq!(attempt.dialed(), [1, 2, 0]);
+
+    // Raced too: the broken route starts after the others.
+    let attempt = TimedAttempt::new(vec![Duration::from_millis(400); 3], vec![false, false, true]);
+    let selected = select_initial_route_from(
+        &routes,
+        RouteOrder::raced(None, RouteRace::after(None)).with_late(memory.late(&routes)),
+        SessionId([28; 16]),
+        LanePolicy::Single,
+        AuthKind::Enrolled,
+        false,
+        &attempt,
+    )
+    .await
+    .unwrap();
+    assert_eq!((selected, attempt.dialed()), (2, vec![1, 2, 0]));
+
+    // Five minutes later it is still broken; a success clears it.
+    tokio::time::advance(Duration::from_secs(299)).await;
+    assert_eq!(memory.late(&routes), 0b001);
+    memory.connected(&routes[0].endpoint);
+    assert_eq!(memory.late(&routes), 0);
+
+    // A new network forgets every broken mark.
+    memory.failed(&routes[1].endpoint);
+    assert_eq!(memory.late(&routes), 0b010);
+    network.store(2, Ordering::Release);
+    assert_eq!(memory.late(&routes), 0);
 }
 
 /// Raced over `routes` with `first` leading: time to connected and the route.
@@ -551,4 +662,205 @@ async fn a_raced_reconnect_never_waits_out_a_black_holed_route() {
     }
     eprintln!("reconnect, route 1 black-holed: serial {:?}, raced {:?}", took[0], took[1]);
     assert_eq!(took, [budget + ms(30), RouteRace::FLOOR + ms(30)]);
+}
+
+/// The B2 duress number: a laptop dials its daemon at home (the LAN route wins), then at the
+/// office (the LAN address is black-holed there, the relay wins), then at home again. Before
+/// B2 the one memory held the office's relay, so the home dial put the slower relay first;
+/// with a memory per network, home dials the LAN route first again. Virtual (paused) time.
+#[tokio::test(start_paused = true)]
+async fn coming_home_dials_the_home_route_first_again() {
+    let state = tempfile::tempdir().unwrap();
+    let routes = vec![
+        test_route("wss://192.168.1.20:7443/v1/link"),
+        test_route("wss://relay.example/v1/link"),
+    ];
+    let budget = default_attempt_budget();
+    let lan = Duration::from_millis(4);
+    let relay = Duration::from_millis(180);
+    let at_home = || TimedAttempt::new(vec![lan, relay], vec![true, true]);
+    let at_office = || TimedAttempt::new(vec![budget, relay], vec![false, true]);
+
+    async fn launch_on(
+        network: Option<&str>,
+        routes: &[ResolvedRouteCandidate],
+        state: &Path,
+        attempt: &TimedAttempt,
+    ) -> (Duration, usize) {
+        let memory =
+            LastGoodRoute::open_on(Some(state), Some(DAEMON), network.map(str::to_owned)).unwrap();
+        let started = tokio::time::Instant::now();
+        let selected = select_initial_route_from(
+            routes,
+            RouteOrder::serial(memory.first(routes, false)),
+            SessionId([21; 16]),
+            LanePolicy::Single,
+            AuthKind::Enrolled,
+            false,
+            attempt,
+        )
+        .await
+        .unwrap();
+        memory.connected(&routes[selected].endpoint);
+        (started.elapsed(), selected)
+    }
+
+    let mut took = Vec::new();
+    for (label, network) in [("before B2", None), ("after B2", Some(("home", "office")))] {
+        let dir = state.path().join(label.replace(' ', "-"));
+        let (home, office) = network.unzip();
+        let (_, selected) = launch_on(home, &routes, &dir, &at_home()).await;
+        assert_eq!(selected, 0);
+        let (_, selected) = launch_on(office, &routes, &dir, &at_office()).await;
+        assert_eq!(selected, 1);
+        let back = at_home();
+        let (home_again, selected) = launch_on(home, &routes, &dir, &back).await;
+        took.push((label, home_again, selected, back.dialed()));
+    }
+    eprintln!("home, office, home again (LAN {lan:?}, relay {relay:?}): {took:?}");
+    assert_eq!(took[0].1, relay, "before: the office's relay first at home");
+    assert_eq!((took[0].2, took[0].3.clone()), (1, vec![1]));
+    assert_eq!(took[1].1, lan, "after: the home LAN route first at home");
+    assert_eq!((took[1].2, took[1].3.clone()), (0, vec![0]));
+}
+
+/// A route that fails on one network is forgotten there and as the latest, but stays the
+/// winner on the network it won on. A file from before B2 (no `networks`) reads as the latest.
+#[test]
+fn a_failure_on_one_network_keeps_the_other_networks_winner() {
+    let state = tempfile::tempdir().unwrap();
+    let routes = vec![test_route("wss://a.example/v1/link"), test_route("wss://b.example/v1/link")];
+    let open = |network: &str| {
+        LastGoodRoute::open_on(Some(state.path()), Some(DAEMON), Some(network.to_owned())).unwrap()
+    };
+    open("home").connected(&routes[0].endpoint);
+    open("office").connected(&routes[1].endpoint);
+    assert_eq!(open("home").first(&routes, false), Some(0));
+    assert_eq!(open("office").first(&routes, false), Some(1));
+    // A network never seen takes the latest winner, as before B2.
+    assert_eq!(open("cafe").first(&routes, false), Some(1));
+    // Route 1 fails at the cafe: forgotten as the latest, kept for the office.
+    let cafe = open("cafe");
+    cafe.failed(&routes[1].endpoint);
+    assert_eq!(cafe.first(&routes, false), None);
+    assert_eq!(open("cafe").first(&routes, false), None);
+    assert_eq!(open("office").first(&routes, false), Some(1));
+    assert_eq!(open("home").first(&routes, false), Some(0));
+
+    // A file written before B2.
+    let path = state.path().join(route_last_good::FILE_NAME);
+    let hash = {
+        let memory = LastGoodRoute::open_on(Some(state.path()), Some([9; 32]), None).unwrap();
+        memory.connected(&routes[0].endpoint);
+        let file: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        file["daemons"][&"09".repeat(32)]["route"].as_str().unwrap().to_owned()
+    };
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
+    let text = serde_json::json!({"version": 1, "daemons": {
+        "07".repeat(32): {"route": hash, "at": now, "connectMs": 12}
+    }});
+    fs::write(&path, serde_json::to_vec(&text).unwrap()).unwrap();
+    let memory = open("home");
+    assert_eq!(memory.first(&routes, false), Some(0));
+    assert_eq!(memory.connect_time(), Some(Duration::from_millis(12)));
+    // Kept on the first win here, as this network's own.
+    memory.connected(&routes[0].endpoint);
+    let file: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(file["daemons"][&"07".repeat(32)]["networks"]["home"]["route"], hash.as_str());
+}
+
+/// At most 16 networks are kept per daemon, the oldest dropped first.
+#[test]
+fn networks_per_daemon_are_bounded() {
+    let state = tempfile::tempdir().unwrap();
+    let route = test_route("wss://a.example/v1/link");
+    for network in 0..20 {
+        LastGoodRoute::open_on(Some(state.path()), Some(DAEMON), Some(format!("n{network:02}")))
+            .unwrap()
+            .connected(&route.endpoint);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let path = state.path().join(route_last_good::FILE_NAME);
+    let file: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let networks = file["daemons"][&"07".repeat(32)]["networks"].as_object().unwrap();
+    assert_eq!(networks.len(), 16);
+    assert!(networks.contains_key("n19") && !networks.contains_key("n03"));
+}
+
+/// The A/B for RFD 0164's B1 adoption: every timing above, on the pass's own loop
+/// (`CMUX_ROUTE_RACE_BRAID=0`) and on Braid's racer, comes out the same.
+#[tokio::test(start_paused = true)]
+async fn braids_racer_and_the_own_loop_time_every_pass_the_same() {
+    let routes = vec![
+        test_route("wss://a.example/v1/link"),
+        test_route("wss://b.example/v1/link"),
+        test_route("wss://c.example/v1/link"),
+    ];
+    let ms = Duration::from_millis;
+    let budget = default_attempt_budget();
+    let cases: Vec<(Vec<Duration>, Vec<bool>, Option<usize>, Option<RouteRace>)> = vec![
+        (vec![budget, ms(30), ms(30)], vec![false, true, true], None, Some(RouteRace::after(None))),
+        (vec![ms(600), ms(100), ms(400)], vec![true; 3], None, Some(RouteRace::after(None))),
+        (vec![ms(5), ms(30), ms(30)], vec![false, true, true], None, Some(RouteRace::after(None))),
+        (
+            vec![ms(10), ms(700), ms(700)],
+            vec![true; 3],
+            Some(1),
+            Some(RouteRace::after(Some(ms(400)))),
+        ),
+        (vec![ms(900), ms(10), ms(10)], vec![false; 3], None, Some(RouteRace::after(None))),
+        (vec![ms(50), ms(20), ms(20)], vec![false, false, true], Some(2), None),
+    ];
+    for (delays, ok, first, race) in cases {
+        let mut runs = Vec::new();
+        for own in [true, false] {
+            route_race::own_loops_for_test(own);
+            let attempt = TimedAttempt::new(delays.clone(), ok.clone());
+            let started = tokio::time::Instant::now();
+            let result = select_initial_route_from(
+                &routes,
+                RouteOrder { first, race, late: 0 },
+                SessionId([26; 16]),
+                LanePolicy::Single,
+                AuthKind::Enrolled,
+                false,
+                &attempt,
+            )
+            .await
+            .map_err(|error| error.to_string());
+            runs.push((started.elapsed(), result, attempt.dialed()));
+        }
+        route_race::own_loops_for_test(false);
+        assert_eq!(runs[0], runs[1], "delays {delays:?} ok {ok:?} first {first:?} race {race:?}");
+    }
+
+    // Reconnect: route 1 black-holed, raced and serial.
+    for race in [None, Some(RouteRace::after(None))] {
+        let mut took = Vec::new();
+        for own in [true, false] {
+            route_race::own_loops_for_test(own);
+            let attempt = TimedReconnect {
+                delays: vec![ms(1), budget, ms(30)],
+                ok: vec![false, false, true],
+                answered: Default::default(),
+            };
+            let started = tokio::time::Instant::now();
+            let won = route_race::select_reconnect_routes(
+                &routes,
+                1,
+                race,
+                SessionId([27; 16]),
+                LanePolicy::Single,
+                AuthKind::Enrolled,
+                &attempt,
+            )
+            .await
+            .unwrap();
+            took.push((started.elapsed(), won));
+        }
+        route_race::own_loops_for_test(false);
+        assert_eq!(took[0], took[1], "reconnect race {race:?}");
+    }
 }

@@ -107,11 +107,16 @@ impl HostedForum {
         let url = var(URL_ENV)
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| cmux_forum_hosted::DEVELOPMENT_BASE_URL.to_owned());
+        Self::at(url, team, key)
+    }
+
+    /// The forum at `url` for `team`, signed in with the agent `key`.
+    fn at(url: String, team: String, key: String) -> Slot {
         // reqwest is built without a default TLS provider (as `github_status.rs` does).
         let _ = rustls::crypto::ring::default_provider().install_default();
         let headers = cmux_build_space::headers()
             .map_err(|_| "The hosted forum is off: this build's space is unusable.".to_owned())?;
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("acpmux::hub::forum_hosted")
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
@@ -342,23 +347,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn debug_never_shows_the_key() {
-        struct Never;
-        impl Transport for Never {
-            async fn send(&self, _: Request) -> Result<Response, TransportError> {
-                Err(TransportError::new("never"))
-            }
-        }
-        let forum = HostedForum::new(AnyTransport::new(Never), "team-a", "cfk_secret_value");
-        let shown = format!("{forum:?}");
-        assert!(!shown.contains("cfk_secret_value"), "{shown}");
-        assert!(shown.contains("team-a"), "{shown}");
-        let err = forum.refusal(&ForumError::Transport("echo cfk_secret_value".into()));
-        assert!(!err.message.contains("cfk_secret_value"), "{}", err.message);
-        assert!(!format!("{err:?}").contains("cfk_secret_value"));
-    }
-}
+#[path = "forum_hosted_tests.rs"]
+mod tests;

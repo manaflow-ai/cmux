@@ -29,16 +29,20 @@ package final class HomeSwitchKeysSource {
 
     package func hide() { defaults.set(true, forKey: Self.hiddenKey) }
 
-    /// The card's content from `registry`, or nil once hidden.
+    /// The card's content from `registry`, or nil once hidden (`welcome.switchKeys`). Mission Control's
+    /// keys are read only when the card shows and the tabs-by-number keys are bound.
     package func keys(registry: ActionRegistry) -> HomeSwitchKeys? {
-        guard !isHidden else { return nil }
+        let hidden = isHidden
         let live = SwitchingShortcuts(registry: registry)
-        let conflict = live.tabByNumberModifiers.map {
+        let conflicts = hidden ? false : live.tabByNumberModifiers.map {
             MissionControlDesktopKeys(symbolicHotKeys: symbolicHotKeys()).conflicts(withDigitModifiers: $0)
         } ?? false
+        let input = SwitchKeysInput(hidden: hidden, hasTabByNumberModifiers: live.tabByNumberModifiers != nil, missionControlConflicts: conflicts)
+        let reply: SwitchKeysReply = welcomeRule("welcome.switchKeys", input, fallback: SwitchKeysReply(shows: false, desktopConflict: false))
+        guard reply.shows else { return nil }
         return HomeSwitchKeys(tabByNumber: live.tabByNumber, workspaceByNumber: live.workspaceByNumber,
                               nextPreviousTab: live.nextPreviousTab, nextPreviousWorkspace: live.nextPreviousWorkspace,
-                              focusBackForward: live.focusBackForward, desktopConflict: conflict)
+                              focusBackForward: live.focusBackForward, desktopConflict: reply.desktopConflict)
     }
 
     /// The current user's `AppleSymbolicHotKeys` (another app's preferences; read only).
@@ -46,4 +50,16 @@ package final class HomeSwitchKeysSource {
         CFPreferencesCopyAppValue(MissionControlDesktopKeys.preferencesKey as CFString,
                                   MissionControlDesktopKeys.preferencesDomain as CFString) as? [String: Any]
     }
+}
+
+// The Switching card op's wire shapes (cmux-home-rules `welcome/intro.rs`).
+private nonisolated struct SwitchKeysInput: Encodable {
+    var hidden: Bool
+    var hasTabByNumberModifiers: Bool
+    var missionControlConflicts: Bool
+}
+
+private nonisolated struct SwitchKeysReply: Decodable {
+    var shows: Bool
+    var desktopConflict: Bool
 }

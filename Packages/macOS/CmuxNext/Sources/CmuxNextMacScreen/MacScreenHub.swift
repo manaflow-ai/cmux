@@ -43,33 +43,10 @@ public nonisolated enum MacScreenHubRefusal: Equatable, Sendable {
     public var canRetry: Bool { self != .notFound }
 
     /// The refusal for a failed `POST /v1/sessions`.
+    /// cmux-rd-core's `rd_hub_refusal` decides.
     public init(_ error: DeviceHubError) {
-        switch error.code {
-        case .some(.permissionNone): self = .permissionNone
-        case .some(.scopeExceedsPermission): self = .scopeExceeds
-        case .some(.hostOffline): self = .hostOffline
-        case .some(.notShared): self = .notShared
-        case .some(.notFound), .some(.deviceRemoved): self = .notFound
-        case .some(.unauthorized): self = .notSignedIn
-        default:
-            if case .notSignedIn = error { self = .notSignedIn } else if case .notConfigured = error { self = .notSignedIn } else {
-                self = .other(reason: Self.reason(error))
-            }
-        }
-    }
-
-    /// The hub's words for a refusal this build has no card of its own for: the server's
-    /// message (else its code), the HTTP status, or the transport's own error; nil when
-    /// there is nothing to say.
-    public static func reason(_ error: DeviceHubError) -> String? {
-        let text: String = switch error {
-        case let .server(_, code, message): message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? code.rawValue : message
-        case let .http(status): "HTTP \(status)"
-        case let .transport(detail), let .decoding(detail), let .identity(detail): detail
-        case .notConfigured, .notSignedIn: ""
-        }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        self = Self(rd: MacScreenRules.rdHub("rd_hub_refusal", ["error": error.rd])?["refusal"] as? [String: Any])
+            ?? .other(reason: nil)
     }
 }
 
@@ -123,62 +100,49 @@ public nonisolated enum MacScreenHubPhase: Equatable, Sendable {
 /// `device_removed:viewer|host`, `sharing_off`, `host_stopped`,
 /// `viewer_disconnected`, `signed_out`, `peer_offline`; older servers sent
 /// `permission_changed` and `device_removed`, and a dropped socket `bye` or `closed`.
-public nonisolated enum MacScreenEndReason: Equatable, Sendable {
-    case permissionRevoked
+public nonisolated enum MacScreenEndReason: String, Equatable, Sendable {
+    case permissionRevoked = "permission_revoked"
     /// The host changed this Mac's access and it still has some (re-granted after a revocation).
-    case accessChanged
+    case accessChanged = "access_changed"
     /// This Mac (the viewer) was removed from the user's devices.
-    case viewerRemoved
+    case viewerRemoved = "viewer_removed"
     /// The host was removed from the user's devices.
-    case hostRemoved
+    case hostRemoved = "host_removed"
     /// A device of the session was removed (a server that does not say which).
-    case deviceRemoved
-    case sharingOff
-    case hostStopped
-    case viewerDisconnected
-    case signedOut
+    case deviceRemoved = "device_removed"
+    case sharingOff = "sharing_off"
+    case hostStopped = "host_stopped"
+    case viewerDisconnected = "viewer_disconnected"
+    case signedOut = "signed_out"
     /// The other device lost its connection to the hub.
-    case peerOffline
+    case peerOffline = "peer_offline"
     /// The stream could not start (or dropped) on one side.
     case failed
     /// The host did not answer the request within five minutes.
     case expired
     /// The hub could not set up the session the host approved.
-    case approveFailed
+    case approveFailed = "approve_failed"
     /// The host's join consent did not allow a device the hub did not admit as the person's own.
-    case consentRequired
+    case consentRequired = "consent_required"
     /// The share moved (to another viewer or another host): a new session replaced this one.
     case moved
     case other
 
+    /// cmux-rd-core's `rd_hub_end_reason` reads the hub's reason.
     public init(_ reason: String?) {
-        switch reason ?? "" {
-        case "permission_revoked", "permission_changed", "host_revoked": self = .permissionRevoked
-        case "device_removed:viewer": self = .viewerRemoved
-        case "device_removed:host": self = .hostRemoved
-        case "device_removed": self = .deviceRemoved
-        case "sharing_off": self = .sharingOff
-        case "host_stopped": self = .hostStopped
-        case "viewer_disconnected", "tab_closed": self = .viewerDisconnected
-        case let text where text.hasPrefix("signed_out"): self = .signedOut
-        case let text where text.hasPrefix("peer_offline"): self = .peerOffline
-        case let text where Self.failureDetail(text) != nil: self = .failed
-        case "expired": self = .expired
-        case "approve_failed": self = .approveFailed
-        case "consent_required": self = .consentRequired
-        case "moved": self = .moved
-        default: self = .other
-        }
+        self = (Self.parsed(reason)?["reason"] as? String).flatMap(Self.init(rawValue:)) ?? .other
+    }
+
+    private static func parsed(_ reason: String?) -> [String: Any]? {
+        MacScreenRules.rdHub("rd_hub_end_reason", reason.map { ["reason": $0] } ?? [:])
     }
 
     /// A `failed` end's detail: `""` for a bare `failed`, the host's reason for `failed: <reason>`
     /// (cmux-hub-host `failed_reason`, which the acpmux share host and the Linux host send, and
-    /// this app's ``MacScreenHubReason/failure(_:)``); nil for every other reason.
+    /// cmux-rd-core's host reducer for this app's own host); nil for every other reason.
     public static func failureDetail(_ reason: String?) -> String? {
-        guard let reason else { return nil }
-        if reason == "failed" { return "" }
-        guard reason.hasPrefix("failed:") else { return nil }
-        return reason.dropFirst("failed:".count).trimmingCharacters(in: .whitespaces)
+        guard reason != nil else { return nil }
+        return parsed(reason)?["failure_detail"] as? String
     }
 
     /// Whether Connect Again makes sense: not for a device that left the user's devices.
@@ -186,6 +150,18 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         switch self {
         case .hostRemoved, .viewerRemoved, .deviceRemoved: false
         default: true
+        }
+    }
+
+    /// Whether the pane asks again on its own (``MacScreenPaneModel/retriesOnItsOwn(_:)``): the stream failed, the host
+    /// dropped off the hub, quit or signed out, or the hub could not start an approved session. Not a person's own end
+    /// (Disconnect, the host's Stop or Mac Screen off, a share that moved), an expired Ask (asking again prompts the
+    /// host's person), a consent or a removal.
+    var retriesOnItsOwn: Bool {
+        switch self {
+        case .failed, .peerOffline, .signedOut, .approveFailed, .other: true
+        case .permissionRevoked, .accessChanged, .viewerRemoved, .hostRemoved, .deviceRemoved, .sharingOff, .hostStopped,
+             .viewerDisconnected, .expired, .consentRequired, .moved: false
         }
     }
 
@@ -211,7 +187,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case .signedOut: L.t("macScreen.hub.reason.signedOutOrQuit", "A Mac in this session signed out of cmux or quit it.")
         case .peerOffline: String(format: L.t("macScreen.hub.reason.offline", "%@ went offline."), host)
         case .failed: L.t("macScreen.hub.reason.failed", "The screen stream could not start.")
-        case .approveFailed: String(format: L.t("macScreen.hub.reason.approveFailed", "%@ allowed the session, but it couldn’t start. Try again."), host)
+        case .approveFailed: String(format: L.t("macScreen.hub.reason.approveFailed", "%@ allowed the session, but it couldn’t start."), host)
         case .expired: String(format: L.t("macScreen.hub.reason.expired", "%@ did not answer in time."), host)
         case .consentRequired: String(format: L.t("macScreen.hub.reason.consentRequired", "%@ hasn’t allowed screen sharing from this device."), host)
         case .moved: L.t("macScreen.hub.reason.moved", "Screen sharing moved to another device.")
@@ -233,26 +209,6 @@ public nonisolated enum MacScreenHubReason: String, Sendable {
     case failed
     /// This Mac's join consent does not allow the session (a device the hub did not admit as the person's own).
     case consentRequired = "consent_required"
-
-    /// The hub keeps an `/end` reason up to this many UTF-16 units (it cuts a longer one).
-    static let hubReasonLimit = 100
-
-    /// `failed: <why>` for a session this Mac could not serve as the host, so the viewer's card
-    /// says why (``MacScreenEndReason/failureDetail(_:)``); the same text cmux-hub-host's
-    /// `failed_reason` sends: one line, a leading `failed:` not doubled, cut to the hub's limit.
-    static func failure(_ why: String) -> String {
-        var why = why.components(separatedBy: .newlines).joined(separator: " ")
-            .filter { !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }
-            .trimmingCharacters(in: .whitespaces)
-        while why.hasPrefix("failed:") { why = why.dropFirst("failed:".count).trimmingCharacters(in: .whitespaces) }
-        guard !why.isEmpty else { return failed.rawValue }
-        var out = "\(failed.rawValue): "
-        for character in why {
-            guard out.utf16.count + String(character).utf16.count <= hubReasonLimit else { break }
-            out.append(character)
-        }
-        return out.trimmingCharacters(in: .whitespaces)
-    }
 }
 
 /// The host's answers to a request (the approval prompt's buttons).
@@ -264,15 +220,20 @@ public nonisolated enum MacScreenApprovalChoice: String, CaseIterable, Sendable 
     /// and a permission to store afterwards when the decision alone cannot
     /// (Always Allow Full Control on a View request: the session stays View,
     /// the permission becomes Full).
+    /// cmux-rd-core's `rd_hub_approval` decides; a refused call denies.
     public func answer(requested: SessionScope) -> (decision: SessionDecision, scope: SessionScope, thenPermission: DeviceScope?) {
-        switch self {
-        case .deny: return (SessionDecision.deny, requested, nil)
-        case .once: return (SessionDecision.once, requested, nil)
-        case .alwaysView: return (SessionDecision.always, SessionScope.view, nil)
-        case .alwaysFull:
-            if requested == .full { return (SessionDecision.always, SessionScope.full, nil) }
-            return (SessionDecision.always, SessionScope.view, DeviceScope.full)
+        let choice = switch self {
+        case .deny: "deny"
+        case .once: "once"
+        case .alwaysView: "always_view"
+        case .alwaysFull: "always_full"
         }
+        let answer = MacScreenRules.rdHub("rd_hub_approval", ["choice": choice, "requested": requested.rawValue])?["answer"] as? [String: Any]
+        guard let decision = (answer?["decision"] as? String).flatMap(SessionDecision.init(rawValue:)),
+              let scope = (answer?["scope"] as? String).flatMap(SessionScope.init(rawValue:)) else {
+            return (SessionDecision.deny, requested, nil)
+        }
+        return (decision, scope, (answer?["then_permission"] as? String).flatMap(DeviceScope.init(rawValue:)))
     }
 
     /// The prompt's button title.

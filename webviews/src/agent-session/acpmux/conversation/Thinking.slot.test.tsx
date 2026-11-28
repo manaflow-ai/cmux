@@ -23,6 +23,8 @@ beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main><main id=expected></main></body></html>", {
     url: "http://localhost/",
   });
+  // Each change shown at once: the line's dwell (LINE_DWELL_MS) has its own tests in Thinking.test.tsx.
+  dom.window.document.documentElement.dataset.liveDwell = "off";
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -119,7 +121,7 @@ test("the default variant's own component draws the pre-slot markup too", () => 
   );
   const expected = dom!.window.document.getElementById("expected")!;
   const other = createRoot(expected);
-  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking", "Pondering"]} elapsed="2s" />));
+  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking", "Pondering"]} />));
   expect(container.innerHTML).toBe(expected.innerHTML);
   act(() => other.unmount());
 });

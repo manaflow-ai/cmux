@@ -6,5 +6,6 @@
   "author": "widget-calendar helper (claude opus, aid-3d7b16f07ab86e242319)",
   "owner": "widget-calendar helper (aid-3d7b16f07ab86e242319)",
   "receipt": "Review (claude opus subagent a03499af118c85236): SHIP at 5b302d1816a663ab803fddafa2627e5c0372b68d",
-  "expiry": "2027-02-17"
+  "expiry": "2027-02-17",
+  "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
 }

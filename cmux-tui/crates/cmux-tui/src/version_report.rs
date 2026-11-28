@@ -55,11 +55,18 @@ pub(crate) fn version_text(
 /// inside one (`X.app/Contents/Resources/bin/cmux`). A nightly can bundle a
 /// client built from another commit of the same tree (RFD 0021), so the
 /// compiled commit alone does not say which app this is; this does.
+#[cfg(unix)]
 pub(crate) fn app_commit(exe: &Path) -> Option<String> {
     let bundle = crate::app_identity::containing_app_bundle(exe)?;
     let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
     let commit = info.as_dictionary()?.get("CMUXCommit")?.as_string()?.trim();
     (!commit.is_empty()).then(|| commit.to_owned())
+}
+
+/// Windows has no app bundle around the CLI.
+#[cfg(not(unix))]
+pub(crate) fn app_commit(_exe: &Path) -> Option<String> {
+    None
 }
 
 /// `cmux --version`'s whole output: the first line as before (scripts parse

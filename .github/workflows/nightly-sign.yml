@@ -52,7 +52,7 @@ jobs:
     if: vars.NIGHTLY_SIGN == 'shadow' && (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'))
     # Literal Linux labels: a variable must not move this job to another machine.
     # Blacksmith 4 vCPU, never GitHub-hosted (Leo, 2026-10-27: "just put it on blacksmith").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: nightly shadow job: reads no repository variable (tests/test_nightly_sign_shadow_workflow.py)
     timeout-minutes: 30
     permissions:
       actions: read
@@ -60,7 +60,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout main's tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false

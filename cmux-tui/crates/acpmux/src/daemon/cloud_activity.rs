@@ -412,6 +412,15 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     // The agent is here. On a Cloud machine, Auto mode's side starts with it.
     if crate::cloud_host::is_cloud_vm() {
         hub.scope.spawn_until_cancelled("auto-mode-machine", auto_mode(hub.clone()));
+        // ~/README.md: what this machine is and how to get more capacity (`cloud_readme.rs`).
+        if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+            let home = std::path::PathBuf::from(home);
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = crate::cloud_readme::ensure(&home) {
+                    tracing::warn!(error = %e, "cloud README not written");
+                }
+            });
+        }
     }
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
@@ -559,17 +568,5 @@ mod tests;
 /// The report a fresh daemon sends for `at_work` at `now_ms`, for scenarios outside this module
 /// (`hub/agent_timer_tests.rs`).
 #[cfg(test)]
-pub(crate) mod probe {
-    use super::*;
-
-    pub(crate) fn line(at_work: &[SessionAtWork], now_ms: u64) -> Value {
-        let mut tracker = Tracker::new("/probe.sock".into());
-        tracker.observe(at_work, now_ms);
-        tracker.line(at_work.len() as u64, true, now_ms).expect("a renewal always sends")
-    }
-
-    /// Whether the Cloud may pause the machine on `line` (no session at work).
-    pub(crate) fn pausable(line: &Value) -> bool {
-        flushes_before(line)
-    }
-}
+#[path = "cloud_activity_probe_tests.rs"]
+pub(crate) mod probe;

@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDaemonService
 public import CmuxNextDiff
+public import CmuxNextTerminal
 import Foundation
 
 /// Every terminal's comment threads (`terminal.sendSelectionToChat`, diff-comments-threads-v1): one
@@ -16,7 +17,23 @@ public final class TerminalCommentThreads {
     /// Per terminal: reopens its card when a reply comes while it is closed.
     private var watches: [String: Task<Void, Never>] = [:]
 
-    public init() {}
+    /// The live terminal of a tab id, for Show in Terminal; nil when it has none.
+    private let terminal: @MainActor (String) -> TerminalSession?
+    /// Shows a refusal (Show in Terminal on text that left the scrollback).
+    private let refuse: @MainActor (String) -> Void
+
+    public init(terminal: @escaping @MainActor (String) -> TerminalSession? = { _ in nil },
+                refuse: @escaping @MainActor (String) -> Void = { _ in }) {
+        self.terminal = terminal
+        self.refuse = refuse
+    }
+
+    /// Show in Terminal on a thread's card: scrolls its terminal back to the thread's rows
+    /// (``CommentedTerminal/rows``) and selects them, or says the text left the scrollback.
+    private func reveal(_ thread: CommentThread) {
+        guard let id = thread.terminalID, let rows = thread.terminalRows, let session = terminal(id),
+              session.revealCommentAnchor(rows, quote: thread.quote) else { return refuse(TerminalCommentStrings.gone) }
+    }
 
     /// Where one comment goes.
     public struct Target {
@@ -36,22 +53,23 @@ public final class TerminalCommentThreads {
         }
     }
 
-    /// Saves and sends `message` on `quote` to `target`'s chat under a fresh opid (the person's
-    /// Add to Chat click), then shows its thread over `anchor`. `failed` gets the refusal text.
-    public func send(_ message: String, quote: String, to target: Target, anchor: NSView,
+    /// Saves and sends `message` on `quote` (scrollback `rows`, when the terminal read them) to
+    /// `target`'s chat under a fresh opid (the person's Add to Chat click), then shows its thread
+    /// over `anchor`. `failed` gets the refusal text.
+    public func send(_ message: String, quote: String, rows: ClosedRange<Int>?, to target: Target, anchor: NSView,
                      failed: @escaping @MainActor (String) -> Void) {
         let model = model(for: target.link, root: target.root)
         let terminalID = target.terminal.id
         // task-owner: one save and send on the session host; ends when the send answers.
         Task { [weak self, weak anchor] in
             do {
-                try await model.comment(on: target.terminal, quote: quote, message: message,
+                try await model.comment(on: target.terminal.at(rows), quote: quote, message: message,
                                         acpSession: target.acpSession, key: "terminal-comment-" + UUID().uuidString)
             } catch {
                 return failed(TerminalCommentStrings.notSent)
             }
             guard let self, let anchor else { return }
-            self.popup.show(model, terminalID: terminalID, anchor: anchor, makeKey: false)
+            self.popup.show(model, terminalID: terminalID, anchor: anchor, makeKey: false, reveal: { [weak self] in self?.reveal($0) })
             self.watch(model, terminalID: terminalID, anchor: anchor)
         }
     }
@@ -74,7 +92,7 @@ public final class TerminalCommentThreads {
                 guard let self, let anchor else { return }
                 let answered = Set(threads.filter { $0.state == .answered }.map(\.id))
                 if !answered.subtracting(self.shownAnswers).isEmpty, !self.popup.isShown {
-                    self.popup.show(model, terminalID: terminalID, anchor: anchor, makeKey: false)
+                    self.popup.show(model, terminalID: terminalID, anchor: anchor, makeKey: false, reveal: { [weak self] in self?.reveal($0) })
                 }
                 self.shownAnswers.formUnion(answered)
                 if !threads.contains(where: { $0.state == .sent }) { return }

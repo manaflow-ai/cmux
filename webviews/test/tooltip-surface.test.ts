@@ -320,9 +320,9 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
   });
   // Lawrence 2026-11-20: one tooltip everywhere, on the composer's "Select effort ⌃⇧M". The page's
   // tooltip has the native one's shape (TooltipMetrics.swift): regular text at the detail size, one
-  // height with or without keys, the keys on a keycap inset the same from the top, bottom and end with
-  // its corner nested in the tooltip's, below its control.
-  test("the tooltip's shape is TooltipMetrics.swift's: regular text, a keycap inset 4px, one height, below its control", async () => {
+  // height with or without keys, the keys as plain glyphs (ui/KeyHint, no plate; Leo 2026-11-22: "a
+  // bullshit looking fucking command icon") ending at the inline padding, below its control.
+  test("the tooltip's shape is TooltipMetrics.swift's: regular text, plain keys at the end, one height, below its control", async () => {
     const swift = fs.readFileSync(
       path.resolve(
         import.meta.dir,
@@ -357,12 +357,12 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
               fontSize: parseFloat(text.fontSize),
               fontWeight: Number(text.fontWeight),
               key: key && {
-                height: key.height,
-                top: key.top - rect.top,
-                bottom: rect.bottom - key.bottom,
                 end: rect.right - key.right,
+                middle: key.top + key.height / 2 - (rect.top + rect.height / 2),
                 radius: parseFloat(getComputedStyle(hint!).borderTopLeftRadius),
                 fill: getComputedStyle(hint!).backgroundColor,
+                weight: Number(getComputedStyle(hint!).fontWeight),
+                isKeyHint: hint!.classList.contains("ui-key-hint"),
               },
             };
           }, id);
@@ -372,7 +372,7 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
         await page.waitForFunction(() => document.querySelector<HTMLElement>(".ui-title-tooltip")!.hidden);
         const plain = await measure("plain");
         const height = (metric("lineHeight") + 2 * metric("paddingBlock")) * scale;
-        const inset = metric("keycapInset") * scale;
+        const inset = metric("paddingInline") * scale;
         for (const seen of [keyed, plain]) {
           expect(Math.abs(seen.height - height)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(seen.below - metric("gap") * scale)).toBeLessThanOrEqual(0.5);
@@ -382,11 +382,13 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
         }
         expect(plain.key).toBeUndefined();
         const key = keyed.key!;
-        expect(key.height).toBeCloseTo(metric("keycapHeight") * scale, 1);
-        // The rim is one device pixel inside the box; the plate's inset is from the box's edge.
-        for (const side of [key.top, key.bottom, key.end]) expect(Math.abs(side - inset)).toBeLessThanOrEqual(1);
-        expect(key.radius).toBeCloseTo((metric("radius") - metric("keycapInset")) * scale, 1);
-        expect(key.fill).not.toBe("rgba(0, 0, 0, 0)");
+        // The one key hint: plain glyphs, no plate, regular weight, ending at the padding, centred on the line.
+        expect(key.isKeyHint).toBe(true);
+        expect(Math.abs(key.end - inset)).toBeLessThanOrEqual(1);
+        expect(Math.abs(key.middle)).toBeLessThanOrEqual(1);
+        expect(key.radius).toBe(0);
+        expect(key.fill).toBe("rgba(0, 0, 0, 0)");
+        expect(key.weight).toBe(400);
       } finally {
         await page.close();
       }

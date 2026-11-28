@@ -1485,6 +1485,11 @@ async fn a_repeated_read_and_command_are_stubbed_and_counted_on_the_turn_result(
     if std::env::var("ACPMUX_HM_DEDUPE").is_ok_and(|v| v == "0") {
         return;
     }
+    // Off by default (Leo, 2026-11-26: "only do it for our personal fleet situation"): this test
+    // turns it on the way a daemon's environment does. Another test that sees it on meanwhile
+    // allows a dedupe callback.
+    // SAFETY: only this test writes the variable; the others read it through `enabled`.
+    unsafe { std::env::set_var("ACPMUX_HM_DEDUPE", "1") };
     let dir = home("hm-dedupe", json!({"defaultPermissionMode": "fullAccess"}));
     let log = dir.join("auto.log");
     let daemon = hub_with(&dir, |cfg| {
@@ -1879,6 +1884,8 @@ async fn harnesses_report_the_startup_probes_choices_before_any_chat() {
         .filter_map(|m| m["id"].as_str())
         .collect();
     assert_eq!(ids, ["normal", "strict"], "the probe's answer, with no chat yet: {reported}");
+    // The mode the agent starts a chat in when acpmux sets none: the probe's `currentModeId`.
+    assert_eq!(reported["startModeId"], "normal", "{reported}");
     let model = reported["configOptions"]
         .as_array()
         .unwrap()

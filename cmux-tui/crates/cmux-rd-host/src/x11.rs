@@ -94,6 +94,7 @@ pub fn open(cfg: &SessionCfg) -> Res<Halves> {
         preset: &cfg.preset,
         profile: &cfg.profile,
         openh264_lib: cfg.openh264_lib.as_deref(),
+        sharp_text: cfg.sharp_text,
     })?;
     let desktop = X11Desktop {
         injector: Injector::new(&cfg.display)?,
@@ -208,6 +209,11 @@ impl Desktop for X11Desktop {
     fn pump(&mut self) -> Res<Option<std::time::Duration>> {
         self.injector.pump()
     }
+
+    fn source_rect(&self) -> Option<[u32; 4]> {
+        let src = self.view.src;
+        Some([src.x, src.y, src.w, src.h])
+    }
 }
 
 impl FrameSource for X11Frames {
@@ -266,6 +272,10 @@ impl FrameSource for X11Frames {
 
     fn encoder_name(&self) -> String {
         self.enc.name()
+    }
+
+    fn constrained_baseline(&self) -> bool {
+        self.enc.constrained_baseline()
     }
 
     fn idr_cause(&self) -> Option<&'static str> {

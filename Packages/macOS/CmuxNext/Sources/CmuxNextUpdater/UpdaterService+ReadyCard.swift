@@ -60,6 +60,7 @@ extension UpdaterService {
         case .ready(let version):
             if let version, stagedVersion != version { stagedVersion = version }
             loadStagedNotes()
+            loadStagedPullRequests()
             prewarmStagedUpdate()
         case .installing:
             break
@@ -68,6 +69,7 @@ extension UpdaterService {
             stagedNotesTask = nil
             if stagedVersion != nil { stagedVersion = nil }
             if stagedNotes != nil { stagedNotes = nil }
+            clearStagedPullRequests()
         }
     }
 
@@ -106,5 +108,6 @@ extension UpdaterService {
         }
         debugIndicatorPhase = .ready(version: version)
         stagedNotes = notes
+        stagedPullRequests = notes.map { BuildPullRequests(notes: [$0]) }
     }
 }

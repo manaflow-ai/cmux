@@ -179,6 +179,11 @@ impl SubagentTree {
         self.logged_at = Some(at);
     }
 
+    /// The time `set_clock` gave the updates being read (epoch ms; 0 when none was given).
+    pub(super) fn expiry_clock(&self) -> u64 {
+        self.expiry.clock
+    }
+
     /// One event of `id`: running, it is seen now; ended, it leaves expiry's tables. Any event
     /// is its own record after a harness exit, so it is no orphan.
     pub(super) fn expiry_event(&mut self, id: &str, running: bool) {

@@ -1,0 +1,40 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/System/Library/Frameworks/CoreWLAN.framework/Versions/A/CoreWLAN'
+current-version: 1.0.0
+compatibility-version: 1.0.0
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [
+                       '_CWBSSIDDidChangeNotification',
+                       '_CWCountryCodeDidChangeNotification',
+                       '_CWErrorDomain',
+                       '_CWKeychainCopyEAPIdentity',
+                       '_CWKeychainCopyEAPIdentityList',
+                       '_CWKeychainCopyEAPUsernameAndPassword',
+                       '_CWKeychainCopyPassword',
+                       '_CWKeychainCopyWiFiEAPIdentity',
+                       '_CWKeychainDeleteEAPUsernameAndPassword',
+                       '_CWKeychainDeletePassword',
+                       '_CWKeychainDeleteWiFiEAPUsernameAndPassword',
+                       '_CWKeychainDeleteWiFiPassword',
+                       '_CWKeychainFindWiFiEAPUsernameAndPassword',
+                       '_CWKeychainFindWiFiPassword',
+                       '_CWKeychainSetEAPIdentity',
+                       '_CWKeychainSetEAPUsernameAndPassword',
+                       '_CWKeychainSetPassword',
+                       '_CWKeychainSetWiFiEAPIdentity',
+                       '_CWKeychainSetWiFiEAPUsernameAndPassword',
+                       '_CWKeychainSetWiFiPassword',
+                       '_CWLinkDidChangeNotification',
+                       '_CWLinkQualityDidChangeNotification',
+                       '_CWLinkQualityNotificationRSSIKey',
+                       '_CWLinkQualityNotificationTransmitRateKey',
+                       '_CWMergeNetworks',
+                       '_CWModeDidChangeNotification',
+                       '_CWPowerDidChangeNotification',
+                       '_CWSSIDDidChangeNotification',
+                       '_CWScanCacheDidUpdateNotification',
+                       '_NSString' ]
+...

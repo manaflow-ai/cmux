@@ -85,8 +85,6 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-tui-windows-check.yml", "windows-gnu-check", "runs-on", BIG),
     ("cmux-tui.yml", "optchat-chief", "runs-on", BIG),
     ("cmux-vm-clients.yml", "rust", "runs-on", BIG),
-    ("coderouter-ci.yml", "test", "runs-on", BIG),
-    ("coderouter-release.yml", "build-linux", "runs-on", BIG),
     ("macos-cross-parity.yml", "linux-build", "runs-on", BIG),
     ("rust-workspaces.yml", "workspace", "runs-on", BIG),
     ("sdk-publish-crates.yml", "bindings-e2e-rust", "runs-on", BIG),
@@ -183,11 +181,11 @@ FORK_PULL_REQUEST = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
     " != github.repository && '{label}' || "
 )
-# cmux-linux jobs: a fork pull request reads the GitHub-hosted fork runner variable
+# cmux-linux jobs: a fork pull request takes the GitHub-hosted 'ubuntu-24.04' literal
 # (scripts/ci/one_linux_label.py), not a Blacksmith literal.
 FORK_RUNNER_PULL_REQUEST = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
-    " != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || "
+    " != github.repository && 'ubuntu-24.04' || "
 )
 FORK_PR_LABELS = {
     ("ci-web.yml", "web-typecheck", "runs-on"): SMALL,
@@ -202,7 +200,7 @@ FORK_PR_LABELS = {
     ("remote-daemon.yml", "remote-daemon-tests", "runs-on"): SMALL,
 }
 # Jobs whose fork pull request branch still names a Blacksmith literal rather than
-# vars.CI_FORK_LINUX_RUNNER (they are not on cmux-linux).
+# 'ubuntu-24.04' (they are not on cmux-linux).
 FORK_LITERAL = {
     ("ci-web.yml", "webviews-typecheck", "runs-on"),
     ("cloudflare-relay.yml", "cloudflare-relay", "runs-on"),
@@ -229,7 +227,6 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
     ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),
     ("cmux-tui-headless-debug.yml", "build", "runs-on"): ("", ""),
-    ("coderouter-release.yml", "build-linux", "runs-on"): ("", ""),
 }
 # Selectors with the owner branch and no fork pull request branch.
 OWNER_ONLY = {
@@ -305,6 +302,14 @@ CMUX_LINUX |= {
     if selector(load(workflow)["jobs"][job_id], where).endswith(CMUX_LINUX_TAIL)
 }
 
+# A route frozen to one literal label (cmux#54437) reads no variable; it keeps its fork branch and names its label.
+FROZEN_LITERAL = {
+    (workflow, job_id, where)
+    for workflow, job_id, where, _label in EXPECTED
+    if "vars." not in selector(load(workflow)["jobs"][job_id], where)
+    and re.search(r"\|\| '[a-z0-9-]+' \}\}$", selector(load(workflow)["jobs"][job_id], where))
+} - CMUX_LINUX
+
 
 class LinuxCompileRunners(unittest.TestCase):
     def test_each_compile_job_runs_on_its_measured_size(self) -> None:
@@ -315,6 +320,8 @@ class LinuxCompileRunners(unittest.TestCase):
                 job = doc["jobs"].get(job_id)
                 self.assertIsNotNone(job, f"{workflow} has no job {job_id!r}")
                 value = selector(job, where)
+                if (workflow, job_id, where) in FROZEN_LITERAL:
+                    continue
                 if (workflow, job_id, where) in CMUX_LINUX:
                     self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
                     self.assertEqual(SHARED_VARIABLE.findall(value), [], value)
@@ -337,6 +344,8 @@ class LinuxCompileRunners(unittest.TestCase):
             # A fork keeps its label (test_fork_pull_requests_use_the_selected_blacksmith_size); this is every other run.
             value = unwrap_fork_pool_reads(selector(load(workflow)["jobs"][job_id], where))
             with self.subTest(workflow=workflow, job=job_id, where=where):
+                if (workflow, job_id, where) in FROZEN_LITERAL:
+                    continue
                 if (workflow, job_id, where) in CMUX_LINUX:
                     self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
                     self.assertNotIn("RUNNER_POOLS", value)
@@ -353,6 +362,8 @@ class LinuxCompileRunners(unittest.TestCase):
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
+                if (workflow, job_id, where) in FROZEN_LITERAL:
+                    continue
                 if (workflow, job_id, where) in CMUX_LINUX:
                     self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
                     prefix = PREFIX.get((workflow, job_id, where), (None, ""))[0]

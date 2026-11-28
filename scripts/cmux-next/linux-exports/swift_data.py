@@ -2,7 +2,8 @@
 
 Every file read here is written by a generator from a data file (art/manifest.json,
 schemas/settings/chrome-styles.json); the export follows the committed Swift, not the data file,
-because that is what `swift test` compiles. A file whose shape these patterns no longer match
+because that is what `swift test` compiles. The backdrop art records are the exception: the build
+writes them from art/manifest.json (BackdropArtEntriesPlugin), so their facts come from it. A file whose shape these patterns no longer match
 raises `SwiftShapeChanged`, which the entry point turns into "cannot decide" (exit 2).
 """
 from __future__ import annotations
@@ -12,6 +13,8 @@ import os
 import re
 
 PKG = "Packages/macOS/CmuxNext/Sources"
+# The backdrop art records' source; the build writes BackdropArt+Entries.swift from it.
+BACKDROP_MANIFEST = "art/manifest.json"
 
 
 class SwiftShapeChanged(Exception):
@@ -32,11 +35,21 @@ STRING = r'"((?:[^"\\]|\\.)*)"'
 
 
 class Catalog:
-    """A String Catalog (.xcstrings) as the English text a compiled bundle returns."""
+    """A String Catalog as the English text a compiled bundle returns.
+
+    `rel` is a `.xcstrings` file or a `<Table>.xcstrings.d/` directory of one-key catalogs
+    (scripts/cmux-next/string_catalogs.py), whose entries merge into one table.
+    """
 
     def __init__(self, root, rel):
-        data = json.loads(read(root, rel))
-        self.strings = data["strings"]
+        path = os.path.join(root, rel)
+        if os.path.isdir(path):
+            self.strings = {}
+            for name in sorted(os.listdir(path)):
+                if name.endswith(".xcstrings"):
+                    self.strings.update(json.loads(read(path, name))["strings"])
+        else:
+            self.strings = json.loads(read(root, rel))["strings"]
 
     def keys(self):
         return set(self.strings)
@@ -69,20 +82,23 @@ def enum_cases(source, enum):
 def backdrop_art(root):
     """BackdropArt.allCases as (raw id, title default, artist, collection), in case order."""
     art = read(root, PKG + "/CmuxNextDesign/BackdropArt.swift")
-    entries = read(root, PKG + "/CmuxNextDesign/BackdropArt+Entries.swift")
     cases = enum_cases(art, "BackdropArt")
     titles = {}
     for found in re.finditer(r"case \.(\w+): String\(localized: " + STRING + r", defaultValue: " + STRING, art):
         titles[found.group(1)] = (swift_literal(found.group(2)), swift_literal(found.group(3)))
-    facts = {}
-    for found in re.finditer(r"case \.(\w+): BackdropArtEntry\(artist: " + STRING + r".*?collection: \.(\w+)", entries):
-        facts[found.group(1)] = (swift_literal(found.group(2)), found.group(3))
+    # The records (BackdropArt+Entries.swift) are written at build time from art/manifest.json, which the
+    # generator copies verbatim: each work's artist and collection, keyed by its raw id.
+    try:
+        works = json.loads(read(root, BACKDROP_MANIFEST))["works"]
+        facts = {work["id"]: (work["artist"], work["collection"]) for work in works}
+    except (KeyError, TypeError, ValueError) as error:
+        raise SwiftShapeChanged("%s: %s" % (BACKDROP_MANIFEST, error)) from error
     out = []
     for name, raw in cases:
-        if name not in titles or name not in facts:
+        if name not in titles or raw not in facts:
             raise SwiftShapeChanged("BackdropArt.%s has no title or entry" % name)
         out.append({"id": raw, "title_key": titles[name][0], "title": titles[name][1],
-                    "artist": facts[name][0], "collection": facts[name][1]})
+                    "artist": facts[raw][0], "collection": facts[raw][1]})
     return out
 
 

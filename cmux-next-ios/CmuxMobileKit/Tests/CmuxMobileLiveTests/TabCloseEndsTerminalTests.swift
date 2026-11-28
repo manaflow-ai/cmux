@@ -10,6 +10,11 @@ import Testing
 /// 50 s after the close); the phone has no undo, so it ends the terminal with
 /// `close-terminal` right after the tab closes, unless another tab still
 /// shows that terminal.
+///
+/// Leo, 2026-11-25: "are we also doing more work on perf while we're here? for the app
+/// especially?" Close Tab is one `close-tabs` round trip now (`end_terminals` says whether the
+/// Mac ends the terminal too), with the tree reload off the critical path; a Mac that refuses
+/// `close-tabs` gets the old `close-surface` + `close-terminal` sequence.
 @MainActor
 @Suite struct TabCloseEndsTerminalTests {
     final class Requests: @unchecked Sendable {
@@ -18,7 +23,7 @@ import Testing
         func append(_ object: [String: Any]) { lock.withLock { items.append(object) } }
         var all: [[String: Any]] { lock.withLock { items } }
         var mutations: [[String: Any]] {
-            all.filter { ["close-surface", "close-terminal", "close-tab-group"].contains($0["cmd"] as? String ?? "") }
+            all.filter { ["close-tabs", "close-surface", "close-terminal", "close-tab-group"].contains($0["cmd"] as? String ?? "") }
         }
     }
 
@@ -41,9 +46,11 @@ import Testing
     ]}
     """#
 
-    nonisolated static func daemon(_ seen: Requests) -> MockMacLink {
+    /// `roundTrip`: how long the mock Mac takes to answer each write (one link round trip).
+    nonisolated static func daemon(_ seen: Requests, refusingCloseTabs: Bool = false, roundTrip: TimeInterval = 0) -> MockMacLink {
         MockMacLink { _, data in
-            data.split(separator: 0x0A).map { request -> Data in
+            if roundTrip > 0 { Thread.sleep(forTimeInterval: roundTrip) }
+            return data.split(separator: 0x0A).map { request -> Data in
                 let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
                 seen.append(object)
                 let id = object["id"] as! String
@@ -56,6 +63,8 @@ import Testing
                     // s10 runs `sleep`, s13 an idle Codex, s20 `yes`; the rest sit at the shell.
                     let program = [10: "sleep", 13: "codex", 20: "/usr/bin/yes"][object["surface"] as? Int ?? 0] ?? "zsh"
                     line = #"{"id":"\#(id)","ok":true,"data":{"pid":1,"command":null,"foreground_executable":"\#(program)"}}"#
+                case "close-tabs" where refusingCloseTabs:
+                    line = #"{"error":"close-tabs is not available to a phone","error_code":"forbidden","id":"\#(id)","ok":false}"#
                 case "list-agents":
                     line = #"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#
                 default:
@@ -66,13 +75,13 @@ import Testing
         }
     }
 
-    func connected(_ seen: Requests) async throws -> (LiveWorkspaceCreationBackend, WorkspaceSync) {
+    func connected(_ seen: Requests, refusingCloseTabs: Bool = false, roundTrip: TimeInterval = 0) async throws -> (LiveWorkspaceCreationBackend, WorkspaceSync) {
         let controller = LinkController(transport: .wireGuard, dialer: MockDialer(fail: false), accessToken: { _ in "t" })
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
         for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
         let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
-        await sync.bind(try await Self.daemon(seen).openChannel(service: "daemon", args: [:]), macID: "m")
+        await sync.bind(try await Self.daemon(seen, refusingCloseTabs: refusingCloseTabs, roundTrip: roundTrip).openChannel(service: "daemon", args: [:]), macID: "m")
         return (LiveWorkspaceCreationBackend(sync: sync, link: controller), sync)
     }
 
@@ -87,10 +96,9 @@ import Testing
         let (tab, workspace) = try tab("s10", in: sync)
         try await backend.closeTab(tab, in: workspace)
         let mutations = seen.mutations
-        #expect(mutations.map { $0["cmd"] as? String } == ["close-surface", "close-terminal"])
-        #expect(mutations.first?["surface"] as? Int == 10)
-        #expect(mutations.last?["terminal_id"] as? String == "term_a")
-        #expect(mutations.last?["terminal_incarnation"] as? String == "inc_a")
+        #expect(mutations.map { $0["cmd"] as? String } == ["close-tabs"])
+        #expect(mutations.first?["surfaces"] as? [Int] == [10])
+        #expect(mutations.first?["end_terminals"] as? Bool == true)
     }
 
     @Test func aTerminalShownInAnotherTabKeepsRunning() async throws {
@@ -98,7 +106,8 @@ import Testing
         let (backend, sync) = try await connected(seen)
         let (tab, workspace) = try tab("s11", in: sync)
         try await backend.closeTab(tab, in: workspace)
-        #expect(seen.mutations.map { $0["cmd"] as? String } == ["close-surface"])
+        #expect(seen.mutations.map { $0["cmd"] as? String } == ["close-tabs"])
+        #expect(seen.mutations.first?["end_terminals"] as? Bool == false)
     }
 
     @Test func aRemoteTerminalIsOnlyDetached() async throws {
@@ -106,7 +115,41 @@ import Testing
         let (backend, sync) = try await connected(seen)
         let (tab, workspace) = try tab("s12", in: sync)
         try await backend.closeTab(tab, in: workspace)
-        #expect(seen.mutations.map { $0["cmd"] as? String } == ["close-surface"])
+        #expect(seen.mutations.map { $0["cmd"] as? String } == ["close-tabs"])
+        #expect(seen.mutations.first?["end_terminals"] as? Bool == false)
+    }
+
+    /// The round trips a Close Tab waits for: one (`close-tabs`), down from three (close-surface,
+    /// close-terminal, then the tree reload). The action's trace id rides on the request.
+    @Test func closingATabWaitsForOneRoundTrip() async throws {
+        let seen = Requests()
+        let (backend, sync) = try await connected(seen)
+        let (tab, workspace) = try tab("s10", in: sync)
+        let before = seen.all.count
+        let id = "4bf92f3577b34da6a3ce929d0e0e4736"
+        try await PhoneTrace.$traceID.withValue(id) {
+            try await backend.closeTab(tab, in: workspace)
+        }
+        let waited = seen.all.dropFirst(before).map { $0["cmd"] as? String }
+        #expect(waited.first == "close-tabs")
+        #expect(!waited.contains("close-surface"))
+        #expect((seen.mutations.first?["_meta"] as? [String: Any])?["traceId"] as? String == id)
+    }
+
+    /// A Mac (or a phone lane) from before `close-tabs` refuses it: the phone falls back to the
+    /// old sequence, and does not ask that Mac again.
+    @Test func aMacWithoutCloseTabsGetsTheOldSequence() async throws {
+        let seen = Requests()
+        let (backend, sync) = try await connected(seen, refusingCloseTabs: true)
+        let (first, workspace) = try tab("s10", in: sync)
+        try await backend.closeTab(first, in: workspace)
+        #expect(seen.mutations.map { $0["cmd"] as? String } == ["close-tabs", "close-surface", "close-terminal"])
+        #expect(seen.mutations.last?["terminal_id"] as? String == "term_a")
+        #expect(seen.mutations.last?["terminal_incarnation"] as? String == "inc_a")
+        let (second, _) = try tab("s11", in: sync)
+        try await backend.closeTab(second, in: workspace)
+        #expect(seen.mutations.map { $0["cmd"] as? String }.suffix(1) == ["close-surface"])
+        #expect(seen.mutations.filter { $0["cmd"] as? String == "close-tabs" }.count == 1)
     }
 
     /// N2/A1: the close question reads the Mac's real foreground program

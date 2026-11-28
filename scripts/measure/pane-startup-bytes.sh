@@ -9,6 +9,7 @@
 set -uo pipefail
 [[ $# -gt 0 ]] || { echo "usage: pane-startup-bytes.sh SHA..." >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
+source "$root/scripts/measure/fetch-commit.sh"
 scratch="$(mktemp -d)"
 trees=()
 cleanup() {
@@ -25,7 +26,7 @@ step() {
 }
 for sha in "$@"; do
   tree="$scratch/$sha"
-  git -C "$root" fetch -q origin "$sha" 2>/dev/null || true
+  measure_fetch_commit "$root" "$sha" 2>/dev/null || true
   git -C "$root" worktree add -q --detach "$tree" "$sha" || { status=1; continue; }
   trees+=("$tree")
   step "$sha" "bun install" bash -c 'cd "$1/webviews" && bun install --frozen-lockfile --ignore-scripts' _ "$tree" || { status=1; continue; }

@@ -91,6 +91,8 @@ fn a_forward_on_a_dead_link_closes_with_no_op_after_the_death() {
     assert_eq!(down["port"], 3000);
     assert_eq!(down["localPort"], forward["localPort"]);
     assert_eq!(down["state"], "down");
+    assert_eq!(down["scheme"], forward["scheme"]);
+    assert_eq!(down["url"], forward["url"]);
 }
 
 #[test]
@@ -116,4 +118,25 @@ fn the_events_of_one_link_death_keep_their_order() {
     // Each change goes out once: an op after it repeats none of them.
     let lines = host.answer_of("3", "cloud.port.list", json!({}));
     assert!(lines.iter().all(|l| !link_changed(l) && !port_changed(l)), "{lines:?}");
+}
+
+#[test]
+fn a_browser_route_down_event_has_no_preview_metadata() {
+    let mut host = Host::start(FIXTURES);
+    let browser =
+        host.op("1", "cloud.browser.open", json!({"machine": "vm_alpha01", "port": 3000}), "b-1");
+    host.spawner.exit("vm_alpha01", 1);
+    let down = loop {
+        let line = host.next().expect("the browser route down event");
+        if port_changed(&line) {
+            break line;
+        }
+    };
+    let down = payload(&down);
+    assert_eq!(down["kind"], "browser");
+    assert_eq!(down["state"], "down");
+    assert_eq!(down["localPort"], browser["proxy"]["port"]);
+    for field in ["port", "scheme", "url"] {
+        assert!(down.get(field).is_none(), "browser event must omit {field}: {down}");
+    }
 }

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.textSize.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text size of the sidebar, tabs, menus and chat. Terminals have their own size."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حجم نص الشريط الجانبي وعلامات التبويب والقوائم والدردشة. للطرفيات حجمها الخاص."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Veličina teksta bočne trake, kartica, menija i chata. Terminali imaju svoju veličinu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tekststørrelse for sidepanel, faner, menuer og chat. Terminaler har deres egen størrelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Textgröße von Seitenleiste, Tabs, Menüs und Chat. Terminals haben ihre eigene Größe."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tamaño del texto de la barra lateral, las pestañas, los menús y el chat. Los terminales tienen su propio tamaño."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Taille du texte de la barre latérale, des onglets, des menus et de la discussion. Les terminaux ont leur propre taille."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dimensione del testo di barra laterale, schede, menu e chat. I terminali hanno la loro dimensione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "サイドバー、タブ、メニュー、チャットの文字サイズ。ターミナルは独自のサイズを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទំហំអក្សររបស់របារចំហៀង ផ្ទាំង ម៉ឺនុយ និងការជជែក។ ទែមីណាល់មានទំហំផ្ទាល់ខ្លួន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사이드바, 탭, 메뉴, 채팅의 텍스트 크기입니다. 터미널은 자체 크기를 씁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tekststørrelse for sidefelt, faner, menyer og chat. Terminaler har sin egen størrelse."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rozmiar tekstu paska bocznego, kart, menu i czatu. Terminale mają własny rozmiar."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tamanho do texto da barra lateral, abas, menus e chat. Os terminais têm tamanho próprio."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Размер текста боковой панели, вкладок, меню и чата. У терминалов свой размер."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ขนาดข้อความของแถบด้านข้าง แท็บ เมนู และแชท เทอร์มินัลมีขนาดของตัวเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kenar çubuğu, sekmeler, menüler ve sohbetin metin boyutu. Terminallerin kendi boyutu vardır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Розмір тексту бічної панелі, вкладок, меню й чату. Термінали мають власний розмір."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cỡ chữ của thanh bên, thẻ, menu và trò chuyện. Terminal có cỡ chữ riêng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "侧边栏、标签页、菜单和聊天的文字大小。终端使用自己的大小。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "側邊欄、標籤頁、選單和聊天的文字大小。終端機使用自己的大小。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

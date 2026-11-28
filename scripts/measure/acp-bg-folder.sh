@@ -18,9 +18,8 @@ bench() {
 }
 bench AFTER
 [ -n "$base" ] || exit 0
-depth=()
-[ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
-git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$base"
+source ../scripts/measure/fetch-commit.sh
+measure_fetch_commit . "$base" || exit 1
 src=crates/acpmux/src
 saved=$(mktemp -d)
 cp -R "$src" "$saved/"

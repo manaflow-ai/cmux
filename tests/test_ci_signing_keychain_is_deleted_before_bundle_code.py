@@ -126,12 +126,11 @@ SIGNING_SECRET_PREFIXES = ("APPLE_", "ASC_API_", "IOS_", "SPARKLE_", "NIGHTLY_SP
                            "CONTENT_SIGNING_")
 RELEASE_SECRET_PREFIXES = (*SIGNING_SECRET_PREFIXES, "CF_R2_", "NIGHTLY_NEXT_R2_", "HOMEBREW_TAP_TOKEN")
 RELEASE_ENVIRONMENT = re.compile(r"\b(release|release-next|content-signing|nightly-next-promote|release-surface-ack)\b")
-# The CodeRouter release signs one CLI binary with a keychain at an absolute
-# path and runs nothing from it; it keeps its own inline import. A choice, so a
-# list: every job that imports the Developer ID certificate inline is named here
-# or fails rule 3, and every entry still imports it inline
-# (inline_keychain_classification).
-INLINE_DEVELOPER_ID_KEYCHAINS = {("coderouter-release.yml", "build")}
+# Jobs that keep an inline Developer ID import (none since the CodeRouter release
+# left with CodeRouter, 2026-11-25). A choice, so a list: every job that imports
+# the Developer ID certificate inline is named here or fails rule 3, and every
+# entry still imports it inline (inline_keychain_classification).
+INLINE_DEVELOPER_ID_KEYCHAINS: set[tuple[str, str]] = set()
 # Scripts that make the Developer ID keychain with signing-keychain.sh create
 # just before their signature: notarize-nightly-dmg.sh (the DMG around the
 # stapled app) and resume-stapled-app-notarization.sh (the same DMG in a
@@ -253,13 +252,15 @@ def runs_after_failure(condition: object) -> bool:
 # chaining, redirection, quoting and path trick fails by construction instead of by a sharper pattern.  A new
 # call site adds its exact line here, a reviewed act.  Each form is the real path and nothing else: bare (a
 # path with a slash is run directly, never looked up on PATH), `./`, or bash on the path or on one of the two
-# sparse-checkout copies (`.nightly-signing-control/` and `.publish-tooling/`) two nightly jobs run it from.
+# sparse-checkout copies (`.nightly-signing-control/`, `.publish-tooling/`, and the delta job's isolated
+# `.nightly-next-deltas/.publish-tooling/`). Each is checked out at the workflow's trusted tooling commit.
 CLAIM_COMMANDS = frozenset({
     CLAIM_SCRIPT,
     f"./{CLAIM_SCRIPT}",
     f"bash {CLAIM_SCRIPT}",
     f"bash .nightly-signing-control/{CLAIM_SCRIPT}",
     f"bash .publish-tooling/{CLAIM_SCRIPT}",
+    f"bash .nightly-next-deltas/.publish-tooling/{CLAIM_SCRIPT}",
 })
 
 
@@ -774,6 +775,8 @@ def step_level_fixture_failures(documents: dict[str, dict]) -> list[str]:
 def inline_keychain_fixture_failures(documents: dict[str, dict]) -> list[str]:
     """INLINE_DEVELOPER_ID_KEYCHAINS (an exemption, guarded): a copy of the listed job under a new id."""
     problems = []
+    if not INLINE_DEVELOPER_ID_KEYCHAINS:
+        return problems
     workflow, job_name = sorted(INLINE_DEVELOPER_ID_KEYCHAINS)[0]
     base = workflow_jobs.copy_job(bracketed(documents[workflow]["jobs"][job_name]), {"environment": workflow_jobs.DROP})
     fixture = with_job(documents, workflow, "inline-keychain-fixture", base)
@@ -1043,6 +1046,10 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     # stable-next.yml's sign keeps an owned route for its keyless dry run; test_ci_signing_owned_mac.py exempts it
     # from the whole-mini claim because its signing secrets sit behind the condition that picks Blacksmith.
     failures.extend(secret_gate_failures(name, job) or [])
+    # Rule 7a: the whole-mini claim that #53754 kept ("the whole-mini signing claim stay[s]"); its call lived in the
+    # deleted rule-7 runs-on loop, so it is made here for every claim-gated job that holds a signing secret.
+    if signing_secret(job) and claim_gated(name, job):
+        failures.extend(owned_route_failures(name, job))
 
     text = json.dumps(job)
     pool_signer = release_pool_signer(job)

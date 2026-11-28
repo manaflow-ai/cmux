@@ -452,3 +452,22 @@ fn lift_deep_or_cyclic_groups(items: &mut [Item]) {
         }
     }
 }
+
+/// Clear every group member's in-group pin (`extra.pinned`), keeping the
+/// member where it lists: first among its group's members. A pin now goes to
+/// the Pinned band (pinning-DESIGN.md rule 3); an older daemon's in-group
+/// pins drew a pin mark and an Unpin on rows that sit in a group (Leo
+/// 2026-11-23: "these aren't pinned. they're in a ... group."; 11-25: "THIS
+/// ISN'T FIXED/REMOVED YET"). Returns whether anything changed.
+pub fn clear_in_group_pins(doc: &mut Doc) -> bool {
+    let flagged = |item: &Item| item.extra.contains_key(PINNED_IN_GROUP_KEY);
+    if !doc.items_unordered().any(flagged) {
+        return false;
+    }
+    let (sections, mut items) = doc.to_parts();
+    for item in &mut items {
+        item.extra.remove(PINNED_IN_GROUP_KEY);
+    }
+    *doc = Doc::from_parts(doc.revision, sections, items);
+    true
+}
