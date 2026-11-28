@@ -43,6 +43,14 @@ pub enum GuestRequest {
         #[serde(default)]
         mode: Option<u32>,
     },
+    /// Step the guest's realtime clock to the host's. The host sends it right after a snapshot
+    /// restore or a resume: kvmclock stops while the VM is paused or saved, so the guest wakes
+    /// with its wall clock in the past, and cmux-host's clock-set wake (`TFD_TIMER_CANCEL_ON_SET`)
+    /// is what makes it re-read its identity and bind.
+    SetClock {
+        /// Host `CLOCK_REALTIME` in nanoseconds since the Unix epoch, read just before sending.
+        unix_ns: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,9 +72,21 @@ pub enum GuestResponse {
         data: String,
     },
     Ok,
+    /// The answer to [`GuestRequest::SetClock`]: how far the guest's clock moved (host time
+    /// minus the guest's old time, in nanoseconds; positive means the guest was behind).
+    Clock {
+        stepped_ns: i64,
+    },
     Error {
         message: String,
     },
+}
+
+/// How far a [`GuestRequest::SetClock`] to `host_ns` moves a guest clock that reads `guest_ns`
+/// (both nanoseconds since the Unix epoch), clamped to `i64`.
+pub fn clock_step_ns(guest_ns: u64, host_ns: u64) -> i64 {
+    let step = i128::from(host_ns) - i128::from(guest_ns);
+    i64::try_from(step).unwrap_or(if step < 0 { i64::MIN } else { i64::MAX })
 }
 
 pub fn write_frame<W: Write, T: Serialize>(w: &mut W, value: &T) -> io::Result<()> {
