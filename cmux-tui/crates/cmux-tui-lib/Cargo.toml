@@ -262,6 +262,12 @@ cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
 cmux-link.workspace = true
 cmux-agent-pane-policy.workspace = true
+# main.rs links these too (the cmux-tui package carries them for its binaries): the
+# argv[0] dispatch to the screen-detection plugin and the Cloud app server (CMUX-570),
+# and the phone_chat link service (src/link/phone_chat.rs).
+cmux-agent-screen-detection = { path = "../../bindings/examples/rust-agent-screen-detection" }
+cmux-cloud = { path = "../../../first-party-apps/cloud/server" }
+cmux-cloud-phone-acp.workspace = true
 cmux-unix-socket.workspace = true
 x25519-dalek.workspace = true
 tokio.workspace = true
