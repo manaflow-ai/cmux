@@ -15,6 +15,7 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
     private final String body;
     private final NotificationLevel level;
     private final UInt64 notification;
+    private final Field<NotificationSource> source;
     private final UInt64 surface;
     private final String title;
 
@@ -25,6 +26,7 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
         this.level = Wire.nonNull(builder.level, "level");
         if (!builder.notificationSet) throw new IllegalArgumentException("notification is required");
         this.notification = Wire.nonNull(builder.notification, "notification");
+        this.source = builder.source;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = builder.surface;
         if (!builder.titleSet) throw new IllegalArgumentException("title is required");
@@ -36,6 +38,7 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
     public String body() { return body; }
     public NotificationLevel level() { return level; }
     public UInt64 notification() { return notification; }
+    public Field<NotificationSource> source() { return source; }
     public UInt64 surface() { return surface; }
     public String title() { return title; }
     @Override public String event() { return "notification"; }
@@ -50,6 +53,10 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
         builder.level(NotificationLevel.fromWire(rawLevel));
         Object rawNotification = Wire.required(object, "notification");
         builder.notification(Wire.uint64(rawNotification, "NotificationEvent.notification"));
+        Object rawSource = Wire.optional(object, "source");
+        if (!Wire.isMissing(rawSource)) {
+            builder.source(NotificationSource.fromWire(rawSource));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(rawSurface == null ? null : Wire.uint64(rawSurface, "NotificationEvent.surface"));
         Object rawTitle = Wire.required(object, "title");
@@ -64,6 +71,7 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
         Wire.put(object, "body", body);
         Wire.put(object, "level", level);
         Wire.put(object, "notification", notification);
+        Wire.put(object, "source", source);
         Wire.put(object, "surface", surface);
         Wire.put(object, "title", title);
         return Collections.unmodifiableMap(object);
@@ -72,11 +80,11 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NotificationEvent that)) return false;
-        return Objects.equals(body, that.body) && Objects.equals(level, that.level) && Objects.equals(notification, that.notification) && Objects.equals(surface, that.surface) && Objects.equals(title, that.title);
+        return Objects.equals(body, that.body) && Objects.equals(level, that.level) && Objects.equals(notification, that.notification) && Objects.equals(source, that.source) && Objects.equals(surface, that.surface) && Objects.equals(title, that.title);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(body, level, notification, surface, title); }
+    public int hashCode() { return Objects.hash(body, level, notification, source, surface, title); }
 
     @Override
     public String toString() { return "NotificationEvent" + toWire(); }
@@ -88,6 +96,7 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
         private boolean levelSet;
         private UInt64 notification;
         private boolean notificationSet;
+        private Field<NotificationSource> source = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
         private String title;
@@ -106,6 +115,10 @@ public final class NotificationEvent implements WireValue, BrowserAttachEvent, B
         public Builder notification(UInt64 value) {
             this.notification = value;
             this.notificationSet = true;
+            return this;
+        }
+        public Builder source(NotificationSource value) {
+            this.source = Field.of(value);
             return this;
         }
         public Builder surface(UInt64 value) {

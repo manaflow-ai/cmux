@@ -1,11 +1,8 @@
 import { render as renderInTestRoot, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { RenderGraphicPlacement } from "cmux/raw";
 import type { ReactElement } from "react";
-import {
-  RenderGraphics,
-  RenderGraphicsBudgetProvider,
-} from "../src/components/RenderGraphics";
+import { RenderGraphics, RenderGraphicsBudgetProvider } from "../src/components/RenderGraphics";
 import {
   decodeRenderGraphicImage,
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
@@ -14,21 +11,14 @@ import {
 } from "../src/lib/renderGraphics";
 import { RenderGraphicsDecodeScheduler } from "../src/lib/renderGraphicsDecodeScheduler";
 import type { RenderGraphicsModel } from "../src/lib/renderModel";
-import type {
-  RenderGraphicsDecodeRequest,
-  RenderGraphicsDecodeResponse,
-} from "../src/workers/renderGraphicsDecoder";
+import type { RenderGraphicsDecodeRequest, RenderGraphicsDecodeResponse } from "../src/workers/renderGraphicsDecoder";
 
 function render(element: ReactElement) {
-  const result = renderInTestRoot(
-    <RenderGraphicsBudgetProvider>{element}</RenderGraphicsBudgetProvider>,
-  );
+  const result = renderInTestRoot(<RenderGraphicsBudgetProvider>{element}</RenderGraphicsBudgetProvider>);
   return {
     ...result,
     rerender(nextElement: ReactElement) {
-      result.rerender(
-        <RenderGraphicsBudgetProvider>{nextElement}</RenderGraphicsBudgetProvider>,
-      );
+      result.rerender(<RenderGraphicsBudgetProvider>{nextElement}</RenderGraphicsBudgetProvider>);
     },
   };
 }
@@ -38,12 +28,7 @@ function zeroBytesBase64(byteCount: number): string {
   return `${"A".repeat(Math.ceil(byteCount / 3) * 4 - padding.length)}${padding}`;
 }
 
-function placement(
-  placementId: number,
-  width: number,
-  height: number,
-  z = 0,
-): RenderGraphicPlacement {
+function placement(placementId: number, width: number, height: number, z = 0): RenderGraphicPlacement {
   return {
     image_id: 1,
     placement_id: placementId,
@@ -84,9 +69,11 @@ class WorkingWorker {
           pixels: decoded?.pixels.buffer ?? null,
         };
       });
-      this.onmessage?.(new MessageEvent("message", {
-        data: { requestId: request.requestId, results },
-      }));
+      this.onmessage?.(
+        new MessageEvent("message", {
+          data: { requestId: request.requestId, results },
+        }),
+      );
     }, 0);
   }
 
@@ -127,14 +114,16 @@ describe("RenderGraphics canvas resource policy", () => {
       vi.stubGlobal("Worker", FailingWorker);
       const graphics: RenderGraphicsModel = {
         generation: 1n,
-        images: [{
-          id: 1,
-          generation: 1n,
-          width: 1,
-          height: 1,
-          format: "rgba",
-          data: "AAAAAA==",
-        }],
+        images: [
+          {
+            id: 1,
+            generation: 1n,
+            width: 1,
+            height: 1,
+            format: "rgba",
+            data: "AAAAAA==",
+          },
+        ],
         placements: [placement(1, 1, 1)],
       };
 
@@ -167,25 +156,25 @@ describe("RenderGraphics canvas resource policy", () => {
     const height = 1_000;
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width: 1,
-        height: 1,
-        format: "rgba",
-        data: "AAAAAA==",
-      }, {
-        id: 2,
-        generation: 1n,
-        width,
-        height,
-        format: "rgba",
-        data: zeroBytesBase64(width * height * 4),
-      }],
-      placements: [
-        placement(1, 1, 1),
-        { ...placement(2, width, height), image_id: 2 },
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: "AAAAAA==",
+        },
+        {
+          id: 2,
+          generation: 1n,
+          width,
+          height,
+          format: "rgba",
+          data: zeroBytesBase64(width * height * 4),
+        },
       ],
+      placements: [placement(1, 1, 1), { ...placement(2, width, height), image_id: 2 }],
     };
 
     const { container } = render(
@@ -221,19 +210,21 @@ describe("RenderGraphics canvas resource policy", () => {
             this.onerror?.(new ErrorEvent("error"));
             return;
           }
-          this.onmessage?.(new MessageEvent("message", {
-            data: {
-              requestId: request.requestId,
-              results: request.images.map((image) => {
-                const decoded = decodeRenderGraphicImage(image);
-                return {
-                  id: image.id,
-                  generation: image.generation,
-                  pixels: decoded?.pixels.buffer ?? null,
-                };
-              }),
-            },
-          }));
+          this.onmessage?.(
+            new MessageEvent("message", {
+              data: {
+                requestId: request.requestId,
+                results: request.images.map((image) => {
+                  const decoded = decodeRenderGraphicImage(image);
+                  return {
+                    id: image.id,
+                    generation: image.generation,
+                    pixels: decoded?.pixels.buffer ?? null,
+                  };
+                }),
+              },
+            }),
+          );
         }, 0);
       }
 
@@ -246,14 +237,16 @@ describe("RenderGraphics canvas resource policy", () => {
     const height = 256;
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width,
-        height,
-        format: "rgba",
-        data: zeroBytesBase64(width * height * 4),
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width,
+          height,
+          format: "rgba",
+          data: zeroBytesBase64(width * height * 4),
+        },
+      ],
       placements: [placement(1, width, height)],
     };
 
@@ -336,10 +329,10 @@ describe("RenderGraphics canvas resource policy", () => {
         format: "rgba" as const,
         data: zeroBytesBase64(byteLength),
       })),
-      placements: Array.from(
-        { length: 3 },
-        (_, index) => ({ ...placement(index + 1, width, height), image_id: index + 1 }),
-      ),
+      placements: Array.from({ length: 3 }, (_, index) => ({
+        ...placement(index + 1, width, height),
+        image_id: index + 1,
+      })),
     };
 
     const { container } = render(
@@ -359,18 +352,17 @@ describe("RenderGraphics canvas resource policy", () => {
     const placementCount = 512;
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width,
-        height,
-        format: "rgba",
-        data: zeroBytesBase64(width * height * 4),
-      }],
-      placements: Array.from(
-        { length: placementCount },
-        (_, index) => placement(index + 1, width, height),
-      ),
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width,
+          height,
+          format: "rgba",
+          data: zeroBytesBase64(width * height * 4),
+        },
+      ],
+      placements: Array.from({ length: placementCount }, (_, index) => placement(index + 1, width, height)),
     };
 
     const { container } = render(
@@ -379,17 +371,11 @@ describe("RenderGraphics canvas resource policy", () => {
       </RenderGraphics>,
     );
     expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(0);
-    await waitFor(
-      () => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16),
-      { timeout: 5_000 },
-    );
-    const canvases = [...container.querySelectorAll<HTMLCanvasElement>(
-      "[data-graphic-placement]",
-    )];
-    const backingBytes = canvases.reduce(
-      (total, canvas) => total + canvas.width * canvas.height * 4,
-      0,
-    );
+    await waitFor(() => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16), {
+      timeout: 5_000,
+    });
+    const canvases = [...container.querySelectorAll<HTMLCanvasElement>("[data-graphic-placement]")];
+    const backingBytes = canvases.reduce((total, canvas) => total + canvas.width * canvas.height * 4, 0);
 
     expect(placementCount * width * height * 4).toBe(2_048_000_000);
     expect(canvases).toHaveLength(16);
@@ -416,14 +402,16 @@ describe("RenderGraphics canvas resource policy", () => {
     });
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width,
-        height,
-        format: "rgba",
-        data: zeroBytesBase64(width * height * 4),
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width,
+          height,
+          format: "rgba",
+          data: zeroBytesBase64(width * height * 4),
+        },
+      ],
       placements,
     };
 
@@ -441,20 +429,19 @@ describe("RenderGraphics canvas resource policy", () => {
     const height = 1_024;
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width,
-        height,
-        format: "rgba",
-        data: zeroBytesBase64(width * height * 4),
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width,
+          height,
+          format: "rgba",
+          data: zeroBytesBase64(width * height * 4),
+        },
+      ],
       placements: [
         placement(17, width, height, 2),
-        ...Array.from(
-          { length: 16 },
-          (_, index) => placement(index + 1, width, height),
-        ),
+        ...Array.from({ length: 16 }, (_, index) => placement(index + 1, width, height)),
       ],
     };
 
@@ -463,25 +450,17 @@ describe("RenderGraphics canvas resource policy", () => {
         <div>terminal</div>
       </RenderGraphics>,
     );
-    await waitFor(
-      () => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16),
-      { timeout: 5_000 },
-    );
-    const canvases = [...container.querySelectorAll<HTMLCanvasElement>(
-      "[data-graphic-placement]",
-    )];
-    const backingBytes = canvases.reduce(
-      (total, canvas) => total + canvas.width * canvas.height * 4,
-      0,
-    );
+    await waitFor(() => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16), {
+      timeout: 5_000,
+    });
+    const canvases = [...container.querySelectorAll<HTMLCanvasElement>("[data-graphic-placement]")];
+    const backingBytes = canvases.reduce((total, canvas) => total + canvas.width * canvas.height * 4, 0);
 
     expect(backingBytes).toBe(RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP);
-    expect(canvases.map((canvas) => canvas.dataset.graphicPlacement)).toEqual(
-      [
-        ...Array.from({ length: 15 }, (_, index) => `1:${index + 2}:0`),
-        "1:17:0",
-      ],
-    );
+    expect(canvases.map((canvas) => canvas.dataset.graphicPlacement)).toEqual([
+      ...Array.from({ length: 15 }, (_, index) => `1:${index + 2}:0`),
+      "1:17:0",
+    ]);
   });
 
   it("refills the canvas budget from lower-priority placements after byte rejections", async () => {
@@ -490,19 +469,18 @@ describe("RenderGraphics canvas resource policy", () => {
     const fullPlacementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP;
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width,
-        height,
-        format: "rgba",
-        data: zeroBytesBase64(width * height * 4),
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width,
+          height,
+          format: "rgba",
+          data: zeroBytesBase64(width * height * 4),
+        },
+      ],
       placements: [
-        ...Array.from(
-          { length: fullPlacementCount },
-          (_, index) => placement(index + 1, width, height, 1),
-        ),
+        ...Array.from({ length: fullPlacementCount }, (_, index) => placement(index + 1, width, height, 1)),
         placement(fullPlacementCount + 1, 1, 1),
       ],
     };
@@ -517,11 +495,7 @@ describe("RenderGraphics canvas resource policy", () => {
       expect(container.querySelectorAll("[data-graphic-placement]").length).toBeGreaterThan(0);
     });
     expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(64);
-    expect(
-      container.querySelector(
-        `[data-graphic-placement='1:${fullPlacementCount + 1}:0']`,
-      ),
-    ).not.toBeNull();
+    expect(container.querySelector(`[data-graphic-placement='1:${fullPlacementCount + 1}:0']`)).not.toBeNull();
   });
 
   it("reads layout geometry only for candidates considered under the canvas cap", async () => {
@@ -541,14 +515,16 @@ describe("RenderGraphics canvas resource policy", () => {
     });
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width: 1,
-        height: 1,
-        format: "rgba",
-        data: "AAAAAA==",
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: "AAAAAA==",
+        },
+      ],
       placements,
     };
 
@@ -559,8 +535,7 @@ describe("RenderGraphics canvas resource policy", () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelectorAll("[data-graphic-placement]"))
-        .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
+      expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
     });
     expect(viewportColumnReads).toBeLessThanOrEqual(RENDER_GRAPHIC_CANVAS_COUNT_CAP * 2);
   });
@@ -587,10 +562,7 @@ describe("RenderGraphics canvas resource policy", () => {
     const admitted: RenderGraphicsModel = {
       generation: 1n,
       images: Array.from({ length: 6 }, (_, index) => image(index + 1)),
-      placements: Array.from(
-        { length: 6 },
-        (_, index) => ({ ...placement(index + 1, 1, 1, 2), image_id: index + 1 }),
-      ),
+      placements: Array.from({ length: 6 }, (_, index) => ({ ...placement(index + 1, 1, 1, 2), image_id: index + 1 })),
     };
     let sourceReads = 0;
     const rejectedPlacements = Array.from({ length: 16_384 }, (_, index) => {
@@ -630,18 +602,17 @@ describe("RenderGraphics canvas resource policy", () => {
     const height = 1_024;
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width,
-        height,
-        format: "rgba",
-        data: zeroBytesBase64(width * height * 4),
-      }],
-      placements: Array.from(
-        { length: 16 },
-        (_, index) => placement(index + 1, width, height),
-      ),
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width,
+          height,
+          format: "rgba",
+          data: zeroBytesBase64(width * height * 4),
+        },
+      ],
+      placements: Array.from({ length: 16 }, (_, index) => placement(index + 1, width, height)),
     };
     const surfaces = (includeFirst: boolean) => (
       <>
@@ -661,19 +632,18 @@ describe("RenderGraphics canvas resource policy", () => {
     );
     const { container, getByTestId, rerender } = render(surfaces(true));
 
-    await waitFor(
-      () => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16),
-      { timeout: 5_000 },
+    await waitFor(() => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16), {
+      timeout: 5_000,
+    });
+    const backingBytes = [...container.querySelectorAll<HTMLCanvasElement>("[data-graphic-placement]")].reduce(
+      (total, canvas) => total + canvas.width * canvas.height * 4,
+      0,
     );
-    const backingBytes = [...container.querySelectorAll<HTMLCanvasElement>(
-      "[data-graphic-placement]",
-    )].reduce((total, canvas) => total + canvas.width * canvas.height * 4, 0);
     expect(backingBytes).toBe(RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP);
 
     rerender(surfaces(false));
     await waitFor(() => {
-      expect(getByTestId("second").querySelectorAll("[data-graphic-placement]"))
-        .toHaveLength(16);
+      expect(getByTestId("second").querySelectorAll("[data-graphic-placement]")).toHaveLength(16);
     });
   });
 
@@ -682,28 +652,26 @@ describe("RenderGraphics canvas resource policy", () => {
     const height = 1_024;
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width,
-        height,
-        format: "rgba",
-        data: zeroBytesBase64(width * height * 4),
-      }],
-      placements: Array.from(
-        { length: 16 },
-        (_, index) => placement(index + 1, width, height),
-      ),
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width,
+          height,
+          format: "rgba",
+          data: zeroBytesBase64(width * height * 4),
+        },
+      ],
+      placements: Array.from({ length: 16 }, (_, index) => placement(index + 1, width, height)),
     };
     const first = render(
       <RenderGraphics graphics={graphics}>
         <div>first app</div>
       </RenderGraphics>,
     );
-    await waitFor(
-      () => expect(first.container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16),
-      { timeout: 5_000 },
-    );
+    await waitFor(() => expect(first.container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16), {
+      timeout: 5_000,
+    });
 
     const second = render(
       <RenderGraphics graphics={graphics}>
@@ -711,10 +679,9 @@ describe("RenderGraphics canvas resource policy", () => {
       </RenderGraphics>,
     );
 
-    await waitFor(
-      () => expect(second.container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16),
-      { timeout: 5_000 },
-    );
+    await waitFor(() => expect(second.container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16), {
+      timeout: 5_000,
+    });
     expect(first.container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16);
   });
 
@@ -722,18 +689,17 @@ describe("RenderGraphics canvas resource policy", () => {
     const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width: 1,
-        height: 1,
-        format: "rgba",
-        data: "AAAAAA==",
-      }],
-      placements: Array.from(
-        { length: placementCount },
-        (_, index) => placement(index + 1, 1, 1),
-      ),
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: "AAAAAA==",
+        },
+      ],
+      placements: Array.from({ length: placementCount }, (_, index) => placement(index + 1, 1, 1)),
     };
 
     const { container } = render(
@@ -743,8 +709,7 @@ describe("RenderGraphics canvas resource policy", () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelectorAll("[data-graphic-placement]"))
-        .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
+      expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
     });
   });
 
@@ -752,18 +717,17 @@ describe("RenderGraphics canvas resource policy", () => {
     const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width: 1,
-        height: 1,
-        format: "rgba",
-        data: "AAAAAA==",
-      }],
-      placements: Array.from(
-        { length: placementCount },
-        (_, index) => placement(index + 1, 1, 1, index),
-      ),
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: "AAAAAA==",
+        },
+      ],
+      placements: Array.from({ length: placementCount }, (_, index) => placement(index + 1, 1, 1, index)),
     };
 
     const { container } = render(
@@ -773,11 +737,11 @@ describe("RenderGraphics canvas resource policy", () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelectorAll("[data-graphic-placement]"))
-        .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
+      expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
     });
-    const keys = [...container.querySelectorAll<HTMLElement>("[data-graphic-placement]")]
-      .map((canvas) => canvas.dataset.graphicPlacement);
+    const keys = [...container.querySelectorAll<HTMLElement>("[data-graphic-placement]")].map(
+      (canvas) => canvas.dataset.graphicPlacement,
+    );
     expect(keys[0]).toBe(`1:${placementCount - RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1}:0`);
     expect(keys.at(-1)).toBe(`1:${placementCount}:0`);
   });
@@ -787,14 +751,16 @@ describe("RenderGraphics canvas resource policy", () => {
     const duplicate = placement(1, 1, 1);
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width: 1,
-        height: 1,
-        format: "rgba",
-        data: "AAAAAA==",
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: "AAAAAA==",
+        },
+      ],
       placements: Array.from({ length: placementCount }, () => ({ ...duplicate })),
     };
 
@@ -805,8 +771,7 @@ describe("RenderGraphics canvas resource policy", () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelectorAll("[data-graphic-placement]"))
-        .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
+      expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
     });
   });
 
@@ -822,16 +787,18 @@ describe("RenderGraphics canvas resource policy", () => {
         requestedImages += request.images.length;
         setTimeout(() => {
           if (this.terminated) return;
-          this.onmessage?.(new MessageEvent("message", {
-            data: {
-              requestId: request.requestId,
-              results: request.images.map((image) => ({
-                id: image.id,
-                generation: image.generation,
-                pixels: null,
-              })),
-            },
-          }));
+          this.onmessage?.(
+            new MessageEvent("message", {
+              data: {
+                requestId: request.requestId,
+                results: request.images.map((image) => ({
+                  id: image.id,
+                  generation: image.generation,
+                  pixels: null,
+                })),
+              },
+            }),
+          );
         }, 0);
       }
 
@@ -843,14 +810,16 @@ describe("RenderGraphics canvas resource policy", () => {
     const decodedBytes = 10_000_000;
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width: decodedBytes / 4,
-        height: 1,
-        format: "rgba",
-        data: zeroBytesBase64(decodedBytes),
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width: decodedBytes / 4,
+          height: 1,
+          format: "rgba",
+          data: zeroBytesBase64(decodedBytes),
+        },
+      ],
       placements: [placement(1, 1, 1)],
     };
     const surfaceCount = Math.floor(RENDER_GRAPHIC_DECODED_BYTE_CAP / decodedBytes) + 1;
@@ -898,16 +867,18 @@ describe("RenderGraphics canvas resource policy", () => {
         const request = this.request;
         if (request === null) throw new Error("worker has no pending request");
         this.request = null;
-        this.onmessage?.(new MessageEvent("message", {
-          data: {
-            requestId: request.requestId,
-            results: request.images.map((image) => ({
-              id: image.id,
-              generation: image.generation,
-              pixels: null,
-            })),
-          },
-        }));
+        this.onmessage?.(
+          new MessageEvent("message", {
+            data: {
+              requestId: request.requestId,
+              results: request.images.map((image) => ({
+                id: image.id,
+                generation: image.generation,
+                pixels: null,
+              })),
+            },
+          }),
+        );
       }
 
       terminate(): void {
@@ -919,14 +890,16 @@ describe("RenderGraphics canvas resource policy", () => {
     vi.stubGlobal("Worker", PausedWorker);
     const graphics: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width: 1,
-        height: 1,
-        format: "rgba",
-        data: "AAAAAA==",
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: "AAAAAA==",
+        },
+      ],
       placements: [placement(1, 1, 1)],
     };
 
@@ -951,26 +924,30 @@ describe("RenderGraphics canvas resource policy", () => {
   it("cancels a superseded decode before publishing stale pixels", async () => {
     const first: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width: 1,
-        height: 1,
-        format: "rgba",
-        data: zeroBytesBase64(4),
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: zeroBytesBase64(4),
+        },
+      ],
       placements: [placement(1, 1, 1)],
     };
     const second: RenderGraphicsModel = {
       generation: 2n,
-      images: [{
-        id: 1,
-        generation: 2n,
-        width: 2,
-        height: 1,
-        format: "rgba",
-        data: zeroBytesBase64(8),
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 2n,
+          width: 2,
+          height: 1,
+          format: "rgba",
+          data: zeroBytesBase64(8),
+        },
+      ],
       placements: [placement(1, 2, 1)],
     };
     const { container, rerender } = render(
@@ -985,9 +962,7 @@ describe("RenderGraphics canvas resource policy", () => {
     );
 
     await waitFor(() => {
-      const canvases = container.querySelectorAll<HTMLCanvasElement>(
-        "[data-graphic-placement]",
-      );
+      const canvases = container.querySelectorAll<HTMLCanvasElement>("[data-graphic-placement]");
       expect(canvases).toHaveLength(1);
       expect(canvases[0]).toHaveAttribute("width", "2");
     });
@@ -1063,7 +1038,8 @@ describe("RenderGraphics canvas resource policy", () => {
       putImageData: vi.fn(),
     };
     vi.stubGlobal("ImageData", FakeImageData);
-    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext")
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
       .mockReturnValue(context as unknown as CanvasRenderingContext2D);
     const image = {
       id: 1,
@@ -1091,9 +1067,7 @@ describe("RenderGraphics canvas resource policy", () => {
         </RenderGraphics>,
       );
       await waitFor(() => expect(context.putImageData).toHaveBeenCalledTimes(1));
-      const canvas = container.querySelector<HTMLCanvasElement>(
-        "[data-graphic-placement]",
-      )!;
+      const canvas = container.querySelector<HTMLCanvasElement>("[data-graphic-placement]")!;
 
       rerender(
         <RenderGraphics graphics={second}>
@@ -1114,22 +1088,26 @@ describe("RenderGraphics canvas resource policy", () => {
     const placements = [placement(1, 1, 1)];
     const first: RenderGraphicsModel = {
       generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width: 1,
-        height: 1,
-        format: "rgba",
-        data: zeroBytesBase64(4),
-      }],
+      images: [
+        {
+          id: 1,
+          generation: 1n,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: zeroBytesBase64(4),
+        },
+      ],
       placements,
     };
     const second: RenderGraphicsModel = {
       generation: 2n,
-      images: [{
-        ...first.images[0]!,
-        generation: 2n,
-      }],
+      images: [
+        {
+          ...first.images[0]!,
+          generation: 2n,
+        },
+      ],
       placements,
     };
     const { container, rerender } = render(
@@ -1137,9 +1115,7 @@ describe("RenderGraphics canvas resource policy", () => {
         <div>terminal</div>
       </RenderGraphics>,
     );
-    await waitFor(
-      () => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(1),
-    );
+    await waitFor(() => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(1));
     const queueMicrotaskSpy = vi.spyOn(globalThis, "queueMicrotask");
     queueMicrotaskSpy.mockClear();
 

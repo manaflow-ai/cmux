@@ -125,6 +125,13 @@ class Attribute(unittest.TestCase):
         top, scores = mca.suspects([TWO], [MIRROR], files_of=lambda sha: FILES[sha], text_of=lambda sha: "")
         self.assertEqual((top, scores), ([], {TWO: 0}))
 
+    def test_a_single_unrelated_merge_is_unattributed(self):
+        # A known green base followed by one red merge is not enough to blame
+        # the merge when its diff cannot reach the failing source file.
+        _, _, breaks = attribute([TWO, ED], {TWO: states()[TWO], ED: states()[ED]})
+        self.assertFalse(breaks[0].confirmed)
+        self.assertEqual(breaks[0].culprits, [])
+
     def test_a_quoted_symbol_in_the_diff_scores_below_the_file(self):
         err = mca.CompileError("cmuxTests/A.swift", 1, "cannot find 'frameForZone' in scope")
         top, scores = mca.suspects([AD, TWO], [err], files_of=lambda sha: [],

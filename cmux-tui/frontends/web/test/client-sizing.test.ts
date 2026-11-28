@@ -1,12 +1,8 @@
 import type { ClientInfo } from "cmux/raw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { paneClientSummary } from "../src/lib/clientSizing";
 
-function client(
-  id: bigint,
-  size: { cols: number; rows: number } | null,
-  participating: boolean,
-): ClientInfo {
+function client(id: bigint, size: { cols: number; rows: number } | null, participating: boolean): ClientInfo {
   return {
     client: id,
     transport: "ws",
@@ -14,12 +10,14 @@ function client(
     kind: "web",
     connected_seconds: 1n,
     attached: [7n],
-    sizes: [{
-      surface: 7n,
-      cols: size?.cols ?? null,
-      rows: size?.rows ?? null,
-      size_participating: participating,
-    }],
+    sizes: [
+      {
+        surface: 7n,
+        cols: size?.cols ?? null,
+        rows: size?.rows ?? null,
+        size_participating: participating,
+      },
+    ],
     self: id === 1n,
   };
 }

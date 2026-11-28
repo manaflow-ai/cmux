@@ -180,6 +180,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import e2e_runner_pool  # noqa: E402
 import pr_runner_pool  # noqa: E402
+import simple_pool_picker  # noqa: E402
 
 SMALL_RUNNER = pr_runner_pool.DEFAULT_RUNNER
 # The capability label glaeda puts on runners of minis with an iOS simulator
@@ -751,6 +752,30 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--upload", default="", help="'true' for an App Store upload")
     parser.add_argument("--called", default="", help="'true' when another workflow called this one")
     args = parser.parse_args(argv)
+
+    # Simulator-aware runs with an Actions token retain the lane's capability
+    # accounting below. Plain automatic package/screenshot routing shares the
+    # common per-label rule.
+    if ((args.requested or "auto").strip() == "auto" and not args.ios_version
+            and not args.upload and not args.called
+            and not (env.get("ROUTE_TOKEN") or env.get("GH_TOKEN"))):
+        values = dict(env)
+        values.update({"CI_PR_POOL_OWNED": args.owned, "CI_OWNED_POOL_SLOTS": args.owned_slots,
+                       "CMUX_CI_XCODE_APP_PR": args.pr_xcode_app})
+        choice = simple_pool_picker.pick(simple_pool_picker.observe(
+            token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
+            repository=values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or "",
+            jobs=1, env=values, fork=args.fork == "true"))
+        label = choice.label or args.variable or SMALL_RUNNER
+        persistent = choice.owned and args.owned.strip() == "1" and args.ios_owned.strip() == "1"
+        lane_jobs = 1 if args.swift_package else (2 if args.lane == "test-ios" else 1)
+        for key, value in {"label": label, "retry_label": label if not persistent else SMALL_RUNNER,
+                           "runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
+                           "package_runs_on": json.dumps(label), "retry_runs_on": json.dumps(SMALL_RUNNER if persistent else label),
+                           "persistent": str(persistent).lower(), "jobs": str(lane_jobs),
+                           "sim_jobs": str(1 if persistent else 0)}.items():
+            print(f"{key}={value}")
+        return 0
 
     repo = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
     token = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN")

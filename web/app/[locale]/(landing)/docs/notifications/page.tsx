@@ -253,7 +253,7 @@ field() { printf '%s' "$payload" | jq -r "$1 // empty"; }
 event=$(field .hook_event_name)
 if [ "$event" = "Stop" ]; then
     cmux notify --title "Claude Code" --body "Session complete"
-elif [ "$event" = "PostToolUse" ] && [ "$(field .tool_name)" = "Task" ]; then
+elif [ "$event" = "SubagentStop" ]; then
     cmux notify --title "Claude Code" --body "Agent finished"
 fi`}</CodeBlock>
       <CodeBlock lang="bash">{`chmod +x ~/.claude/hooks/cmux-notify.sh`}</CodeBlock>
@@ -261,9 +261,8 @@ fi`}</CodeBlock>
       <DocsHeading level={3} id="configure-claude">{t("configureClaude")}</DocsHeading>
       <CodeBlock title="~/.claude/settings.json" lang="json">{`{
   "hooks": {
-    "PostToolUse": [
+    "SubagentStop": [
       {
-        "matcher": "Task",
         "hooks": [{ "type": "command", "command": "~/.claude/hooks/cmux-notify.sh" }]
       }
     ],

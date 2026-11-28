@@ -382,8 +382,22 @@ import Testing
 
 @Suite struct FlagTests {
     @Test func envOverrideWins() {
-        #expect(MobileDeviceListLocalFirst.resolved(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "1"], defaults: UserDefaults(suiteName: "flag-1")!, isDebugBuild: false).isEnabled)
-        #expect(!MobileDeviceListLocalFirst.resolved(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "0"], defaults: UserDefaults(suiteName: "flag-2")!, isDebugBuild: true).isEnabled)
+        let enabledDefaults = UserDefaults(suiteName: "flag-1")!
+        let disabledDefaults = UserDefaults(suiteName: "flag-2")!
+        // These suites are persistent across test-process launches. Clear them
+        // before use so a previous run cannot silently change the fallback that
+        // the environment override is supposed to supersede.
+        enabledDefaults.removePersistentDomain(forName: "flag-1")
+        disabledDefaults.removePersistentDomain(forName: "flag-2")
+        defer {
+            enabledDefaults.removePersistentDomain(forName: "flag-1")
+            disabledDefaults.removePersistentDomain(forName: "flag-2")
+        }
+        enabledDefaults.set(false, forKey: MobileDeviceListLocalFirst.defaultsKey)
+        disabledDefaults.set(true, forKey: MobileDeviceListLocalFirst.defaultsKey)
+
+        #expect(MobileDeviceListLocalFirst.resolved(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "1"], defaults: enabledDefaults, isDebugBuild: false).isEnabled)
+        #expect(!MobileDeviceListLocalFirst.resolved(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "0"], defaults: disabledDefaults, isDebugBuild: true).isEnabled)
     }
 
     @Test func debugDefaultsOnReleaseDefaultsOff() {

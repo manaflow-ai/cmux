@@ -32,21 +32,27 @@ impl Mux {
             current.commit_published_directory(None);
             return Ok(true);
         }
-        let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(true) };
-        let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(true) };
-        if durable.lifecycle != TerminalLifecycle::Running {
-            return Ok(true);
+        // A shell can report its first directory before the terminal's
+        // resource row commits or its launch settles. Keep the report pending
+        // until then; the reader, the public snapshot, and every topology
+        // commit retry it. Only an ended terminal settles without publishing.
+        let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(false) };
+        let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(false) };
+        match durable.lifecycle {
+            TerminalLifecycle::Running => {}
+            TerminalLifecycle::Launching | TerminalLifecycle::Adopting => return Ok(false),
+            TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned => return Ok(true),
         }
-        let topology = registry.resource_topology_snapshot()?;
-        let content_id = ContentPublicId::Terminal(id.clone());
-        let tabs =
-            terminal_tab_ids_in_canonical_order(
-                topology.tabs.iter().filter(|tab| tab.content_id == content_id).map(|tab| {
-                    (id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone())
-                }),
-            )
-            .remove(id)
-            .unwrap_or_default();
+        // Only this terminal's tab rows: a full topology read here made each
+        // cwd report O(session) under the registry lock.
+        let tabs = terminal_tab_ids_in_canonical_order(
+            registry
+                .resource_tabs_of_content(id.as_str())?
+                .into_iter()
+                .map(|tab| (id.clone(), tab.pane_id, tab.position, tab.public_id)),
+        )
+        .remove(id)
+        .unwrap_or_default();
         let mut value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
         let fields = value.as_object_mut().context("terminal snapshot is not an object")?;
         if let Some(directory) = &directory {
@@ -59,7 +65,7 @@ impl Mux {
         let deltas = serde_json::json!([{
             "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,
         }]);
-        let mutation = WorkspaceMutation::local("terminal.cwd");
+        let mutation = WorkspaceMutation::daemon_local("terminal.cwd");
         let commit = registry.commit_resource_patch(
             &mutation,
             "terminal.cwd",
@@ -70,11 +76,15 @@ impl Mux {
             &value,
             &deltas,
         )?;
+        if let Err(error) = registry.record_terminal_relaunch_cwd(&host_id, directory.as_deref()) {
+            eprintln!("cmux-tui: terminal {id} relaunch cwd failed: {error:#}");
+        }
         current.commit_published_directory(directory);
         state.resource_revision = commit.revision;
         drop(state);
         drop(registry);
         self.publish_resource_event();
+        self.emit_terminal_tabs_changed(id);
         Ok(true)
     }
 

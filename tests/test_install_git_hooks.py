@@ -45,11 +45,13 @@ class InstallGitHooksTests(unittest.TestCase):
             INSTALLER,
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
-            "scripts/ci/catch_up_pr.py",
+            "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/lint_swift_namespaces.py",
+            "scripts/swift_source_mask.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -62,8 +64,8 @@ class InstallGitHooksTests(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
                               text=True, capture_output=True, check=check)
 
-    def install(self, root=None):
-        return subprocess.run(["bash", INSTALLER], cwd=root or self.repo, env=self.env,
+    def install(self, root=None, *args):
+        return subprocess.run(["bash", INSTALLER, *args], cwd=root or self.repo, env=self.env,
                               text=True, capture_output=True)
 
     def local_hooks_path(self):
@@ -104,13 +106,13 @@ class InstallGitHooksTests(unittest.TestCase):
         installed = self.common_dir() / "cmux-merge-drivers"
         for name in ("merge-xcstrings.py", "merge-pbxproj.py", "normalize-pbxproj.py"):
             self.assertTrue((installed / name).is_file(), name)
-        self.assertTrue((installed / "ci" / "catch_up_pr.py").is_file())
+        self.assertTrue((installed / "ci" / "merge_main_resolver.py").is_file())
 
-        for key, name in (
-            ("merge.xcstrings-v2.driver", "merge-xcstrings.py"),
-            ("merge.xcstrings.driver", "merge-xcstrings.py"),
-            ("merge.pbxproj-v1.driver", "merge-pbxproj.py"),
-            ("merge.pbxproj.driver", "merge-pbxproj.py"),
+        for key, name, expected_args in (
+            ("merge.xcstrings-v2.driver", "merge-xcstrings.py", ["%O", "%A", "%B", "%P", "%L"]),
+            ("merge.xcstrings.driver", "merge-xcstrings.py", ["%O", "%A", "%B", "%P", "%L"]),
+            ("merge.pbxproj-v1.driver", "merge-pbxproj.py", ["%O", "%A", "%B", "%P"]),
+            ("merge.pbxproj.driver", "merge-pbxproj.py", ["%O", "%A", "%B", "%P"]),
         ):
             command = self.git("config", "--get", key).stdout.strip()
             words = shlex.split(command)
@@ -118,7 +120,7 @@ class InstallGitHooksTests(unittest.TestCase):
             self.assertFalse(Path(words[0]).resolve().is_relative_to(self.repo.resolve()))
             self.assertEqual(words[1], "-I")
             self.assertEqual(Path(words[2]).resolve(), (installed / name).resolve())
-            self.assertEqual(words[3:], ["%O", "%A", "%B", "%P"])
+            self.assertEqual(words[3:], expected_args)
             self.assertNotIn(f"scripts/{name}", command)
 
     def test_clean_clone_uses_trusted_hook_copies(self):
@@ -126,6 +128,22 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_trusted_hooks_installed()
         self.assert_merge_driver_installed()
+
+    def test_namespace_fix_option_installs_trusted_pre_push_hook(self):
+        result = self.install(None, "--namespace-fix")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = Path(self.local_hooks_path())
+        self.assertTrue((installed / "pre-push").is_file())
+        self.assertTrue(os.access(installed / "pre-push", os.X_OK))
+        self.assertTrue((installed / "lint_swift_namespaces.py").is_file())
+        self.assertTrue((installed / "swift_source_mask.py").is_file())
+        hook = (installed / "pre-push").read_text(encoding="utf-8")
+        self.assertNotIn("scripts/lint_swift_namespaces.py", hook)
+
+    def test_default_install_does_not_enable_namespace_fix_hook(self):
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((Path(self.local_hooks_path()) / "pre-push").exists())
 
     def test_installed_hooks_do_not_follow_checked_out_hook_changes(self):
         result = self.install()
@@ -206,6 +224,90 @@ class InstallGitHooksTests(unittest.TestCase):
 
         self.assertEqual(installed_driver.read_bytes(), reviewed)
         self.assertNotEqual(installed_driver.resolve(), (self.repo / "scripts" / "merge-pbxproj.py").resolve())
+
+    def commit_all(self, message):
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "-m", message)
+
+    def test_generated_web_bundles_keep_ours_and_sources_still_conflict(self):
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git("config", "--get", "merge.cmux-generated-v1.driver").stdout.strip(), "true")
+
+        pane = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"
+        chunk = self.repo / "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs"
+        source = self.repo / "webviews/src/App.tsx"
+        for path in (pane, chunk, source):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("base\n", encoding="utf-8")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        pane.write_text("lane build\n", encoding="utf-8")
+        chunk.write_text("lane chunk\n", encoding="utf-8")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        pane.write_text("main build\n", encoding="utf-8")
+        chunk.write_text("main chunk\n", encoding="utf-8")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+
+        # Both sides rebuilt the bundles: the merge finishes and keeps the lane's
+        # copies for scripts/cmux-next/regenerate-web-bundles.sh to replace.
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(pane.read_text(encoding="utf-8"), "lane build\n")
+        self.assertEqual(chunk.read_text(encoding="utf-8"), "lane chunk\n")
+
+        # The driver is scoped to the bundles: authored sources still conflict.
+        source.write_text("lane source\n", encoding="utf-8")
+        self.commit_all("lane source")
+        self.git("checkout", "--quiet", "main")
+        source.write_text("main source\n", encoding="utf-8")
+        self.commit_all("main source")
+        self.git("checkout", "--quiet", "lane")
+        conflicted = self.git("merge", "--no-edit", "main", check=False)
+        self.assertNotEqual(conflicted.returncode, 0)
+        unmerged = self.git("diff", "--name-only", "--diff-filter=U").stdout.split()
+        self.assertEqual(unmerged, ["webviews/src/App.tsx"])
+
+    def test_every_generated_web_output_keeps_ours(self):
+        """The bundles the agent pane build writes beside index.html, and the strings
+        tables the builds generate, collided on every feat-cmux-next move until each
+        PR rebuilt them by hand."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = [self.repo / path for path in (
+            "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/locales/en.js",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
+            "webviews/src/agent-session/acpmux/generated/strings.json",
+            "webviews/src/pages/settings/generated/strings.json",
+        )]
+        for path in outputs:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("base\n", encoding="utf-8")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        for path in outputs:
+            path.write_text("lane build\n", encoding="utf-8")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        for path in outputs:
+            path.write_text("main build\n", encoding="utf-8")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        for path in outputs:
+            self.assertEqual(path.read_text(encoding="utf-8"), "lane build\n", path)
 
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"

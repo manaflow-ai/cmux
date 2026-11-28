@@ -62,7 +62,7 @@ struct SSHPrivateKeyDecryption {
     func decrypt(_ blob: [UInt8], passphrase: String) throws -> [UInt8] {
         guard !blob.isEmpty, blob.count % spec.blockSize == 0 else { throw SSHPrivateKeyParseError.malformed }
 
-        let derived = kdf.derive(
+        let derived = try kdf.derive(
             password: Array(passphrase.utf8),
             salt: salt,
             keyLength: spec.keyLength + spec.ivLength

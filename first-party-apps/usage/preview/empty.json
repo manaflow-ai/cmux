@@ -1,0 +1,38 @@
+{
+  "grant": [
+    "account:read",
+    "account:write",
+    "notification:write",
+    "mcp:expose",
+    "actions:run"
+  ],
+  "scopes": {
+    "account.list": {
+      "scope": "account:read",
+      "class": "read"
+    },
+    "account.usage": {
+      "scope": "account:read",
+      "class": "read"
+    },
+    "account.refresh": {
+      "scope": "account:write",
+      "class": "mutation"
+    },
+    "app.settings.set": {
+      "scope": "settings:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "account.list": {
+      "schema_version": 1,
+      "fetched_at_ms": "1790947149397",
+      "sources": [],
+      "providers": {}
+    },
+    "account.usage": {
+      "snapshots": []
+    }
+  }
+}

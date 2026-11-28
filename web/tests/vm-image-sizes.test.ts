@@ -3,6 +3,7 @@ import {
   VM_IMAGE_SIZES,
   VM_IMAGE_SIZE_NAMES,
   pickVmImageSizeForMemory,
+  vcpusByMemoryMb,
   vmImageSize,
   vmImageSizeRank,
 } from "../services/vms/images/sizes";
@@ -150,5 +151,15 @@ describe("imageManifestProblems with sizes", () => {
     ]) {
       expect(problems.some((problem) => problem.includes(expected))).toBe(true);
     }
+  });
+});
+
+describe("vcpusByMemoryMb", () => {
+  test("labels each offered size with the vCPUs of the row it boots on", () => {
+    expect(vcpusByMemoryMb([4096, 8192, 16384, 24576, 32768, 65536])).toEqual({
+      "4096": 2, "8192": 4, "16384": 8, "24576": 12, "32768": 16, "65536": 32,
+    });
+    // An operator override between rows boots on the next row up; one above the ladder has no row.
+    expect(vcpusByMemoryMb([20480, 131072])).toEqual({ "20480": 12 });
   });
 });

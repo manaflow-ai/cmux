@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "../src/file-tree-refresh";
+import {
+  applyPierreFileTreeGitStatus,
+  planPierreFileTreeRefresh,
+  selectPierreFileTreePath,
+} from "../src/file-tree-refresh";
 
 describe("planPierreFileTreeRefresh", () => {
   test("appends suffix paths from the same streaming source", () => {

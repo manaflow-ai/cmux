@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{MessageWriter, Mux, Response, send_response};
+use super::{Command, MessageWriter, Mux, Response, send_response};
 use crate::resource::TerminalPublicId;
 
 const DEADLINE: Duration = Duration::from_secs(5);
@@ -128,6 +128,36 @@ impl URLRequests {
         let mut state = self.0.lock().unwrap();
         state.subscribers.remove(&client);
         state.pending.retain(|_, pending| pending.client != client);
+    }
+}
+
+impl MessageWriter {
+    fn send_url_open(&self, request_id: &str, terminal_id: &str, url: &str) -> std::io::Result<()> {
+        self.send_control(&json!({
+            "event": "url-open", "request_id": request_id, "terminal_id": terminal_id, "url": url,
+        }))
+    }
+}
+
+/// The frontend side: `url-open-subscribe`, `url-open-claim` and
+/// `url-open-result`.
+pub(super) fn handle(
+    mux: &Mux,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+) -> anyhow::Result<Value> {
+    let opens = &mux.control_clients.url_opens;
+    match cmd {
+        Command::UrlOpenSubscribe { terminal_ids } => {
+            opens.subscribe(client, terminal_ids, writer.clone())?;
+            Ok(json!({"url_open_ready": true}))
+        }
+        Command::UrlOpenClaim { request_id } => Ok(json!({"claimed": opens.claim(&request_id)})),
+        Command::UrlOpenResult { request_id, opened } => {
+            Ok(json!({"accepted": opens.complete(&request_id, opened)}))
+        }
+        _ => anyhow::bail!("not a URL opener command"),
     }
 }
 

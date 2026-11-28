@@ -117,6 +117,18 @@ def _build_signed_request(
     return urllib.request.Request(url, data=request_body, headers=request_headers, method=method)
 
 
+class ImmutableConflict(RuntimeError):
+    """An immutable object exists with other bytes. Never retry: report it."""
+
+
+def _report_immutable_conflict(error: ImmutableConflict) -> None:
+    # The GitHub annotation title is the contract with the cmux-tui artifacts
+    # retry workflow (scripts/ci/cmux_tui_artifacts_retry.py): it never reruns
+    # a run that has it, because a rebuild is not byte-identical.
+    print(f"::error title=immutable-r2-conflict::{error} (a retry cannot fix this; "
+          "publish from a new commit, or repair the object deliberately)", flush=True)
+
+
 def _read_existing_object(
     args: argparse.Namespace,
     *,
@@ -139,7 +151,7 @@ def _read_existing_object(
         existing = response.read()
     actual_digest = hashlib.sha256(existing).hexdigest()
     if actual_digest != expected_digest:
-        raise RuntimeError(
+        raise ImmutableConflict(
             f"immutable R2 object already exists with a different SHA-256: "
             f"{args.key} expected={expected_digest} actual={actual_digest}"
         )
@@ -229,12 +241,16 @@ def main() -> int:
                     print(f"Already present with matching digest: s3://{args.bucket}/{args.key}")
                     return 0
             except (urllib.error.HTTPError, RuntimeError) as retry_error:
+                if isinstance(retry_error, ImmutableConflict):
+                    _report_immutable_conflict(retry_error)
                 sys.stderr.write(f"R2 immutable-object check failed: {retry_error}\n")
                 return 1
         sys.stderr.write(f"R2 upload failed: HTTP {error.code} {error.reason}\n")
         sys.stderr.write(error.read().decode("utf-8", errors="replace"))
         return 1
     except (OSError, RuntimeError) as error:
+        if isinstance(error, ImmutableConflict):
+            _report_immutable_conflict(error)
         sys.stderr.write(f"R2 upload failed: {error}\n")
         return 1
 

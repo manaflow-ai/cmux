@@ -337,13 +337,10 @@ fn creation_correlation(params: Params, correlation_key: Option<String>) -> Resu
 }
 
 pub(crate) fn create_workspace(options: CreateWorkspaceOptions) -> Result<Params> {
-    let params = Params::new().optional_string(field::NAME, options.name).string(
-        field::INITIAL_CONTENT,
-        match options.initial_content {
-            InitialContent::Terminal => "terminal",
-            InitialContent::Empty => "empty",
-        },
-    );
+    let params = Params::new()
+        .optional_string(field::NAME, options.name)
+        .string(field::INITIAL_CONTENT, options.initial_content.wire_name())
+        .optional_bool("ephemeral", options.ephemeral.then_some(true));
     creation_correlation(params, options.correlation_key)
 }
 

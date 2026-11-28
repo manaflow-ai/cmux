@@ -39,6 +39,14 @@ class TestboxBrokerGuardTests(unittest.TestCase):
             if BEGIN_TESTBOX in str(step.get("uses", ""))
         )
 
+    def test_guard_is_dispatch_only(self) -> None:
+        # The trust-boundary checks run in the routed CI guard matrix. Keep
+        # this workflow available for an explicit diagnostic run without
+        # spending a Blacksmith job on every pull request and main push.
+        guard_document = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+        triggers = guard_document[True]
+        self.assertEqual(list(triggers), ["workflow_dispatch"])
+
     def test_only_manual_dispatch_with_no_candidate_selector(self) -> None:
         # yaml.safe_load turns a bare `on:` key into True.
         triggers = self.document[True]
@@ -108,12 +116,12 @@ class TestboxBrokerGuardTests(unittest.TestCase):
         self.assertTrue(script.is_file())
         self.assertIn("/tmp/.testbox", script.read_text(encoding="utf-8"))
 
-    def test_always_on_guard_uses_runner_python_without_setup_action(self) -> None:
+    def test_diagnostic_guard_uses_runner_python_without_setup_action(self) -> None:
         document = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
         steps = document["jobs"]["guard"]["steps"]
         self.assertFalse(
             any("actions/setup-python" in str(step.get("uses", "")) for step in steps),
-            "the always-on guard must not download setup-python on every PR",
+            "the diagnostic guard must not download setup-python",
         )
         prepare = next(step for step in steps if step.get("name") == "Prepare guard Python")
         self.assertIn("python3 -m venv", prepare["run"])

@@ -751,6 +751,48 @@ impl TreeDeltaKind {
                     )
                 )
 
+    def test_event_discovery_reads_the_conversation_owner_events(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            source = tui / "crates/cmux-tui-core/src"
+            source.mkdir(parents=True)
+            (source / "server.rs").write_text(
+                """\
+fn tree_delta_json() {
+    let _ = json!({"event": "tree-changed"});
+}
+"""
+            )
+            (source / "mux.rs").write_text(
+                """\
+impl TreeDeltaKind {
+    fn wire_name(&self) -> &str {
+        match self {
+            Self::WorkspaceAdded => "workspace-added",
+        }
+    }
+}
+"""
+            )
+            (source / "conversation_store.rs").write_text(
+                """\
+// json!({"event": "comment-only"})
+impl ConversationEvent {
+    pub(crate) fn wire_json(&self) -> Value {
+        match self {
+            Self::Changed { .. } => json!({"event": "conversation-changed", "rev": 1}),
+            Self::Typing { .. } => json!({"event": "conversation-typing", "on": true}),
+        }
+    }
+}
+"""
+            )
+
+            with patch.object(CHECKER, "TUI", tui):
+                names = CHECKER.event_names()
+            self.assertTrue({"conversation-changed", "conversation-typing"}.issubset(names))
+            self.assertNotIn("comment-only", names)
+
     def test_event_discovery_ignores_event_shaped_comments(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)

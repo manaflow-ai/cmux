@@ -17,7 +17,9 @@ test("viewer navigation shares smooth Vim and Emacs motions", () => {
     scrollHeight: { value: 2_400 },
   });
   const calls: Array<["to", ScrollToOptions]> = [];
-  viewer.scrollTo = ((options: ScrollToOptions) => { calls.push(["to", options]); }) as typeof viewer.scrollTo;
+  viewer.scrollTo = ((options: ScrollToOptions) => {
+    calls.push(["to", options]);
+  }) as typeof viewer.scrollTo;
 
   const dispose = CmuxViewerNavigation.install({
     target: dom.window.document,
@@ -63,7 +65,9 @@ test("viewer navigation leaves editable controls and unbound shortcuts alone", (
   dom = new JSDOM("<!doctype html><html><body><div id='viewer'></div><textarea id='editor'></textarea></body></html>");
   const viewer = dom.window.document.getElementById("viewer") as HTMLElement;
   let scrollCount = 0;
-  viewer.scrollTo = () => { scrollCount += 1; };
+  viewer.scrollTo = () => {
+    scrollCount += 1;
+  };
   const dispose = CmuxViewerNavigation.install({
     target: dom.window.document,
     getScroller: () => viewer,
@@ -75,7 +79,9 @@ test("viewer navigation leaves editable controls and unbound shortcuts alone", (
 
   const editor = dom.window.document.getElementById("editor")!;
   editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "j" }));
-  dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "d", ctrlKey: true }));
+  dom.window.document.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "d", ctrlKey: true }),
+  );
 
   expect(scrollCount).toBe(0);
   dispose();
@@ -89,7 +95,9 @@ test("direct viewer actions reset their smooth target after manual input", () =>
     scrollHeight: { value: 2_400 },
   });
   const tops: number[] = [];
-  viewer.scrollTo = ((options: ScrollToOptions) => { tops.push(Number(options.top)); }) as typeof viewer.scrollTo;
+  viewer.scrollTo = ((options: ScrollToOptions) => {
+    tops.push(Number(options.top));
+  }) as typeof viewer.scrollTo;
   const dispose = CmuxViewerNavigation.installManualInputReset({
     target: dom.window.document,
     getScroller: () => viewer,
@@ -115,7 +123,9 @@ test("programmatic jumps can reset a pending smooth target", () => {
     scrollHeight: { value: 2_400 },
   });
   const tops: number[] = [];
-  viewer.scrollTo = ((options: ScrollToOptions) => { tops.push(Number(options.top)); }) as typeof viewer.scrollTo;
+  viewer.scrollTo = ((options: ScrollToOptions) => {
+    tops.push(Number(options.top));
+  }) as typeof viewer.scrollTo;
 
   CmuxViewerNavigation.performAction("diffViewerScrollDown", viewer);
   viewer.scrollTop = 1_000;

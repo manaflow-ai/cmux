@@ -100,7 +100,7 @@ extension MobileTerminalRenderGridFrame {
             if allowScrollbackRequest,
                fullScrollbackTarget > 0,
                activeScreen == .primary,
-               scrollbackRows < min(fullScrollbackTarget, Int(min(historyRows ?? 0, UInt64(Int.max)))) {
+               scrollbackRows < min(fullScrollbackTarget, Int(clamping: historyRows ?? 0)) {
                 return .needsScrollback(rows: fullScrollbackTarget)
             }
             return .emit(frame: self, state: nextState)
@@ -135,7 +135,7 @@ extension MobileTerminalRenderGridFrame {
                   let nowRevision = rowSpaceRevision,
                   prevRevision == nowRevision,
                   nowHistory > prevHistory else { return 0 }
-            return Int(min(nowHistory - prevHistory, UInt64(Int.max)))
+            return Int(clamping: nowHistory - prevHistory)
         }()
 
         if historyGrowth > rows {
@@ -147,7 +147,9 @@ extension MobileTerminalRenderGridFrame {
             if allowScrollbackRequest, carried < min(missed, Self.maxBurstScrollbackRows) {
                 return .needsScrollback(rows: min(missed, Self.maxBurstScrollbackRows))
             }
-            let changedRows = Set((0..<rows).filter { !nextSignatures[$0].isEmpty })
+            let changedRows = Set(
+                nextSignatures.prefix(rows).enumerated().compactMap { $0.element.isEmpty ? nil : $0.offset }
+            )
             let deltaFrame = try filteredRows(
                 changedRows,
                 full: false,
@@ -166,16 +168,17 @@ extension MobileTerminalRenderGridFrame {
             // previous frame shifted up by the scrolled amount. Rows that
             // scrolled in at the bottom are blank after the shift, so only
             // non-blank content needs a repaint.
-            for index in 0..<(rows - scrolled)
-            where previous.rowSignatures[index + scrolled] != nextSignatures[index] {
+            // 0 < scrolled <= rows here (a larger growth returned above).
+            let shifted = zip(previous.rowSignatures.dropFirst(scrolled), nextSignatures.prefix(rows - scrolled))
+            for (index, pair) in shifted.enumerated() where pair.0 != pair.1 {
                 changedRows.insert(index)
             }
-            for index in (rows - scrolled)..<rows where !nextSignatures[index].isEmpty {
+            for (index, signature) in nextSignatures.prefix(rows).enumerated().dropFirst(rows - scrolled)
+            where !signature.isEmpty {
                 changedRows.insert(index)
             }
         } else {
-            let count = min(previous.rowSignatures.count, nextSignatures.count)
-            for index in 0..<count where previous.rowSignatures[index] != nextSignatures[index] {
+            for (index, pair) in zip(previous.rowSignatures, nextSignatures).enumerated() where pair.0 != pair.1 {
                 changedRows.insert(index)
             }
         }

@@ -21,10 +21,7 @@ on:
         default: "25"
         type: string
 
-permissions:
-  actions: write
-  contents: read
-  pull-requests: read
+permissions: {}
 
 # Scheduled and manually dispatched janitors share the same Actions control
 # plane.  Serialize them so a second inventory cannot race the first run's
@@ -35,7 +32,11 @@ concurrency:
 
 jobs:
   janitor:
-    runs-on: ubuntu-24.04 # github-hosted-required: trusted Actions control-plane token
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted Actions control-plane token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 15
     steps:
       - name: Check out trusted workflow code

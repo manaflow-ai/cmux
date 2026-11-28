@@ -64,51 +64,27 @@ file_summary() {
   fi
 }
 
-marker_summary() {
-  local path="$1"
-  local marker="$2"
-  if [[ -f "$path" ]]; then
-    if grep -Fq "$marker" "$path" 2>/dev/null; then
-      printf 'marker-present\n'
-    else
-      printf 'marker-missing\n'
-    fi
-  elif [[ -e "$path" ]]; then
-    printf 'non-regular\n'
-  else
-    printf 'missing\n'
-  fi
-}
-
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-skill_dir="$(cd -- "$script_dir/.." >/dev/null 2>&1 && pwd)"
-skills_root="$(cd -- "$skill_dir/.." >/dev/null 2>&1 && pwd)"
-settings_helper="$skills_root/cmux-settings/scripts/cmux-settings"
-if [[ ! -x "$settings_helper" && -x "$HOME/.agents/skills/cmux-settings/scripts/cmux-settings" ]]; then
-  settings_helper="$HOME/.agents/skills/cmux-settings/scripts/cmux-settings"
-elif [[ ! -x "$settings_helper" && -x "$HOME/.codex/skills/cmux-settings/scripts/cmux-settings" ]]; then
-  settings_helper="$HOME/.codex/skills/cmux-settings/scripts/cmux-settings"
-fi
-
 section "cmux diagnostics"
 printf 'date: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 printf 'shell: %s\n' "${SHELL:-unknown}"
 printf 'inside_cmux: '
-if [[ -n "${CMUX_WORKSPACE_ID:-}" || -n "${CMUX_SURFACE_ID:-}" ]]; then
+if [[ -n "${CMUX_TUI_TERMINAL_ID:-}" ]]; then
   printf 'yes\n'
 else
   printf 'no\n'
 fi
-printf 'cmux_workspace_id_set: %s\n' "$([[ -n "${CMUX_WORKSPACE_ID:-}" ]] && printf yes || printf no)"
-printf 'cmux_surface_id_set: %s\n' "$([[ -n "${CMUX_SURFACE_ID:-}" ]] && printf yes || printf no)"
-if [[ "${CMUX_SOCKET_PATH+x}" == "x" ]]; then
-  printf 'cmux_socket_path: %s (from CMUX_SOCKET_PATH)\n' "$(safe_path "$CMUX_SOCKET_PATH")"
-elif [[ "${CMUX_SOCKET+x}" == "x" ]]; then
-  printf 'cmux_socket_path: %s (from CMUX_SOCKET)\n' "$(safe_path "$CMUX_SOCKET")"
+printf 'cmux_tui_terminal_id_set: %s\n' "$([[ -n "${CMUX_TUI_TERMINAL_ID:-}" ]] && printf yes || printf no)"
+if [[ -n "${CMUX_TUI_SOCKET:-}" ]]; then
+  printf 'cmux_tui_socket: %s (from CMUX_TUI_SOCKET)\n' "$(safe_path "$CMUX_TUI_SOCKET")"
 else
-  printf 'cmux_socket_path: unset\n'
+  printf 'cmux_tui_socket: unset\n'
 fi
-printf 'cmux_socket_password_set: %s\n' "$([[ -n "${CMUX_SOCKET_PASSWORD:-}" ]] && printf yes || printf no)"
+if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+  printf 'cmux_app_socket: %s (from CMUX_SOCKET_PATH)\n' "$(safe_path "$CMUX_SOCKET_PATH")"
+else
+  printf 'cmux_app_socket: unset\n'
+fi
+printf 'cmux_tag: %s\n' "${CMUX_TAG:-unset}"
 
 section "cli"
 if command -v cmux >/dev/null 2>&1; then
@@ -118,11 +94,16 @@ if command -v cmux >/dev/null 2>&1; then
   else
     printf 'cmux_version: unavailable\n'
   fi
-  run_status "cmux_ping" cmux ping
-  run_status "cmux_capabilities" cmux capabilities --json
+  run_status "cmux_app_ping" cmux app ping
+  run_status "cmux_app_capabilities" cmux app capabilities
+  run_status "cmux_daemon_session_list" cmux session list
   if [[ "$include_context" -eq 1 ]]; then
-    printf 'identify_json:\n'
-    cmux identify --json 2>/dev/null || printf '  unavailable\n'
+    printf 'app_identify_json:\n'
+    cmux --json app identify 2>/dev/null || printf '  unavailable\n'
+    if [[ -n "${CMUX_TUI_TERMINAL_ID:-}" ]]; then
+      printf 'caller_terminal_json:\n'
+      cmux --json terminal "$CMUX_TUI_TERMINAL_ID" show 2>/dev/null || printf '  unavailable\n'
+    fi
   fi
 else
   printf 'cmux_path: missing\n'
@@ -133,52 +114,21 @@ printf 'cmux_json: '
 file_summary "$HOME/.config/cmux/cmux.json"
 printf 'legacy_settings_json: '
 file_summary "$HOME/.config/cmux/settings.json"
-if [[ -x "$settings_helper" ]]; then
-  run_status "cmux_settings_validate" "$settings_helper" validate
+if command -v cmux >/dev/null 2>&1; then
   printf 'auto_resume_agent_sessions: '
-  "$settings_helper" get terminal.autoResumeAgentSessions 2>/dev/null || printf 'default-or-unset\n'
-else
-  printf 'cmux_settings_helper: missing (%s)\n' "$(safe_path "$settings_helper")"
+  cmux settings get terminal.autoResumeAgentSessions 2>/dev/null || printf 'unavailable\n'
 fi
 
-section "hook configs"
-declare -a hook_checks=(
-  "codex:$HOME/.codex/hooks.json:cmux hooks codex"
-  "codex-config:$HOME/.codex/config.toml:codex_hooks"
-  "opencode-session:$HOME/.config/opencode/plugins/cmux-session.js:cmux hooks opencode"
-  "opencode-feed:$HOME/.config/opencode/plugins/cmux-feed.js:cmux hooks feed --source opencode"
-  "pi:$HOME/.pi/agent/extensions/cmux-session.ts:cmux hooks pi"
-  "amp:$HOME/.config/amp/plugins/cmux-session.ts:cmux hooks amp"
-  "cursor:$HOME/.cursor/hooks.json:cmux hooks cursor"
-  "gemini:$HOME/.gemini/settings.json:cmux hooks gemini"
-  "rovodev:$HOME/.rovodev/rovodev.yml:cmux hooks rovodev"
-  "hermes-agent:$HOME/.hermes/config.yaml:cmux hooks hermes-agent"
-  "copilot:$HOME/.copilot/settings.json:cmux hooks copilot"
-  "codebuddy:$HOME/.codebuddy/settings.json:cmux hooks codebuddy"
-  "factory:$HOME/.factory/settings.json:cmux hooks factory"
-  "qoder:$HOME/.qoder/settings.json:cmux hooks qoder"
-)
-for entry in "${hook_checks[@]}"; do
-  IFS=: read -r name path marker <<<"$entry"
-  printf '%s: %s ' "$name" "$(safe_path "$path")"
-  marker_summary "$path" "$marker"
-done
-
-section "session stores"
-shopt -s nullglob
-stores=("$HOME"/.cmuxterm/*-hook-sessions.json)
-if [[ "${#stores[@]}" -eq 0 ]]; then
-  printf 'session_store_files: none\n'
+section "agent hooks"
+if command -v cmux >/dev/null 2>&1; then
+  # Read-only: reports installed, partial or absent per provider.
+  cmux agent hook status 2>&1 | sed "s#$HOME#~#g" || printf 'agent_hook_status: failed\n'
 else
-  printf 'session_store_files: %s\n' "${#stores[@]}"
-  for path in "${stores[@]}"; do
-    printf '%s: ' "$(basename "$path")"
-    file_summary "$path"
-  done
+  printf 'agent_hook_status: cmux missing\n'
 fi
 
 section "agent binaries"
-for bin in claude codex opencode pi amp cursor-agent gemini rovo rovodev hermes-agent gh copilot codebuddy droid qodercli; do
+for bin in claude codex opencode pi amp cursor-agent gemini grok hermes omp campfire kiro-cli agy acli copilot codebuddy droid qodercli kimi; do
   if command -v "$bin" >/dev/null 2>&1; then
     printf '%s: present (%s)\n' "$bin" "$(safe_path "$(command -v "$bin")")"
   else

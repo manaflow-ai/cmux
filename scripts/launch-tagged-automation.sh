@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# shellcheck source=scripts/lib/stop-app-instances.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/stop-app-instances.sh"
 
 usage() {
   cat <<'EOF'
@@ -117,9 +119,8 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
-/usr/bin/osascript -e "tell application id \"${BID}\" to quit" >/dev/null 2>&1 || true
-sleep 0.5
-pkill -f "cmux DEV ${TAG}.app/Contents/MacOS/cmux DEV" || true
+cmux_stop_app_instances "$BID" "$APP/Contents/MacOS/cmux DEV" \
+  "$(dirname "$APP")/cmux DEV.app/Contents/MacOS/cmux DEV"
 rm -f "$SOCK" "$DSOCK"
 sleep 0.5
 

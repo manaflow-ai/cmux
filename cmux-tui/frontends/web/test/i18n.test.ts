@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { messages, t } from "../src/i18n";
 import { SUPPORTED_PROTOCOL } from "../src/lib/protocol";
 

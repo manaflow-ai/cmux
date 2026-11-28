@@ -77,18 +77,18 @@ extension V2ControlService {
     private func renewalHealthCheckFired(run: UUID) {
         renewalHealthTask = nil
         guard runID == run, status == .ready, !Task.isCancelled else { return }
-        let now = Int(dependencies.now().timeIntervalSince1970)
+        let now = unixSeconds
         var overdue: [String: String] = [:]
         if !cache.authorityRevoked,
            let refreshAfter = cache.relayCredentials.map(\.refreshAfter).min(),
-           now - refreshAfter > 300 {
-            overdue["relay_overdue_s"] = String(now - refreshAfter)
+           now.saturatingSubtraction(refreshAfter) > 300 {
+            overdue["relay_overdue_s"] = String(now.saturatingSubtraction(refreshAfter))
             let expires = cache.relayCredentials.map(\.expiresAt).max() ?? now
-            overdue["relay_expires_in_s"] = String(expires - now)
+            overdue["relay_expires_in_s"] = String(expires.saturatingSubtraction(now))
         }
         if !cache.authorityRevoked, let ticket = cache.ticket,
-           now - ticket.refreshAfter > 300 {
-            overdue["ticket_overdue_s"] = String(now - ticket.refreshAfter)
+           now.saturatingSubtraction(ticket.refreshAfter) > 300 {
+            overdue["ticket_overdue_s"] = String(now.saturatingSubtraction(ticket.refreshAfter))
         }
         if overdue.isEmpty {
             scheduleRenewalHealthCheck(run: run)
@@ -105,7 +105,7 @@ extension V2ControlService {
             let now = dependencies.now().timeIntervalSince1970
             let ticketRefreshAfter = cache.ticket?.refreshAfter
             let relayRefreshAfter = cache.relayCredentials.map(\.refreshAfter).min()
-            let directoryRefreshAfter = cache.directory.map { $0.permissionExpiresAt - 300 }
+            let directoryRefreshAfter = cache.directory.map { $0.permissionExpiresAt.saturatingSubtraction(300) }
             let ticketDue = due(ticketRefreshAfter, schema: "ticket.request.v1", now: now)
             let relayDue = due(relayRefreshAfter, schema: "relay.request.v1", now: now)
             let directoryDue = due(directoryRefreshAfter, schema: "directory.request.v1", now: now)
@@ -116,10 +116,10 @@ extension V2ControlService {
 #endif
             let next = min(ticketDue, relayDue, directoryDue, verificationDue)
             journal("maintenance-planned", [
-                "sleep_s": String(Int(max(0, next - now))),
-                "ticket_in_s": String(Int(ticketDue - now)),
-                "relay_in_s": String(Int(relayDue - now)),
-                "directory_in_s": String(Int(directoryDue - now)),
+                "sleep_s": max(0, next - now).journalInteger,
+                "ticket_in_s": (ticketDue - now).journalInteger,
+                "relay_in_s": (relayDue - now).journalInteger,
+                "directory_in_s": (directoryDue - now).journalInteger,
                 // A renewal pushed past its refresh time by a cooldown is
                 // otherwise invisible; name the deferred schemas explicitly.
                 "deferred": deferredSchemas(
@@ -182,7 +182,7 @@ extension V2ControlService {
     }
 
     private func due(_ timestamp: Int?, schema: String, now: TimeInterval) -> TimeInterval {
-        max(Double(timestamp ?? Int(now)), cooldowns[schema]?.timeIntervalSince1970 ?? 0, cooldowns[operation(schema)]?.timeIntervalSince1970 ?? 0)
+        max(timestamp.map(Double.init) ?? now.rounded(.towardZero), cooldowns[schema]?.timeIntervalSince1970 ?? 0, cooldowns[operation(schema)]?.timeIntervalSince1970 ?? 0)
     }
 
     /// Schemas whose next run is later than their own refresh time because a
@@ -199,7 +199,7 @@ extension V2ControlService {
             ("directory.request.v1", directory.0, directory.1),
         ]
         return wanted.compactMap { schema, refreshAfter, nextDue in
-            nextDue > Double(refreshAfter ?? Int(now)) ? schema : nil
+            nextDue > (refreshAfter.map(Double.init) ?? now.rounded(.towardZero)) ? schema : nil
         }
     }
 

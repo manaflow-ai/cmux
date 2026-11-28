@@ -202,6 +202,11 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 		resp["result"] = map[string]any{"ok": true}
 	case "surface.respawn":
 		resp["result"] = map[string]any{"ok": true}
+	case "surface.split":
+		resp["result"] = map[string]any{
+			"surface_id": "55555555-5555-4555-8555-555555555555",
+			"pane_id":    "66666666-6666-4666-8666-666666666666",
+		}
 	default:
 		resp["ok"] = false
 		resp["error"] = map[string]any{"code": "unsupported", "message": method}
@@ -210,6 +215,83 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 
 	payload, _ := json.Marshal(resp)
 	_, _ = conn.Write(append(payload, '\n'))
+}
+
+func TestTmuxSplitWindowCarriesHudMetadata(t *testing.T) {
+	t.Setenv("CMUX_OMX_CMUX_BIN", "/tmp/omx")
+	t.Setenv("CMUX_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111")
+	t.Setenv("CMUX_SURFACE_ID", "44444444-4444-4444-8444-444444444444")
+	t.Setenv("TMUX_PANE", "%"+tmuxStableNumericId("33333333-3333-4333-8333-333333333333"))
+	recorder := startTmuxCorpusRPCRecorder(t)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	err := dispatchTmuxCommand(rc, "split-window", []string{
+		"-h", "-l", "20", "-c", "/tmp/teammate", "omx", "hud", "--watch",
+	})
+	if err != nil {
+		t.Fatalf("split-window: %v", err)
+	}
+	requests := recorder.requestsFor("surface.split")
+	if len(requests) != 1 {
+		t.Fatalf("surface.split requests = %d, want 1", len(requests))
+	}
+	params := requests[0].Params
+	if got := params["working_directory"]; got != "/tmp/teammate" {
+		t.Errorf("working_directory = %q, want /tmp/teammate", got)
+	}
+	if got := params["tmux_start_command"]; got != "omx hud --watch" {
+		t.Errorf("tmux_start_command = %q, want raw command", got)
+	}
+	if got := params["initial_divider_position"]; got != 0.75 {
+		t.Errorf("initial_divider_position = %v, want 0.75", got)
+	}
+	startup, ok := params["initial_command"].(string)
+	if !ok || startup == "" {
+		t.Fatalf("initial_command = %v, want startup script path", params["initial_command"])
+	}
+	defer os.Remove(startup)
+	data, err := os.ReadFile(startup)
+	if err != nil {
+		t.Fatalf("read startup script: %v", err)
+	}
+	script := string(data)
+	if !strings.Contains(script, "rm -f -- \"$0\"") ||
+		!strings.Contains(script, "cd -- '/tmp/teammate'") ||
+		!strings.Contains(script, "omx hud --watch") {
+		t.Errorf("startup script does not preserve HUD command/cwd:\n%s", script)
+	}
+	if len(recorder.requestsFor("surface.send_text")) != 0 {
+		t.Error("HUD split should launch through initial_command, not type command after split")
+	}
+}
+
+func TestTmuxCommandLooksLikeHudRecognizesOMP(t *testing.T) {
+	t.Run("command word", func(t *testing.T) {
+		t.Setenv("CMUX_OMX_CMUX_BIN", "")
+		t.Setenv("CMUX_OMP_CMUX_BIN", "")
+		t.Setenv("CMUX_AGENT_LAUNCH_KIND", "")
+		if !tmuxCommandLooksLikeAgentHud([]string{"omp", "hud", "--watch"}) {
+			t.Fatal("omp hud command should use the startup path")
+		}
+	})
+
+	t.Run("launch marker", func(t *testing.T) {
+		t.Setenv("CMUX_OMX_CMUX_BIN", "")
+		t.Setenv("CMUX_OMP_CMUX_BIN", "")
+		t.Setenv("CMUX_AGENT_LAUNCH_KIND", "omp")
+		if !tmuxCommandLooksLikeAgentHud([]string{"hud", "--watch"}) {
+			t.Fatal("OMP launch marker should use the startup path")
+		}
+	})
+
+	t.Run("omp cmux marker", func(t *testing.T) {
+		t.Setenv("CMUX_OMX_CMUX_BIN", "")
+		t.Setenv("CMUX_AGENT_LAUNCH_KIND", "")
+		t.Setenv("CMUX_OMP_CMUX_BIN", "/tmp/omp")
+		if !tmuxCommandLooksLikeAgentHud([]string{"hud", "--watch"}) {
+			t.Fatal("OMP cmux marker should use the startup path")
+		}
+	})
 }
 
 func (r *tmuxCorpusRPCRecorder) methods() []string {

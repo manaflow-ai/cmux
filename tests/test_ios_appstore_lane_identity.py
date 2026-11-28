@@ -90,6 +90,7 @@ def _profile_plist(
             "aps-environment": "production",
             "com.apple.developer.usernotifications.time-sensitive": True,
             "com.apple.developer.applesignin": ["Default"],
+            "com.apple.developer.networking.networkextension": ["packet-tunnel-provider", "hotspot-provider"],
             "keychain-access-groups": [app_id],
         },
     }
@@ -529,6 +530,10 @@ if "-d" in args and "--entitlements" in args:
         if marker is not None and marker.exists()
         else entitlements_for_bundle(bundle_id)
     )
+    if bundle_id in (APPSTORE_BUNDLE_ID, BETA_BUNDLE_ID) and os.environ.get("CMUX_FAKE_HOST_MISSING_PACKET_TUNNEL") == "1":
+        entitlements.pop("com.apple.developer.networking.networkextension", None)
+    if bundle_id in (APPSTORE_BUNDLE_ID, BETA_BUNDLE_ID) and os.environ.get("CMUX_FAKE_HOST_HOTSPOT_PROVIDER") == "1":
+        entitlements.setdefault("com.apple.developer.networking.networkextension", []).append("hotspot-provider")
     sys.stdout.buffer.write(plist_bytes(entitlements))
     sys.exit(0)
 if "--force" in args:
@@ -803,6 +808,7 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
     repo = target / "repo"
     for relative in (
         "ios/scripts/upload-testflight.sh",
+        "ios/scripts/filter-ios-appstore-entitlements.py",
         "ios/scripts/notification-service-bundle-id.sh",
         "ios/Config/Shared.xcconfig",
         "ios/Config/cmux-release.entitlements",
@@ -1367,6 +1373,7 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
     env = _asc_upload_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
     env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
+    env["CMUX_TESTFLIGHT_NOTES_REQUEST_FILE"] = str(tmp / "testflight-notes-request.json")
     result = _run(
         [
             "bash",
@@ -1429,7 +1436,7 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
     )
     _check(
         len(list((Path(env["HOME"]) / "Library/MobileDevice/Provisioning Profiles").glob("*.mobileprovision"))) == 2,
-        "profile installer keeps distinct app and extension profile files",
+        "profile installer keeps distinct app and notification profile files",
     )
 
 
@@ -1460,6 +1467,127 @@ def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path
         f"IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME={APPSTORE_EXTENSION_PROFILE_NAME}" in github_env,
         "profile installer exports the fallback extension profile name",
     )
+
+
+def test_beta_profile_installer_requests_only_app_and_notification_profiles(
+    tmp: Path, fakebin: Path
+) -> None:
+    """Dry-run the TestFlight beta profile step against a recording fake asc.
+
+    The beta iOS app ships one app extension (NotificationService). The
+    installer must not ask App Store Connect for any other extension profile,
+    such as a retired `<bundle>.CloudVPN` packet-tunnel profile, even when a
+    stale caller still exports the old CloudVPN switch.
+    """
+    asc_bin = tmp / "asc-bin"
+    asc_bin.mkdir(parents=True, exist_ok=True)
+    cert_pem = tmp / "fixture-cert.pem"
+    cert_pem.write_text(ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER), encoding="utf-8")
+    serial = subprocess.run(
+        ["openssl", "x509", "-in", str(cert_pem), "-noout", "-serial"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip().split("=", 1)[1]
+    beta_extension_bundle_id = subprocess.run(
+        ["bash", str(ROOT / "ios" / "scripts" / "notification-service-bundle-id.sh"), BETA_BUNDLE_ID],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    # Every identifier ASC knows, including the retired CloudVPN one, so a
+    # lookup for it would succeed and be recorded instead of failing early.
+    registered = [
+        BETA_BUNDLE_ID,
+        beta_extension_bundle_id,
+        f"{BETA_BUNDLE_ID}.CloudVPN",
+    ]
+    _write_executable(
+        asc_bin / "asc",
+        f"""#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+Path(os.environ["CMUX_FAKE_ASC_LOG"]).open("a", encoding="utf-8").write(json.dumps(args) + "\\n")
+
+def after(flag):
+    return args[args.index(flag) + 1]
+
+if args[:2] == ["bundle-ids", "list"]:
+    print(json.dumps({{"data": [
+        {{"id": "bundle:" + identifier, "attributes": {{"identifier": identifier}}}}
+        for identifier in {registered!r}
+    ]}}))
+elif args[:2] == ["certificates", "list"]:
+    print(json.dumps({{"data": [{{"id": "cert-1", "attributes": {{"serialNumber": {serial!r}}}}}]}}))
+elif args[:2] == ["profiles", "list"]:
+    print(json.dumps({{"data": []}}))
+elif args[:2] == ["profiles", "create"]:
+    print(json.dumps({{"data": {{"id": "profile:" + after("--bundle")}}}}))
+elif args[:2] == ["profiles", "download"]:
+    Path(after("--output")).write_bytes(b"beta extension profile")
+else:
+    sys.exit(2)
+""",
+    )
+    env = _base_env(tmp, fakebin)
+    env["PATH"] = f"{asc_bin}{os.pathsep}{env['PATH']}"
+    env["RUNNER_TEMP"] = str(tmp / "runner")
+    env["HOME"] = str(tmp / "home")
+    env["GITHUB_ENV"] = str(tmp / "extension-env")
+    Path(env["RUNNER_TEMP"]).mkdir(parents=True, exist_ok=True)
+    env.pop("IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64", None)
+    env["ASC_KEY_ID"] = "KEY123"
+    env["ASC_ISSUER_ID"] = "ISSUER123"
+    env["ASC_PRIVATE_KEY_PATH"] = str(tmp / "AuthKey.p8")
+    # Same inputs as the ios-testflight.yml beta profile step.
+    env["IOS_APPSTORE_TEAM_ID"] = TEAM_ID
+    env["IOS_APPSTORE_BUNDLE_IDENTIFIER"] = BETA_BUNDLE_ID
+    env["IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER"] = beta_extension_bundle_id
+    env["IOS_APPSTORE_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"beta profile").decode()
+    env["IOS_APPSTORE_KEYCHAIN_NAME"] = "ios-testflight.keychain"
+    # A stale caller that still exports the retired switch must not bring the
+    # CloudVPN request back.
+    env["IOS_APPSTORE_ENABLE_CLOUD_VPN"] = "1"
+    result = _run(
+        ["bash", str(ROOT / ".github" / "scripts" / "install-app-store-provisioning-profile.sh")],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode == 0, "beta profile installer succeeds against the recording fake asc")
+    asc_calls = [
+        json.loads(line)
+        for line in (tmp / "asc.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    requested_bundles = [
+        call[call.index("--bundle") + 1].removeprefix("bundle:")
+        for call in asc_calls
+        if call[:2] == ["profiles", "create"]
+    ]
+    print(f"asc calls: {json.dumps(asc_calls)}")
+    print(f"bundle ids asked for a profile: {requested_bundles}")
+    _check(
+        requested_bundles == [beta_extension_bundle_id],
+        "beta profile installer asks ASC for exactly the NotificationService profile",
+    )
+    _check(
+        not any(bundle.endswith(".CloudVPN") for bundle in requested_bundles),
+        "beta profile installer never asks ASC for a <bundle>.CloudVPN profile",
+    )
+    _check(
+        not any("CloudVPN" in arg for call in asc_calls for arg in call),
+        "no ASC call mentions CloudVPN",
+    )
+    github_env = Path(env["GITHUB_ENV"]).read_text(encoding="utf-8")
+    _check(
+        "IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME=cmux Beta Notification Service Distribution"
+        in github_env,
+        "beta profile installer exports the NotificationService profile name",
+    )
+    _check("CLOUD_VPN" not in github_env, "beta profile installer exports no CloudVPN profile name")
 
 
 def test_validate_appstore_release_requires_numeric_app_id(tmp: Path, fakebin: Path) -> None:
@@ -1865,6 +1993,9 @@ def main() -> None:
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)
+        test_beta_profile_installer_requests_only_app_and_notification_profiles(
+            tmp / "beta-profile-asc-test", fakebin
+        )
         test_validate_appstore_release_requires_numeric_app_id(tmp / "validate-test", fakebin)
         test_validate_appstore_release_uses_device_screenshot_directories(
             tmp / "validate-screenshots-test", fakebin

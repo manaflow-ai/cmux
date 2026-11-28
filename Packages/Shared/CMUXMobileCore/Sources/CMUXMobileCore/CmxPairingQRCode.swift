@@ -233,7 +233,7 @@ public struct CmxPairingQRCode: Sendable {
         guard let raw = components.queryItems?.first(where: { $0.name == "v" })?.value else {
             return nil
         }
-        return Int(raw)
+        return Int(raw, radix: 10)
     }
 
     /// Whether `rawValue` is a supported plain pairing URL.
@@ -377,22 +377,17 @@ private extension CmxPairingQRCode {
         let host: Substring
         let portText: Substring
         if trimmed.hasPrefix("[") {
-            guard let closing = trimmed.firstIndex(of: "]"),
-                  closing > trimmed.startIndex else {
+            guard let bracketed = Substring(trimmed).bracketedHost, bracketed.rest.hasPrefix(":") else {
                 throw MobileSyncPairingPayloadError.invalidURL
             }
-            host = trimmed[trimmed.index(after: trimmed.startIndex)..<closing]
-            let afterBracket = trimmed.index(after: closing)
-            guard afterBracket < trimmed.endIndex, trimmed[afterBracket] == ":" else {
-                throw MobileSyncPairingPayloadError.invalidURL
-            }
-            portText = trimmed[trimmed.index(after: afterBracket)...]
+            host = bracketed.host
+            portText = bracketed.rest.dropFirst()
         } else {
-            guard let separator = trimmed.lastIndex(of: ":") else {
+            guard let split = Substring(trimmed).splitAtLastColon else {
                 throw MobileSyncPairingPayloadError.invalidURL
             }
-            host = trimmed[..<separator]
-            portText = trimmed[trimmed.index(after: separator)...]
+            host = split.head
+            portText = split.tail
         }
         guard !host.isEmpty, isPlainHost(String(host)) else {
             throw MobileSyncPairingPayloadError.invalidURL
@@ -410,10 +405,7 @@ private extension CmxPairingQRCode {
             (48...57).contains(byte)        // 0-9
                 || (65...90).contains(byte) // A-Z
                 || (97...122).contains(byte) // a-z
-                || byte == UInt8(ascii: ".")
-                || byte == UInt8(ascii: "-")
-                || byte == UInt8(ascii: "_")
-                || byte == UInt8(ascii: ":")
+                || ".-_:".utf8.contains(byte)
         }
     }
 
@@ -423,7 +415,7 @@ private extension CmxPairingQRCode {
 
     func queryInt(named name: String, in components: URLComponents) -> Int? {
         guard let value = queryValue(named: name, in: components) else { return nil }
-        return Int(value)
+        return Int(value, radix: 10)
     }
 
     func normalizedNonEmpty(_ value: String?) -> String? {

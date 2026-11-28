@@ -62,3 +62,10 @@ close only this service stream. Clients without the
 smart-renderer flag retain the existing parser-ordered CMTH snapshot and replay
 behavior, so mux control, process streams, legacy snapshots, and other
 transports remain compatible.
+
+The open metadata is `terminal` plus, on daemons that advertise
+`terminal-viewer-size-priority-v1`, an optional
+`"viewer_size_priority": "preferred"`. With it, the daemon's renderer
+negotiates terminal-host viewer-size priority when the host record supports it,
+so the grid follows this stream's size rather than the smallest attached
+viewer's. Any other key or value is rejected as `invalid-argument`.

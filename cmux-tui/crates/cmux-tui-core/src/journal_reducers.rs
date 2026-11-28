@@ -31,7 +31,11 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Version 2 added the agent adapter id to roster entries. Version 3
 /// added screen-detected events and hook/screen/socket arbitration. Version 5
 /// adds durable plugin-exit fences so late observations cannot resurrect rows.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 5;
+/// Version 6 folds hook events through the same per-terminal session fence as
+/// the hook projector, so a late event from an ended or superseded session
+/// cannot change a later session's roster state. The bump re-folds from the
+/// journal head so fences exist for every retained lifecycle.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 6;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -99,12 +103,15 @@ pub(crate) struct RosterEvent<'a> {
     pub(crate) kind: &'a str,
     pub(crate) subjects: &'a [JournalSubject],
     pub(crate) payload: &'a Value,
+    /// Journal sequence. Hook session fences order lifecycles by it.
+    pub(crate) sequence: u64,
     pub(crate) committed_at_ms: u64,
 }
 
 impl<'a> RosterEvent<'a> {
     pub(crate) fn from_record(record: &'a SessionJournalRecord) -> Self {
         Self {
+            sequence: record.sequence,
             producer_id: &record.producer.id,
             kind: &record.kind,
             subjects: &record.subjects,
@@ -290,6 +297,182 @@ fn fresh_hook(existing: u64, incoming: u64) -> bool {
     timestamp_is_current(existing, incoming) && incoming - existing < STALE_HOOK_MS
 }
 
+/// Session-less adapters get a local generation token. The journal sequence
+/// is durable and strictly increasing, so a new legacy lifecycle cannot reuse
+/// the previous fence identity after restart.
+pub(crate) fn legacy_hook_session_id(terminal_id: &str, sequence: u64) -> String {
+    format!("legacy:{terminal_id}:{sequence}")
+}
+
+/// When the hook helper observed a hook event (`normalized.observed_at_ms`,
+/// a decimal string stamped at invocation). Journal order says when an event
+/// arrived; this says when the agent emitted it, which is the only evidence
+/// that separates a late event of an ended incarnation from an event of a
+/// resumed incarnation that reuses the same session id. Events from older
+/// helpers and direct reports carry no stamp.
+pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
+    let value = payload.get("normalized")?.get("observed_at_ms")?;
+    decimal_string_u64(value)
+}
+
+/// Per-terminal hook session fence: the agent session that owns the
+/// terminal's hook state, the last journal sequence applied for it, whether
+/// that session ended, and when its latest incarnation ended. The hook
+/// projector (public agent rows) and the roster reducer (`list_agents`, the
+/// TUI, raw `agents`) both decide hook events with
+/// [`HookFence::journal_transition`] and build the next fence with
+/// [`HookFence::next`], so the two views accept and reject exactly the same
+/// events when they fold the journal in order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct HookFence {
+    pub(crate) session_id: String,
+    pub(crate) sequence: u64,
+    pub(crate) ended: bool,
+    /// Observed time of the latest end of `session_id` on this terminal. It
+    /// is the incarnation boundary: an event of this session observed at or
+    /// before it belongs to an ended incarnation, and a `SessionStart`
+    /// observed after it resumes the id as a new incarnation. It survives the
+    /// resume and resets when another session takes the terminal.
+    #[serde(default)]
+    pub(crate) ended_at_ms: Option<u64>,
+}
+
+pub(crate) enum JournalHookTransition {
+    Ignore,
+    Apply(String),
+}
+
+/// Outcome of a direct (socket/SDK) hook-source report against a fence.
+pub(crate) enum DirectHookTransition {
+    Continue,
+    /// A fresh session id follows an ended session: the fence restarts on it
+    /// and keeps its applied sequence.
+    Restart(String),
+}
+
+/// Why a direct hook-source report was rejected by the fence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DirectHookRejection {
+    SessionEnded,
+    SessionConflict,
+}
+
+impl DirectHookRejection {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::SessionEnded => "agent_session_ended",
+            Self::SessionConflict => "agent_session_conflict",
+        }
+    }
+}
+
+impl HookFence {
+    /// Decide one journal hook event. `explicit_session_id` is the adapter's
+    /// native session id; a session-less event continues the live legacy
+    /// generation or starts a new one keyed by its sequence.
+    /// `observed_at_ms` is [`hook_observed_at_ms`] of the event.
+    pub(crate) fn journal_transition(
+        current: Option<&Self>,
+        terminal_id: &str,
+        explicit_session_id: Option<&str>,
+        is_session_start: bool,
+        sequence: u64,
+        observed_at_ms: Option<u64>,
+    ) -> JournalHookTransition {
+        if explicit_session_id.is_none()
+            && current.is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
+        {
+            return JournalHookTransition::Ignore;
+        }
+        let session_id = explicit_session_id
+            .map(str::to_owned)
+            .or_else(|| {
+                (!is_session_start)
+                    .then(|| current.filter(|fence| !fence.ended))
+                    .flatten()
+                    .map(|fence| fence.session_id.clone())
+            })
+            .unwrap_or_else(|| legacy_hook_session_id(terminal_id, sequence));
+        let Some(fence) = current else { return JournalHookTransition::Apply(session_id) };
+        if sequence <= fence.sequence {
+            return JournalHookTransition::Ignore;
+        }
+        // Compare the event's observation with the fence's incarnation
+        // boundary. Unknown on either side proves nothing.
+        let after_end =
+            observed_at_ms.zip(fence.ended_at_ms).map(|(observed, ended)| observed > ended);
+        let observed_before_end = after_end == Some(false);
+        let observed_after_end = after_end == Some(true);
+        let accepted = if fence.session_id == session_id {
+            if fence.ended {
+                // Only a start resumes an ended id (`claude --resume`), and
+                // not one observed before that end: that start belongs to the
+                // ended incarnation.
+                is_session_start && !observed_before_end
+            } else {
+                // A live resumed incarnation rejects events its ended
+                // predecessor emitted before it ended.
+                !observed_before_end
+            }
+        } else if fence.ended {
+            // After a session ends, a start takes the terminal. So does an
+            // event with a native session id observed after that end: its
+            // session started without a start event reaching this fence, for
+            // example after a direct hook report restarted the projector.
+            is_session_start || (explicit_session_id.is_some() && observed_after_end)
+        } else {
+            false
+        };
+        if accepted {
+            JournalHookTransition::Apply(session_id)
+        } else {
+            JournalHookTransition::Ignore
+        }
+    }
+
+    /// The fence after applying an event of `session_id` at `sequence`. The
+    /// incarnation boundary carries over while the session keeps the
+    /// terminal, moves to the observed end when the event ends it, and resets
+    /// when another session takes the terminal.
+    pub(crate) fn next(
+        current: Option<&Self>,
+        session_id: String,
+        sequence: u64,
+        ended: bool,
+        observed_at_ms: Option<u64>,
+    ) -> Self {
+        let carried = current
+            .filter(|fence| fence.session_id == session_id)
+            .and_then(|fence| fence.ended_at_ms);
+        let ended_at_ms = if ended { observed_at_ms.or(carried) } else { carried };
+        Self { session_id, sequence, ended, ended_at_ms }
+    }
+
+    /// Decide one direct hook-source report. Internal hook markers are not
+    /// session identities.
+    pub(crate) fn direct_transition(
+        &self,
+        session_id: Option<&str>,
+    ) -> Result<DirectHookTransition, DirectHookRejection> {
+        let session_id = session_id.filter(|session_id| {
+            !session_id.is_empty()
+                && !session_id.starts_with("cmux-hook-sequence:")
+                && !session_id.starts_with("cmux-hook-ended:")
+        });
+        if self.ended {
+            let Some(session_id) = session_id.filter(|session_id| *session_id != self.session_id)
+            else {
+                return Err(DirectHookRejection::SessionEnded);
+            };
+            return Ok(DirectHookTransition::Restart(session_id.to_owned()));
+        }
+        if session_id != Some(self.session_id.as_str()) {
+            return Err(DirectHookRejection::SessionConflict);
+        }
+        Ok(DirectHookTransition::Continue)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RosterEntry {
     pub(crate) state: String,
@@ -353,6 +536,12 @@ pub(crate) struct AgentRoster {
     /// grows only when a configured producer is observed by the journal.
     #[serde(default)]
     plugin_exit_fences: HashMap<String, PluginExitFence>,
+    /// Hook session fences keyed by terminal public id. They decide hook
+    /// events and hook-source socket echoes exactly as the hook projector
+    /// does, so a late event from an ended or superseded session cannot
+    /// change a later session's roster state.
+    #[serde(default)]
+    hook_fences: HashMap<String, HookFence>,
 }
 
 impl AgentRoster {
@@ -423,60 +612,104 @@ impl AgentRoster {
             return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
-        let (state, source, producer, producer_generation, session, agent, updated_at_ms) =
-            if event.plugin_event() {
-                let Some(event_name) = event.plugin_event_name() else { return Vec::new() };
-                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                    return Vec::new();
-                };
-                if event_name != "state.changed" && event_name != "session.ended" {
-                    return Vec::new();
-                }
-                let updated_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
-                let producer_generation = event
-                    .normalized("plugin_generation")
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .map(|value| value.to_string());
-                let session = event.normalized("source_session").map(str::to_string);
-                let agent = event.adapter_id().map(str::to_string);
-                (
-                    if event_name == "session.ended" { AgentState::Done } else { state },
-                    AgentSource::Plugin,
-                    Some(event.producer_id.to_string()),
-                    producer_generation,
-                    session,
-                    agent,
-                    updated_at_ms,
-                )
-            } else if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
-                // Socket echo: explicit state and timestamp carried in the
-                // payload, so the roster mirrors the direct projection
-                // commit exactly. The reporter does not know the agent type.
-                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                    return Vec::new();
-                };
-                let source = event
-                    .normalized("source")
-                    .and_then(agent_source_from_str)
-                    .unwrap_or(AgentSource::Socket);
-                let updated_at_ms =
-                    event.normalized_u64("updated_at_ms").unwrap_or(event.committed_at_ms);
-                let session = event.normalized("source_session").map(str::to_string);
-                (state, source, None, None, session, None, updated_at_ms)
-            } else if event.native_event() == Some(LEGACY_SCREEN_DETECT_NATIVE_EVENT) {
-                // Screen detection: the daemon parsed the terminal tail.
-                // Explicit state like the socket echo, but the adapter is
-                // the detected agent and the source is `detected`.
-                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                    return Vec::new();
-                };
-                let agent = event.adapter_id().map(str::to_string);
-                (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
-            } else {
-                let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
-                let agent = event.adapter_id().map(str::to_string);
-                (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
+        let (state, source, producer, producer_generation, session, agent, updated_at_ms) = if event
+            .plugin_event()
+        {
+            let Some(event_name) = event.plugin_event_name() else { return Vec::new() };
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
             };
+            if event_name != "state.changed" && event_name != "session.ended" {
+                return Vec::new();
+            }
+            let updated_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
+            let producer_generation = event
+                .normalized("plugin_generation")
+                .and_then(|value| value.parse::<u64>().ok())
+                .map(|value| value.to_string());
+            let session = event.normalized("source_session").map(str::to_string);
+            let agent = event.adapter_id().map(str::to_string);
+            (
+                if event_name == "session.ended" { AgentState::Done } else { state },
+                AgentSource::Plugin,
+                Some(event.producer_id.to_string()),
+                producer_generation,
+                session,
+                agent,
+                updated_at_ms,
+            )
+        } else if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
+            // Socket echo: explicit state and timestamp carried in the
+            // payload, so the roster mirrors the direct projection
+            // commit exactly. The reporter does not know the agent type.
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
+            };
+            let source = event
+                .normalized("source")
+                .and_then(agent_source_from_str)
+                .unwrap_or(AgentSource::Socket);
+            let updated_at_ms =
+                event.normalized_u64("updated_at_ms").unwrap_or(event.committed_at_ms);
+            let session = event.normalized("source_session").map(str::to_string);
+            // A hook-source echo records a direct hook report the
+            // projector already accepted. Apply the projector's direct
+            // fence rule: a fresh session restarts an ended fence, and an
+            // echo for another session (a restated record) is ignored.
+            if source == AgentSource::Hook
+                && let Some(fence) = self.hook_fences.get(terminal_id)
+            {
+                match fence.direct_transition(session.as_deref()) {
+                    Err(_) => return Vec::new(),
+                    Ok(DirectHookTransition::Continue) => {}
+                    Ok(DirectHookTransition::Restart(session_id)) => {
+                        let restarted =
+                            HookFence::next(Some(fence), session_id, fence.sequence, false, None);
+                        self.hook_fences.insert(terminal_id.to_string(), restarted);
+                    }
+                }
+            }
+            (state, source, None, None, session, None, updated_at_ms)
+        } else if event.native_event() == Some(LEGACY_SCREEN_DETECT_NATIVE_EVENT) {
+            // Screen detection: the daemon parsed the terminal tail.
+            // Explicit state like the socket echo, but the adapter is
+            // the detected agent and the source is `detected`.
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
+            };
+            let agent = event.adapter_id().map(str::to_string);
+            (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
+        } else {
+            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            // The session fence shared with the hook projector decides
+            // whether this event belongs to the terminal's current
+            // session. It advances even when timestamp arbitration below
+            // keeps the existing entry, exactly like the projector.
+            let explicit_session_id =
+                event.normalized("agent_session_id").filter(|session_id| !session_id.is_empty());
+            let observed_at_ms = hook_observed_at_ms(event.payload);
+            let current = self.hook_fences.get(terminal_id);
+            let JournalHookTransition::Apply(session_id) = HookFence::journal_transition(
+                current,
+                terminal_id,
+                explicit_session_id,
+                event.kind == "agent.session.started",
+                event.sequence,
+                observed_at_ms,
+            ) else {
+                return Vec::new();
+            };
+            let next = HookFence::next(
+                current,
+                session_id,
+                event.sequence,
+                state == AgentState::Done,
+                observed_at_ms,
+            );
+            self.hook_fences.insert(terminal_id.to_string(), next);
+            let agent = event.adapter_id().map(str::to_string);
+            (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
+        };
         // Source arbitration: hook > screen > socket per terminal. Hook
         // events always win. Screen detection may not overwrite an entry a
         // live hook owns (fresher than STALE_HOOK_MS), and its exit removal
@@ -621,7 +854,9 @@ impl AgentRoster {
     /// tombstoned). Terminal lifecycle does not flow through `agent.*`
     /// events yet, so the host retires entries explicitly.
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str) -> bool {
-        self.entries.remove(terminal_id).is_some()
+        let entry = self.entries.remove(terminal_id).is_some();
+        let fence = self.hook_fences.remove(terminal_id).is_some();
+        entry || fence
     }
 
     fn record_plugin_exit_fence(
@@ -668,6 +903,13 @@ impl AgentRoster {
     pub(crate) fn restore(snapshot: &str) -> Option<Self> {
         let roster = serde_json::from_str::<Self>(snapshot).ok()?;
         if !roster.entries.values().all(valid_restored_entry) {
+            return None;
+        }
+        if !roster
+            .hook_fences
+            .values()
+            .all(|fence| !fence.session_id.is_empty() && !fence.session_id.contains('\0'))
+        {
             return None;
         }
         if !roster.plugin_exit_fences.iter().all(|(plugin_id, fence)| {
@@ -733,6 +975,7 @@ mod tests {
             kind,
             subjects,
             payload,
+            sequence,
             committed_at_ms: 1_000 + sequence,
         }
     }
@@ -768,6 +1011,106 @@ mod tests {
             vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Hook }]
         );
         assert!(roster.entries.is_empty());
+    }
+
+    fn session_payload(session_id: &str) -> Value {
+        json!({"normalized": {"agent_session_id": session_id}})
+    }
+
+    #[test]
+    fn journal_roster_ignores_hook_events_from_ended_or_superseded_sessions() {
+        let subjects = terminal_subject("term_a");
+        let old = session_payload("old");
+        let new = session_payload("new");
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&hook_event(1, "agent.session.ended", &subjects, &old));
+        roster.apply(&hook_event(2, "agent.session.started", &subjects, &new));
+        assert_eq!(roster.entries["term_a"].state, "idle");
+        // A late turn from the ended session is fenced out.
+        assert!(roster.apply(&hook_event(3, "agent.turn.started", &subjects, &old)).is_empty());
+        // So is a session-less event once a native session owns the terminal.
+        let sessionless = json!({});
+        assert!(
+            roster.apply(&hook_event(4, "agent.turn.started", &subjects, &sessionless)).is_empty()
+        );
+        // A replayed or reordered sequence cannot rewind the fence.
+        assert!(roster.apply(&hook_event(2, "agent.turn.started", &subjects, &new)).is_empty());
+        assert_eq!(roster.entries["term_a"].state, "idle");
+        assert_eq!(
+            roster.hook_fences["term_a"],
+            HookFence { session_id: "new".into(), sequence: 2, ended: false, ended_at_ms: None }
+        );
+
+        roster.apply(&hook_event(5, "agent.turn.started", &subjects, &new));
+        assert_eq!(roster.entries["term_a"].state, "working");
+        // The fence survives a snapshot round trip.
+        let restored = AgentRoster::restore(&roster.snapshot().to_string()).unwrap();
+        assert_eq!(restored.hook_fences, roster.hook_fences);
+    }
+
+    #[test]
+    fn journal_roster_hook_echo_restarts_an_ended_fence_like_the_projector() {
+        let subjects = terminal_subject("term_a");
+        let old = session_payload("old");
+        let echo = |session: &str| {
+            json!({
+                "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+                "normalized": {"state": "working", "source": "hook", "source_session": session},
+            })
+        };
+        let mut roster = AgentRoster::default();
+        roster.apply(&hook_event(1, "agent.session.ended", &subjects, &old));
+
+        // An echo that names the ended session cannot reopen it.
+        let stale = echo("old");
+        assert!(roster.apply(&hook_event(2, "agent.state.changed", &subjects, &stale)).is_empty());
+        assert!(roster.entries.is_empty());
+
+        let fresh = echo("new");
+        roster.apply(&hook_event(3, "agent.state.changed", &subjects, &fresh));
+        assert_eq!(roster.entries["term_a"].state, "working");
+        assert_eq!(
+            roster.hook_fences["term_a"],
+            HookFence { session_id: "new".into(), sequence: 1, ended: false, ended_at_ms: None }
+        );
+        let completed = session_payload("old");
+        assert!(
+            roster.apply(&hook_event(4, "agent.turn.completed", &subjects, &completed)).is_empty()
+        );
+        let completed = session_payload("new");
+        roster.apply(&hook_event(5, "agent.turn.completed", &subjects, &completed));
+        assert_eq!(roster.entries["term_a"].state, "idle");
+    }
+
+    #[test]
+    fn journal_roster_resume_without_observation_stamps_starts_a_new_incarnation() {
+        // Older hook helpers do not stamp observations. A same-id start after
+        // an end cannot be proven stale, so it resumes the session.
+        let subjects = terminal_subject("term_a");
+        let payload = session_payload("a");
+        let mut roster = AgentRoster::default();
+        roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload));
+        roster.apply(&hook_event(2, "agent.session.ended", &subjects, &payload));
+        assert!(roster.entries.is_empty());
+        assert!(roster.apply(&hook_event(3, "agent.turn.started", &subjects, &payload)).is_empty());
+        roster.apply(&hook_event(4, "agent.session.started", &subjects, &payload));
+        assert_eq!(roster.entries["term_a"].state, "idle");
+        assert_eq!(
+            roster.hook_fences["term_a"],
+            HookFence { session_id: "a".into(), sequence: 4, ended: false, ended_at_ms: None }
+        );
+    }
+
+    #[test]
+    fn journal_roster_retiring_a_terminal_drops_its_hook_fence() {
+        let subjects = terminal_subject("term_a");
+        let ended = session_payload("old");
+        let mut roster = AgentRoster::default();
+        roster.apply(&hook_event(1, "agent.session.ended", &subjects, &ended));
+        assert!(roster.entries.is_empty());
+        assert!(roster.retire_terminal("term_a"), "the fence alone must persist its removal");
+        assert!(roster.hook_fences.is_empty());
     }
 
     #[test]
@@ -838,6 +1181,7 @@ mod tests {
             kind,
             subjects,
             payload,
+            sequence: committed_at_ms,
             committed_at_ms,
         }
     }
@@ -1019,6 +1363,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects,
             payload: &working,
+            sequence: 1000,
             committed_at_ms: 1000,
         };
         let deltas = roster.apply(&event);
@@ -1031,6 +1376,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.session.ended",
             subjects: &subjects,
             payload: &ended,
+            sequence: 2000,
             committed_at_ms: 2000,
         };
         assert_eq!(
@@ -1065,6 +1411,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects,
             payload: &first_plugin_payload,
+            sequence: 39_000,
             committed_at_ms: 39_000,
         };
         assert!(roster.apply(&plugin).is_empty());
@@ -1093,6 +1440,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects,
             payload: &plugin_payload,
+            sequence: 50_000,
             committed_at_ms: 50_000,
         };
         assert!(roster.apply(&plugin).is_empty());
@@ -1121,6 +1469,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects,
             payload: &plugin_payload,
+            sequence: 20_000,
             committed_at_ms: 20_000,
         };
         assert!(roster.apply(&plugin).is_empty());
@@ -1152,6 +1501,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects_a,
             payload: &first,
+            sequence: 100,
             committed_at_ms: 100,
         });
         roster.apply(&RosterEvent {
@@ -1159,6 +1509,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects_b,
             payload: &second,
+            sequence: 300,
             committed_at_ms: 300,
         });
         let exit = json!({
@@ -1173,6 +1524,7 @@ mod tests {
             kind: "agent.plugin.exited",
             subjects: &[],
             payload: &exit,
+            sequence: 200,
             committed_at_ms: 200,
         });
         assert_eq!(
@@ -1209,6 +1561,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects,
             payload: &old_payload,
+            sequence: old_time,
             committed_at_ms: old_time,
         });
         roster.apply(&RosterEvent {
@@ -1216,6 +1569,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects,
             payload: &new_payload,
+            sequence: new_time,
             committed_at_ms: new_time,
         });
         let exit = json!({
@@ -1236,6 +1590,7 @@ mod tests {
                     kind: "agent.plugin.exited",
                     subjects: &[],
                     payload: &exit,
+                    sequence: 300,
                     committed_at_ms: 300,
                 })
                 .is_empty()
@@ -1267,6 +1622,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects,
             payload: &first,
+            sequence: 100,
             committed_at_ms: 100,
         });
         let exit = json!({
@@ -1286,6 +1642,7 @@ mod tests {
                 kind: "agent.plugin.exited",
                 subjects: &[],
                 payload: &exit,
+                sequence: 200,
                 committed_at_ms: 200,
             }),
             vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Plugin }]
@@ -1298,6 +1655,7 @@ mod tests {
                     kind: "plugin.screen_detector.agent.state.changed",
                     subjects: &subjects,
                     payload: &late,
+                    sequence: 300,
                     committed_at_ms: 300,
                 })
                 .is_empty()
@@ -1342,6 +1700,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects,
             payload: &old,
+            sequence: 100,
             committed_at_ms: 100,
         });
         let old_exit = exit("1", 200);
@@ -1350,6 +1709,7 @@ mod tests {
             kind: "agent.plugin.exited",
             subjects: &[],
             payload: &old_exit,
+            sequence: 200,
             committed_at_ms: 200,
         });
         let replacement = payload("2", 150);
@@ -1360,6 +1720,7 @@ mod tests {
                     kind: "plugin.screen_detector.agent.state.changed",
                     subjects: &subjects,
                     payload: &replacement,
+                    sequence: 300,
                     committed_at_ms: 300,
                 })
                 .len(),
@@ -1391,6 +1752,7 @@ mod tests {
                     kind: "plugin.screen_detector.agent.state.changed",
                     subjects: &subjects,
                     payload: &payload,
+                    sequence: 100,
                     committed_at_ms: 100,
                 })
                 .len(),
@@ -1411,6 +1773,7 @@ mod tests {
                     kind: "agent.plugin.exited",
                     subjects: &[],
                     payload: &exit,
+                    sequence: 200,
                     committed_at_ms: 200,
                 })
                 .is_empty()
@@ -1442,6 +1805,7 @@ mod tests {
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects,
             payload: &current,
+            sequence: 200,
             committed_at_ms: 200,
         });
         let old_timestamp = payload("2", "blocked", "100");
@@ -1452,6 +1816,7 @@ mod tests {
                     kind: "plugin.screen_detector.agent.state.changed",
                     subjects: &subjects,
                     payload: &old_timestamp,
+                    sequence: 300,
                     committed_at_ms: 300,
                 })
                 .is_empty()
@@ -1466,6 +1831,7 @@ mod tests {
                     kind: "plugin.screen_detector.agent.state.changed",
                     subjects: &subjects,
                     payload: &old_generation,
+                    sequence: 999,
                     committed_at_ms: 999,
                 })
                 .is_empty()
@@ -1499,6 +1865,7 @@ mod tests {
                 kind: "plugin.screen_detector.agent.state.changed",
                 subjects: &subjects,
                 payload: &payload,
+                sequence: 100,
                 committed_at_ms: 100,
             };
             let mut roster = AgentRoster::default();
@@ -1513,6 +1880,7 @@ mod tests {
                     kind: "plugin.screen_detector.agent.state.changed",
                     subjects: &subjects,
                     payload: &valid,
+                    sequence: 100,
                     committed_at_ms: 100,
                 })
                 .len(),

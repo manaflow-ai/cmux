@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Stress frame</title>
+<body style="margin:0">
+<script>
+// One frame of stress.html?kind=iframes: a button, and with `nest` a
+// cross-origin child frame.
+(() => {
+  const params = new URLSearchParams(location.search);
+  const i = params.get("i");
+  const nest = params.get("nest");
+  document.body.insertAdjacentHTML("beforeend", `<button type="button">Frame ${i}</button>`);
+  if (nest) document.body.insertAdjacentHTML("beforeend", `<iframe title="inner ${i}" style="width:60px;height:30px" src="${nest}/stress/frame.html?i=${i}.1"></iframe>`);
+})();
+</script>
+</body>

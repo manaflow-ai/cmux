@@ -273,6 +273,8 @@ function inputErrorCopy(error: PublicationInputError, language?: string | null):
         message: "port must be an integer between 1 and 65535.",
         action: "Pass the HTTP port listening inside the Cloud VM.",
       };
+    case "reserved_port":
+      return publicationApiCopy("reserved_port", language);
     case "team_required":
       return {
         message: "Team access requires a team id.",

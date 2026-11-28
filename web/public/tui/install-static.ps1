@@ -27,12 +27,20 @@ $Expected = $Manifest.binaries.$Artifact
 if (-not $Expected) {
     throw "cmux: $Artifact is unavailable for this release"
 }
+$Commit = [string]$Manifest.commit
+if ($Commit -notmatch '^[0-9a-f]{40}$') {
+    throw "cmux: manifest has no commit"
+}
+$ArtifactBaseUrl = $BaseUrl
+if ($ArtifactBaseUrl -match '/latest$') {
+    $ArtifactBaseUrl = $ArtifactBaseUrl.Substring(0, $ArtifactBaseUrl.Length - '/latest'.Length) + "/$Commit"
+}
 
 $Temporary = Join-Path ([System.IO.Path]::GetTempPath()) (
     "cmux-install-" + [System.Guid]::NewGuid().ToString("N") + ".exe"
 )
 try {
-    Invoke-WebRequest "$BaseUrl/$Artifact" -OutFile $Temporary
+    Invoke-WebRequest "$ArtifactBaseUrl/$Artifact" -OutFile $Temporary
     $Actual = (Get-FileHash $Temporary -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($Actual -ne $Expected.ToLowerInvariant()) {
         throw "cmux: checksum verification failed"

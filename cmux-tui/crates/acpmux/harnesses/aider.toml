@@ -1,0 +1,18 @@
+# A plain CLI/TUI without ACP: cmux runs it in a terminal tab (`cmux harness run aider`).
+# Install: python -m pip install aider-install && aider-install
+schema = 1
+id = "aider"
+name = "Aider"
+icon = "terminal"
+protocol = "terminal"
+command = "aider"
+
+[env]
+# The model key stays in the Keychain: cmux harness secret set aider OPENAI_API_KEY
+# OPENAI_API_KEY = { keychain = "cmux-harness/aider/OPENAI_API_KEY" }
+
+[auth]
+docs = "https://aider.chat/docs/install.html"
+
+[sessions]
+adapter = "aider"

@@ -7,9 +7,7 @@ export interface TerminalKeyEvent {
   isComposing?: boolean;
 }
 
-export type TerminalKeyAction =
-  | { kind: "text"; text: string }
-  | { kind: "key"; key: string };
+export type TerminalKeyAction = { kind: "text"; text: string } | { kind: "key"; key: string };
 
 const namedKeys: Record<string, string> = {
   Enter: "enter",

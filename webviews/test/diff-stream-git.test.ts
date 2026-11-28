@@ -38,7 +38,16 @@ test("production stream parser matches Git for real repository diff semantics", 
     expect(empty.treeSources).toEqual([]);
 
     git(repo, ["switch", "-qc", "feature"]);
-    await writeFile(join(repo, "modified.txt"), numberedLines(12, new Map([[2, "two changed"], [10, "ten changed"]])));
+    await writeFile(
+      join(repo, "modified.txt"),
+      numberedLines(
+        12,
+        new Map([
+          [2, "two changed"],
+          [10, "ten changed"],
+        ]),
+      ),
+    );
     await rm(join(repo, "delete.txt"));
     await rename(join(repo, "pure-old.txt"), join(repo, "pure-new.txt"));
     await rename(join(repo, "changed-old.txt"), join(repo, "changed-new.txt"));
@@ -221,17 +230,19 @@ function expectParsedSemantics(items: DiffItem[], oracle: GitFileSemantics[]): v
       status: pierreStatus(item.fileDiff.type),
     };
   });
-  expect(actual).toEqual(oracle.map((entry) => ({
-    added: entry.added ?? 0,
-    deleted: entry.deleted ?? 0,
-    oldPath: entry.oldPath,
-    path: entry.path,
-    status: entry.status,
-  })));
+  expect(actual).toEqual(
+    oracle.map((entry) => ({
+      added: entry.added ?? 0,
+      deleted: entry.deleted ?? 0,
+      oldPath: entry.oldPath,
+      path: entry.path,
+      status: entry.status,
+    })),
+  );
 }
 
 function normalizedPierreFile(fileDiff: any): unknown {
-  const normalizePath = (value: unknown) => typeof value === "string" ? decodeGitQuotedPath(value) : value;
+  const normalizePath = (value: unknown) => (typeof value === "string" ? decodeGitQuotedPath(value) : value);
   return {
     additionLines: fileDiff.additionLines,
     deletionLines: fileDiff.deletionLines,
@@ -263,15 +274,15 @@ function normalizedPierreFile(fileDiff: any): unknown {
 
 function pierreStatus(type: string): string {
   switch (type) {
-  case "new":
-    return "A";
-  case "deleted":
-    return "D";
-  case "rename-pure":
-  case "rename-changed":
-    return "R";
-  default:
-    return "M";
+    case "new":
+      return "A";
+    case "deleted":
+      return "D";
+    case "rename-pure":
+    case "rename-changed":
+      return "R";
+    default:
+      return "M";
   }
 }
 
@@ -327,5 +338,7 @@ async function parseProductionStream(
 }
 
 function numberedLines(count: number, replacements = new Map<number, string>()): string {
-  return Array.from({ length: count }, (_, index) => replacements.get(index + 1) ?? String(index + 1)).join("\n") + "\n";
+  return (
+    Array.from({ length: count }, (_, index) => replacements.get(index + 1) ?? String(index + 1)).join("\n") + "\n"
+  );
 }

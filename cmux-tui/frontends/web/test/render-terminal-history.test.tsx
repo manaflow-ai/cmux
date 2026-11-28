@@ -1,12 +1,7 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { useCallback } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  CmuxClient,
-  ReadScrollbackResult,
-  RenderAttachEvent,
-  RenderCursor,
-} from "cmux/raw";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import type { CmuxClient, ReadScrollbackResult, RenderAttachEvent, RenderCursor } from "cmux/raw";
 import { useRenderTerminal } from "../src/hooks/useRenderTerminal";
 
 class TestStream {
@@ -49,25 +44,28 @@ function Harness({ client }: { client: CmuxClient }) {
     active: true,
     onError,
   });
-  const hostRef = useCallback((node: HTMLDivElement | null) => {
-    if (node !== null) {
-      Object.defineProperty(node, "clientWidth", { configurable: true, value: 800 });
-      Object.defineProperty(node, "clientHeight", { configurable: true, value: 480 });
-      const probe = node.querySelector<HTMLElement>("[data-render-probe]")!;
-      probe.getBoundingClientRect = () => ({
-        width: 10,
-        height: 20,
-        x: 0,
-        y: 0,
-        top: 0,
-        right: 10,
-        bottom: 20,
-        left: 0,
-        toJSON: () => ({}),
-      });
-    }
-    terminalRef(node);
-  }, [terminalRef]);
+  const hostRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node !== null) {
+        Object.defineProperty(node, "clientWidth", { configurable: true, value: 800 });
+        Object.defineProperty(node, "clientHeight", { configurable: true, value: 480 });
+        const probe = node.querySelector<HTMLElement>("[data-render-probe]")!;
+        probe.getBoundingClientRect = () => ({
+          width: 10,
+          height: 20,
+          x: 0,
+          y: 0,
+          top: 0,
+          right: 10,
+          bottom: 20,
+          left: 0,
+          toJSON: () => ({}),
+        });
+      }
+      terminalRef(node);
+    },
+    [terminalRef],
+  );
 
   return (
     <div
@@ -123,7 +121,8 @@ describe("render terminal history", () => {
     const secondRead = new Promise<ReadScrollbackResult>((resolve) => {
       finishSecondRead = resolve;
     });
-    const readScrollback = vi.fn()
+    const readScrollback = vi
+      .fn()
       .mockResolvedValueOnce(page(1n))
       .mockReturnValueOnce(secondRead)
       .mockResolvedValueOnce(page(3n));

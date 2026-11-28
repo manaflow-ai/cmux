@@ -48,7 +48,7 @@ key() {
   inputs="$(
     {
       git ls-files -s -- '*Package.swift' 'cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'
-      # Submodule pointers, since the vendor/bonsplit manifest lives past one.
+      # Submodule pointers, since a vendored package manifest can live past one.
       git ls-files -s | awk '$1 == "160000"'
       shasum -a 256 "$SCRIPT_PATH" | cut -d' ' -f1
     } | shasum -a 256 | cut -c1-32

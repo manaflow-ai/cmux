@@ -1,0 +1,17 @@
+[package]
+name = "cmux-mobile-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Sans-I/O logic shared by the cmux iOS and Android apps (plans/cmux-next/mobile-rust-core.md)"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-terminal-sizing.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

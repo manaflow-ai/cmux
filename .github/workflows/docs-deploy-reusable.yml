@@ -34,6 +34,7 @@ jobs:
           # Vercel reloads config from the linked project's web root.
           cp web/vercel.docs-channel.json web/vercel.json
           bunx vercel@56.3.1 deploy --prod --yes \
+            --archive=tgz \
             --build-env "CMUX_DOCS_CHANNEL=$DOCS_CHANNEL" \
             --env "CMUX_DOCS_CHANNEL=$DOCS_CHANNEL"
         env:

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1, "version": "1.0.0-nightly.8", "channel": "nightly", "date": "2026-10-07",
+  "headline": {"en": "Small fixes"},
+  "entries": [
+    {"id": "orphan", "category": "fixed", "title": {"en": "A fix you cannot find"},
+     "summary": {"en": "Nothing tells you where to look."}, "platforms": ["macos"], "audience": "all"}
+  ]
+}

@@ -47,12 +47,13 @@ public enum AppChannelSwitchTarget: String, Sendable, CaseIterable, Equatable {
     /// Stable uses the `cmux-macos.dmg` asset of the release the stable Sparkle feed points at.
     ///
     /// - Parameter architecture: The machine architecture; nightly ships one DMG per architecture.
-    public func downloadURL(architecture: UpdateHostArchitecture = .current) -> URL {
+    /// - Returns: The DMG URL; `nil` only if a constant failed to parse (a test pins that both parse).
+    public func downloadURL(architecture: UpdateHostArchitecture = .current) -> URL? {
         let string = switch self {
         case .stable: UpdateManualDownloadRecovery.stableDownloadURLString
         case .nightly: UpdateManualDownloadRecovery.nightlyDownloadURLString(for: architecture)
         }
         // Both are compile-time constant https URLs.
-        return URL(string: string)!
+        return URL(string: string)
     }
 }

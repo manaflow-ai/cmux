@@ -15,6 +15,7 @@ pub mod error;
 pub mod fingerprint;
 pub mod journal_forwarder;
 pub mod pairing;
+mod preview_access;
 pub mod preview_proxy;
 pub mod prompt;
 pub mod pty;

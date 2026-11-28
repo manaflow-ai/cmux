@@ -1,0 +1,28 @@
+[package]
+name = "cmux-remote-browser-testhost"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Test-only remote browser tab host: synthetic H.264 frames over cmux.rd/1 (service rb/1) on loopback, so the Mac client is proven before the real host lands (never shipped)"
+
+# Own workspace: a test tool with a source-built OpenH264 (tests only, never a
+# shipped binary; remote-desktop-c7.md section 4). The cmux-tui Cargo.lock does
+# not change.
+[workspace]
+
+[dependencies]
+cmux-encode = { path = "../cmux-encode", features = ["openh264-source"] }
+cmux-rd-core = { path = "../cmux-rd-core" }
+cmux-rd-engine = { path = "../cmux-rd-engine" }
+cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
+serde_json = "1"
+
+[dev-dependencies]
+# The viewer core the Mac client links (stream carrier, reassembly), so the
+# loopback test reads frames exactly as the app does.
+cmux-rd-ffi = { path = "../cmux-rd-ffi" }
+
+[lints.rust]
+unsafe_code = "forbid"

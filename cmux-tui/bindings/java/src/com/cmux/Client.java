@@ -2647,13 +2647,36 @@ public final class Client implements AutoCloseable {
             "layout column",
             "column_id",
             Wire.WIDTH,
-            "root"
+            "root",
+            "dock",
+            "sticky"
         );
+        // `sticky` is the pre-R87 name of `dock`: a replayed or older
+        // result still decodes; `dock` wins when both are present.
+        Object dock = fields.containsKey("dock") ? fields.get("dock") : fields.get("sticky");
         return new Layout.Column(
             requiredExactId(fields, "column_id", Ids.SplitId::new),
             finiteDouble(fields.get(Wire.WIDTH), "layout column width"),
-            decodeLayoutNode(fields.get("root"))
+            decodeLayoutNode(fields.get("root")),
+            decodeLayoutColumnDock(dock)
         );
+    }
+
+    /** An omitted or null flag is empty (the column scrolls). */
+    private static Optional<Layout.Dock> decodeLayoutColumnDock(Object value) {
+        if (value == null) {
+            return Optional.empty();
+        }
+        Map<String, Object> fields = Wire.object(value, "layout column dock");
+        requireExactFields(fields, "layout column dock", "edge", "mode");
+        try {
+            return Optional.of(new Layout.Dock(
+                Wire.string(fields.get("edge"), "layout column dock edge"),
+                Wire.string(fields.get("mode"), "layout column dock mode")
+            ));
+        } catch (IllegalArgumentException error) {
+            throw new ProtocolError(error.getMessage());
+        }
     }
 
     static ResourceSnapshot decodeResourceSnapshot(Object value) {

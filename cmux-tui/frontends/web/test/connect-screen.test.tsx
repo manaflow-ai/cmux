@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { ConnectScreen } from "../src/components/ConnectScreen";
 
 describe("ConnectScreen", () => {
@@ -19,11 +19,7 @@ describe("ConnectScreen", () => {
   });
 
   it("honors a one-tap socket query and token fragment, then removes both", () => {
-    window.history.replaceState(
-      {},
-      "",
-      "/?ws=wss%3A%2F%2Fexample.test%3A8443#view=docs%2Fintro&token=one-tap&section",
-    );
+    window.history.replaceState({}, "", "/?ws=wss%3A%2F%2Fexample.test%3A8443#view=docs%2Fintro&token=one-tap&section");
     const onConnect = vi.fn();
     render(<ConnectScreen connecting={false} error={null} pairing={null} onConnect={onConnect} />);
     expect(screen.getByLabelText("WebSocket URL")).toHaveValue("wss://example.test:8443");
@@ -41,12 +37,14 @@ describe("ConnectScreen", () => {
   });
 
   it("shows the comparison code while the TUI decision is pending", () => {
-    render(<ConnectScreen
-      connecting={false}
-      error={null}
-      pairing={{ id: 7n, code: "123 456", peer: "127.0.0.1", expiresIn: 60 }}
-      onConnect={vi.fn()}
-    />);
+    render(
+      <ConnectScreen
+        connecting={false}
+        error={null}
+        pairing={{ id: 7n, code: "123 456", peer: "127.0.0.1", expiresIn: 60 }}
+        onConnect={vi.fn()}
+      />,
+    );
     expect(screen.getByRole("status")).toHaveTextContent("123 456");
     expect(screen.getByRole("button", { name: "Waiting for approval…" })).toBeDisabled();
   });

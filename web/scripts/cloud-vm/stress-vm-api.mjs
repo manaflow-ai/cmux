@@ -29,13 +29,13 @@ const { StackServerApp } = stackModule;
 const env = loadTargetEnv(project);
 requireEnvKeys(env, [
   "NEXT_PUBLIC_STACK_PROJECT_ID",
-  "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
   "STACK_SECRET_SERVER_KEY",
 ], `${project.projectName} stress`);
 
 const stack = new StackServerApp({
   projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
-  publishableClientKey: env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
+  // Optional: the production project requires no publishable key.
+  ...(env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim() ? { publishableClientKey: env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY.trim() } : {}),
   secretServerKey: env.STACK_SECRET_SERVER_KEY,
 });
 

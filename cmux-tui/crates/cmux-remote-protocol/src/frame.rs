@@ -121,10 +121,12 @@ impl SessionId {
             return Err("session ID contains a non-hexadecimal character".into());
         }
         let mut bytes = [0_u8; 16];
-        for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
-            let encoded = std::str::from_utf8(chunk).expect("ASCII was checked above");
-            bytes[index] = u8::from_str_radix(encoded, 16)
-                .map_err(|_| "session ID contains a non-hexadecimal character".to_string())?;
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            // ASCII was checked above, so every two-byte range is a str.
+            *byte = value
+                .get(index * 2..index * 2 + 2)
+                .and_then(|encoded| u8::from_str_radix(encoded, 16).ok())
+                .ok_or_else(|| "session ID contains a non-hexadecimal character".to_string())?;
         }
         Ok(Self(bytes))
     }
@@ -242,12 +244,12 @@ impl WireFrame {
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, FrameDecodeError> {
-        if encoded.len() < HEADER_BYTES {
+        let Some(header) = encoded.first_chunk::<HEADER_BYTES>() else {
             return Err(FrameDecodeError::Truncated {
                 expected: HEADER_BYTES,
                 actual: encoded.len(),
             });
-        }
+        };
         if encoded[..4] != MAGIC {
             return Err(FrameDecodeError::BadMagic);
         }
@@ -259,11 +261,11 @@ impl WireFrame {
         let flags = FrameFlags::from_wire(u16::from_be_bytes([encoded[6], encoded[7]]))?;
         let mut session = [0_u8; 16];
         session.copy_from_slice(&encoded[8..24]);
-        let generation = read_u64(&encoded[24..32]);
-        let sequence = read_u64(&encoded[32..40]);
-        let acknowledgement = read_u64(&encoded[40..48]);
-        let stream = read_u64(&encoded[48..56]);
-        let payload_len = u32::from_be_bytes(encoded[56..60].try_into().unwrap()) as usize;
+        let generation = u64::from_be_bytes(header_bytes(header, 24));
+        let sequence = u64::from_be_bytes(header_bytes(header, 32));
+        let acknowledgement = u64::from_be_bytes(header_bytes(header, 40));
+        let stream = u64::from_be_bytes(header_bytes(header, 48));
+        let payload_len = u32::from_be_bytes(header_bytes(header, 56)) as usize;
         if payload_len > MAX_FRAME_PAYLOAD {
             return Err(FrameDecodeError::PayloadTooLarge(payload_len));
         }
@@ -333,8 +335,11 @@ fn validate_heartbeat(
     Ok(())
 }
 
-fn read_u64(bytes: &[u8]) -> u64 {
-    u64::from_be_bytes(bytes.try_into().unwrap())
+/// The `N` header bytes at `at` (constant offsets inside the header).
+fn header_bytes<const N: usize>(header: &[u8; HEADER_BYTES], at: usize) -> [u8; N] {
+    let mut bytes = [0_u8; N];
+    bytes.copy_from_slice(&header[at..at + N]);
+    bytes
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

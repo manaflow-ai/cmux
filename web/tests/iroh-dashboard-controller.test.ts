@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { V2DashboardController } from "../app/[locale]/dashboard/mobile-devices/v2-dashboard-controller";
+import { V2DashboardController } from "../dashboard-app/screens/mobile-devices/v2-dashboard-controller";
 
 const originalFetch = globalThis.fetch;
 const originalSocket = globalThis.WebSocket;

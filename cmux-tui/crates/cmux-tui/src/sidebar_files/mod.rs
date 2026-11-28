@@ -340,14 +340,36 @@ pub fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+/// The bytes typed into the focused shell to `cd` into `path`, or `None`
+/// when they cannot be typed safely: a line editor acts on control
+/// characters even inside quotes (Ctrl-U erases the typed `cd '`), and a
+/// directory name is attacker-chosen, so such a path is never typed.
+pub fn cd_command(path: &str) -> Option<String> {
+    if path.chars().any(char::is_control) {
+        return None;
+    }
+    Some(format!("cd {}\n", shell_single_quote(path)))
+}
+
 pub fn file_url(path: &Path) -> String {
     let text = path.to_string_lossy();
     let mut url = String::from("file://");
+    #[cfg(windows)]
+    let windows_drive_path = text.as_bytes().first().is_some_and(|b| b.is_ascii_alphabetic())
+        && text.as_bytes().get(1) == Some(&b':');
+    #[cfg(not(windows))]
+    let windows_drive_path = false;
+    if windows_drive_path {
+        url.push('/');
+    }
     for byte in text.bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
                 url.push(char::from(byte));
             }
+            #[cfg(windows)]
+            b'\\' => url.push('/'),
+            b':' if windows_drive_path => url.push(':'),
             _ => url.push_str(&format!("%{byte:02X}")),
         }
     }
@@ -470,6 +492,24 @@ mod tests {
         fs::remove_dir_all(temp).unwrap();
     }
 
+    /// A directory name is attacker-chosen (a cloned repository). Its bytes
+    /// are typed into a line editor, which acts on control characters even
+    /// inside quotes: Ctrl-U erases the typed `cd '` and leaves the rest of
+    /// the name to run as a command. Such a path is never typed.
+    #[test]
+    fn cd_is_never_typed_for_a_path_with_control_characters() {
+        assert_eq!(cd_command("/tmp/a'b").as_deref(), Some("cd '/tmp/a'\\''b'\n"));
+        for evil in [
+            "/tmp/x\u{15}touch /tmp/pwn #",
+            "/tmp/a\nb",
+            "/tmp/a\u{1b}[2~b",
+            "/tmp/a\u{7f}b",
+            "/tmp/a\u{9b}b",
+        ] {
+            assert_eq!(cd_command(evil), None, "{evil:?}");
+        }
+    }
+
     #[test]
     fn quotes_shell_paths_with_apostrophes() {
         assert_eq!(shell_single_quote("/tmp/a'b"), "'/tmp/a'\\''b'");
@@ -478,5 +518,11 @@ mod tests {
     #[test]
     fn creates_percent_encoded_file_url() {
         assert_eq!(file_url(Path::new("/tmp/a file#1.md")), "file:///tmp/a%20file%231.md");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn creates_windows_drive_file_url() {
+        assert_eq!(file_url(Path::new(r"C:\a\b")), "file:///C:/a/b");
     }
 }

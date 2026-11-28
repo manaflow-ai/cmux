@@ -173,13 +173,26 @@ export function parseCmuxTuiManifest(
   if (!/^[0-9a-f]{64}$/.test(hookSha256)) {
     throw new ProviderArtifactUnavailableError(provider, { manifestUrl, target: CMUX_TUI_HOOK_LINUX_TARGET });
   }
-  const base = manifestUrl.replace(/\/manifest\.json$/, "");
+  const manifestLocation = new URL(manifestUrl);
+  const manifestSuffix = "/manifest.json";
+  if (!manifestLocation.pathname.endsWith(manifestSuffix)) {
+    throw new ProviderError(provider, `cmux-tui manifest URL ${manifestUrl} does not end in /manifest.json`);
+  }
+  let artifactBasePath = manifestLocation.pathname.slice(0, -manifestSuffix.length);
+  if (artifactBasePath.endsWith("/latest")) {
+    artifactBasePath = `${artifactBasePath.slice(0, -"/latest".length)}/${commit}`;
+  }
+  const artifactUrl = (target: string): string => {
+    const url = new URL(manifestLocation.href);
+    url.pathname = `${artifactBasePath}/${target}`;
+    return url.href;
+  };
   return {
-    url: `${base}/${CMUX_TUI_LINUX_TARGET}`,
+    url: artifactUrl(CMUX_TUI_LINUX_TARGET),
     sha256,
     commit,
     builtAt: typeof record.builtAt === "string" ? record.builtAt : null,
-    hookUrl: `${base}/${CMUX_TUI_HOOK_LINUX_TARGET}`,
+    hookUrl: artifactUrl(CMUX_TUI_HOOK_LINUX_TARGET),
     hookSha256,
   };
 }

@@ -123,19 +123,19 @@ describe("Pro roster", () => {
 
   test("lists open pending grants", async () => {
     const db = fakeDb(new Map([[adminPlanGrants, [
-      { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "lawrence@manaflow.ai", createdAt: new Date("2026-09-02T00:00:00Z") },
+      { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "admin@manaflow.ai", createdAt: new Date("2026-09-02T00:00:00Z") },
     ]]]));
     expect(await listAllPendingEmailGrants({ db })).toEqual({
       truncated: false,
       rows: [
-        { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "lawrence@manaflow.ai", createdAt: "2026-09-02T00:00:00.000Z" },
+        { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "admin@manaflow.ai", createdAt: "2026-09-02T00:00:00.000Z" },
       ],
     });
   });
 
   test("scans the user directory page by page and keeps only paid manual overrides", async () => {
     const users = [
-      { id: "u1", primaryEmail: "a@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "pro" }, serverMetadata: { cmuxAdminPlanGrant: { plan: "pro", byUserId: "admin-1", byEmail: "lawrence@manaflow.ai", at: "2026-09-02T00:00:00.000Z" } } },
+      { id: "u1", primaryEmail: "a@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "pro" }, serverMetadata: { cmuxAdminPlanGrant: { plan: "pro", byUserId: "admin-1", byEmail: "admin@manaflow.ai", at: "2026-09-02T00:00:00.000Z" } } },
       { id: "u2", primaryEmail: "b@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "pro" }, serverMetadata: {} },
       { id: "u3", primaryEmail: "c@example.com", primaryEmailVerified: false, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "free" }, serverMetadata: {} },
       { id: "u4", primaryEmail: "d@example.com", primaryEmailVerified: false, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "Founders" }, serverMetadata: {} },
@@ -145,7 +145,7 @@ describe("Pro roster", () => {
     const first = await scanManualUserGrants(null, { app, pageSize: 3 });
     expect(first.scanned).toBe(3);
     expect(first.nextCursor).toBe("3");
-    expect(first.rows.map((row) => [row.userId, row.plan, row.lastGrant?.byEmail ?? null])).toEqual([["u1", "pro", "lawrence@manaflow.ai"]]);
+    expect(first.rows.map((row) => [row.userId, row.plan, row.lastGrant?.byEmail ?? null])).toEqual([["u1", "pro", "admin@manaflow.ai"]]);
     const second = await scanManualUserGrants(first.nextCursor, { app, pageSize: 3 });
     expect(second.scanned).toBe(2);
     expect(second.nextCursor).toBeNull();

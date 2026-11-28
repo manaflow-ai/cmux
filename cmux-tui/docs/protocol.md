@@ -36,7 +36,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","machine-listening-tcp-v1","server-stats-v1","terminal-idle-close-v1","clear-history-key-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","shared-sizing-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","machine-listening-tcp-v1","server-stats-v1","terminal-idle-close-v1","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape. The second example is a failed `clear-history` request:
@@ -90,6 +90,45 @@ the source workspace is removed first.
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}
 ```
 
+`workspace-groups-v1` adds durable sidebar groups. `list-workspaces` gains an
+ordered top-level `groups` array (`{id,name,color,collapsed,index}`) and a
+`group` field on each workspace. `create-workspace-group`,
+`update-workspace-group`, `delete-workspace-group`, and `move-workspace-group`
+edit groups and emit `tree-changed`. `move-workspace-to-group` sets membership
+and an optional final index inside the section in one workspace-registry
+revision, so it takes the durable mutation envelope and emits
+`workspace-moved`:
+
+```json
+{"id":13,"cmd":"create-workspace-group","group":"agents","name":"Agents","color":"gray"}
+{"id":14,"cmd":"move-workspace-to-group","key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","group":"agents","index":0,"origin":"mac-1","mutation_id":"m-41"}
+```
+
+`workspace-metadata-v1` adds shared workspace presentation: `color` (a
+frontend palette token or `#RRGGBB[AA]`), `icon` (an SF Symbol name), and a
+custom `title` on every workspace. `set-workspace-metadata` treats an absent
+field as unchanged and `null` as clear, commits one workspace-registry
+revision, and emits `workspace-changed` with the full workspace entity.
+
+`workspace-pin-v1` adds `pinned` to every workspace and to
+`set-workspace-metadata`. An absent `pinned` is unchanged; `true` or `false`
+sets it. The daemon keeps the workspace order; frontends list pinned
+workspaces in a Pinned section at the top of the sidebar.
+
+`notification-mark-unread-v1` adds `marked_unread` to every workspace and to
+`set-workspace-metadata`, with the same absent-or-boolean rule. It is a manual
+mark (Mark Workspace as Unread), separate from notification markers and
+`unread_count`. The daemon keeps it until a frontend clears it, which the Mac
+app does when the user types into one of the workspace's terminals (on this Mac) or uses Mark
+as Read or Clear Notifications; focusing or opening the workspace keeps it.
+
+`tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
+every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
+`move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from
+OSC 7 (or the launch directory) and reads the repository's HEAD on the host
+that owns the PTY, so remote daemons report their own branches. `tab-changed`
+delivers the refreshed tab after a pin or directory change.
+
 Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
 ```json
@@ -97,6 +136,106 @@ Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. 
 ```
 
 Ratios are clamped to `0.05..0.95`. A live split in a horizontal viewport can still imply a column width outside the supported `0.1..1.0` range. The server rejects that request with `error_code:"layout-ratio-out-of-range"` and keeps the split and layout unchanged; `layout-ratio-target-missing` is reserved for an absent pane or split.
+
+`frontend-browser-tabs-v1` adds browser tabs whose page the frontend
+renders with WebKit or CEF. `new-frontend-browser-tab` creates one in the
+durable tree with `url`, `engine`, and optional `title`, `favicon_url`, and
+`profile_id`; `update-frontend-browser-tab` records navigation. The daemon
+persists and restores these tabs but never attaches a CDP target or renders
+frames for them, and `attach-surface` refuses them. Tabs report
+`browser_renderer:"frontend"` and `browser_engine`. CDP browser tabs keep
+their existing behavior and report `browser_renderer:"daemon"`.
+With `frontend-browser-tab-keys-v1`, `new-frontend-browser-tab` takes an
+optional `idempotency_key`: a retry after a lost reply returns the first
+tab (`replayed:true`) instead of creating a second one.
+
+`frontend-browser-history-v1` adds `set-frontend-browser-history` and
+`get-frontend-browser-history`: a frontend stores an opaque JSON object (at
+most 64 KiB) per frontend-rendered browser tab, such as its back/forward
+entries and scroll, and reads it back after a relaunch. `history:null`
+clears it. The daemon never journals it or puts it in the tree.
+
+`tab-drag-v1` makes every tab drag outcome one atomic command:
+`move-tab` (pane and index, across screens and workspaces),
+`move-tab-to-split` (pane edge), `move-tab-to-column` (new strip column),
+`move-tab-to-workspace`, and `move-tab-to-new-workspace` (optional group and
+index; returns the new workspace). Each takes an optional client
+`transaction`, echoed in the moved tab's `tab-changed` delta. Drags that stay
+on one screen and keep their source pane record a layout-undo entry that
+moves the tab back without closing anything:
+
+```json
+{"id":15,"cmd":"move-tab-to-split","surface":4,"pane":2,"edge":"right","transaction":"drop-9"}
+{"id":16,"cmd":"undo-layout","pane":2}
+```
+
+`tab-split-respawn-v1` adds `respawn` to `move-tab-to-split`. A pane's only
+tab dropped on that pane's own edge then splits the pane: the daemon leaves a
+fresh tab of the given kind (a new terminal, or a new browser tab) in the old
+pane and moves the dragged tab into the new one. The fresh tab copies the
+kind, never the state (no URL, scrollback, or session):
+
+```json
+{"id":17,"cmd":"move-tab-to-split","surface":4,"pane":2,"edge":"right","respawn":{"kind":"terminal","cwd":"/src"}}
+```
+
+`notification-ack-v1` decouples notification acknowledgement from focus.
+`ack-tab-notifications {surface}` clears a tab's unread marker and records the
+acknowledgement durably, so it survives a daemon restart; frontends call it
+when the user has seen the tab instead of sending `select-tab`.
+`list-notifications` returns the retained ledger with `created_at_ms` and an
+`acknowledged` flag, and each workspace reports `unread_count`.
+
+`tab-groups-v1` adds tab groups inside a pane's strip. Panes
+report `tab_groups` (id, name, color, collapsed, saved id, start, count,
+surfaces) and tabs report `group`. Members stay contiguous. Every change is
+one command: `create-tab-group`, `update-tab-group` (rename, recolor,
+collapse), `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`,
+`move-tab-group` (within or across strips), `move-tab-group-to-split`,
+`move-tab-group-to-column`, `move-tab-group-to-new-workspace`,
+`ungroup-tab-group`, and `close-tab-group`. Commands that move tabs take a
+`transaction` echoed in each member's `tab-changed`.
+
+`saved-tab-groups-v1` adds saved groups that outlive their placements:
+`save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`,
+`list-saved-tab-groups`, and `reopen-saved-tab-group`, which reattaches
+running terminals and starts the rest in their saved directories.
+
+```json
+{"id":17,"cmd":"create-tab-group","surfaces":[4,7],"name":"agents","color":"green","transaction":"g-1"}
+{"id":18,"cmd":"move-tab-group-to-split","group":"tgrp_0d4c...","pane":2,"edge":"right"}
+```
+
+`terminal-env-v1` lets `new-tab`, `split`, and `create-terminal` carry an
+`env` object for the new terminal's child only, so a frontend can pass the
+user's login-shell environment to a daemon that started with a minimal
+launchd environment:
+
+```json
+{"id":19,"cmd":"new-tab","pane":2,"cwd":"/Users/me/src","env":{"PATH":"/opt/homebrew/bin:/usr/bin:/bin"}}
+```
+
+`loopback-forward-v1` gives an opted-in Unix client TCP streams to this
+machine's loopback services (browser tabs whose machine is this daemon), with
+credit flow control in both directions. See "Loopback forwarding" in
+`spec/commands.md` for the full contract:
+
+```json
+{"id":21,"cmd":"set-client-info","capabilities":["loopback-forward-v1"]}
+{"id":22,"cmd":"loopback-open","stream":1,"host":"localhost","port":5173}
+{"id":22,"ok":true,"data":{"stream":1,"address":"127.0.0.1:5173","window":262144}}
+{"cmd":"loopback-data","stream":1,"data":"R0VUIC8gSFRUUC8xLjENCg0K"}
+{"event":"loopback-data","stream":1,"data":"SFRUUC8xLjEgMjAwIE9LDQo="}
+```
+
+`terminal-placement-env-v1` adds a caller-chosen `terminal_id` to `new-tab`,
+`split`, `new-pane`, and `new-pane-right` (and `cwd`/`env` to the last two),
+so the child starts with its own id in its environment:
+
+```json
+{"id":20,"cmd":"new-pane-right","pane":2,"width":0.5,"terminal_id":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f","env":{"CMUX_SURFACE_ID":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f"}}
+{"id":20,"ok":true,"data":{"surface":9,"terminal_id":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f","terminal_incarnation":"..."}}
+```
 
 ## Events
 
@@ -157,6 +296,24 @@ closed for idleness). The owner closes the terminal, through the same path as
 that long. The idle clock restarts at every attach and when the owner restarts,
 so a restart can delay a close but never make it early.
 
+When `identify` advertises `terminal-reap-v1`, the owner also ends a terminal
+that has had no tab placement for the reap grace period and emits
+`terminal-reaped`, but only when the owner was started with
+`--terminal-reap-grace-seconds` (reaping is opt-in). Mark a
+terminal that must outlive its tabs with
+`{"cmd":"set-terminal-keep","terminal_id":"term_...","keep":true}` or pass
+`"keep":true` to `new-tab`, `split`, or `create-terminal`. A close commits and
+updates the tree before its host exits; hosts of closed terminals end in
+parallel. For test teardown, `shutdown-daemon` with `"end_terminals":true`
+ends every terminal before the handoff; add `"keep_layout":true`
+(`end-terminals-keep-layout-v1`) to keep the tabs of placed terminals, dead,
+for the next owner (a quitting frontend that restarts shells in the same
+layout). To close many tabs at once, send
+`{"cmd":"close-tabs","surfaces":[...],"end_terminals":true}`: one durable
+commit (one journal fsync) removes every tab and ends every terminal left
+with no view that is not kept. The container closes take the same
+`end_terminals` field.
+
 Then it sends ordered stream frames:
 
 ```json
@@ -173,6 +330,34 @@ When the stream ends, it sends:
 ```json
 {"event":"detached","surface":4}
 ```
+
+A server-initiated detach adds `reason` (`network`, `disconnected-by` with
+`by`, or `host-shutdown`). Do not reconnect automatically after
+`disconnected-by`.
+
+## Shared Terminal Sizing
+
+`shared-sizing-v1` means terminals use the shared sizing reducer of
+[`docs/shared-terminal-sizing.md`](../../docs/shared-terminal-sizing.md): by
+default ("Fit everyone") the grid is the smallest attached viewport, and an
+owner that leaves hands the grid to the next owner. A client opts in to the new events by sending the
+same capability in `set-client-info`, together with its identity:
+
+```json
+{"id":3,"cmd":"set-client-info","name":"mirror","kind":"mac","capabilities":["shared-sizing-v1"],"user_id":"u_maya","display_name":"Maya","device_kind":"mac","device_name":"Mac Studio"}
+```
+
+It then receives `size-state` events, `participant` and `size_state` in terminal
+`attach-surface` responses, and can use `set-size-policy`, `set-size-counts`,
+`get-size-state`, `note-size-activity` (with `view`, a relay credits
+forwarded input to that sub-view), relay sub-views (`resize-attached-view`
+with `view` and `identity`), and `detach-client` with a participant id and
+`by`. `user_id` is
+asserted by the client; the daemon does not verify it. The cmux-tui frontend
+opts in with `device_kind: "tui"` and its hostname as `device_name`. The GPUI
+desktop app sends `linux` or `windows` on those systems; only clients that send
+`open-device-kinds-v1` receive those kinds, others read them as `unknown`. See
+[`spec/commands.md`](../spec/commands.md#sizing).
 
 ## Client Compatibility
 

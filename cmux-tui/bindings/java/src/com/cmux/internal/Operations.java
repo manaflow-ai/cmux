@@ -48,6 +48,7 @@ public enum Operations {
     SCREEN_CLOSE("screen.close", Class.MUTATION),
     SCREEN_LAYOUT_EXPORT("screen.layout.export", Class.READ),
     SCREEN_LAYOUT_UNDO("screen.layout.undo", Class.MUTATION),
+    SCREEN_COLUMN_UPDATE("column.update", Class.MUTATION),
     PANE_LIST("pane.list", Class.READ),
     PANE_GET("pane.get", Class.READ),
     PANE_CREATE("pane.create", Class.MUTATION),

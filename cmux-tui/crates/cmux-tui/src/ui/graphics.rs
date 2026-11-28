@@ -835,8 +835,15 @@ fn allocate_id(next: &mut u32, used: &mut HashSet<u32>) -> (u32, usize) {
 }
 
 fn transmit_image(image_id: u32, image: &GraphicImage) -> Vec<u8> {
-    record_image_transmission(image.key);
     let data = image.data.base64();
+    // Frame data from the daemon is written inside an APC string. Anything
+    // outside the base64 alphabet could end that string and inject terminal
+    // commands, so such an image is dropped.
+    if !data.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
+    {
+        return Vec::new();
+    }
+    record_image_transmission(image.key);
     let mut out = Vec::new();
     for (index, chunk) in data.as_bytes().chunks(CHUNK).enumerate() {
         let more = usize::from((index + 1) * CHUNK < data.len());
@@ -956,6 +963,18 @@ struct ParsedTerminalProbe {
     pending_input: Vec<u8>,
 }
 
+#[cfg(unix)]
+fn write_terminal_probe_queries(stdout: &mut impl Write, query_window_pixels: bool) {
+    if query_window_pixels {
+        let _ = write!(stdout, "\x1b[14t");
+    }
+    let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
+    let _ = stdout.flush();
+}
+
+#[cfg(not(unix))]
+fn write_terminal_probe_queries(_stdout: &mut impl Write, _query_window_pixels: bool) {}
+
 /// Probe terminal capabilities in one exchange and return any user input read
 /// alongside the replies. The final DA1 request acts as an ordering marker:
 /// any preceding Kitty reply advertises support, while its absence does not
@@ -982,11 +1001,7 @@ pub fn probe_terminal(known_cell_pixels: Option<(u16, u16)>) -> StartupTerminalP
         ioctl_pixels.is_none() && terminal_size.is_some_and(|(cols, rows)| cols > 0 && rows > 0);
 
     let mut stdout = std::io::stdout();
-    if query_window_pixels {
-        let _ = write!(stdout, "\x1b[14t");
-    }
-    let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
-    let _ = stdout.flush();
+    write_terminal_probe_queries(&mut stdout, query_window_pixels);
 
     let bytes = read_stdin_until(TERMINAL_PROBE_TIMEOUT, terminal_probe_complete);
     let parsed = parse_terminal_probe(&bytes);
@@ -1292,6 +1307,16 @@ mod tests {
         assert_eq!(resolve_cell_pixels(None, None), FALLBACK_CELL_PIXELS);
     }
 
+    #[cfg(not(unix))]
+    #[test]
+    fn terminal_probe_does_not_write_queries_without_a_reply_reader() {
+        let mut output = Vec::new();
+
+        write_terminal_probe_queries(&mut output, true);
+
+        assert!(output.is_empty(), "unread terminal queries were written: {output:?}");
+    }
+
     #[test]
     fn newly_detected_metrics_replace_known_metrics() {
         assert_eq!(resolve_cell_pixels(Some((8, 16)), Some((11, 23))), (11, 23));
@@ -1398,6 +1423,25 @@ mod tests {
         };
         assert_eq!(borrowed, encoded.as_ref());
         assert_eq!(borrowed.as_ptr(), encoded.as_ptr());
+    }
+
+    /// Remote browser frame data is supposed to be base64. Anything else
+    /// (an ESC ST that ends the APC early, then raw controls) is never
+    /// written to the terminal.
+    #[test]
+    fn sec_audit_non_base64_frame_data_is_never_transmitted() {
+        let hostile: Arc<str> = Arc::from("AAAA\x1b\\\x1b]0;owned\x07\x1b[2J");
+        let image = GraphicImage {
+            key: GraphicImageKey { namespace: 0, surface: 1, image_id: 7 },
+            generation: 1,
+            width: 2,
+            height: 2,
+            format: GraphicFormat::Png,
+            data: GraphicData::Base64(hostile),
+        };
+        let bytes = transmit_image(7, &image);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("owned") && !text.contains("\x1b[2J"), "{text:?}");
     }
 
     #[test]

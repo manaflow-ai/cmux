@@ -8,7 +8,7 @@ describe("admin access", () => {
   });
 
   test("isAdminEmail accepts addresses on every admin domain, any case", () => {
-    expect(isAdminEmail("lawrence@manaflow.ai")).toBe(true);
+    expect(isAdminEmail("admin@manaflow.ai")).toBe(true);
     expect(isAdminEmail("austin@manaflow.com")).toBe(true);
     expect(isAdminEmail("hello@cmux.com")).toBe(true);
     expect(isAdminEmail("  Austin@MANAFLOW.AI ")).toBe(true);
@@ -72,7 +72,7 @@ describe("admin access", () => {
   });
 
   test("isAdminUser requires a verified, explicitly non-anonymous admin email", () => {
-    const admin = { primaryEmail: "lawrence@manaflow.ai", primaryEmailVerified: true, isAnonymous: false };
+    const admin = { primaryEmail: "admin@manaflow.ai", primaryEmailVerified: true, isAnonymous: false };
     expect(isAdminUser(admin)).toBe(true);
     expect(isAdminUser({ ...admin, primaryEmail: "hello@cmux.com" })).toBe(true);
     expect(isAdminUser({ ...admin, primaryEmail: "hello@manaflow.com" })).toBe(true);
@@ -84,7 +84,7 @@ describe("admin access", () => {
     expect(isAdminUser({ ...admin, primaryEmail: "person@example.com" })).toBe(false);
     expect(isAdminUser({ ...admin, primaryEmail: null })).toBe(false);
     expect(isAdminUser({ ...admin, primaryEmail: undefined })).toBe(false);
-    expect(isAdminUser({ primaryEmail: "lawrence@manaflow.ai" })).toBe(false);
+    expect(isAdminUser({ primaryEmail: "admin@manaflow.ai" })).toBe(false);
     expect(isAdminUser(null)).toBe(false);
     expect(isAdminUser(undefined)).toBe(false);
   });

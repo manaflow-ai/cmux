@@ -15,13 +15,15 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use crate::local_actor::me;
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
     CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
     FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MACHINE_USAGE_CAPABILITY,
     MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
-    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
+    SHARED_SIZING_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
+use cmux_tui_core::sizing_policy::{TerminalSizingPolicy, TerminalSizingState};
 use cmux_tui_core::{
     BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, GuardedMouseEncode, LayoutRatioError,
     LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEventReceiver, PaneId,
@@ -94,12 +96,10 @@ pub enum Session {
     Remote(Arc<RemoteSession>),
 }
 
-/// Stable frontend boundary for session reads.
-///
-/// This is deliberately small: mutations and transport recovery remain on
-/// `Session` until their command and acknowledgement semantics are migrated.
-/// Agent metadata is exposed through this boundary while the normal tree read
-/// remains on `Session::tree`.
+/// Stable frontend boundary for session reads. It is deliberately small:
+/// mutations and transport recovery remain on `Session` until their command
+/// and acknowledgement semantics are migrated. Agent metadata is exposed
+/// through this boundary while the normal tree read remains on `Session::tree`.
 pub(crate) trait SessionPort: Send + Sync {
     fn agents(&self) -> Vec<AgentInfo>;
 }
@@ -217,6 +217,7 @@ fn localized_layout_ratio_error(error: LayoutRatioError) -> anyhow::Error {
         LayoutRatioError::UnrepresentableViewportWidth { split, ratio, width } => {
             messages.unrepresentable_viewport_width(split, ratio, width)
         }
+        LayoutRatioError::RowSplitCompatReadonly { .. } => messages.row_split_readonly.into(),
     };
     anyhow::anyhow!(message)
 }
@@ -280,39 +281,11 @@ fn normalize_remote_viewport_width_error(error: anyhow::Error, pane: PaneId) -> 
 }
 
 #[cfg(test)]
-pub(crate) fn test_remote_timeout_error() -> anyhow::Error {
-    remote::RemoteRequestError::Timeout.into()
-}
-
+mod local_actor_tests;
 #[cfg(test)]
-pub(crate) fn test_remote_transport_error() -> anyhow::Error {
-    remote::RemoteRequestError::Transport(std::io::Error::new(
-        std::io::ErrorKind::BrokenPipe,
-        "socket closed",
-    ))
-    .into()
-}
-
+mod test_errors;
 #[cfg(test)]
-pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
-    test_remote_rejected_error_with_message("unknown surface")
-}
-
-#[cfg(test)]
-pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected { error: message.to_string(), code: None, delivery: None }
-        .into()
-}
-
-#[cfg(test)]
-fn test_remote_rejected_error_with_code(message: &str, code: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected {
-        error: message.to_string(),
-        code: Some(code.to_string()),
-        delivery: None,
-    }
-    .into()
-}
+pub(crate) use test_errors::*;
 
 pub struct SidebarPluginSurface {
     pub surface_id: Option<SurfaceId>,
@@ -341,6 +314,14 @@ pub struct AgentInfo {
     #[serde(default)]
     pub agent: Option<String>,
     pub updated_at_ms: u64,
+}
+
+/// A terminal's shared-sizing state as this frontend sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SurfaceSizeState {
+    pub state: TerminalSizingState,
+    /// This frontend's own participant id in `state`, when attached.
+    pub self_participant: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -419,7 +400,7 @@ fn creation_fields(size: Option<(u16, u16)>) -> Map<String, Value> {
 }
 
 fn creation_mutation(receipt: &CreationReceipt) -> anyhow::Result<WorkspaceMutation> {
-    WorkspaceMutation::new(receipt.id.clone(), receipt.origin.clone())
+    WorkspaceMutation::by_local_user(receipt.id.clone(), receipt.origin.clone())
 }
 
 fn creation_selector_fallbacks(
@@ -625,12 +606,19 @@ impl Session {
         self.set_client_sizing(surface, client, true, true)
     }
 
+    /// Focus on a terminal. Under shared sizing this is activity only
+    /// (`note-size-activity`): the legacy `set-client-sizing` would clear a
+    /// counts choice another participant made for this view. Daemons without
+    /// `shared-sizing-v1` keep the legacy exclusive claim.
     pub fn claim_terminal_geometry(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
                 .claim_terminal_geometry(surface, 0)
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
+            Session::Remote(remote) if remote.supports_capability(SHARED_SIZING_CAPABILITY) => {
+                remote.request(json!({"cmd": "note-size-activity", "surface": surface})).map(|_| ())
+            }
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
@@ -670,6 +658,79 @@ impl Session {
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "detach-client", "client": client})).map(|_| ())
             }
+        }
+    }
+
+    /// The latest shared-sizing state of a terminal and this frontend's own
+    /// participant id in it (docs/shared-terminal-sizing.md). `None` before
+    /// the host published one, or when the host lacks `shared-sizing-v1`.
+    pub fn size_state(&self, surface: SurfaceId) -> Option<SurfaceSizeState> {
+        match self {
+            Session::Local(mux) => Some(SurfaceSizeState {
+                state: mux.terminal_size_state(surface)?,
+                self_participant: mux.terminal_view_participant_id(surface, 0),
+            }),
+            Session::Remote(remote) => remote.size_state(surface),
+        }
+    }
+
+    /// `set-size-policy {surface, policy}`.
+    pub fn set_size_policy(
+        &self,
+        surface: SurfaceId,
+        policy: TerminalSizingPolicy,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .set_terminal_size_policy(surface, Some(policy))
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal")),
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "set-size-policy", "surface": surface, "policy": policy}))
+                .map(|_| ()),
+        }
+    }
+
+    /// `set-size-counts {surface, participant, counts}`; `None` restores the
+    /// automatic rule.
+    pub fn set_size_counts(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+        counts: Option<bool>,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .set_terminal_size_counts(surface, participant, counts)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}")),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-size-counts",
+                    "surface": surface,
+                    "participant": participant,
+                    "counts": counts,
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    /// `detach-client {client: <participant>, surface}`: disconnects one
+    /// participant of this terminal: a relay sub-view alone, the own view of
+    /// a client with `sizing-view-detach-v1` (a Mac keeps its connection and
+    /// the phones it relays), otherwise its whole client.
+    pub fn disconnect_size_participant(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                cmux_tui_core::server::detach_size_participant(mux, 0, participant, Some(surface))
+            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "detach-client", "client": participant, "surface": surface}))
+                .map(|_| ()),
         }
     }
 
@@ -759,7 +820,7 @@ impl Session {
                 let tree = self.tree();
                 match initial_bootstrap(&tree) {
                     InitialBootstrap::FirstWorkspace => {
-                        mux.new_workspace(None, size)?;
+                        mux.new_workspace_as(me(), None, size)?;
                     }
                     InitialBootstrap::ShellInActiveWorkspace => {
                         let workspace = tree
@@ -768,7 +829,14 @@ impl Session {
                             .or_else(|| tree.workspaces().first())
                             .expect("bare-session bootstrap requires at least one workspace")
                             .id;
-                        mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
+                        mux.create_terminal_in_workspace_as(
+                            me(),
+                            workspace,
+                            None,
+                            None,
+                            None,
+                            size,
+                        )?;
                     }
                     InitialBootstrap::LayoutIntact => {}
                 }
@@ -1494,7 +1562,7 @@ impl Session {
     pub fn close_screen(&self, screen: ScreenId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                if mux.close_screen(screen)? {
+                if mux.close_screen_as(me(), screen)? {
                     Ok(())
                 } else {
                     anyhow::bail!("unknown screen {screen}")
@@ -1509,7 +1577,7 @@ impl Session {
     pub fn rename_screen(&self, screen: ScreenId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.rename_screen(screen, name);
+                mux.rename_screen_as(me(), screen, name);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -1521,7 +1589,7 @@ impl Session {
     pub fn zoom_pane(&self, pane: Option<PaneId>, mode: ZoomMode) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                let _ = mux.zoom_pane(pane, mode);
+                let _ = mux.zoom_pane_as(me(), pane, mode);
                 Ok(())
             }
             Session::Remote(remote) => {
@@ -1551,7 +1619,7 @@ impl Session {
         };
         match self {
             Session::Local(mux) => {
-                let mutation = WorkspaceMutation::new(receipt.id.clone(), receipt.origin.clone())?;
+                let mutation = creation_mutation(receipt)?;
                 let mut fields = Map::new();
                 fields.insert("direction".to_string(), json!(direction));
                 if let Some((cols, rows)) = size {
@@ -1732,9 +1800,10 @@ impl Session {
         match self {
             Session::Local(mux) => transaction
                 .map_or_else(
-                    || mux.set_split_ratio_checked(split, ratio),
+                    || mux.set_split_ratio_checked_as(me(), split, ratio),
                     |(owner, transaction)| {
-                        mux.set_split_ratio_in_process_transaction_checked(
+                        mux.set_split_ratio_in_process_transaction_checked_as(
+                            me(),
                             split,
                             ratio,
                             owner,
@@ -1775,9 +1844,10 @@ impl Session {
         match self {
             Session::Local(mux) => transaction
                 .map_or_else(
-                    || mux.set_viewport_pane_width_checked(pane, width),
+                    || mux.set_viewport_pane_width_checked_as(me(), pane, width),
                     |(owner, transaction)| {
-                        mux.set_viewport_pane_width_in_process_transaction_checked(
+                        mux.set_viewport_pane_width_in_process_transaction_checked_as(
+                            me(),
                             pane,
                             width,
                             owner,
@@ -1812,7 +1882,7 @@ impl Session {
         confirm_close: bool,
     ) -> anyhow::Result<LayoutUndoResult> {
         match self {
-            Session::Local(mux) => mux.undo_layout(pane, revision, confirm_close),
+            Session::Local(mux) => mux.undo_layout_as(me(), pane, revision, confirm_close),
             Session::Remote(remote) => {
                 if !remote.supports_capability(LAYOUT_UNDO_CAPABILITY) {
                     anyhow::bail!(
@@ -1838,7 +1908,7 @@ impl Session {
     pub fn close_surface(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                if mux.close_surface(surface)? {
+                if mux.close_surface_as(me(), surface)? {
                     Ok(())
                 } else {
                     anyhow::bail!("unknown surface {surface}")
@@ -1896,7 +1966,7 @@ impl Session {
     pub fn close_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                if mux.close_pane(pane)? {
+                if mux.close_pane_as(me(), pane)? {
                     Ok(())
                 } else {
                     anyhow::bail!("unknown pane {pane}")
@@ -1911,7 +1981,7 @@ impl Session {
     pub fn swap_pane(&self, pane: PaneId, target: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.swap_panes(pane, target);
+                mux.swap_panes_as(me(), pane, target);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -1923,7 +1993,7 @@ impl Session {
     pub fn close_workspace(&self, workspace: WorkspaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .close_workspace_at_revision(workspace, None)?
+                .close_workspace_at_revision_as(me(), workspace, None)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
             Session::Remote(remote) => remote
@@ -1972,7 +2042,7 @@ impl Session {
     ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .close_provider_managed_workspace(workspace, &key)?
+                .close_provider_managed_workspace_as(me(), workspace, &key)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
             Session::Remote(remote) => {
@@ -1994,7 +2064,7 @@ impl Session {
     pub fn rename_surface(&self, surface: SurfaceId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.rename_surface(surface, name);
+                mux.rename_surface_as(me(), surface, name);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -2006,7 +2076,7 @@ impl Session {
     pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .rename_workspace_at_revision(workspace, name, None)?
+                .rename_workspace_at_revision_as(me(), workspace, name, None)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
             Session::Remote(remote) => remote
@@ -2027,7 +2097,7 @@ impl Session {
     ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
-                .rename_provider_managed_workspace(workspace, &key, name)?
+                .rename_provider_managed_workspace_as(me(), workspace, &key, name)?
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
             Session::Remote(remote) => {
@@ -2058,7 +2128,7 @@ impl Session {
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.move_tab(surface, pane, index);
+                mux.move_tab_as(me(), surface, pane, index);
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -2092,7 +2162,7 @@ impl Session {
             crate::localization::catalog().menu.move_tab_workspace_unsupported
         );
         match self {
-            Session::Local(mux) => mux.move_tab_to_workspace(surface, workspace),
+            Session::Local(mux) => mux.move_tab_to_workspace_as(me(), surface, workspace),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
@@ -2104,7 +2174,7 @@ impl Session {
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.move_workspace_at_revision(workspace, index, None)?;
+                mux.move_workspace_at_revision_as(me(), workspace, index, None)?;
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -3013,6 +3083,7 @@ pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
 
 #[cfg(test)]
 mod tests {
+    use crate::local_actor::TuiMuxOps;
     use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
 
     use super::{
@@ -3198,5 +3269,46 @@ mod tests {
             }})),
             None
         );
+    }
+
+    /// Against a `shared-sizing-v1` daemon, focusing a terminal is activity
+    /// only: it must not send the legacy `set-client-sizing`, which clears a
+    /// "not counted" choice another participant (the Mac) made for this TUI.
+    #[test]
+    fn shared_sizing_focus_keeps_a_counts_choice_made_elsewhere() {
+        use cmux_tui_core::sizing_policy::TerminalDeviceKind;
+
+        let mux = Mux::new("shared-sizing-focus-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let dir = std::path::PathBuf::from(format!("/tmp/cmux-szf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("mux.sock");
+        cmux_tui_core::server::serve(mux.clone(), Some(socket.clone())).unwrap();
+        let session = Session::Remote(super::RemoteSession::connect(&socket).unwrap());
+        session.refresh_tree().unwrap();
+        assert!(matches!(
+            session.try_surface_sized(surface.id, Some((100, 40))).unwrap(),
+            super::SurfaceAttach::Attached(_)
+        ));
+        let tui = || {
+            mux.terminal_size_state(surface.id)
+                .unwrap()
+                .participants
+                .iter()
+                .find(|row| {
+                    row.participant.device_kind == TerminalDeviceKind::Tui
+                        && row.participant.id != "c0"
+                })
+                .map(|row| row.participant.clone())
+                .expect("the remote TUI joined shared sizing")
+        };
+        let id = tui().id;
+        mux.set_terminal_size_counts(surface.id, &id, Some(false)).unwrap();
+
+        session.claim_terminal_geometry(surface.id).unwrap();
+
+        assert_eq!(tui().counts_override, Some(false));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

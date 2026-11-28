@@ -80,7 +80,7 @@ const { GET, POST, DELETE } = createAdminMembersHandlers({ store, auditDb, sendI
 
 const admin = (): StackUser => ({
   id: "admin-1",
-  primaryEmail: "lawrence@manaflow.ai",
+  primaryEmail: "admin@manaflow.ai",
   primaryEmailVerified: true,
   isAnonymous: false,
 });
@@ -118,7 +118,7 @@ describe("admin members routes", () => {
       members: [{
         id: "00000000-0000-4000-8000-000000000001",
         email: "pat@example.com",
-        invitedByEmail: "lawrence@manaflow.ai",
+        invitedByEmail: "admin@manaflow.ai",
         invitedAt: NOW.toISOString(),
         acceptedAt: null,
         revokedAt: null,
@@ -134,13 +134,13 @@ describe("admin members routes", () => {
     const response = await POST(mutation({ email: "Pat@Example.com" }));
     expect(response.status).toBe(200);
     const body = (await response.json()) as { member: Record<string, unknown>; emailSent: boolean };
-    expect(body.member).toMatchObject({ email: "pat@example.com", invitedByEmail: "lawrence@manaflow.ai" });
+    expect(body.member).toMatchObject({ email: "pat@example.com", invitedByEmail: "admin@manaflow.ai" });
     expect(body.emailSent).toBe(true);
     expect(members[0]).toMatchObject({ email: "pat@example.com", invitedByUserId: "admin-1", revokedAt: null });
-    expect(sendInvite).toHaveBeenCalledWith({ to: "pat@example.com", inviterEmail: "lawrence@manaflow.ai" });
+    expect(sendInvite).toHaveBeenCalledWith({ to: "pat@example.com", inviterEmail: "admin@manaflow.ai" });
     expect(auditRows).toEqual([expect.objectContaining({
       actorUserId: "admin-1",
-      actorEmail: "lawrence@manaflow.ai",
+      actorEmail: "admin@manaflow.ai",
       action: "member_invite",
       targetKind: "admin_member",
       targetLabel: "pat@example.com",
@@ -232,7 +232,7 @@ describe("admin members routes", () => {
   });
 
   test("DELETE refuses a self-revoke", async () => {
-    await POST(mutation({ email: "Lawrence@manaflow.ai" }));
+    await POST(mutation({ email: "Admin@manaflow.ai" }));
     const response = await DELETE(mutation({ memberId: members[0]!.id }, "DELETE"));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "self_revoke" });

@@ -1,4 +1,6 @@
 use super::*;
+
+mod exit_snapshot;
 use base64::Engine;
 
 use crate::resource::WireDecimal;
@@ -22,10 +24,9 @@ const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
 
 fn ensure_journal_deadline(deadline: Option<Instant>) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        deadline.is_none_or(|deadline| Instant::now() < deadline),
-        "session journal commit deadline expired"
-    );
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return Err(crate::JournalContention::COMMIT_DEADLINE.into());
+    }
     Ok(())
 }
 
@@ -407,7 +408,8 @@ pub(super) fn create_journal_extensions_schema(
            content BLOB NOT NULL,
            uncompressed_bytes INTEGER NOT NULL CHECK(uncompressed_bytes > 0),
            sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
-           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0)
+           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0),
+           actors_json TEXT
          );
          CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
            BEFORE UPDATE ON journal_segments
@@ -456,17 +458,15 @@ pub(super) fn create_journal_extensions_schema(
          END;",
     )?;
     ensure_built_in_agent_producer(transaction)?;
+    ensure_built_in_shell_producer(transaction)?;
     migrate_journal_receipt_origins(transaction)?;
-    let delivery_columns = {
-        let mut statement = transaction.prepare("PRAGMA table_info(journal_hook_deliveries)")?;
-        statement
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<Result<HashSet<_>, _>>()?
-    };
+    let delivery_columns = table_columns(transaction, "journal_hook_deliveries")?;
     if !delivery_columns.contains("started_event_id") {
         transaction
             .execute("ALTER TABLE journal_hook_deliveries ADD COLUMN started_event_id TEXT", [])?;
     }
+    // A seal writes it: the owner adds it, not the later ledger pass (cx-0b8z).
+    mutation_ledger::add_nullable_column(transaction, "journal_segments", "actors_json")?;
     session_journal::ensure_journal_event_index_schema(transaction)?;
     Ok(())
 }
@@ -524,6 +524,51 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
             manifest_json,
             manifest.producer_id,
         ],
+    )?;
+    Ok(())
+}
+
+/// The reserved `cmux_shell` producer (terminal command history). Added when
+/// missing. A stored manifest of a lower version is replaced; a newer one
+/// (a newer daemon opened this session before) is kept, so an older binary
+/// never downgrades it; the same version with different content fails
+/// closed, like the agent producer.
+fn ensure_built_in_shell_producer(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let manifest = crate::shell_history::built_in_shell_producer_manifest();
+    let manifest_json = canonical_json(&serde_json::to_value(&manifest)?)?;
+    transaction.execute(
+        "INSERT OR IGNORE INTO journal_producers(
+           producer_id, namespace, manifest_version, manifest_json, installed_at_ms
+         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![
+            manifest.producer_id,
+            manifest.namespace,
+            i64::from(manifest.manifest_version),
+            manifest_json,
+            i64::try_from(unix_epoch_ms()?)?,
+        ],
+    )?;
+    let (installed_version, installed_json) = transaction.query_row(
+        "SELECT manifest_version, manifest_json FROM journal_producers WHERE producer_id = ?1",
+        [crate::shell_history::SHELL_PRODUCER_ID],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+    )?;
+    let current = i64::from(manifest.manifest_version);
+    if installed_version > current {
+        return Ok(());
+    }
+    if installed_version == current {
+        anyhow::ensure!(
+            installed_json == manifest_json,
+            "reserved cmux shell producer manifest does not match this binary"
+        );
+        return Ok(());
+    }
+    transaction.execute(
+        "UPDATE journal_producers
+         SET namespace = ?1, manifest_version = ?2, manifest_json = ?3
+         WHERE producer_id = ?4",
+        params![manifest.namespace, current, manifest_json, manifest.producer_id],
     )?;
     Ok(())
 }
@@ -636,7 +681,10 @@ fn migrate_journal_receipt_origins(transaction: &Transaction<'_>) -> anyhow::Res
     Ok(())
 }
 
-fn table_columns(transaction: &Transaction<'_>, table: &str) -> anyhow::Result<HashSet<String>> {
+pub(super) fn table_columns(
+    transaction: &Transaction<'_>,
+    table: &str,
+) -> anyhow::Result<HashSet<String>> {
     let mut statement = transaction.prepare(&format!("PRAGMA table_info({table})"))?;
     statement
         .query_map([], |row| row.get::<_, String>(1))?
@@ -1165,6 +1213,7 @@ impl WorkspaceRegistry {
                         content: None,
                         resource_revision: None,
                         previous_resource_revision: None,
+                        actor: None,
                     },
                 )?;
                 commits.push(None);
@@ -1300,6 +1349,7 @@ impl WorkspaceRegistry {
                     content,
                     resource_revision: None,
                     previous_resource_revision: None,
+                    actor: None,
                 },
             )?;
             commits.push(None);
@@ -1388,7 +1438,10 @@ impl WorkspaceRegistry {
         self.journal_producer_manifests().map(|manifests| {
             manifests
                 .into_iter()
-                .filter(|manifest| manifest.producer_id != crate::AGENT_HOOK_PRODUCER_ID)
+                .filter(|manifest| {
+                    manifest.producer_id != crate::AGENT_HOOK_PRODUCER_ID
+                        && manifest.producer_id != crate::shell_history::SHELL_PRODUCER_ID
+                })
                 .collect()
         })
     }
@@ -1402,6 +1455,10 @@ impl WorkspaceRegistry {
         anyhow::ensure!(
             manifest.producer_id != crate::AGENT_HOOK_PRODUCER_ID,
             "the cmux agent producer is built in"
+        );
+        anyhow::ensure!(
+            manifest.producer_id != crate::shell_history::SHELL_PRODUCER_ID,
+            "the cmux shell producer is built in"
         );
         validate_journal_producer_manifest(manifest)?;
         validate_identifier("journal producer origin", origin)?;
@@ -1480,6 +1537,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -1585,8 +1643,16 @@ fn append_journal_ingress_transaction(
     expand_topology_subjects(tx, &mut subjects)?;
     let subjects = subjects.into_iter().collect::<Vec<_>>();
     let built_in_agent = ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID;
+    let built_in_shell = ingress.producer_id == crate::shell_history::SHELL_PRODUCER_ID;
     let producer = JournalProducer {
-        kind: if built_in_agent { "agent_adapter" } else { "plugin" }.into(),
+        kind: if built_in_agent {
+            "agent_adapter"
+        } else if built_in_shell {
+            "terminal_observer"
+        } else {
+            "plugin"
+        }
+        .into(),
         id: ingress.producer_id.clone(),
     };
     let authority = JournalAuthority {
@@ -1617,6 +1683,7 @@ fn append_journal_ingress_transaction(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: None,
         },
     )?;
     let result = json!({
@@ -1790,6 +1857,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -1870,6 +1938,21 @@ impl WorkspaceRegistry {
         };
         tx.commit()?;
         Ok(applied)
+    }
+
+    /// The earliest `next_attempt_at_ms` of a scheduled delivery of an
+    /// enabled hook: the dispatcher's next retry deadline.
+    pub(crate) fn next_journal_hook_attempt_at_ms(&self) -> anyhow::Result<Option<u64>> {
+        let next: Option<i64> = self.connection.query_row(
+            "SELECT MIN(d.next_attempt_at_ms)
+             FROM journal_hook_deliveries d
+             JOIN journal_hooks h
+               ON h.hook_id = d.hook_id AND h.manifest_version = d.manifest_version
+             WHERE h.enabled = 1 AND d.state = 'scheduled'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(next.map(|value| u64::try_from(value).unwrap_or(0)))
     }
 
     pub(crate) fn pending_journal_hook_deliveries(
@@ -2198,6 +2281,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -2230,56 +2314,6 @@ impl WorkspaceRegistry {
             },
             journal: JournalAppendCommit { sequence, event_id, replayed: false },
         })
-    }
-
-    /// Store the exit snapshot for one terminal generation, best-effort and
-    /// idempotent. The exit latch is first-writer-wins, so at most one row
-    /// exists per terminal; a replayed store is a no-op. Returns whether a
-    /// snapshot row was written.
-    pub(crate) fn put_terminal_exit_snapshot(
-        &mut self,
-        terminal_id: &str,
-        generation: &str,
-        blob: &JournalContentBlob,
-    ) -> anyhow::Result<bool> {
-        let tx = self.connection.transaction()?;
-        let covered_through = tx
-            .query_row(
-                "SELECT next_offset FROM journal_terminal_streams
-                 WHERE terminal_id = ?1 AND generation = ?2",
-                params![terminal_id, generation],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-            .map(u64::try_from)
-            .transpose()
-            .context("terminal journal offset is negative")?
-            .unwrap_or(0);
-        if covered_through == 0 {
-            // The generation journaled no output; there is nothing for the
-            // snapshot to cover and record reads stay exact without it.
-            return Ok(false);
-        }
-        let now = unix_epoch_ms()?;
-        insert_journal_content_blob(&tx, blob, now)?;
-        let inserted = tx.execute(
-            "INSERT OR IGNORE INTO terminal_exit_snapshots(
-               terminal_id, generation, content_id, format, cols, rows,
-               covered_through, created_at_ms
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                terminal_id,
-                generation,
-                blob.reference.content_id,
-                blob.reference.format,
-                i64::from(blob.reference.cols.max(1)),
-                i64::from(blob.reference.rows.max(1)),
-                i64::try_from(covered_through)?,
-                i64::try_from(now)?,
-            ],
-        )?;
-        tx.commit()?;
-        Ok(inserted > 0)
     }
 
     /// Load and verify one terminal's exit snapshot, decoded to replay bytes.
@@ -2582,8 +2616,8 @@ impl WorkspaceRegistry {
             tx.execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
-                   uncompressed_bytes, sha256, sealed_at_ms
-                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8)",
+                   uncompressed_bytes, sha256, sealed_at_ms, actors_json
+                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8, ?9)",
                 params![
                     segment.metadata.segment_id,
                     i64::try_from(segment.metadata.start_sequence)?,
@@ -2593,6 +2627,11 @@ impl WorkspaceRegistry {
                     i64::try_from(segment.metadata.uncompressed_bytes)?,
                     segment.digest,
                     i64::try_from(segment.metadata.sealed_at_ms)?,
+                    session_journal::segment_actors_json(
+                        &tx,
+                        segment.metadata.start_sequence,
+                        segment.metadata.end_sequence,
+                    )?,
                 ],
             )?;
         }
@@ -2639,6 +2678,7 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
+                actor: None,
             },
         )?;
         let result = json!({
@@ -2944,6 +2984,7 @@ fn append_hook_delivery_event(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
+            actor: None,
         },
     )?;
     Ok((sequence, event_id))

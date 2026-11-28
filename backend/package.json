@@ -1,0 +1,23 @@
+{
+  "name": "cmux-cloud-backend",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "db",
+    "../clients/ts/*"
+  ],
+  "scripts": {
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test",
+    "catalog:export": "bun run --cwd packages/protocol catalog:export",
+    "catalog:check": "bun run --cwd packages/protocol catalog:check && bun run --cwd packages/protocol catalog:client:check && bun run --cwd packages/protocol catalog:rust:check",
+    "db:migrate": "bun run --cwd db migrate",
+    "e2e:staging": "bun run --cwd db e2e --env staging",
+    "e2e:development": "bun run --cwd db e2e --env development",
+    "catalog:client": "bun run --cwd packages/protocol catalog:client",
+    "catalog:rust": "bun run --cwd packages/protocol catalog:rust",
+    "lint:size": "bun scripts/check-file-size.ts"
+  }
+}

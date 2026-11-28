@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   RENDER_ATTACH_MAX_ENCODED_CHARS,
   RENDER_GRAPHIC_MAX_DECODED_BYTES,
@@ -102,11 +102,13 @@ describe("render graphics", () => {
 
     expect(decodeRenderGraphicImage(image)).toBeNull();
     expect(decodeRenderGraphicImage({ ...image, data: "AA=A" })).toBeNull();
-    expect(decodeRenderGraphicImage({
-      ...image,
-      format: "rgba",
-      data: "AAAAAA=A",
-    })).toBeNull();
+    expect(
+      decodeRenderGraphicImage({
+        ...image,
+        format: "rgba",
+        data: "AAAAAA=A",
+      }),
+    ).toBeNull();
   });
 
   it("shares the transport budget and continues decoding after an oversized image", () => {
@@ -198,12 +200,18 @@ describe("render graphics", () => {
 
     expect(resolveRenderGraphicPlacement(image, { ...placement, viewport_visible: false })).toBeNull();
     expect(resolveRenderGraphicPlacement(image, { ...placement, image_id: 10 })).toBeNull();
-    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_824 }))
-      .toMatchObject({ layer: "below", z: -1_073_741_824 });
-    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_825 }))
-      .toMatchObject({ layer: "belowBackground", z: -1_073_741_825 });
-    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -2_147_483_648 }))
-      .toMatchObject({ layer: "belowBackground", z: -2_147_483_648 });
+    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_824 })).toMatchObject({
+      layer: "below",
+      z: -1_073_741_824,
+    });
+    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_825 })).toMatchObject({
+      layer: "belowBackground",
+      z: -1_073_741_825,
+    });
+    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -2_147_483_648 })).toMatchObject({
+      layer: "belowBackground",
+      z: -2_147_483_648,
+    });
   });
 
   it("rejects browser-unsafe intrinsic canvas dimensions independently of area", () => {
@@ -230,9 +238,11 @@ describe("render graphics", () => {
       backingBytes: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION * 4,
       source: { width: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION, height: 1 },
     });
-    expect(resolveRenderGraphicPlacement(beyondLimit, {
-      ...thinPlacement,
-      source_width: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION + 1,
-    })).toBeNull();
+    expect(
+      resolveRenderGraphicPlacement(beyondLimit, {
+        ...thinPlacement,
+        source_width: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION + 1,
+      }),
+    ).toBeNull();
   });
 });

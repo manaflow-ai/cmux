@@ -14,6 +14,13 @@ requirement: there is no Stack permission, team allow-list, or paid-plan
 gate, and no connected-account cap. Route sessions and provider accounts are
 scoped to the team the caller selects; a non-member gets `team_not_found`.
 
+The native cross-process handoff contract, including the method-specific
+authorization assumptions and atomic one-time exchange, is documented in
+[`docs/coderouter-handoff-protocol.md`](coderouter-handoff-protocol.md).
+Production handoff rollout also requires the durable Firewall rule and the
+trusted `CMUX_CODEROUTER_PUBLIC_ORIGIN` setting; the exchange route fails closed
+when either required deployment control is unavailable.
+
 ## Stripe webhook replay
 
 1. Identify the failed Stripe event and the production `cmux.com` webhook

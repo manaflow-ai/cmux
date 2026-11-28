@@ -98,6 +98,7 @@ import {
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
+  devboxDaemonUnit,
   DEVBOX_DESKTOP_INSTALLS,
   devboxTerminfoInstallCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
@@ -139,6 +140,13 @@ import {
   DEVBOX_DESKTOP_UNIT,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
+import {
+  METADATA_GUARD_FILE,
+  METADATA_GUARD_UNIT,
+  metadataGuardEnableCommand,
+  metadataGuardRules,
+  metadataGuardUnit,
+} from "../services/vms/images/metadataGuard";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -352,6 +360,12 @@ try {
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
+  await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
+  await put("cmux-python-completion.bash", "/usr/local/share/bash-completion/completions/python");
+  await step(
+    "python-completion",
+    `for f in /usr/share/bash-completion/completions/python?* /usr/share/bash-completion/completions/pypy* /usr/share/bash-completion/completions/micropython; do if [ -e "$f" ]; then ln -sf python "/usr/local/share/bash-completion/completions/\${f##*/}"; fi; done && bash -n /usr/local/share/bash-completion/completions/python`,
+  );
   await step("prompt-default-name", "echo cmux > /etc/cmux/vm-name");
   await put("seed-history", "/etc/cmux/seed-history");
   await put("cmux-terminfo.sh", "/etc/profile.d/cmux-terminfo.sh");
@@ -527,30 +541,7 @@ try {
   );
 
   // The cmux-tui daemon supervisor + its systemd unit (see the header).
-  const service = [
-    "[Unit]",
-    "Description=cmux-tui session daemon supervisor",
-    "After=network.target",
-    "",
-    "[Service]",
-    "Type=simple",
-    "User=root",
-    // Freestyle machines are reached at a private VPC address by default, or
-    // their stable public IPv6 on the legacy public-network path, so the daemon
-    // listens dual-stack ([::] accepts IPv4 too). cmux-devbox-boot
-    // defaults to 0.0.0.0 for the container providers, whose runtimes may have
-    // IPv6 disabled entirely.
-    "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
-    // Pane shells inherit this PATH; /usr/local/bin carries the base's Node
-    // and every pinned agent as symlinks, so no login shell is needed.
-    "Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    "ExecStart=/usr/local/bin/cmux-devbox-boot",
-    "Restart=always",
-    "RestartSec=2",
-    "",
-    "[Install]",
-    "WantedBy=multi-user.target",
-  ].join("\n");
+  const service = devboxDaemonUnit();
   await put("cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot", 0o755);
   await put("cmux-prompt-sync", "/usr/local/bin/cmux-prompt-sync", 0o755);
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });
@@ -591,6 +582,12 @@ try {
     "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && " +
       "echo snapshot-resume-quiet-ok",
   );
+  // The metadata service for root only (services/vms/images/metadataGuard.ts),
+  // loaded now so the snapshot carries it live, and at every cold boot by its unit.
+  await vm.fs.writeFile(METADATA_GUARD_FILE, metadataGuardRules(), { mode: 0o644 });
+  await vm.fs.writeFile(`/etc/systemd/system/${METADATA_GUARD_UNIT}`, metadataGuardUnit(), { mode: 0o644 });
+  // Fails unless the work user is refused and root still reads the instance id.
+  await step("metadata-guard", `out=$(${metadataGuardEnableCommand(WORK_USER)}) && echo "$out" && echo "$out" | grep -qx user_blocked=yes && echo "$out" | grep -qx root_reads=yes`);
   await step(
     "cmux-tui-daemon-unit",
     "sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmux-tui-daemon.service /etc/systemd/system/multi-user.target.wants/cmux-tui-daemon.service && systemctl daemon-reload && systemctl enable cmux-tui-daemon && systemctl restart cmux-tui-daemon && systemctl is-active cmux-tui-daemon",

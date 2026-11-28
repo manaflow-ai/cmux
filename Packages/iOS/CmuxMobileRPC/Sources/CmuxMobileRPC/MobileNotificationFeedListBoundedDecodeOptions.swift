@@ -8,8 +8,8 @@ struct MobileNotificationFeedListBoundedDecodeOptions: Sendable {
 func mobileNotificationFeedListBoundedDecodeOptions(
     from decoder: any Decoder
 ) throws -> MobileNotificationFeedListBoundedDecodeOptions {
-    if let options = decoder.userInfo[.mobileNotificationFeedListBoundedDecodeOptions]
-        as? MobileNotificationFeedListBoundedDecodeOptions {
+    if let options = CodingUserInfoKey.mobileNotificationFeedListBoundedDecodeOptions
+        .flatMap({ decoder.userInfo[$0] }) as? MobileNotificationFeedListBoundedDecodeOptions {
         return options
     }
     let context = DecodingError.Context(

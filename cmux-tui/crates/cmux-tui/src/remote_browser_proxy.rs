@@ -174,8 +174,10 @@ pub(super) async fn serve_browser_proxy(
     let mut finished = runtime.subscribe_finished();
     let parent = parsed.owner;
     let mut tasks = tokio::task::JoinSet::new();
-    let mut parent_check = tokio::time::interval(Duration::from_millis(250));
-    parent_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // The owner's exit is a kernel event; this loop used to check it every
+    // 250 ms.
+    let parent_exit = super::wait_for_parent_exit(parent);
+    tokio::pin!(parent_exit);
     loop {
         tokio::select! {
             _ = crate::wait_for_shutdown_signal_async() => break,
@@ -209,9 +211,7 @@ pub(super) async fn serve_browser_proxy(
                     .await;
                 });
             }
-            _ = parent_check.tick() => {
-                if !super::parent_process_is(parent) { break; }
-            }
+            () = &mut parent_exit => break,
         }
     }
     tasks.shutdown().await;

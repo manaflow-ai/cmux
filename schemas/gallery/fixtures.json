@@ -1,0 +1,4 @@
+{
+  "comment": "Folders of gallery fixture JSON that both gallery hosts read: the web gallery serves every *.json under these roots as virtual:cmux-gallery/fixtures (keyed by repo path), and each Swift package bundles its own as resources. Paths are from the repository root. Fixtures are public-safe sample data: no tokens, emails, keys or real user content.",
+  "roots": []
+}

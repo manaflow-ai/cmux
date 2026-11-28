@@ -80,8 +80,11 @@ suite runner for packages whose CI uses it; it preserves per-suite failures and
 reports timeout retries. Do not treat its aggregate result as a latency sample
 without including the retry.
 
+The app itself is `Packages/macOS/CmuxNext`; test one module with
+`swift test --package-path Packages/macOS/CmuxNext --filter <Module>Tests`.
+
 Package tests establish package behavior, not app wiring. After changing a public
-interface, compile the consumers and app-host test target below.
+interface, compile its consumers as below.
 
 ## 3. Compile the app and tests without launching them
 
@@ -102,19 +105,12 @@ features available. `--build-only` validates a temporary bundle without stopping
 replacing the running tag, then removes the bundle. Use your own tag and retain its
 DerivedData for incremental checks.
 
-An app build does not compile all tests. In a separate, stable verification directory,
-compile the app-host unit test product:
-
-```bash
-./scripts/test-unit.sh -derivedDataPath "$PWD/.build/contributor-tests" build-for-testing
-```
-
-The wrapper uses the same test-module settings as CI. This is compilation only;
-do not open its untagged product. For UI or dedicated test schemes, follow the
+An app build does not compile the tests. Compile the app package tests with
+`swift build --build-tests --package-path Packages/macOS/CmuxNext`; CLI tests
+(`cmuxCLITests`, scheme `cmux-cli-tests`) run on CI. See the
 [test guide](../skills/cmux-testing/references/local-vs-ci-validation.md).
-Confirm the command succeeded and preserve the build log. `build-for-testing`
-proves that the selected app and test product compile, **not** that any test ran. It does not replace the tagged runtime
-step below or required CI checks.
+Compilation proves that the tests build, **not** that any test ran. It does not
+replace the tagged runtime step below or required CI checks.
 
 ## 4. Exercise an isolated runtime
 
@@ -147,31 +143,10 @@ last-used/global socket if the tagged socket is unavailable. `reload.sh` checks
 socket startup; a failed launch is a failure to investigate, not a reason to point
 the test at the regular app.
 
-For app-host or UI tests that launch an application, use the repository's isolated
-CI harness or a dedicated disposable macOS GUI session. A compilation-only product
-is not automatically a safely isolated test runtime. A plain `xcodebuild test` on
-your everyday desktop can launch/focus the app under test. UI tests also need a
-logged-in GUI session and any permissions or display setup their fixture requires.
-If that environment is unavailable, report the missing runtime check and ask a
-maintainer to run the exact selected test on your pushed revision.
-
-### Maintainer option: dispatch a selected test
-
-Contributors do not need GitHub Actions dispatch permission or a private Mac fleet.
-A maintainer with access can use the existing exact-revision dispatcher:
-
-```bash
-python3 scripts/ci/dispatch-focused-test.py cmuxTests/SessionPersistenceTests --ref <pushed-commit-sha> --wait
-```
-
-Replace the selector with the regression; UI selectors use
-`cmuxUITests/ClassName[/methodName]`. The dispatcher validates the revision/selector
-and prints the run URL. For UI tests, `scripts/ui-test ClassName` does the same and then shows
-one frame per test action ([guide](../skills/cmux-testing/references/ui-test-frames.md)).
-This path needs authenticated `gh` access to the upstream
-workflow and its runner capacity. It does not grant access to contributors or
-replace the PR's required checks. Preserve the selected-test count, run URL,
-revision, failures, cancellations and retries in the verification record.
+For tests that launch an application, use a dedicated disposable macOS GUI
+session. A plain `xcodebuild test` on your everyday desktop can launch/focus the
+app under test. If that environment is unavailable, report the missing runtime
+check and ask a maintainer to run it on your pushed revision.
 
 ## 5. Finish with the physical behavior the change affects
 

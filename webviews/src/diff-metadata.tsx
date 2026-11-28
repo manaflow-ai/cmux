@@ -7,13 +7,21 @@ export function annotateDiffMetadata(fileDiff: any, patchText?: string): void {
     return;
   }
   const hunks = Array.isArray(fileDiff.hunks) ? fileDiff.hunks : [];
-  const hasBinaryMarker = patchText != null && /(?:^|\n)(?:GIT binary patch|Binary files .* differ)(?:\n|$)/.test(patchText);
-  const isParsedBinary = fileDiff.type === "change" && hunks.length === 0 &&
-    typeof fileDiff.prevObjectId === "string" && typeof fileDiff.newObjectId === "string" &&
+  const hasBinaryMarker =
+    patchText != null && /(?:^|\n)(?:GIT binary patch|Binary files .* differ)(?:\n|$)/.test(patchText);
+  const isParsedBinary =
+    fileDiff.type === "change" &&
+    hunks.length === 0 &&
+    typeof fileDiff.prevObjectId === "string" &&
+    typeof fileDiff.newObjectId === "string" &&
     fileDiff.prevMode == null;
   if (hasBinaryMarker || isParsedBinary) {
     fileDiff.cmuxDiffMetadataKind = "binary" satisfies DiffMetadataKind;
-  } else if (typeof fileDiff.prevMode === "string" && typeof fileDiff.mode === "string" && fileDiff.prevMode !== fileDiff.mode) {
+  } else if (
+    typeof fileDiff.prevMode === "string" &&
+    typeof fileDiff.mode === "string" &&
+    fileDiff.prevMode !== fileDiff.mode
+  ) {
     fileDiff.cmuxDiffMetadataKind = "mode" satisfies DiffMetadataKind;
   }
 }

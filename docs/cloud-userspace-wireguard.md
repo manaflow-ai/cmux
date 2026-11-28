@@ -110,10 +110,10 @@ policy is built once at the composition root from local state only, and it is
 the single decision every tunnel consumer (browser navigation, `cmux vpn up`,
 `vm.tunnel_config`, `vm.tunnel_up`) flows through:
 
-- A start is admitted only when `Settings › Beta Features › Cloud Machines` is
-  on (`cloud.beta.machines.enabled`, on by default in dev builds and off by
-  default in release builds, and never forced on by a managed `DisableCloud`
-  profile) **and** the account has at
+- A start is admitted only after the Cloud tab's first-use screen has completed
+  activation (`cloud.beta.machines.enabled` remains the migration marker and
+  is committed after authenticated readiness, and is never forced on by a
+  managed `DisableCloud` profile) **and** the account has at
   least one machine. Launch-time decisions and status answer "has a machine"
   from a cached marker written by every machine list and create
   (`cloud.machines.cachedHasAny`; cleared on sign-out, reset to unknown by a
@@ -132,15 +132,13 @@ the single decision every tunnel consumer (browser navigation, `cmux vpn up`,
   stopped. Otherwise it is built on the first admitted start. A fresh install,
   or an update from a version without the tunnel, therefore never calls
   NetworkExtension at all.
-- The Beta Features toggle is honored while the app runs: turning it off
-  brings a running tunnel down; turning it on lets the next Cloud use start
-  the tunnel without a relaunch. The periodic fleet read (`GET /api/vm` from
-  the cmux-tui registry) runs only while the toggle is on **or** this Mac has
-  used Cloud before (the marker said the account had a machine, or a tunnel
-  role was enrolled here), so an idle app that never opted in makes no Cloud
-  API traffic, while an existing Cloud user's fleet keeps reconnecting even
-  with the toggle off. Sign-out clears that evidence and stops the poll; a
-  delete resets the marker to unknown until the next list.
+- The activation marker is honored while the app runs: clearing
+  `cloud.beta.machines.enabled` brings a running tunnel down, while the Cloud
+  tab's successful first-use flow commits it and lets the next Cloud use start
+  without a relaunch. The periodic fleet read (`GET /api/vm` from the cmux-tui
+  registry) runs only while `CloudMachinesFeature.isEnabled()` is true, so an
+  unactivated app makes no Cloud API traffic. Sign-out clears account evidence
+  and stops the poll; a delete resets the machine cache until the next list.
 - `down`, `revoke`, sign-out, and quit stay available regardless, so a tunnel
   from an earlier opted-in session is always cleaned up.
 

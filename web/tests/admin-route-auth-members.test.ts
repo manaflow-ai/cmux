@@ -61,7 +61,7 @@ function memberRow(overrides: Partial<Record<string, unknown>> = {}) {
     id: "11111111-2222-4333-8444-555555555555",
     email: "pat@example.com",
     invitedByUserId: "admin-1",
-    invitedByEmail: "lawrence@manaflow.ai",
+    invitedByEmail: "admin@manaflow.ai",
     invitedAt: new Date("2026-09-09T00:00:00.000Z"),
     acceptedAt: null,
     revokedAt: null,
@@ -79,12 +79,12 @@ describe("requireAdmin member rule", () => {
   });
 
   test("company-domain admins are admitted without a member lookup", async () => {
-    currentUser = { id: "admin-1", primaryEmail: "lawrence@manaflow.ai", primaryEmailVerified: true, isAnonymous: false };
+    currentUser = { id: "admin-1", primaryEmail: "admin@manaflow.ai", primaryEmailVerified: true, isAnonymous: false };
     const gate = await requireAdmin(request());
     expect(gate.ok).toBe(true);
     if (gate.ok) {
       expect(gate.source).toBe("company_domain");
-      expect(gate.admin).toEqual({ id: "admin-1", primaryEmail: "lawrence@manaflow.ai" });
+      expect(gate.admin).toEqual({ id: "admin-1", primaryEmail: "admin@manaflow.ai" });
     }
     expect(memberLookups).toBe(0);
   });

@@ -7,6 +7,8 @@ TUI_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd -P)"
 REPO_ROOT="$(cd "$TUI_ROOT/.." && pwd -P)"
 
 # shellcheck source=/dev/null
+# libghostty-vt builds from ghostty-next, which sets the Zig version.
+export GHOSTTY_ZIG_SOURCE="${GHOSTTY_ZIG_SOURCE:-ghostty-next}"
 source "$REPO_ROOT/scripts/ghostty-zig-version.sh"
 ZIG_REQUIRED="$(ghostty_minimum_zig_version "$REPO_ROOT")"
 

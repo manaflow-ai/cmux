@@ -95,6 +95,7 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     /// Removes and returns the next pending chunk, optionally splitting an
     /// oversized head chunk at a Unicode-scalar boundary.
     /// - Parameter maximumByteCount: The maximum UTF-8 bytes to return, or `nil` for no cap.
+    ///   A cap below one byte returns one scalar per call (the narrow-cap rule below).
     /// - Returns: The next chunk to deliver, or `nil` when nothing is pending.
     public mutating func nextBatch(maximumByteCount: Int? = nil) -> Chunk? {
         guard !pendingChunks.isEmpty else {
@@ -103,7 +104,6 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         }
         if let maximumByteCount,
            pendingChunks[0].text.utf8.count > maximumByteCount {
-            precondition(maximumByteCount > 0)
             let text = pendingChunks[0].text
             var prefixByteCount = 0
             var splitIndex = text.unicodeScalars.startIndex

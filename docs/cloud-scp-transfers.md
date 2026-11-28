@@ -1,5 +1,8 @@
 # Cloud SCP transfers
 
+> **CLI note (2026-09-30):** `cmux vm push` and `vm pull` were removed in the Rust CLI
+> cutover. This records the transfer design; no CLI verb reaches it now.
+
 `cmux vm push` copies files with system OpenSSH/SFTP through the app's existing userspace WireGuard hub. `--watch`, `vm dev`, and `vm run --sync` call the same push path. `vm pull` still uses exec. `--secret` keeps the existing cmux file receive path.
 
 The CLI creates an Ed25519 key in an owner-only temporary directory. `vm.scp_info` sends only the public key to the signed-in `/api/vm/[id]/scp-endpoint` route. The route checks account access and wake limits. The provider installs the public key for the guest `cmux` user with `restrict` and a UTC expiry 15 minutes ahead. A file lock protects concurrent updates, and later transfers remove expired cmux keys while preserving other keys. The private key never reaches the app or backend.

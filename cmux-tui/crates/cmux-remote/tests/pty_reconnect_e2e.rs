@@ -353,6 +353,7 @@ async fn real_pty_and_fresh_services_survive_authenticated_carrier_reconnect() {
                             heartbeat_interval: None,
                             heartbeat_timeout: Duration::from_millis(50),
                             maximum_attempts: Some(100),
+                            maximum_duration: None,
                         },
                     },
                 )

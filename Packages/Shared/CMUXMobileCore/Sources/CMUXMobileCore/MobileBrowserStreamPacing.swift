@@ -23,21 +23,19 @@ public struct MobileBrowserStreamPacing: Equatable, Sendable {
     private var lastEmissionAt: TimeInterval?
     private var windowFullSince: TimeInterval?
 
-    /// Creates pacing state for a new subscription.
+    /// Creates pacing state for a new subscription. A value outside its range
+    /// (a window below one frame, a negative or NaN interval, a stall timeout
+    /// that is not positive) takes its default instead of trapping.
     public init(
         maximumUnackedFrames: Int = 3,
         minimumFrameInterval: TimeInterval = 0.033,
         settleDelay: TimeInterval = 0.300,
         ackStallTimeout: TimeInterval = 3.0
     ) {
-        precondition(maximumUnackedFrames > 0)
-        precondition(minimumFrameInterval >= 0)
-        precondition(settleDelay >= 0)
-        precondition(ackStallTimeout > 0)
-        self.maximumUnackedFrames = maximumUnackedFrames
-        self.minimumFrameInterval = minimumFrameInterval
-        self.settleDelay = settleDelay
-        self.ackStallTimeout = ackStallTimeout
+        self.maximumUnackedFrames = maximumUnackedFrames > 0 ? maximumUnackedFrames : 3
+        self.minimumFrameInterval = minimumFrameInterval >= 0 ? minimumFrameInterval : 0.033
+        self.settleDelay = settleDelay >= 0 ? settleDelay : 0.300
+        self.ackStallTimeout = ackStallTimeout > 0 ? ackStallTimeout : 3.0
     }
 
     /// Coalesces a new dirty signal and restarts the settle deadline.

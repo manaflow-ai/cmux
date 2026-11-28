@@ -50,7 +50,7 @@ function fakeDb(): AdminAuditDb {
   } as unknown as AdminAuditDb;
 }
 
-const actor = { id: "admin-1", primaryEmail: "lawrence@manaflow.ai" };
+const actor = { id: "admin-1", primaryEmail: "admin@manaflow.ai" };
 const ID_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ID_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
@@ -60,7 +60,7 @@ function storedRow(id: string, at: string, overrides: Partial<StoredRow> = {}): 
     createdAt: new Date(at),
     createdAtText: at.replace("T", " ").replace("Z", "+00"),
     actorUserId: "admin-1",
-    actorEmail: "lawrence@manaflow.ai",
+    actorEmail: "admin@manaflow.ai",
     action: "user_grant_set",
     targetKind: "user",
     targetId: "u1",
@@ -98,7 +98,7 @@ describe("admin audit log", () => {
     });
     expect(inserted).toEqual([{
       actorUserId: "admin-1",
-      actorEmail: "lawrence@manaflow.ai",
+      actorEmail: "admin@manaflow.ai",
       action: "team_grant_set",
       targetKind: "team",
       targetId: "t1",
@@ -185,7 +185,7 @@ describe("admin audit log", () => {
       id: ID_B,
       at: "2026-09-09T10:00:01.000Z",
       actorUserId: "admin-1",
-      actorEmail: "lawrence@manaflow.ai",
+      actorEmail: "admin@manaflow.ai",
       action: "user_grant_set",
       targetKind: "user",
       targetId: "u1",

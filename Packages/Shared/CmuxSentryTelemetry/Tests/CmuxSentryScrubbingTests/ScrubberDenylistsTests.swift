@@ -14,7 +14,7 @@ import Testing
 /// from the ported lists, the matching case fails.
 @Suite struct ScrubberDenylistsTests {
     /// A scrubber with a fixed home directory so path redaction is deterministic.
-    private let scrubber = SentryScrubber(homeDirectory: "/Users/lawrence")
+    private let scrubber = SentryScrubber(homeDirectory: "/Users/dev")
 
     // MARK: - sentry-python DEFAULT_DENYLIST / DEFAULT_PII_DENYLIST keys
 

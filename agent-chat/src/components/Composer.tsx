@@ -1,3 +1,4 @@
+import { preferenceStorage, draftStorage } from "../browser-storage";
 import { useCallback, useMemo, useState } from "react";
 import { composerDraftKey, visibleWorkflowHarnesses, type OptionValue } from "../session";
 import { useCtx } from "../context";
@@ -46,12 +47,12 @@ export function Composer() {
     clearError,
     start,
   } = useCtx();
-  const [provider, setProvider] = useState(() => localStorage.getItem("agentui.provider") || "claude");
-  const [cwd, setCwd] = useState(() => localStorage.getItem("agentui.cwd") || "");
-  const [committedCwd, setCommittedCwd] = useState(() => localStorage.getItem("agentui.cwd") || "");
+  const [provider, setProvider] = useState(() => preferenceStorage.getItem("agentui.provider") || "claude");
+  const [cwd, setCwd] = useState(() => preferenceStorage.getItem("agentui.cwd") || "");
+  const [committedCwd, setCommittedCwd] = useState(() => preferenceStorage.getItem("agentui.cwd") || "");
   const [prompt, setPrompt] = useState(() => {
-    const draft = sessionStorage.getItem(composerDraftKey) || "";
-    sessionStorage.removeItem(composerDraftKey);
+    const draft = draftStorage.getItem(composerDraftKey) || "";
+    draftStorage.removeItem(composerDraftKey);
     return draft;
   });
   const [startOptionsByProvider, setStartOptionsByProvider] = useState<Record<string, Record<string, OptionValue>>>(() => ({
@@ -110,20 +111,20 @@ export function Composer() {
     const runCwd = cwd.trim();
     const sent = start({ provider, cwd: runCwd, prompt: text, options: sanitizeStartOptions(startOptions, options) });
     if (!sent) return;
-    localStorage.setItem("agentui.provider", provider);
-    localStorage.setItem("agentui.cwd", runCwd);
+    preferenceStorage.setItem("agentui.provider", provider);
+    preferenceStorage.setItem("agentui.cwd", runCwd);
   };
   const changeCwd = (v: string) => { setCwd(v); };
   const commitCwd = (v: string) => {
     const next = v.trim();
     if (!next) return;
     setCommittedCwd(next);
-    localStorage.setItem("agentui.cwd", next);
+    preferenceStorage.setItem("agentui.cwd", next);
   };
   const changeProvider = (v: string) => {
     setProvider(v);
     setStartOptionsByProvider((all) => all[v] ? all : { ...all, [v]: readProviderOptions(v) });
-    localStorage.setItem("agentui.provider", v);
+    preferenceStorage.setItem("agentui.provider", v);
   };
   const changeProviderModel = (nextProvider: string, model: string) => {
     changeProvider(nextProvider);

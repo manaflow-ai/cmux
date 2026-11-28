@@ -209,13 +209,12 @@ class WorkflowWiringTests(unittest.TestCase):
 
     def test_macos_jobs_restore_the_seed_before_checkout(self):
         text = (WORKFLOWS / "ci-macos.yml").read_text()
-        for job in ("macos-compile-admission", "app-host-unit-tests", "cli-product-tests", "swift-package-tests", "tests-build-and-lag"):
+        for job in ("macos-compile-admission", "cli-product-tests", "swift-package-tests"):
             with self.subTest(job=job):
                 self.assertIn("Restore git object seed", self.steps_before_checkout(text, job))
 
-    def test_e2e_and_ios_macos_jobs_restore_the_seed_before_checkout(self):
+    def test_ios_macos_jobs_restore_the_seed_before_checkout(self):
         for workflow, jobs in (
-            ("test-e2e.yml", ("build", "test")),
             ("test-ios.yml", ("mobile-core-package", "ios-simulator-build")),
         ):
             text = (WORKFLOWS / workflow).read_text()
@@ -225,8 +224,7 @@ class WorkflowWiringTests(unittest.TestCase):
 
     def test_a_failed_seeded_checkout_retries_without_the_seed(self):
         for workflow, jobs in (
-            ("ci-macos.yml", ("macos-compile-admission", "app-host-unit-tests", "swift-package-tests")),
-            ("test-e2e.yml", ("build", "test")),
+            ("ci-macos.yml", ("macos-compile-admission", "swift-package-tests")),
             ("test-ios.yml", ("mobile-core-package", "ios-simulator-build")),
         ):
             text = (WORKFLOWS / workflow).read_text()

@@ -6,6 +6,7 @@ import {
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 import { openVmPort } from "../../../../../services/vms/workflows";
 import { desktopWrapperUrl } from "../../../../../services/vms/desktopWrapper";
 
@@ -60,6 +61,7 @@ export async function POST(
         billingTeamId: account.entitlements.billingTeamId,
         maxActiveVms: account.entitlements.maxActiveVms,
         callerPlanId: account.entitlements.planId,
+        modelPlane: vmModelPlaneRevoker(),
         teamIds: user.teamIds,
         providerVmId: id,
         port,

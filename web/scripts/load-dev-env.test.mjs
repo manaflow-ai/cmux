@@ -134,3 +134,56 @@ test("loads an explicitly selected Freestyle provider from the extra environment
   assert.equal(apiKey, "explicit-freestyle-key");
   assert.equal(provider, "freestyle");
 });
+
+function sourcedNetworkNamespace(env) {
+  const home = mkdtempSync(path.join(tmpdir(), "cmux-load-dev-env-ns-"));
+  const secrets = path.join(home, ".secrets");
+  const envFile = path.join(secrets, "cmuxterm-dev.env");
+  mkdirSync(secrets, { recursive: true });
+  writeFileSync(envFile, "", { mode: 0o600 });
+  const inherited = { ...process.env };
+  delete inherited.CMUX_VM_NETWORK_NAMESPACE;
+  delete inherited.DATABASE_URL;
+  for (const key of ["CMUX_DEV_USE_EXTERNAL_DATABASE_URL", "CMUX_DEV_USE_PLANETSCALE", "CMUX_DB_PASSWORD", "CMUX_DB_PORT", "CMUX_DB_USER", "CMUX_DB_NAME", "CMUX_PORT", "PORT"]) {
+    delete inherited[key];
+  }
+  try {
+    return execFileSync(
+      "bash",
+      ["-c", `source "$1"; printf '%s:%s' "\${CMUX_VM_NETWORK_NAMESPACE+set}" "\${CMUX_VM_NETWORK_NAMESPACE-}"`, "bash", scriptPath],
+      {
+        encoding: "utf8",
+        env: { ...inherited, HOME: home, CMUXTERM_ENV_FILE: envFile, CMUXTERM_EXTRA_ENV_FILE: "", ...env },
+      },
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+test("each dev database gets its own Cloud network namespace", () => {
+  // A dev-backend stack: Compose passes the stack's own database password
+  // and URL; the shared secret file may carry another DATABASE_URL.
+  const stack = (password) => ({
+    CMUX_PORT: "3811",
+    CMUX_DB_PASSWORD: password,
+    CMUX_DEV_USE_EXTERNAL_DATABASE_URL: "1",
+    DATABASE_URL: `postgres://cmux:${password}@postgres:5432/cmux`,
+  });
+  const stackA = sourcedNetworkNamespace(stack("stack-a-password"));
+  const stackB = sourcedNetworkNamespace(stack("stack-b-password"));
+  const local = sourcedNetworkNamespace({ CMUX_PORT: "3811" });
+  for (const value of [stackA, stackB, local]) {
+    assert.match(value, /^set:dev-[0-9a-f]{10}$/);
+  }
+  assert.notEqual(stackA, stackB);
+  assert.notEqual(stackA, local);
+  assert.equal(stackA, sourcedNetworkNamespace(stack("stack-a-password")));
+  assert.notEqual(local, sourcedNetworkNamespace({ CMUX_PORT: "3812" }));
+  assert.equal(stackA.includes("stack-a-password"), false);
+});
+
+test("an explicit Cloud network namespace, even empty, is kept", () => {
+  assert.equal(sourcedNetworkNamespace({ CMUX_VM_NETWORK_NAMESPACE: "staging" }), "set:staging");
+  assert.equal(sourcedNetworkNamespace({ CMUX_VM_NETWORK_NAMESPACE: "" }), "set:");
+});

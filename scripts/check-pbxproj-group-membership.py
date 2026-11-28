@@ -64,16 +64,21 @@ def parse(text: str) -> dict:
     return value()
 
 
-def orphans(project: dict) -> list[tuple[str, str]]:
+def orphans(project: dict, root: Path) -> list[tuple[str, str]]:
     objects = project["objects"]
     main_group = objects[project["rootObject"]]["mainGroup"]
     reachable: set[str] = set()
+    synchronized_roots: list[str] = []
     pending = [main_group]
     while pending:
         oid = pending.pop()
         if oid in reachable or oid not in objects:
             continue
         reachable.add(oid)
+        if objects[oid].get("isa") == "PBXFileSystemSynchronizedRootGroup":
+            path = objects[oid].get("path")
+            if path:
+                synchronized_roots.append(path)
         pending.extend(objects[oid].get("children", []))
     built: dict[str, None] = {}
     for obj in objects.values():
@@ -83,14 +88,28 @@ def orphans(project: dict) -> list[tuple[str, str]]:
                 if ref:
                     built[ref] = None
     # Only plain file references: product references and package products live elsewhere.
-    return sorted((ref, objects[ref].get("path") or objects[ref].get("name") or ref) for ref in built
-                  if ref in objects and objects[ref].get("isa") == "PBXFileReference"
-                  and objects[ref].get("sourceTree") != "BUILT_PRODUCTS_DIR" and ref not in reachable)
+    missing = []
+    for ref in built:
+        if ref not in objects or objects[ref].get("isa") != "PBXFileReference":
+            continue
+        obj = objects[ref]
+        if obj.get("sourceTree") == "BUILT_PRODUCTS_DIR" or ref in reachable:
+            continue
+        path = obj.get("path") or obj.get("name") or ref
+        if obj.get("sourceTree") == "SOURCE_ROOT" and (root / path).exists():
+            continue
+        if obj.get("sourceTree") == "<group>" and any(
+            (root / sync_root / path).exists() for sync_root in synchronized_roots
+        ):
+            continue
+        missing.append((ref, path))
+    return sorted(missing)
 
 
 def main() -> int:
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else PBXPROJ
-    found = orphans(parse(path.read_text(encoding="utf-8")))
+    root = path.parent.parent if path.parent.name.endswith(".xcodeproj") else path.parent
+    found = orphans(parse(path.read_text(encoding="utf-8")), root)
     for ref, name in found:
         print(f"::error file=cmux.xcodeproj/project.pbxproj::{name} ({ref}) is built but no group under the main "
               "group holds it; Xcode recovers it under a group with a new id on every load, so every build "

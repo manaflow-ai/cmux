@@ -47,7 +47,7 @@ public actor CmxIrohKeychainCredentialStore: CmxIrohSecureCredentialStoring {
     }
 
     private func read(service: String, account: String) throws -> Data? {
-        var query = baseQuery(service: service, account: account)
+        var query: [String: Any] = baseQuery(service: service, account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -73,7 +73,7 @@ public actor CmxIrohKeychainCredentialStore: CmxIrohSecureCredentialStoring {
         account: String,
         accessibility: CmxIrohSecureCredentialAccessibility
     ) throws {
-        let query = baseQuery(service: service, account: account)
+        let query: [String: Any] = baseQuery(service: service, account: account)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: secAccessibility(accessibility),
@@ -89,7 +89,7 @@ public actor CmxIrohKeychainCredentialStore: CmxIrohSecureCredentialStoring {
             throw CmxIrohKeychainCredentialStoreError(status: updateStatus)
         }
 
-        var insert = query
+        var insert: [String: Any] = query
         attributes.forEach { insert[$0.key] = $0.value }
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
         if addStatus == errSecSuccess {

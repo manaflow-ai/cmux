@@ -75,7 +75,7 @@ fn record_pixel_cache_miss() {}
 pub(crate) struct KittyInFlightTracker {
     scan: KittyStreamScan,
     prefix: Vec<u8>,
-    loading: bool,
+    pub(crate) loading: bool,
     overflowed: bool,
     max_bytes: usize,
 }
@@ -186,17 +186,28 @@ impl KittyInFlightTracker {
         Ok((prefix, partial))
     }
 
-    pub(crate) fn replay_prefix_fits(&self, max_bytes: usize) -> Result<()> {
+    /// Whether the stream is inside a direct Kitty command this tracker
+    /// retains completely.
+    pub(crate) fn has_partial_command(&self) -> bool {
+        !self.overflowed
+            && matches!(&self.scan, KittyStreamScan::Kitty(command) if !command.overflowed)
+    }
+
+    /// The completed upload chunks and the partial command, separately, under
+    /// the same budget as [`Self::replay_prefix_checked`].
+    pub(crate) fn replay_prefix_and_partial_checked(
+        &self,
+        max_bytes: usize,
+    ) -> Result<(Vec<u8>, Vec<u8>)> {
         let (prefix, partial) = self.replay_prefix_parts()?;
-        let Some(total) = prefix.len().checked_add(partial.len()) else {
-            return Err(Error::OutOfSpace);
-        };
+        let total = prefix.len().checked_add(partial.len()).ok_or(Error::OutOfSpace)?;
         if total > max_bytes {
             return Err(Error::OutOfSpace);
         }
-        Ok(())
+        Ok((prefix.to_vec(), partial.to_vec()))
     }
 
+    #[cfg(test)]
     pub(crate) fn replay_prefix_checked(&self, max_bytes: usize) -> Result<Vec<u8>> {
         let (prefix, partial) = self.replay_prefix_parts()?;
         let total = prefix.len().checked_add(partial.len()).ok_or(Error::OutOfSpace)?;
@@ -1078,17 +1089,17 @@ fn png_header_within_limits(encoded: &[u8]) -> bool {
     let Some(kind) = encoded.get(12..16) else {
         return false;
     };
-    let Some(width) = encoded.get(16..20) else {
+    let Some(width) = encoded.get(16..20).and_then(|bytes| <[u8; 4]>::try_from(bytes).ok()) else {
         return false;
     };
-    let Some(height) = encoded.get(20..24) else {
+    let Some(height) = encoded.get(20..24).and_then(|bytes| <[u8; 4]>::try_from(bytes).ok()) else {
         return false;
     };
     if signature != PNG_SIGNATURE || length != 13_u32.to_be_bytes() || kind != b"IHDR" {
         return false;
     }
-    let width = u32::from_be_bytes(width.try_into().unwrap());
-    let height = u32::from_be_bytes(height.try_into().unwrap());
+    let width = u32::from_be_bytes(width);
+    let height = u32::from_be_bytes(height);
     width > 0
         && height > 0
         && usize::try_from(width)

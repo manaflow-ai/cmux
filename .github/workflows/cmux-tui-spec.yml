@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+      # feat-cmux-next lands by direct push (no PRs), so its pushes run the
+      # spec, inventory and SDK generator checks here (R92: stale SDK count
+      # pins landed unnoticed).
+      - feat-cmux-next
     paths:
       - "cmux-tui/**"
       - ".github/workflows/cmux-tui-spec.yml"

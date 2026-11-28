@@ -1,0 +1,16 @@
+{
+  "name": "@cmux/cloud-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "bun test test"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "@types/bun": "1.3.14"
+  }
+}

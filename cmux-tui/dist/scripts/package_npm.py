@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -45,10 +46,35 @@ TARGETS = [
     },
 ]
 
+# Every generated package ships the GPL text that the launcher template carries.
+LICENSE_SOURCE = Path(__file__).resolve().parents[1] / "npm" / "cmux" / "LICENSE"
+# Every platform package ships the third-party notices of its binaries
+# (package_notices.py generate: <kind>-<rust target>.md).
+NOTICE_FILE = "THIRD_PARTY_LICENSES.md"
+
+
+def copy_notice(notices_dir: Path, kind: str, rust_target: str, package_dir: Path) -> None:
+    source = notices_dir / f"{kind}-{rust_target}.md"
+    if not source.is_file():
+        raise SystemExit(f"missing third-party notice {source} (package_notices.py generate)")
+    shutil.copyfile(source, package_dir / NOTICE_FILE)
+
 RELAY_TARGETS = [
     {**target, "package": target["package"].replace("cmux-tui", "cmux-relay")}
     for target in TARGETS
 ]
+
+# Rust targets that the SSH bootstrap can install on a remote host, matching
+# cmux-remote's ssh_artifacts target table.
+SSH_TARGETS = (
+    "aarch64-unknown-linux-musl",
+    "x86_64-unknown-linux-musl",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+)
+# Next to bin/cmux-tui, where cmux-remote looks for pinned SSH digests.
+SSH_MANIFEST = "bin/cmux-tui-ssh/manifest.json"
+BUILD_COMMIT_RE = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 
 VERSION_RE = re.compile(
     r"^(?:[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?|[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+)$"
@@ -79,6 +105,20 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Output directory for generated npm package directories.",
     )
+    parser.add_argument(
+        "--build-commit",
+        required=True,
+        help=(
+            "Commit stamped into the binaries as CMUX_TUI_BUILD_COMMIT. The SSH "
+            "bootstrap accepts the pinned digests only for this build."
+        ),
+    )
+    parser.add_argument(
+        "--notices-dir",
+        required=True,
+        type=Path,
+        help="package_notices.py generate output: <kind>-<rust target>.md per platform package.",
+    )
     parser.add_argument("--include-windows", action="store_true")
     return parser.parse_args()
 
@@ -102,7 +142,40 @@ def recreate_dir(path: Path) -> None:
     path.mkdir(parents=True)
 
 
-def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_windows: bool) -> None:
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def ssh_manifest(binaries_dir: Path, build_commit: str) -> dict:
+    """Pin the SHA-256 of every remote cmux-tui this release publishes.
+
+    The SSH bootstrap downloads a remote host's binary from npm and refuses it
+    unless it matches the digest pinned here, so the package a user already
+    runs locally decides which remote bytes are trusted.
+    """
+
+    binaries = {}
+    for target in SSH_TARGETS:
+        path = binaries_dir / f"cmux-tui-{target}"
+        if not path.is_file():
+            raise SystemExit(f"missing binary: {path}")
+        binaries[f"cmux-tui-{target}"] = sha256_file(path)
+    return {"commit": build_commit, "binaries": binaries}
+
+
+def package_platforms(
+    binaries_dir: Path,
+    version: str,
+    out_dir: Path,
+    include_windows: bool,
+    build_commit: str,
+    notices_dir: Path,
+) -> None:
+    manifest = ssh_manifest(binaries_dir, build_commit)
     targets = TARGETS if include_windows else [t for t in TARGETS if t["os"] != "win32"]
     relay_targets = RELAY_TARGETS if include_windows else [t for t in RELAY_TARGETS if t["os"] != "win32"]
     for target in targets:
@@ -118,6 +191,11 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_w
         recreate_dir(package_dir)
         copy_executable(src, package_dir / "bin" / f"cmux-tui{ext}")
         copy_executable(hook_src, package_dir / "bin" / f"cmux-tui-hook{ext}")
+        shutil.copyfile(LICENSE_SOURCE, package_dir / "LICENSE")
+        copy_notice(notices_dir, "cmux-tui", target["rust_target"], package_dir)
+        manifest_path = package_dir / SSH_MANIFEST
+        manifest_path.parent.mkdir(parents=True)
+        write_json(manifest_path, manifest)
 
         write_json(
             package_dir / "package.json",
@@ -133,10 +211,10 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_w
                     "url": "git+https://github.com/manaflow-ai/cmux.git",
                     "directory": "cmux-tui/dist",
                 },
-                "license": "MIT",
+                "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}"],
+                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", SSH_MANIFEST, NOTICE_FILE],
             },
         )
 
@@ -156,6 +234,8 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_w
         # platform package. The launcher resolves this bundled binary from the
         # same platform package, so a separate TUI package is not needed.
         copy_executable(tui_src, package_dir / "bin" / f"cmux-tui{ext}")
+        shutil.copyfile(LICENSE_SOURCE, package_dir / "LICENSE")
+        copy_notice(notices_dir, "relay", target["rust_target"], package_dir)
         write_json(
             package_dir / "package.json",
             {
@@ -167,10 +247,10 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_w
                     "url": "git+https://github.com/manaflow-ai/cmux.git",
                     "directory": "cmux-tui/dist",
                 },
-                "license": "MIT",
+                "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}"],
+                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}", NOTICE_FILE],
             },
         )
 
@@ -228,13 +308,19 @@ def main() -> None:
             "X.Y.Z-nightly.YYYYMMDD.N"
         )
 
+    if not BUILD_COMMIT_RE.fullmatch(args.build_commit):
+        raise SystemExit("--build-commit must be a full lowercase Git commit ID")
+
     binaries_dir = args.binaries_dir.resolve()
     out_dir = args.out.resolve()
     if not binaries_dir.is_dir():
         raise SystemExit(f"--binaries-dir is not a directory: {binaries_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    package_platforms(binaries_dir, args.version, out_dir, args.include_windows)
+    package_platforms(
+        binaries_dir, args.version, out_dir, args.include_windows, args.build_commit,
+        args.notices_dir.resolve(),
+    )
     package_launcher(args.version, out_dir, args.include_windows)
 
 

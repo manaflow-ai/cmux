@@ -166,14 +166,20 @@ class ReconcileEntitlementsTests(unittest.TestCase):
         self.assertEqual(summary["missing_restricted"], ["com.apple.developer.web-browser.public-key-credential"])
         self.assertIn("com.apple.developer.web-browser.public-key-credential", effective)
 
-    def test_repo_entitlement_files_request_the_tunnel(self):
+    def test_repo_entitlement_files_do_not_request_the_tunnel(self):
+        # cmux-next ships no Cloud tunnel system extension (the userspace
+        # `cmux-tui wg hub` replaced it), so no channel asks for it and the
+        # hardened-runtime keys the app needs are kept.
         for name in ("cmux.release.entitlements", "cmux.nightly.entitlements", "cmux.rc.entitlements"):
-            desired = plistlib.load((ROOT / name).open("rb"))
-            proc, effective = run(desired, PROFILE_WITHOUT_TUNNEL)
+            with (ROOT / name).open("rb") as handle:
+                desired = plistlib.load(handle)
+            proc, effective = run(desired, PROFILE_WITH_TUNNEL)
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            self.assertTrue(json.loads(proc.stdout)["tunnel_requested"], name)
+            summary = json.loads(proc.stdout)
+            self.assertFalse(summary["tunnel_requested"], name)
+            self.assertFalse(summary["tunnel_supported"], name)
             self.assertNotIn("com.apple.developer.networking.networkextension", effective, name)
-
+            self.assertIn("com.apple.security.cs.disable-library-validation", effective, name)
 
 if __name__ == "__main__":
     unittest.main()

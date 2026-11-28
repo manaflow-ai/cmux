@@ -2,6 +2,9 @@
 
 # Cloud VM Backend Rollout Todo
 
+> **CLI note (2026-09-30):** the `cmux vm …` and `cmux auth login` verbs below were removed
+> in the Rust CLI cutover; they record the rollout as it ran.
+
 This is the scoped todo list for making the Cloud VM backend production-ready with application logic running in the existing Vercel `manaflow/cmux` project.
 
 > **2026-09-02:** Freestyle on the public platform (`api.freestyle.sh`) is the

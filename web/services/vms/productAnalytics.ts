@@ -210,6 +210,15 @@ export function withVmProductAnalytics(
   };
   return {
     ...repository,
+    markProviderObservedStatus: (input) =>
+      repository.markProviderObservedStatus(input).pipe(
+        Effect.tap((updated) => {
+          const usageEvent = input.usageEvent;
+          return updated && usageEvent
+            ? Effect.sync(() => safeCapture(usageEvent))
+            : Effect.void;
+        }),
+      ),
     recordUsageEvent: (input) =>
       repository.recordUsageEvent(input).pipe(
         Effect.tap(() => Effect.sync(() => safeCapture(input))),

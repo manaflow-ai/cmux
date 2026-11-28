@@ -58,13 +58,12 @@ jobs:
           path: ${{ runner.temp }}/swiftpm-manifests
           key: ${{ steps.swiftpm-manifest-key.outputs.key }}
 
-      # Resolve needs the local bonsplit package and the GhosttyKit binary
-      # target; the ghostty checkout itself only names the framework to fetch.
+      # Resolve needs the GhosttyKit binary target; the ghostty checkout itself
+      # only names the framework to fetch.
       - name: Prepare package inputs
         if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          git submodule update --init --depth 1 vendor/bonsplit
           GHOSTTY_SHA="$(git ls-tree HEAD ghostty | awk '{print $3}')" ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Restore Swift packages

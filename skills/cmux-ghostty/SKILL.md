@@ -49,7 +49,7 @@ git commit -m "Update ghostty submodule"
 
 ## Submodule safety
 
-For any submodule (ghostty, `vendor/bonsplit`, `homebrew-cmux`), push the submodule commit to its remote branch **before** committing the updated pointer in the parent repo. Never commit on a detached HEAD or a temporary branch: the parent then points at a SHA unreachable from any remote branch, and a future checkout or CI job fails to fetch it.
+For any submodule (ghostty, `homebrew-cmux`), push the submodule commit to its remote branch **before** committing the updated pointer in the parent repo. Never commit on a detached HEAD or a temporary branch: the parent then points at a SHA unreachable from any remote branch, and a future checkout or CI job fails to fetch it.
 
 Verify the commit is reachable from the branch the pointer should track, using the remote you just pushed to:
 

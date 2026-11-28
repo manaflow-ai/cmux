@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pane protocol demo</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font:
+          13px ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      body {
+        margin: 16px;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .err {
+        color: #d33;
+      }
+    </style>
+  </head>
+  <body>
+    <p>Fragment: <code>#ws=ws://127.0.0.1:PORT/PATH&amp;token=TOKEN&amp;cwd=/path/to/repo</code></p>
+    <button id="run" type="button">cmux.git.status</button>
+    <pre id="log"></pre>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

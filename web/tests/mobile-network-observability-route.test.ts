@@ -154,6 +154,59 @@ describe("iOS mobile network observability route", () => {
     expect(emitted[0]?.batch[0]).toMatchObject({ operation: "snapshot", path: "relay" });
   });
 
+  test("accepts native Iroh path inventory counts without addresses", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_inventory",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "inventory",
+        transport: "iroh",
+        relay_path_count: 1,
+        non_relay_path_count: 2,
+        path_count: 3,
+        event_code: "transportPathInventory",
+        event_code_raw: 83,
+        event_surface: 8,
+        event_a: 1,
+        event_b: 2,
+        event_c: 23,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      operation: "inventory",
+      transport: "iroh",
+      relayPathCount: 1,
+      nonRelayPathCount: 2,
+      pathCount: 3,
+      eventCode: "transportPathInventory",
+      eventCodeRaw: 83,
+      eventC: 23,
+    });
+  });
+
+  test("rejects an Iroh path inventory whose aggregate exceeds the bound", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_inventory",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "inventory",
+        transport: "iroh",
+        relay_path_count: 64,
+        non_relay_path_count: 64,
+        path_count: 128,
+        event_code: "transportPathInventory",
+        event_code_raw: 83,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(400);
+    expect(emitted).toEqual([]);
+  });
+
   test.each([
     ["raw event code", { event_code_raw: 40 }],
     ["lifecycle operation", { operation: "opened" }],

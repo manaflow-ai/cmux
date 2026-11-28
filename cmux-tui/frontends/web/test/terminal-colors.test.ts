@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   colorsToCursorOptionsPatch,
   colorsToDynamicColorSequence,
@@ -28,9 +28,7 @@ describe("effective terminal colors", () => {
       selection_fg: "#ffffff",
     } as const;
     expect(colorsToDynamicColorSequence(colors)).toBe(
-      "\x1b]10;#d8d9da\x1b\\"
-      + "\x1b]11;#131415\x1b\\"
-      + "\x1b]12;#f0f0f0\x1b\\",
+      "\x1b]10;#d8d9da\x1b\\" + "\x1b]11;#131415\x1b\\" + "\x1b]12;#f0f0f0\x1b\\",
     );
     expect(colorsToSelectionThemePatch(colors)).toEqual({
       selectionBackground: "#334455",
@@ -52,11 +50,11 @@ describe("effective terminal colors", () => {
     });
 
     expect(sequence).toBe(
-      "\x1b]104\x1b\\"
-      + "\x1b]4;1;#112233\x1b\\"
-      + "\x1b]4;15;#445566\x1b\\"
-      + "\x1b]4;16;#778899\x1b\\"
-      + "\x1b]4;255;#aabbcc\x1b\\",
+      "\x1b]104\x1b\\" +
+        "\x1b]4;1;#112233\x1b\\" +
+        "\x1b]4;15;#445566\x1b\\" +
+        "\x1b]4;16;#778899\x1b\\" +
+        "\x1b]4;255;#aabbcc\x1b\\",
     );
     expect(colorsToPaletteSequence({})).toBeNull();
   });
