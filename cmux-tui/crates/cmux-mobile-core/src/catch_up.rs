@@ -16,6 +16,7 @@
 
 use std::collections::BTreeMap;
 
+pub mod hour;
 pub mod relay;
 pub mod service;
 
@@ -74,6 +75,8 @@ pub struct Cursors {
     /// The Mac listed [`WORKSPACE_LIST_DELTA_CAPABILITY`] on this link. Not kept across a
     /// relaunch: until the Mac says so again, the plan asks by `known`, which every Mac answers.
     pub workspace_delta: bool,
+    /// What the background wakes of the last hour spent ([`hour::HourLedger`]).
+    pub hour: hour::HourLedger,
 }
 
 /// Why the app runs a catch-up.
@@ -303,6 +306,9 @@ impl Cursors {
                 cursor.opened_at
             ));
         }
+        for (at, bytes) in self.hour.entries() {
+            out.push_str(&format!("spent\t{at}\t{bytes}\n"));
+        }
         for (id, cursor) in &self.terminals {
             out.push_str(&format!(
                 "term\t{}\t{}\t{}\t{}\t{}\n",
@@ -349,6 +355,7 @@ impl Cursors {
                         ChatCursor { last_seq: seq.parse().ok()?, opened_at: opened.parse().ok()? },
                     );
                 }
+                ["spent", at, bytes] => cursors.hour.restore(at.parse().ok()?, bytes.parse().ok()?),
                 ["term", id, offset, generation, replay, opened] => {
                     cursors.terminals.insert(
                         unescape(id)?,

@@ -541,3 +541,322 @@ async fn catch_up_rows_under_conditions() {
         let _ = spinner.join();
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Staleness rows: time away × Mac load × link, before (no background sips: the phone catches
+// up only when it comes forward) and after (sips at the cadence iOS allows, bounded per wake and
+// per background hour by `cmux_mobile_core::catch_up::hour`). One harness for both: the same
+// shaped link, the same real `services::serve`, the same phone code (`cmux_mobile_core::catch_up`
+// `service::request` / `read` / `Cursors::apply_catch_up`, as `cmux-mobile-link-ffi` calls them).
+// The Mac's clock is modelled (an 8 h row does not take 8 h): each wake sets the fakes' heads to
+// what the Mac had by then, then runs over the shaped link in real time.
+//
+// Run: `cargo test -p cmux-mobile-host --test catch_up_conditions staleness -- --ignored --nocapture`.
+// Env: `STALENESS_PROFILES` (default `good-wifi,lte,lossy-3`), `STALENESS_AWAYS` (seconds,
+// default `60,600,3600,28800`), `STALENESS_RUNS` (foreground samples per row, default 10),
+// `CATCHUP_DURESS_THREADS`. Prints one `STALENESS-ROW` JSON line per row.
+
+use cmux_mobile_core::catch_up::service as phone;
+use cmux_mobile_core::catch_up::{ChatCursor, Cursors, Wake};
+
+const STALE_CHATS: usize = 6;
+/// The iOS floor this models for `BGAppRefreshTask` (`earliestBeginDate`; iOS runs it later or
+/// not at all as it sees fit, so this is the sips' best case).
+const REFRESH_EVERY: u64 = 15 * 60;
+/// A busy Mac's agent turns ending, each a push the notification service extension wakes for.
+const PUSH_EVERY: u64 = 10 * 60;
+
+/// Where the Mac's surfaces reached: the tree's revision number, the chat list's row log
+/// position, each chat's newest event (events are `1..=head`).
+#[derive(Debug, Clone, Default)]
+struct MacHeads {
+    tree: u64,
+    list: u64,
+    chats: Vec<u64>,
+}
+
+/// The Mac's heads `t` seconds after the phone left. Busy: a long live agent session in chat 0
+/// (an event every 2 s), two others ticking (one every 20 s), the chat list and the workspace
+/// tree changing once a minute. Idle: one chat and the list changing every 10 min.
+fn heads_at(busy: bool, t: u64) -> MacHeads {
+    let mut chats = vec![0; STALE_CHATS];
+    if busy {
+        chats[0] = t / 2;
+        chats[1] = t / 20;
+        chats[2] = t / 20;
+        MacHeads { tree: t / 60, list: t / 60, chats }
+    } else {
+        chats[1] = t / 600;
+        MacHeads { tree: 0, list: t / 600, chats }
+    }
+}
+
+fn mac_daemon(dir: &Path, heads: Arc<Mutex<MacHeads>>) {
+    let listener = UnixListener::bind(dir.join("main.sock")).unwrap();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let heads = Arc::clone(&heads);
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let revision = format!("r{}", heads.lock().unwrap().tree);
+                    let reply = match request["cmd"].as_str().unwrap_or("") {
+                        "list-workspaces" if request["known"]["tree_revision"] == json!(revision) => {
+                            json!({"id": request["id"], "ok": true, "data": {"unchanged": true, "tree_revision": revision}})
+                        }
+                        "list-workspaces" => {
+                            let tabs: Vec<Value> = (0..24)
+                                .map(|i| json!({"id": i, "title": format!("tab {i} ~/src/project-{i}"), "cwd": format!("/Users/me/src/project-{i}")}))
+                                .collect();
+                            json!({"id": request["id"], "ok": true, "data": {"tree_revision": revision,
+                                "workspaces": [{"id": "w1", "screens": [{"panes": [{"tabs": tabs}]}]}]}})
+                        }
+                        _ => json!({"id": request["id"], "ok": true}),
+                    };
+                    let _ = write.write_all(format!("{reply}\n").as_bytes()).await;
+                }
+            });
+        }
+    });
+}
+
+/// acpmux over the heads: `_acpmux/watch {afterSeq}` answers the rows changed since, and
+/// `_acpmux/attach {afterSeq, maxBytes, limit, beforeSeq}` the newest events after `afterSeq`
+/// that fit `maxBytes` (a tail-first page: `hasMore` when older ones stayed behind).
+async fn mac_acpmux(heads: Arc<Mutex<MacHeads>>) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            stream.set_nodelay(true).unwrap();
+            let heads = Arc::clone(&heads);
+            tokio::spawn(async move {
+                let Ok(socket) = tokio_tungstenite::accept_async(stream).await else { return };
+                let (mut sink, mut source) = socket.split();
+                while let Some(Ok(Message::Text(text))) = source.next().await {
+                    let request: Value = serde_json::from_str(&text).unwrap();
+                    let params = &request["params"];
+                    let heads = heads.lock().unwrap().clone();
+                    let result = match request["method"].as_str().unwrap_or("") {
+                        "_acpmux/info" => json!({"sessionId": params["sessionId"]}),
+                        "_acpmux/watch" => {
+                            let after = params["afterSeq"].as_u64().unwrap_or(0);
+                            let changed = (heads.list.saturating_sub(after) as usize).min(STALE_CHATS);
+                            let sessions: Vec<Value> = (0..changed)
+                                .map(|i| json!({"sessionId": chat_id(i), "title": format!("chat {i}"), "status": "running"}))
+                                .collect();
+                            json!({"listEpoch": "E", "listSeq": heads.list, "follow": true, "sessions": sessions})
+                        }
+                        "_acpmux/attach" => {
+                            let session = params["sessionId"].as_str().unwrap_or("").to_string();
+                            let index = (0..STALE_CHATS).find(|i| chat_id(*i) == session).unwrap();
+                            let head = heads.chats[index];
+                            let after = params["afterSeq"].as_u64().unwrap_or(0).min(head);
+                            let max_bytes =
+                                params["maxBytes"].as_u64().unwrap_or(u64::MAX).saturating_sub(512);
+                            let limit = params["limit"].as_u64().unwrap_or(u64::MAX);
+                            let (mut records, mut used) = (Vec::new(), 0u64);
+                            for seq in (after + 1..=head).rev() {
+                                let record = json!({"seq": seq, "kind": "transcript", "sessionId": session,
+                                    "msg": {"text": "a".repeat(240)}});
+                                let size = record.to_string().len() as u64 + 1;
+                                if used + size > max_bytes || records.len() as u64 >= limit {
+                                    break;
+                                }
+                                used += size;
+                                records.push(record);
+                            }
+                            let has_more = (records.len() as u64) < head - after;
+                            records.reverse();
+                            json!({"session": {"sessionId": session}, "events": records, "hasMore": has_more,
+                                "lastSeq": head, "pageThrough": head})
+                        }
+                        _ => json!({}),
+                    };
+                    let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+                    let _ = sink.send(Message::Text(reply.to_string().into())).await;
+                }
+            });
+        }
+    });
+    url
+}
+
+/// The phone as it left: caught up to the Mac at t = 0, chat 0 opened last.
+fn left_phone() -> Cursors {
+    let mut cursors = Cursors::default();
+    cursors.list.tree_revision = Some("r0".into());
+    cursors.list.list_seq = Some(0);
+    cursors.list.list_epoch = Some("E".into());
+    for i in 0..STALE_CHATS {
+        cursors.chats.insert(chat_id(i), ChatCursor { last_seq: 0, opened_at: 100 - i as u64 });
+    }
+    cursors
+}
+
+/// Changes the phone does not hold: tree revisions, list rows, chat events.
+fn behind(cursors: &Cursors, heads: &MacHeads) -> u64 {
+    let tree =
+        cursors.list.tree_revision.as_deref().and_then(|r| r.strip_prefix('r')?.parse().ok()).unwrap_or(0);
+    let mut behind =
+        heads.tree.saturating_sub(tree) + heads.list.saturating_sub(cursors.list.list_seq.unwrap_or(0));
+    for (i, head) in heads.chats.iter().enumerate() {
+        behind += head.saturating_sub(cursors.chats.get(&chat_id(i)).map_or(0, |c| c.last_seq));
+    }
+    behind
+}
+
+/// One wake over `link`: the request the phone's code builds, the reply, the cursors moved.
+/// Returns (ms, reply bytes, events a tail-first page left behind for scroll-back).
+async fn stale_wake(link: &Link, cursors: &mut Cursors, ask: &phone::Ask, at: u64) -> (f64, u64, u64) {
+    let args = phone::request(cursors, ask);
+    let held: Vec<(String, u64)> = cursors.chats.iter().map(|(id, c)| (id.clone(), c.last_seq)).collect();
+    let start = Instant::now();
+    let mut channel = link.open("catch-up", args).await.unwrap();
+    let mut reply = Vec::new();
+    loop {
+        match channel.recv().await {
+            Some(ChannelEvent::Data(data)) => reply.extend_from_slice(&data),
+            Some(ChannelEvent::Closed(info)) => {
+                assert_eq!(info.code, "eof");
+                break;
+            }
+            None => panic!("catch-up ended"),
+        }
+    }
+    let ms = start.elapsed().as_secs_f64() * 1000.0;
+    let answer = phone::read(&reply).unwrap();
+    let skipped = answer
+        .chats
+        .iter()
+        .filter_map(|chat| {
+            let older = chat.older_before?;
+            let had = held.iter().find(|(id, _)| *id == chat.session_id).map_or(0, |(_, seq)| *seq);
+            Some(older.saturating_sub(had + 1))
+        })
+        .sum();
+    if ask.hour_now.is_some() {
+        cursors.spend_background(at, reply.len() as u64);
+    }
+    cursors.apply_catch_up(&answer, at);
+    (ms, reply.len() as u64, skipped)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "bench: staleness rows"]
+async fn staleness_rows_under_conditions() {
+    let profiles = std::env::var("STALENESS_PROFILES").unwrap_or_else(|_| "good-wifi,lte,lossy-3".into());
+    let aways: Vec<u64> = std::env::var("STALENESS_AWAYS")
+        .unwrap_or_else(|_| "60,600,3600,28800".into())
+        .split(',')
+        .map(|s| s.parse().unwrap())
+        .collect();
+    let runs: usize = env_or("STALENESS_RUNS", 10);
+    let duress: usize = env_or("CATCHUP_DURESS_THREADS", 0);
+    let stop = Arc::new(AtomicBool::new(false));
+    let spinners: Vec<_> = (0..duress)
+        .map(|_| {
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                let mut x = 0u64;
+                while !stop.load(Ordering::Relaxed) {
+                    x = std::hint::black_box(x.wrapping_mul(6364136223846793005).wrapping_add(1));
+                }
+            })
+        })
+        .collect();
+    tokio::time::sleep(Duration::from_secs(if duress > 0 { 5 } else { 0 })).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let heads = Arc::new(Mutex::new(MacHeads { chats: vec![0; STALE_CHATS], ..Default::default() }));
+    mac_daemon(dir.path(), Arc::clone(&heads));
+    let config = config(dir.path(), mac_acpmux(Arc::clone(&heads)).await);
+    let set = |t: u64, busy: bool| *heads.lock().unwrap() = heads_at(busy, t);
+    let load = if duress > 0 { format!("duress: {duress} busy threads") } else { "idle machine".into() };
+    for profile in profiles.split(',') {
+        for &away in &aways {
+            for busy in [false, true] {
+                // before: no sips; wake: sips bounded per wake only; hour: per wake and per hour.
+                for variant in ["before", "after-wake-bound", "after"] {
+                    let mut cursors = left_phone();
+                    let (mut bg_bytes, mut bg_wakes, mut skipped) = (0u64, 0u64, 0u64);
+                    let mut spends: Vec<(u64, u64)> = Vec::new();
+                    if variant != "before" {
+                        let mut wakes: Vec<(u64, bool)> = (1..)
+                            .map(|k| (k * REFRESH_EVERY, false))
+                            .take_while(|(t, _)| *t < away)
+                            .collect();
+                        if busy {
+                            wakes
+                                .extend((1..).map(|k| (k * PUSH_EVERY, true)).take_while(|(t, _)| *t < away));
+                        }
+                        wakes.sort();
+                        let (link, _shaper) = shaped_link(Arc::clone(&config), profile, 21).await;
+                        for (t, push) in wakes {
+                            set(t, busy);
+                            let wake =
+                                if push { Wake::Push { chat: Some(chat_id(0)) } } else { Wake::Refresh };
+                            let mut ask = phone::Ask::new(wake);
+                            // The wall clock: the phone left at 1_000_000 s.
+                            ask.hour_now = (variant == "after").then_some(1_000_000 + t);
+                            let (_, bytes, s) = stale_wake(&link, &mut cursors, &ask, 1_000_000 + t).await;
+                            bg_bytes += bytes;
+                            bg_wakes += 1;
+                            skipped += s;
+                            spends.push((t, bytes));
+                        }
+                    }
+                    set(away, busy);
+                    let at_fg = heads.lock().unwrap().clone();
+                    let behind_at_fg = behind(&cursors, &at_fg);
+                    let max_hour = spends
+                        .iter()
+                        .map(|(end, _)| {
+                            spends
+                                .iter()
+                                .filter(|(t, _)| *t <= *end && t + 3600 > *end)
+                                .map(|(_, b)| b)
+                                .sum::<u64>()
+                        })
+                        .max()
+                        .unwrap_or(0);
+                    let (mut fg_ms, mut fg_bytes, mut fg_skipped, mut behind_after) =
+                        (Vec::new(), 0, 0, Vec::new());
+                    for run in 0..runs {
+                        let mut fg = cursors.clone();
+                        let (link, _shaper) =
+                            shaped_link(Arc::clone(&config), profile, 31 + run as u64).await;
+                        let mut ask =
+                            phone::Ask::new(Wake::Foreground { chat: Some(chat_id(0)), terminal: None });
+                        ask.chats = (0..4).map(|i| (chat_id(i), None)).collect();
+                        let (ms, bytes, s) = stale_wake(&link, &mut fg, &ask, 1_000_000 + away).await;
+                        fg_ms.push(ms);
+                        fg_bytes = bytes;
+                        fg_skipped = s;
+                        // What the busy session added while the catch-up ran (an event every 2 s).
+                        let arrived = if busy { (ms / 2000.0) as u64 } else { 0 };
+                        behind_after.push(behind(&fg, &at_fg) + arrived);
+                    }
+                    let hours = away as f64 / 3600.0;
+                    let row = json!({"row": "staleness", "profile": profile, "away_s": away,
+                        "mac": if busy { "busy" } else { "idle" }, "variant": variant, "load": load,
+                        "loadavg": loadavg(), "nproc": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
+                        "link": "cmux-fault shaper (link-profiles.json)",
+                        "bg_wakes": bg_wakes, "bg_bytes": bg_bytes,
+                        "bg_bytes_per_hour": if hours >= 1.0 { (bg_bytes as f64 / hours).round() as u64 } else { bg_bytes },
+                        "bg_max_hour_bytes": max_hour, "hour_bound": cmux_mobile_core::catch_up::hour::HOUR_BUDGET_BYTES,
+                        "behind_at_fg": behind_at_fg, "behind_after_fg_max": behind_after.iter().max(),
+                        "fg_ms": stats(fg_ms), "fg_bytes": fg_bytes,
+                        "skipped_bg": skipped, "skipped_fg": fg_skipped});
+                    println!("STALENESS-ROW {row}");
+                }
+            }
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    for spinner in spinners {
+        let _ = spinner.join();
+    }
+}
