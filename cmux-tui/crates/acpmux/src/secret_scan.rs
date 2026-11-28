@@ -479,9 +479,10 @@ fn labelled(value: &str, alone: bool) -> bool {
 
 /// Whether `range` sits inside a `[...]` on one line, the shape `mask` writes.
 fn in_mask(text: &[u8], range: &Range<usize>) -> bool {
-    let open = text[..range.start].iter().rposition(|&b| matches!(b, b'[' | b']' | b'\n'));
-    let close = text[range.end..].iter().position(|&b| matches!(b, b'[' | b']' | b'\n'));
-    open.is_some_and(|i| text[i] == b'[') && close.is_some_and(|i| text[range.end + i] == b']')
+    let edge = |b: &&u8| matches!(**b, b'[' | b']' | b'\n');
+    let open = text.get(..range.start).and_then(|t| t.iter().rfind(edge));
+    let close = text.get(range.end..).and_then(|t| t.iter().find(edge));
+    open == Some(&b'[') && close == Some(&b']')
 }
 
 /// A value after a credential label in words, and a high-entropy run near one on its line.
@@ -494,7 +495,11 @@ fn labelled_values(text: &str) -> Vec<Range<usize>> {
             let Some(m) = caps.get(1) else { continue };
             let Ok(value) = std::str::from_utf8(m.as_bytes()) else { continue };
             // An unquoted code expression is not a value; a quoted one is a literal.
-            let quoted = m.start().checked_sub(1).is_some_and(|i| b"\"'`".contains(&bytes[i]));
+            let quoted = m
+                .start()
+                .checked_sub(1)
+                .and_then(|i| bytes.get(i))
+                .is_some_and(|b| b"\"'`".contains(b));
             let code = !quoted
                 && !TOKEN_PREFIX.as_ref().is_some_and(|re| re.is_match(m.as_bytes()))
                 && CODE_VALUE.as_ref().is_some_and(|re| re.is_match(m.as_bytes()));
