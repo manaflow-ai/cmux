@@ -3,7 +3,8 @@
 /// after Quit so the next open is instant; `afterQuitAndLogin` also starts it hidden at login. What
 /// each value means is cmux-background-ready's (Rust, `cmux_background_ready_mode_parse`): this
 /// reads the string the person picked, and an unset or unknown value reads as `off`.
-public nonisolated enum BackgroundReadySetting {
+public nonisolated struct BackgroundReadySetting {
+    public nonisolated init() {}
     /// `app.backgroundReady` in `root`, one of ``values``; a missing or unknown value is ``fallback``.
     public static func value(in root: JSONValue) -> String {
         guard let value = root.value(at: configPath)?.stringValue, values.contains(value) else { return fallback }

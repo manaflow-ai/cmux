@@ -1,7 +1,8 @@
 import Foundation
 
 /// Quit text: the unsaved and failure dialogs, recovery (Resources/Quit.xcstrings).
-public enum QuitStrings {
+public struct QuitStrings {
+    public init() {}
     /// The check box of `DestructiveConfirmation`'s questions.
     public static var dontAskAgain: String {
         String(localized: "quit.dontAskAgain", defaultValue: "Don’t ask again", table: "Quit", bundle: .module.inAppLanguage)

@@ -6,7 +6,8 @@ import ServiceManagement
 /// registered while the library says so (``BackgroundReadyRules/registersLoginItem(_:)``), and how a launch
 /// tells it was opened as one.
 @MainActor
-public enum BackgroundReadyLoginItem {
+public struct BackgroundReadyLoginItem {
+    public init() {}
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.background-ready")
 
     /// Registers or unregisters the app as a login item; one already in that state is left alone.
