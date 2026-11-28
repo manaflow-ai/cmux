@@ -94,11 +94,9 @@ public nonisolated struct ScreenshotListing: Sendable, Equatable {
         return found.prefix(count).map { items[$0] }
     }
 
-    /// The number of items of each source.
+    /// The number of items of each source (Rust's count, `cmux_screenshots_listing_counts`).
     public var countsBySource: [String: Int] {
-        var counts: [String: Int] = [:]
-        for item in items { counts[item.sourceID, default: 0] += 1 }
-        return counts
+        ScreenshotsFFI.object(cmux_screenshots_listing_counts(store.pointer)).compactMapValues { ($0 as? NSNumber)?.intValue }
     }
 
     private static func newStore() -> RustHandle {
