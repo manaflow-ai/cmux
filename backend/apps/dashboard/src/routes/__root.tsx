@@ -10,6 +10,7 @@ import { TeamsContext } from "../lib/team-api"
 import { TeamForbidden, TeamPicker } from "../lib/team-picker"
 import { keepTeam, notMemberOf, parseTeamSearch, searchForTeam, type TeamsList } from "../lib/team-scope"
 import { teamText } from "../lib/team-strings"
+import { machinesText } from "../lib/machines-strings"
 
 const css = `
 :root { color-scheme: light dark; --fg:#111; --bg:#fafafa; --muted:#666; --line:#ddd; --card:#fff; --accent:#2563eb; --bad:#b91c1c; }
@@ -87,6 +88,9 @@ function Layout() {
         <strong>cmux Cloud (next)</strong>
         <Link to="/devices" search={keepTeam} activeProps={{ className: "active" }}>
           Devices
+        </Link>
+        <Link to="/machines" search={keepTeam} activeProps={{ className: "active" }}>
+          {machinesText(locale, "nav.machines")}
         </Link>
         <Link to="/team" search={keepTeam} activeProps={{ className: "active" }}>
           Team
