@@ -22,6 +22,7 @@ source scripts/live-code/lib/two-pass.sh
 source scripts/live-code/lib/xcodebuild-args.sh
 export CMUX_LIVE_CODE_BUILD=1 CMUX_NIGHTLY_HOST_BUILD_ROOT=0 DECIDE_COLD_CACHE_DISABLE=1
 unset CMUX_LIVE_CODE_INTERPOSABLE_LIST
+live_code_pin_static_link Packages/macOS/CmuxNext/Package.swift
 app="$PWD/build-universal/Build/Products/Release/cmux.app"
 bin="$app/Contents/MacOS/cmux"
 start=$SECONDS

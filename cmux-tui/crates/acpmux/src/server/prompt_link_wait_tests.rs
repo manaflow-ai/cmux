@@ -311,3 +311,95 @@ async fn duress_table_prompt_through_a_cut_link() {
     }
     println!("{table}");
 }
+
+/// `count` prompts for the one chat, each on its own connection of `origin`, sent `gap` apart
+/// while the link is down, and the link back `after` from the first: the prompt ids in the order
+/// the far daemon took them.
+async fn order_through_a_cut(
+    origin: Origin,
+    count: usize,
+    gap: Duration,
+    after: Duration,
+) -> Vec<String> {
+    let (hub, peer) = hub_with_peer();
+    let mut sends = Vec::new();
+    for n in 0..count {
+        let hub = hub.clone();
+        sends.push(tokio::spawn(async move {
+            tokio::time::sleep(gap * n as u32).await;
+            let hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
+            send_as(&hub, origin, hello, prompt(&format!("in-order-{n:02}"))).await
+        }));
+    }
+    tokio::time::sleep(after).await;
+    link_up(&hub, &peer).await;
+    let mut taken = Vec::new();
+    for _ in 0..count {
+        let line =
+            peer.answer_until_for_tests(method::SESSION_PROMPT, json!({"stopReason": "end_turn"}));
+        let line = tokio::time::timeout(Duration::from_secs(120), line)
+            .await
+            .expect("a prompt never came");
+        let id = line.pointer("/params/_meta/acpmux/promptId").and_then(Value::as_str);
+        taken.push(id.expect("a prompt with no id").to_owned());
+    }
+    for send in sends {
+        send.abort();
+    }
+    taken
+}
+
+fn in_sent_order(count: usize) -> Vec<String> {
+    (0..count).map(|n| format!("in-order-{n:02}")).collect()
+}
+
+/// (4) Several prompts to one chat sent during one cut reach the far daemon in the order they
+/// were sent, not in the order their waits happen to wake (review of cmux#53265: "two prompts to
+/// the same chat during one cut can arrive out of order"): on the live wait (a 3 s cut) and on
+/// the app's held request (a minute's cut).
+#[tokio::test(start_paused = true)]
+async fn prompts_sent_during_one_cut_reach_the_chat_in_the_order_sent() {
+    let taken =
+        order_through_a_cut(Origin::Local, 8, Duration::from_millis(40), Duration::from_secs(3))
+            .await;
+    assert_eq!(taken, in_sent_order(8), "live wait");
+    let taken = order_through_a_cut(
+        Origin::LocalApp,
+        8,
+        Duration::from_millis(40),
+        Duration::from_secs(60),
+    )
+    .await;
+    assert_eq!(taken, in_sent_order(8), "held request");
+}
+
+/// The duress number for the ordering: 20 runs of 8 prompts through a 3 s cut, each run's gap
+/// between sends and its cut seeded-jittered: how many runs reached the chat out of order.
+/// Asserts nothing: it prints the order off (before) and on (after), from one build.
+#[tokio::test(start_paused = true)]
+async fn duress_table_prompt_order_through_a_cut() {
+    let mut seed: u64 = 0x0dde_0001;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let runs = 20;
+    let mut rows = String::new();
+    for (label, unordered) in
+        [("before (each prompt wakes on its own)", true), ("after (the chat's turn)", false)]
+    {
+        super::prompt_order::unordered_for_tests(unordered);
+        let mut out_of_order = 0;
+        for _ in 0..runs {
+            let gap = Duration::from_millis(1 + next() % 60);
+            let cut = Duration::from_secs(3) + Duration::from_millis(next() % 250);
+            let taken = order_through_a_cut(Origin::Local, 8, gap, cut).await;
+            out_of_order += usize::from(taken != in_sent_order(8));
+        }
+        rows += &format!("| {label} | 8 | {runs} | {out_of_order}/{runs} |\n");
+    }
+    super::prompt_order::unordered_for_tests(false);
+    println!("| build | prompts per cut | runs | out of order |\n|---|---|---|---|\n{rows}");
+}

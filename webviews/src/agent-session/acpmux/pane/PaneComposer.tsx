@@ -41,6 +41,7 @@ import { DictationNotice } from "../DictationNotice";
 import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
 import { cloudAgentPick, cloudStartPick, rememberedCloudAgentPick } from "../cloudAgentPick";
+import { cloudLastPick } from "../cloudLastPick";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
 import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
