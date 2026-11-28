@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Moonrise",
-  "description": "Friedrich's Two Men Contemplating the Moon behind frosted glass, moss and moonlight, a flat window.",
+  "description": "Friedrich's moonrise behind frosted glass.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {

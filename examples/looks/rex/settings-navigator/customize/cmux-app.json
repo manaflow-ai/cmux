@@ -6,7 +6,7 @@
     "en": "Rex Settings"
   },
   "version": "1.0.0",
-  "description": "Rex's preference actions, each opening the matching cmux setting.",
+  "description": "Shortcuts to the matching cmux settings.",
   "engines": {
     "cmux": "^2.0"
   },

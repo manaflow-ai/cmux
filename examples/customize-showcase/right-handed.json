@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "right-handed",
-  "description": "The whole window mirrored: the sidebar on the right with the window buttons over the tab bar, the chat's prompt rail and Session Info chip on the right, spaces on top, a docked Chief on the left, and a compact hover card of your own.",
+  "description": "Everything mirrored to the right.",
   "created_ms": 0,
   "settings": {
     "sidebar.side": "right",

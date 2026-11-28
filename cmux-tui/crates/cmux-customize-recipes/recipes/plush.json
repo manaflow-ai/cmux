@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "plush",
-  "description": "Soft and tactile: one tinted surface, panes and your prompt raised out of it by soft shadows, no borders, no glass, one saturated accent.",
+  "description": "Soft shadows, one tinted surface, no borders.",
   "settings": {
     "appearance.themeFile": "plush",
     "agentPane.display.font.ui": "hanken",

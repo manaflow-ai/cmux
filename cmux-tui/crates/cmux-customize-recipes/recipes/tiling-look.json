@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "tiling-look",
-  "description": "Like a tiling window manager: hard pane borders, small gaps, a rail sidebar, no motion.",
+  "description": "Like a tiling window manager.",
   "settings": {
     "appearance.chromeStyle": "panes",
     "layout.paneSeparation": "borders",

@@ -7,7 +7,7 @@
 // until you pick it.
 {
   "name": "Plush Clay",
-  "description": "Light: warm sand, raised panels, one bright accent.",
+  "description": "Light warm sand, raised panels.",
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
   "colors": {

@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Tandem sidebar" },
   "version": "1.0.0",
-  "description": "Tandem's hover card and sidebar rows: a task card (a working-for line, the title, the steps under way, the branch and pull request, what waits on you in the accent) and one-line rows with the dotted loader.",
+  "description": "Task-card hover and dotted-loader rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

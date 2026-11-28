@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Thread details" },
   "version": "1.0.0",
-  "description": "Project, activity and thread details for a hovered workspace.",
+  "description": "Project and activity details on hover.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

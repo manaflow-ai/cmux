@@ -346,3 +346,40 @@ fn the_layout_and_behaviour_looks_change_layout_and_keys_not_colors() {
     }
     assert_eq!(find("review-desk").unwrap().parts(), ["settings", "keybindings"]);
 }
+
+/// Leo, 2026-11-27: "im not a fan of the descriptions on our themes and whatnot". Every recipe's
+/// description (the line `cmux customize recipes` lists, and the profile library shows) and every
+/// theme file a recipe carries (the theme picker's line) is one short plain phrase, the rule
+/// `cmux_customize::setup::looks::plain_phrase` holds for the looks too.
+#[test]
+fn every_recipe_and_theme_it_carries_says_it_in_a_few_plain_words() {
+    fn walk(dir: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, found);
+            } else if path.extension().is_some_and(|e| e == "json") {
+                found.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("recipes"), &mut files);
+    let mut checked = 0;
+    let mut long = Vec::new();
+    for path in files {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let value =
+            cmux_config::jsonc::parse(&text).unwrap_or_else(|error| panic!("{path:?}: {error}"));
+        for key in ["description", "tagline"] {
+            if let Some(words) = value[key].as_str() {
+                checked += 1;
+                if !cmux_customize::setup::looks::plain_phrase(words) {
+                    long.push(format!("{}: {words:?}", path.display()));
+                }
+            }
+        }
+    }
+    assert!(long.is_empty(), "not one short plain phrase:\n{}", long.join("\n"));
+    assert!(checked >= 70, "checked only {checked} phrases");
+}

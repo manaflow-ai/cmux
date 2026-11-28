@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "collection",
-  "description": "The collection: a suite of small things to show what a view can do. The time and the weather, the usage left on every Claude and Codex account you use, and a chief gacha you pull with an animated reel, in a sidebar section and on every New Tab, all in an arcade theme.",
+  "description": "Small widgets like weather and usage.",
   "created_ms": 0,
   "settings": {
     "tabs.newTabApp": "local/customize",

@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/claude-code-transcript",
   "name": "Claude Code transcript",
-  "description": "Read replies in an 800 pt column with collapsed tool activity and a compact harness label.",
+  "description": "Replies in one column, tool steps folded.",
   "version": "1.0.0",
   "screenshots": [
     "screenshots/source.png"

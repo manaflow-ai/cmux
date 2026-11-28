@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "hairline",
-  "description": "Flat and quiet: opaque neutral grays, one-pixel lines, one corner radius, a ring for focus, no glass and no shadows.",
+  "description": "Flat grays with one-pixel lines.",
   "settings": {
     "appearance.themeFile": "hairline",
     "layout.paneBorder": "subtle",

@@ -2,8 +2,8 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/astrolabe-look",
   "name": "Astrolabe",
-  "tagline": "Deep navy and gold, calm and formal.",
-  "description": "Deep navy with thin gold frames around prompts and cards, and an airy serif for replies. Includes a light parchment version. Remove it and everything you had comes back.",
+  "tagline": "Deep navy with gold lines.",
+  "description": "Deep navy with gold lines.",
   "version": "0.1.0",
   "license": "MIT",
 

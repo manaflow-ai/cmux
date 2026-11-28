@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Gilded",
-  "description": "Klimt's The Kiss behind dark glass, gold-leaf accent on cards, serif pages.",
+  "description": "Klimt's The Kiss with gold accents.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {

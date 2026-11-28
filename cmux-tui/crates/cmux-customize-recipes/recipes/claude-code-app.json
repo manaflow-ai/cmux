@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "claude-code-app",
-  "description": "Looks and works like the Claude desktop app's Code tab: a #191919 page, a sidebar a step darker of sessions by project with sub-sessions nested, a one-line #303030 composer and your prompt in a #252525 pill, Command-N for a new Claude chat, the mode, model and effort menus on their keys, panes beside the chat.",
+  "description": "Looks and works like Claude's Code tab.",
   "settings": {
     "appearance.themeFile": "claude-code-app",
     "sidebar.groupBy": "folder",

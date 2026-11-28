@@ -3,7 +3,7 @@
   "cmuxProfile": 1,
   "id": "manaflow-ai/claude-code-inactive-archive",
   "name": "Archive inactive sessions",
-  "description": "Move inactive local chats to the archive after seven days.",
+  "description": "Archive chats idle for seven days.",
   "version": "1.0.0",
   "settings": {
     "agents.chats.archiveInactive": "7d"

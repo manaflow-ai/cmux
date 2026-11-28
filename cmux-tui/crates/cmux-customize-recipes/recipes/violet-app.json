@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "violet-app",
-  "description": "A desktop coding app look: a violet-black page, threads by project in a separate sidebar, lavender ink, a pink accent and card panes.",
+  "description": "A violet-black coding app with pink accents.",
   "settings": {
     "appearance.themeFile": "violet-app",
     "sidebar.groupBy": "folder",

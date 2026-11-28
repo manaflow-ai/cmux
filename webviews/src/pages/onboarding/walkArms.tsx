@@ -277,7 +277,7 @@ function TuneStep({ layout, outer }: { layout: WalkTuneLayout; outer: boolean })
         <div className="onb-walk-toggle-row">
           <span className="onb-walk-toggle-text">
             <span className="onb-make-adjust-label">Two-tone</span>
-            <span className="onb-walk-line">Sidebar and tab bar in a second color from your theme.</span>
+            <span className="onb-walk-line">Sidebar in a second color.</span>
           </span>
           <Switch size="sm" checked={twoTone} onCheckedChange={setTwoTone} aria-label="Two-tone" />
         </div>

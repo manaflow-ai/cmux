@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "nio-guardian",
-  "description": "Kano Hogai's Nio guardian behind dark glass, umber panes and a gold-leaf accent on cards.",
+  "description": "Hogai's Nio guardian in umber and gold.",
   "settings": {
     "appearance.themeFile": "nio-guardian"
   }

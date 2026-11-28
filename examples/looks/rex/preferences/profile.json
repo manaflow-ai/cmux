@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "rex-preferences",
-  "description": "Background banners, an unread Dock count, agent activity on tabs, larger sidebar rows and 13-point terminal text.",
+  "description": "Banners, Dock count and larger rows.",
   "settings": {
     "notifications.desktop": "whenInactive",
     "notifications.dockBadge": true,

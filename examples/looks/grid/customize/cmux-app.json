@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Grid sidebar" },
   "version": "1.0.0",
-  "description": "Grid's hover card and sidebar rows: a bold title over a rule, then one fact per line on the 8 px grid, and semibold rows with a still dot while work runs.",
+  "description": "Hover card and rows on a grid.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

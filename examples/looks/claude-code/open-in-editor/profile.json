@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "open-in-editor",
-  "description": "Click a local file citation to open the referenced line in your text editor.",
+  "description": "Click a file citation to open it.",
   "settings": {
     "agentPane.links.openCitationsInEditor": true
   }

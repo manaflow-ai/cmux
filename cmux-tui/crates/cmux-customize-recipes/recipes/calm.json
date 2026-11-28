@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "calm",
-  "description": "No motion and quieter status: nothing slides, pulses or blinks.",
+  "description": "No motion, quieter status.",
   "settings": {
     "ui.calm": "calm",
     "ui.animationSpeed": "off"

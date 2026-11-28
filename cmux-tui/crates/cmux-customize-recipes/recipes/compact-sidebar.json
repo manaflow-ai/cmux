@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "compact-sidebar",
-  "description": "A narrower sidebar with shorter rows; its buttons show when you point at it.",
+  "description": "A narrower sidebar with shorter rows.",
   "settings": {
     "appearance.metrics.sidebarRowHeight": 22,
     "appearance.metrics.sidebarWidth": 184,

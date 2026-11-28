@@ -4,7 +4,7 @@
 // tokens (globals.css :root) or one of its component sizes, named on its line.
 {
   "name": "shadcn",
-  "description": "Light: white, thin gray lines, black buttons.",
+  "description": "White with thin outlines.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

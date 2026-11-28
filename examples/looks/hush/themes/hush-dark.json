@@ -5,7 +5,7 @@
 // nothing that bounces. Its twin is Hush (Light).
 {
   "name": "Hush Dark",
-  "description": "Dark: cool graphite, a large rounded card, a quiet periwinkle accent.",
+  "description": "Dark gray, soft blue accent.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",

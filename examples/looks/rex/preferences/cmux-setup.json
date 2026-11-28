@@ -3,7 +3,7 @@
   "id": "manaflow-ai/rex-preferences",
   "name": "Rex Preferences",
   "version": "1.0.0",
-  "description": "Background banners, an unread Dock count, agent activity on tabs, larger sidebar rows and 13-point terminal text.",
+  "description": "Banners, Dock count and larger rows.",
   "cmuxProfile": 1,
   "settings": {
     "notifications.desktop": "whenInactive",

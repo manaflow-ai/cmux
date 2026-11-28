@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "larger-text",
-  "description": "Bigger text in the sidebar, the chats, the terminal and Markdown pages.",
+  "description": "Bigger text everywhere.",
   "settings": {
     "sidebar.textSize": "large",
     "agentPane.display.font.size": 16,

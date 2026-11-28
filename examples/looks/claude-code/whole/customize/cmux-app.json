@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": "Claude",
   "version": "1.0.0",
-  "description": "Claude's home on every New Tab (a greeting, one prompt box that starts a Claude chat, your recents), Claude's usage left in the sidebar, and a Claude Code status line in each chat's Session Info.",
+  "description": "Claude's home, usage and status line.",
   "engines": { "cmux": "^2.0" },
   "runtime": { "main": "main.js" },
   "implements": {

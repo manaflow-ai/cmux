@@ -7,7 +7,7 @@
 // #151515 page), moved onto this page: sidebar -4, edge +20, row +36 over the sidebar.
 {
   "name": "Claude Code app",
-  "description": "A neutral #191919 page, a #151515 sidebar a step darker with a hairline edge, the clay accent for marks.",
+  "description": "Neutral dark gray with a clay accent.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take these colors, over an App Theme of your own.

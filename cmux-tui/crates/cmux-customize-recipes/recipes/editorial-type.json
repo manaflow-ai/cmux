@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "editorial-type",
-  "description": "IBM Plex for the interface, a serif for the chats and Markdown pages, roomier lines.",
+  "description": "IBM Plex with serif chats and pages.",
   "settings": {
     "agentPane.display.font.ui": "plex",
     "agentPane.display.font.preset": "serif",

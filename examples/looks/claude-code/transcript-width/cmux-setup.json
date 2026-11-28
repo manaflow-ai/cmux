@@ -2,7 +2,7 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/claude-code-transcript-width",
   "name": "Claude Code transcript width",
-  "description": "A narrow transcript and composer with thoughts and tool output folded by default.",
+  "description": "A narrow chat with tool output folded.",
   "version": "1.0.0",
   "license": "MIT",
   "cmuxProfile": 1,

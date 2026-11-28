@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Linen sidebar" },
   "version": "1.0.0",
-  "description": "Linen's hover card and sidebar rows: a message-preview card (title and age, then a gray preview) and plain history rows with a thin spinner.",
+  "description": "Message-preview hover card and plain rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

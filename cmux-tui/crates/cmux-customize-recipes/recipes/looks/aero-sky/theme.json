@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Aero sky",
-  "description": "The living Aero wallpaper behind light glass, sky blue and a bright blue accent, floating panes.",
+  "description": "Aero wallpaper behind light sky-blue glass.",
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
   "colors": {

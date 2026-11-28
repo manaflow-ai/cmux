@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Grove sidebar" },
   "version": "1.0.0",
-  "description": "Grove's hover card and sidebar rows: a frosted header, the task in full, and calm rows with the arc while work runs.",
+  "description": "Frosted hover card and calm rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

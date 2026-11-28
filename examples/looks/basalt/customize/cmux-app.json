@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Basalt sidebar" },
   "version": "1.0.0",
-  "description": "Basalt's hover card and sidebar rows: a compact card with the title, then branch and folder lines with their icons, and one-line rows with a quiet status dot.",
+  "description": "Compact hover card, quiet one-line rows.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/local/customize",
   "runtime": { "main": "main.js" },

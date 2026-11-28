@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "claude-code-project-picker",
-  "description": "Choose the working folder from the focused chat and expose the workspace menu beside the sidebar’s plus button.",
+  "description": "Pick a chat's working folder.",
   "settings": {
     "sidebar.showNewWorkspaceChooser": true
   },
