@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1510,
-    "shortcuts": 207
+    "entries": 1531,
+    "shortcuts": 208
   },
   "sections": [
     {
@@ -202,6 +202,12 @@
           "command": "cmux window focus-dock"
         },
         {
+          "id": "forum.show",
+          "title": "Forum",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "gallery.openStage",
           "title": "Gallery Stage",
           "shortcut": null,
@@ -306,6 +312,12 @@
         {
           "id": "home.adoptChief",
           "title": "Make Agent a Chief…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.makeItYours",
+          "title": "Make cmux Yours",
           "shortcut": null,
           "command": null
         },
@@ -494,6 +506,12 @@
           "title": "Quit cmux",
           "shortcut": "⌘Q",
           "command": "cmux app quit"
+        },
+        {
+          "id": "quitCompletely",
+          "title": "Quit Completely",
+          "shortcut": null,
+          "command": "cmux app quit-completely"
         },
         {
           "id": "recentlyClosed",
@@ -1470,7 +1488,7 @@
         {
           "id": "nextWorkspaceGroup",
           "title": "Next Workspace Group",
-          "shortcut": "⌃⌥⇧⌘]",
+          "shortcut": null,
           "command": null
         },
         {
@@ -1554,7 +1572,7 @@
         {
           "id": "prevWorkspaceGroup",
           "title": "Previous Workspace Group",
-          "shortcut": "⌃⌥⇧⌘[",
+          "shortcut": null,
           "command": null
         },
         {
@@ -1568,6 +1586,12 @@
           "title": "Reconnect Workspace",
           "shortcut": null,
           "command": "cmux workspace reconnect"
+        },
+        {
+          "id": "workspace.releaseNames",
+          "title": "Release All Workspace Names to Automatic",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "workspace.removeAllColors",
@@ -2264,6 +2288,12 @@
           "title": "Insert New",
           "shortcut": null,
           "command": "cmux divider insert"
+        },
+        {
+          "id": "insertPhoto",
+          "title": "Insert Photo…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "column.moveLeft",
@@ -3994,6 +4024,12 @@
           "command": null
         },
         {
+          "id": "terminal.goToDirectory",
+          "title": "Go to Directory…",
+          "shortcut": "⇧⌘G",
+          "command": null
+        },
+        {
           "id": "hideFind",
           "title": "Hide Find Bar",
           "shortcut": "⌥⇧⌘F",
@@ -4003,6 +4039,12 @@
           "id": "terminal.increaseFontSize",
           "title": "Increase Font Size",
           "shortcut": "⌘=",
+          "command": null
+        },
+        {
+          "id": "insertPath",
+          "title": "Insert Path…",
+          "shortcut": "⌃⌘I",
           "command": null
         },
         {
@@ -6274,6 +6316,12 @@
           "command": null
         },
         {
+          "id": "presence.live.toggle",
+          "title": "Toggle Live",
+          "shortcut": null,
+          "command": "cmux presence live-toggle"
+        },
+        {
           "id": "sidebar.priorityView.toggle",
           "title": "Toggle Priority View",
           "shortcut": "⌥⌘K",
@@ -6500,6 +6548,12 @@
           "title": "Agent Chat: Actual Size",
           "shortcut": "⌘0",
           "command": "cmux agent actual-size"
+        },
+        {
+          "id": "agentPaneReload",
+          "title": "Agent Chat: Reload",
+          "shortcut": "⌘R",
+          "command": null
         },
         {
           "id": "agentPaneZoomIn",
@@ -6734,6 +6788,12 @@
           "title": "Deny",
           "shortcut": "⌥⌘3",
           "command": null
+        },
+        {
+          "id": "agent.harness.disableFolder",
+          "title": "Disable Folder Agent…",
+          "shortcut": null,
+          "command": "cmux harness disable"
         },
         {
           "id": "agentPane.editInstructions",
@@ -6974,6 +7034,12 @@
           "title": "Open Chat Folder In…",
           "shortcut": null,
           "command": "cmux agent open-cwd-in"
+        },
+        {
+          "id": "agentPane.openLastTurnChanges",
+          "title": "Open Last Turn's Changes",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "tasks.show",
@@ -7342,10 +7408,28 @@
           "command": "cmux cloud tunnel-attach"
         },
         {
+          "id": "cloudBringBackAll",
+          "title": "Bring Back All Chats",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "cloudBringBack",
           "title": "Bring Back Local",
           "shortcut": null,
           "command": "cmux cloud bring-back"
+        },
+        {
+          "id": "chatMove.cancel",
+          "title": "Cancel Chat Move",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "cloudEvacuate.cancel",
+          "title": "Cancel Evacuation",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "cloud.computerControl",
@@ -7388,12 +7472,6 @@
           "title": "Cloud Machine Tools",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "accounts.connect",
-          "title": "Connect Account to CodeRouter…",
-          "shortcut": null,
-          "command": "cmux accounts connect"
         },
         {
           "id": "accounts.githubConnect",
@@ -7460,6 +7538,12 @@
           "title": "Detach Cloud Tunnel Network",
           "shortcut": null,
           "command": "cmux cloud tunnel-detach"
+        },
+        {
+          "id": "cloudEvacuate",
+          "title": "Evacuate to Cloud",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "cloud.team.follow",
@@ -7678,12 +7762,6 @@
           "command": "cmux accounts refresh"
         },
         {
-          "id": "accounts.remove",
-          "title": "Remove Account from CodeRouter",
-          "shortcut": null,
-          "command": "cmux accounts remove"
-        },
-        {
           "id": "cloudFileRemove",
           "title": "Remove Cloud File…",
           "shortcut": null,
@@ -7720,6 +7798,12 @@
           "command": "cmux cloud resume-machine"
         },
         {
+          "id": "chatMove.retry",
+          "title": "Retry Chat Move",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "cloudAPIKeyRevoke",
           "title": "Revoke Cloud API Key",
           "shortcut": null,
@@ -7742,6 +7826,18 @@
           "title": "Run Command on Cloud Machine…",
           "shortcut": null,
           "command": "cmux cloud exec"
+        },
+        {
+          "id": "chatPlace.set",
+          "title": "Set Chat Place",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "chatPriority.set",
+          "title": "Set Keep Running",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "cloudSetupGitHub",
@@ -8038,6 +8134,12 @@
           "command": null
         },
         {
+          "id": "machine.storage",
+          "title": "Storage on This Mac",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "machine.switch",
           "title": "Switch Host…",
           "shortcut": null,
@@ -8096,6 +8198,24 @@
           "title": "App Store",
           "shortcut": null,
           "command": "cmux app store"
+        },
+        {
+          "id": "appearance.mode.dark",
+          "title": "Appearance: Dark",
+          "shortcut": null,
+          "command": "cmux settings appearance-dark"
+        },
+        {
+          "id": "appearance.mode.light",
+          "title": "Appearance: Light",
+          "shortcut": null,
+          "command": "cmux settings appearance-light"
+        },
+        {
+          "id": "appearance.mode.system",
+          "title": "Appearance: Match System",
+          "shortcut": null,
+          "command": "cmux settings appearance-system"
         },
         {
           "id": "palette.attemptUpdate",
@@ -8983,6 +9103,12 @@
           "id": "customize.revert",
           "title": "Undo Look Change",
           "shortcut": "⌃⌥⌘Z",
+          "command": null
+        },
+        {
+          "id": "settings.undo",
+          "title": "Undo Settings Change",
+          "shortcut": null,
           "command": null
         },
         {

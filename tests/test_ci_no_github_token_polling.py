@@ -37,6 +37,8 @@ ALLOWED: dict[str, str] = {
         'the scan reads every loop of a script the step runs; fleet_compile_result.py long-polls the fleet controller (30 s gap, at most 120 s), not GitHub',
     'cmux-next-base-linux.yml: List the paths changed since the last green run':
         'retry only: one runs read, retried at 0/5/20 s only after a failed read',
+    "cmux-next-base-linux.yml: Write each green leg's tip under refs/cmux-ci/base-JOB-tip":
+        'retry only: one jobs read, retried at 0/15/45/90 s only after a 403/429/5xx or network failure',
     "cmux-next-media.yml: Plan the What's New clips":
         'retry only: published() is one HEAD per clip, retried 3 times 2/4 s apart only after a failure',
     'cmux-next-post-merge.yml: Plan the suites':
@@ -184,6 +186,14 @@ ALLOWED: dict[str, str] = {
         'bounded retry: checks the expected workflow list with a finite retry budget',
     'nightly.yml: Ask the push group for the newest head':
         'bounded retry: asks the push group for its newest head with a finite retry budget',
+    'cmux-next-ios-verify-auto.yml: Dispatch the verify run on feat-cmux-next':
+        'retry only: one workflow dispatch, exits on success; 3 tries 10/20 s apart only after a refusal (#63833)',
+    "customize-prompts-cold-model.yml: Install feat-cmux-next's published cmux-tui client":
+        'retry only: ensure-gh-attestation.sh gh_waiting_out_rate_limit returns on success or any refusal but a rate limit, and sleeps to the limit reset (GET /rate_limit is free) (#56977)',
+    'mobile-old-phones.yml: step 3':
+        'retry only: mobile_old_phones.py list_runs returns on the first read; a 403/429/5xx retries 5/20/60 s, then fails (#64353)',
+    'reload-build.yml: Install and validate matching published cmux-tui client (macOS)':
+        'retry only: pin-cmux-tui.sh github_get returns on a 2xx and sleeps only through a rate-limit refusal, switching to a spare token first',
 }
 
 

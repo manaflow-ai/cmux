@@ -54,12 +54,25 @@ on:
     # "nothing in the app changes" or "needs a build", so its head started a run, a Linux runner and a plan for no
     # look (6,879 heads planned in 11-13..19, 1 own red). Only a change that can reach a layer starts it now, the
     # merged (closed) half included; the `!` lines are scripts/ci/docs_only_paths.py's prose excludes. A change to the
-    # engine's layer rules (live_apply.py, hot-apply.py) updates this list in the same pull request.
+    # engine's layer rules (live_apply.py, hot-apply.py) or to cmux/ui-proof's visual roots updates this list in the
+    # same pull request.
     paths:
       - "webviews/**"
       - "cmux-tui/**"
       - "acpmux/**"
       - "first-party-apps/cloud/server/**"
+      # The app layer (cmux#63712): the plan makes a Swift change eligible for a look with a fleet app build of the
+      # head, and cmux/ui-proof holds every head under these roots (scripts/ci/ui_proof_verdict.py APP_VISUAL)
+      # pending until that look's record. Without them here the look never started for a Swift-only head: 13 of
+      # the 17 ui_proof-held ready rows on 2026-11-28T12:12Z had no run of this workflow at any head
+      # (tests/test_ci_hot_verify_paths_cover_visual.py keeps the two lists together).
+      - "Packages/macOS/**"
+      - "Packages/Shared/**"
+      - "Native/**"
+      - "Resources/**"
+      - "Assets.xcassets/**"
+      - "AppIcon.icon/**"
+      - "App/**"
       - "**/*.rs"
       - "**/Cargo.toml"
       - ".github/workflows/cmux-next-hot-verify.yml"
@@ -121,7 +134,7 @@ permissions: {}
 # its own group, so it never cancels a head look still queued or running when the PR merged. A result run has its
 # own group per head: it never cancels a newer head's request run, nor one that one cancels it.
 concurrency:
-  group: cmux-next-hot-verify-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr || github.sha }}${{ (github.event.action == 'closed' || inputs.kind == 'merge') && '-merge' || '' }}${{ inputs.look_result != '' && format('-result-{0}', inputs.head) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: cmux-next-hot-verify-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr || github.sha }}${{ (github.event.action == 'closed' || inputs.kind == 'merge') && '-merge' || '' }}${{ inputs.look_result != '' && format('-result-{0}', inputs.head) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -136,6 +149,7 @@ jobs:
   # dev and CI loops"): the look runs on a fleet Mac, and one that starts only at the merge commit came about 2 h after
   # the merge (p50 126 min, 2026-11-27) while the newest 20 merges span about an hour, so 2 of 20 had a receipt.
   plan:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     name: plan the look
     if: ${{ (vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged)) && (github.event.action == 'closed' || contains(github.event.pull_request.labels.*.name, 'ready-to-land') || (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -419,6 +433,7 @@ jobs:
   # The feat-cmux-next half. The pull request, read again: open, into feat-cmux-next, from this repository,
   # still at the head the plan saw.
   target:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     name: check the pull request
     if: ${{ (github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result == '') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -533,6 +548,7 @@ jobs:
   # for it here: the look does not need it (the worker serves the head's web itself when latest.json does not name
   # the head yet), and the wait for latest.json held a Linux runner for up to 40 minutes per look.
   web:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     name: web layer
     needs: target
     if: ${{ (inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.publish_web == 'true') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}

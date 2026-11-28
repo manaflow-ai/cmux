@@ -169,6 +169,9 @@ key = "cmux.acpmux.detail"
 key = "cmux.acpmux.cloud.signedIn"
 
 [[storage_key]]
+key = "cmux.acpmux.cloudLastPick"
+
+[[storage_key]]
 key = "cmux.acpmux.composer-draft."
 
 [[storage_key]]
@@ -384,6 +387,9 @@ key = "cmux.experiments"
 
 [[storage_key]]
 key = "cmux.guest.chunkReloadAt"
+
+[[storage_key]]
+key = "cmux.hiddenRebuild.at"
 
 [[storage_key]]
 key = "cmux.home.detail"

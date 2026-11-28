@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: helm-chart-${{ github.ref }}
+  group: helm-chart-${{ github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:

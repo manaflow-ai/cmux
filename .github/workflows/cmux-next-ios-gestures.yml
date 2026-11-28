@@ -44,7 +44,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-ios-gestures-${{ github.event.pull_request.number || github.sha }}${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id)) || '' }}
+  group: cmux-next-ios-gestures-${{ github.event.pull_request.number || github.sha }}${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id)) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -60,7 +60,7 @@ jobs:
       || (github.event.pull_request.draft != true && github.event.pull_request.head.repo.full_name == github.repository))
       && (github.event_name != 'pull_request' || (github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled'))
       && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (linux-pickers-gone host pins)
     timeout-minutes: 240
     permissions:
       contents: read

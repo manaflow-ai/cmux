@@ -23,6 +23,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `history.closed.maxAgeDays` | real | `0` | 0 to 3650 | Keep Recently Closed Items For. Each machine deletes closed items that are older. 0 keeps them however old they are. |
 | `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover shows its buttons only over the top row. |
+| `window.settingsPresentation` | string | `"tab"` | `tab`, `page` | Open Settings In. Tab opens Settings as a tab in the focused pane. Full Window opens it over the whole window, with its sections on the left. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. ⌃⌥⌘Space starts an agent while another app is in front. |
 | `app.captureScreenshotGlobalHotKey` | boolean | `false` |  | Capture Screenshot to Chat from Any App. Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts. |
@@ -453,7 +454,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.sessionInfo.sections.changes` | boolean | `true` |  | Session Info: Pull Requests. The chat's pull requests and their checks. |
 | `agentPane.display.sessionInfo.sections.usage` | boolean | `true` |  | Session Info: Usage. Tokens, cost and time this chat used. |
 | `agentPane.display.sessionInfo.sections.connectors` | boolean | `true` |  | Session Info: Connectors. The MCP servers and connectors the chat has. |
-| `agentPane.display.sessionInfo.sections.carried` | boolean | `true` |  | Session Info: Carried memory. The MCP servers and carried the chat has. |
 | `agentPane.display.environment.placement` | string | `"left"` | `left`, `right`, `off` | Session Info Chip. Where the chip sits: under the tabs (Left) or in the header (Right). |
 | `agentPane.display.minimap` | string | `"compact"` | `compact`, `full`, `off` | Chat Minimap. What runs down the chat's edge. |
 | `agentPane.display.detail` | string | `"normal"` | `messages`, `normal`, `thinking`, `verbose` | Chat Detail. How much a chat shows: messages only, tool rows, thoughts, or every tool's output. A chat's ··· menu sets its own. |
@@ -481,6 +481,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.rail.show` | string | `"prompts"` | `prompts`, `mine`, `received`, `replies`, `everything`, `errors`, `edits`, `tools`, `subagents` | Prompt Rail Shows. Right-click the rail to change it. |
 | `agentPane.display.rail.control` | boolean | `false` |  | Prompt Rail Button. Shows what the rail lists above it while you point at it. |
 | `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. The names the chat shows for background commands. |
+| `experiments.chat_render_pipeline` | boolean | `false` |  | Chat Render Pipeline. Skip rendering offscreen rows from completed turns while keeping their place in the chat. |
 | `agentPane.display.layout.messages` | string | `"bubbles"` | `bubbles`, `flat`, `card` | Message Layout. How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left. |
 | `agentPane.display.layout.composer` | string | `"rounded"` | `rounded`, `pill`, `square` | Message Box Shape. The message box's outline: rounded, a pill, or square and docked. |
 | `agentPane.display.layout.header` | string | `"full"` | `full`, `quiet` | Chat Header. Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header. |
@@ -720,6 +721,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.import.cookieBanner` | boolean | `true` |  | Offer to Import Cookies. Browser tabs offer to import cookies from your other browsers. |
 | `browser.import.cookieSync` | boolean | `true` |  | Keep Imported Cookies in Sync. Brings over changed cookies from the browser you imported from. Stays on this Mac. |
 | `browser.showAgentCursor` | boolean | `true` |  | Show Agent Cursor. Shows an agent's cursor, clicks and typing in browser tabs. Passwords show dots. |
+| `browser.agents.openSignedOut` | boolean | `false` |  | Open Agent Tabs Signed Out. Agent tabs open in the Agents profile, signed in nowhere, until you lend a site. Off, they use the workspace's profile. |
 | `browser.agentMouse.motion` | string | `"human"` | `human`, `instant` | Agent Pointer Motion. Human moves along a curve and pauses before clicks; Instant jumps. |
 | `browser.agentMouse.maxMoveMs` | real | `350` | 60 to 1000 | Longest Agent Pointer Move. The longest time one agent pointer move takes with human motion. Short moves take less. |
 | `browser.builtInAdBlocker` | boolean | `true` |  | Built-in uBlock Origin. Blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts. |
@@ -899,6 +901,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.attachmentTypeIcons` | boolean | `false` |  | Attachment Type Icons. While an attachment loads, its chip shows a file or image icon instead of the loading mark. |
 | `experiments.quietConnect` | boolean | `false` |  | Quiet Connections. Hide Resuming… and connection waits that end within 10 seconds. |
 | `experiments.forum` | boolean | `false` |  | Forum. Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box. |
+| `experiments.feed` | boolean | `false` |  | Feed. Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first. |
 | `experiments.foldSummaryCounts` | boolean | `false` |  | Fold Summary Counts. A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files. |
 | `experiments.cloudDiskBar` | boolean | `false` |  | Cloud Disk Bar. Cloud machine cards show disk use as a bar split into system, project and caches. |
 | `experiments.browserProfileCard` | boolean | `false` |  | Browser Profile Card. The browser's profile menu opens with a profile card. |

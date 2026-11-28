@@ -40,7 +40,7 @@ permissions:
 # (docs/ci/ios-e2e.md#secrets-and-tailnet-identity).
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('ios-e2e-pr-{0}', github.event.pull_request.number) || format('ios-e2e-{0}', github.run_id) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: ${{ github.event_name == 'pull_request' && format('ios-e2e-pr-{0}', github.event.pull_request.number) || format('ios-e2e-{0}', github.run_id) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -76,6 +76,8 @@ jobs:
     if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && vars.IOS_E2E_PR_TAILNET == 'true' && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
+    env:
+      GH_HTTP_DEADLINE_S: "120"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     continue-on-error: true
     permissions:
       actions: read
@@ -334,12 +336,26 @@ jobs:
           # `runner`, the only SSH the ACL grants into tag:e2e-backend.
           args: --ssh
 
+      # The ACL admits Tailscale SSH into tag:e2e-backend as `runner` only, and
+      # the macOS job's release is `ssh runner@... touch` of the done-file that
+      # `backend-up.sh hold` waits for. A two-slot pool VM (runner name ending
+      # -2) runs this job as runner2, so check what the release needs: a local
+      # runner account that can write the done-file where this job sees it.
       - name: Check the SSH login user
         run: |
-          [ "$(id -un)" = runner ] || {
-            echo "::error::[infra-preflight] backend runs as $(id -un); the tailnet ACL admits SSH as runner only"
+          set -euo pipefail
+          job_user="$(id -un)"
+          [ "$job_user" = runner ] && exit 0
+          fail() {
+            echo "::error::[infra-preflight] backend runs as $job_user and $1; the tailnet ACL admits SSH as runner only"
             exit 1
           }
+          id -u runner >/dev/null 2>&1 || fail "this host has no runner account"
+          probe="$(dirname "$CMUX_E2E_BACKEND_DONE_FILE")/e2e-backend-ssh-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sudo -n -u runner touch "$probe" 2>/dev/null || fail "runner cannot write $(dirname "$probe")"
+          [ -f "$probe" ] || fail "runner's $(dirname "$probe") is not this job's"
+          sudo -n -u runner rm -f "$probe"
+          echo "backend runs as $job_user; runner can write the done-file directory, so the release reaches this hold"
 
       - name: Start per-run backend
         env:
@@ -387,7 +403,11 @@ jobs:
     # releases it, so waiting for its completion would deadlock.
     needs: route
     if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ( (!cancelled() && !failure() && needs.route.result == 'success') && needs.route.outputs.run_clients == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) ) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # Blacksmith only: the tailnet join needs an ephemeral host. MACOS_RUNNER_IOS and
+    # MACOS_RUNNER_PR now name self-hosted Macs that already run Tailscale, where
+    # require-fresh-tailnet-host.sh fails by design. Same selector as
+    # main's (#52293): a Blacksmith RUNNER_POOLS member, else the 6vcpu label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 120
     environment: ios-e2e
     permissions:

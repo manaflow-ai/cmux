@@ -240,13 +240,18 @@ def new_version_bundle(bundle: str, generation: int):
         for path in scripts + [os.path.join(root, "pane.css")]:
             with open(path, "a") as handle:
                 handle.write(f"\n/* {tag} */\n")
-        with open(os.path.join(root, "pane.css"), "rb") as handle:
-            digest = hashlib.sha256(handle.read()).hexdigest()[:16]
+        def digest(name: str) -> str:
+            with open(os.path.join(root, name), "rb") as handle:
+                return hashlib.sha256(handle.read()).hexdigest()[:16]
         index = os.path.join(root, "index.html")
         with open(index) as handle:
             text = handle.read()
+        # Each name the build writes by content gets the new content's, as a real update's index.html does.
+        text = re.sub(r"pane\.css\?h=[0-9a-f]+", f"pane.css?h={digest('pane.css')}", text)
+        if os.path.isfile(os.path.join(root, "pane.js")):
+            text = re.sub(r"pane\.js\?h=[0-9a-f]+", f"pane.js?h={digest('pane.js')}", text)
         with open(index, "w") as handle:
-            handle.write(re.sub(r"pane\.css\?h=[0-9a-f]+", f"pane.css?h={digest}", text))
+            handle.write(text)
     if not pages:
         raise RuntimeError(f"new-version: no agent page (index.html, pane.css, chat-snapshot.js) in {bundle}")
     plist = os.path.join(bundle, "Contents", "Info.plist")

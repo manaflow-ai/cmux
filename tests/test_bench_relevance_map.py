@@ -5,16 +5,19 @@ Leo, 2026-11-27: "like we can have fast retrieval of bench reference per product
 
   - model-based: the prefix index answers exactly what the old whole-table scan answers, on every tracked path's
     shape and on random paths built from the map's own globs (the scan is the oracle);
-  - budget: a 2,000-path change resolves in under 1 s, and ten times the rules costs the index far less than ten
-    times (the scan grows linearly; the index reads only a path's own ancestors' buckets);
+  - budget, counted (Leo: "minimally rigorous things to be proving correctness and perf in fast fail open ways"):
+    ten times the rules tries exactly the same globs (the index reads only a path's own ancestors' buckets), at
+    most 64 a path, and twice the paths is twice the work; the 1 s wall check runs only with CMUX_BENCH_WALL=1;
   - joined: each [[area]] names a risky path row of docs/benches/coverage-map.md (same paths), and each bench it
     names is a row of that page (when the page is on this branch);
   - whole: every [[situation]] names a template that exists, every area's situations exist, and the generated
     [[unit]] section matches the repo layout (`scripts/bench/cmux-bench for-paths --write`);
+  - one table, two consumers: the [[live_rule]] table is live_apply.py's path rules, its literal block generated;
   - fail open: an unmapped path warns and takes its default; a broken map never blocks.
 """
 from __future__ import annotations
 
+import os
 import random
 import re
 import subprocess
@@ -164,31 +167,40 @@ ignore = ["a/**/*.md", "!a/keep/*.md"]
         self.assertEqual(idx.match("a/x/y.md").steps, [])
         self.assertEqual([s.name for s in idx.match("a/keep/y.md").steps], ["s"])
 
-    def test_budget_and_flat_at_ten_times_the_rules(self):
+    def test_counted_work_is_flat_at_ten_times_the_rules(self):
+        """Counted work, not a clock: a loaded host (load 30 failed the old 1 s wall assert at base) cannot fail it.
+
+        `probes` is glob patterns match() tried, `compiles` is globs compiled into buckets. The scan tries every
+        glob on every path; the index tries only the globs filed under a path's own ancestors.
+        """
+        paths = random.Random(3).sample(self.files, min(2000, len(self.files)))
+        half = paths[: len(paths) // 2]
+
+        def work(rules, ps):
+            idx = rel.Index(rules)
+            rel.plan(idx, ps)
+            return idx.probes, idx.compiles
+
+        rules = list(self.index.rules)
+        one, ten = work(rules, paths), work(rel.scaled(rules, 10), paths)
+        self.assertEqual(ten, one, f"10x rules: (probes, compiles) {ten} vs {one} (want identical: flat)")
+        globs = sum(len(r.globs) for r in rules)
+        per_path = one[0] / len(paths)
+        # Budget: 64 probes a path (32 today); the scan would try all `globs` (2,815 today) on each.
+        self.assertLessEqual(per_path, 64, f"{per_path:.1f} probes a path (budget 64; a scan is {globs})")
+        small = work(rules, half)
+        self.assertLessEqual(one[0], small[0] * 2.2, f"2x paths: {one[0]} probes vs {small[0]} (want linear)")
+
+    @unittest.skipUnless(os.environ.get("CMUX_BENCH_WALL"), "wall-clock check: set CMUX_BENCH_WALL=1 (a quiet host)")
+    def test_wall_budget_on_a_quiet_host(self):
         paths = random.Random(3).sample(self.files, min(2000, len(self.files)))
         def once():
             t = time.perf_counter()
             rel.plan(rel.load(), paths)
             return time.perf_counter() - t
 
-        one = min(once() for _ in range(3))  # best of 3: a busy CI host is noise, not a regression
-        self.assertLess(one, 1.0, f"for-paths on 2,000 paths took {one:.2f} s (budget 1 s, load included)")
-        big = list(self.index.rules)
-        for k in range(9):
-            big += [rel.Rule(kind=r.kind, name=f"{r.name}#{k}", order=len(big) + i, ignore=r.ignore,
-                             globs=tuple(f"x{k}/{g}" for g in r.globs)) for i, r in enumerate(self.index.rules)]
-
-        def cost(rules):
-            idx = rel.Index(rules)
-            for p in paths:  # warm: compile the buckets these paths touch
-                idx.match(p)
-            t = time.perf_counter()
-            for p in paths:
-                idx.match(p)
-            return time.perf_counter() - t
-
-        base, ten = cost(self.index.rules), cost(big)
-        self.assertLess(ten, base * 3 + 0.05, f"10x rules: {ten * 1e3:.1f} ms vs {base * 1e3:.1f} ms (want flat, < 3x)")
+        one = min(once() for _ in range(3))
+        self.assertLess(one, 1.0, f"for-paths on 2,000 paths took {one:.2f} s (budget 1 s)")
 
 
 class RelevanceMapFileTest(unittest.TestCase):
@@ -227,6 +239,21 @@ class RelevanceMapFileTest(unittest.TestCase):
                   "run scripts/bench/cmux-bench for-paths --write", file=sys.stderr)
         self.assertLess(len(drift), max(5, len(want) // 20),
                         "the [[unit]] section is stale: run scripts/bench/cmux-bench for-paths --write")
+
+    def test_every_package_file_is_mapped(self):
+        # lane/swift-out-rd-phone-4's advisory log (run 46166834064): "default:Packages has no mapping". A package's
+        # Package.swift, Package.resolved and non-Sources folders (CEFShim/, Plugins/, Demo/) take the package's
+        # unit; a module file still takes its narrower module unit.
+        index = rel.load()
+        files = [f for f in tracked() if f.startswith("Packages/")]
+        unmapped = [f for f in files if not index.match(f).mapped]
+        self.assertEqual(unmapped, [], f"{len(unmapped)} Packages/ files fall back to default:Packages")
+        if (ROOT / "Packages/macOS/CmuxNext/Package.swift").is_file():
+            self.assertEqual(index.match("Packages/macOS/CmuxNext/Package.swift").unit.name,
+                             "swiftpkg:Packages/macOS/CmuxNext")
+        if (ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar").is_dir():
+            self.assertEqual(index.match("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/x.swift").unit.name,
+                             "swift:CmuxNextSidebar")
 
     def test_a_crate_routes_its_direct_dependents_tests(self):
         # The 20-merge backtest's two misses (ask-5ad71ec59c): a path took only its own folder's unit.
@@ -326,6 +353,52 @@ class RelevanceMapFileTest(unittest.TestCase):
         for area, paths in risky.items():
             self.assertIn(area, mapped, f"coverage-map.md's risky area {area!r} has no [[area]] in relevance-map.toml")
             self.assertFalse(paths - mapped[area], f"area {area!r}: risky paths missing from relevance-map.toml")
+
+
+class LiveRulesTest(unittest.TestCase):
+    """The map's [[live_rule]] table is scripts/cmux-next/live_apply.py's path rules (shadow-leo: "the same map
+    should answer landings-skip-rebuild too: a path that maps to web-only is exactly the hot-swap case, so one table,
+    two consumers"): live_apply.py's literal block is generated from it, so the two never differ."""
+
+    def test_live_apply_block_is_generated_from_the_map(self):
+        text = rel.LIVE_APPLY.read_text(encoding="utf-8")
+        want = rel.render_live_rules(rel.load_live_rules())
+        self.assertIn(want, text, "live_apply.py's live rules differ from the map: "
+                      "run scripts/bench/cmux-bench for-paths --write")
+
+    def test_live_apply_checks_the_map_rules_in_map_order(self):
+        sys.path.insert(0, str(rel.LIVE_APPLY.parent))
+        try:
+            import live_apply
+        finally:
+            sys.path.remove(str(rel.LIVE_APPLY.parent))
+        got = [(rx.pattern, cls, reason or "") for rx, cls, reason in live_apply.PATH_RULES]
+        want = [(r["pattern"], r["class"], r["reason"]) for r in rel.load_live_rules()]
+        self.assertEqual(got, want)
+        self.assertTrue(want, "the map has no [[live_rule]]")
+
+    def test_each_rule_is_one_literal_hq_can_parse(self):
+        # cmuxterm-hq tools/fleet-reconcilers/now_code_shape.py reads `NAME = re.compile(<one str literal>)` with ast.
+        import ast
+        tree = ast.parse(rel.LIVE_APPLY.read_text(encoding="utf-8"))
+        literal = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+                    and isinstance(node.value, ast.Call) and len(node.value.args) == 1 \
+                    and isinstance(node.value.args[0], ast.Constant) and isinstance(node.value.args[0].value, str):
+                literal[node.targets[0].id] = node.value.args[0].value
+        for r in rel.load_live_rules():
+            self.assertEqual(literal.get(r["name"]), r["pattern"], r["name"])
+
+    def test_bad_rules_are_refused(self):
+        for body in ('name = "X"\nclass = "hot"\npattern = "a"', 'name = "x"\nclass = "no-app"\npattern = "a"',
+                     'name = "X"\nclass = "no-app"\npattern = "("', "name = 'X'\nclass = 'no-app'\npattern = 'a\"'"):
+            with self.assertRaises(rel.MapError, msg=body):
+                rel.parse_live_rules("[[live_rule]]\n" + body + "\n")
+        self.assertEqual([r["name"] for r in rel.parse_live_rules(
+            '[[live_rule]]\nname = "B"\nclass = "daemon"\npattern = "b"\n'
+            '[[live_rule]]\nname = "A"\nclass = "web-live"\npattern = "a"\n')], ["B", "A"])
+        rel.parse(rel.MAP.read_text(encoding="utf-8"))  # the area parser accepts the table
 
 
 class ForPathsCliTest(unittest.TestCase):
@@ -432,6 +505,7 @@ budget_s = 2
         globs = [g for r in rel.load().rules for g in r.globs] + ["*.rs", "**/x", "a/b*/c", "a/[x]/y", "a/b/"]
         self.assertEqual([g for g in globs if rel.literal_prefix(g) != old_literal_prefix(g)], [])
 
+    @unittest.skipUnless(os.environ.get("CMUX_BENCH_WALL"), "wall-clock check: set CMUX_BENCH_WALL=1 (a quiet host)")
     def test_mapped_self_bench_runs_flat_at_ten_times_the_rules(self):
         one, ten = (min(rel.self_bench(2000, k) for _ in range(2)) for k in (1, 10))
         self.assertLess(ten, one * 3 + 0.1, f"self-bench: 10x rules {ten:.2f} s vs {one:.2f} s (want < 3x)")

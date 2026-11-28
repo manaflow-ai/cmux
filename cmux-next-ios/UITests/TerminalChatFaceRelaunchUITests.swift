@@ -25,12 +25,12 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
     var title = ""
 
     @MainActor
-    func launch() -> XCUIApplication {
+    func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_MOCK_TERMINAL_AGENTS"] = "1"
         app.launchArguments += ["-cmux-mobile-tab", "home", "-cmux-mobile-no-restore",
-                                "-cmuxMobile.settings.terminalChatToggle", "YES"]
+                                "-cmuxMobile.settings.terminalChatToggle", "YES"] + extra
         app.launch()
         let choose = app.scrollViews["setup.teams.choose"]
         if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
@@ -64,6 +64,7 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
             if row.waitForExistence(timeout: 5) { return row }
         }
         attach(app, "no-face-row-\(title)")
+        print("CMUX_MOBILE_UI_NO_FACE_ROW keyboard=\(app.keyboards.firstMatch.exists) pill=\(pill.exists)/\(pill.isHittable) glyph=\(glyph.exists)")
         return nil
     }
 
@@ -72,9 +73,20 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
     func face(_ app: XCUIApplication) -> String? {
         guard let row = faceRow(app) else { return nil }
         let face = row.label.hasPrefix("Show Terminal") ? "chat" : "terminal"
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
-        _ = row.waitForNonExistence(timeout: 5)
+        closeMenu(app, row)
         return face
+    }
+
+    /// Closes the page menu with a tap outside it on the status bar row. A tap on the page itself
+    /// lands on the terminal, which takes focus and raises the keyboard: the bottom pill then never
+    /// turns hittable again and the next `faceRow` finds no row.
+    @MainActor
+    func closeMenu(_ app: XCUIApplication, _ row: XCUIElement) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).tap()
+        if row.waitForNonExistence(timeout: 3) { return }
+        attach(app, "menu-still-open-\(title)")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.02)).tap()
+        _ = row.waitForNonExistence(timeout: 5)
     }
 
     /// Waits until the open tab shows `wanted` (the kept face lands once the file is read).
@@ -125,6 +137,65 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
         expectFace(app, "chat", "05-after-relaunch-claude-on-chat")
         open(app, Self.codex)
         expectFace(app, "terminal", "06-after-relaunch-codex-on-terminal")
+    }
+
+    /// Leo, 2026-11-16: "it's not usable like the regular gui". A terminal's Chat face has the
+    /// regular chat's composer, and a prompt sent there is typed into the terminal that runs the
+    /// session (#44137). On mock data the terminal is the DEBUG mock shell, which echoes what it is
+    /// typed: the Terminal face then shows the line. The mock shell starts at its prompt
+    /// (`-cmux-mobile-term-no-intro`: it drops keys while a scripted command runs), and the page's
+    /// DEBUG text probe (`-cmux-mobile-terminal-text-probe`) carries the screen's rows as read from
+    /// Ghostty's grid, so the test reads what the terminal holds, not the Metal layer's pixels.
+    @MainActor
+    func testAPromptOnTheChatFaceIsTypedIntoItsTerminal() throws {
+        let app = launch(["-cmux-mobile-term-no-intro", "-cmux-mobile-terminal-text-probe"])
+        open(app, Self.claude)
+        expectFace(app, "terminal", "11-claude-opens-on-terminal")
+        show(app, "chat")
+        expectFace(app, "chat", "12-claude-on-chat")
+
+        // The regular chat's composer, under the View Only chat.
+        let bar = app.buttons["Reply to Claude"].firstMatch
+        let field = app.textViews["chat.composer.field"].firstMatch
+        if !field.waitForExistence(timeout: 5) {
+            XCTAssertTrue(bar.waitForExistence(timeout: 15), "the Chat face shows a composer\n\(app.debugDescription)")
+            bar.tap()
+        }
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the composer opens\n\(app.debugDescription)")
+        attach(app, "13-chat-face-composer")
+        for _ in 0..<5 where !((field.value(forKey: "hasKeyboardFocus") as? Bool) ?? false) {
+            field.tap()
+            _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"),
+                                                                 object: field)], timeout: 2)
+        }
+        field.typeText("echo sent-from-the-chat-face")
+        attach(app, "14-chat-face-typed")
+        app.buttons["Send"].firstMatch.tap()
+
+        // Taken by the terminal: no "Not sent" notice, and the draft does not come back.
+        let refused = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Not sent'")).firstMatch
+        XCTAssertFalse(refused.waitForExistence(timeout: 3), "the terminal took the prompt\n\(app.debugDescription)")
+        attach(app, "15-chat-face-sent")
+
+        // The terminal ran it: its face shows the typed command and the mock shell's echo, the
+        // echo on a row of its own.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        show(app, "terminal")
+        expectFace(app, "terminal", "16-terminal-face-shows-the-prompt")
+        let screen = app.descendants(matching: .any)["debug.terminal.screenText"].firstMatch
+        XCTAssertTrue(screen.waitForExistence(timeout: 10), "the terminal's text probe\n\(app.debugDescription)")
+        var rows: [String] = []
+        for _ in 0..<20 {
+            rows = screen.label.components(separatedBy: "\n")
+            if rows.contains(where: { $0.hasSuffix("echo sent-from-the-chat-face") }),
+               rows.contains("sent-from-the-chat-face") { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        attach(app, "17-terminal-echoed-the-prompt")
+        XCTAssertTrue(rows.contains(where: { $0.hasSuffix("echo sent-from-the-chat-face") }),
+                      "the terminal shows the typed command; its rows:\n\(rows.joined(separator: "\n"))")
+        XCTAssertTrue(rows.contains("sent-from-the-chat-face"),
+                      "the mock shell echoed it on its own row; its rows:\n\(rows.joined(separator: "\n"))")
     }
 
     @MainActor
