@@ -29,7 +29,7 @@ const NEXT: &str = "acpmux machine doctor";
 /// verdict and this daemon's turns, without the formula, the sessions' names
 /// (`top`) or `warning` (it names the host, which a Web or peer caller does
 /// not get).
-const PRESSURE_KEYS: [&str; 10] = [
+const PRESSURE_KEYS: [&str; 13] = [
     "ok",
     "over",
     "load1",
@@ -39,6 +39,11 @@ const PRESSURE_KEYS: [&str; 10] = [
     "pressure",
     "available_ram_fraction",
     "swap_mb_per_min",
+    // CPU busy now and its ten-minute p50 (the meter's ring): lane-place's measured
+    // lane cap reads `cpu_p50_pct` from the link (`measured_lane_cap`).
+    "cpu_busy_pct",
+    "cpu_p50_pct",
+    "cpu_window_s",
     "local_turns",
 ];
 
