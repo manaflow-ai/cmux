@@ -11,25 +11,31 @@ extension Workspace {
         _ restoredAgent: SessionRestorableAgentSnapshot,
         panelId: UUID
     ) -> Bool {
-        let key = RestoredAgentLiveness.pidKey(for: restoredAgent)
-        let recordedProcess: RestoredAgentLiveness.RecordedProcess? = {
-            guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
-                  let pid = agentPIDs[key] else {
-                return nil
-            }
-            return RestoredAgentLiveness.RecordedProcess(
-                pid: pid,
-                identity: agentPIDProcessIdentitiesByKey[key]
-            )
-        }()
-        return RestoredAgentLiveness().hasLiveProcess(
+        RestoredAgentLiveness().hasLiveProcess(
             restoredAgent,
             workspaceId: id,
             panelId: panelId,
-            recordedProcess: recordedProcess,
+            recordedProcess: recordedAgentProcess(for: restoredAgent, panelId: panelId),
             liveIndex: SharedLiveAgentIndex.shared.index,
             foregroundProcessID: terminalPanel(for: panelId)?.surface.foregroundProcessID(),
             foregroundProcessIdentity: { AgentPIDProcessIdentity(pid: $0) }
+        )
+    }
+
+    /// The `<kind>.<session>` process a hook registered for `agent` on this
+    /// pane through `set_agent_pid`, if any.
+    private func recordedAgentProcess(
+        for agent: SessionRestorableAgentSnapshot,
+        panelId: UUID
+    ) -> RestoredAgentLiveness.RecordedProcess? {
+        let key = RestoredAgentLiveness.pidKey(for: agent)
+        guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
+              let pid = agentPIDs[key] else {
+            return nil
+        }
+        return RestoredAgentLiveness.RecordedProcess(
+            pid: pid,
+            identity: agentPIDProcessIdentitiesByKey[key]
         )
     }
 
@@ -114,6 +120,17 @@ extension Workspace {
         // that the agent exited. Retiring here would make the scan cancel the
         // launch and restore a bare shell (#12084).
         if deferredAgentResumeRestoreOwns(binding, panelId: panelId) {
+            return false
+        }
+        // The scan below only knows agents by hook-store files or a session id
+        // in argv. An agent that registered its own live process for this
+        // session is running, whether or not the scan can see it.
+        if let agent = binding.managedRestorableAgentSnapshot(
+            replacing: restoredAgentSnapshotsByPanelId[panelId]
+        ), RestoredAgentLiveness().hasLiveRecordedProcess(
+            agent,
+            recordedProcess: recordedAgentProcess(for: agent, panelId: panelId)
+        ) {
             return false
         }
         let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index

@@ -131,6 +131,58 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         #expect(retainedBinding.autoResume == false)
     }
 
+    /// An agent that reports over the socket alone (loop) has no hook-store
+    /// file and starts without its session id in argv, so the process scan
+    /// never lists it. The PID it registered with `set_agent_pid` is the
+    /// evidence that it is still running.
+    private static let loopSessionID = "a3f1c9e2-5b7d-4e08-9c6a-1f2e3d4c5b6a"
+
+    private static func loopAgentHookBinding() -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            kind: "loop",
+            command: "loop --session \(loopSessionID)",
+            checkpointId: loopSessionID,
+            source: "agent-hook",
+            autoResume: true,
+            approvalPolicy: .auto
+        )
+    }
+
+    @Test
+    func agentHookBindingWithLiveRegisteredProcessKeepsAutomaticResume() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.setSurfaceResumeBinding(Self.loopAgentHookBinding(), panelId: panelId))
+        _ = workspace.recordAgentPID(
+            key: "loop.\(Self.loopSessionID)",
+            pid: ProcessInfo.processInfo.processIdentifier,
+            panelId: panelId
+        )
+
+        workspace.reconcileSurfaceResumeBindings(using: .empty, restorableAgentIndex: .empty)
+
+        #expect(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume == true)
+    }
+
+    @Test
+    func agentHookBindingWithExitedRegisteredProcessIsStale() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.setSurfaceResumeBinding(Self.loopAgentHookBinding(), panelId: panelId))
+        // No process table entry: the agent registered, then exited.
+        _ = workspace.recordAgentPID(
+            key: "loop.\(Self.loopSessionID)",
+            pid: pid_t(Int32.max - 11),
+            panelId: panelId
+        )
+
+        workspace.reconcileSurfaceResumeBindings(using: .empty, restorableAgentIndex: .empty)
+
+        #expect(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume == false)
+    }
+
     @Test
     func plainSSHProcessBindingSurvivesATransientMissedProcessScan() throws {
         let workspace = Workspace()
