@@ -232,23 +232,24 @@ async fn a_cold_localapi_read_is_awaited_briefly_and_never_runs_the_cli() {
 }
 
 #[test]
-fn the_default_is_direct_only_and_off_or_garbage_turns_it_off() {
+fn the_default_is_off_and_only_a_named_mode_turns_it_on() {
     let none = || None::<serde_json::Value>;
-    assert_eq!(Mode::default(), Mode::DirectOnly);
-    assert_eq!(Mode::resolve(None, none), Mode::DirectOnly, "nothing set: direct-only");
+    assert_eq!(Mode::default(), Mode::Off);
+    assert_eq!(Mode::resolve(None, none), Mode::Off, "nothing set: off");
+    assert_eq!(Mode::resolve(None, || Some("direct-only".into())), Mode::DirectOnly);
     assert_eq!(Mode::resolve(None, || Some("off".into())), Mode::Off, "the setting off");
     assert_eq!(Mode::resolve(None, || Some("on".into())), Mode::On);
     assert_eq!(Mode::resolve(None, || Some("sideways".into())), Mode::Off, "not understood");
     assert_eq!(Mode::resolve(Some("off"), || Some("on".into())), Mode::Off, "the env wins");
     assert_eq!(Mode::resolve(Some("direct-only"), none), Mode::DirectOnly);
     assert_eq!(Mode::from_env(), Mode::Off, "unit tests never read the developer's file");
-    // DERP and peer relays stay out of the default (RFD 0164; hq#26023).
-    assert!(!Mode::default().offers(PeerPath::Derp));
-    assert!(!Mode::default().offers(PeerPath::PeerRelay));
+    // DERP and peer relays stay out of direct-only (RFD 0164; hq#26023).
+    assert!(!Mode::DirectOnly.offers(PeerPath::Derp));
+    assert!(!Mode::DirectOnly.offers(PeerPath::PeerRelay));
 }
 
 #[test]
-fn invalid_tailnet_setting_types_do_not_enable_the_default() {
+fn invalid_tailnet_setting_types_stay_off() {
     use serde_json::json;
     for value in [json!(false), json!(true), json!(0), json!(1), json!([]), json!({})] {
         for doc in [
@@ -260,7 +261,7 @@ fn invalid_tailnet_setting_types_do_not_enable_the_default() {
             assert_eq!(Mode::resolve(Some("direct-only"), setting), Mode::DirectOnly);
         }
     }
-    assert_eq!(Mode::resolve(None, || Some(json!(null))), Mode::DirectOnly);
+    assert_eq!(Mode::resolve(None, || Some(json!(null))), Mode::Off);
 }
 
 #[test]

@@ -1,9 +1,9 @@
 //! The tailnet path of acpmux peer links (`peer_tailnet.rs`), for a person who runs Tailscale
-//! has it. RFD 0164 "Tailnet carrier", slice T6. On by default as `direct-only` (ask-3c089caeef).
+//! has it. RFD 0164 "Tailnet carrier", slice T6. Opt-in, default off.
 //!
-//! - **Setting.** `transport.tailnetCarrier` = `off` | `direct-only` (default) | `on`;
+//! - **Setting.** `transport.tailnetCarrier` = `off` (default) | `direct-only` | `on`;
 //!   `CMUX_TAILNET_CARRIER` overrides it (tests, development). An unknown value is `off`.
-//!   `off` makes no tailscale call at all, in either direction. Without Tailscale the default
+//!   `off` makes no tailscale call at all, in either direction. Without Tailscale, `direct-only`
 //!   costs one failed LocalAPI read: no candidate, no listener on a tailnet address, no error.
 //! - **Learning the address.** Locally and read-only: the peer record's host (the ssh
 //!   destination's host or the URL's host) is matched against this machine's tailscaled status
@@ -62,11 +62,12 @@ const GATE_WAIT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
-    /// No tailscale call, no tailnet path, no tailnet listener.
-    Off,
-    /// Only a path tailscale reports as direct. The default: it only adds a candidate that
-    /// must win the race on round trip, and nothing when tailscaled is absent.
+    /// No tailscale call, no tailnet path, no tailnet listener. The default: turning the
+    /// carrier on by default waits for Leo's word (rc-polish: no default flips).
     #[default]
+    Off,
+    /// Only a path tailscale reports as direct: it only adds a candidate that must win the
+    /// race on round trip, and nothing when tailscaled is absent.
     DirectOnly,
     /// Every tailnet path: a non-direct one is relayed-class.
     On,
@@ -529,7 +530,7 @@ pub async fn serve_peers(
 }
 
 /// The listener's next retry after a failed bind: doubling from [`FAILED_FRESH`] to
-/// [`MAX_BIND_WAIT`], so a machine without Tailscale (the default is on) asks a few times an
+/// [`MAX_BIND_WAIT`], so a machine without Tailscale (carrier turned on) asks a few times an
 /// hour, not twice a minute forever.
 pub fn next_bind_wait(wait: Duration) -> Duration {
     (wait * 2).min(MAX_BIND_WAIT)

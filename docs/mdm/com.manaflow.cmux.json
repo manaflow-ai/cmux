@@ -8072,7 +8072,7 @@
       "type" : "string"
     },
     "transport.tailnetCarrier" : {
-      "default" : "direct-only",
+      "default" : "off",
       "description" : "Race a peer's direct Tailscale address with the other transports when tailscaled reports one.",
       "enum" : [
         "off",

@@ -217,15 +217,15 @@ pub enum UltraConnection {
 }
 
 /// Settings' Tailscale carrier policy (`transport.tailnetCarrier`). The
-/// default is direct-only (ask-3c089caeef): the tailnet address joins the race
-/// only when tailscaled's LocalAPI reports a direct path, and must win it on
-/// round trip; without Tailscale it adds nothing.
+/// default is off. With direct-only, the tailnet address joins the race only
+/// when tailscaled's LocalAPI reports a direct path, and must win it on round
+/// trip; without Tailscale it adds nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TailnetCarrier {
     /// Do not add Tailscale addresses to races.
+    #[default]
     Off,
     /// Add only paths tailscaled currently reports as direct.
-    #[default]
     DirectOnly,
     /// Accepted for forward compatibility. Relayed paths remain excluded by
     /// the race helper until their cost is measured.
@@ -605,17 +605,17 @@ mod tests {
     }
 
     #[test]
-    fn tailnet_carrier_is_direct_only_unless_the_file_names_off_or_on() {
+    fn tailnet_carrier_is_off_unless_the_file_names_direct_only_or_on() {
         use super::TailnetCarrier::{DirectOnly, Off, On};
         use super::tailnet_carrier_from_config_text as carrier;
-        assert_eq!(carrier(""), DirectOnly, "no file: the default");
-        assert_eq!(carrier("{}"), DirectOnly, "no key: the default");
+        assert_eq!(carrier(""), Off, "no file: the default");
+        assert_eq!(carrier("{}"), Off, "no key: the default");
         assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"direct-only"}}"#), DirectOnly);
         assert_eq!(carrier(r#"{"transport.tailnetCarrier":"on"}"#), On, "the flat key");
         assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"on"}}"#), On);
         assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"off"}}"#), Off);
         assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off, "not understood");
-        assert_eq!(carrier("{not json"), DirectOnly);
+        assert_eq!(carrier("{not json"), Off);
         assert_eq!(super::tailnet_carrier(), Off, "unit tests never read the developer's file");
     }
 

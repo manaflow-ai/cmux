@@ -1,7 +1,7 @@
 //! Part of `Peer` (`peer.rs`). The tailnet path (`Via::Tailnet`, `tailnet_carrier.rs`,
 //! RFD 0164 "Tailnet carrier", slice T6).
 //!
-//! The setting `transport.tailnetCarrier` (`CMUX_TAILNET_CARRIER` overrides) is `direct-only` by
+//! The setting `transport.tailnetCarrier` (`CMUX_TAILNET_CARRIER` overrides) is off by
 //! default; off, nothing here calls tailscale and the peer has no tailnet path. On, the peer's configured host is matched against the cached
 //! tailscaled status ([`crate::tailnet_carrier::route_for`]), read from the LocalAPI and from
 //! `tailscale status` only when the LocalAPI is unavailable ([`PathSource`]): when it names one
