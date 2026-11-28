@@ -183,6 +183,8 @@ final class FeedStressRig {
     private var started = false
     private var liveTimer: Timer?
     private var tick = 0
+    /// Rows the shift probe asked for (`FeedShiftProbe.onArrive`).
+    private var probeArrivals = 0
     private var archive: FeedArchive?
     private var savePending = false
 
@@ -233,6 +235,17 @@ final class FeedStressRig {
     }
 
     private func startLive(store: FeedStore) {
+        // FeedShiftProbe: one new row on top at the moment a case is about (a deceleration's tail, a resting finger).
+        if FeedShiftProbe.enabled {
+            FeedShiftProbe.shared.onArrive = { [weak self, weak store] in
+                guard let self, let store else { return }
+                self.probeArrivals += 1
+                // A multiple of four: a response, which the Finished filter the shift test picks shows.
+                var item = FeedStore.stressItem(index: 20_000 + 4 * self.probeArrivals, now: Date())
+                item.id = "stress-arrive-\(self.probeArrivals)"
+                store.upsert(item, atTop: true)
+            }
+        }
         if let hz = config.liveHz, hz > 0 {
             let timer = Timer(timeInterval: 1 / hz, repeats: true) { [weak self, weak store] _ in
                 MainActor.assumeIsolated {
