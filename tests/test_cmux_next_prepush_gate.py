@@ -1423,6 +1423,97 @@ let package = Package(
         self.assertEqual(self.remote_head(), before)
         self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
+    def test_a_manifest_push_checks_only_the_targets_it_can_judge_differently(self):
+        # 2026-11-18: on a person's Mac at load 21 on 15 cores, two pushes' whole-package dependency checks (every
+        # Swift file written twice, then scanned) were the gate's top cost. A target whose manifest entry is the same on
+        # both sides gives both sides the same findings, so its unchanged files stay out of the trees.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.write(f"{PKG}/Package.swift",
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', self.TWO_DEPS))
+        self.commit("the test target declares the app")
+        gate = load_gate_tools()
+
+        files, whole, targets = gate.deps_check_files(self.repo, "HEAD~1", "HEAD", [f"{PKG}/Package.swift"],
+                                                      frozenset(), None)
+
+        self.assertFalse(whole)
+        self.assertEqual(files, [f"{PKG}/Package.swift", f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift"])
+        self.assertEqual(targets, frozenset({"CmuxNextKitTests"}))
+        # An installed copy without the checker cannot say which targets differ: the whole package, as before.
+        empty = self.root / "no-checker"
+        empty.mkdir()
+        files, whole, _ = gate.deps_check_files(self.repo, "HEAD~1", "HEAD", [f"{PKG}/Package.swift"], frozenset(), empty)
+        self.assertTrue(whole)
+        self.assertIn(f"{PKG}/Sources/CmuxNextKit/Old.swift", files)
+
+    def test_a_push_that_adds_a_target_an_unchanged_file_imports_undeclared_is_refused(self):
+        # The new target's name was no local target before, so the unchanged file's import was judged only now: the
+        # dependency check's trees hold every file that names a target the push adds.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\nimport CmuxNextFresh\n")
+        self.commit("a test that imports an outside module")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE.replace(
+            "        .testTarget(", '        .target(\n            name: "CmuxNextFresh"\n        ),\n        .testTarget('))
+        self.write(f"{PKG}/Sources/CmuxNextFresh/Fresh.swift", "public struct Fresh {}\n")
+        self.commit("a local target of that name")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn('Fix: add "CmuxNextFresh" to the dependencies of CmuxNextKitTests', output)
+
+    def test_a_push_that_moves_a_target_onto_a_folder_with_an_undeclared_import_is_refused(self):
+        # A changed `path:` (here spelled with `./`) makes the target's new folder its sources: its unchanged files are
+        # judged only now, so the trees hold them.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.write(f"{PKG}/Tests/Moved/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a folder no target owns")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE.replace(
+            'dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit"],\n            path: "./Tests/Moved"'))
+        self.commit("the test target moves onto it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
+
+    def test_a_push_that_removes_a_baseline_import_s_target_must_drop_its_line(self):
+        # A baseline pair whose module the push removes goes stale in an untouched target: that target's files are in
+        # the trees, so the check still says to drop the line, as with the whole package.
+        package = self.DEPS_PACKAGE.replace("        .testTarget(", '        .target(\n            name: "CmuxNextWakeups"\n'
+                                            '        ),\n        .testTarget(\n            name: "CmuxNextActionsTests"\n'
+                                            "        ),\n        .testTarget(")
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Package.swift", package.replace(
+            '        .target(\n            name: "CmuxNextWakeups"\n        ),\n', ""))
+        self.git("rm", "--quiet", f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift")
+        self.commit("remove the imported target")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("CmuxNextActionsTests: CmuxNextWakeups", output)
+        self.assertIn("drop its line", output)
+
     def test_a_push_that_removes_one_of_two_baseline_imports_is_not_told_to_drop_the_baseline_line(self):
         # Review of 115ed33e: without a manifest change the trees hold only the changed files, so the check saw no
         # file importing CmuxNextWakeups and called IMPORT_BASELINE's line stale while an untouched file kept it.
