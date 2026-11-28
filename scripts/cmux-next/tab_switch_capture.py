@@ -251,8 +251,10 @@ class Capture:
     """Blocks of recording. `begin()`, then `flip(name)` before each action, then `end()` returns the block: its frames
     [(seconds, gray)] cropped to the app's window and each flip's time on the frames' clock."""
 
-    def __init__(self, tools, pid, width, folder):
+    def __init__(self, tools, pid, width, folder, retain=False):
         self.tools, self.width, self.folder = tools, width, folder
+        self.retain = retain
+        self.retained = []
         self.session = CuaSession()
         self.permissions = self.session.open()
         self.marker = Marker(tools, pid)
@@ -292,7 +294,12 @@ class Capture:
         if len(flips) != len(self.names):
             raise CaptureError(f"block {self.blocks}: {len(self.names)} flips sent, {len(flips)} seen in the video "
                                f"({decoded.get('frames')} frames at {decoded.get('fps')} fps)")
-        shutil.rmtree(self.block_dir, ignore_errors=True)
+        if self.retain:
+            self.retained.append({"video": video, "frames": frames_path, "flips": dict(zip(self.names, flips))})
+            with open(os.path.join(self.block_dir, "capture.json"), "w") as handle:
+                json.dump(self.retained[-1], handle, indent=2)
+        else:
+            shutil.rmtree(self.block_dir, ignore_errors=True)
         return frames, dict(zip(self.names, flips))
 
     def decode(self, video, out):

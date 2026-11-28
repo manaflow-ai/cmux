@@ -40,11 +40,14 @@ import subprocess
 import time
 
 import tab_switch_settle as settle
+import tab_switch_cold as cold
 from state_wait import wait_until
 
 MATRIX_SCENARIOS = ("switch-workspace-cold", "switch-workspace-warm", "new-workspace", "new-chat", "split",
                     "resize-split", "tab-move", "unsplit", "window-resize", "pane-to-window", "chat-10k-open",
                     "chat-10k-return", "launch-restore")
+# Explicit opt-in cases; keep --scenarios matrix and all unchanged.
+AVAILABLE_SCENARIOS = MATRIX_SCENARIOS + cold.SCENARIOS
 SCALES = {"leo": (10789, 206)}  # sessions, workspaces (Leo's daemon and sidebar, 2026-11-18)
 BUDGET_MS = 150.0
 CHAT_10K_ROWS = 10000
@@ -214,6 +217,8 @@ def matrix_round(h, load, r, scenarios, agents):
     section(("switch-workspace-cold", "switch-workspace-warm"), lambda: workspace_switches(h, load, r, scenarios))
     section(("new-chat",), lambda: new_chat(h, load, r, pane0))
     section(("split", "resize-split", "tab-move", "unsplit"), lambda: split_steps(h, load, r, scenarios, pane0))
+    for name in cold.SCENARIOS:
+        section((name,), lambda name=name: cold.run(h, load, r, [name], step))
     section(("window-resize",), lambda: window_resize(h, load, r))
     section(("pane-to-window",), lambda: pane_to_window(h, load, r, pane0))
     if agents is not None:

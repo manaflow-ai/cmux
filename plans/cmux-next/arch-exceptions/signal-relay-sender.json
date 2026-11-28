@@ -6,5 +6,6 @@
   "author": "nightly-30min lane (claude opus 5.5)",
   "owner": "nightly-30min lane",
   "receipt": "Review (codex, independent): SHIP at c415a14b56941c93c16029f4f14284a7f54861c3",
-  "expiry": "2026-12-25"
+  "expiry": "2026-12-25",
+  "applied_sha": "37c3ad41aefdd2a86a4bacb01091db23f876a3d4"
 }
