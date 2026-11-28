@@ -267,76 +267,104 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
       expect(final.reply.opacity).toBe(1);
     });
 
-  test("F5: a retained row that skips offscreen motion still covers a visible fold ghost", async () => {
-    const page = await browser.newPage({ viewport: { width: 600, height: 400 } });
-    try {
-      const origin = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-      const blank = await vite!.transformIndexHtml("/blank.html", "<!doctype html><html><body></body></html>");
-      await page.route(`${origin}/blank.html`, (route) => route.fulfill({ contentType: "text/html", body: blank }));
-      await page.goto(`${origin}/blank.html`);
-      const result = await page.evaluate(async (foldUrl) => {
-        const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import(foldUrl);
-        document.body.style.margin = "0";
-        const scroller = document.createElement("div");
-        scroller.style.cssText = "height:300px;overflow:auto";
-        const thread = document.createElement("div");
-        thread.setAttribute("data-turn-end-fold", "fade");
-        thread.style.cssText = "position:relative;height:1000px";
-        scroller.append(thread);
-        document.body.append(scroller);
-        const draw = (id: string, top: number, height: number) => {
-          const node = document.createElement("div");
-          node.className = "acpmux-row";
-          node.dataset.rowId = id;
-          node.style.cssText = `position:absolute;left:0;right:0;top:${top}px;height:${height}px;font:20px/24px Arial`;
-          node.textContent = `${id} paragraph`;
-          thread.append(node);
-          return node;
-        };
-        const upper = draw("upper", 0, 200);
-        const gone = draw("gone", 500, 100);
-        draw("lower", 650, 40);
-        scroller.scrollTop = 400;
-        const rows = ["upper", "lower"].map((id) => ({ id, kind: "assistant", version: 1, at: 1 }));
-        const capture = captureTurnEnd(thread, scroller, rows, "s", true);
-        // The first row was entirely above the view. After reflow it meets the visible ghost's
-        // captured place. It must draw at rest, while the ghost clips against that actual place.
-        gone.remove();
-        upper.style.top = "400px";
-        const fold = playTurnEnd(thread, capture, "s", scroller);
-        const ghost = thread.querySelector<HTMLElement>(".acpmux-row--fold-ghost")!;
-        // Freeze the fold's first painted state; the exit fade must not hide an invalid cover.
-        for (const animation of fold.animations) {
-          animation.pause();
-          animation.currentTime = 0;
+  for (const moving of [false, true])
+    test(
+      moving
+        ? "F6: a retained row moving past a row drawn at rest stays clipped until clear"
+        : "F5: a retained row that skips offscreen motion still covers a visible fold ghost",
+      async () => {
+        const page = await browser.newPage({ viewport: { width: 600, height: 400 } });
+        try {
+          const origin = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+          const blank = await vite!.transformIndexHtml("/blank.html", "<!doctype html><html><body></body></html>");
+          await page.route(`${origin}/blank.html`, (route) => route.fulfill({ contentType: "text/html", body: blank }));
+          await page.goto(`${origin}/blank.html`);
+          const result = await page.evaluate(
+            async ({ foldUrl, moving }) => {
+              const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import(foldUrl);
+              document.body.style.margin = "0";
+              const scroller = document.createElement("div");
+              scroller.style.cssText = "height:300px;overflow:auto";
+              const thread = document.createElement("div");
+              thread.setAttribute("data-turn-end-fold", "fade");
+              thread.style.cssText = "position:relative;height:1000px";
+              scroller.append(thread);
+              document.body.append(scroller);
+              const draw = (id: string, top: number, height: number) => {
+                const node = document.createElement("div");
+                node.className = "acpmux-row";
+                node.dataset.rowId = id;
+                node.style.cssText = `position:absolute;left:0;right:0;top:${top}px;height:${height}px;font:20px/24px Arial`;
+                node.textContent = `${id} paragraph`;
+                thread.append(node);
+                return node;
+              };
+              const upper = draw("upper", 0, 200);
+              const gone = draw("gone", moving ? 600 : 500, 100);
+              const lower = draw("lower", moving ? 500 : 650, 40);
+              scroller.scrollTop = 400;
+              const rows = ["upper", "lower"].map((id) => ({ id, kind: "assistant", version: 1, at: 1 }));
+              const capture = captureTurnEnd(thread, scroller, rows, "s", true);
+              // The first row was entirely above the view. After reflow it meets the visible ghost's
+              // captured place. It must draw at rest, while the ghost clips against that actual place.
+              gone.remove();
+              upper.style.top = "400px";
+              lower.style.top = "650px";
+              const fold = playTurnEnd(thread, capture, "s", scroller);
+              const ghost = moving ? lower : thread.querySelector<HTMLElement>(".acpmux-row--fold-ghost")!;
+              // Freeze the fold's first painted state; the exit fade must not hide an invalid cover.
+              for (const animation of fold.animations) {
+                animation.pause();
+                animation.currentTime = 0;
+              }
+              const box = ghost.getBoundingClientRect();
+              const retained = upper.getBoundingClientRect();
+              const style = getComputedStyle(ghost);
+              const inset = /^inset\(([^)]*)\)/.exec(style.clipPath);
+              const sides = inset?.[1]!.split(/\s+/).map((side) => Number.parseFloat(side)) ?? [0];
+              const overlap =
+                Math.min(retained.bottom, box.bottom - (sides[2] ?? sides[0]!)) -
+                Math.max(retained.top, box.top + sides[0]!);
+              const out = {
+                overlap,
+                upperTop: retained.top,
+                upperAnimations: upper.getAnimations().length,
+                ghostOpacity: Number(style.opacity),
+                ghost: Boolean(ghost),
+                folding: Boolean(fold),
+              };
+              if (moving) {
+                // Read real interpolated clips across the entire move, not just its first frame.
+                for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
+                  for (const animation of fold.animations) {
+                    const timing = animation.effect.getTiming();
+                    animation.currentTime = timing.delay + Number(timing.duration) * fraction;
+                  }
+                  const now = lower.getBoundingClientRect();
+                  const inset = /^inset\(([^)]*)\)/.exec(getComputedStyle(lower).clipPath);
+                  const sides = inset?.[1]!.split(/\s+/).map(Number.parseFloat) ?? [0];
+                  out.overlap = Math.max(
+                    out.overlap,
+                    Math.min(retained.bottom, now.bottom - (sides[2] ?? sides[0]!)) -
+                      Math.max(retained.top, now.top + sides[0]!),
+                  );
+                }
+              }
+              settleTurnEnd(thread, fold);
+              return out;
+            },
+            { foldUrl: `${origin}${vite!.config.base}src/agent-session/acpmux/conversation/turnEndFold.ts`, moving },
+          );
+          console.log(`reply-settle-frames ${moving ? "F6" : "F5"} ${JSON.stringify(result)}`);
+          expect(result.folding).toBe(true);
+          expect(result.ghost).toBe(true);
+          expect(result.upperTop).toBe(0);
+          expect(result.upperAnimations).toBe(0);
+          expect(result.ghostOpacity).toBe(1);
+          expect(result.overlap).toBeLessThanOrEqual(0);
+        } finally {
+          await page.close();
         }
-        const box = ghost.getBoundingClientRect();
-        const retained = upper.getBoundingClientRect();
-        const style = getComputedStyle(ghost);
-        const inset = /^inset\(([^)]*)\)/.exec(style.clipPath);
-        const sides = inset?.[1]!.split(/\s+/).map((side) => Number.parseFloat(side)) ?? [0];
-        const overlap =
-          Math.min(retained.bottom, box.bottom - (sides[2] ?? sides[0]!)) - Math.max(retained.top, box.top + sides[0]!);
-        const out = {
-          overlap,
-          upperTop: retained.top,
-          upperAnimations: upper.getAnimations().length,
-          ghostOpacity: Number(style.opacity),
-          ghost: Boolean(ghost),
-          folding: Boolean(fold),
-        };
-        settleTurnEnd(thread, fold);
-        return out;
-      }, `${origin}${vite!.config.base}src/agent-session/acpmux/conversation/turnEndFold.ts`);
-      console.log(`reply-settle-frames F5 ${JSON.stringify(result)}`);
-      expect(result.folding).toBe(true);
-      expect(result.ghost).toBe(true);
-      expect(result.upperTop).toBe(0);
-      expect(result.upperAnimations).toBe(0);
-      expect(result.ghostOpacity).toBe(1);
-      expect(result.overlap).toBeLessThanOrEqual(0);
-    } finally {
-      await page.close();
-    }
-  });
+      },
+    );
 });
