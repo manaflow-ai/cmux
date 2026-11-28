@@ -369,6 +369,12 @@ pub(super) async fn forward(
     {
         return Some(Ok(row));
     }
+    // A message to a chat on a peer ends that peer's typing wake as sent (`compose_wake.rs`).
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE)
+        && let Some(peer) = session_key(params).ok().and_then(|key| hub.resolve_remote(key))
+    {
+        crate::compose_wake::sent(&peer.0.name);
+    }
     let reply = gated(hub, conn, m, params).await;
     // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
     // A prompt kept for its peer's link (`queue_for_link`) is sent by the outbox, which records it.
@@ -471,6 +477,8 @@ fn ask_back(peer: &crate::peer::Peer, m: &str, params: &Value, origin: Origin) {
 fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: Origin) -> bool {
     let wakes = origin != Origin::Peer && composing(m, params);
     if wakes {
+        // Counted by how it ends: sent, or a draft never sent (`compose_wake.rs`).
+        crate::compose_wake::composing(&peer.name);
         peer.wake();
     }
     wakes
@@ -1381,6 +1389,7 @@ fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
 pub(super) fn strip_new_meta(p: &mut Value) {
     if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         m.remove("peer");
+        m.remove("cloudRegistryId");
         // A family lives on one daemon: this daemon's caller is no session there.
         m.remove(crate::hub::lineage::PARENT_FIELD);
         m.remove(crate::hub::lineage::TOOL_CALL_FIELD);
