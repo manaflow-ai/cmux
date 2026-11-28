@@ -15,11 +15,11 @@ extension AppDelegate {
         sidebarSnapshot: SessionSidebarSnapshot
     )
 
-    private func tabManagerCanOwnRecoverableMainWindowRoute(_ manager: TabManager) -> Bool {
+    func tabManagerCanOwnRecoverableMainWindowRoute(_ manager: TabManager) -> Bool {
         !manager.isFinalizedForWindowClose
     }
 
-    private func sortedRecoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
+    func sortedRecoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
         mainWindowLifecycleCoordinator.orphanedRoutes()
     }
 

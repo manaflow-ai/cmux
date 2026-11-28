@@ -213,6 +213,7 @@ final class MainWindowFocusController {
 
     func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
         guard ShortcutHintDebugSettings().modifierHoldHintsEnabled else { return false }
+        guard !KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber).isUnbound else { return false }
         guard tabManager?.selectedTabId == workspaceId else { return false }
         switch intent {
         case .rightSidebar:
