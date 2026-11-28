@@ -2124,6 +2124,14 @@ jobs:
         if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tooling-tests-batch ')) }}
         run: python3 tests/test_ci_tooling_tests_batch.py
 
+      # Every reused 'Pool mirror: Checkout' step survives an empty SPARSE and another job's sparse state (#61871): a bare
+      # reapply on a reused non-sparse .git failed rust workspaces 3 of 3 on #61289. ci-guards runs this file too, but
+      # ci-guards skips feat-cmux-next PRs, so it guarded none of the PRs that broke.
+      - name: A reused pool mirror checkout handles an empty SPARSE and another job's sparse state
+        id: tt-pool-checkout-reuse-sparse
+        if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-pool-checkout-reuse-sparse ')) }}
+        run: python3 tests/test_ci_pool_checkout_reuse_sparse.py
+
       - name: A rebuilt cmux-tui commit reuses its earlier publication
         id: tt-cmux-tui-republish
         if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-cmux-tui-republish ')) }}
