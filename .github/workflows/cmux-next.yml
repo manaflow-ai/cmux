@@ -1546,7 +1546,7 @@ jobs:
 
   checks:
     # Why: note-26, note-430, 2026-11-27-checks-not-in-tip-suites.md
-    if: ${{ ((!cancelled() && inputs.dev_daily != true && inputs.tip_swift_suite != true && inputs.tip_daemon_suite != true && inputs.same_tree_sha == '' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' && format('{0}', vars.CMUX_NEXT_BASE_TIER_COALESCE) != '0')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ ((!cancelled() && inputs.dev_daily != true && inputs.tip_swift_suite != true && inputs.tip_daemon_suite != true && inputs.same_tree_sha == '' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' && format('{0}', vars.CMUX_NEXT_BASE_TIER_COALESCE) != '0')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     # Why: note-396
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -1848,6 +1848,12 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-surface-roles.py
 
+      # Leo 2026-11-22: "we need to prevent this once and for all". The Swift copies of design-scale.json.
+      - name: Design scale parity
+        id: design-scale-parity
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-design-scale-parity.py
+
       # Why: note-148
       - name: Menu metrics
         id: menu-metrics
@@ -2113,6 +2119,7 @@ jobs:
             Type scale
             Menu metrics
             Surface roles
+            Design scale parity
             Protected-folder copies
             Settings source copies
             Backdrop art export
@@ -2164,6 +2171,7 @@ jobs:
             ${{ steps.motion-tokens.outcome }}|Motion and colour tokens
             ${{ steps.menu-metrics.outcome }}|Menu metrics
             ${{ steps.surface-roles.outcome }}|Surface roles
+            ${{ steps.design-scale-parity.outcome }}|Design scale parity
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
             ${{ steps.phone-lane-fields.outcome }}|Phone lane field allowlist

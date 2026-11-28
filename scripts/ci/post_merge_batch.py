@@ -46,7 +46,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -159,15 +159,31 @@ def _core_reset() -> float | None:
         return None
 
 
+def _distinct(*tokens: str) -> list[str]:
+    return [t for i, t in enumerate(tokens) if t and t not in tokens[:i]] or [""]
+
+
 def read_tokens() -> list[str]:
     """Tokens a read may use, in order: the route App's (GH_READ_TOKEN, its own budget) first, then the job's
-    GH_TOKEN, whose budget every workflow in the repository shares and which is often spent."""
-    return [t for t in (os.environ.get("GH_READ_TOKEN", ""), os.environ.get("GH_TOKEN", "")) if t] or [""]
+    GH_TOKEN, whose budget every workflow in the repository shares and which is often spent, then
+    GH_FALLBACK_TOKEN (a token on yet another budget, set by a caller that has one)."""
+    env = os.environ.get
+    return _distinct(env("GH_READ_TOKEN", ""), env("GH_TOKEN", ""), env("GH_FALLBACK_TOKEN", ""))
+
+
+def write_tokens() -> list[str]:
+    """Tokens a write may use, in order: GH_TOKEN, then GH_FALLBACK_TOKEN. A rate-limited write never ran, so
+    trying it on another budget is safe. main's cmux-next-post-merge-dispatch.yml ticks on the cmux bot App's
+    token with the job token as the fallback: from 2026-11-27 23:55Z every tick for over 2 h ended "tick
+    skipped: ... API rate limit exceeded for installation ID 175618676" (the bot App, which every post-merge
+    read had moved onto) with the job token, on its own budget, never tried, and no batch ran."""
+    env = os.environ.get
+    return _distinct(env("GH_TOKEN", ""), env("GH_FALLBACK_TOKEN", ""))
 
 
 def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=_core_reset, tokens=None) -> object:
-    """One GitHub API call through gh. A read tries each of read_tokens() in turn when one is rate limited; a
-    write uses GH_TOKEN. Fields go as JSON on stdin. Once every token is rate limited it waits for the reset and
+    """One GitHub API call through gh. A call tries each of read_tokens() (a read) or write_tokens() (a write) in
+    turn when one is rate limited. Fields go as JSON on stdin. Once every token is rate limited it waits for the reset and
     retries within API_WAIT_BUDGET."""
     argv = ["gh", "api", "-X", method, path]
     data = None
@@ -175,7 +191,7 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=su
         argv += ["--input", "-"]
         data = json.dumps(fields)
     if tokens is None:
-        tokens = read_tokens() if method == "GET" else [os.environ.get("GH_TOKEN", "")]
+        tokens = read_tokens() if method == "GET" else write_tokens()
     while True:
         for i, token in enumerate(tokens):
             env = {**os.environ, "GH_TOKEN": token} if token else None
@@ -1211,6 +1227,46 @@ def confirm_reuse_on() -> bool:
     return (os.environ.get(CONFIRM_REUSE_ENV) or "1").strip() != "0"
 
 
+JOB_PROBES_ENV = "POST_MERGE_JOB_PROBES_PER_DAY"
+# A red on every commit (an outside service, a base break no single merge made) is never pinned, yet each new batch red
+# made a new (good, bad) key, so MAX_REBISECTS bounded nothing: 11-27 19:20Z-23:55Z spent 98 probe runs on 8 suite jobs,
+# 52 of them confirm runs failing on both sides (rust-workspaces 17, web-tests 16, gallery-health 15, ...), about 70
+# probes a day per red job and 23k-34k runner minutes a day for the workflow. A suite job whose probes started this
+# many times in the last 24 h starts no new bisect from a batch run; a chain already running goes on. 0 turns it off.
+DEFAULT_JOB_PROBES_PER_DAY = 12
+
+
+def job_probes_per_day() -> int:
+    """vars.POST_MERGE_JOB_PROBES_PER_DAY: the daily probe cap per suite job, DEFAULT_JOB_PROBES_PER_DAY when unset; 0 is no cap."""
+    raw = (os.environ.get(JOB_PROBES_ENV) or "").strip()
+    return int(raw) if raw.isdigit() else DEFAULT_JOB_PROBES_PER_DAY
+
+
+def job_probes_today(runs: list[dict], suite: str, only: str, now: datetime) -> int:
+    """Probe runs of suite job only (all its confirm and states runs too) created in the 24 h before now."""
+    prefix = f"{PROBE} {suite} {only or 'all'} at "
+    count = 0
+    for r in runs:
+        if not (r.get("display_title") or "").startswith(prefix):
+            continue
+        try:
+            if (now - parse_time(r.get("created_at") or "")).total_seconds() < 86400:
+                count += 1
+        except ValueError:
+            continue
+    return count
+
+
+def over_probe_cap(runs: list[dict], suites: dict, suite: str, name: str, now: datetime) -> int:
+    """The suite job's probe count today when it is at or over job_probes_per_day(), else 0."""
+    cap = job_probes_per_day()
+    if cap <= 0 or suite not in suites:
+        return 0
+    only = suites[suite].probe_only(name.partition(" / ")[2])
+    n = job_probes_today(runs, suite, only, now)
+    return n if n >= cap else 0
+
+
 def runs_for_confirm(args: argparse.Namespace) -> list[dict]:
     if not confirm_reuse_on():
         return []
@@ -1309,6 +1365,14 @@ def cmd_judge(args: argparse.Namespace) -> int:
             summary(args.summary, f"- {note}")
         if not found:
             summary(args.summary, f"No new red on `{args.sha[:11]}` ({len(verdicts)} suite jobs finished).")
+        now = datetime.now(timezone.utc)
+        capped = [(name, n) for name, suite, *_ in found + stuck if (n := over_probe_cap(runs, suites, suite, name, now))]
+        capped_names = {name for name, _ in capped}
+        for name, n in capped:
+            summary(args.summary, f"- Red `{name}`: its suite job ran {n} probes in 24 h (cap {job_probes_per_day()}, "
+                                  f"vars.{JOB_PROBES_ENV}), named only, no new bisect.")
+        found = [f for f in found if f[0] not in capped_names]
+        stuck = [s for s in stuck if s[0] not in capped_names]
         for name, suite, good in found[:MAX_CHAINS]:
             inner = name.partition(" / ")[2]
             probe = Probe(suite, name, suites[suite].probe_only(inner), args.sha, good, "", str(args.run_id),
