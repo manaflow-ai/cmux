@@ -63,7 +63,7 @@ CMUX_LINUX_JOBS = ('prepare-nightly-variant-primary', 'prepare-nightly-variant',
 # ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
                       'publish-nightly-next-github', 'keep-published-dsyms', 'published-in', 'wake-nightly-next-tick',
-                      'dispatch-published-in',
+                      'dispatch-published-in', 'nightly-next-variant-from-r2',
                       # #62726: a manual note restore on the literal one-job JIT VM
                       # (test_nightly_owned_minis_only.HOSTED_RESTORE_JOBS).
                       'restore-historical-notes')

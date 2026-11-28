@@ -23,12 +23,14 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import nightly_workflow_text  # noqa: E402
 import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 SCRIPT = ROOT / "scripts" / "ci" / "nightly_published_build.py"
-TEXT = WORKFLOW.read_text()
+# Moved step scripts inline (dispatch-published-in's ask is one).
+TEXT = nightly_workflow_text.nightly_text()
 JOBS = yaml.safe_load(TEXT)["jobs"]
 # The loop run keeps the GitHub release (the next decide reads its body and tag) and the dSYMs; the rest of the
 # tail runs where run_tail is true: the dispatched run, or main's, RC's and manual runs' own run.

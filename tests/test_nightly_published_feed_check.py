@@ -78,7 +78,9 @@ class MainTests(unittest.TestCase):
 
 class WorkflowTests(unittest.TestCase):
     def test_dispatch_published_in_reads_back_before_it_dispatches(self) -> None:
-        text = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        sys.path.insert(0, str(ROOT / "tests"))
+        import nightly_workflow_text
+        text = nightly_workflow_text.nightly_text()  # moved step scripts inline
         job = text[text.index("\n  dispatch-published-in:\n"):]
         job = job[:job.index("\n  published-in:\n")]
         readback = job.index("scripts/ci/nightly_published_feed_check.py")

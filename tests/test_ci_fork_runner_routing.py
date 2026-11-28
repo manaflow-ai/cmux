@@ -133,6 +133,7 @@ RELEASE_JOBS_FORK_GATED = {
     "sign-live-code-variant": "signs, notarizes and publishes the live code variant on the signing Mac; starts with the owner fork branch",
     "restore-historical-notes": "restores nightly-next release notes under the publish lease; runs only on manaflow-ai/cmux (an owner-only job), on the nightly JIT runner",
     "nightly-next-pkg": "builds, signs, notarizes and uploads the pre-warming .pkg on the signing Mac; starts with the owner fork branch",
+    "nightly-next-variant-from-r2": "reads the tested DMG back from R2 and uploads the variant artifact; ubuntu-24.04 behind the owner fork branch",
 }
 
 
