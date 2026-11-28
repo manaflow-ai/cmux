@@ -232,7 +232,7 @@ fn only_a_sleep_far_past_its_tick_is_a_pause() {
     assert_eq!(paused_for(base, base + tick + 1_500_000_000), None);
     assert_eq!(paused_for(base, base + tick + gap), None);
     // A claim that resumed a spare paused for five minutes.
-    assert_eq!(paused_for(base, base + tick + gap + 1), Some(Duration::from_nanos(20_000_000_001)));
+    assert_eq!(paused_for(base, base + tick + gap + 1), Some(Duration::from_nanos(3_000_000_001)));
     assert_eq!(paused_for(base, base + 300_000_000_000), Some(Duration::from_secs(299)));
     // A boot clock that went backwards is no pause.
     assert_eq!(paused_for(base, base - 60_000_000_000), None);
@@ -241,20 +241,23 @@ fn only_a_sleep_far_past_its_tick_is_a_pause() {
 /// wake-echo run 46000366770 (2026-11-27): Freestyle pauses of 5.6 s and
 /// 7.9 s, boot clock running through, were never counted, so the updater
 /// took no resume hold; the session host was replaced at the wake, most
-/// likely by a flip (inferred, not logged). A stop that short is counted for
-/// the updater, but is no resume.
+/// likely by a flip (inferred, not logged). Runs 46179135080 and 46183663043
+/// (2026-11-28): such pauses reached no role either, so no wake was timed.
+/// A stop that short is counted for the updater, and is a resume.
 #[test]
-fn a_short_pause_is_a_stop_but_not_a_resume() {
+fn a_short_pause_is_a_stop_and_a_resume() {
     let tick = i128::try_from(PAUSE_TICK.as_nanos()).unwrap();
     let second = 1_000_000_000_i128;
     let base = 2_000_000_000_000_i128;
     for pause in [5_600_000_000_i128, 7_900_000_000] {
         assert!(stopped_for(base, base + tick + pause).is_some(), "{pause}");
-        assert_eq!(paused_for(base, base + tick + pause), None, "{pause}");
+        assert!(paused_for(base, base + tick + pause).is_some(), "{pause}");
     }
-    // A scheduling delay is neither.
+    // A scheduling delay is neither, and one that only holds an update is no resume.
     assert_eq!(stopped_for(base, base + tick + second), None);
     assert_eq!(stopped_for(base, base + tick + 2 * second), None);
+    assert!(stopped_for(base, base + tick + 2 * second + second / 2).is_some());
+    assert_eq!(paused_for(base, base + tick + 2 * second + second / 2), None);
 
     // The watch counts it, and is waking from it until it looks again.
     let watch = PauseWatch::new();

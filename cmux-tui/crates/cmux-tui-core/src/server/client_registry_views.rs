@@ -676,6 +676,16 @@ impl ClientRegistry {
         self.state.lock().recover_poison().attached_by_surface.clone()
     }
 
+    /// Whether `client` holds an attach stream on `surface` (one map read, no copy).
+    pub(crate) fn is_attached_to(&self, client: u64, surface: SurfaceId) -> bool {
+        self.state
+            .lock()
+            .recover_poison()
+            .attached_by_surface
+            .get(&surface)
+            .is_some_and(|clients| clients.contains(&client))
+    }
+
     /// Query one surface without walking every client's retained attachments.
     pub(crate) fn attached_client_ids_for_surface(&self, surface: SurfaceId) -> HashSet<u64> {
         self.state
