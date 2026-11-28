@@ -23,9 +23,11 @@ extension PaneCommitMotionTests {
         /// The view's size at each time the motion asked for its last frame.
         var asked: [CGSize] = []
         let pixels = NSImage(size: NSSize(width: 8, height: 8))
+        /// The layer that goes on showing the content's live picture under its last frame; nil: the content has none.
+        var live: CALayer?
         var paneCommitMotionLastFrame: PaneCommitMotionLastFrame? {
             asked.append(bounds.size)
-            return PaneCommitMotionLastFrame(contents: pixels, gravity: .topLeft, scale: 1, rect: bounds)
+            return PaneCommitMotionLastFrame(contents: pixels, gravity: .topLeft, scale: 1, rect: bounds, live: live)
         }
     }
 
@@ -41,8 +43,9 @@ extension PaneCommitMotionTests {
         let hole: CGRect
     }
 
-    /// `picture`: p4's content gives its last frame. `moves`: the panes' move is on at the unzoom.
-    static func unzooming(frames: Int, picture gives: Bool = true, moves: Bool = true) throws -> Unzooming {
+    /// `picture`: p4's content gives its last frame. `moves`: the panes' move is on at the unzoom. `live`: the layer
+    /// that goes on showing p4's live picture under its last frame, a layer of p4's content.
+    static func unzooming(frames: Int, picture gives: Bool = true, moves: Bool = true, live: CALayer? = nil) throws -> Unzooming {
         let zoom = try zooming(frames: 0)
         var begun = false
         defer { if !begun { zoom.harness.window.closeAfterTest() } }
@@ -58,6 +61,11 @@ extension PaneCommitMotionTests {
             picture.autoresizingMask = [.width, .height]
             area.addSubview(picture)
             content.addSubview(area)
+        }
+        if let live {
+            picture.wantsLayer = true
+            picture.layer?.addSublayer(live)
+            picture.live = live
         }
         if !moves { harness.root.context.commitMotionOverride = false }
         let whole = try #require(host.layer?.frame)
