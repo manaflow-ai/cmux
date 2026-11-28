@@ -413,6 +413,15 @@ pub(crate) fn check_annotations(
     Ok(Some(Value::Object(out)))
 }
 
+/// The first prompt of an agent's question: the normalized copy, else Claude Code's own input.
+pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
+    question(request)
+        .and_then(|q| q.pointer("/items/0/prompt"))
+        .or_else(|| request.pointer("/toolCall/rawInput/questions/0/question"))
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
+}
+
 #[cfg(test)]
 #[path = "questions_tests.rs"]
 mod tests;

@@ -777,14 +777,8 @@ pub(crate) fn is_question(request: &Value) -> bool {
     questions::needs_person(request)
 }
 
-/// The first prompt of an agent's question: the normalized copy, else Claude Code's own input.
-pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
-    questions::question(request)
-        .and_then(|q| q.pointer("/items/0/prompt"))
-        .or_else(|| request.pointer("/toolCall/rawInput/questions/0/question"))
-        .and_then(Value::as_str)
-        .filter(|p| !p.is_empty())
-}
+pub(crate) use questions::question_prompt;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
