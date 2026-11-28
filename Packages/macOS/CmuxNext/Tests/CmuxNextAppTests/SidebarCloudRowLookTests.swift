@@ -9,8 +9,8 @@ import Testing
 /// second line: "when the fuck did i say i wanted a second fucking line and a green dot and a fuckign ICON ON THE
 /// LEFT!??!!?!?!? JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE". A Cloud section's header is a name, a chevron and a +;
 /// its rows are one line, their title; an idle shell at the machine's home reads "Terminal". The machine mark stays as
-/// base draws it, in the trailing status column (#29833, Leo 2026-11-01: "I HATE THAT THEY'RE ON THE LEFT"). This
-/// Mac's and an SSH computer's rows are as they were.
+/// base draws it, in the trailing status column (#29833, Leo 2026-11-01: "I HATE THAT THEY'RE ON THE LEFT"). An SSH
+/// computer's rows are as they were; an idle shell at this Mac's home reads "Terminal" too (first-run findings row 19).
 @MainActor struct SidebarCloudRowLookTests {
     private let mac = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     private let cloud = SidebarMachine(id: MachineID("vm-1"), name: "build-vm", kind: .cloud)
@@ -134,8 +134,14 @@ import Testing
         }
     }
 
-    @Test func anSSHOrLocalShellAtHomeIsUnchanged() throws {
+    @Test func anSSHShellAtHomeIsUnchanged() throws {
         #expect(try Self.title(cwd: "/home/dev", machine: ssh) == "dev")
-        #expect(try Self.title(cwd: "/Users/leo", machine: mac) == "leo")
+    }
+
+    /// First-run findings row 19: a new Mac's first terminal read "admin", the login name (`HomeShellLoginNameTests`).
+    @Test func aShellAtThisMacsHomeReadsTerminal() throws {
+        #expect(try Self.title(cwd: NSHomeDirectory(), machine: mac) == "Terminal", "never the login name")
+        #expect(try Self.title(cwd: NSHomeDirectory() + "/site", machine: mac) == "site")
+        #expect(try Self.title(cwd: "/Users/cmux-someone-else", machine: mac) == "cmux-someone-else", "another account's home")
     }
 }

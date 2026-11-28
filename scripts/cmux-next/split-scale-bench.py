@@ -130,6 +130,10 @@ parser.add_argument("--workspaces", default="1,10,30")
 parser.add_argument("--transitions", default=",".join(TRANSITIONS))
 parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--quick", action="store_true", help="smoke: 1 and 4 splits, empty and browser, 1 workspace, 1 round")
+parser.add_argument("--baseline", default="",
+                    help="the before column of the per-PR table: split_scale_metrics.encode_baseline() of the newest "
+                         "nightly's numbers for these cells (cmux-next-split-table.yml); the report's row_table carries "
+                         "base_* beside each row and `baseline_sha` names the nightly. Empty: no before column")
 parser.add_argument("--scrollback", type=int, default=20000)
 parser.add_argument("--chat-turns", type=int, default=300)
 parser.add_argument("--strip-ms", type=float, default=900, help="how long each frame strip records after the input")
@@ -1044,9 +1048,11 @@ def finish(results):
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
     # The per-PR table: every cell x transition, first frame ms and blank frames, worst row first (report-only).
-    rows = ssm.row_table(results)
+    base = ssm.decode_baseline(opts.baseline)
+    rows = ssm.row_table(results, base=base)
     results["row_table"], results["row_table_ok"] = rows, ssm.row_table_ok(rows)
-    row_markdown = ssm.row_table_markdown(rows)
+    results["baseline_sha"] = (base or {}).get("sha")
+    row_markdown = ssm.row_table_markdown(rows, base_sha=results["baseline_sha"])
     print("SPLIT-ROW-TABLE-BEGIN\n" + row_markdown + "\nSPLIT-ROW-TABLE-END", flush=True)
     timeline = frame_timeline(results)
     if opts.json:
