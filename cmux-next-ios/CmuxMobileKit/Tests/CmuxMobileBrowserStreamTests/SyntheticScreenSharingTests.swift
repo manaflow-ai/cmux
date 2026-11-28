@@ -31,8 +31,11 @@ struct SyntheticScreenSharingTests {
         }
         model.decoder.now = { DispatchTime.now().uptimeNanoseconds / 1_000 }
 
-        // A real visible layer, without changing the simulator's key window or focus.
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
+        // A real visible layer. A window with no scene is never composited, so the renderer
+        // never reports a displayed pixel buffer: use the test host's window scene when it has one.
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        window.frame = CGRect(x: 0, y: 0, width: 320, height: 240)
         let controller = UIViewController()
         window.rootViewController = controller
         let layer = model.decoder.layer
@@ -56,19 +59,25 @@ struct SyntheticScreenSharingTests {
             // frozen or stale display even when decoding and its callbacks continue to work.
             let grey = Int(UInt8(truncatingIfNeeded: 40 + index * 20))
             let deadline = ProcessInfo.processInfo.systemUptime + 2
+            var wasDecoded = false
+            var lastPixels: CVPixelBuffer?
             var matched = false
             repeat {
                 // enqueue can present before the decoder queue invokes shown. Require both
                 // events within this deadline rather than racing the final count assertion.
-                if decoded.lock.withLock({ decoded.shown.last?.frame == UInt32(index) }),
-                   let pixels = layer.sampleBufferRenderer.displayedPixelBuffer(),
-                   Self.matches(pixels, grey: grey, width: width, height: height) {
+                wasDecoded = wasDecoded || decoded.lock.withLock { decoded.shown.last?.frame == UInt32(index) }
+                lastPixels = layer.sampleBufferRenderer.displayedPixelBuffer() ?? lastPixels
+                if wasDecoded, let pixels = lastPixels, Self.matches(pixels, grey: grey, width: width, height: height) {
                     matched = true
                     break
                 }
                 try await Task.sleep(for: .milliseconds(5))
             } while ProcessInfo.processInfo.systemUptime < deadline
-            try #require(matched, "frame \(index) was not presented; renderer: \(layer.sampleBufferRenderer.status)")
+            try #require(wasDecoded, "frame \(index) was never decoded")
+            try #require(matched, """
+                frame \(index) was decoded but not presented; renderer: \(layer.sampleBufferRenderer.status), \
+                window scene: \(scene != nil), displayed: \(lastPixels.map(Self.describe) ?? "none")
+                """)
             presented += 1
             latencies.append(Double(DispatchTime.now().uptimeNanoseconds / 1_000 - received) / 1_000)
         }
@@ -83,6 +92,10 @@ struct SyntheticScreenSharingTests {
         let wall = ProcessInfo.processInfo.systemUptime - wallStart
         let cpu = Double(clock() - cpuStart) / Double(CLOCKS_PER_SEC)
         print("SCREEN_SHARE_SYNTHETIC width=\(width) height=\(height) received=\(units.count) decoded=\(shown.count) presented=\(presented) p95_ms=\(p95) wall_s=\(wall) process_cpu_s=\(cpu)")
+    }
+
+    private static func describe(_ pixels: CVPixelBuffer) -> String {
+        "\(CVPixelBufferGetWidth(pixels))x\(CVPixelBufferGetHeight(pixels)) format \(CVPixelBufferGetPixelFormatType(pixels))"
     }
 
     private static func matches(_ pixels: CVPixelBuffer, grey: Int, width: Int32, height: Int32) -> Bool {
