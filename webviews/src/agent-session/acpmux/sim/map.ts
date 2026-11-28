@@ -148,6 +148,9 @@ export const EVERYWHERE: {
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
     known: {
       "steer-mid-turn": "cut-reply-footer-late",
+      // The cut reply's superseded footer lands above the late steer, as in steer-mid-turn: failing since the
+      // scenario came (#56293).
+      "late-steer": "cut-reply-footer-late",
     },
   },
   {
@@ -451,7 +454,10 @@ export const MAP: MapEntry[] = [
     when: "Five notices and messages from other agents in a row: some answered in a line, one with a command.",
     wrong: "Lines stacked flush or doubled their gaps.",
     expected:
-      "Each is its own turn with one footer, and each turn's first row stands the 24 gap under the turn before.",
+      "Each is its own turn with one footer, and each turn's first row stands the run gap (16) under the turn before's footer.",
+    // 16, not 24: the Copy/Branch footer to the next turn's first row (another agent's line) is the run gap since
+    // #57085 (design pick; Leo: "did we identify the cause between the gap here? betwen the copy branch etc
+    // buttons and the next working for?").
     scenario: "incoming-burst",
     check: (run) => {
       const rows = last(run);
@@ -459,7 +465,7 @@ export const MAP: MapEntry[] = [
       return [
         ...want(footers(rows).length === 7, `${footers(rows).length} footers for 7 turns`),
         ...firsts.flatMap((row, index) =>
-          want(row?.gap === 24, `turn ${index + 2} opens ${row?.gap}px under the turn before`),
+          want(row?.gap === 16, `turn ${index + 2} opens ${row?.gap}px under the turn before`),
         ),
       ];
     },

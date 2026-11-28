@@ -501,6 +501,9 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     );
     b.prompt("Check all four packages.");
     b.think("Running them at once.");
+    // The running turn's work draws folded under its Working for (live-turn-work `folded`, #51082): the
+    // reader opens it to watch the run take each command.
+    b.reader({ open: "worked-user-1" });
     for (const name of ["api", "web", "cli", "docs"]) b.tool(`bun test ${name}/`, { open: true }, 20);
     b.toolEnd("call-3", { ms: 400 });
     b.toolEnd("call-1", { ms: 700 });
