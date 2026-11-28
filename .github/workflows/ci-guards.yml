@@ -2036,6 +2036,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
 
+      - name: Validate Nightly Computer Use transport diagnostics
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_accounts_nightly_transport.py
+
       - name: Validate upload-artifact retention and large artifacts on R2
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_upload_artifact_retention.py
@@ -2321,6 +2325,10 @@ jobs:
       - name: Validate the Node, Bun and Rust restore from the CI cache bucket
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_toolchain_r2.sh
+
+      - name: Validate the Bun and Node restore on the nightly Macs
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ci_toolchain_r2_darwin.py
 
       - name: Validate the machine bun store puts the pinned bun back with no download
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
@@ -2762,6 +2770,7 @@ jobs:
           python3 tests/test_ci_cloud_journey_prod_preclaim_login.py
           python3 tests/test_ci_checkout_lean.py
           python3 tests/test_ci_sparse_checkout_imports.py
+          python3 tests/test_ci_sparse_cargo_path_deps.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 
