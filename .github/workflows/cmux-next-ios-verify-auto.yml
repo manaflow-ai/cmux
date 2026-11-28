@@ -129,10 +129,14 @@ jobs:
         if: ${{ steps.resolve.outputs.go == 'true' }}
         with:
           ref: ${{ github.sha }}
-          # ios_verify.py diffs merge-base...head (git diff --name-only reads trees, not blobs).
-          fetch-depth: 0
-          filter: blob:none
           persist-credentials: false
+      # ios_verify.py diffs merge-base...head (git diff --name-only reads trees, not blobs), so it needs
+      # feat-cmux-next's history: that branch's alone, without blobs. checkout's fetch-depth 0 fetched every
+      # branch and tag (44,922 refs) and took 3.5 of the job's 5.3 minutes (job 141049085298, 2026-11-28: the
+      # pool's git mirror timed out at 120 s on that many refs, then the plain fetch took 81 s more).
+      - name: Fetch feat-cmux-next's history without blobs
+        if: ${{ steps.resolve.outputs.go == 'true' }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - name: Mint the CI pool's tokens
         if: ${{ steps.resolve.outputs.go == 'true' }}
         continue-on-error: true
@@ -190,6 +194,12 @@ jobs:
           SHA: ${{ inputs.sha }}
           GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN }}
           GH_BUDGET_WAIT_MAX_SECONDS: 120
+          # The CI Stack (dev) agent account (docs/ci/ios-e2e.md), so a pair-e2e step runs with
+          # `cmux-ci run --sign-in agent`: without it ios_verify stops before the step (an unsigned one fails at
+          # pairing after a 45-60 min Mac build, cmux#59658, cmux#56372). Only this step holds it: ios_verify mints
+          # the session here and drops both keys from the head's scripts env (SCRUBBED, --scripts-at).
+          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
           set -uo pipefail
           # ios_verify.py calls `cmux-ci` by name: the checked client from the controller.
