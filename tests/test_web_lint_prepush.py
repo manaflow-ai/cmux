@@ -301,6 +301,34 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertRegex(result.stderr, r"web lint passed in \d+\.\ds \(webviews\)")
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
 
+    def test_fixture_push_does_not_share_its_parents_queue(self):
+        import fcntl
+
+        # Occupy a private stand-in for the runner's queue, never the runner's real slots.
+        parent_queue = self.root / "parent-queue"
+        parent_queue.mkdir()
+        with (parent_queue / f"cmux-pre-push-queue.{os.getuid()}.0.lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            for held in ("", "37"):
+                with self.subTest(inherited_held=held), mock.patch.dict(os.environ, {
+                    "CMUX_PREPUSH_QUEUE_DIR": str(parent_queue), "CMUX_PREPUSH_SLOTS": "1",
+                    "CMUX_PREPUSH_QUEUE_WAIT_SECONDS": "0.2", "CMUX_PREPUSH_QUEUE_HELD": held,
+                    "CMUX_PREPUSH_PASS_KEY_HELD": "a" * 40,
+                }):
+                    fixture = WebLintPrePushTests()
+                    try:
+                        fixture.setUp()
+                        fixture.write("webviews/src/app.ts", "export const app = 2;\n")
+                        fixture.commit("check with the parent queue occupied")
+                        result = fixture.git("push", "origin", "feat-cmux-next", check=False)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("web lint passed", result.stderr)
+                        self.assertNotIn("waiting for a turn", result.stderr)
+                        self.assertNotIn("checking now, beside", result.stderr)
+                        self.assertIn("hook times: queue 0s", result.stderr)
+                    finally:
+                        fixture.doCleanups()
+
     def test_push_without_web_changes_runs_no_lint(self):
         self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")
         self.commit("red webviews already on origin")
