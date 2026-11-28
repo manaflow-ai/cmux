@@ -424,6 +424,19 @@ export type AppUpdateState = {
   actions: { id: AppUpdateAction; title: string; prominent: boolean }[];
   /** Read-only lines under the status: Last Updated and Next Check, label and value the host's. */
   schedule?: { id: string; label: string; value: string }[];
+  /** "What's in this build" while an update waits: the PRs since the installed build, every skipped
+      nightly's included, by area (the host's BuildPullRequests, as the update popover reads it). A
+      group without an area is "Other", last; `title` and `other` are the host's words. Absent with none. */
+  prs?: {
+    title: string;
+    other: string;
+    groups: {
+      area?: string | null;
+      items: { pr: number; title: string; author?: string | null; url: string; build: string }[];
+    }[];
+    /** CI and tooling-only PRs, counted and not listed. */
+    internalCount: number;
+  } | null;
 };
 
 /**
