@@ -132,6 +132,37 @@ impl TeamPolicyLayer {
         Some(layer.limited_to_catalog(schema))
     }
 
+    /// The layer a Cloud API `owner.op` call carried: `args` its arguments, `answer` its
+    /// `{status, reply}`. `Some` only for a 2xx `POST /v1/read` of `team.device.policy` that
+    /// answered a value; an unmanaged answer is `Some(default)`, which clears the layer.
+    pub fn from_owner_op(
+        args: &serde_json::Map<String, Value>,
+        answer: &Value,
+        schema: &Schema,
+    ) -> Option<TeamPolicyLayer> {
+        if args.get("route").and_then(Value::as_str) != Some("read") {
+            return None;
+        }
+        let body = match (args.get("body"), args.get("body_json").and_then(Value::as_str)) {
+            (Some(body), None) => body.clone(),
+            (None, Some(text)) => serde_json::from_str(text).ok()?,
+            _ => return None,
+        };
+        if body.get("op").and_then(Value::as_str) != Some("team.device.policy") {
+            return None;
+        }
+        let status = answer.get("status").and_then(Value::as_u64)?;
+        if !(200..300).contains(&status) {
+            return None;
+        }
+        let reply = answer.get("reply")?;
+        if reply.get("ok").and_then(Value::as_bool) == Some(false) || reply.get("error").is_some() {
+            return None;
+        }
+        let value = reply.get("value").filter(|value| value.is_object())?;
+        Some(Self::from_device_policy(value, schema).unwrap_or_default())
+    }
+
     /// The inverse of `from_device_policy`: the document the owner saves so
     /// the layer survives a daemon restart.
     pub fn to_device_policy(&self) -> Value {
