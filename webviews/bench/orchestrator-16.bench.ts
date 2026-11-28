@@ -545,18 +545,37 @@ try {
     };
   };
 
-  // The floor: the same page with nothing streaming.
-  const idle = await frames(IDLE_SECONDS);
-  // All 16 children and the parent streaming.
-  startStream();
-  await Bun.sleep(1000);
-  const counted = { ...counts };
-  const busy = await frames(SECONDS);
-  const streamed = {
-    events: counts.events - counted.events,
-    changes: counts.changes - counted.changes,
+  type Round = {
+    idle: Awaited<ReturnType<typeof frames>>;
+    busy: Awaited<ReturnType<typeof frames>>;
+    streamed: { events: number; changes: number };
   };
-  stopStream();
+  const rounds: Round[] = [];
+  for (let round = 0; round < ROUNDS; round++) {
+    // The floor: the same page with nothing streaming.
+    const idle = await frames(IDLE_SECONDS);
+    // All 16 children and the parent streaming.
+    startStream();
+    await Bun.sleep(1000);
+    const counted = { ...counts };
+    const cdp = PROFILE && round === 0 ? await context.newCDPSession(page) : undefined;
+    if (cdp) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+      await cdp.send("Profiler.start");
+    }
+    const busy = await frames(SECONDS);
+    if (cdp) printProfile(((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile, sourceMapper(out));
+    rounds.push({
+      idle,
+      busy,
+      streamed: { events: counts.events - counted.events, changes: counts.changes - counted.changes },
+    });
+    stopStream();
+  }
+  const roundP99 = (r: Round) => pct(r.busy.work, 0.99);
+  const byP99 = [...rounds].sort((a, b) => roundP99(a) - roundP99(b));
+  const { idle, busy, streamed } = byP99[Math.floor((byP99.length - 1) / 2)]!;
   const trayChildren = await page.evaluate(
     (names) => names.filter((name) => document.body.innerText.includes(name)).length,
     Array.from({ length: CHILDREN }, (_, i) => childName(i)),
@@ -589,6 +608,7 @@ try {
     events_per_s: streamed.events / SECONDS,
     changes_per_s: streamed.changes / SECONDS,
     children_named_on_page: trayChildren,
+    rounds: rounds.map((r) => ({ frame_ms_p99: roundP99(r), idle_frame_ms_p99: pct(r.idle.work, 0.99) })),
   });
   fs.writeFileSync(path.join(runDir, "summary.json"), JSON.stringify(summary, null, 2));
   fs.writeFileSync(path.join(runDir, "frames.json"), JSON.stringify({ busy, idle }));
