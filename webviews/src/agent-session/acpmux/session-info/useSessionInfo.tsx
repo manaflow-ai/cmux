@@ -40,7 +40,6 @@ import type { Subagent } from "../subagents/subagentFold";
 import type { ResumeActions } from "../subagents/ResumeControl";
 import { useStableProps } from "../stableProps";
 import { type ReadChanges } from "./changeCounts";
-import type { ReadCarried, ResolveCarried } from "./carriedSectionModel";
 import { useStepAside } from "./stepAside";
 import { SessionInfoPresence } from "./SessionInfoPresence";
 import { useStableCallback } from "./useStableCallback";
@@ -101,8 +100,6 @@ export function useSessionInfo({
   beside,
   wide = false,
   onReconnectMcp,
-  readCarried,
-  onResolveCarried,
   remoteControl,
   cloud,
   onCompact,
@@ -188,10 +185,6 @@ export function useSessionInfo({
   split?: boolean;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
-  /// Carried memory (CarriedSection.tsx): reads `_acpmux/agent_home`, and sends
-  /// `_acpmux/agent_home_resolve` on the click. The chat's own panel only (not Quick Chat).
-  readCarried?: ReadCarried;
-  onResolveCarried?: ResolveCarried;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
@@ -478,8 +471,6 @@ export function useSessionInfo({
         onOpenChanges={subagent ? undefined : stableOnOpenChanges}
         onSaveEnvironment={stableOnSaveEnvironment}
         onReconnectMcp={stableOnReconnectMcp}
-        readCarried={subagent ? undefined : readCarried}
-        onResolveCarried={subagent ? undefined : onResolveCarried}
         remoteControl={remoteControl}
         cloud={cloud}
         onCompact={stableOnCompact}

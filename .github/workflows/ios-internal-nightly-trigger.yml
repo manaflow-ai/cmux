@@ -49,6 +49,9 @@ env:
 
 jobs:
   decide:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     if: github.repository == 'manaflow-ai/cmux' && vars.IOS_INTERNAL_HOLD != '1' && (github.event_name != 'workflow_dispatch' || inputs.yolo == '')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The plan waits up to 45 min and the dispatch up to 20 min for a spent or failing GitHub API (2026-11-25: a
