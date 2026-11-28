@@ -82,8 +82,12 @@ import Testing
         return items
     }
 
-    @Test func aDeltaEqualsTheWholeTreeOnRandomSequences() throws {
-        for seed in 0..<60 {
+    /// The suite runs on the main actor with every other `@MainActor` kit suite, so each step
+    /// yields it back, as the app gets one main-actor turn per daemon event. Without the yield
+    /// this loop held the main actor for tens of seconds and starved LinkParkTests' polls
+    /// ("1 polls" in 55 s), PendingSendTests and DaemonTerminalSessionTests (cmux#65051's verdicts).
+    @Test func aDeltaEqualsTheWholeTreeOnRandomSequences() async throws {
+        for seed in 0..<40 {
             var rng = Rng(state: UInt64(seed))
             var tree = try Self.tree(workspaces: 1 + rng.below(30), tabs: rng.below(5))
             let items = Self.rows(tree, rng: &rng)
@@ -92,7 +96,8 @@ import Testing
             whole.setOpenTabs(FeedOpenTabs(tree: tree), macID: Self.mac)
             var model = FeedOpenTabs(tree: tree)
             var serial = 0
-            for step in 0..<200 {
+            for step in 0..<150 {
+                await Task.yield()
                 let ids = Self.rowEvent(&tree, rng: &rng, serial: &serial)
                 let changed = FeedOpenTabs.changedTabs(in: tree, workspaceIDs: ids)
                 for (id, tabs) in changed { model.tabsByWorkspace[id] = tabs }
@@ -148,24 +153,28 @@ import Testing
 
     /// The measurement behind RFD 0227 hot path 4, at its scale (1,100 workspaces): the old
     /// per-event cost (rebuild every tab, compare the whole dictionary) against the delta.
-    /// Printed, not asserted on time: equality is the gate, the numbers go in the PR.
-    @Test func costAtElevenHundredWorkspaces() throws {
+    /// Printed, not asserted on time: equality is the gate, the numbers go in the PR. Each event
+    /// is timed alone and the main actor is yielded between events (see the random test).
+    @Test func costAtElevenHundredWorkspaces() async throws {
         var tree = try Self.tree(workspaces: 1_100, tabs: 6)
         let items: [FeedItem] = []
         let old = FeedStore(items: items), new = FeedStore(items: items)
         old.setOpenTabs(FeedOpenTabs(tree: tree), macID: Self.mac)
         new.setOpenTabs(FeedOpenTabs(tree: tree), macID: Self.mac)
-        let events = 500
+        let events = 200
         var rng = Rng(state: 7)
         var serial = 0
         var trees: [(DaemonTree, Set<String>)] = []
         for _ in 0..<events { trees.append((tree, Self.rowEvent(&tree, rng: &rng, serial: &serial))) }
         let clock = ContinuousClock()
-        let oldTime = clock.measure {
-            for (tree, _) in trees { old.setOpenTabs(FeedOpenTabs(tree: tree), macID: Self.mac) }
+        var oldTime = Duration.zero, newTime = Duration.zero
+        for (tree, _) in trees {
+            await Task.yield()
+            oldTime += clock.measure { old.setOpenTabs(FeedOpenTabs(tree: tree), macID: Self.mac) }
         }
-        let newTime = clock.measure {
-            for (tree, ids) in trees {
+        for (tree, ids) in trees {
+            await Task.yield()
+            newTime += clock.measure {
                 new.updateOpenTabs(FeedOpenTabs.changedTabs(in: tree, workspaceIDs: ids), macID: Self.mac) { FeedOpenTabs(tree: tree) }
             }
         }
