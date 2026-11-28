@@ -67,6 +67,11 @@ public final class CloudMovedChats {
 
     public init() {}
 
+    /// The app's one setup call: where the ledger is kept, and cmux-tui's state folder.
+    public func wire(ledger: @escaping @MainActor () -> UserDefaults?, tuiState: @escaping @MainActor () -> URL?) {
+        (defaults, self.tuiState) = (ledger, tuiState)
+    }
+
     private struct Request: Encodable {
         var moved: String?, starting: String?, action: String, host: String, session: String, remoteChat: String?, harness: String?, entry: Entry?
     }

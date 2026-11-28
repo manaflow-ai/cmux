@@ -227,8 +227,7 @@ final class CloudService {
         (binary, tuiState) = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment), DaemonLauncher.appNames(build: build).stateDirectory)
         move.cli = binary
         move.ledger = .standard
-        movedChats.defaults = { [weak self] in self?.move.ledger }
-        movedChats.tuiState = { [weak self] in self?.tuiState }
+        movedChats.wire(ledger: { [weak self] in self?.move.ledger }, tuiState: { [weak self] in self?.tuiState })
         moveRetries.defaults = { [weak self] in self?.move.ledger }
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
