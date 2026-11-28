@@ -2863,10 +2863,23 @@ title = "Web lint hook tests"
 about = "the pre-push web lint hook's integration tests pass independently of whole-tree typechecking"
 needs = ["bun", "node"]
 nightly = ["nightly.yml:check-nightly-webviews:Webview checks on the build commit"]
+# The tests run the hook on throwaway repositories with stand-in packages; of the real tree they read only the
+# files below (copy_sources, webviews/package.json's check scripts and the check pieces' INPUTS), so a webviews
+# source change no longer runs them on a pull request. The post-merge batch runs every linux step, and
+# cmux-next-guards.yml's tt-web-lint-prepush runs them too. Leo, 2026-11-23: "de facto, im asking for 99% fewer
+# minutes of ci time, period."
 inputs = [
-  "webviews/**",
   "scripts/web_lint_prepush.py",
+  "scripts/web-lint.sh",
+  "scripts/install-git-hooks.sh",
+  "scripts/git-hooks/*",
+  "scripts/cmux-next/*",
+  "scripts/ci/fast_gate_webviews_checks.py",
+  "webviews/package.json",
+  "webviews/scripts/*",
   "tests/test_web_lint_prepush.py",
+  "tests/git_fixture_env.py",
+  "tests/real_git.py",
   ".github/workflows/cmux-next-web-lint.yml",
 ]
 run = "python3 tests/test_web_lint_prepush.py"
