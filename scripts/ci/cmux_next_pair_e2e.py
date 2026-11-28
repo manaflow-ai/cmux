@@ -407,6 +407,9 @@ def main():
     # The reconnect leg (flows.json reconnect-after-drop, cmux-next-ios-sim.sh's reconnect-drops=10,60): the Mac's
     # link drops for each of these seconds; the phone must reattach by itself.
     ap.add_argument("--reconnect-drops", default="")
+    # The screens leg (cmux-next-ios-sim.sh's `screens`, ask-02dd2cc9ee): with the Mac linked, Home, Workspaces,
+    # the terminal, Chief and Chief's settings, each screenshotted, and none may say the Mac is offline.
+    ap.add_argument("--screens", action="store_true")
     a = ap.parse_args()
     drops = [int(x) for x in a.reconnect_drops.split(",") if x.strip()]
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
@@ -555,6 +558,7 @@ def main():
              f"(the commit's Connect-Timeline-Runs / -Away / -Away-Runs)")
     ask_ok = restart_ok = not discovery
     reconnect_ok = not drops
+    screens_ok = not a.screens
     keychain = RigKeychain(a.mac_app)
     try:
         note(f"- Keychain: {keychain.start()}")
@@ -692,6 +696,8 @@ def main():
                 except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
                     theme_ok = False
                     note(f"- theme-file repaint: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
+            if paired and a.screens:
+                screens_ok = screens_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, note)
             if paired and probe and not connect_runs:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
@@ -755,7 +761,7 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and attach_ok and theme_ok and cloud_ok and ask_ok and restart_ok and reconnect_ok else 1
+    return 0 if paired and uploaded and attach_ok and theme_ok and cloud_ok and ask_ok and restart_ok and reconnect_ok and screens_ok else 1
 
 
 # The connect-timeline leg (RFD 0049's connect rows): the paired phone's own ConnectTimeline marks
@@ -988,6 +994,43 @@ def terminal_share(bmp_path, colors, tolerance=12):
                 if abs(r - tr) <= tolerance and abs(g - tg) <= tolerance and abs(b - tb) <= tolerance:
                     hits[i] += 1
     return [h / total for h in hits] if total else None
+
+
+SCREENS = ("home", "workspaces", "terminal", "chief", "chief-settings")
+SCREEN_LINE = re.compile(r"demo step: live-screens (%s|no \S+|end) ?(.*)" % "|".join(re.escape(n) for n in SCREENS))
+
+
+def screens_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, note):
+    """With the Mac linked, every screen that says whether the Mac is there (DEBUG demo `live-screens`): Home,
+    Workspaces, the Mac's terminal, Chief and Chief's settings, a screenshot of each at its
+    `demo step: live-screens <name> <presence>` line. Passes when every screen came up with the one Mac state
+    (MacPresence) `up` (ask-02dd2cc9ee: "im also getting this in several screens despite my mac being connected")."""
+    since = time.monotonic()
+    subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-screens"],
+                   env=phone_env, check=True, capture_output=True)
+    seen, missing = {}, []
+    while True:
+        hit = phone_log.wait_at(SCREEN_LINE, 240, since=since)
+        if not hit:
+            missing.append("timed out")
+            break
+        since, match = hit[0] + 1e-6, hit[1]
+        name, rest = match.group(1), match.group(2).strip()
+        if name == "end":
+            break
+        if name.startswith("no "):
+            missing.append(name)
+            if name == "no link":
+                break
+            continue
+        seen[name] = rest
+        note(f"- screens: {name} (Mac {rest or '?'}) {phone_shot('screens-' + name)}")
+    up = [n for n in SCREENS if seen.get(n) == "up"]
+    ok = len(up) == len(SCREENS)
+    note(f"- screens: {'PASS' if ok else 'FAIL'}, Mac up on {len(up)} of {len(SCREENS)}"
+         f"{'' if not missing else ' (' + ', '.join(missing) + ')'}")
+    return ok
 
 
 def theme_file_leg(simctl, udid, bundle_id, phone_env, phone_log, mac_log, phone_shot, rpc, screens, themes_dir,
