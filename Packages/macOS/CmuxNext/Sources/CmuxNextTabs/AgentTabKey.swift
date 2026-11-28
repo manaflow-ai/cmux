@@ -1,5 +1,5 @@
 /// The identity of an agent tab includes the daemon that lists it. Forked and SSH machines may
-/// legitimately reuse a durable tab id, so a bare id is not a complete key for AgentTabs state.
+/// legitimately reuse a durable tab id, so a bare id is not a complete key for AgentTabs state (a full key is machine plus id).
 public struct AgentTabKey: Hashable, Sendable {
     public let machine: String
     public let key: String
