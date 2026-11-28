@@ -3,8 +3,9 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { INVENTORY_STEP_BUDGET_MS, inventoryFailure } from "../scripts/cmux-vm-image/bake";
-import { STEP_TIMEOUT_MS, StepLog, type Vm } from "../scripts/cmux-vm-image/guest";
-import { INVENTORY_TRIES, retriesInventory } from "../scripts/cmux-vm-image/inventory";
+import { DETACHED_WAKE_AFTER_FAILED_POLLS, STEP_TIMEOUT_MS, StepLog, type Vm, wakeVm } from "../scripts/cmux-vm-image/guest";
+import { INVENTORY_SHAPE, INVENTORY_TRIES, collectWithRetries, growForInventory, retriesInventory } from "../scripts/cmux-vm-image/inventory";
+import type { GuestShape } from "../scripts/cmux-vm-image/large-image";
 
 describe("image inventory retries a cut connection, not a failed step", () => {
   test("the provider closing the exec's connection is retried (run 42410303540)", () => {
@@ -116,5 +117,170 @@ describe("image inventory steps run detached and outlast a cut poll (rolls 45779
     const error = await L.detachedStep(guest.vm, "sbom", "true", { dir: "/tmp/x", budgetMs: 60_000, ...clock(10_000) }).catch((e: unknown) => e);
     expect((error as { name?: string }).name).toBe("TimeoutError");
     expect(retriesInventory(error, 1)).toBe(true);
+  });
+});
+
+describe("image inventory wakes a builder the provider paused (roll 46078031124)", () => {
+  function provider(state: string) {
+    const calls: string[] = [];
+    return {
+      calls,
+      vm: {
+        data: async () => { calls.push("data"); return { state }; },
+        start: async () => { calls.push("start"); return { state: "running" }; },
+      } as unknown as Pick<Vm, "data" | "start">,
+    };
+  }
+
+  test("a paused or stopped builder is started and its state logged", async () => {
+    for (const state of ["paused", "stopped", "pausing"]) {
+      const p = provider(state);
+      const lines: string[] = [];
+      expect(await wakeVm(p.vm, (l) => lines.push(l), "b")).toBe(state);
+      expect(p.calls).toEqual(["data", "start"]);
+      expect(lines.join("\n")).toContain(`VM_STATE [b] ${state}: starting it`);
+    }
+  });
+
+  test("a running builder is left alone, but its state still logged", async () => {
+    const p = provider("running");
+    const lines: string[] = [];
+    await wakeVm(p.vm, (l) => lines.push(l), "b");
+    expect(p.calls).toEqual(["data"]);
+    expect(lines).toEqual(["VM_STATE [b] running"]);
+  });
+
+  test("detachedStep wakes the VM after a run of failed polls, and the step then finishes", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "inv-"));
+    const L = new StepLog(path.join(dir, "inv.log"));
+    let paused = true;
+    let wakes = 0;
+    let t = 0;
+    const vm = {
+      exec: async ({ command }: { command: string }) => {
+        if (command.includes("nohup setsid sh -c")) return { statusCode: 0, stdout: "started\n", stderr: "" };
+        if (paused) throw new DOMException("The operation timed out.", "TimeoutError");
+        if (command.includes("/status 2>/dev/null")) return { statusCode: 0, stdout: "0\n", stderr: "" };
+        return { statusCode: 0, stdout: "syft-secs 120\n--cmux-detached-stderr--\n", stderr: "" };
+      },
+    } as unknown as Vm;
+    const out = await L.detachedStep(vm, "sbom", "true", {
+      dir: "/tmp/x", budgetMs: 600_000, now: () => t, sleep: async () => { t += 10_000; },
+      wake: async () => { wakes++; paused = false; },
+    });
+    expect(out.trim()).toBe("syft-secs 120");
+    expect(wakes).toBe(1);
+    expect(DETACHED_WAKE_AFTER_FAILED_POLLS).toBeLessThanOrEqual(3);
+  });
+
+  test("a wake that throws is logged and polling goes on to the provider's error", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "inv-"));
+    const L = new StepLog(path.join(dir, "inv.log"));
+    let t = 0;
+    const vm = {
+      exec: async ({ command }: { command: string }) => {
+        if (command.includes("nohup setsid sh -c")) return { statusCode: 0, stdout: "started\n", stderr: "" };
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      },
+    } as unknown as Vm;
+    const error = await L.detachedStep(vm, "sbom", "true", {
+      dir: "/tmp/x", budgetMs: 60_000, now: () => t, sleep: async () => { t += 10_000; },
+      wake: async () => { throw new Error("401"); },
+    }).catch((e: unknown) => e);
+    expect((error as { name?: string }).name).toBe("TimeoutError");
+    expect(readFileSync(path.join(dir, "inv.log"), "utf8")).toContain("WARN [sbom] wake after 2 failed polls: Error: 401");
+  });
+});
+
+describe("collectWithRetries: a builder that stops answering (roll 46078031124)", () => {
+  const timedOut = () => Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
+  const builder = { vm: { id: "builder" } as unknown as Vm, vmId: "vm-builder" };
+  const clone = { vm: { id: "clone" } as unknown as Vm, vmId: "vm-clone" };
+
+  test("retries on a clone of the snapshot once the builder does not answer", async () => {
+    const ran: string[] = [];
+    const lines: string[] = [];
+    const inventory: Record<string, unknown> = {};
+    await collectWithRetries(builder, inventory, (l) => lines.push(l), {
+      collect: async (vm, attempt) => {
+        ran.push(`${(vm as unknown as { id: string }).id}:${attempt}`);
+        if ((vm as unknown as { id: string }).id === "builder") throw timedOut();
+      },
+      answers: async () => false,
+      clone: async () => clone,
+    });
+    // Before: all three tries on the builder, each timing out (1546.8 s, components=none).
+    expect(ran).toEqual(["builder:1", "clone:2"]);
+    expect(inventory.error).toBeUndefined();
+    expect(inventory.inventoryClone).toBe("vm-clone");
+    expect(lines.some((l) => l.includes("did not answer an exec"))).toBe(true);
+  });
+
+  test("stays on a builder that still answers", async () => {
+    const ran: string[] = [];
+    let clones = 0;
+    await collectWithRetries(builder, {}, () => {}, {
+      collect: async (vm, attempt) => {
+        ran.push(`${(vm as unknown as { id: string }).id}:${attempt}`);
+        if (attempt === 1) throw new Error("ECONNRESET");
+      },
+      answers: async () => true,
+      clone: async () => { clones++; return clone; },
+    });
+    expect(ran).toEqual(["builder:1", "builder:2"]);
+    expect(clones).toBe(0);
+  });
+
+  test("a step that ran and failed is not retried, on any VM", async () => {
+    let tries = 0;
+    await expect(collectWithRetries(builder, {}, () => {}, {
+      collect: async () => { tries++; throw new Error("step sbom failed"); },
+      answers: async () => false,
+      clone: async () => clone,
+    })).rejects.toThrow("step sbom failed");
+    expect(tries).toBe(1);
+  });
+
+  test("without a snapshot id it retries on the builder as before, up to INVENTORY_TRIES", async () => {
+    let tries = 0;
+    await expect(collectWithRetries(builder, {}, () => {}, {
+      collect: async () => { tries++; throw timedOut(); },
+      answers: async () => false,
+    })).rejects.toThrow("timed out");
+    expect(tries).toBe(INVENTORY_TRIES);
+  });
+});
+
+describe("image inventory grows its builder before the scan (rolls 46085354594, 46090412457)", () => {
+  const fakeVm = (calls: unknown[], fail = false) =>
+    ({ resize: async (req: unknown) => { calls.push(req); if (fail) throw new Error("resize refused"); } }) as unknown as Vm;
+
+  test("a base-size builder is grown to 4 vCPU / 8 GiB", async () => {
+    const calls: unknown[] = [];
+    const lines: string[] = [];
+    const shapes = [{ cpu: 2, memoryMb: 3915, rootMb: 15955 }, { cpu: 4, memoryMb: 8011, rootMb: 15955 }];
+    await growForInventory(fakeVm(calls), (l) => lines.push(l), async () => shapes.shift() as GuestShape);
+    expect(calls).toEqual([{ cpu: INVENTORY_SHAPE.cpu, memory: INVENTORY_SHAPE.memoryMb }]);
+    expect(lines[0]).toContain('"cpu":4');
+  });
+
+  test("a builder a large-image bake already grew is left as it is (resize only grows)", async () => {
+    const calls: unknown[] = [];
+    const lines: string[] = [];
+    await growForInventory(fakeVm(calls), (l) => lines.push(l), async () => ({ cpu: 8, memoryMb: 32000, rootMb: 64000 }));
+    expect(calls).toEqual([]);
+    expect(lines[0]).toContain("kept");
+  });
+
+  test("more vCPU than the shape keeps its vCPU when only memory is short", async () => {
+    const calls: unknown[] = [];
+    await growForInventory(fakeVm(calls), () => {}, async () => ({ cpu: 8, memoryMb: 3915, rootMb: 15955 }));
+    expect(calls).toEqual([{ cpu: 8, memory: 8192 }]);
+  });
+
+  test("a failed resize is logged and the scan runs at the size it has", async () => {
+    const lines: string[] = [];
+    await growForInventory(fakeVm([], true), (l) => lines.push(l), async () => ({ cpu: 2, memoryMb: 3915, rootMb: 15955 }));
+    expect(lines[0]).toStartWith("WARN inventory resize");
   });
 });

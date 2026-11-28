@@ -1059,6 +1059,7 @@ class HostTestLossTest(unittest.TestCase):
         o = vs.Orchestrator.__new__(vs.Orchestrator)
         o.host_test_loss = pct
         o.host_args, o.viewer_args, o.host_argv, o.out = [], [], [], None
+        o.host_env = {}
         o.root = "/r"
         o.a = argparse.Namespace(synthetic_size=None, synthetic_scene=None, link_bind=None)
         return o
@@ -1086,6 +1087,43 @@ class HostTestLossTest(unittest.TestCase):
                 o.log({"mode": "fps"})
             row = json.loads(out.getvalue())
             self.assertEqual({k: v for k, v in row.items() if k == "host_test_loss_pct"}, want)
+
+
+class HostEnvTest(unittest.TestCase):
+    """`run --host-env`: only cmux-rd-host's measurement switches, checked, on the host's serve."""
+
+    def orchestrator(self, env):
+        o = HostTestLossTest().orchestrator(None)
+        o.host_env = env
+        return o
+
+    def test_the_names_and_values_are_checked(self):
+        self.assertEqual(vs.checked_env(["CMUX_RD_SCK_QUEUE_DEPTH=5", "CMUX_RD_MAC_MAX_REFRESH=1"]),
+                         {"CMUX_RD_SCK_QUEUE_DEPTH": "5", "CMUX_RD_MAC_MAX_REFRESH": "1"})
+        self.assertEqual(vs.checked_env(None), {})
+        for bad in (["PATH=/tmp"], ["CMUX_RD_SCK_QUEUE_DEPTH=9"], ["CMUX_RD_SCK_QUEUE_DEPTH"],
+                    ["CMUX_RD_MAC_MAX_REFRESH=1; rm -rf ~"],
+                    ["CMUX_RD_SCK_QUEUE_DEPTH=4", "CMUX_RD_SCK_QUEUE_DEPTH=5"]):
+            with self.assertRaises(ValueError):
+                vs.checked_env(bad)
+
+    def test_the_flag_parses(self):
+        a = vs.build_parser().parse_args(run_argv("--host-env", "CMUX_RD_SCK_QUEUE_DEPTH=5"))
+        self.assertEqual(a.host_env, ["CMUX_RD_SCK_QUEUE_DEPTH=5"])
+        self.assertIsNone(vs.build_parser().parse_args(run_argv()).host_env)
+
+    def test_synthetic_serve_sets_it(self):
+        cmd = self.orchestrator({"CMUX_RD_SCK_QUEUE_DEPTH": "5"}).synthetic_serve("key")
+        self.assertIn("CMUX_RD_SCK_QUEUE_DEPTH=5 ", cmd)
+        self.assertNotIn("CMUX_RD_SCK_QUEUE_DEPTH", self.orchestrator({}).synthetic_serve("key"))
+
+    def test_rows_record_it_only_when_set(self):
+        for env, want in (({"CMUX_RD_MAC_MAX_REFRESH": "1"}, {"host_env": {"CMUX_RD_MAC_MAX_REFRESH": "1"}}),
+                          ({}, {})):
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.orchestrator(env).log({"mode": "fps"})
+            row = json.loads(out.getvalue())
+            self.assertEqual({k: v for k, v in row.items() if k == "host_env"}, want)
 
 
 class RemoteRunStdin(unittest.TestCase):

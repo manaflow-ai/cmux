@@ -86,13 +86,15 @@ _TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "flatten", "f
 _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
-    "allow_unadvertised_capability", "initializer", "extra",
+    "allow_unadvertised_capability", "initializer", "extra", "workspace_ref",
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation", "flatten", "omit",
 })
 _INIT_KEYS = frozenset({"post_init", "explicit", "labels"})
 _FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "encode_when", "update"})
 _ENCODE_MODES = {"always": True, "if_present": False}
 WHEN_TRUE = "when_true"
+IF_TRUE = "if_true"
+_WORKSPACE_REF_WIRE = ("workspace", "key")
 _FLATTEN_TYPE_KEYS = frozenset({"$comment", "wire", "encode"})
 _FLATTEN_KEYS = frozenset({"type", "doc", "default", "optional"})
 MUTATION = "mutation"
@@ -416,6 +418,15 @@ class _Renderer:
                     optional = override["optional"]
                 always = required
                 mode = override.get("encode")
+                # if_true has a stricter schema contract; share the when_true encoder.
+                if mode == IF_TRUE:
+                    if (spec["type"] != {"kind": "scalar", "name": "boolean"} or required or update
+                            or spec.get("default") is not False or "optional" in override or "type" in override
+                            or override.get("default", "false") != "false"):
+                        raise BindingError(
+                            f"{where}.{wire}: encode if_true is for an optional boolean whose schema default is false"
+                        )
+                    mode = WHEN_TRUE
                 when_true = mode == WHEN_TRUE
                 if isinstance(mode, Mapping):
                     enum = self.ir.types.get(spec["type"].get("name"))
@@ -441,7 +452,7 @@ class _Renderer:
                 elif "encode" in override:
                     if not isinstance(mode, str) or mode not in _ENCODE_MODES or update:
                         raise BindingError(
-                            f"{where}.{wire}: encode is always, if_present or when_true, and not with update"
+                            f"{where}.{wire}: encode is always, if_present, if_true or when_true, and not with update"
                         )
                     always = _ENCODE_MODES[override["encode"]]
                 if not optional and not always:
@@ -607,13 +618,32 @@ class _Renderer:
             if not {"origin", "mutation_id"} <= set(schema_fields):
                 raise BindingError(f"{command}: mutation needs the schema's origin and mutation_id fields")
             schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in _MUTATION_WIRE}
+        workspace_ref = binding.get("workspace_ref", False)
+        if not isinstance(workspace_ref, bool):
+            raise BindingError(f"{command}: workspace_ref is true or false")
+        if workspace_ref:
+            for wire in _WORKSPACE_REF_WIRE:
+                spec = schema_fields.get(wire)
+                if spec is None or spec["presence"] == "required":
+                    raise BindingError(f"{command}: workspace_ref needs the schema's optional workspace and key fields")
+            if any(wire in binding.get("fields", {}) for wire in _WORKSPACE_REF_WIRE):
+                raise BindingError(f"{command}: workspace_ref owns the workspace and key fields; bind neither")
+            schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in _WORKSPACE_REF_WIRE}
+            synthetic["workspace"] = _Field(
+                wire="workspace", name="workspace", swift_type="WorkspaceRef", optional=False,
+                always_encoded=True, doc=[], flat="try WorkspaceRefFields(ref: {value}).encode(to: encoder)",
+            )
         flatten = binding.get("flatten", {})
         if not isinstance(flatten, Mapping):
             raise BindingError(f"{command}: flatten maps a Swift property name to its binding")
         if len(set(order)) != len(order):
             raise BindingError(f"{command}: the order names a field twice")
         claimed_flatten_wires = set(_MUTATION_WIRE) if mutation else set()
+        if workspace_ref:
+            claimed_flatten_wires.update(_WORKSPACE_REF_WIRE)
         for name, spec in flatten.items():
+            if name in synthetic:
+                raise BindingError(f"{command}.flatten.{name}: a flattened property is already named {name}")
             if not _IDENTIFIER.fullmatch(name) or name == MUTATION:
                 raise BindingError(f"{command}.flatten: {name!r} is not a Swift property name")
             spec = _check_keys(f"{command}.flatten.{name}", spec, _FLATTEN_KEYS)
