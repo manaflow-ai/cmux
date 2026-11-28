@@ -331,7 +331,10 @@ public actor InstallAuthClient {
             throw status == 200 ? InstallAuthError.malformedReply : InstallAuthError.refused("http_\(status)")
         }
         guard (200..<300).contains(status) else {
-            let code = reply["code"] as? String
+            // A refusal names its code at the top (`{"code": ...}`, the auth routes) or inside `error`
+            // (`{"error": {"code": ...}}`, the build-space gate production answers a dev build with): either is
+            // the refusal's name, so a log says `build_space.not_allowed`, not a bare `http_403`.
+            let code = reply["code"] as? String ?? (reply["error"] as? [String: Any])?["code"] as? String
             if code == "client.too_old" {
                 throw InstallAuthError.clientTooOld(minimumVersion: reply["minimum_version"] as? String)
             }

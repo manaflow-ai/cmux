@@ -361,7 +361,8 @@ impl State {
             (Phase::PublicKey, Event::PublicKey { x963 }) => {
                 let x963 = STANDARD.decode(x963).map_err(|_| Error::InvalidPublicKey)?;
                 let jwk = public_jwk(&x963)?;
-                let thumbprint = hex(&Sha256::digest(&x963)[..16]);
+                let digest = Sha256::digest(&x963);
+                let thumbprint = hex(digest.get(..16).ok_or(Error::InvalidPublicKey)?);
                 let user = self.user_id.clone().unwrap_or_default();
                 let profile = &self.start.profile;
                 let params = json!({
@@ -564,7 +565,12 @@ fn reply(status: u16, body: &str) -> Result<Map<String, Value>, Error> {
         });
     };
     if !(200..300).contains(&status) {
-        let code = reply.get("code").and_then(Value::as_str);
+        // A refusal names its code at the top (`{"code": ...}`, the auth routes) or inside `error`
+        // (`{"error": {"code": ...}}`, the build-space gate production answers a dev build with):
+        // either is the refusal's name, so a log says `build_space.not_allowed`, not `http_403`.
+        let code = reply.get("code").and_then(Value::as_str).or_else(|| {
+            reply.get("error").and_then(|error| error.get("code")).and_then(Value::as_str)
+        });
         if code == Some("client.too_old") {
             return Err(Error::ClientTooOld {
                 minimum_version: reply
@@ -600,13 +606,15 @@ fn op_value(reply: Map<String, Value>) -> Result<Map<String, Value>, Error> {
 ///
 /// [`Error::InvalidPublicKey`] unless `x963` is 65 bytes starting `0x04`.
 pub fn public_jwk(x963: &[u8]) -> Result<Value, Error> {
-    if x963.len() != 65 || x963[0] != 0x04 {
+    if x963.len() != 65 || x963.first() != Some(&0x04) {
         return Err(Error::InvalidPublicKey);
     }
+    let x = x963.get(1..33).ok_or(Error::InvalidPublicKey)?;
+    let y = x963.get(33..65).ok_or(Error::InvalidPublicKey)?;
     Ok(json!({
         "kty": "EC", "crv": "P-256",
-        "x": URL_SAFE_NO_PAD.encode(&x963[1..33]),
-        "y": URL_SAFE_NO_PAD.encode(&x963[33..65]),
+        "x": URL_SAFE_NO_PAD.encode(x),
+        "y": URL_SAFE_NO_PAD.encode(y),
     }))
 }
 

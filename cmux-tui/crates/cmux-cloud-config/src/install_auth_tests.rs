@@ -350,6 +350,36 @@ fn http_answers_are_classified_as_the_swift_did() {
     );
 }
 
+/// A dev build pointed at production is refused by the build-space gate, whose code sits inside
+/// `error`: the refusal names it (cloud-chat-proof run 45746953100 logged only `http_403`), the
+/// personal mint does not rotate, and a top-level code still wins.
+#[test]
+fn a_refusal_whose_code_is_inside_error_is_named_by_that_code() {
+    let gate = json!({ "error": {
+        "code": "build_space.not_allowed",
+        "message": "dev build spaces are not served by the production API; use the dev or staging API",
+    } });
+    let mut run = Run { state: None };
+    run.go(start(Some(record()), None, Mode::Mint));
+    assert_eq!(run.go(http(403, &gate)), Effect::Fail(Error::refused("build_space.not_allowed")));
+    let mut run = Run { state: None };
+    run.go(start(None, None, Mode::Mint));
+    run.go(Event::Session { token: "s".into() });
+    assert_eq!(run.go(http(403, &gate)), Effect::Fail(Error::refused("build_space.not_allowed")));
+    let mut run = Run { state: None };
+    run.go(start(Some(record()), None, Mode::Mint));
+    assert_eq!(
+        run.go(http(401, &json!({ "code": "auth.unauthenticated", "error": { "code": "other" } }))),
+        Effect::Fail(Error::refused("auth.unauthenticated"))
+    );
+    let mut run = Run { state: None };
+    run.go(start(Some(record()), None, Mode::Mint));
+    assert_eq!(
+        run.go(http(403, &json!({ "error": "forbidden" }))),
+        Effect::Fail(Error::refused("http_403"))
+    );
+}
+
 #[test]
 fn an_op_refusal_names_its_code() {
     let mut run = Run { state: None };
@@ -412,6 +442,31 @@ fn an_invalid_public_key_is_refused() {
     assert_eq!(
         run.go(Event::PublicKey { x963: STANDARD.encode([4u8; 64]) }),
         Effect::Fail(Error::InvalidPublicKey)
+    );
+}
+
+#[test]
+fn public_jwk_checks_point_shape_and_preserves_both_coordinates() {
+    for len in 0..=130 {
+        if len != 65 {
+            assert_eq!(public_jwk(&vec![0x04; len]), Err(Error::InvalidPublicKey));
+        }
+    }
+    for prefix in 0..=255u8 {
+        if prefix != 0x04 {
+            let mut point = vec![prefix];
+            point.extend(1..=64u8);
+            assert_eq!(public_jwk(&point), Err(Error::InvalidPublicKey));
+        }
+    }
+    let point = STANDARD.decode(x963()).unwrap();
+    assert_eq!(
+        public_jwk(&point).unwrap(),
+        json!({
+            "kty": "EC", "crv": "P-256",
+            "x": URL_SAFE_NO_PAD.encode((1..=32u8).collect::<Vec<_>>()),
+            "y": URL_SAFE_NO_PAD.encode((33..=64u8).collect::<Vec<_>>()),
+        })
     );
 }
 
