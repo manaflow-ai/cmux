@@ -149,13 +149,13 @@ fn percent_decode(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
+    while let Some(&current) = bytes.get(i) {
+        if current == b'%' {
             let hex = text.get(i + 1..i + 3)?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
             i += 3;
         } else {
-            out.push(bytes[i]);
+            out.push(current);
             i += 1;
         }
     }
@@ -177,10 +177,7 @@ impl<'a, E: Environment + ?Sized> Detector<'a, E> {
     pub fn expand(&self, value: &str) -> Option<String> {
         let text = value.trim();
         if let Some(rest) = text.strip_prefix("file://") {
-            let path = match rest.find('/') {
-                Some(slash) => &rest[slash..],
-                None => return None,
-            };
+            let path = rest.get(rest.find('/')?..)?;
             let path = path.split(['?', '#']).next().unwrap_or_default();
             return Some(standardize(&percent_decode(path)?));
         }

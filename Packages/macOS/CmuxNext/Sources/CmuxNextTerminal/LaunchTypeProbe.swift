@@ -17,7 +17,7 @@ import CmuxNextDesign
 /// `terminal.probe_window_not_key` (active, no key window), so the reading names the focus as the probe's.
 ///
 /// The chat probe (`CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT=1`, scripts/ci/launch_tti_check.py's in_app chat rounds) types
-/// the same two keys once more when the front chat first painted (`agent_pane.painted`): a key at the first frame
+/// the same two keys once more when the live chat first painted (`agent_pane.page_painted`): a key at the first frame
 /// lands before any chat page is up, so the composer's echo mark `agent_pane.input_echoed` never came and every chat
 /// round read no number. Its marks are `chat.probe_key_typed` and `chat.probe_no_key_window`.
 @MainActor
@@ -36,7 +36,7 @@ public final class LaunchTypeProbe {
         scope = "terminal"
     }
 
-    /// The chat probe: nil unless `environment` turns it on. Call ``type()`` when the front chat first painted.
+    /// The chat probe: nil unless `environment` turns it on. Call ``type()`` when the live chat first painted.
     public init?(chatEnvironment environment: [String: String], mark: @escaping (String) -> Void) {
         guard environment[Self.chatVariable] == "1" else { return nil }
         self.mark = mark
@@ -44,18 +44,20 @@ public final class LaunchTypeProbe {
     }
 
     /// Arms the chat probe when `environment` turns it on: it types once, on the main actor, when `listen` first tells
-    /// of `agent_pane.painted` (AgentPaneLaunchTimings' mark listener). Call it before any chat page loads.
+    /// of `agent_pane.page_painted` (AgentPaneLaunchTimings' mark listener). The saved snapshot also emits
+    /// `agent_pane.painted`, before the live page installs its composer input watch; typing then loses the probe.
+    /// Call it before any chat page loads.
     public static func armChat(environment: [String: String],
                                listen: (@escaping @Sendable (String) -> Void) -> Void,
                                mark: @escaping (String) -> Void) {
         guard let probe = LaunchTypeProbe(chatEnvironment: environment, mark: mark) else { return }
         listen { name in
-            guard name == "agent_pane.painted" else { return }
+            guard name == "agent_pane.page_painted" else { return }
             Task { @MainActor in probe.type() }
         }
     }
 
-    /// Types into the key window now (call it at the first window frame, the chat probe at the chat's first paint).
+    /// Types into the key window now (call it at the first window frame, the chat probe at the live chat's first paint).
     public func type() {
         guard !typed else { return }
         typed = true

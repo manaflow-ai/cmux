@@ -220,6 +220,51 @@ fn team_signed_production_channels_share_one_session_item() {
     }
 }
 
+fn configure_with_process(selection: Selection, process: &[(&str, &str)]) -> Configuration {
+    from_selection(&Inputs {
+        bundle_id: Some(selection.bundle_id.clone()),
+        selection,
+        bundled: map(&[]),
+        process: map(process),
+        is_debug_build: false,
+    })
+}
+
+#[test]
+fn a_launch_with_its_own_state_root_shares_no_session() {
+    // #50830: the root gives the launch its own state and sign-in, so it never imports (or writes)
+    // the item another build signed in to (#46910).
+    for bundle_id in [RELEASE_BUNDLE_ID, NIGHTLY_BUNDLE_ID, RC_BUNDLE_ID] {
+        let rooted = configure_with_process(
+            selection("prod", bundle_id, "n", true, None),
+            &[("CMUX_NEXT_STATE_ROOT", "/tmp/cmux-probe/run-1/")],
+        );
+        assert_eq!(rooted.shared_session, None, "{bundle_id} with a state root");
+    }
+    // No root, or a value that is no absolute path (state_root ignores it): sharing is unchanged.
+    for process in
+        [&[][..], &[("CMUX_NEXT_STATE_ROOT", "  ")][..], &[("CMUX_NEXT_STATE_ROOT", "rel/dir")][..]]
+    {
+        let shared =
+            configure_with_process(selection("prod", NIGHTLY_BUNDLE_ID, "n", true, None), process)
+                .shared_session;
+        assert!(shared.is_some(), "{process:?}");
+    }
+}
+
+#[test]
+fn the_state_root_test_matches_the_environment_crate() {
+    assert_eq!(STATE_ROOT_ENV, cmux_cloud_environment::STATE_ROOT_ENV);
+    for value in ["/tmp/run", " /tmp/run/ ", "/", "", "   ", "rel/dir", "~/x", "./x"] {
+        assert_eq!(
+            has_state_root(&map(&[(STATE_ROOT_ENV, value)])),
+            cmux_cloud_environment::state_root(Some(value)).is_some(),
+            "{value:?}"
+        );
+    }
+    assert!(!has_state_root(&map(&[])));
+}
+
 #[test]
 fn no_other_build_shares_the_session_item() {
     // A development backend: its accounts are not production's.

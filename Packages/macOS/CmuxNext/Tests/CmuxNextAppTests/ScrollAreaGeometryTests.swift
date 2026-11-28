@@ -103,7 +103,7 @@ import Testing
     @Test func focusRevealsAPaneScrolledOutOfItsArea() throws {
         let geometry = ScreenGeometry.compute(Self.dockLayout, viewport: Self.viewport, style: Self.style(scrollAreas: true))
         let area = try #require(geometry.scrollAreas[SplitID("s1")])
-        var scroll = ScrollAreaScroll()
+        let scroll = ScrollAreaScroll()
         _ = scroll.state.reduce(.sync(scroll.strip(area), focused: PaneID("p3"), source: .keyboard, animated: false))
         let offset = scroll.state.spring.target
         let pane = try #require(geometry.panes[PaneID("p3")]).offsetBy(dx: -area.window.minX, dy: 0)

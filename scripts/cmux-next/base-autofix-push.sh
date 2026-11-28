@@ -220,14 +220,26 @@ action_parity() { # <dir>
     cargo test --locked --manifest-path "$1/cmux-tui/Cargo.toml" -p cmux-action-catalog --test swift_parity
   )
 }
-# The same check at commit REV, in a throwaway worktree that builds into this checkout's target dir.
-action_parity_at() { # <rev>
-  local dir status=0
-  dir="$(mktemp -d)"
-  git worktree add --quiet --detach "$dir/tree" "$1" || { rm -rf "$dir"; return 0; }
-  CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(git rev-parse --show-toplevel)/cmux-tui/target}" action_parity "$dir/tree" || status=$?
-  git worktree remove --force "$dir/tree" >/dev/null 2>&1 || true
-  rm -rf "$dir"
+# The same check at commit REV (output to the log OUT, else stdout), in a second worktree at one fixed
+# path with its own target dir. The tests bake their checkout's path in (env!("CARGO_MANIFEST_DIR")),
+# and cargo's fingerprints are workspace-relative: a build of another tree into the candidate's target
+# dir left the candidate's next run reading the deleted tree's files (run 46102037292, 2026-11-28:
+# "plans/cmux-next/action-surfaces.json: No such file or directory" under /tmp/tmp.*/tree).
+parity_tip_tree="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/base-autofix-parity-tip"
+action_parity_at() { # <rev> [out]
+  local status=0 target
+  target="${CARGO_TARGET_DIR:-$(git rev-parse --show-toplevel)/cmux-tui/target}-parity-tip"
+  git worktree remove --force "$parity_tip_tree" >/dev/null 2>&1 || true
+  rm -rf "$parity_tip_tree"
+  git worktree prune
+  # An unreadable tip counts as passing, as before: the caller then refuses the push.
+  git worktree add --quiet --detach "$parity_tip_tree" "$1" >/dev/null 2>&1 || return 0
+  if [[ -n "${2:-}" ]]; then
+    CARGO_TARGET_DIR="$target" action_parity "$parity_tip_tree" > "$2" 2>&1 || status=$?
+  else
+    CARGO_TARGET_DIR="$target" action_parity "$parity_tip_tree" || status=$?
+  fi
+  git worktree remove --force "$parity_tip_tree" >/dev/null 2>&1 || true
   return "$status"
 }
 # The tip the last rejected push went onto; a rejection that did not move the branch is no race.
@@ -523,15 +535,10 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     candidate_failed="$(parity_failed_tests "$parity_log")"
     tip_failed=""
     if [[ -n "$candidate_failed" ]]; then
-      tip_tree="$(mktemp -d)"
-      if git worktree add --quiet --detach "$tip_tree/tree" "$tip" >/dev/null 2>&1; then
-        echo "swift_parity failed on the candidate ($(echo $candidate_failed)); checking the tip ${tip:0:12}."
-        CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(git rev-parse --show-toplevel)/cmux-tui/target}" \
-          action_parity "$tip_tree/tree" > "$parity_log.tip" 2>&1 || true
-        tip_failed="$(parity_failed_tests "$parity_log.tip")"
-        git worktree remove --force "$tip_tree/tree" >/dev/null 2>&1 || true
-      fi
-      rm -rf "$tip_tree" "$parity_log.tip"
+      echo "swift_parity failed on the candidate ($(echo $candidate_failed)); checking the tip ${tip:0:12}."
+      action_parity_at "$tip" "$parity_log.tip" || true
+      tip_failed="$(parity_failed_tests "$parity_log.tip" 2>/dev/null)" || tip_failed=""
+      rm -f "$parity_log.tip"
     fi
     if [[ -n "$candidate_failed" ]]; then
       new_failed="$(LC_ALL=C comm -23 <(printf '%s\n' "$candidate_failed") <(printf '%s\n' "$tip_failed") | sed '/^$/d')"
