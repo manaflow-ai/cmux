@@ -251,18 +251,6 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/trace/spans",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/trace/status",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
       "name": "_acpmux/callers",
       "params": true,
       "result": true
