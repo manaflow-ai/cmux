@@ -37,6 +37,7 @@ pub(crate) struct Feature {
 pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_rules::FEATURE, on: || enabled(super::turn_rules::FEATURE) },
     Feature { name: super::cache_alarm::FEATURE, on: || enabled(super::cache_alarm::FEATURE) },
+    Feature { name: crate::spec_exec::FEATURE, on: crate::spec_exec::enabled },
     Feature {
         name: crate::claude_stdio::PATH_RULES_FEATURE,
         on: crate::claude_stdio::path_rules_enabled,

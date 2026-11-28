@@ -26,6 +26,18 @@ pub fn file_secret(path: &str) -> Result<String, String> {
     Ok(text.to_owned())
 }
 
+/// The secret in `path` with every whitespace character taken out, line breaks too: a token a
+/// terminal wrapped over lines (`claude setup-token`), under the same owner-only checks as
+/// [`file_secret`]. Only for a kind whose value holds no whitespace of its own.
+pub fn file_secret_unwrapped(path: &str) -> Result<String, String> {
+    let text = read_owner_only(path)?;
+    let value: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if value.is_empty() {
+        return Err(format!("{path}: holds no secret"));
+    }
+    Ok(value)
+}
+
 /// The file's text after the owner-only checks (Unix: one O_NOFOLLOW open,
 /// every check on that descriptor).
 #[cfg(unix)]

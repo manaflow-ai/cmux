@@ -51,9 +51,9 @@ scale. Ranks match the RFD: 1 is the highest risk.
 | 1 | Swift↔Rust bridge | `Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/WelcomeRule.swift` | `ChiefFaceFlushBenchTests` (lane/main-thread-sync-bridge) | 1,104 rows × 5 Chiefs, 160 KB | yes, by path (lead's PR) | The bench is one call site; the bridge as a whole has no bytes or calls budget. |
 | 1 | Swift↔Rust bridge | `cmux-tui/crates/cmux-home-rules` | none | none | no | Same as above, from the Rust side. |
 | 1 | Swift↔Rust bridge | `cmux-tui/crates/cmux-app-ffi` | none | none | no | No per-call cost bench. |
-| 2 | Sidebar row feed and flush | `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar` | `SidebarLagBench`, `SidebarScrollBench`, `SidebarStructuralChangeBenchTests`, `SidebarHoverCardRetargetBenchTests`, `ChiefFaceFlushBenchTests` | covered by lane/main-thread-sync-bridge: Chiefs and a 157 KB settings fixture; structural changes at 10,789 rows | covered by lane/main-thread-sync-bridge (PR CI by path, flush under 250 ms) | Before that PR: no Chiefs, no large cmux.json, no budget, never run on a PR. |
-| 2 | Sidebar row mapping | `Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping+Face.swift` | `ChiefFaceFlushBenchTests` | 1,104 rows × 5 Chiefs | covered by lane/main-thread-sync-bridge | none once it lands |
-| 2 | Chief pictures | `Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/ChiefMascotPicks.swift` | `ChiefFaceFlushBenchTests` | 160 KB | covered by lane/main-thread-sync-bridge | none once it lands |
+| 2 | Sidebar row feed and flush | `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar` | `SidebarLagBench`, `SidebarScrollBench`, `SidebarStructuralChangeBenchTests`, `SidebarHoverCardRetargetBenchTests`, `ChiefFaceFlushBenchTests`, `SidebarChiefLagTests` | Chiefs and a ~160 KB settings fixture at 1,104 rows (`SidebarChiefFixture`, cmux#61230); structural changes at 10,789 rows | yes: `cmux-next-sidebar-bench.yml` by path (cmux#61230), a frame over 250 ms or p95 over 33 ms fails | Before that PR: no Chiefs, no large cmux.json, no budget, never run on a PR. |
+| 2 | Sidebar row mapping | `Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping+Face.swift` | `ChiefFaceFlushBenchTests`, `SidebarChiefLagTests` | 1,104 rows × 5 Chiefs | yes: `cmux-next-sidebar-bench.yml` by path (cmux#61230) | none |
+| 2 | Chief pictures | `Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/ChiefMascotPicks.swift` | `ChiefFaceFlushBenchTests`, `SidebarChiefLagTests` | 160 KB | yes: `cmux-next-sidebar-bench.yml` by path (cmux#61230) | none |
 | 3 | Agent pane transport (daemon → pane) | `Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane` | `AgentPaneTransportBench`, `AgentPaneTransportBenchParse`, `AgentPaneBridgeHopBench`, `AgentPageProviderBridgeGapBench`, `ChatTailJSONPathBench`, `AcpmuxPaneInboundScanBench`, `app-stream-bytes` | 300-1,000 frames; app-stream-bytes uses 20 chats | no (env-gated or no threshold) | No budget on a pull request; frames only reach hundreds, not a 100k-row chat. |
 | 4 | acpmux daemon (send, watch, list) | `cmux-tui/crates/acpmux` | `v2`, `icount`, `turn_overhead`, `acpmux-watch-bytes`, `agent-turn`, `daemon-latency`, `coord-sim`, `session-benches`, `AcpmuxChatRowsBench` | 20 chats; `AcpmuxChatRowsBench` 100k rows (ratio ≤ 1.2) | partly: cmux-tui-spec checks that v2 emits its rows (no timing); `AcpmuxChatRowsBench` when its target runs | v2 timing runs after merge only. |
 | 4 | acpmux core | `cmux-tui/crates/acpmux-core` | `v2`, `icount` | synthetic | no timing on a PR | Same as above. |
@@ -139,13 +139,14 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `tailnet-stable-node` | network | n/a | no |
 | `terminal-throughput-quick` | terminal | n/a | no |
 | `tool-transport` | acpmux daemon | n/a | no |
+| `windowserver` | WindowServer and GPU | idle, typing, spinner, glass/blur, many panes | no |
 | `transcript-shifts` | agent chat | 500 and 50k rows | no |
 | `tui-idle` | acpmux daemon | idle | no |
 | `typing` | composer | 100k rows | no |
 | `typing-native` | main thread | L0-L5 loads | no |
 | `wallpaper_cost` | wallpaper | n/a | no |
 | `web-vitals` | web | n/a | no |
-| `windowserver` | WindowServer and GPU | CMUX-887 scenario matrix, retained workspaces (#62635) | no |
+| `windowserver` | WindowServer and GPU | retained workspaces, paired apps | no |
 | `workspace-factory` | CI | n/a | no |
 | `xbench` | browser | n/a | no |
 
@@ -169,6 +170,7 @@ whether it fails on a number.
 | `AgentPaneBridgeHopBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneBridgeHopBench.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
 | `AgentPaneTransportBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneTransportBench.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
 | `AgentPaneTransportBenchParse` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneTransportBenchParse.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
+| `AnimationFrameBenchUITests` | `cmux-next-ios/UITests/AnimationFrameBenchUITests.swift` | none (UI test target) | no |
 | `BrowserChromeMemoryBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserChromeMemoryBench.swift` | none | no |
 | `BrowserChromeSwitchBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserChromeSwitchBench.swift` | none | one render per switch |
 | `ChiefFaceFlushBenchTests` | pending lane/main-thread-sync-bridge (CmuxNextAppTests) | none | one flush under 250 ms at 1,104 rows × 5 Chiefs, 160 KB |
@@ -197,12 +199,11 @@ whether it fails on a number.
 | `ResumeLiveBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | yes |
 | `ResumeMatrixBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
 | `ResumeStagesBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
-| `AnimationFrameBenchUITests` | `cmux-next-ios/UITests/AnimationFrameBenchUITests.swift` | UI test plan | no |
 | `RotateBenchUITests` | `cmux-next-ios/UITests/RotateBenchUITests.swift` | UI test plan | no |
 | `SentryScrubCostBench` | `Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryScrubbingTests/SentryScrubCostBench.swift` | `CMUX_SENTRY_SCRUB_BENCH` | no |
 | `SidebarHoverCardRetargetBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarHoverCardRetargetBenchTests.swift` | `CMUX_HOVER_RETARGET_BENCH` | p95 under 8 ms scaled |
-| `SidebarLagBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarLagBench.swift` | none (a harness other tests drive) | covered by lane/main-thread-sync-bridge |
-| `SidebarScrollBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarScrollBench.swift` | none (a harness other tests drive) | covered by lane/main-thread-sync-bridge |
+| `SidebarLagBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarLagBench.swift` | none (a harness other tests drive) | yes, through `SidebarChiefLagTests` (cmux#61230) |
+| `SidebarScrollBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarScrollBench.swift` | none (a harness other tests drive) | yes, through `SidebarChiefLagTests` (cmux#61230) |
 | `SidebarStructuralChangeBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarStructuralChangeBenchTests.swift` | none | no (prints 100 vs 10,789) |
 | `SnappySendBenchUITests` | `cmux-next-ios/UITests/SnappySendBenchUITests.swift` | UI test plan | no |
 | `SpaceSwitchBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SpaceSwitchBench.swift` | none | no |
@@ -280,6 +281,9 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/delta-renders.bench.ts` | streaming | no |
 | `webviews/bench/tool-call-burst.bench.ts` | streaming | no |
 | `webviews/bench/turn-end-fold-timing.bench.ts` | streaming | no |
+| `webviews/bench/inline-text-hasmarks.bench.ts` | inline text model | no |
+| `webviews/bench/subsession-reply-height.bench.ts` | sub-session card height | no |
+| `webviews/bench/terminal-history-offscreen.bench.ts` | terminal history viewer | no |
 | `webviews/bench/hidden-stream-heap.bench.ts` | memory | no |
 | `webviews/bench/state-growth.bench.ts` | memory | no |
 | `webviews/bench/page-row-store.bench.ts` | row store | no |
