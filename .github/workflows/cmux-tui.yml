@@ -1173,6 +1173,8 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
           fi
+          # The runner image grants bwrap userns via its scoped AppArmor profile.
+          bwrap --unshare-all --ro-bind / / true
           echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Install zig
