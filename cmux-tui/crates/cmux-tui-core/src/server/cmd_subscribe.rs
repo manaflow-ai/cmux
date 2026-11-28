@@ -388,7 +388,7 @@ pub(super) fn subscribe_command(
                 {
                     event_mux
                         .with_state(|state| {
-                            crate::server::selection_changed_json(state, *workspace)
+                            crate::tree_wire::selection_changed_json(state, *workspace)
                         })
                         .unwrap_or_else(|| json!({"event": "tree-changed"}))
                 }
@@ -401,7 +401,7 @@ pub(super) fn subscribe_command(
                 {
                     event_mux
                         .with_state(|state| {
-                            crate::server::workspace_presentation_changed_json(
+                            crate::tree_wire::workspace_presentation_changed_json(
                                 state,
                                 &event_mux.tree_decorations_in_state(state),
                                 *workspace,
