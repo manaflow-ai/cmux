@@ -1,39 +1,31 @@
 import CmuxNextSettings
 import Foundation
 
-/// Keeps an open Share dialog current (webviews share/shareChanges.ts). The daemon's
-/// `agent-session-share-changed` (a request, a role change, a removal, a join, made anywhere) reaches
-/// each page whose Share dialog read that chat's shares, and the dialog reads them again. Before
-/// this, the dialog read only on open and after its own steps, so a request that came in while it
-/// was open showed only after it was closed and opened again.
-/// App-wide like ``AgentReplyPullRequests``: the App feeds ``changed(_:)`` from its daemon's events.
-@MainActor
-public final class AgentPaneShareChanges {
-    public static let shared = AgentPaneShareChanges()
+/// Carries the daemon's `agent-session-share-changed` to each agent pane whose page read a chat's shares
+/// (`shareOp` `state`), so an open Share dialog re-reads its chat on an access request, a role change or a removal made
+/// elsewhere (ask-fe19418926). Only the chat id goes with it; the page reads the state itself.
+public enum AgentPaneShareChanges {
+    static var name: Notification.Name { Notification.Name("cmux.agentPane.shareChanged") }
 
-    /// The composition root uses ``shared``; a test may use its own.
-    public init() {}
-
-    /// Pages that read a chat's shares (its Share dialog opened), held weakly.
-    private let views = NSHashTable<AgentPaneView>.weakObjects()
-
-    /// `view`'s page read its chat's shares: it hears that chat's changes from now on.
-    func watch(_ view: AgentPaneView) { views.add(view) }
-
-    /// The shares of the chat on acpmux session `session` changed: each watching page that shows it
-    /// hears `shareChanged`. A page showing another chat by now hears nothing.
-    public func changed(_ session: String) {
+    /// The daemon reported `session`'s shares changed.
+    @MainActor public static func changed(_ session: String) {
         guard !session.isEmpty else { return }
-        for view in views.allObjects where view.model.header?.showsChat(session) == true {
-            view.deliver([Self.event(session)], scripts: [Self.script(session)])
+        NotificationCenter.default.post(name: name, object: session)
+    }
+
+    /// Follows changes for `view` until the view goes; the caller keeps the token and removes it.
+    @MainActor static func watch(_ view: AgentPaneView) -> NSObjectProtocol {
+        NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak view] note in
+            guard let session = note.object as? String else { return }
+            MainActor.assumeIsolated {
+                guard let view, view.model.header?.showsChat(session) == true else { return }
+                view.deliver([event(session)], scripts: [script(session)])
+            }
         }
     }
 
-    static func event(_ session: String) -> AgentPageEvent {
-        AgentPageEvent(kind: "shareChanged", value: .string(session))
-    }
+    static func event(_ session: String) -> AgentPageEvent { AgentPageEvent(kind: "shareChanged", value: .string(session)) }
 
-    /// The legacy host's script for the same push (`applyShareChanged`, paneSnapshot.ts).
     static func script(_ session: String) -> String {
         "window.cmuxAcpmuxBridge?.applyShareChanged?.(\(JSONValue.string(session).compactText));"
     }

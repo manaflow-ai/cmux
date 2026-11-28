@@ -140,6 +140,7 @@ public final class AgentPaneView: NSView {
     private var reduceMotionOverrideObserver: MainActorObservation?
     /// The app finished a GitHub install (``CloudGitHubChanges``): the folder menu reads GitHub again.
     var gitHubChangeObservation: Task<Void, Never>? { didSet { oldValue?.cancel() } }
+    var shareChangeObservation: NSObjectProtocol? // the chat's share changes, once the page read its shares (AgentPaneShareChanges)
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
@@ -338,7 +339,7 @@ public final class AgentPaneView: NSView {
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
         }
-        model.onSharesRead = { [weak self] in if let self { AgentPaneShareChanges.shared.watch(self) } }
+        model.onSharesRead = { [weak self] in if let self, shareChangeObservation == nil { shareChangeObservation = AgentPaneShareChanges.watch(self) } }
         model.onCustomizationsMenuRequested = { [weak self] point in self?.popCustomizationsMenu(at: point) ?? false }
         model.onTabRowToolMenuRequested = { [weak self] id, menuItemID in
             self?.onNativeToolMenuRequested?(id, menuItemID)
@@ -501,6 +502,7 @@ public final class AgentPaneView: NSView {
             languageObservation?.cancel()
             acpmuxAnswerObservation?.cancel()
             gitHubChangeObservation?.cancel()
+            if let shareChangeObservation { NotificationCenter.default.removeObserver(shareChangeObservation) }
             actAsMePill.stop()
             model.sessionInfo.hostObservation?.cancel()
         }
