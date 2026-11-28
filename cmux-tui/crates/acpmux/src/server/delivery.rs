@@ -5,11 +5,11 @@ use super::*;
 /// The `_acpmux/event` params of a record of this daemon's own chat, built once and shared by
 /// every connection (`HubEvent::event_params`). `deliver`'s `routed` leaves them as they are: it
 /// changes only a peer's chat's, and `event_value` has no `peer` to take out. None for a peer's.
-fn shared_event(ev: &HubEvent) -> Option<&Value> {
+fn shared_event(ev: &HubEvent) -> Option<Arc<Value>> {
     if ev.remote.is_some() {
         return None;
     }
-    Some(ev.event_params.get_or_init(|| event_value(&ev.session_id, &ev.record)))
+    ev.event_params.get_or_build(|| Some(event_value(&ev.session_id, &ev.record)))
 }
 
 /// Turn a hub record into client notifications for one connection. It is called only for the
@@ -150,7 +150,7 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 match shared_event(&ev) {
                     // A compact chunk reads the shared params in place; `prev` rides the frame.
                     Some(params) => {
-                        conn.send(&conn.chunk_deltas.frame_shared(&ev.session_id, params, prev))
+                        conn.send(&conn.chunk_deltas.frame_shared(&ev.session_id, &params, prev))
                     }
                     None => {
                         let mut params = routed(event_value(&ev.session_id, rec));
@@ -184,11 +184,11 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 } else {
                     // Every other connection reads the line as it is: built once per record,
                     // shared (`HubEvent::update_line`). None: too large for one frame.
-                    let line = ev
-                        .update_line
-                        .get_or_init(|| message().bounded_line_replying(None).ok().map(Arc::from));
+                    // Held while this connection sends it ([`crate::hub::Shared`]).
+                    let line =
+                        ev.update_line.get_or_build(|| message().bounded_line_replying(None).ok());
                     match line {
-                        Some(line) => conn.send_line(line),
+                        Some(line) => conn.send_line(&line),
                         None => conn.send(&message()),
                     }
                 }
@@ -196,7 +196,7 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             }
             if rec.dir == "mux" {
                 let params = match shared_event(&ev) {
-                    Some(params) => params.clone(),
+                    Some(params) => Value::clone(&params),
                     None => routed(event_value(&ev.session_id, rec)),
                 };
                 conn.send(&Message::notification(method::MUX_EVENT, params));
