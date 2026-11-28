@@ -162,7 +162,7 @@ fn only_new_messages_a_day_past_their_deadline_expire() {
 }
 
 /// A chat whose folder is gone refuses every wake, so a held message has no turn to wait a day
-/// for (NOW, 2026-11-27: six chats with removed scratch folders read held-overdue up to 23 h).
+/// for (a chat whose scratch folder was removed kept its messages a day for nothing).
 /// It expires at its deadline and goes back to its sender then; a chat whose folder exists keeps
 /// the day of grace.
 #[tokio::test]

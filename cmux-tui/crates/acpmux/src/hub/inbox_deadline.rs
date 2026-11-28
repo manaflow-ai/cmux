@@ -19,10 +19,9 @@
 //!   A running turn takes its inbox at its end, so nothing expires under one.
 //! - a chat no turn can ever take (closed, or its folder is gone, so every wake is refused
 //!   `session.folder_missing`) gets no day of grace ([`grace_ms`]): its messages expire at their
-//!   deadline and go back to their senders then. NOW, 2026-11-27: claude-sr2/ios-ci-3,
-//!   ui-think-tank, land-everything, aiforui-course, app-research and air-blue/ask-fadfd55bc5 all
-//!   had a removed scratch or worktree folder and read `held-overdue` for up to 23 hours, each
-//!   message waiting out a day for a turn that could never start.
+//!   deadline and go back to their senders then. A chat whose scratch or worktree folder was
+//!   removed otherwise kept each message for a day waiting on a turn that could never start, and
+//!   its sender heard nothing for those 24 hours.
 //!
 //! Stop condition: a review is what the timer does at its deadline, so a sweep adds no turn a
 //! deadline would not have started. Cleanup: the sweep holds the hub weakly and ends with it.
