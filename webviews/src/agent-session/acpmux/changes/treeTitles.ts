@@ -9,6 +9,7 @@ import { marqueeKeyframes, marqueeTiming, titleFade, titleFadeMask } from "../..
 import { tunableValue } from "../../../experiments/tunable";
 import { cssBezier } from "../../../ui/cubicBezier";
 import { treeMarqueeEasing, treeNameFadeCurve } from "./treeMotion.experiment";
+import { isAgentMotionOff } from "../../shared/motion";
 
 const ROWS = '[data-type="item"]';
 const CONTENT = '[data-item-section="content"]';
@@ -87,7 +88,7 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
     // Where the name is on screen now: a name caught mid-scroll springs back from there.
     const shown = animated ? Number.parseFloat(getComputedStyle(text).translate) || 0 : 0;
     animation.cancel();
-    if (Math.abs(shown) <= 0.5 || reducedMotion()) return;
+    if (isAgentMotionOff() || Math.abs(shown) <= 0.5 || reducedMotion()) return;
     const { durationMs, progress } = springCurve(MOTION_SPRINGS.disappear);
     const keyframes = progress.map((value, index) => ({
       offset: index / (progress.length - 1),
@@ -97,6 +98,7 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
   };
 
   const start = (row: HTMLElement) => {
+    if (isAgentMotionOff()) return;
     const path = row.dataset.itemPath ?? "";
     if (active?.row === row && active.path === path) return;
     stop(true);

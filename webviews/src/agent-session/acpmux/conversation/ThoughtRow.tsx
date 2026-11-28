@@ -3,6 +3,7 @@ import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
+import { isAgentMotionOff } from "../../shared/motion";
 
 /// A done thought folds once it is taller than the transcript's viewport, and never under this
 /// (20 of the tool rows' 20px lines), so a small pane does not fold every thought.
@@ -80,7 +81,7 @@ export function ThoughtRow({
     if (!toggled.current) return;
     toggled.current = false;
     const node = body.current;
-    if (!node || typeof node.animate !== "function" || thoughtLayout.reducedMotion()) {
+    if (isAgentMotionOff() || !node || typeof node.animate !== "function" || thoughtLayout.reducedMotion()) {
       setClosing(false);
       return;
     }
@@ -106,7 +107,7 @@ export function ThoughtRow({
     );
   const toggle = () => {
     toggled.current = true;
-    if (open && !thoughtLayout.reducedMotion()) setClosing(true);
+    if (open && !thoughtLayout.reducedMotion() && !isAgentMotionOff()) setClosing(true);
     choose(!open);
   };
   return (
