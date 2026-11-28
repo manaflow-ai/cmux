@@ -66,13 +66,29 @@ let mediaMount: { root: ReturnType<typeof createRoot>; host: HTMLElement } | und
 // acpmux's process registry as the pane reads it for an opened background task note
 // (backgroundTaskOutput.ts): `__backgroundOutputs(outputs, delayMs)` sets what each task printed and
 // how long each reply takes, as a busy daemon answers. A task it does not know is not listed.
-const registry = { outputs: {} as Record<string, string>, delayMs: 0, lists: 0, tails: 0, answered: 0 };
+// `failLists` fails that many list reads first, as a daemon too busy to answer does (the read errors).
+const registry = {
+  outputs: {} as Record<string, string>,
+  delayMs: 0,
+  failLists: 0,
+  lists: 0,
+  tails: 0,
+  answered: 0,
+  failed: 0,
+};
 // fixed-wait: the registry's reply latency is what the test sets; a note must not draw before it answers.
 const later = <T,>(value: T) => new Promise<T>((done) => setTimeout(() => done(value), registry.delayMs));
 const readers = new Map<string, BackgroundTaskOutputReader>();
 const source: BackgroundTaskOutputReader["source"] = {
   listProcesses: () => {
     registry.lists += 1;
+    if (registry.failed < registry.failLists) {
+      registry.failed += 1;
+      // fixed-wait: a failure after the set latency (above).
+      return later(undefined).then(() => {
+        throw new Error("the daemon did not answer");
+      });
+    }
     // fixed-wait: a reply after the set latency (above).
     return later({
       processes: Object.keys(registry.outputs).map((toolCallId) => ({
@@ -103,10 +119,10 @@ const readerFor = (id: string) => {
 };
 (
   window as unknown as {
-    __backgroundOutputs(outputs: Record<string, string>, delayMs: number): typeof registry;
+    __backgroundOutputs(outputs: Record<string, string>, delayMs: number, failLists?: number): typeof registry;
   }
-).__backgroundOutputs = (outputs, delayMs) => {
-  Object.assign(registry, { outputs, delayMs });
+).__backgroundOutputs = (outputs, delayMs, failLists = 0) => {
+  Object.assign(registry, { outputs, delayMs, failLists });
   return registry;
 };
 (window as unknown as { __backgroundReads(): typeof registry }).__backgroundReads = () => ({ ...registry });
