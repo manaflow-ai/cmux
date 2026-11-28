@@ -1331,7 +1331,8 @@ def web_bundle_input_matcher(root: str):
         print(f"web bundle inputs unavailable ({error}); web routes on its own list only.", file=sys.stderr)
         return None
     try:
-        return key.pathspec_matcher(key.routed_inputs(root))
+        # checked_inputs: the routed inputs and the paths a webviews file (a test included) reads by name.
+        return key.pathspec_matcher(getattr(key, "checked_inputs", key.routed_inputs)(root))
     except (Exception, SystemExit) as error:  # noqa: BLE001  (fall back, never fail the router)
         print(f"web bundle inputs not derived ({error}); using the key's declared inputs.", file=sys.stderr)
         return key.pathspec_matcher(key.INPUTS)
