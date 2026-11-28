@@ -847,6 +847,7 @@ dependencies = [
  "webrtc",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -930,6 +931,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

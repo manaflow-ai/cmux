@@ -184,5 +184,18 @@ class RecordBase(RatchetCase):
         self.assertIn("after: 0", err.getvalue())
 
 
+class ExampleMessages(RatchetCase):
+    def test_example_units_hits_are_not_counted(self):
+        # cmux-tui-clippy-changed.py adds --examples so cargo unifies features as its --all-targets run did and
+        # replays that run; an example's hits are not production code.
+        example = hit("alpha", "crates/alpha/examples/e.rs", 3)
+        example["target"] = {"kind": ["example"]}
+        path = self.write("head.jsonl", [artifact("alpha"), hit("alpha", "crates/alpha/src/a.rs", 1), example], True)
+        checked, counts, _files, finished, _hits = self.ratchet.read_clippy(path)
+        self.assertEqual(checked, {"alpha"})
+        self.assertTrue(finished)
+        self.assertEqual(dict(counts["alpha"]), {"indexing_slicing": 1})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -229,6 +229,7 @@ impl Hub {
                             class,
                             report: is_report(provenance),
                             waited,
+                            gather: super::super::cold_wake::requested(provenance),
                             at: now,
                             within: crate::prompt_provenance::within(provenance),
                             text: text.clone(),
@@ -240,6 +241,7 @@ impl Hub {
                             answer: Some(tx.clone()),
                             reader: reader.clone(),
                         });
+                        fold::fold_thread(&mut inbox, &thread);
                         trim(&mut inbox);
                         true
                     }
@@ -369,6 +371,7 @@ impl Hub {
                     class: PromptClass::Result,
                     report: true,
                     waited: false,
+                    gather: false,
                     at,
                     within: None,
                     text: text.to_owned(),
@@ -616,6 +619,9 @@ impl Hub {
                                 i.fire
                                     || matches!(i.class, PromptClass::Block | PromptClass::Question)
                             });
+                            let gather = new.iter().any(|i| {
+                                i.gather && !i.surge_held && i.verdict.is_none() && !quiet(i)
+                            });
                             if fyi_only {
                                 inbox.held_by_person = false;
                             }
@@ -630,22 +636,29 @@ impl Hub {
                                     None => end,
                                 }
                             };
-                            let cold = if blocker || waking.is_none() {
-                                None
-                            } else {
+                            // A bridge can explicitly join the cold batch even when its class
+                            // alone would wait for the inbox deadline. Keep page and reader holds.
+                            // An open batch keeps its deadline after compaction warms the cache;
+                            // cold_batch_due rejects warm chats only when no batch exists.
+                            let cold = if !blocker && (waking.is_some() || gather) {
                                 self.cold_batch_due(session, &meta, now)
+                            } else {
+                                None
                             };
                             let due = if inbox.held_by_person || inbox.due_now {
                                 now
                             } else {
-                                waking.map_or(flush, |at| {
-                                    let burst = if holds {
-                                        hold_end(at)
-                                    } else {
-                                        at.saturating_add(WAKE_DEBOUNCE_MS)
-                                    };
-                                    cold.unwrap_or(burst).min(flush)
+                                cold.or_else(|| {
+                                    waking.map(|at| {
+                                        if holds {
+                                            hold_end(at)
+                                        } else {
+                                            at.saturating_add(WAKE_DEBOUNCE_MS)
+                                        }
+                                    })
                                 })
+                                .unwrap_or(flush)
+                                .min(flush)
                             };
                             let retry = match inbox.refused_at {
                                 0 => 0,

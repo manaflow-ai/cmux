@@ -75,6 +75,65 @@ pub(crate) enum NotProjected {
     Unserved,
 }
 
+/// Why a projection that was tried did not go, and the seed or copy went in its place: never
+/// silent. The push's answer line carries it (`projection_fallback`), and a progress line on
+/// stderr says it as it happens, so the app can say it and the fleet can page on it. `Off` (the
+/// person turned projection off) and `Small` (a copy is the right answer) are choices, not
+/// fallbacks, and carry none.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Fallback {
+    /// `projection.unserved` (the machine's image predates `projection-v1`) or
+    /// `projection.failed`.
+    pub(crate) code: &'static str,
+    /// The reason's first line.
+    pub(crate) why: String,
+}
+
+impl Fallback {
+    pub(crate) fn json(&self) -> Value {
+        json!({"code": self.code, "why": self.why})
+    }
+
+    /// Says it on stderr: one progress line the app reads, then words for a person.
+    pub(crate) fn announce(&self, who: &str, local: &Path) {
+        eprintln!(
+            "{}",
+            json!({"progress": {"phase": "projection_fallback", "code": self.code, "why": self.why}})
+        );
+        eprintln!(
+            "{who}: {} was not projected ({}: {}); seeding or copying it",
+            local.display(),
+            self.code,
+            self.why
+        );
+    }
+}
+
+/// A projection's outcome as the projected answer, or why it fell back ([`Fallback`]; none for a
+/// projection that was off or not asked for).
+pub(crate) fn outcome(
+    result: anyhow::Result<Result<Value, NotProjected>>,
+) -> Result<Value, Option<Fallback>> {
+    match result {
+        Ok(Ok(answer)) => Ok(answer),
+        Ok(Err(NotProjected::Off | NotProjected::Small)) => Err(None),
+        Ok(Err(NotProjected::Unserved)) => Err(Some(Fallback {
+            code: "projection.unserved",
+            why: "the machine does not serve projection-v1 (its image predates it)".to_owned(),
+        })),
+        Err(error) => Err(Some(Fallback {
+            code: "projection.failed",
+            why: first_line(&format!("{error:#}")),
+        })),
+    }
+}
+
+fn first_line(text: &str) -> String {
+    let line =
+        text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("no reason given");
+    line.chars().take(400).collect()
+}
+
 /// The listed folder: its manifest and, by manifest entry, what each file is read from.
 struct Listed {
     manifest: Manifest,
@@ -192,10 +251,13 @@ pub(crate) fn enabled() -> bool {
 /// The env switch for a moved chat's folder (`1`/`true` on, `0`/`false` off), over the setting.
 const MOVES_ENV: &str = "CMUX_PROJECTED_MOVES";
 
-/// Whether Move to Cloud projects the chat's folder (`cmux link seed push`, seed_cli.rs): off
-/// unless [`MOVES_ENV`] or `cmux link project moves on` turned it on, and never while projection
-/// itself is off. Off by default until Bring Back Local brings a projection's edits home: a
-/// projected folder has no seed or copy record for Bring Back to merge against.
+/// Whether Move to Cloud projects the chat's folder (`cmux link seed push`, seed_cli.rs): on
+/// unless [`MOVES_ENV`] or `cmux link project moves off` turned it off, and never while projection
+/// itself is off. Leo, 2026-11-27: "you mark as autocloud, it starts instantly and works like
+/// dropbox to sync your thing first with projectionfs then with the full or compressed amount fast
+/// through git carry". The machine sees the tree as soon as it mounts the manifest, the git carry
+/// pack and the background bulk copy fill it behind, and Bring Back Local brings the projection's
+/// edits home from its upper layer (`project_back.rs`), so the move back takes the same path.
 pub(crate) fn moves_enabled() -> bool {
     if !enabled() {
         return false;
@@ -205,25 +267,27 @@ pub(crate) fn moves_enabled() -> bool {
         Some("0" | "false") => return false,
         _ => {}
     }
-    moves_on_path().is_some_and(|path| path.exists())
+    !moves_off_path().is_some_and(|path| path.exists())
 }
 
-/// The opt-in marker for moves: present only after `cmux link project moves on`.
-fn moves_on_path() -> Option<PathBuf> {
+/// The opt-out marker for moves: present only after `cmux link project moves off`.
+fn moves_off_path() -> Option<PathBuf> {
     Some(
         cmux_tui_core::platform::workspace_state_dir()?
             .join("link-sync")
-            .join("projected-moves-on"),
+            .join("projected-moves-off"),
     )
 }
 
 fn set_moves(on: bool) -> anyhow::Result<()> {
-    let path = moves_on_path().context("this Mac has no state folder")?;
+    let path = moves_off_path().context("this Mac has no state folder")?;
     if on {
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+    } else {
         std::fs::create_dir_all(path.parent().context("no state folder")?)?;
-        std::fs::write(&path, b"on\n")?;
-    } else if path.exists() {
-        std::fs::remove_file(&path)?;
+        std::fs::write(&path, b"off\n")?;
     }
     Ok(())
 }

@@ -171,6 +171,7 @@ export function AgentMessageRow({
     };
     preview.removeAttribute("data-squeezed");
     fit();
+    // row-motion-ok: watches widths on one line to hide a squeezed first line; the row's height never changes.
     const observer = new ResizeObserver(fit);
     observer.observe(line);
     observer.observe(preview);

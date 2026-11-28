@@ -137,6 +137,7 @@ STATE_FILE = "hot-verify.json"
 # hot-apply.py _plan's `left` keys this engine reads, and the build reasons it names for the others.
 LEFT_WEB = "web (not published for a branch)"
 LEFT_HELPERS = "bundled helpers (cmux-mobile-host, ...)"
+HELPERS_REASON = "Rust only bundled helpers use"
 REASONS = {"swift-live": "Swift", "rebuild": "Swift, resources or manifests", "unrelated": "unrelated history"}
 # The files the rules read from a checkout (cmux_next_route.py's FFI and scheme inputs, the tree key script),
 # when this engine is an export of scripts/cmux-next or the clone has no working tree: a sparse worktree of
@@ -157,6 +158,20 @@ LAUNCH_SECONDS = 120
 WINDOW_SECONDS = 60
 STEP_SECONDS = 45
 APPLY_SECONDS = 900
+# How long a Swift look waits for its fleet app build (build_swift_app), from the submit to the build's end: the
+# Linux pool's cmux builds as the controller measured them over the last 24 h (GET /v1/linux-pool, metrics_24h
+# queue_p90 + run_p90), times APP_BUILD_MARGIN for the builds past p90, between APP_BUILD_FLOOR and APP_BUILD_CAP.
+# It was APPLY_SECONDS, shorter than the build itself: the pool's cmux builds of 2026-11-27 from 12Z ran 2017 s at
+# p50, 2672 s at p90 and 3331 s at most, after a 593 s p90 queue, so a Swift look stopped waiting with its build
+# still running and no look (cmux#44800, #62151). When the controller gives no reading: APP_BUILD_UNREAD, that
+# day's queue_p90 + run_p90 (3265 s) with the margin. The fleet look's own run bound (cmuxterm-hq
+# build-fleet/pr_capture/hot_verify_run.py APP_RUN_SECONDS, inside the controller's 120 min look-step bound) leaves
+# room for APP_BUILD_CAP after a daemon build.
+APP_BUILD_MARGIN = 1.25
+APP_BUILD_FLOOR, APP_BUILD_CAP = APPLY_SECONDS, 4500
+APP_BUILD_UNREAD = 4080
+DEFAULT_CONTROLLER = "http://100.89.225.106:18765"
+FLEET_CLIENT_CONFIG = Path.home() / ".local/share/cmux-fleet-client/client.json"
 # The most a look waits for the copy's window to repaint (the release socket says nothing about paint, so the
 # window's own pixels are read: Repaint): after launch, a theme change, and an overlay reload.
 REPAINT_LAUNCH = 20.0
@@ -555,8 +570,11 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     if helpers:
         # hot-apply leaves these for a new app (`left`): the bundled helpers (the diff sidecar, transport, ...) keep
         # the app's build, so a look that swaps only the daemon would show the change without them.
-        out["build"]["Rust only bundled helpers use"] = list(helpers)
+        out["build"][HELPERS_REASON] = list(helpers)
     out["needs_build"] = bool(out["build"])
+    # Whether a look builds the head's complete app on the fleet: the client (cmuxterm-hq build-fleet/ci-client.py
+    # hot_verify_swift_look) and the display worker read this field, so the rule lives here once.
+    out["fleet_app"] = can_build_swift_app(out)
     return out
 
 
@@ -1507,6 +1525,18 @@ def start_dev_server_behind(tree: Path, side: Side, env: dict) -> int | None:
     return started.pid
 
 
+def squash_landed(repo: Path, pr: object) -> bool:
+    """Whether pull request PR is on feat-cmux-next as a squash merge: a first-parent commit whose subject ends
+    "(#PR)", which only cmux's writers can put there. A squash-merged head is an ancestor of nothing and its
+    branch is deleted, yet refs/pull/PR/head (what the look fetched) keeps it: it is landed code, not a fork's
+    (cmux#62289, 2026-11-27: "19e26fb953a4 is on no branch of origin", the look kept only the default scene)."""
+    if not isinstance(pr, int) or pr <= 0:
+        return False
+    listed = subprocess.run(["git", "-C", str(repo), "log", "--first-parent", "--format=%s", "-F",
+                             f"--grep=(#{pr})", base_tip(repo)], capture_output=True, text=True)
+    return listed.returncode == 0 and any(line.rstrip().endswith(f"(#{pr})") for line in listed.stdout.splitlines())
+
+
 def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
               settle: bool = True) -> dict:
     """The head's web into the copy: published bundles as its overlay, else a dev server of the head. web-overlay.sh
@@ -1542,6 +1572,8 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
         tips = git(repo, "ls-remote", "--heads", "origin", check=False).split()
         merged = subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", head, base_tip(repo)],
                                 capture_output=True).returncode == 0
+        if head not in tips and not merged:
+            merged = squash_landed(repo, planned.get("pr"))
         if head not in tips and not merged:
             raise LookError(f"{head[:12]} is on no branch of origin (a fork?): its dev server would run its code here")
         tree = web_checkout(repo, head, scratch)
@@ -2292,22 +2324,57 @@ def emit(result: dict, phases, began: float, code: int) -> int:
     return code
 
 
-def can_build_swift_app(planned: dict) -> bool:
-    """Whether a complete fleet app can cover every build-required layer in the plan.
+# Files under a Resources/ folder the complete app bundles as data, never as configuration or code: Info.plist,
+# entitlements and scripts change what the app is, so they stay an explicit build (a manifest's reason).
+RESOURCE_NOT_DATA = (".plist", ".entitlements", ".sh", ".py", ".dylib", ".so", ".a")
 
-    A fleet artifact is the exact head's complete app, so it also carries web or Rust layers
-    that are live-swappable when they accompany a Swift change. Other build reasons (FFI,
-    manifests, bundled helpers) remain an explicit build-required result.
+
+def bundled_resource(path: str) -> bool:
+    """Whether PATH is a data file the complete app bundles from a Resources/ folder (a theme file, an image, a
+    JSON table). cmux#47278 changed only Resources/theme-files/*.json (Rust and web beside it): its plan named
+    `Swift, resources or manifests` with no .swift path, so no look was built and cmux/ui-proof held it pending."""
+    parts = path.split("/")
+    return ("Resources" in parts[:-1] and "bin" not in parts[:-1] and not parts[-1].startswith(".")
+            and not parts[-1].endswith(RESOURCE_NOT_DATA))
+
+
+# Build reasons the head's complete fleet app answers whatever their paths: the fleet's cmux build
+# (cmuxterm-hq build-fleet/recipes/cmux-build.sh) builds the exact head, its web bundles too, and its app FFI from
+# source whenever the head's FFI sources differ from the pinned release (recipes/app-ffi-source.py), so the app
+# carries the PR's FFI. 2026-11-28, cmux#62151: Swift with a Package.swift edit, on an app FFI the NIGHTLY cannot
+# take (cmux_updater ABI 3->4), was refused a look, so cmux/ui-proof could not pass.
+FLEET_APP_REASONS = {
+    HELPERS_REASON, "web ABI", "Rust the app links (FFI)", "Rust the app has and the change lacks",
+    "Rust the app links (FFI), in the commits the app lacks",
+    "Rust the app links (FFI): the app's release is not the change's",
+}
+# A package manifest builds in the complete app like its sources.
+PACKAGE_MANIFESTS = ("Package.swift", "Package.resolved")
+
+
+def can_build_swift_app(planned: dict) -> bool:
+    """Whether a complete fleet app of the head covers every build reason in the plan: the look then shows that app
+    (build_swift_app), not layers swapped into NIGHTLY's copy.
+
+    It carries the head's Swift, package manifests, strings, the data files it bundles from Resources/
+    (bundled_resource), its bundled helpers and daemon from the head's cmux-tui, its web and its own app FFI
+    (FLEET_APP_REASONS). Info.plist, entitlements and scripts under Resources/ change what the app is (cmux#63968) and
+    unrelated history has no NIGHTLY before: those remain an explicit build-required result.
     """
     build = planned.get("build")
     if not (planned.get("needs_build") and isinstance(build, dict) and build
-            and set(build) <= {"Swift", "Swift, resources or manifests", "strings"}):
+            and set(build) <= {"Swift", "Swift, resources or manifests", "strings", *FLEET_APP_REASONS}):
         return False
     # A strings catalog rides in the complete app too (cmux#62345: a Swift change with its Localizable.xcstrings
     # copy planned `strings` beside `Swift` and was refused a build, so it could get no look).
     swift = (lambda path: path.endswith(".swift") and not path.endswith("Package.swift"))
     copy = (lambda path: path.endswith((".xcstrings", ".strings")))
-    return all(paths and all(copy(path) if reason == "strings" else swift(path) for path in paths)
+    manifest = (lambda path: path.rsplit("/", 1)[-1] in PACKAGE_MANIFESTS)
+    # A Swift change that also adds or edits a crate a bundled helper uses (cmux#38466: a new cmux-conductor-import
+    # crate, so Cargo.lock) planned that reason beside Swift and was refused a build, so it could get no look.
+    return all(paths and all(True if reason in FLEET_APP_REASONS else copy(path) if reason == "strings"
+                             else (swift(path) or bundled_resource(path) or manifest(path))
+                             for path in paths)
                for reason, paths in build.items())
 
 
@@ -2324,6 +2391,41 @@ def _ci_run(argv: list[str], cwd: Path | None = None, timeout: int = APPLY_SECON
         detail = why_failed(done.stderr or done.stdout, 500) or "no output"
         raise LookError(f"{' '.join(argv[1:])}: {detail}")
     return done
+
+
+def _controller() -> str:
+    """The fleet controller cmux-ci talks to: CMUX_CI_CONTROLLER, else the fleet client's configured one."""
+    url = os.environ.get("CMUX_CI_CONTROLLER", "")
+    if not url:
+        with contextlib.suppress(OSError, ValueError, AttributeError):
+            url = str(json.loads(FLEET_CLIENT_CONFIG.read_text()).get("controller") or "")
+    return (url or DEFAULT_CONTROLLER).rstrip("/")
+
+
+def _linux_pool_metrics() -> dict | None:
+    """The controller's 24 h view of the Linux pool's cmux builds (GET /v1/linux-pool metrics_24h), or None."""
+    try:
+        request = urllib.request.Request(f"{_controller()}/v1/linux-pool", headers={"User-Agent": "cmux-hot-verify"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            metrics = json.loads(response.read()).get("metrics_24h")
+    except (urllib.error.URLError, OSError, ValueError, AttributeError):
+        return None
+    return metrics if isinstance(metrics, dict) else None
+
+
+def app_build_seconds(metrics: dict | None) -> int:
+    """How long build_swift_app waits for its build: the measured queue_p90 + run_p90 of the pool's cmux builds
+    times APP_BUILD_MARGIN, rounded up, between APP_BUILD_FLOOR and APP_BUILD_CAP; APP_BUILD_UNREAD when METRICS
+    has no usable reading (none, no builds done, or not numbers)."""
+    try:
+        done = int((metrics or {}).get("done") or 0)
+        measured = float(metrics["queue_p90"]) + float(metrics["run_p90"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return APP_BUILD_UNREAD
+    if done <= 0 or not measured > 0:  # NaN, no builds and empty readings
+        return APP_BUILD_UNREAD
+    wait = min(float(APP_BUILD_CAP), measured * APP_BUILD_MARGIN)  # clamped before rounding: inf stays out of it
+    return int(max(APP_BUILD_FLOOR, -(-wait // 1)))
 
 
 def _artifact_app(bundle: Path) -> Path:
@@ -2352,21 +2454,32 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
         job = str(json.loads(submitted.stdout)["id"])
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         raise LookError(f"cmux-ci build returned no job id: {why_failed(submitted.stdout, 300) or 'no output'}") from error
-    log(f"fleet app build {job} for {planned['head'][:12]}")
-    _ci_run([ci, "wait", "--timeout", str(APPLY_SECONDS), job], cwd=tree, timeout=APPLY_SECONDS + 30)
+    metrics = _linux_pool_metrics()
+    wait = app_build_seconds(metrics)
+    measured = (f"the pool's p90 queue {metrics.get('queue_p90')} s + run {metrics.get('run_p90')} s"
+                if wait != APP_BUILD_UNREAD and metrics else "no pool reading")
+    log(f"fleet app build {job} for {planned['head'][:12]}: waiting up to {wait} s ({measured})")
+    _ci_run([ci, "wait", "--timeout", str(wait), job], cwd=tree, timeout=wait + 30)
     bundle = out / "fleet-bundle"
     bundle.mkdir(parents=True, exist_ok=True)
     artifact = subprocess.run([ci, "artifact", job, str(bundle), "--bundle"], cwd=tree,
                               capture_output=True, text=True, errors="replace", timeout=APPLY_SECONDS)
-    if artifact.returncode == 3:
+    if artifact.returncode != 0:
+        # Exit 3 is "no bundle for this job"; a Linux-pool build that published only its zip answers the bundle
+        # fetch with a 404 and exit 1 instead (cmux#47278, 2026-11-28: the look failed after a 682 s build whose
+        # zip downloaded fine). The bundle is a faster form of the same app, so any failure falls back to the zip.
+        bundle_error = why_failed(artifact.stderr or artifact.stdout, 300) or "no output"
         archive = out / "fleet-app.zip"
-        _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
+        try:
+            _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
+        except LookError as error:
+            raise LookError(f"cmux-ci artifact {job}: {bundle_error}; its zip: {error}") from error
+        if artifact.returncode != 3:
+            log(f"no bundle for fleet app build {job} ({bundle_error}); used its zip")
         shutil.rmtree(bundle, ignore_errors=True)
         bundle.mkdir(parents=True, exist_ok=True)
         # ditto preserves the executable modes and framework symlinks in macOS app archives.
         _ci_run(["ditto", "-x", "-k", str(archive), str(bundle)], cwd=tree)
-    elif artifact.returncode != 0:
-        raise LookError(f"cmux-ci artifact {job}: {why_failed(artifact.stderr or artifact.stdout, 500) or 'no output'}")
     return _artifact_app(bundle)
 
 

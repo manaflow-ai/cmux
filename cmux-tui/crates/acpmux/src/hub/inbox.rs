@@ -152,6 +152,8 @@ mod admit;
 pub(super) use admit::codex_unanswered;
 #[path = "inbox_deadline.rs"]
 pub(super) mod deadline;
+#[path = "inbox_fold.rs"]
+mod fold;
 #[path = "inbox_point.rs"]
 pub(super) mod inbox_point;
 #[path = "inbox_page_rule.rs"]
@@ -245,6 +247,8 @@ pub(super) struct Item {
     /// It waited for this machine to come back (`prompt_provenance::waited`): it wakes the chat
     /// rather than sit to a flush a parked machine never reaches.
     pub(super) waited: bool,
+    /// The sender requested the receiver's cold batch with `--gather`.
+    pub(super) gather: bool,
     pub(super) at: u64,
     /// The sender's own deadline (`acpmux send --within`), which tightens its class's
     /// ([`Item::due`]).
@@ -293,6 +297,7 @@ impl Item {
             class: PromptClass::Result,
             report: false,
             waited: false,
+            gather: false,
             at: now_ms(),
             within: None,
             text: text.to_owned(),
@@ -350,6 +355,13 @@ pub struct Inbox {
     /// The threads whose surge-held messages [`trim`] let go of. Those stay whole in the log
     /// (`persist_surge_event`), so a thread read (`inbox_thread_whole`) reads them from there.
     pub(super) held_evicted: std::collections::HashSet<String>,
+    /// Per thread, how many older program notices a newer one replaced (`inbox_fold.rs`): the
+    /// thread's count shows them, its messages do not.
+    pub(super) folded: std::collections::HashMap<String, u64>,
+    /// The threads some of whose messages left memory for the chat's archive file.
+    pub(super) archived_threads: std::collections::HashSet<String>,
+    /// Messages that left memory and are not in the archive file yet.
+    pub(super) archive_pending: Vec<Value>,
     /// Woken when a notice is written or ends, or the chat closes: a withdraw waits on it for
     /// a notice that carries its message and is not written yet (`inbox_settled`).
     pub(super) settled: Arc<tokio::sync::Notify>,
@@ -585,6 +597,11 @@ pub(crate) fn thread_key(explicit: Option<&str>, sender: &str, text: &str) -> St
             .unwrap_or(sender);
         format!("from:{sender}")
     };
+    // A program's notice folds into one thread per sender and kind, never one per pull request
+    // its first line names (`inbox_fold.rs`).
+    if let Some(key) = fold::notice_key(&prefix, text) {
+        return key;
+    }
     match first_pr(text.lines().next().unwrap_or_default()) {
         Some(n) => format!("{prefix}/pr:{n}"),
         None => prefix,
@@ -1413,7 +1430,12 @@ pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) ->
     let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
     let auto_resume = matches!(
         kind,
-        Some("auto_resume" | super::idle::cache_compact::KIND | super::cold_wake::KIND)
+        Some(
+            "auto_resume"
+                | super::idle::cache_compact::KIND
+                | super::cold_wake::KIND
+                | super::plan_first::GO_KIND
+        )
     );
     agent.is_none()
         && !auto_resume
@@ -1965,6 +1987,7 @@ fn trim(inbox: &mut Inbox) {
             excess -= 1;
             // The archive reader and resend ledger still resolve an evicted held post.
             if item.surge_held {
+                inbox.archive_pending.push(fold::archive_line(&item));
                 inbox.held_evicted.insert(item.thread);
             } else {
                 inbox.trimmed.insert(item.prompt_id);

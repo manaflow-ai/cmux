@@ -3368,6 +3368,9 @@ class RateLimitTests(unittest.TestCase):
     def test_a_refusal_says_how_long_until_github_takes_calls_again(self):
         import email.message
         for name, value, want in (("retry-after", "90", 90), ("x-ratelimit-reset", str(int(cron.time.time()) + 600), 600)):
+            # A token refused once is not tried again in this process (#62127): each case starts with none spent.
+            cron.SPENT_TOKENS.clear()
+            self.addCleanup(cron.SPENT_TOKENS.clear)
             headers = email.message.Message()
             headers["x-ratelimit-remaining"] = "0"
             headers[name] = value

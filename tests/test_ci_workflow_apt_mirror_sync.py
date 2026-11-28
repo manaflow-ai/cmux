@@ -60,7 +60,6 @@ LEGACY = {
     ".github/workflows/fast-checks.yml": 1,
     ".github/workflows/gateway-e2e.yml": 1,
     ".github/workflows/internal-token-staging.yml": 1,
-    ".github/workflows/ios-link-ffi-linux.yml": 1,
     ".github/workflows/machine-join-e2e.yml": 1,
     ".github/workflows/migrate-journey-pr.yml": 1,
     ".github/workflows/nightly.yml": 1,

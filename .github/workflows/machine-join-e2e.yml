@@ -6,7 +6,7 @@ name: Machine join E2E (development)
 # stdin as a disposable OS user, run that user's daemon until it heartbeats,
 # check status, the platform's list, consent and the credential file, revoke,
 # and scan for secrets. The evidence (redacted JSON) is the run summary and the
-# only artifact.
+# artifact, with share: true beside the viewer's picture (frame.png).
 #
 # Secrets: the repo-level dev stack account (CMUX_DOGFOOD_STACK_EMAIL and
 # _PASSWORD, the same pair ios-e2e.yml maps to CMUX_UITEST_STACK_*) reaches the
@@ -29,8 +29,10 @@ name: Machine join E2E (development)
 # its screen within 60 s with no request waiting on the host. The share's guest
 # account (CMUX_DOGFOOD_GUEST_STACK_*, sealed to the same environment) must not
 # see the machine, and the hub must refuse its request for it by device id. Its
-# numbers (online wait, first frame bound, Mbit/s) and the guest's result are in
-# the evidence.
+# numbers (online wait, first frame, decode rate, Mbit/s) and the guest's result
+# are in the evidence, and a PNG of the viewer's display, taken while it streamed
+# a moving scene (ico) on the host's virtual display, is uploaded beside it (Leo:
+# "but can i screen share to look into the vms y'all are on yet").
 #
 # share_install: channel (with share) tests the install path instead of the
 # commit: no cmux-rd is placed before the join, and right after it the join
@@ -176,12 +178,13 @@ jobs:
       # with the release features (cmux-rd-release.yml): Cisco's OpenH264, downloaded at run time, and the
       # device hub link. cmux-rd-host is its own Cargo workspace. dbus-user-session gives the joined
       # user's lingering user manager its session bus (/run/user/UID/bus), which the share's user
-      # units need; the runner image has none (run 44004680060: no bus after 30 s).
+      # units need; the runner image has none (run 44004680060: no bus after 30 s). x11-apps (ico, the
+      # scene on the host's display; xwd, the viewer's picture) and imagemagick (xwd to PNG) for the evidence.
       - name: Install the share's display server
         if: inputs.share
         run: |
           # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
-          if dpkg -s xvfb dbus-user-session >/dev/null 2>&1; then echo "xvfb dbus-user-session: already installed"; else sudo apt-get install -y xvfb dbus-user-session; fi
+          if dpkg -s xvfb dbus-user-session x11-apps imagemagick >/dev/null 2>&1; then echo "xvfb dbus-user-session x11-apps imagemagick: already installed"; else sudo apt-get install -y xvfb dbus-user-session x11-apps imagemagick; fi
 
       - name: Build cmux-rd
         id: cmuxrd
@@ -371,6 +374,13 @@ jobs:
           sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
             XDG_RUNTIME_DIR="/run/user/$JOIN_UID" \
             systemctl --user is-system-running || true
+          # What the joined user's services inherit, by name only (no values: they can be secret), and
+          # the machine-wide sources of it: a variable there that names another user's paths is what
+          # the host unit's config-dir drop-in guards against.
+          echo "user manager environment (names): $(sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
+            XDG_RUNTIME_DIR="/run/user/$JOIN_UID" systemctl --user show-environment 2>&1 | cut -d= -f1 | tr '\n' ' ')"
+          echo "/etc/environment (names): $(sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\{0,1\}\([A-Za-z_][A-Za-z0-9_]*\)=.*/\2/p' /etc/environment 2>/dev/null | tr '\n' ' ')"
+          echo "environment.d: $(ls /etc/environment.d /usr/lib/environment.d /usr/local/lib/environment.d 2>/dev/null | tr '\n' ' ')"
 
       # With bench=deps: cmux-tui's sources and the webviews manifest copied for the disposable user, the
       # toolchain root-owned beside acpmux, and scripts/cmux-next/deps-bench.sh (root-owned) to run while
@@ -480,12 +490,37 @@ jobs:
             exit 1
           fi
 
+      # share: the viewer's picture of the joined machine's screen (its own display: the host's virtual
+      # display, which shows only the scene). Read as the viewer, so it is nothing that user could not
+      # read; kept only when it is a PNG.
+      - name: Collect the viewer's picture
+        if: always() && steps.evidence.outputs.clean == 'true' && steps.share.outputs.viewer != ''
+        env:
+          VIEWER_USER: ${{ steps.share.outputs.viewer }}
+          VIEWER_HOME: ${{ steps.share.outputs.viewer_home }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/machine-join-e2e/frame.png"
+          if ! sudo -n -u "$VIEWER_USER" -- /bin/cat -- "$VIEWER_HOME/frame.png" > "$out" 2>/dev/null; then
+            rm -f -- "$out"
+            echo "no picture of the viewer's display"
+            exit 0
+          fi
+          if [ "$(head -c 8 -- "$out" | od -An -tx1 | tr -d ' \n')" != 89504e470d0a1a0a ]; then
+            rm -f -- "$out"
+            echo "::warning::the viewer's picture is not a PNG; not uploaded"
+            exit 0
+          fi
+          echo "viewer's picture: $(stat -c %s -- "$out") bytes"
+
       - name: Upload the evidence
         if: always() && steps.evidence.outputs.clean == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: machine-join-e2e-evidence
-          path: ${{ runner.temp }}/machine-join-e2e/evidence.json
+          path: |
+            ${{ runner.temp }}/machine-join-e2e/evidence.json
+            ${{ runner.temp }}/machine-join-e2e/frame.png
           if-no-files-found: error
           retention-days: 3
 

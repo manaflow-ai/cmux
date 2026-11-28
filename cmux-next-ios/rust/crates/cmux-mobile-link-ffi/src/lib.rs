@@ -52,6 +52,7 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod terminal_sizing_view;
 mod vault;
 mod vnc;
 mod window_layout;
@@ -60,6 +61,7 @@ mod workspace_creation;
 mod workspace_groups;
 mod workspace_moves;
 mod workspace_row_actions;
+mod zstd_stream;
 
 pub use attachment_upload::{
     AttachmentUploads, ImagePlan, Timings, UploadObserver, UploadProgress, UploadSpec, UploadStage,
@@ -137,6 +139,7 @@ pub use workspace_row_actions::{
     WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
     workspace_row_placements,
 };
+pub use zstd_stream::ZstdStreamDecoder;
 
 uniffi::setup_scaffolding!();
 

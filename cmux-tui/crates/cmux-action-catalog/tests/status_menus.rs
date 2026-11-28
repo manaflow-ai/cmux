@@ -485,3 +485,39 @@ fn c_abi_round_trip() {
     // SAFETY: exactly what the call wrote, freed once.
     unsafe { cmux_action_catalog_reply_free(reply, len) };
 }
+
+/// `computerUse.floatingPreview` (prototype; `floatingPreviewRowShowsOrHidesThePanel`): on, the
+/// Computer Use submenu shows or hides the floating panel, before Agent Activity, with or without a
+/// session; off (no `floatingPreview`), no row.
+#[test]
+fn floating_preview_row_shows_or_hides_the_panel() {
+    let sub = |computer_use: Value| submenu(&items(json!({ "computerUse": computer_use }))[0]);
+    let idle = sub(json!({ "sessions": [], "floatingPreview": false }));
+    assert_eq!(
+        ids(&idle),
+        [
+            "command:computerUseFloatingPreview(\"true\")",
+            "agentActivity.open",
+            "palette.computerUse.setup",
+        ]
+    );
+    assert_eq!(
+        idle[0],
+        json!({ "command": { "command": "computerUseFloatingPreview", "target": "true",
+                             "title": "Show Floating Preview", "symbol": "pip" } })
+    );
+    let running =
+        sub(json!({ "sessions": [{ "id": "s1", "appName": "Notes" }], "floatingPreview": true }));
+    let tail = ids(&running);
+    assert_eq!(
+        tail[tail.len() - 2..],
+        ["command:computerUseFloatingPreview(\"false\")", "agentActivity.open"]
+    );
+    assert_eq!(
+        running[running.len() - 2],
+        json!({ "command": { "command": "computerUseFloatingPreview", "target": "false",
+                             "title": "Hide Floating Preview", "symbol": "pip.remove" } })
+    );
+    let off = sub(json!({ "sessions": [{ "id": "s1" }] }));
+    assert!(!ids(&off).iter().any(|id| id.contains("FloatingPreview")));
+}
