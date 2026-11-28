@@ -68,8 +68,9 @@ pub(crate) fn made_folder(reply: &Value, template: &str) -> Result<String> {
     let stem = template.trim_end_matches('X');
     let ok = reply.get("exit").and_then(Value::as_i64) == Some(0)
         && out.len() == template.len()
-        && out.starts_with(stem)
-        && out[stem.len()..].chars().all(|c| c.is_ascii_alphanumeric());
+        && out
+            .strip_prefix(stem)
+            .is_some_and(|tail| tail.chars().all(|c| c.is_ascii_alphanumeric()));
     if !ok {
         let err = reply.get("stderr").and_then(Value::as_str).unwrap_or_default().trim();
         bail!("could not make a private folder there: {err}");
