@@ -8,6 +8,8 @@
     "tests/test_check_main_actor_work.py": {"count": 1, "reason": "safe: a test fixture string naming SecItemCopyMatching for the main-actor ratchet; it reads no keychain item"},
     "Native/OptChat/optchat-chief/src/toolpacks.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a tool pack's own keychain service"},
     "scripts/measure/screen-stream-eval/stage-table.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the fleet login manaflow-fleet-login for Apple's vnc viewer leg, into a 0600 file the step removes"},
+    "scripts/measure/screen-stream-eval/vnc_url.py": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the fleet login manaflow-fleet-login for Apple's vnc viewer leg, as stage-table.sh does"},
+    "scripts/measure/tests/screen-stream-eval-vnc-login.test.py": {"count": 1, "reason": "safe: a test of vnc_url.keychain with a fake run; no keychain read"},
     "cmux-next-ios/scripts/testflight-build.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the App Store Connect credential (service asc)"},
     "workers/cmux-vm/cli/crates/cmux-vm/src/token.rs": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the cmux VM agent token (service com.cmux.vm.agent-token)"},
     "cmux-tui/crates/acpmux/src/config/profile_env.rs": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the service an acpmux profile names for its own key"},
@@ -36,6 +38,7 @@
     "tests/test_ci_macos_stubs.py": {"count": 2, "reason": "safe: test fixture strings for the macOS extern-stub check naming SecItemCopyMatching; it reads no keychain item"}
   },
   "pkill": {
+    "scripts/measure/cu-pointer-stays.sh": {"count": 1, "reason": "safe: killall replayd runs inside the throwaway guest VM the script made, so replayd reloads the capture approvals it wrote; never on a fleet host"},
     "evals/computer-use/public/guest/provision.sh": {"count": 2, "reason": "safe: quits every app on the fresh guest desktop and restarts NotificationCenter so each attempt starts the same; runs only inside the disposable computer-use eval guest VM (provisioned from the golden image as its auto-login user admin), where every process belongs to the eval; it never runs on a fleet Mac or a person's desktop"},
     "evals/computer-use/public/guest/quiet-capture-alerts.sh": {"count": 1, "reason": "safe: restarts the guest user's own replayd so the capture approvals it just wrote take effect; runs only inside the disposable computer-use eval guest VM (provisioned from the golden image as its auto-login user admin), where every process belongs to the eval; it never runs on a fleet Mac or a person's desktop"},
     "evals/computer-use/public/guest/swapapp.sh": {"count": 2, "reason": "safe: stops the guest's installed cmux DEV cuparity2 app and its cmux-remote before swapping the app; runs only inside the disposable computer-use eval guest VM (provisioned from the golden image as its auto-login user admin), where every process belongs to the eval; it never runs on a fleet Mac or a person's desktop"},
