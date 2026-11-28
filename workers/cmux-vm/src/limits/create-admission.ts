@@ -70,9 +70,10 @@ export const queueWaitFor = (settings: CreateAdmissionSettings, deadlineAt: numb
 
 /**
  * How long a create's provider call may run, its background polls included (upstream/live-create.ts): under the 300 s
- * a caller's create waits. The slot is held for all of it, so the lease derives from it.
+ * a caller's create waits. The slot is held for all of it, so the lease derives from it. 45 s, not 240 s: a create the
+ * provider holds gives its slot back sooner (CREATE_SEND_TIMEOUT_MS has the staging data; a patch, not the cause).
  */
-export const PROVIDER_CREATE_BUDGET_MS = 240_000;
+export const PROVIDER_CREATE_BUDGET_MS = 45_000;
 
 /**
  * A slot outlives the longest provider call it covers, then frees itself (a Worker that died mid-create). It was a
